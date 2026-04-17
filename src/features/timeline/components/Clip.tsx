@@ -10,7 +10,8 @@ import { formatTime } from "../utils/timeFormat";
 import { COLORS } from "../../../constants/colors";
 import { Waveform } from "./Waveform";
 import { useWaveform } from "../hooks/useWaveform";
-import { useFilmstrip } from "../hooks/useFilmstrip";
+import { useThumbnailEngine } from "../hooks/useThumbnailEngine";
+import { THUMBNAIL_WIDTH } from "../utils/ThumbnailEngine";
 import { useClipDrag } from "../hooks/useClipDrag";
 import { useClipTrim } from "../hooks/useClipTrim";
 import { useTimelineStore } from "../store/timelineStore";
@@ -79,8 +80,12 @@ export const Clip = memo(function Clip({ clip, isSelected, pxPerSec, onSelect }:
   const hasAudio = clip.type === "audio" || clip.type === "video";
   const { peaks, loading: waveformLoading, error: waveformError } = useWaveform(clip.sourceMediaPath, hasAudio);
 
-  const hasVideo = clip.type === "video";
-  const { stripUrl, loading: filmstripLoading } = useFilmstrip(hasVideo ? clip.sourceMediaPath : null, clip.duration);
+  // Use new ThumbnailEngine for zoom-adaptive sampling
+  const { thumbnails, loading: thumbsLoading } = useThumbnailEngine({
+    videoPath: clip.sourceMediaPath,
+    clipStartTime: clip.sourceStart,
+    clipEndTime: clip.sourceStart + clip.duration,
+  });
 
   const { handlePointerDown: handleDragStart } = useClipDrag({ clipId: clip.id, coords });
 
@@ -150,31 +155,22 @@ export const Clip = memo(function Clip({ clip, isSelected, pxPerSec, onSelect }:
       aria-selected={isSelected}
       aria-grabbed={isDragging ? "true" : "false"}
     >
-      {/* Video thumbnails - top portion (60px height like CapCut) */}
-      {hasVideo && (
-        <div className="absolute top-0 left-0 right-0 h-[60px] pointer-events-none overflow-hidden" role="img" aria-label={filmstripLoading ? "Loading video preview" : stripUrl ? `Video preview for ${clip.name}` : "Video preview unavailable"}>
-          {filmstripLoading && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-[10px] text-white/60">Loading filmstrip...</div>
+      {/* Video thumbnails - fixed 80px width, zoom controls time density (CapCut style) */}
+      {hasAudio && clip.type === "video" && (
+        <div className="absolute top-0 left-0 right-0 h-[60px] pointer-events-none overflow-hidden flex" role="img" aria-label={thumbsLoading ? "Loading video preview" : thumbnails.length ? `Video preview for ${clip.name}` : "Video preview unavailable"}>
+          {thumbsLoading && thumbnails.length === 0 && (
+            <div className="flex items-center justify-center h-full w-full">
+              <div className="text-[10px] text-white/60">Loading thumbnails...</div>
             </div>
           )}
-          {!filmstripLoading && !stripUrl && (
-            <div className="flex items-center justify-center h-full">
+          {!thumbsLoading && thumbnails.length === 0 && (
+            <div className="flex items-center justify-center h-full w-full">
               <div className="text-[10px] text-white/40">No preview</div>
             </div>
           )}
-          {!filmstripLoading && stripUrl && (
-            <div
-              className="w-full h-full"
-              style={{
-                backgroundImage: `url(${stripUrl})`,
-                backgroundSize: `auto 60px`,
-                backgroundRepeat: "repeat-x",
-                backgroundPosition: "left center",
-              }}
-              data-testid="clip-filmstrip"
-            />
-          )}
+          {thumbnails.map((thumb) => (
+            <img key={thumb.time} src={thumb.dataUrl} alt="" className="h-full object-cover shrink-0" style={{ width: 80 }} draggable={false} />
+          ))}
         </div>
       )}
 
