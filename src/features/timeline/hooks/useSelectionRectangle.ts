@@ -1,7 +1,6 @@
 /**
  * Selection rectangle hook for Timeline Engine v1
  * Handles rectangle selection drag on empty timeline area
- * Requirements: 19.4, 19.5
  */
 
 import { useCallback, useState } from "react";
@@ -30,7 +29,6 @@ interface UseSelectionRectangleReturn {
 /**
  * Hook for handling selection rectangle drag
  * Selects all clips intersecting the rectangle on pointer up
- * Requirements: 19.4, 19.5
  */
 export function useSelectionRectangle({ coords, scrollLeft, scrollTop }: UseSelectionRectangleOptions): UseSelectionRectangleReturn {
   const [selectionRect, setSelectionRect] = useState<SelectionRectangle | null>(null);
@@ -91,7 +89,6 @@ export function useSelectionRectangle({ coords, scrollLeft, scrollTop }: UseSele
         const startTime = coords.pixelsToTime(minX);
         const endTime = coords.pixelsToTime(maxX);
 
-        // Find all clips intersecting the rectangle (Requirement 19.4)
         const intersectingClips: string[] = [];
         const allClips = Array.from(store.clips.values());
 
@@ -110,7 +107,6 @@ export function useSelectionRectangle({ coords, scrollLeft, scrollTop }: UseSele
           }
         }
 
-        // Update selection (Requirement 19.5)
         if (intersectingClips.length > 0) {
           // Replace current selection with intersecting clips
           const newSelection = new Set(intersectingClips);

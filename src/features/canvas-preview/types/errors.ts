@@ -1,6 +1,5 @@
 /**
  * Error types and codes for Canvas Preview System v2
- * Requirements: 10.1, 10.2, 10.3, 10.4, 10.6
  */
 
 /**
@@ -24,7 +23,6 @@ export type CanvasPreviewErrorCodeType = (typeof CanvasPreviewErrorCode)[keyof t
 /**
  * CanvasPreviewError extends Error with additional context for debugging
  * Includes error code, clip ID, source path, and recoverability flag
- * Requirements: 10.6, 10.7
  */
 export class CanvasPreviewError extends Error {
   public readonly code: CanvasPreviewErrorCodeType;
@@ -76,7 +74,6 @@ export class CanvasPreviewError extends Error {
 /**
  * CanvasPreviewErrorEvent is emitted for monitoring and debugging
  * Provides structured error information for error tracking systems
- * Requirement: 10.6
  */
 export interface CanvasPreviewErrorEvent {
   code: CanvasPreviewErrorCodeType;

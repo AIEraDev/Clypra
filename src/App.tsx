@@ -23,12 +23,9 @@ export default function App() {
 
   // Subscribe to timeline store playhead changes to sync with local state
   useEffect(() => {
-    const unsubscribe = useTimelineStore.subscribe(
-      (state) => state.playhead,
-      (storePlayhead) => {
-        setPlayhead(storePlayhead);
-      },
-    );
+    const unsubscribe = useTimelineStore.subscribe((state) => {
+      setPlayhead(state.playhead);
+    });
     return unsubscribe;
   }, []);
 
@@ -47,7 +44,6 @@ export default function App() {
     setError(null);
 
     try {
-      console.log("Opening file dialog...");
       const picked = await open({
         title: "Open video",
         multiple: false,
@@ -60,8 +56,6 @@ export default function App() {
         fileAccessMode: "scoped",
       });
 
-      console.log("File dialog result:", picked);
-
       if (picked === null || Array.isArray(picked)) {
         console.log("No file selected");
         return;
@@ -72,24 +66,19 @@ export default function App() {
         throw new Error("Invalid file path selected");
       }
 
-      console.log("Converting file path to URL:", picked);
       // Convert file path to URL
       const url = convertFileSrc(picked);
-      console.log("Converted URL:", url);
-
       if (!url) {
         throw new Error("Failed to convert file path to URL");
       }
 
       // Set the video immediately - let the video element and timeline handle loading
-      console.log("Setting video source...");
       setSourcePath(picked);
       setVideoUrl(url);
       setDuration(0);
       setTrimStart(0);
       setTrimEnd(VIDEO_CONFIG.DEFAULT_TRIM_DURATION);
       setPlayhead(0);
-      console.log("Video source set successfully");
     } catch (err) {
       console.error("Video import error:", err);
       setError(err instanceof Error ? err : new Error(String(err)));
@@ -107,7 +96,6 @@ export default function App() {
       setError("Video loaded but has invalid duration");
       return;
     }
-    console.log("Video metadata loaded, duration:", d);
     setDuration(d);
     setTrimStart(0);
     setTrimEnd(Math.min(VIDEO_CONFIG.DEFAULT_TRIM_DURATION, d));
@@ -135,7 +123,6 @@ export default function App() {
     const videoTrack = Array.from(tracks.values()).find((track) => track.type === "video");
 
     if (videoTrack) {
-      console.log("Adding video clip to timeline with videoUrl:", videoUrl);
       // Extract filename from path for clip name
       const fileName = sourcePath.split("/").pop() || sourcePath.split("\\").pop() || "Video";
 
@@ -156,7 +143,6 @@ export default function App() {
         filmstripUrl: null,
         waveformPeaks: null,
       });
-      console.log("Video clip added to timeline with URL:", videoUrl);
     } else {
       console.log("Waiting for video track to be created...");
     }

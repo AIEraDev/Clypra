@@ -1,13 +1,11 @@
 /**
  * CanvasCompositorParser - Serialization and parsing for Canvas Compositor state
- * Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7
  */
 
 import { CanvasPreviewError, CanvasPreviewErrorCode } from "../types/errors";
 
 /**
  * Serializable VideoPool state (excludes non-serializable HTMLVideoElement)
- * Requirements: 21.1, 21.2
  */
 export interface SerializableVideoPoolEntry {
   sourcePath: string;
@@ -27,7 +25,6 @@ export interface VideoPoolState {
 
 /**
  * JSON schema for validation
- * Requirement: 21.3
  */
 const VIDEO_POOL_STATE_SCHEMA = {
   type: "object",
@@ -53,16 +50,13 @@ const VIDEO_POOL_STATE_SCHEMA = {
 
 /**
  * CanvasCompositorParser handles serialization and parsing of VideoPool state
- * Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7
  */
 export class CanvasCompositorParser {
   /**
    * Serialize VideoPool state to JSON format
-   * Requirements: 21.1, 21.5
    */
   serialize(state: VideoPoolState): string {
     try {
-      // Format JSON with proper indentation for human readability (Requirement 21.5)
       return JSON.stringify(state, null, 2);
     } catch (error) {
       throw new CanvasPreviewError(`Failed to serialize VideoPool state: ${error instanceof Error ? error.message : "Unknown error"}`, CanvasPreviewErrorCode.INVALID_CLIP_DATA, { recoverable: false });
@@ -71,7 +65,6 @@ export class CanvasCompositorParser {
 
   /**
    * Parse JSON and reconstruct VideoPool state
-   * Requirements: 21.2, 21.3, 21.4, 21.7
    */
   parse(json: string): VideoPoolState {
     // Parse JSON
@@ -79,18 +72,14 @@ export class CanvasCompositorParser {
     try {
       parsed = JSON.parse(json);
     } catch (error) {
-      // Return descriptive error for invalid JSON (Requirement 21.4)
       throw new CanvasPreviewError(`Invalid JSON: ${error instanceof Error ? error.message : "Failed to parse JSON"}`, CanvasPreviewErrorCode.INVALID_CLIP_DATA, { recoverable: false });
     }
 
-    // Validate JSON structure against schema (Requirement 21.3)
     const validationError = this.validateSchema(parsed);
     if (validationError) {
-      // Return descriptive error for invalid structure (Requirement 21.4)
       throw new CanvasPreviewError(`JSON validation failed: ${validationError}`, CanvasPreviewErrorCode.INVALID_CLIP_DATA, { recoverable: false });
     }
 
-    // Handle missing optional fields with defaults (Requirement 21.7)
     const state: VideoPoolState = {
       entries: parsed.entries.map((entry: any) => ({
         sourcePath: entry.sourcePath,
@@ -107,7 +96,6 @@ export class CanvasCompositorParser {
 
   /**
    * Validate JSON structure against schema
-   * Requirement: 21.3
    */
   private validateSchema(data: any): string | null {
     // Check if data is an object
@@ -120,7 +108,6 @@ export class CanvasCompositorParser {
       return "Missing required field: entries";
     }
 
-    // maxSize is optional with default value (Requirement 21.7)
     // No validation error if missing
 
     // Validate entries is an array

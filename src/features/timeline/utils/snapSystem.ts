@@ -1,7 +1,6 @@
 /**
  * Snap System for Timeline Engine v1
  * Provides magnetic alignment for clips to playhead, other clips, and markers
- * Requirements: 8.1, 8.2, 8.3, 8.5, 8.6
  */
 
 import type { Clip, SnapTarget } from "../types/core";
@@ -23,7 +22,6 @@ export class SnapSystem {
 
   /**
    * Finds the closest snap target within threshold
-   * Requirements: 8.1, 8.2, 8.3, 8.5
    *
    * @param time - Time position to check for snapping
    * @param clips - All clips in the timeline
@@ -89,7 +87,6 @@ export class SnapSystem {
 
   /**
    * Updates snap settings
-   * Requirements: 8.6
    */
   setEnabled(settings: Partial<SnapSettings>): void {
     Object.assign(this.enabled, settings);

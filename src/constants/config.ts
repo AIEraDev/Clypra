@@ -6,7 +6,6 @@ export const VIDEO_CONFIG = {
     MAX_FRAMES: 72,
     CELL_WIDTH: 92,
     CELL_HEIGHT: 76,
-    JPEG_QUALITY: 0.85, // Requirement 11.6
   },
   WAVEFORM: {
     SAMPLE_RATE: 8000,

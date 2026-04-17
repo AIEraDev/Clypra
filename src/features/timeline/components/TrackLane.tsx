@@ -1,7 +1,6 @@
 /**
  * TrackLane Component for Timeline Engine v1
  * Renders a track lane with its clips using virtualization
- * Requirements: 5.4, 5.5, 16.1, 16.6
  */
 
 import { useMemo, memo } from "react";
@@ -22,14 +21,12 @@ interface TrackLaneProps {
 
 /**
  * TrackLane component with memoization for performance
- * Requirements: 16.1, 16.6
  */
 export const TrackLane = memo(function TrackLane({ track, clips, selectedClipIds, pxPerSec, scrollLeft, viewportWidth, onClipSelect }: TrackLaneProps) {
   // Filter clips for this track
   const trackClips = useMemo(() => clips.filter((clip) => clip.trackId === track.id), [clips, track.id]);
 
   // Apply virtualization to only render visible clips
-  // Requirements: 16.1, 16.6
   const visibleClips = useVisibleClips(trackClips, scrollLeft, viewportWidth, pxPerSec);
 
   return (

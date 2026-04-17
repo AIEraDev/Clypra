@@ -1,7 +1,6 @@
 /**
  * ScreenReaderAnnouncer Component
  * Provides ARIA live region for announcing timeline state changes to screen readers
- * Requirements: 20.4
  */
 
 import { useEffect, useRef } from "react";
@@ -13,7 +12,7 @@ import { formatTime } from "../utils/timeFormat";
  */
 export function useScreenReaderAnnouncement() {
   const announcementRef = useRef<string>("");
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<number | null>(null);
 
   const announce = (message: string, priority: "polite" | "assertive" = "polite") => {
     // Clear any pending announcement
@@ -73,7 +72,6 @@ export function ScreenReaderAnnouncer() {
   }, []);
 
   // Announce playhead position changes (throttled)
-  // Requirement 20.4: Announce playhead position changes
   useEffect(() => {
     const prevPlayhead = prevPlayheadRef.current;
     const diff = Math.abs(playhead - prevPlayhead);
@@ -88,7 +86,6 @@ export function ScreenReaderAnnouncer() {
   }, [playhead]);
 
   // Announce clip operations
-  // Requirement 20.4: Announce clip operations (drag, trim, split, delete)
   useEffect(() => {
     const prevClipsCount = prevClipsCountRef.current;
     const currentClipsCount = clips.size;

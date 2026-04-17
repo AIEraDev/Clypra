@@ -1,24 +1,39 @@
 /**
  * TimelineClock - Master time authority for the video engine
  *
- * This is the single source of truth for timeline time.
- * Uses performance.now() as the authoritative time source.
+ * This clock can be driven by either performance.now() OR AudioContext
+ * During playback with audio, AudioContext is the authoritative source
+ * During scrubbing or silent playback, performance.now() is used
  *
- * CRITICAL: This is NOT driven by RAF deltaTime!
- *
- * Future: Can be extended to sync with AudioContext for audio-driven playback
+ * CRITICAL: Audio defines time during playback, not RAF!
  */
 
 export class TimelineClock {
   private startTime: number = 0;
   private pausedTime: number = 0;
   private isRunning: boolean = false;
+  private audioContext: AudioContext | null = null;
+  private audioStartOffset: number = 0; // Offset between audioContext.currentTime and timeline time
+
+  /**
+   * Set the audio context for audio-driven playback
+   */
+  setAudioContext(audioContext: AudioContext | null): void {
+    this.audioContext = audioContext;
+  }
 
   /**
    * Start the clock from a specific time
+   * If audio context is available, use it as the time source
    */
   start(fromTime: number = 0): void {
-    this.startTime = performance.now() - fromTime * 1000;
+    if (this.audioContext) {
+      // Audio-driven: store the offset between audio time and timeline time
+      this.audioStartOffset = this.audioContext.currentTime - fromTime;
+    } else {
+      // Performance-driven: use performance.now()
+      this.startTime = performance.now() - fromTime * 1000;
+    }
     this.pausedTime = 0;
     this.isRunning = true;
   }
@@ -40,7 +55,13 @@ export class TimelineClock {
   resume(): void {
     if (this.isRunning) return;
 
-    this.startTime = performance.now() - this.pausedTime * 1000;
+    if (this.audioContext) {
+      // Audio-driven: recalculate offset
+      this.audioStartOffset = this.audioContext.currentTime - this.pausedTime;
+    } else {
+      // Performance-driven: recalculate start time
+      this.startTime = performance.now() - this.pausedTime * 1000;
+    }
     this.isRunning = true;
   }
 
@@ -50,22 +71,31 @@ export class TimelineClock {
   seek(time: number): void {
     this.pausedTime = time;
     if (this.isRunning) {
-      this.startTime = performance.now() - time * 1000;
+      if (this.audioContext) {
+        this.audioStartOffset = this.audioContext.currentTime - time;
+      } else {
+        this.startTime = performance.now() - time * 1000;
+      }
     }
   }
 
   /**
-   * Get current timeline time based on performance.now()
-   * This is the authoritative time source
+   * Get current timeline time
+   * Uses AudioContext.currentTime if available (audio-driven)
+   * Falls back to performance.now() (performance-driven)
    */
   getCurrentTime(): number {
-    // Performance-based time (both scrubbing and playback)
-    if (this.isRunning) {
-      return (performance.now() - this.startTime) / 1000;
+    if (!this.isRunning) {
+      return this.pausedTime;
     }
 
-    // Paused
-    return this.pausedTime;
+    // Audio-driven playback (authoritative)
+    if (this.audioContext) {
+      return this.audioContext.currentTime - this.audioStartOffset;
+    }
+
+    // Performance-driven playback (fallback)
+    return (performance.now() - this.startTime) / 1000;
   }
 
   /**
@@ -82,5 +112,6 @@ export class TimelineClock {
     this.startTime = performance.now();
     this.pausedTime = 0;
     this.isRunning = false;
+    this.audioStartOffset = 0;
   }
 }

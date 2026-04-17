@@ -1,7 +1,6 @@
 /**
  * TimeRuler Component for Timeline Engine v1
  * Displays time markers, tick marks, and frame indicators
- * Requirements: 3.1-3.8, 2.5-2.7, 24.6, 25.3, 16.1
  */
 
 import { useMemo, memo } from "react";
@@ -19,12 +18,10 @@ interface TimeRulerProps {
  * TimeRuler component renders the horizontal time scale at the top of the timeline
  * with major ticks, subdivision ticks, and frame indicators based on zoom level
  * Memoized for performance with large timelines
- * Requirements: 16.1, 16.6
  */
 export const TimeRuler = memo(function TimeRuler({ duration, pxPerSec, fps = VIDEO_CONFIG.FPS }: TimeRulerProps) {
   /**
    * Calculate major tick interval based on zoom level
-   * Requirements: 3.2, 3.3, 3.4, 3.5
    */
   const majorTickInterval = useMemo(() => {
     if (pxPerSec >= 100) return 1;
@@ -35,7 +32,6 @@ export const TimeRuler = memo(function TimeRuler({ duration, pxPerSec, fps = VID
 
   /**
    * Generate major tick times
-   * Requirements: 3.1
    */
   const majorTicks = useMemo(() => {
     if (duration <= 0) return [];
@@ -48,7 +44,6 @@ export const TimeRuler = memo(function TimeRuler({ duration, pxPerSec, fps = VID
 
   /**
    * Generate tenth-second subdivision ticks
-   * Requirements: 2.5, 3.8
    * Only visible when zoom >= 26 px/sec
    */
   const tenthSecondTicks = useMemo(() => {
@@ -66,7 +61,6 @@ export const TimeRuler = memo(function TimeRuler({ duration, pxPerSec, fps = VID
 
   /**
    * Generate frame tick marks with labels
-   * Requirements: 2.6, 2.7, 24.6
    * Only visible when zoom >= 70 px/sec AND px/frame >= 11
    * Uses 2-frame or 4-frame intervals
    */
@@ -93,7 +87,6 @@ export const TimeRuler = memo(function TimeRuler({ duration, pxPerSec, fps = VID
   /**
    * Calculate tick height based on zoom level
    * Taller ticks at higher zoom for better visibility
-   * Requirements: 16.4
    */
   const tenthTickHeight = useMemo(() => {
     return pxPerSec >= 48 ? 7 : 5;
@@ -101,7 +94,6 @@ export const TimeRuler = memo(function TimeRuler({ duration, pxPerSec, fps = VID
 
   /**
    * Memoize time labels to avoid recalculating formatTime on every render
-   * Requirements: 16.4
    */
   const timeLabels = useMemo(() => {
     return majorTicks.map((t) => ({

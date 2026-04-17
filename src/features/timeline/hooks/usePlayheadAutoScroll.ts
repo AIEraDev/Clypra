@@ -1,6 +1,5 @@
 /**
  * Auto-scroll hook for playhead
- * Requirements: 4.5
  */
 
 import { useEffect } from "react";
@@ -22,7 +21,6 @@ interface UsePlayheadAutoScrollOptions {
 /**
  * Auto-scroll viewport when playhead moves outside visible area
  * Maintains 15% margin from viewport edges
- * Requirements: 4.5
  */
 export function usePlayheadAutoScroll({ playhead, coords, scrollRef, duration, marginPercent = 0.15 }: UsePlayheadAutoScrollOptions): void {
   useEffect(() => {

@@ -1,6 +1,5 @@
 /**
  * Time formatting utilities for Timeline Engine v1
- * Requirements: 15.2, 3.6, 3.7
  */
 
 /**

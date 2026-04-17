@@ -1,6 +1,5 @@
 /**
  * VideoPool - Manages lifecycle of HTML5 video elements with reference counting and LRU eviction
- * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6
  */
 
 import type { VideoPoolEntry } from "../types/core";
@@ -20,7 +19,6 @@ export class VideoPool {
   /**
    * Get a video element for the given source path
    * Increments reference count and cancels pending eviction
-   * Requirements: 1.1, 1.2, 1.4, 25.1, 25.6, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 17.1, 17.5
    */
   async getVideo(sourcePath: string): Promise<HTMLVideoElement> {
     try {
@@ -32,7 +30,6 @@ export class VideoPool {
         entry.refCount++;
         entry.lastUsed = Date.now();
 
-        // Cancel any pending eviction (Requirement 25.6)
         if (entry.evictionTimer !== null) {
           clearTimeout(entry.evictionTimer);
           entry.evictionTimer = null;
@@ -40,35 +37,29 @@ export class VideoPool {
 
         // Wait for video to be ready
         if (!entry.isReady) {
-          // Mark as loading (Requirement 17.1)
           this.loadingVideos.set(sourcePath, true);
 
           try {
             await this.waitForVideoReady(entry.video);
             entry.isReady = true;
-            // Remove from loading state (Requirement 17.3)
             this.loadingVideos.delete(sourcePath);
           } catch (error) {
             // Remove from loading state on error
             this.loadingVideos.delete(sourcePath);
 
-            // Emit error event with context (Requirements 10.6, 10.7)
             const previewError = new CanvasPreviewError(`Failed to prepare video: ${sourcePath}`, CanvasPreviewErrorCode.VIDEO_LOAD_FAILED, {
               sourcePath,
               recoverable: true,
             });
             this.emitError(previewError);
-            // Continue operation - return video in current state (Requirement 10.2)
           }
         }
 
         return entry.video;
       }
 
-      // Mark as loading (Requirement 17.1, 17.5)
       this.loadingVideos.set(sourcePath, true);
 
-      // Create new video element (Requirement 1.2)
       const video = document.createElement("video");
       video.src = sourcePath;
       video.preload = "auto"; // Changed from "metadata" to "auto" to ensure frame data is loaded
@@ -84,14 +75,12 @@ export class VideoPool {
         evictionTimer: null,
       };
 
-      // Check pool capacity (Requirement 1.5)
       if (this.pool.size >= this.maxSize) {
         this.evictLRU();
       }
 
       this.pool.set(sourcePath, entry);
 
-      // Load video metadata (Requirement 1.7)
       try {
         await this.loadVideoMetadata(video);
 
@@ -103,7 +92,6 @@ export class VideoPool {
 
         entry.isLoaded = true;
         entry.isReady = true;
-        // Remove from loading state (Requirement 17.3)
         this.loadingVideos.delete(sourcePath);
         // Mark initialization complete after first successful load
         this.isInitializing = false;
@@ -111,7 +99,6 @@ export class VideoPool {
         // Remove from loading state on error
         this.loadingVideos.delete(sourcePath);
 
-        // Emit error event with file path and error reason (Requirements 1.6, 10.6, 10.7, 17.6)
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         const previewError = new CanvasPreviewError(`Failed to load video: ${sourcePath} - ${errorMessage}`, CanvasPreviewErrorCode.VIDEO_LOAD_FAILED, {
           sourcePath,
@@ -122,7 +109,6 @@ export class VideoPool {
         // Clean up failed entry
         this.pool.delete(sourcePath);
 
-        // Continue operation - throw error so caller can handle (Requirements 10.1, 10.2)
         throw previewError;
       }
 
@@ -131,7 +117,6 @@ export class VideoPool {
       // Remove from loading state on unexpected error
       this.loadingVideos.delete(sourcePath);
 
-      // Wrap any unexpected errors (Requirement 10.7)
       if (error instanceof CanvasPreviewError) {
         throw error;
       }
@@ -148,7 +133,6 @@ export class VideoPool {
   /**
    * Release a video element, decrementing reference count
    * Schedules eviction if reference count reaches zero
-   * Requirements: 1.3, 25.3, 25.4
    */
   releaseVideo(sourcePath: string): void {
     const entry = this.pool.get(sourcePath);
@@ -156,18 +140,15 @@ export class VideoPool {
 
     entry.refCount--;
 
-    // Schedule eviction if no longer referenced (Requirement 25.4)
     if (entry.refCount === 0) {
       entry.evictionTimer = window.setTimeout(() => {
         this.pool.delete(sourcePath);
         entry.video.src = ""; // Release video resources
-      }, 5000); // 5 second delay (Requirement 25.5)
     }
   }
 
   /**
    * Evict the least recently used video element with zero references
-   * Requirements: 1.5, 25.2
    */
   evictLRU(): void {
     let oldestEntry: [string, VideoPoolEntry] | null = null;
@@ -192,7 +173,6 @@ export class VideoPool {
 
   /**
    * Load video metadata with timeout
-   * Requirement: 1.7
    */
   private loadVideoMetadata(video: HTMLVideoElement): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -222,7 +202,6 @@ export class VideoPool {
 
   /**
    * Wait for video to be ready for playback
-   * Requirement: 1.7
    */
   private waitForVideoReady(video: HTMLVideoElement): Promise<void> {
     // Accept readyState >= 1 (HAVE_METADATA) as minimum - we only need dimensions
@@ -266,7 +245,6 @@ export class VideoPool {
 
   /**
    * Add error listener
-   * Requirement: 1.6
    */
   onError(listener: (error: CanvasPreviewError) => void): () => void {
     this.errorListeners.add(listener);
@@ -277,7 +255,6 @@ export class VideoPool {
 
   /**
    * Emit error to all listeners
-   * Requirement: 1.6
    */
   private emitError(error: CanvasPreviewError): void {
     for (const listener of this.errorListeners) {
@@ -315,7 +292,6 @@ export class VideoPool {
 
   /**
    * Check if a video is currently loading metadata
-   * Requirement: 17.1
    */
   isVideoLoading(sourcePath: string): boolean {
     return this.loadingVideos.has(sourcePath);
@@ -323,7 +299,6 @@ export class VideoPool {
 
   /**
    * Check if any videos are currently loading
-   * Requirement: 17.1, 17.3
    */
   hasLoadingVideos(): boolean {
     return this.loadingVideos.size > 0;
@@ -331,7 +306,6 @@ export class VideoPool {
 
   /**
    * Check if the pool is in initial setup phase
-   * Requirement: 17.5
    */
   isInitializingPool(): boolean {
     return this.isInitializing && this.pool.size === 0;

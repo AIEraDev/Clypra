@@ -1,6 +1,5 @@
 /**
  * Hook for memoizing clip position calculations
- * Requirements: 16.4
  *
  * Memoizes expensive clip position calculations to avoid recalculating
  * on every render when zoom level or clip data hasn't changed.
@@ -17,7 +16,6 @@ export interface ClipPosition {
 
 /**
  * Memoizes clip position calculations based on zoom level
- * Requirements: 16.4
  *
  * @param clips - Array of clips to calculate positions for
  * @param pxPerSec - Current zoom level (pixels per second)

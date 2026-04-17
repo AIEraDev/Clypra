@@ -1,6 +1,5 @@
 /**
  * Core type definitions for Canvas Preview System v2
- * Requirements: 1.1, 1.2, 1.3, 15.1, 15.2
  */
 
 import type { Clip } from "../../timeline/types/core";
@@ -8,7 +7,6 @@ import type { Clip } from "../../timeline/types/core";
 /**
  * ActiveClip extends the base Clip interface with rendering metadata
  * Used during frame rendering to track which clips are visible and their state
- * Requirement: 2.1, 4.2
  */
 export interface ActiveClip extends Clip {
   trackIndex: number; // Track order for layering (higher = on top)
@@ -19,7 +17,6 @@ export interface ActiveClip extends Clip {
 /**
  * VideoPoolEntry manages the lifecycle of a single video element
  * Implements reference counting and LRU eviction for efficient memory usage
- * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
  */
 export interface VideoPoolEntry {
   video: HTMLVideoElement; // The actual video element
@@ -34,7 +31,6 @@ export interface VideoPoolEntry {
 /**
  * FrameCacheEntry stores a rendered frame for scrubbing optimization
  * Uses ImageBitmap for efficient GPU-backed storage
- * Requirements: 13.1, 13.2, 13.3, 13.4
  */
 export interface FrameCacheEntry {
   bitmap: ImageBitmap; // Rendered frame as ImageBitmap
@@ -46,7 +42,6 @@ export interface FrameCacheEntry {
 /**
  * RenderState tracks the current rendering state and performance metrics
  * Used for debugging, optimization, and frame skipping logic
- * Requirements: 5.1, 5.2, 5.7, 9.1, 9.3
  */
 export interface RenderState {
   isRendering: boolean; // Currently rendering a frame

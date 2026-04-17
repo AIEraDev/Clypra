@@ -1,6 +1,5 @@
 /**
  * Zustand State Store for Timeline Engine v1
- * Requirements: 15.1, 15.2, 15.3, 15.4, 15.5
  */
 
 import { create } from "zustand";
@@ -76,7 +75,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     dragState: null,
     trimState: null,
 
-    // Snap settings (Requirements: 15.4)
     snapToPlayhead: true,
     snapToClips: true,
     snapToMarkers: true,
@@ -86,7 +84,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     historyIndex: -1,
 
     // Clip management actions
-    // Requirements: 5.1, 5.2, 5.3, 5.4, 6.4, 6.5, 7.5, 7.6, 12.2, 12.3, 12.4, 12.5, 13.3, 14.6, 22.1, 22.6, 22.7
     addClip: (clip: Clip) => {
       try {
         const state = get();
@@ -111,10 +108,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         // Capture snapshot after modification
         undoManager.pushState(createSnapshot(get()));
       } catch (error) {
-        // Requirement 22.6: Log errors with context for debugging
         console.error("Failed to add clip:", error, { clipId: clip.id, trackId: clip.trackId });
 
-        // Requirement 22.7: Recover to valid state (don't crash)
         // State remains unchanged, operation is aborted
         throw error; // Re-throw for caller to handle
       }
@@ -126,7 +121,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         const clip = state.clips.get(id);
         validateClipExists(clip, id);
 
-        // If locked, prevent updates (Requirement 22.5)
         if (clip.locked) {
           const error = new TimelineError(`Cannot update locked clip ${id}`, ErrorCodes.INVALID_OPERATION, true);
           console.warn(error.message);
@@ -155,10 +149,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         // Capture snapshot after modification
         undoManager.pushState(createSnapshot(get()));
       } catch (error) {
-        // Requirement 22.6: Log errors with context for debugging
         console.error("Failed to update clip:", error, { clipId: id, updates });
 
-        // Requirement 22.7: Recover to valid state (don't crash)
         throw error;
       }
     },
@@ -169,7 +161,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         const clip = state.clips.get(id);
         validateClipExists(clip, id);
 
-        // If locked, prevent deletion (Requirement 22.5)
         if (clip.locked) {
           const error = new TimelineError(`Cannot delete locked clip ${id}`, ErrorCodes.INVALID_OPERATION, true);
           console.warn(error.message);
@@ -192,10 +183,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         // Capture snapshot after modification
         undoManager.pushState(createSnapshot(get()));
       } catch (error) {
-        // Requirement 22.6: Log errors with context for debugging
         console.error("Failed to delete clip:", error, { clipId: id });
 
-        // Requirement 22.7: Recover to valid state (don't crash)
         throw error;
       }
     },
@@ -206,7 +195,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         const clip = state.clips.get(id);
         validateClipExists(clip, id);
 
-        // If locked, prevent move (Requirement 22.5)
         if (clip.locked) {
           const error = new TimelineError(`Cannot move locked clip ${id}`, ErrorCodes.INVALID_OPERATION, true);
           console.warn(error.message);
@@ -239,10 +227,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         // Capture snapshot after modification
         undoManager.pushState(createSnapshot(get()));
       } catch (error) {
-        // Requirement 22.6: Log errors with context for debugging
         console.error("Failed to move clip:", error, { clipId: id, startTime, trackId });
 
-        // Requirement 22.7: Recover to valid state (don't crash)
         throw error;
       }
     },
@@ -253,7 +239,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         const clip = state.clips.get(id);
         validateClipExists(clip, id);
 
-        // If locked, prevent trim (Requirement 22.5)
         if (clip.locked) {
           const error = new TimelineError(`Cannot trim locked clip ${id}`, ErrorCodes.INVALID_OPERATION, true);
           console.warn(error.message);
@@ -284,10 +269,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         // Capture snapshot after modification
         undoManager.pushState(createSnapshot(get()));
       } catch (error) {
-        // Requirement 22.6: Log errors with context for debugging
         console.error("Failed to trim clip:", error, { clipId: id, startTime, duration });
 
-        // Requirement 22.7: Recover to valid state (don't crash)
         throw error;
       }
     },
@@ -298,14 +281,12 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         const clip = state.clips.get(id);
         validateClipExists(clip, id);
 
-        // If locked, prevent split (Requirement 22.5)
         if (clip.locked) {
           const error = new TimelineError(`Cannot split locked clip ${id}`, ErrorCodes.INVALID_OPERATION, true);
           console.warn(error.message);
           throw error;
         }
 
-        // Validate split time is within clip boundaries (Requirement 22.5)
         if (splitTime <= clip.startTime || splitTime >= clip.startTime + clip.duration) {
           const error = new TimelineError(`Split time ${splitTime.toFixed(2)}s is outside clip boundaries (${clip.startTime.toFixed(2)}s - ${(clip.startTime + clip.duration).toFixed(2)}s)`, ErrorCodes.INVALID_OPERATION, true);
           console.warn(error.message);
@@ -361,16 +342,13 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         // Capture snapshot after modification
         undoManager.pushState(createSnapshot(get()));
       } catch (error) {
-        // Requirement 22.6: Log errors with context for debugging
         console.error("Failed to split clip:", error, { clipId: id, splitTime });
 
-        // Requirement 22.7: Recover to valid state (don't crash)
         throw error;
       }
     },
 
     // Playhead and view state actions
-    // Requirements: 4.1, 4.2, 4.3, 4.4, 2.4, 15.4
     setPlayhead: (time: number) => {
       const state = get();
       // Clamp playhead to timeline boundaries
@@ -411,7 +389,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     // Track management actions
-    // Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 14.6
     addTrack: (track: Track) => {
       set((state) => ({
         tracks: new Map(state.tracks).set(track.id, track),
@@ -550,7 +527,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     // Selection actions
-    // Requirements: 19.1, 19.2, 19.3, 19.5
     selectClip: (id: string, multi: boolean) => {
       const state = get();
       const clip = state.clips.get(id);
@@ -561,7 +537,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       }
 
       if (multi) {
-        // Ctrl+click: toggle selection (Requirement 19.2)
         const newSelection = new Set(state.selectedClipIds);
         if (newSelection.has(id)) {
           newSelection.delete(id);
@@ -578,7 +553,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
           });
         }
       } else {
-        // Regular click: select only this clip (Requirement 19.1)
         set({
           selectedClipIds: new Set([id]),
           lastSelectedClipId: id,
@@ -589,7 +563,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       undoManager.pushState(createSnapshot(get()));
     },
 
-    // Shift+click range selection (Requirement 19.3)
     selectRange: (id: string) => {
       const state = get();
       const clip = state.clips.get(id);
@@ -676,7 +649,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     // Undo/redo actions
-    // Requirements: 14.2, 14.3, 14.7
     undo: () => {
       const snapshot = undoManager.undo();
       if (snapshot) {
@@ -699,7 +671,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     // Serialization
-    // Requirements: 15.7, 21.1, 21.5
     toJSON: (): TimelineJSON => {
       const state = get();
       return {
@@ -714,7 +685,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       };
     },
 
-    // Requirements: 21.2, 21.3, 21.4, 21.7, 22.6, 22.7
     fromJSON: (json: TimelineJSON) => {
       try {
         // Validate JSON structure
@@ -800,10 +770,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         undoManager.clear();
         undoManager.pushState(createSnapshot(get()));
       } catch (error) {
-        // Requirement 22.6: Log errors with context for debugging
         console.error("Failed to parse timeline JSON:", error);
 
-        // Requirement 22.7: Recover to valid state (don't crash)
         // State remains unchanged if parsing fails
         throw error;
       }

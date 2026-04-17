@@ -1,7 +1,6 @@
 /**
  * Tooltip Component for Timeline Engine v1
  * Shows explanations for invalid operations
- * Requirements: 22.5
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -15,7 +14,6 @@ export interface TooltipProps {
 
 /**
  * Displays tooltip explanations on hover
- * Requirement 22.5: Show tooltip explanations for invalid operations
  */
 export function Tooltip({ content, children, position = "top", delay = 500 }: TooltipProps) {
   const [visible, setVisible] = useState(false);

@@ -1,6 +1,5 @@
 /**
  * Error types and codes for Timeline Engine v1
- * Requirement: 22.6
  */
 
 export const ErrorCodes = {

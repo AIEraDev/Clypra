@@ -1,6 +1,5 @@
 /**
  * TimelineContainer - Main container component that wires all timeline components together
- * Requirements: 4.3, 15.6
  *
  * This component serves as the integration point for:
  * - Timeline store state management
@@ -51,8 +50,6 @@ export interface TimelineContainerProps {
  * Integrates all timeline components and manages:
  * - Store state synchronization
  * - Keyboard shortcuts
- * - Playhead synchronization with video player (Requirement 4.3)
- * - Component interactions (Requirement 15.6)
  */
 export function TimelineContainer({ duration, trimStart, trimEnd, playhead, onSeek, videoUrl, sourcePath, videoRef }: TimelineContainerProps) {
   const [toolMode, setToolMode] = useState<ToolMode>("selection");
@@ -70,22 +67,14 @@ export function TimelineContainer({ duration, trimStart, trimEnd, playhead, onSe
   pxPerSecRef.current = pxPerSec;
 
   const { stripUrl, loading: filmstripLoading } = useFilmstrip(videoUrl, duration);
-  const { tracks, addTrack, setPlayhead: setStorePlayhead, setZoom, setScroll, setIsPlaying, isPlaying } = useTimelineStore();
+  const { tracks, addTrack, setPlayhead: setStorePlayhead, setZoom, setScroll, setIsPlaying, isPlaying, playhead: storePlayhead } = useTimelineStore();
 
   // Create a stable play/pause toggle handler
   const handlePlayPauseToggle = useCallback(() => {
     const currentIsPlaying = useTimelineStore.getState().isPlaying;
-
-    if (currentIsPlaying) {
-      console.log("[PAUSE] Pausing playback");
-      setIsPlaying(false);
-    } else {
-      console.log("[PLAY] Starting playback");
-      setIsPlaying(true);
-    }
+    setIsPlaying(!currentIsPlaying);
   }, [setIsPlaying]);
 
-  // Wire keyboard shortcuts to global event listeners (Requirement 15.6)
   useTimelineKeyboardShortcuts({
     onPlayPauseToggle: handlePlayPauseToggle,
     toolMode,
@@ -93,12 +82,20 @@ export function TimelineContainer({ duration, trimStart, trimEnd, playhead, onSe
     fps: VIDEO_CONFIG.FPS,
   });
 
-  // Sync timeline store playhead with video player playhead (Requirement 4.3)
+  // Only sync when NOT playing (during playback, CanvasRenderer controls the playhead)
   useEffect(() => {
-    setStorePlayhead(playhead);
-  }, [playhead, setStorePlayhead]);
+    if (!isPlaying) {
+      setStorePlayhead(playhead);
+    }
+  }, [playhead, setStorePlayhead, isPlaying]);
 
-  // Sync timeline store zoom with component zoom (Requirement 15.6)
+  // Sync external playhead prop when store playhead changes during playback
+  useEffect(() => {
+    if (isPlaying && storePlayhead !== playhead) {
+      onSeek(storePlayhead);
+    }
+  }, [storePlayhead, isPlaying, playhead, onSeek]);
+
   useEffect(() => {
     setZoom(pxPerSec);
   }, [pxPerSec, setZoom]);
@@ -205,17 +202,14 @@ export function TimelineContainer({ duration, trimStart, trimEnd, playhead, onSe
       const rect = el.getBoundingClientRect();
       const cursorX = clamp(e.clientX - rect.left, 0, rect.width);
 
-      // Calculate zoom factor from deltaY (Requirement 2.1)
       const factor = Math.exp(-e.deltaY * 0.009);
 
-      // Use CoordinateSystem's zoomToCursor method (Requirement 2.3)
       const coords = new CoordinateSystem(pxPerSecRef.current);
       const { newPxPerSec, newScrollLeft } = coords.zoomToCursor(cursorX, el.scrollLeft, factor, VIDEO_CONFIG.ZOOM.MIN_PX_PER_SEC, VIDEO_CONFIG.ZOOM.MAX_PX_PER_SEC);
 
       // Update zoom level
       setPxPerSec(newPxPerSec);
 
-      // Update scroll position to maintain cursor stability (Requirement 2.3)
       requestAnimationFrame(() => {
         const sc = scrollRef.current;
         if (!sc) return;
@@ -233,12 +227,10 @@ export function TimelineContainer({ duration, trimStart, trimEnd, playhead, onSe
     const el = scrollRef.current;
     if (el) {
       setScrollLeft(el.scrollLeft);
-      // Update scroll position in store (Requirement 25.6)
       setScroll(el.scrollLeft, el.scrollTop);
     }
   }, [setScroll]);
 
-  // Debounce scroll events for performance (Requirement 16.3)
   const debouncedScroll = useMemo(() => {
     let timeoutId: number | null = null;
     return () => {
@@ -257,7 +249,6 @@ export function TimelineContainer({ duration, trimStart, trimEnd, playhead, onSe
     };
   }, [onScrollPaneScroll]);
 
-  // Auto-scroll to keep playhead visible (Requirement 4.5)
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || duration <= 0) return;
@@ -380,11 +371,11 @@ export function TimelineContainer({ duration, trimStart, trimEnd, playhead, onSe
           </div>
 
           {/* Playhead: sibling of scroll area — not clipped by overflow-x on scroll */}
-          <div className="pointer-events-none absolute inset-0 z-40 overflow-x-visible overflow-y-hidden" aria-label={`Playhead at ${formatTime(playhead)}`} role="separator" aria-valuenow={playhead} aria-valuemin={0} aria-valuemax={duration} aria-valuetext={`Playhead position: ${formatTime(playhead)}`}>
+          <div className="pointer-events-none absolute inset-0 z-40 overflow-x-visible overflow-y-hidden" aria-label={`Playhead at ${formatTime(storePlayhead)}`} role="separator" aria-valuenow={storePlayhead} aria-valuemin={0} aria-valuemax={duration} aria-valuetext={`Playhead position: ${formatTime(storePlayhead)}`}>
             <div
               className="absolute bottom-0 top-0 flex -translate-x-1/2 justify-center overflow-visible"
               style={{
-                left: playhead * pxPerSec - scrollLeft,
+                left: storePlayhead * pxPerSec - scrollLeft,
                 filter: "drop-shadow(0 0 6px rgba(255,255,255,0.35))",
               }}
             >

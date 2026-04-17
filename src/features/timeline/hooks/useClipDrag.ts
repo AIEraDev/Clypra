@@ -1,6 +1,5 @@
 /**
  * Clip drag interaction hook for Timeline Engine v1
- * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 14.6, 19.6
  */
 
 import { useCallback } from "react";
@@ -20,20 +19,17 @@ interface UseClipDragReturn {
 /**
  * Hook for handling clip drag interactions
  * Supports multi-clip drag for selected clips and snap system integration
- * Requirements: 6.1, 6.2, 6.6, 6.7, 19.6
  */
 export function useClipDrag({ clipId, coords }: UseClipDragOptions): UseClipDragReturn {
   const store = useTimelineStore();
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      // Only handle left mouse button (Requirement 6.1)
       if (e.button !== 0) return;
 
       const clip = store.clips.get(clipId);
       if (!clip || clip.locked) return;
 
-      // Determine which clips to drag (support multi-select - Requirement 19.6)
       const selectedIds = store.selectedClipIds.has(clipId) ? Array.from(store.selectedClipIds) : [clipId];
 
       // Store original start times for all clips being dragged
@@ -44,7 +40,6 @@ export function useClipDrag({ clipId, coords }: UseClipDragOptions): UseClipDrag
         }),
       );
 
-      // Initialize drag state (Requirement 6.1)
       store.setDragState({
         clipIds: selectedIds,
         startX: e.clientX,
@@ -60,7 +55,6 @@ export function useClipDrag({ clipId, coords }: UseClipDragOptions): UseClipDrag
         markers: store.snapToMarkers,
       });
 
-      // Pointer move handler - updates drag state in real-time (Requirement 6.2, 6.7)
       const handleMove = (e: PointerEvent) => {
         const dragState = store.dragState;
         if (!dragState) return;
@@ -75,7 +69,6 @@ export function useClipDrag({ clipId, coords }: UseClipDragOptions): UseClipDrag
 
         const newTime = primaryClip.startTime + deltaTime;
 
-        // Apply snap system (Requirement 6.6)
         const allClips = Array.from(store.clips.values());
         const snapTarget = snapSystem.findSnapTarget(
           newTime,
@@ -95,7 +88,6 @@ export function useClipDrag({ clipId, coords }: UseClipDragOptions): UseClipDrag
         });
       };
 
-      // Pointer up handler - commits the drag (Requirement 6.3, 6.4, 6.5, 14.6)
       const handleUp = () => {
         const dragState = store.dragState;
         if (!dragState) return;
@@ -110,11 +102,9 @@ export function useClipDrag({ clipId, coords }: UseClipDragOptions): UseClipDrag
           const clipToMove = store.clips.get(id);
           if (!clipToMove) continue;
 
-          // Calculate new start time with clamping (Requirement 6.4, 6.5)
           const newStartTime = Math.max(0, originalTime + offset);
           const newEndTime = newStartTime + clipToMove.duration;
 
-          // Clamp to timeline duration (Requirement 6.5)
           if (newEndTime <= store.duration) {
             store.moveClip(id, newStartTime, clipToMove.trackId);
           } else {

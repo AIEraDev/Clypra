@@ -1,7 +1,6 @@
 /**
  * Export Pipeline for Timeline Engine v1
  * Generates FFmpeg commands from timeline state
- * Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8, 18.9, 22.4, 22.6
  */
 
 import type { Clip, Track } from "../types/core";
@@ -21,7 +20,6 @@ export interface ExportOptions {
 export class ExportPipeline {
   /**
    * Generate FFmpeg command arguments from timeline state
-   * Requirements: 18.1, 18.2, 22.4, 22.6
    */
   generateFFmpegCommand(clips: Map<string, Clip>, tracks: Map<string, Track>, options: ExportOptions): string[] {
     try {
@@ -43,7 +41,6 @@ export class ExportPipeline {
       let inputIndex = 0;
 
       // Add input arguments for each unique source file
-      // Requirement 18.2: Include trim operations for each clip
       for (const [sourcePath, _sourceClips] of clipsBySource) {
         if (!sourcePath || sourcePath.trim() === "") {
           throw new TimelineError("Cannot export: Clip has empty source media path", ErrorCodes.EXPORT_FAILED, true);
@@ -53,7 +50,6 @@ export class ExportPipeline {
       }
 
       // Build filter_complex for layering clips
-      // Requirements: 18.3, 18.4, 18.5
       const filterChain = this.buildFilterChain(clips, tracks, inputMap, options);
 
       if (filterChain) {
@@ -76,7 +72,6 @@ export class ExportPipeline {
 
       return args;
     } catch (error) {
-      // Requirement 22.6: Log errors with context for debugging
       console.error("Failed to generate FFmpeg command:", error, { clipCount: clips.size, trackCount: tracks.size });
 
       // Re-throw for caller to handle
@@ -86,13 +81,11 @@ export class ExportPipeline {
 
   /**
    * Build FFmpeg filter chain for multi-track composition
-   * Requirements: 18.3, 18.4, 18.5
    */
   private buildFilterChain(clips: Map<string, Clip>, tracks: Map<string, Track>, inputMap: Map<string, number>, options: ExportOptions): string {
     const filters: string[] = [];
 
     // Sort tracks by order (lower order = bottom layer, higher order = top layer)
-    // Requirement 18.3: Layer clips according to track order
     const sortedTracks = Array.from(tracks.values()).sort((a, b) => a.order - b.order);
 
     let layerIndex = 0;
@@ -111,7 +104,6 @@ export class ExportPipeline {
           continue;
         }
 
-        // Requirement 18.2: Build trim and position filters for each clip
         // Trim the clip from source media
         const trimStart = clip.sourceStart;
         const trimEnd = clip.sourceEnd;
@@ -120,7 +112,6 @@ export class ExportPipeline {
         let audioLayerCreated = false;
 
         // Video processing
-        // Requirement 18.5: Respect track visibility settings
         if ((clip.type === "video" || clip.type === "audio") && track.type === "video" && track.visible) {
           // Trim video, reset PTS, scale to output resolution, and add delay
           const videoFilter = `[${inputIdx}:v]trim=start=${trimStart}:end=${trimEnd},setpts=PTS-STARTPTS,scale=${options.resolution.width}:${options.resolution.height}:force_original_aspect_ratio=decrease,pad=${options.resolution.width}:${options.resolution.height}:(ow-iw)/2:(oh-ih)/2,tpad=start_duration=${clip.startTime}:start_mode=clone[v${layerIndex}]`;
@@ -130,7 +121,6 @@ export class ExportPipeline {
         }
 
         // Audio processing
-        // Requirement 18.4: Respect track mute settings
         if (!track.muted && !clip.muted && (clip.type === "video" || clip.type === "audio")) {
           // Trim audio, reset PTS, and add delay
           const audioDelayMs = clip.startTime * 1000;
@@ -152,7 +142,6 @@ export class ExportPipeline {
       return "";
     }
 
-    // Requirement 18.3: Generate overlay chain for multi-track composition
     // Build overlay chain for video layers
     let overlayChain = "";
     if (videoLayers.length > 0) {
@@ -199,7 +188,6 @@ export class ExportPipeline {
 
   /**
    * Group clips by source media path
-   * Requirement 18.2: Group clips by source media
    */
   private groupClipsBySource(clips: Map<string, Clip>): Map<string, Clip[]> {
     const groups = new Map<string, Clip[]>();
@@ -215,7 +203,6 @@ export class ExportPipeline {
 
   /**
    * Validate that all source media files exist before export
-   * Requirements: 18.6, 18.8, 18.9, 22.1, 22.6
    */
   async validateSourceFiles(clips: Map<string, Clip>): Promise<{ valid: boolean; missingFiles: string[] }> {
     try {
@@ -238,7 +225,6 @@ export class ExportPipeline {
         }
       }
 
-      // Requirement 18.9: Return descriptive error message for missing files
       if (missingFiles.length > 0) {
         const errorMsg = `Cannot export: Missing source media files: ${missingFiles.join(", ")}`;
         console.error(errorMsg);
@@ -249,7 +235,6 @@ export class ExportPipeline {
         missingFiles,
       };
     } catch (error) {
-      // Requirement 22.6: Log errors with context for debugging
       console.error("Failed to validate source files:", error);
       throw error;
     }
@@ -257,7 +242,6 @@ export class ExportPipeline {
 
   /**
    * Execute FFmpeg command via Tauri backend
-   * Requirements: 18.7, 18.8, 22.4, 22.6
    *
    * @param args FFmpeg command arguments
    * @param onProgress Callback for progress updates (0-100)
@@ -269,7 +253,6 @@ export class ExportPipeline {
       // In production, this would call: await invoke('execute_ffmpeg', { args })
       // and listen for progress events
 
-      // Requirement 22.6: Log command for debugging
       console.log("FFmpeg command:", ["ffmpeg", ...args].join(" "));
 
       if (onProgress) {
@@ -282,7 +265,6 @@ export class ExportPipeline {
       //   const result = await invoke('execute_ffmpeg', { args });
       //   return { success: true };
       // } catch (error) {
-      //   // Requirement 22.4: Display FFmpeg error output
       //   const errorMsg = error instanceof Error ? error.message : String(error);
       //   console.error("FFmpeg export failed:", errorMsg);
       //   return { success: false, error: errorMsg };
@@ -290,8 +272,6 @@ export class ExportPipeline {
 
       return { success: true };
     } catch (error) {
-      // Requirement 22.4: Display FFmpeg error output
-      // Requirement 22.6: Log errors with context for debugging
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("Failed to execute FFmpeg export:", errorMsg);
       return { success: false, error: errorMsg };

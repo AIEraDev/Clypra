@@ -1,6 +1,5 @@
 /**
  * Keyboard shortcuts hook for Timeline Engine v1
- * Requirements: 13.1, 14.7, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10
  */
 
 import { useEffect, useRef } from "react";
@@ -23,18 +22,6 @@ export interface KeyboardShortcutsOptions {
  * Hook to enable keyboard shortcuts for timeline operations
  *
  * Keyboard shortcuts:
- * - Space: Play/pause toggle (Requirement 17.1)
- * - Left Arrow: Move playhead backward by 1 frame (Requirement 17.2)
- * - Right Arrow: Move playhead forward by 1 frame (Requirement 17.3)
- * - Home: Move playhead to start (Requirement 17.4)
- * - End: Move playhead to end (Requirement 17.5)
- * - Delete/Backspace: Delete selected clips (Requirement 17.6)
- * - S: Activate split tool (Requirement 17.7)
- * - V: Activate selection tool (Requirement 17.8)
- * - Plus/=: Zoom in (Requirement 17.9)
- * - Minus/-: Zoom out (Requirement 17.10)
- * - Ctrl+Z: Undo (Requirement 14.7)
- * - Ctrl+Shift+Z: Redo (Requirement 14.7)
  */
 export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const { fps = 30 } = options;
@@ -45,7 +32,6 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Prevent shortcuts when typing in form elements (Requirement 17.9, 17.10)
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable) {
         return;
@@ -55,7 +41,6 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
       const store = useTimelineStore.getState();
       const { playhead, duration, pxPerSec, clips, selectedClipIds, setPlayhead, setZoom, deleteClip, splitClip, undo, redo } = store;
 
-      // Space: Play/pause toggle (Requirement 17.1)
       if (e.key === " " || e.key === "Spacebar") {
         e.preventDefault();
         if (optionsRef.current.onPlayPauseToggle) {
@@ -64,7 +49,6 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
         return;
       }
 
-      // Left Arrow: Move playhead backward by 1 frame (Requirement 17.2)
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         const frameDuration = 1 / fps;
@@ -73,7 +57,6 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
         return;
       }
 
-      // Right Arrow: Move playhead forward by 1 frame (Requirement 17.3)
       if (e.key === "ArrowRight") {
         e.preventDefault();
         const frameDuration = 1 / fps;
@@ -82,21 +65,18 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
         return;
       }
 
-      // Home: Move playhead to start (Requirement 17.4)
       if (e.key === "Home") {
         e.preventDefault();
         setPlayhead(0);
         return;
       }
 
-      // End: Move playhead to end (Requirement 17.5)
       if (e.key === "End") {
         e.preventDefault();
         setPlayhead(duration);
         return;
       }
 
-      // Delete or Backspace: Delete selected clips (Requirement 17.6)
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
         const selectedIds = Array.from(selectedClipIds);
@@ -106,7 +86,6 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
         return;
       }
 
-      // S: Activate split tool (Requirement 17.7)
       if ((e.key === "s" || e.key === "S") && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
 
@@ -126,7 +105,6 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
         return;
       }
 
-      // V: Activate selection tool (Requirement 17.8)
       if ((e.key === "v" || e.key === "V") && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         if (optionsRef.current.onToolModeChange) {
@@ -135,7 +113,6 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
         return;
       }
 
-      // Plus/=: Zoom in (Requirement 17.9)
       if ((e.key === "+" || e.key === "=") && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         const zoomFactor = 1.2;
@@ -144,7 +121,6 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
         return;
       }
 
-      // Minus/-: Zoom out (Requirement 17.10)
       if ((e.key === "-" || e.key === "_") && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         const zoomFactor = 0.8;
@@ -153,14 +129,12 @@ export function useTimelineKeyboardShortcuts(options: KeyboardShortcutsOptions =
         return;
       }
 
-      // Ctrl+Z or Cmd+Z: Undo (Requirement 14.7)
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
         return;
       }
 
-      // Ctrl+Shift+Z or Cmd+Shift+Z: Redo (Requirement 14.7)
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
         e.preventDefault();
         redo();

@@ -1,6 +1,5 @@
 /**
  * Playhead Component for Timeline Engine v1
- * Requirements: 4.1, 4.2, 4.3, 4.6, 4.7
  */
 
 import { useCallback, useRef } from "react";
@@ -21,7 +20,6 @@ interface PlayheadProps {
 /**
  * Playhead component - renders vertical line with triangular handle
  * Positioned absolutely relative to viewport (not affected by scroll)
- * Requirements: 4.6, 4.7
  */
 export function Playhead({ coords, scrollLeft, duration, containerRef }: PlayheadProps) {
   const playhead = useTimelineStore((state) => state.playhead);
@@ -30,7 +28,6 @@ export function Playhead({ coords, scrollLeft, duration, containerRef }: Playhea
 
   /**
    * Handle click on timeline to move playhead
-   * Requirements: 4.1
    */
   const handleTimelineClick = useCallback(
     (clientX: number) => {
@@ -49,7 +46,6 @@ export function Playhead({ coords, scrollLeft, duration, containerRef }: Playhea
 
   /**
    * Handle drag on timeline to scrub playhead
-   * Requirements: 4.2
    */
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -94,12 +90,10 @@ export function Playhead({ coords, scrollLeft, duration, containerRef }: Playhea
         aria-hidden
       >
         <div className="relative flex h-full w-[13px] shrink-0 flex-col items-center overflow-visible">
-          {/* Triangular handle at top - Requirements: 4.6 */}
           <svg width="13" height="11" viewBox="0 0 13 11" className="shrink-0 text-white" aria-hidden>
             <path d="M6.5 0 L13 10.5 H0 Z" fill="currentColor" stroke="rgba(0,0,0,0.25)" strokeWidth="0.5" />
           </svg>
 
-          {/* Vertical line with gradient - Requirements: 4.6 */}
           <div
             className="mt-0 min-h-0 w-[2px] flex-1 rounded-full"
             style={{

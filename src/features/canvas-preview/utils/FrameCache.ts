@@ -1,6 +1,5 @@
 /**
  * FrameCache - LRU cache for rendered frames to optimize scrubbing performance
- * Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7
  */
 
 import type { FrameCacheEntry } from "../types/core";
@@ -18,7 +17,6 @@ export class FrameCache {
   /**
    * Get a cached frame for the given timeline time
    * Returns null if not found or state has changed
-   * Requirements: 13.1, 13.2
    */
   get(timelineTime: number): FrameCacheEntry | null {
     const key = this.timeToKey(timelineTime);
@@ -28,7 +26,6 @@ export class FrameCache {
       return null;
     }
 
-    // Check if state has changed (invalidate cache) - Requirement 13.5
     if (entry.stateHash !== this.stateHash) {
       this.cache.delete(key);
       return null;
@@ -43,12 +40,10 @@ export class FrameCache {
   /**
    * Store a rendered frame in the cache
    * Evicts LRU entry if cache is at capacity
-   * Requirements: 13.1, 13.3, 13.6
    */
   set(timelineTime: number, bitmap: ImageBitmap): void {
     const key = this.timeToKey(timelineTime);
 
-    // Check capacity (Requirement 13.3)
     if (this.cache.size >= this.maxSize) {
       this.evictLRU();
     }
@@ -66,7 +61,6 @@ export class FrameCache {
   /**
    * Update the state hash based on current clips and tracks
    * Used to invalidate cache when timeline state changes
-   * Requirement: 13.5
    */
   updateStateHash(clips: Map<string, Clip>, tracks: Map<string, Track>): void {
     // Generate hash from clips and tracks state
@@ -94,10 +88,8 @@ export class FrameCache {
 
   /**
    * Clear all cached frames and release ImageBitmap resources
-   * Requirement: 13.5
    */
   invalidate(): void {
-    // Release all ImageBitmap objects (Requirement 13.6)
     for (const entry of this.cache.values()) {
       entry.bitmap.close();
     }
@@ -106,7 +98,6 @@ export class FrameCache {
 
   /**
    * Evict the least recently used frame from the cache
-   * Requirements: 13.4, 13.6
    */
   private evictLRU(): void {
     let oldestKey: number | null = null;
@@ -122,7 +113,6 @@ export class FrameCache {
     if (oldestKey !== null) {
       const entry = this.cache.get(oldestKey);
       if (entry) {
-        entry.bitmap.close(); // Release ImageBitmap (Requirement 13.6)
       }
       this.cache.delete(oldestKey);
     }
@@ -131,7 +121,6 @@ export class FrameCache {
   /**
    * Convert timeline time to cache key
    * Rounds to milliseconds for consistent key generation
-   * Requirement: 13.1
    */
   private timeToKey(time: number): number {
     // Round to 3 decimal places (milliseconds) for key consistency
@@ -141,7 +130,6 @@ export class FrameCache {
   /**
    * Generate a simple hash from a string
    * Used for state invalidation detection
-   * Requirement: 13.5
    */
   private simpleHash(str: string): string {
     let hash = 0;

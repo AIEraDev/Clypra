@@ -82,14 +82,6 @@ describe("Accessibility Features", () => {
         minZoom: 16,
         maxZoom: 320,
       };
-        pxPerSec: 50,
-        onSnapMainToggle: vi.fn(),
-        onSnapAutoToggle: vi.fn(),
-        onSnapLinkToggle: vi.fn(),
-        onZoomChange: vi.fn(),
-        minZoom: 16,
-        maxZoom: 320,
-      };
 
       render(<TimelineToolbar {...mockProps} />);
 

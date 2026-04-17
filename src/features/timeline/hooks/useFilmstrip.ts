@@ -1,6 +1,5 @@
 /**
  * Hook for generating filmstrip visualization from video files
- * Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 16.5, 22.3
  */
 
 import { useEffect, useState, useRef } from "react";
@@ -10,7 +9,6 @@ import type { FilmstripResult } from "../../../types";
 const { FPS, FILMSTRIP } = VIDEO_CONFIG;
 
 /**
- * Draw video frame with aspect ratio preservation (Requirement 11.5)
  */
 function drawFrameContain(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, dx: number, dy: number, dWidth: number, dHeight: number) {
   const vw = video.videoWidth;
@@ -18,7 +16,6 @@ function drawFrameContain(ctx: CanvasRenderingContext2D, video: HTMLVideoElement
   ctx.fillStyle = "#0b0b0c";
   ctx.fillRect(dx, dy, dWidth, dHeight);
   if (!vw || !vh) return;
-  // Maintain aspect ratio without distortion (Requirement 11.5)
   const scale = Math.min(dWidth / vw, dHeight / vh);
   const w = vw * scale;
   const h = vh * scale;
@@ -30,7 +27,6 @@ function drawFrameContain(ctx: CanvasRenderingContext2D, video: HTMLVideoElement
 /**
  * Generate filmstrip of video thumbnails for timeline visualization
  * Cancels in-progress generation when source changes
- * Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 16.5, 22.3
  *
  * @param videoUrl - Path to video file (null to disable)
  * @param durationSec - Duration of the clip in seconds
@@ -42,7 +38,6 @@ export function useFilmstrip(videoUrl: string | null, durationSec: number): Film
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    // Cancel any in-progress generation (Requirement 16.5)
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -62,7 +57,6 @@ export function useFilmstrip(videoUrl: string | null, durationSec: number): Film
     v.preload = "auto";
     v.src = videoUrl;
 
-    // Calculate frame count based on duration (Requirement 11.2: 18-72 frames)
     const frames = Math.min(FILMSTRIP.MAX_FRAMES, Math.max(FILMSTRIP.MIN_FRAMES, Math.ceil((durationSec * FPS) / 8)));
     const cellW = FILMSTRIP.CELL_WIDTH;
     const cellH = FILMSTRIP.CELL_HEIGHT;
@@ -87,7 +81,6 @@ export function useFilmstrip(videoUrl: string | null, durationSec: number): Film
       });
 
     void (async () => {
-      setLoading(true); // Requirement 11.7: Display loading indicator
       try {
         await new Promise<void>((resolve, reject) => {
           v.onloadedmetadata = () => resolve();
@@ -103,16 +96,12 @@ export function useFilmstrip(videoUrl: string | null, durationSec: number): Film
           return;
         }
 
-        // Extract frames at evenly-spaced intervals (Requirement 11.3)
         const denom = Math.max(1, frames - 1);
         for (let i = 0; i < frames; i++) {
-          // Check if generation was cancelled (Requirement 16.5)
           if (abortController.signal.aborted) return;
 
-          // Calculate evenly-spaced time positions (Requirement 11.3)
           const t = Math.min((durationSec * i) / denom, Math.max(0, durationSec - 1 / FPS));
           await seekTo(t);
-          // Draw frame with aspect ratio preservation (Requirement 11.5)
           drawFrameContain(ctx, v, i * cellW, 0, cellW, cellH);
           // Add separator lines between frames
           ctx.strokeStyle = "rgba(0,0,0,0.35)";
@@ -126,19 +115,15 @@ export function useFilmstrip(videoUrl: string | null, durationSec: number): Film
         }
 
         if (!abortController.signal.aborted) {
-          // Compress as JPEG with 0.85 quality (Requirement 11.6)
-          // Render as horizontal strip (Requirement 11.4)
           setStripUrl(canvas.toDataURL("image/jpeg", FILMSTRIP.JPEG_QUALITY));
         }
       } catch {
-        // Handle generation failures gracefully (Requirement 22.3)
         if (!abortController.signal.aborted) setStripUrl(null);
       } finally {
         if (!abortController.signal.aborted) setLoading(false);
       }
     })();
 
-    // Cleanup function to cancel in-progress generation (Requirement 16.5)
     return () => {
       abortController.abort();
       if (abortControllerRef.current === abortController) {

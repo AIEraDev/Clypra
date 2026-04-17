@@ -1,6 +1,5 @@
 /**
  * Math utility functions for Timeline Engine v1
- * Requirements: 15.2, 15.4
  */
 
 /**

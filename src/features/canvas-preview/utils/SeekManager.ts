@@ -1,18 +1,12 @@
 /**
  * SeekManager - Smart video seeking with threshold checking and debouncing
- * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7
- * Requirements: 10.2, 10.3 (Error handling), 17.2 (Loading states)
  */
 
 export class SeekManager {
-  private readonly SEEK_THRESHOLD = 0.03; // 30ms (Requirement 3.3)
   private readonly PLAYBACK_SEEK_THRESHOLD = 0.001; // 1ms during playback - seek every frame
-  private readonly DEBOUNCE_WINDOW = 100; // 100ms (Requirement 3.4, 20.1)
-  private readonly SEEK_TIMEOUT = 500; // 500ms (Requirement 3.6)
 
   private debounceTimers: Map<HTMLVideoElement, number> = new Map();
   private pendingSeeks: Map<HTMLVideoElement, number> = new Map();
-  private seekingVideos: Set<HTMLVideoElement> = new Set(); // Track videos currently seeking (Requirement 17.2)
   private isPlaybackMode: boolean = false; // Track if we're in playback mode
 
   /**
@@ -20,12 +14,10 @@ export class SeekManager {
    */
   setPlaybackMode(isPlaying: boolean): void {
     this.isPlaybackMode = isPlaying;
-    console.log("[SEEK] Playback mode:", isPlaying);
   }
 
   /**
    * Seek video to target time if difference exceeds threshold
-   * Requirements: 3.1, 3.2, 3.3, 10.2, 10.3
    */
   async seekIfNeeded(video: HTMLVideoElement, targetTime: number): Promise<void> {
     try {
@@ -39,9 +31,7 @@ export class SeekManager {
       // Use different threshold for playback vs scrubbing
       const threshold = this.isPlaybackMode ? this.PLAYBACK_SEEK_THRESHOLD : this.SEEK_THRESHOLD;
 
-      // Check if seek is needed (Requirements 3.1, 3.2)
       if (timeDiff <= threshold && !needsFrameLoad) {
-        // Within threshold and has frame data, no seek needed (Requirement 3.2)
         return Promise.resolve();
       }
 
@@ -53,7 +43,6 @@ export class SeekManager {
       // During scrubbing, use debounce
       return this.debouncedSeek(video, targetTime);
     } catch (error) {
-      // Log seek failure with context (Requirements 10.2, 10.3)
       console.error("Seek operation failed:", {
         targetTime,
         currentTime: video.currentTime,
@@ -61,7 +50,6 @@ export class SeekManager {
         videoSrc: video.src,
       });
 
-      // Use current frame on seek failure (Requirement 10.2)
       // Don't throw - allow rendering to continue with current frame
       return Promise.resolve();
     }
@@ -69,34 +57,28 @@ export class SeekManager {
 
   /**
    * Debounce seek operations to reduce excessive seeking during scrubbing
-   * Requirements: 3.4, 20.1, 20.2, 20.3, 20.4, 10.2, 10.3
    */
   private debouncedSeek(video: HTMLVideoElement, targetTime: number): Promise<void> {
-    // Clear existing debounce timer (Requirement 20.2)
     const existingTimer = this.debounceTimers.get(video);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
 
-    // Store pending seek (Requirement 20.2)
     this.pendingSeeks.set(video, targetTime);
 
     return new Promise((resolve) => {
       const timer = window.setTimeout(async () => {
-        // Execute most recent seek request (Requirement 20.2)
         const finalTargetTime = this.pendingSeeks.get(video);
         if (finalTargetTime !== undefined) {
           try {
             await this.performSeek(video, finalTargetTime);
           } catch (error) {
-            // Log seek failure with context (Requirements 10.2, 10.3)
             console.error("Debounced seek failed:", {
               targetTime: finalTargetTime,
               currentTime: video.currentTime,
               error: error instanceof Error ? error.message : "Unknown error",
               videoSrc: video.src,
             });
-            // Continue operation - use current frame (Requirement 10.2)
           }
           this.pendingSeeks.delete(video);
         }
@@ -110,23 +92,17 @@ export class SeekManager {
 
   /**
    * Perform actual seek operation with timeout protection
-   * Requirements: 3.5, 3.6, 10.2, 10.3, 17.2
    *
    * CRITICAL: Ensures video stays PAUSED after seeking
    */
   private performSeek(video: HTMLVideoElement, targetTime: number): Promise<void> {
-    console.log("performSeek called - targetTime:", targetTime, "currentTime:", video.currentTime, "readyState:", video.readyState);
-
     return new Promise((resolve, reject) => {
-      // Mark video as seeking (Requirement 17.2)
       this.seekingVideos.add(video);
 
-      // Timeout protection (Requirement 3.6)
       const timeout = setTimeout(() => {
         video.removeEventListener("seeked", onSeeked);
         // Remove from seeking state on timeout
         this.seekingVideos.delete(video);
-        // Log timeout with context (Requirements 10.2, 10.3)
         console.error("Seek timeout:", {
           targetTime,
           currentTime: video.currentTime,
@@ -158,7 +134,6 @@ export class SeekManager {
           });
         }
 
-        // Remove from seeking state when complete (Requirement 17.2)
         this.seekingVideos.delete(video);
         resolve();
       };
@@ -168,8 +143,6 @@ export class SeekManager {
         // Setting currentTime won't trigger "seeked" event if already at that position
         const currentTime = video.currentTime;
         if (Math.abs(currentTime - targetTime) < 0.001) {
-          console.log("Already at target time, waiting for frame decode without seek");
-
           // Clear timeout since we're not waiting for seeked event
           clearTimeout(timeout);
 
@@ -196,8 +169,6 @@ export class SeekManager {
             resolve();
           })();
         } else {
-          console.log("Seeking to different time:", targetTime);
-          // Wait for seeked event (Requirement 3.5)
           video.addEventListener("seeked", onSeeked);
 
           // CRITICAL: Ensure video is paused before seeking
@@ -213,7 +184,6 @@ export class SeekManager {
         video.removeEventListener("seeked", onSeeked);
         // Remove from seeking state on error
         this.seekingVideos.delete(video);
-        // Log seek failure with context (Requirements 10.2, 10.3)
         console.error("Seek operation error:", {
           targetTime,
           currentTime: video.currentTime,
@@ -234,11 +204,8 @@ export class SeekManager {
     // Prefer >= 3 (HAVE_FUTURE_DATA) for better reliability
     // Also check if readyState exists (for test mocks that don't have it)
     if (!("readyState" in video) || video.readyState >= 2) {
-      console.log("Frame already decoded, readyState:", video.readyState);
       return Promise.resolve();
     }
-
-    console.log("Waiting for frame decode, current readyState:", video.readyState);
 
     // Wait for readyState to reach >= 2 or timeout after 500ms
     return new Promise((resolve) => {
@@ -247,7 +214,6 @@ export class SeekManager {
           video.removeEventListener("loadeddata", checkReady);
           video.removeEventListener("canplay", checkReady);
           clearTimeout(timeoutId);
-          console.log("Frame decode complete, readyState:", video.readyState);
           resolve();
         }
       };
@@ -270,7 +236,6 @@ export class SeekManager {
 
   /**
    * Cancel all pending seeks for a video element
-   * Requirement: 3.7, 17.2
    */
   cancelPendingSeeks(video: HTMLVideoElement): void {
     const timer = this.debounceTimers.get(video);
@@ -317,7 +282,6 @@ export class SeekManager {
 
   /**
    * Check if a video is currently seeking
-   * Requirement: 17.2
    */
   isVideoSeeking(video: HTMLVideoElement): boolean {
     return this.seekingVideos.has(video);
@@ -325,7 +289,6 @@ export class SeekManager {
 
   /**
    * Check if any videos are currently seeking
-   * Requirement: 17.2
    */
   hasSeekingVideos(): boolean {
     return this.seekingVideos.size > 0;

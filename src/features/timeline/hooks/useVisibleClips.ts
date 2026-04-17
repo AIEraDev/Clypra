@@ -1,7 +1,6 @@
 /**
  * Clip Virtualization Hook for Timeline Engine v1
  * Calculates visible clips based on viewport and scroll position
- * Requirements: 16.1, 16.6
  */
 
 import { useMemo } from "react";
@@ -12,7 +11,6 @@ import { CoordinateSystem } from "../utils/coordinateSystem";
  * Hook to calculate which clips are visible in the current viewport
  * Uses a 2-second buffer for smooth scrolling
  *
- * Requirements: 16.1, 16.6
  *
  * @param clips - All clips in the timeline
  * @param scrollLeft - Current horizontal scroll position in pixels
@@ -28,7 +26,6 @@ export function useVisibleClips(clips: Clip[], scrollLeft: number, viewportWidth
     const startTime = coords.pixelsToTime(scrollLeft);
     const endTime = coords.pixelsToTime(scrollLeft + viewportWidth);
 
-    // Add 2-second buffer for smooth scrolling (Requirement 16.6)
     const buffer = 2; // seconds
 
     // Filter clips that intersect with the visible range (plus buffer)

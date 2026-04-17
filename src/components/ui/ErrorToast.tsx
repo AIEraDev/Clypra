@@ -1,7 +1,6 @@
 /**
  * Error Toast Component for Timeline Engine v1
  * Displays user-friendly error messages
- * Requirements: 22.1, 22.2, 22.3, 22.4, 22.5
  */
 
 import { useEffect, useState } from "react";
@@ -15,7 +14,6 @@ export interface ErrorToastProps {
 
 /**
  * Displays error messages with appropriate styling and auto-dismiss
- * Requirements: 22.1, 22.2, 22.3, 22.4, 22.5
  */
 export function ErrorToast({ error, onDismiss, autoHideDuration = 5000 }: ErrorToastProps) {
   const [visible, setVisible] = useState(false);

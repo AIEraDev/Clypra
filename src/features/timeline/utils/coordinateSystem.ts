@@ -1,7 +1,6 @@
 /**
  * Coordinate System for Timeline Engine v1
  * Provides bidirectional time ↔ pixel conversion with zoom support
- * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.3, 2.4, 24.1, 24.2, 24.3, 24.4, 24.5, 24.7
  */
 
 import { clamp } from "./math";
@@ -16,7 +15,6 @@ export class CoordinateSystem {
 
   /**
    * Converts time in seconds to horizontal pixel position
-   * Requirements: 1.1
    */
   timeToPixels(time: number): number {
     return time * this.pxPerSec;
@@ -24,7 +22,6 @@ export class CoordinateSystem {
 
   /**
    * Converts horizontal pixel position to time in seconds
-   * Requirements: 1.2
    */
   pixelsToTime(pixels: number): number {
     return pixels / this.pxPerSec;
@@ -32,7 +29,6 @@ export class CoordinateSystem {
 
   /**
    * Zooms while keeping the time under the cursor stable
-   * Requirements: 2.3, 2.4, 1.4, 1.5
    *
    * @param cursorX - Cursor X position relative to viewport
    * @param scrollLeft - Current horizontal scroll position
@@ -59,7 +55,6 @@ export class CoordinateSystem {
 
   /**
    * Quantizes time to the nearest frame boundary
-   * Requirements: 24.1, 24.2, 24.3, 24.4, 24.5, 24.7
    *
    * @param time - Time in seconds
    * @param fps - Frame rate (24, 25, 30, 50, or 60)
@@ -72,7 +67,6 @@ export class CoordinateSystem {
 
   /**
    * Calculates the major tick interval for the time ruler based on current zoom
-   * Requirements: 3.2, 3.3, 3.4, 3.5
    *
    * @returns Interval in seconds for major tick marks
    */
@@ -92,7 +86,6 @@ export class CoordinateSystem {
 
   /**
    * Sets a new zoom level with constraints
-   * Requirements: 1.4, 1.5
    */
   setPxPerSec(pxPerSec: number): void {
     this.pxPerSec = clamp(pxPerSec, CoordinateSystem.MIN_ZOOM, CoordinateSystem.MAX_ZOOM);

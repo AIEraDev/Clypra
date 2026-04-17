@@ -1,6 +1,5 @@
 /**
  * UndoManager for Timeline Engine v1
- * Requirements: 14.1, 14.2, 14.3, 14.4, 14.5
  */
 
 import type { TimelineSnapshot } from "../types/core";
@@ -17,7 +16,6 @@ export class UndoManager {
   /**
    * Push a new state snapshot to the history stack
    * Clears any redo history when a new operation is performed
-   * Requirements: 14.1, 14.4, 14.5
    */
   pushState(snapshot: TimelineSnapshot): void {
     // Remove any redo history (everything after current index)
@@ -36,7 +34,6 @@ export class UndoManager {
 
   /**
    * Undo the most recent operation and restore previous state
-   * Requirements: 14.2
    */
   undo(): TimelineSnapshot | null {
     if (this.index <= 0) return null;
@@ -50,7 +47,6 @@ export class UndoManager {
 
   /**
    * Redo the most recently undone operation
-   * Requirements: 14.3
    */
   redo(): TimelineSnapshot | null {
     if (this.index >= this.history.length - 1) return null;
@@ -103,6 +99,7 @@ export class UndoManager {
       tracks: new Map(snapshot.tracks),
       playhead: snapshot.playhead,
       selectedClipIds: new Set(snapshot.selectedClipIds),
+      lastSelectedClipId: snapshot.lastSelectedClipId,
     };
   }
 }

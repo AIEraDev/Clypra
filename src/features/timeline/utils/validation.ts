@@ -1,6 +1,5 @@
 /**
  * Validation utilities for Timeline Engine v1
- * Requirements: 15.2, 22.6
  */
 
 import type { Clip, Track } from "../types/core";
