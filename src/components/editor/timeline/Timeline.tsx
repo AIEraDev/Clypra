@@ -11,7 +11,8 @@ import { Playhead } from "./Playhead";
 import { useTimelineStore } from "../../../store/timelineStore";
 import { useProjectStore } from "../../../store/projectStore";
 import { usePlayback } from "../../../hooks/usePlayback";
-import type { VideoMetadata, Clip } from "../../../types";
+import type { VideoMetadata } from "../../../types";
+import { createClipFromAsset } from "../../../lib/timelineClip";
 
 export const Timeline: React.FC = () => {
   const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack } = useTimelineStore();
@@ -94,7 +95,7 @@ export const Timeline: React.FC = () => {
                 name: filename,
                 path: filePath,
                 type: "image" as const,
-                duration: 5, // Default 5 seconds for images
+                duration: 0,
                 size: 0,
                 posterFrame: convertFileSrc(filePath),
               };
@@ -117,21 +118,13 @@ export const Timeline: React.FC = () => {
           }
 
           if (targetTrack) {
-            const newClip: Clip = {
-              id: `clip-${Date.now()}-${Math.random()}`,
+            const newClip = createClipFromAsset({
+              asset,
               trackId: targetTrack.id,
-              mediaId: asset.id,
               startTime: dropTime,
-              duration: asset.duration,
-              trimIn: 0,
-              trimOut: asset.duration,
-              x: 0,
-              y: 0,
-              width: asset.width || 1920,
-              height: asset.height || 1080,
-              opacity: 1,
-              rotation: 0,
-            };
+              width: useProjectStore.getState().project?.canvasWidth || 1920,
+              height: useProjectStore.getState().project?.canvasHeight || 1080,
+            });
 
             console.log("[Timeline] Adding clip to track:", targetTrack.id, "at time:", dropTime);
             addClip(newClip);

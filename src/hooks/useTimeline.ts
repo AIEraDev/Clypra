@@ -1,35 +1,20 @@
 import { useTimelineStore } from '../store/timelineStore'
 import { useProjectStore } from '../store/projectStore'
 import type { Clip, MediaAsset } from '../types'
+import { createClipFromAsset } from '../lib/timelineClip'
 
 export const useTimeline = () => {
   const { tracks, clips, zoomLevel, scrollLeft, pixelsPerSecond, addClip, removeClip, updateClip, moveClip, setZoom, setScrollLeft } = useTimelineStore()
-  const { mediaAssets } = useProjectStore()
-  const DEFAULT_STILL_DURATION = 5
-
-  const resolveDuration = (asset: MediaAsset) => {
-    if (asset.type === 'image') return DEFAULT_STILL_DURATION
-    if (asset.duration > 0) return asset.duration
-    return DEFAULT_STILL_DURATION
-  }
+  const { mediaAssets, project } = useProjectStore()
 
   const addClipFromAsset = (asset: MediaAsset, trackId: string, startTime: number) => {
-    const duration = resolveDuration(asset)
-    const clip: Clip = {
-      id: `clip-${Date.now()}`,
+    const clip: Clip = createClipFromAsset({
+      asset,
       trackId,
-      mediaId: asset.id,
       startTime,
-      duration: Math.min(duration, 10),
-      trimIn: 0,
-      trimOut: duration,
-      x: startTime * pixelsPerSecond,
-      y: 0,
-      width: Math.min(duration, 10) * pixelsPerSecond,
-      height: 0,
-      opacity: 100,
-      rotation: 0,
-    }
+      width: project?.canvasWidth || 1920,
+      height: project?.canvasHeight || 1080,
+    })
     addClip(clip)
   }
 

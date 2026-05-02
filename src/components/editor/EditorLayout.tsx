@@ -6,18 +6,11 @@ import { PropertiesPanel } from "./PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
 import { useTimelineStore } from "../../store/timelineStore";
 import { useProjectStore } from "../../store/projectStore";
-import type { Clip } from "../../types";
+import { createClipFromAsset } from "../../lib/timelineClip";
 
 export const EditorLayout: React.FC = () => {
   const { tracks, addClip, addTrack, getTimelineEndTime } = useTimelineStore();
   const { mediaAssets, project } = useProjectStore();
-  const DEFAULT_STILL_DURATION = 5;
-
-  const getClipDuration = (asset: { type: string; duration: number }) => {
-    if (asset.type === "image") return DEFAULT_STILL_DURATION;
-    if (asset.duration > 0) return asset.duration;
-    return DEFAULT_STILL_DURATION;
-  };
 
   const handleAddToTimeline = (mediaId: string) => {
     const mediaAsset = mediaAssets.find((asset) => asset.id === mediaId);
@@ -43,24 +36,13 @@ export const EditorLayout: React.FC = () => {
     // Get the end time of all existing clips (optimized - calculated once in store)
     const endTime = getTimelineEndTime();
 
-    // Create a new clip starting at the end of existing content
-    const clipDuration = getClipDuration(mediaAsset);
-
-    const newClip: Clip = {
-      id: `clip-${Date.now()}`,
+    const newClip = createClipFromAsset({
+      asset: mediaAsset,
       trackId: targetTrack.id,
-      mediaId: mediaAsset.id,
       startTime: endTime,
-      duration: clipDuration,
-      trimIn: 0,
-      trimOut: clipDuration,
-      x: 0,
-      y: 0,
       width: project?.canvasWidth || 1920,
       height: project?.canvasHeight || 1080,
-      opacity: 1,
-      rotation: 0,
-    };
+    });
 
     addClip(newClip);
   };
