@@ -65,6 +65,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration })
     <div
       ref={containerRef}
       data-playhead="true"
+      data-timeline-interactive="true"
       className={`absolute inset-y-0 select-none cursor-timeline-ew ${isDragging ? "cursor-timeline-ew-grabbing" : ""}`}
       style={{
         left: `${left}px`,
@@ -73,6 +74,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration })
         zIndex: 100,
       }}
       onMouseDown={handleMouseDown}
+      onClick={(e) => e.stopPropagation()}
     >
       {/* Visual line */}
       <div

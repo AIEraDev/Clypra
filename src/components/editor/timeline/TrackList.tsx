@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Volume2, VolumeX, Lock, Unlock, X } from "lucide-react";
+import { Volume2, VolumeX, Lock, Unlock, Eye, EyeOff, X } from "lucide-react";
 import { useTimelineStore } from "../../../store/timelineStore";
 import { useUIStore } from "../../../store/uiStore";
 
@@ -8,7 +8,7 @@ interface TrackListProps {
 }
 
 export const TrackList: React.FC<TrackListProps> = ({ onEditTrack }) => {
-  const { tracks, removeTrack } = useTimelineStore();
+  const { tracks, removeTrack, toggleTrackLock, toggleTrackMute, toggleTrackVisibility } = useTimelineStore();
   const { selectedTrackId, selectTrack } = useUIStore();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -24,8 +24,8 @@ export const TrackList: React.FC<TrackListProps> = ({ onEditTrack }) => {
   };
 
   return (
-    <div className="w-36 border-r border-[#2c2f34] flex flex-col">
-      <div className="h-8 px-3 border-b border-[#2c2f34] flex items-center shrink-0">
+    <div className="w-40 border-r border-[#2c2f34] flex flex-col bg-[#12171d]">
+      <div className="h-8 px-3 border-b border-[#2c2f34] flex items-center shrink-0 panel-head">
         <span className="text-[11px] font-semibold tracking-wide text-[#88909a] uppercase">Track</span>
       </div>
 
@@ -40,11 +40,46 @@ export const TrackList: React.FC<TrackListProps> = ({ onEditTrack }) => {
               </div>
             )}
 
-            <button className="p-1 hover:bg-[#2a3038] rounded transition-colors">{track.muted ? <VolumeX className="w-3 h-3 text-[#848c96]" /> : <Volume2 className="w-3 h-3 text-[#848c96]" />}</button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleTrackLock(track.id);
+              }}
+              className={`p-1 rounded transition-colors ${track.locked ? "bg-[#2a3038] text-white" : "hover:bg-[#2a3038] text-[#848c96]"}`}
+              aria-label={track.locked ? "Unlock track" : "Lock track"}
+            >
+              {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+            </button>
 
-            <button className="p-1 hover:bg-[#2a3038] rounded transition-colors">{track.locked ? <Lock className="w-3 h-3 text-[#848c96]" /> : <Unlock className="w-3 h-3 text-[#848c96]" />}</button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleTrackVisibility(track.id);
+              }}
+              className={`p-1 rounded transition-colors ${track.visible ? "hover:bg-[#2a3038] text-[#848c96]" : "bg-[#2a3038] text-white"}`}
+              aria-label={track.visible ? "Hide track" : "Show track"}
+            >
+              {track.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+            </button>
 
-            <button onClick={() => removeTrack(track.id)} className="p-1 hover:bg-danger/20 rounded transition-colors opacity-0 group-hover:opacity-100">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleTrackMute(track.id);
+              }}
+              className={`p-1 rounded transition-colors ${track.muted ? "bg-[#2a3038] text-white" : "hover:bg-[#2a3038] text-[#848c96]"}`}
+              aria-label={track.muted ? "Unmute track" : "Mute track"}
+            >
+              {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                removeTrack(track.id);
+              }}
+              className="p-1 hover:bg-danger/20 rounded transition-colors opacity-0 group-hover:opacity-100"
+            >
               <X className="w-3 h-3 text-danger" />
             </button>
           </div>

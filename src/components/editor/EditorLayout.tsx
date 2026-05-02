@@ -21,14 +21,14 @@ export const EditorLayout: React.FC = () => {
     const targetTrackType = mediaAsset.type === "audio" ? "audio" : "video";
 
     // Find the first track of the appropriate type
-    let targetTrack = tracks.find((track) => track.type === targetTrackType);
+    let targetTrack = tracks.find((track) => track.type === targetTrackType && !track.locked);
 
     // If no track exists for this type, create one
     if (!targetTrack) {
       console.log("[EditorLayout] No track found for type:", targetTrackType, "- creating one");
       addTrack(targetTrackType);
       // Get the newly created track
-      targetTrack = useTimelineStore.getState().tracks.find((t) => t.type === targetTrackType);
+      targetTrack = useTimelineStore.getState().tracks.find((t) => t.type === targetTrackType && !t.locked);
     }
 
     if (!targetTrack) return;
@@ -48,21 +48,21 @@ export const EditorLayout: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-bg overflow-hidden rounded-md">
+    <div className="w-full h-full flex flex-col app-shell overflow-hidden p-2 md:p-3 gap-2">
       <TopBar />
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden space-y-1.5">
-        <div className="flex-1 min-h-0 flex overflow-hidden space-x-1.5">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
+        <div className="flex-1 min-h-0 flex overflow-hidden gap-2">
           <MediaPanel onAddToTimeline={handleAddToTimeline} />
 
-          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
             <PreviewPanel />
           </div>
 
           <PropertiesPanel />
         </div>
 
-        <div className="h-80 border-t border-border bg-surface">
+        <div className="h-80 panel-shell overflow-hidden">
           <Timeline />
         </div>
       </div>

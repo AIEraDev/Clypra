@@ -109,8 +109,8 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({ onAddToTimeline }) => {
   });
 
   return (
-    <div ref={containerRef} className={`w-[24rem] min-h-0 bg-surface border-r border-border flex flex-col overflow-hidden shrink-0 transition-colors ${isDraggingOver ? "bg-surface-raised/10 transition-colors duration-300" : ""}`}>
-      <div className="p-4 border-b border-border">
+    <div ref={containerRef} className={`w-[23rem] min-h-0 panel-shell flex flex-col overflow-hidden shrink-0 transition-colors ${isDraggingOver ? "bg-surface-raised/10 transition-colors duration-300" : ""}`}>
+      <div className="p-3 panel-head">
         <Button variant="secondary" size="sm" className="w-full border-dashed" onClick={importMedia} disabled={isLoading}>
           <CloudUpload className="w-4 h-4" />
           {isLoading ? "Importing..." : "Import Media"}

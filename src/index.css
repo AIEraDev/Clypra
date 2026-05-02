@@ -17,6 +17,10 @@
   --color-video-clip: #2d2340;
   --color-audio-clip: #1a3040;
   --color-text-clip: #3d3010;
+  --color-accent-soft: #4fb8ff;
+  --color-surface-floating: #20242a;
+  --color-surface-panel: #171b20;
+  --color-border-soft: #343b45;
 }
 
 html,
@@ -231,6 +235,9 @@ body.cursor-lock-ew * {
   --sidebar-accent-foreground: #f0f0f0;
   --sidebar-border: #2e2e2e;
   --sidebar-ring: #6c63ff;
+  --layout-gap: 0.5rem;
+  --layout-radius: 0.75rem;
+  --elev-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
 }
 
 .dark {
@@ -266,6 +273,38 @@ body.cursor-lock-ew * {
   --sidebar-accent-foreground: #f0f0f0;
   --sidebar-border: #2e2e2e;
   --sidebar-ring: #6c63ff;
+}
+
+@layer components {
+  .app-shell {
+    background:
+      radial-gradient(100% 120% at 50% 0%, rgba(79, 184, 255, 0.08) 0%, transparent 45%),
+      linear-gradient(180deg, #0f1115 0%, #0e1013 100%);
+  }
+
+  .panel-shell {
+    background: linear-gradient(180deg, #1a1f25 0%, #171b20 100%);
+    border: 1px solid #2e3540;
+    border-radius: var(--layout-radius);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .panel-head {
+    border-bottom: 1px solid #2d3440;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.015) 0%, rgba(255, 255, 255, 0) 100%);
+  }
+
+  .elev-soft {
+    box-shadow: var(--elev-shadow);
+  }
+
+  .text-label {
+    letter-spacing: 0.02em;
+    font-size: 12px;
+    font-weight: 600;
+    color: #9aa6b4;
+    text-transform: uppercase;
+  }
 }
 
 @layer base {

@@ -4,10 +4,9 @@ import { usePlayback } from "../../../hooks/usePlayback";
 interface TimelineRulerProps {
   pixelsPerSecond: number;
   scrollLeft: number;
-  onSeek: (time: number) => void;
 }
 
-export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, scrollLeft, onSeek }) => {
+export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, scrollLeft }) => {
   const { frameRate } = usePlayback();
 
   const getMarkerInterval = () => {
@@ -33,15 +32,8 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
     return `${mins}:${String(secs).padStart(2, "0")}`;
   };
 
-  const handleRulerClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left + scrollLeft;
-    const time = Math.max(0, x / pixelsPerSecond);
-    onSeek(time);
-  };
-
   return (
-    <div className="relative h-8 bg-[#171a1f] border-b border-[#2c2f34] select-none overflow-hidden" onClick={handleRulerClick}>
+    <div className="relative h-8 bg-[#171a1f] border-b border-[#2c2f34] select-none overflow-hidden">
       {markers.map((time) => {
         const isMajor = Math.round((time / markerInterval) % 4) === 0;
         const x = time * pixelsPerSecond;

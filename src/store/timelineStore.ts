@@ -9,6 +9,9 @@ interface TimelineStore {
   pixelsPerSecond: number;
   addTrack: (type: "video" | "audio" | "text") => void;
   removeTrack: (trackId: string) => void;
+  toggleTrackLock: (trackId: string) => void;
+  toggleTrackMute: (trackId: string) => void;
+  toggleTrackVisibility: (trackId: string) => void;
   addClip: (clip: Clip) => void;
   removeClip: (clipId: string) => void;
   updateClip: (clipId: string, updates: Partial<Clip>) => void;
@@ -39,6 +42,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${Date.now() % 100}`,
       muted: false,
       locked: false,
+      visible: true,
       height: trackHeights[type],
     };
     set((state) => ({
@@ -50,6 +54,24 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     set((state) => ({
       tracks: state.tracks.filter((t) => t.id !== trackId),
       clips: state.clips.filter((c) => c.trackId !== trackId),
+    }));
+  },
+
+  toggleTrackLock: (trackId) => {
+    set((state) => ({
+      tracks: state.tracks.map((track) => (track.id === trackId ? { ...track, locked: !track.locked } : track)),
+    }));
+  },
+
+  toggleTrackMute: (trackId) => {
+    set((state) => ({
+      tracks: state.tracks.map((track) => (track.id === trackId ? { ...track, muted: !track.muted } : track)),
+    }));
+  },
+
+  toggleTrackVisibility: (trackId) => {
+    set((state) => ({
+      tracks: state.tracks.map((track) => (track.id === trackId ? { ...track, visible: !track.visible } : track)),
     }));
   },
 

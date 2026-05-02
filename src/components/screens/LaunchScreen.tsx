@@ -64,42 +64,54 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   };
 
   return (
-    <div className="w-full h-full bg-bg flex flex-col items-center justify-center gap-8 p-8">
-      <div className="text-center">
-        <div className="flex items-center justify-center gap-3 mb-4">
-          <Film className="w-12 h-12 text-accent" />
-          <h1 className="text-5xl font-bold text-text-primary">Clypra</h1>
-        </div>
-        <p className="text-xl text-text-muted">Professional Video Editor</p>
-      </div>
-
-      <div className="flex gap-4">
-        <Button variant="default" size="lg" onClick={() => setShowNewProjectModal(true)}>
-          New Project
-        </Button>
-        <Button variant="secondary" size="lg">
-          Open Project
-        </Button>
-      </div>
-
-      <div className="w-full max-w-4xl">
-        <h2 className="text-lg font-semibold text-text-primary mb-4">Recent Projects</h2>
-        {recentProjects.length === 0 ? (
-          <EmptyState icon={Film} title="No recent projects" description="Create a new project to get started" action={{ label: "New Project", onClick: () => setShowNewProjectModal(true) }} />
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {recentProjects.slice(0, 6).map((project) => (
-              <button key={project.id} onClick={() => onProjectOpen(project)} className="bg-surface rounded-lg border border-border p-4 hover:brightness-110 transition-all hover:border-accent">
-                <div className="bg-surface-raised rounded w-full h-24 mb-3 flex items-center justify-center">
-                  <Film className="w-8 h-8 text-text-muted" />
-                </div>
-                <h3 className="font-semibold text-text-primary truncate">{project.name}</h3>
-                <p className="text-xs text-text-muted mt-1">{new Date(project.createdAt).toLocaleDateString()}</p>
-                <p className="text-xs text-accent mt-1">{project.aspectRatio}</p>
-              </button>
-            ))}
+    <div className="w-full h-full app-shell flex flex-col p-6 md:p-8">
+      <div className="max-w-6xl w-full mx-auto h-full flex flex-col gap-5">
+        <div className="panel-shell panel-head px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Film className="w-7 h-7 text-accent" />
+            <div>
+              <h1 className="text-2xl font-semibold text-text-primary leading-tight">Clypra</h1>
+              <p className="text-sm text-text-muted">Professional Video Editor</p>
+            </div>
           </div>
-        )}
+          <div className="flex gap-2">
+            <Button variant="default" size="sm" onClick={() => setShowNewProjectModal(true)}>
+              New Project
+            </Button>
+            <Button variant="secondary" size="sm">
+              Open Project
+            </Button>
+          </div>
+        </div>
+
+        <div className="panel-shell flex-1 min-h-0 p-5 md:p-6 overflow-y-auto scrollbar-thin">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-lg font-semibold text-text-primary">Recent Projects</h2>
+            <Button variant="ghost" size="sm" onClick={() => setShowNewProjectModal(true)}>
+              Quick Create
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+
+          {recentProjects.length === 0 ? (
+            <EmptyState icon={Film} title="No recent projects" description="Create a new project to get started" action={{ label: "New Project", onClick: () => setShowNewProjectModal(true) }} />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {recentProjects.slice(0, 6).map((project) => (
+                <button key={project.id} onClick={() => onProjectOpen(project)} className="group panel-shell text-left p-4 transition-all hover:-translate-y-0.5 hover:border-[#4a87c9] hover:shadow-[0_12px_20px_rgba(0,0,0,0.22)]">
+                  <div className="bg-[#12161b] rounded-md border border-[#2c3340] w-full h-24 mb-3 flex items-center justify-center">
+                    <Film className="w-8 h-8 text-text-muted group-hover:text-[#8cc7ff]" />
+                  </div>
+                  <h3 className="font-semibold text-text-primary truncate">{project.name}</h3>
+                  <div className="mt-2 flex items-center justify-between text-xs">
+                    <p className="text-text-muted">{new Date(project.createdAt).toLocaleDateString()}</p>
+                    <span className="px-2 py-0.5 rounded bg-[#1f2834] text-[#8cc7ff] border border-[#314154]">{project.aspectRatio}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <Modal

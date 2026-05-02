@@ -10,9 +10,10 @@ interface ClipProps {
   mediaAsset?: MediaAsset;
   pixelsPerSecond: number;
   selected?: boolean;
+  locked?: boolean;
 }
 
-export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected }) => {
+export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false }) => {
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const { selectClip } = useUIStore();
   const { updateClip, moveClip } = useTimelineStore();
@@ -21,11 +22,12 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     () => ({
       type: "CLIP",
       item: clip,
+      canDrag: !locked,
       collect: (monitor: any) => ({
         isDragging: monitor.isDragging(),
       }),
     }),
-    [],
+    [clip, locked],
   );
 
   const left = clip.startTime * pixelsPerSecond;
@@ -33,6 +35,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
 
   const handleResizeStart = (e: React.MouseEvent, side: "left" | "right") => {
     e.stopPropagation();
+    if (locked) return;
     setIsResizing(side);
   };
 
@@ -50,8 +53,14 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
   return (
     <div
       ref={drag}
-      onClick={() => selectClip(clip.id)}
-      className={`absolute h-full rounded-sm overflow-hidden transition-colors border ${selected ? "border border-accent/60" : ""} ${isDragging ? "opacity-50" : ""} ${getClipColor()}`}
+      data-timeline-interactive="true"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (locked) return;
+        selectClip(clip.id);
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      className={`absolute h-full rounded-sm overflow-hidden transition-colors border ${selected ? "border border-accent/60" : ""} ${isDragging ? "opacity-50" : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()}`}
       style={{
         left: `${left}px`,
         width: `${width}px`,

@@ -24,6 +24,22 @@ export const Timeline: React.FC = () => {
 
   const contentWidth = Math.max(1000, duration * pixelsPerSecond);
 
+  const seekFromPointer = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target as HTMLElement;
+      if (target.closest('[data-timeline-interactive="true"]')) return;
+
+      const container = containerRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const x = event.clientX - rect.left + container.scrollLeft;
+      const time = Math.max(0, Math.min(x / pixelsPerSecond, duration));
+      seek(time);
+    },
+    [duration, pixelsPerSecond, seek],
+  );
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
     setScrollLeft(target.scrollLeft);
@@ -107,14 +123,14 @@ export const Timeline: React.FC = () => {
 
           // Add clip to timeline at end
           const targetTrackType = asset.type === "audio" ? "audio" : "video";
-          let targetTrack = tracks.find((t) => t.type === targetTrackType);
+          let targetTrack = tracks.find((t) => t.type === targetTrackType && !t.locked);
 
           // If no track exists for this type, create one
           if (!targetTrack) {
             console.log("[Timeline] No track found for type:", targetTrackType, "- creating one");
             addTrack(targetTrackType);
             // Get the newly created track
-            targetTrack = useTimelineStore.getState().tracks.find((t) => t.type === targetTrackType);
+            targetTrack = useTimelineStore.getState().tracks.find((t) => t.type === targetTrackType && !t.locked);
           }
 
           if (targetTrack) {
@@ -218,13 +234,13 @@ export const Timeline: React.FC = () => {
   }, [handleTauriFileDrop]);
 
   return (
-    <div className="h-80 flex flex-col select-none">
+    <div className="h-80 flex flex-col select-none bg-[#141920]">
       <TimelineToolbar />
 
       <div className="flex-1 flex overflow-hidden">
         <TrackList />
 
-        <div ref={containerRef} onScroll={handleScroll} className={`flex-1 overflow-x-auto overflow-y-auto scrollbar-thin px-1 relative transition-colors ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}>
+        <div ref={containerRef} onScroll={handleScroll} onClick={seekFromPointer} className={`flex-1 overflow-x-auto overflow-y-auto scrollbar-thin px-1 relative transition-colors border-l border-[#2b3442] ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}>
           {clips.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex items-center gap-3 text-[#6b7280] pointer-events-none">
@@ -241,7 +257,7 @@ export const Timeline: React.FC = () => {
             }}
             className="relative flex flex-col justify-center"
           >
-            <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} onSeek={seek} />
+            <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} />
 
             <div className="relative flex-1 flex flex-col justify-center min-h-0">
               {tracks.map((track) => (

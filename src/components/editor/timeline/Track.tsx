@@ -14,13 +14,14 @@ interface TrackProps {
 }
 
 export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) => {
-  const { selectTrack, selectedClipId, selectedTrackId } = useUIStore();
+  const { selectedClipId, selectedTrackId } = useUIStore();
   const { addClipFromAsset, getMediaAsset } = useTimeline();
 
   const [, drop] = useDrop(
     () => ({
       accept: "MEDIA_ASSET",
       drop: (item: DragItem, monitor: any) => {
+        if (track.locked) return;
         const clientOffset = monitor.getClientOffset();
         if (!clientOffset) return;
 
@@ -46,10 +47,11 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) =
   const trackClips = clips.filter((c) => c.trackId === track.id);
 
   return (
-    <div ref={drop} data-track-id={track.id} className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-[#1f242b]" : "hover:bg-[#1f242b]"}`} style={{ height: `${track.height}px` }} onClick={() => selectTrack(track.id)}>
-      {trackClips.map((clip) => (
-        <Clip key={clip.id} clip={clip} mediaAsset={getMediaAsset(clip.mediaId)} pixelsPerSecond={pixelsPerSecond} selected={clip.id === selectedClipId} />
-      ))}
+    <div ref={drop} data-track-id={track.id} className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-[#1f242b]" : "hover:bg-[#1f242b]"}`} style={{ height: `${track.height}px` }}>
+      {track.visible &&
+        trackClips.map((clip) => (
+          <Clip key={clip.id} clip={clip} mediaAsset={getMediaAsset(clip.mediaId)} pixelsPerSecond={pixelsPerSecond} selected={clip.id === selectedClipId} locked={track.locked} />
+        ))}
     </div>
   );
 };

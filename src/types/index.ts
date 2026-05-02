@@ -28,6 +28,7 @@ export interface Track {
   name: string
   muted: boolean
   locked: boolean
+  visible: boolean
   height: number
 }
 

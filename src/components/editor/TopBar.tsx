@@ -26,23 +26,23 @@ export const TopBar: React.FC<TopBarProps> = ({ onExport }) => {
   };
 
   return (
-    <div className="h-12 bg-surface border-b border-border flex items-center justify-between px-4 gap-4">
+    <div className="h-12 panel-shell panel-head flex items-center justify-between px-3 md:px-4 gap-3">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon-sm" onClick={closeProject} title="Back to Home">
           <Home className="w-4 h-4" />
         </Button>
         <div className="w-px h-6 bg-border" />
-        <Film className="w-5 h-5 text-accent" />
+        <Film className="w-5 h-5 text-[#8cc7ff]" />
         {isEditingName ? (
           <input autoFocus type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} onBlur={handleNameBlur} onKeyPress={(e) => e.key === "Enter" && handleNameBlur()} className="bg-surface-raised border border-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none" />
         ) : (
-          <button onClick={() => setIsEditingName(true)} className="text-sm font-medium text-text-primary hover:text-accent transition-colors">
+          <button onClick={() => setIsEditingName(true)} className="text-sm font-semibold text-text-primary hover:text-[#8cc7ff] transition-colors">
             {project?.name}
           </button>
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-sm text-text-primary">
+      <div className="flex items-center gap-2 text-sm text-text-primary bg-[#171d25] border border-[#2d3947] px-3 py-1 rounded-md">
         <span>{formatTime(currentTime)}</span>
         <span className="text-text-muted">/</span>
         <span>{formatTime(duration)}</span>
