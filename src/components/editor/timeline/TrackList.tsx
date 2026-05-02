@@ -1,77 +1,55 @@
-import React, { useState } from 'react'
-import { Volume2, VolumeX, Lock, Unlock, X } from 'lucide-react'
-import { useTimelineStore } from '../../../store/timelineStore'
+import React, { useState } from "react";
+import { Volume2, VolumeX, Lock, Unlock, X } from "lucide-react";
+import { useTimelineStore } from "../../../store/timelineStore";
+import { useUIStore } from "../../../store/uiStore";
 
 interface TrackListProps {
-  onEditTrack?: (trackId: string) => void
+  onEditTrack?: (trackId: string) => void;
 }
 
 export const TrackList: React.FC<TrackListProps> = ({ onEditTrack }) => {
-  const { tracks, removeTrack } = useTimelineStore()
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editingName, setEditingName] = useState('')
+  const { tracks, removeTrack } = useTimelineStore();
+  const { selectedTrackId, selectTrack } = useUIStore();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
 
   const handleDoubleClick = (trackId: string, name: string) => {
-    setEditingId(trackId)
-    setEditingName(name)
-  }
+    setEditingId(trackId);
+    setEditingName(name);
+  };
 
   const handleNameChange = (trackId: string, newName: string) => {
-    setEditingId(null)
-    onEditTrack?.(trackId)
-  }
+    setEditingId(null);
+    onEditTrack?.(trackId);
+  };
 
   return (
-    <div className="w-44 bg-surface border-r border-border overflow-y-auto scrollbar-thin">
-      {tracks.map((track) => (
-        <div
-          key={track.id}
-          className="border-b border-border flex items-center gap-2 px-2 py-1"
-          style={{ height: `${track.height}px` }}
-        >
-          {editingId === track.id ? (
-            <input
-              autoFocus
-              type="text"
-              value={editingName}
-              onChange={(e) => setEditingName(e.target.value)}
-              onBlur={() => handleNameChange(track.id, editingName)}
-              onKeyPress={(e) => e.key === 'Enter' && handleNameChange(track.id, editingName)}
-              className="flex-1 bg-surface-raised border border-accent rounded px-1 py-0.5 text-xs text-text-primary focus:outline-none"
-            />
-          ) : (
-            <div
-              onDoubleClick={() => handleDoubleClick(track.id, track.name)}
-              className="flex-1 text-xs font-medium text-text-primary truncate cursor-text hover:text-accent"
-            >
-              {track.name}
-            </div>
-          )}
+    <div className="w-36 border-r border-[#2c2f34] flex flex-col">
+      <div className="h-8 px-3 border-b border-[#2c2f34] flex items-center shrink-0">
+        <span className="text-[11px] font-semibold tracking-wide text-[#88909a] uppercase">Track</span>
+      </div>
 
-          <button className="p-1 hover:bg-surface-raised rounded transition-colors">
-            {track.muted ? (
-              <VolumeX className="w-3 h-3 text-text-muted" />
+      <div className="flex-1 flex flex-col justify-center min-h-0">
+        {tracks.map((track) => (
+          <div key={track.id} className={`group border-b border-[#2b2f35] flex items-center gap-2 px-2 py-1 transition-colors ${selectedTrackId === track.id ? "bg-[#20252b]" : "hover:bg-[#1e2228]"}`} style={{ height: `${track.height}px` }} onClick={() => selectTrack(track.id)}>
+            {editingId === track.id ? (
+              <input autoFocus type="text" value={editingName} onChange={(e) => setEditingName(e.target.value)} onBlur={() => handleNameChange(track.id, editingName)} onKeyPress={(e) => e.key === "Enter" && handleNameChange(track.id, editingName)} className="flex-1 bg-surface-raised border border-accent rounded px-1 py-0.5 text-xs text-text-primary focus:outline-none" />
             ) : (
-              <Volume2 className="w-3 h-3 text-text-muted" />
+              <div onDoubleClick={() => handleDoubleClick(track.id, track.name)} className="flex-1 text-[14px] font-medium text-[#d6d9de] truncate hover:text-cyan-300">
+                {track.name}
+              </div>
             )}
-          </button>
 
-          <button className="p-1 hover:bg-surface-raised rounded transition-colors">
-            {track.locked ? (
-              <Lock className="w-3 h-3 text-text-muted" />
-            ) : (
-              <Unlock className="w-3 h-3 text-text-muted" />
-            )}
-          </button>
+            <button className="p-1 hover:bg-[#2a3038] rounded transition-colors">{track.muted ? <VolumeX className="w-3 h-3 text-[#848c96]" /> : <Volume2 className="w-3 h-3 text-[#848c96]" />}</button>
 
-          <button
-            onClick={() => removeTrack(track.id)}
-            className="p-1 hover:bg-danger/20 rounded transition-colors opacity-0 hover:opacity-100"
-          >
-            <X className="w-3 h-3 text-danger" />
-          </button>
-        </div>
-      ))}
+            <button className="p-1 hover:bg-[#2a3038] rounded transition-colors">{track.locked ? <Lock className="w-3 h-3 text-[#848c96]" /> : <Unlock className="w-3 h-3 text-[#848c96]" />}</button>
+
+            <button onClick={() => removeTrack(track.id)} className="p-1 hover:bg-danger/20 rounded transition-colors opacity-0 group-hover:opacity-100">
+              <X className="w-3 h-3 text-danger" />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
-  )
-}
+  );
+};

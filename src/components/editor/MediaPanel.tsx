@@ -1,21 +1,25 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { CloudUpload, Music, Film, Image, Plus } from "lucide-react";
 // @ts-ignore - react-dnd types issue
 import { useDrag } from "react-dnd";
+import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { ContextMenu } from "../ui/ContextMenu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/Tooltip";
 import { useMediaImport } from "../../hooks/useMediaImport";
+import { useFileDrop } from "../../hooks/useFileDrop";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
+import type { VideoMetadata } from "../../types";
 
 interface MediaPanelProps {
   onAddToTimeline?: (mediaId: string) => void;
 }
 
 export const MediaPanel: React.FC<MediaPanelProps> = ({ onAddToTimeline }) => {
-  const { mediaAssets, removeMediaAsset } = useProjectStore();
+  const { mediaAssets, removeMediaAsset, addMediaAsset } = useProjectStore();
   const { setPreviewMedia, previewMediaId } = useUIStore();
   const { importMedia, isLoading } = useMediaImport();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; mediaId: string } | null>(null);
@@ -26,14 +30,86 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({ onAddToTimeline }) => {
     return <Image className="w-full h-full text-text-muted" />;
   };
 
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${String(secs).padStart(2, "0")}`;
+  // const formatDuration = (seconds: number) => {
+  //   const mins = Math.floor(seconds / 60);
+  //   const secs = Math.floor(seconds % 60);
+  //   return `${mins}:${String(secs).padStart(2, "0")}`;
+  // };
+
+  const getMediaType = (path: string): "video" | "audio" | "image" => {
+    const lower = path.toLowerCase();
+    if (/\.(mp4|mov|avi|mkv|webm|flv)$/i.test(lower)) return "video";
+    if (/\.(mp3|wav|aac|flac|m4a)$/i.test(lower)) return "audio";
+    return "image";
   };
 
+  const handleTauriFileDrop = useCallback(
+    async (paths: string[]) => {
+      console.log("[MediaPanel] Processing dropped files:", paths);
+
+      for (const filePath of paths) {
+        try {
+          const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "Unknown";
+          const type = getMediaType(filename);
+
+          console.log("[MediaPanel] Processing file:", filename, "type:", type);
+
+          // Check if asset already exists
+          const existingAsset = mediaAssets.find((a) => a.path === filePath);
+          if (existingAsset) {
+            console.log("[MediaPanel] Asset already imported:", filename);
+            continue;
+          }
+
+          // Import new asset
+          if (type === "video" || type === "audio") {
+            const metadata: VideoMetadata = await invoke("get_video_metadata", { path: filePath });
+            const posterFrame: string | undefined = type === "video" ? ((await invoke("extract_poster_frame", { path: filePath, time: 0.0 }).catch(() => undefined)) as string | undefined) : undefined;
+
+            const asset = {
+              id: `asset-${Date.now()}-${Math.random()}`,
+              name: filename,
+              path: filePath,
+              type,
+              duration: metadata.duration,
+              width: metadata.width,
+              height: metadata.height,
+              posterFrame,
+              size: metadata.size,
+            };
+
+            console.log("[MediaPanel] Adding video/audio asset:", asset);
+            addMediaAsset(asset);
+          } else {
+            const asset = {
+              id: `asset-${Date.now()}-${Math.random()}`,
+              name: filename,
+              path: filePath,
+              type: "image" as const,
+              duration: 0,
+              size: 0,
+              posterFrame: convertFileSrc(filePath),
+            };
+
+            console.log("[MediaPanel] Adding image asset:", asset);
+            addMediaAsset(asset);
+          }
+        } catch (error) {
+          console.error(`[MediaPanel] Failed to import ${filePath}:`, error);
+        }
+      }
+    },
+    [mediaAssets, addMediaAsset],
+  );
+
+  // Use the file drop hook
+  const { containerRef, isDraggingOver } = useFileDrop({
+    onDrop: handleTauriFileDrop,
+    enabled: true,
+  });
+
   return (
-    <div className="w-64 bg-surface border-r border-border flex flex-col overflow-hidden">
+    <div ref={containerRef} className={`w-[24rem] min-h-0 bg-surface border-r border-border flex flex-col overflow-hidden shrink-0 transition-colors ${isDraggingOver ? "bg-surface-raised/10 transition-colors duration-300" : ""}`}>
       <div className="p-4 border-b border-border">
         <Button variant="secondary" size="sm" className="w-full border-dashed" onClick={importMedia} disabled={isLoading}>
           <CloudUpload className="w-4 h-4" />
@@ -95,7 +171,7 @@ const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, onClick, onCon
   }));
 
   return (
-    <div ref={drag} onClick={onClick} onContextMenu={onContextMenu} className={`group relative bg-surface-raised rounded cursor-pointer overflow-hidden transition-all ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""}`}>
+    <div ref={drag} onClick={onClick} onContextMenu={onContextMenu} className={`group relative bg-surface-raised rounded overflow-hidden transition-all ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""}`}>
       <div className="aspect-video bg-surface-raised flex items-center justify-center relative">
         {asset.posterFrame ? <img src={asset.posterFrame} alt={asset.name} className="w-full h-full object-cover" /> : <div className="w-8 h-8">{asset.type === "video" ? <Film className="w-full h-full text-text-muted" /> : asset.type === "audio" ? <Music className="w-full h-full text-text-muted" /> : <Image className="w-full h-full text-text-muted" />}</div>}
         {asset.duration > 0 && (
@@ -115,7 +191,7 @@ const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, onClick, onCon
               e.stopPropagation();
               onAddToTimeline();
             }}
-            className="cursor-pointer hidden group-hover:flex bg-accent hover:bg-accent/90 w-5 h-5 rounded-full justify-center items-center absolute top-1 right-1 transition-colors"
+            className="hidden group-hover:flex bg-accent hover:bg-accent/90 w-5 h-5 rounded-full justify-center items-center absolute top-1 right-1 transition-colors"
           >
             <Plus size={14} className="text-white" />
           </button>

@@ -43,7 +43,6 @@ export const useProjectStore = create<ProjectStore>((set) => ({
       frameRate,
       duration: 0,
     };
-    console.log("[ProjectStore] Creating project:", project);
     set({ project, mediaAssets: [] });
   },
 

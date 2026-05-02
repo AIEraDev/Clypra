@@ -7,12 +7,14 @@ interface UIStore {
   activePanel: "media" | "properties";
   showExportModal: boolean;
   showNewProjectModal: boolean;
+  showSettingsModal: boolean;
   selectClip: (clipId: string | null) => void;
   selectTrack: (trackId: string | null) => void;
   setPreviewMedia: (mediaId: string | null) => void;
   setActivePanel: (panel: "media" | "properties") => void;
   toggleExportModal: () => void;
   toggleNewProjectModal: () => void;
+  toggleSettingsModal: () => void;
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -22,6 +24,7 @@ export const useUIStore = create<UIStore>((set) => ({
   activePanel: "media",
   showExportModal: false,
   showNewProjectModal: false,
+  showSettingsModal: false,
 
   selectClip: (clipId) => {
     set({ selectedClipId: clipId });
@@ -48,6 +51,12 @@ export const useUIStore = create<UIStore>((set) => ({
   toggleNewProjectModal: () => {
     set((state) => ({
       showNewProjectModal: !state.showNewProjectModal,
+    }));
+  },
+
+  toggleSettingsModal: () => {
+    set((state) => ({
+      showSettingsModal: !state.showSettingsModal,
     }));
   },
 }));

@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Film, RotateCcw, RotateCw, Upload, Home } from "lucide-react";
+import { Film, RotateCcw, RotateCw, Upload, Home, Settings } from "lucide-react";
 import { Button } from "../ui/Button";
 import { usePlayback } from "../../hooks/usePlayback";
 import { useProjectStore } from "../../store/projectStore";
+import { useUIStore } from "../../store/uiStore";
 
 interface TopBarProps {
   onExport?: () => void;
@@ -11,6 +12,7 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({ onExport }) => {
   const { currentTime, duration, formatTime } = usePlayback();
   const { project, updateProject, closeProject } = useProjectStore();
+  const { toggleSettingsModal } = useUIStore();
   const [isEditingName, setIsEditingName] = useState(false);
   const [projectName, setProjectName] = useState(project?.name || "");
 
@@ -26,7 +28,9 @@ export const TopBar: React.FC<TopBarProps> = ({ onExport }) => {
   return (
     <div className="h-12 bg-surface border-b border-border flex items-center justify-between px-4 gap-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" icon={<Home className="w-4 h-4" />} onClick={closeProject} title="Back to Home" />
+        <Button variant="ghost" size="icon-sm" onClick={closeProject} title="Back to Home">
+          <Home className="w-4 h-4" />
+        </Button>
         <div className="w-px h-6 bg-border" />
         <Film className="w-5 h-5 text-accent" />
         {isEditingName ? (
@@ -45,10 +49,18 @@ export const TopBar: React.FC<TopBarProps> = ({ onExport }) => {
       </div>
 
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" icon={<RotateCcw className="w-4 h-4" />} title="Undo" />
-        <Button variant="ghost" size="sm" icon={<RotateCw className="w-4 h-4" />} title="Redo" />
+        <Button variant="ghost" size="icon-sm" title="Undo">
+          <RotateCcw className="w-4 h-4" />
+        </Button>
+        <Button variant="ghost" size="icon-sm" title="Redo">
+          <RotateCw className="w-4 h-4" />
+        </Button>
         <div className="w-px h-6 bg-border" />
-        <Button variant="primary" size="sm" icon={<Upload className="w-4 h-4" />} onClick={onExport}>
+        <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings">
+          <Settings className="w-4 h-4" />
+        </Button>
+        <Button variant="default" size="sm" onClick={onExport}>
+          <Upload className="w-4 h-4" />
           Export
         </Button>
       </div>

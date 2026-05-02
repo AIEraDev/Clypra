@@ -105,6 +105,53 @@ input[type="range"]:focus-visible {
     border-radius: 1px;
     margin: 0 1px;
   }
+
+  /*------------------------------------------------- CURSOR SVGs -------------------------------------------------*/
+  .cursor-timeline-grab {
+    cursor:
+      url("/cursors/timeline-grab.svg") 8 8,
+      ew-resize;
+  }
+
+  .cursor-timeline-grabbing {
+    cursor:
+      url("/cursors/timeline-grabbing.svg") 8 8,
+      grabbing;
+  }
+
+  .cursor-precision-seek {
+    cursor:
+      url("/cursors/precision-seek.svg") 8 8,
+      crosshair;
+  }
+
+  .cursor-timeline-ew {
+    cursor:
+      url("/cursors/timeline-ew.svg") 16 16,
+      ew-resize !important;
+  }
+
+  .cursor-timeline-ew-grabbing {
+    cursor:
+      url("/cursors/timeline-ew.svg") 16 16,
+      ew-resize !important;
+  }
+
+  .cursor-timeline-ew,
+  .cursor-timeline-ew * {
+    cursor:
+      url("/cursors/timeline-ew.svg") 16 16,
+      ew-resize !important;
+  }
+
+  /*------------------------------------------------- CURSOR SVGs -------------------------------------------------*/
+}
+
+body.cursor-lock-ew,
+body.cursor-lock-ew * {
+  cursor:
+    url("/cursors/timeline-ew.svg") 16 16,
+    ew-resize !important;
 }
 
 @theme inline {
