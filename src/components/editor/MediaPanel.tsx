@@ -20,6 +20,8 @@ interface MediaPanelProps {
 
 export const MediaPanel: React.FC<MediaPanelProps> = ({ onAddToTimeline }) => {
   const { mediaAssets, removeMediaAsset, addMediaAsset } = useProjectStore();
+  // Note: previewMediaId is used for visual selection state only.
+  // Preview rendering is now timeline-driven, not media-selection driven.
   const { setPreviewMedia, previewMediaId } = useUIStore();
   const { importMedia, isLoading } = useMediaImport();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; mediaId: string } | null>(null);

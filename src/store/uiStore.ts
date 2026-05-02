@@ -3,6 +3,8 @@ import { create } from "zustand";
 interface UIStore {
   selectedClipId: string | null;
   selectedTrackId: string | null;
+  // Note: previewMediaId is used for MediaPanel selection state only.
+  // Preview rendering is now timeline-driven (see PreviewPanel + previewScene.ts)
   previewMediaId: string | null;
   activePanel: "media" | "properties";
   showExportModal: boolean;
