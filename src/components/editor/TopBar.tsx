@@ -28,7 +28,9 @@ export const TopBar: React.FC<TopBarProps> = ({ onExport }) => {
   return (
     <div className="h-12 bg-surface border-b border-border flex items-center justify-between px-4 gap-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" icon={<Home className="w-4 h-4" />} onClick={closeProject} title="Back to Home" />
+        <Button variant="ghost" size="icon-sm" onClick={closeProject} title="Back to Home">
+          <Home className="w-4 h-4" />
+        </Button>
         <div className="w-px h-6 bg-border" />
         <Film className="w-5 h-5 text-accent" />
         {isEditingName ? (
@@ -47,11 +49,18 @@ export const TopBar: React.FC<TopBarProps> = ({ onExport }) => {
       </div>
 
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" icon={<RotateCcw className="w-4 h-4" />} title="Undo" />
-        <Button variant="ghost" size="sm" icon={<RotateCw className="w-4 h-4" />} title="Redo" />
+        <Button variant="ghost" size="icon-sm" title="Undo">
+          <RotateCcw className="w-4 h-4" />
+        </Button>
+        <Button variant="ghost" size="icon-sm" title="Redo">
+          <RotateCw className="w-4 h-4" />
+        </Button>
         <div className="w-px h-6 bg-border" />
-        <Button variant="ghost" size="sm" icon={<Settings className="w-4 h-4" />} onClick={toggleSettingsModal} title="Settings" />
-        <Button variant="primary" size="sm" icon={<Upload className="w-4 h-4" />} onClick={onExport}>
+        <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings">
+          <Settings className="w-4 h-4" />
+        </Button>
+        <Button variant="default" size="sm" onClick={onExport}>
+          <Upload className="w-4 h-4" />
           Export
         </Button>
       </div>
