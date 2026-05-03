@@ -48,6 +48,8 @@ const App = () => {
 
   const handleOpenProject = async (proj: Project) => {
     try {
+      console.log("[OpenProject] Starting to open project:", proj.id);
+
       // Load the full project data from disk
       const { invoke } = await import("@tauri-apps/api/core");
       const { path } = await import("@tauri-apps/api");
@@ -56,9 +58,14 @@ const App = () => {
       const appDataDir = await path.appDataDir();
       const projectPath = `${appDataDir}projects/${proj.id}.json`;
 
+      console.log("[OpenProject] Loading from path:", projectPath);
+
       // Load the full project JSON
       const projectJson: string = await invoke("load_project", { path: projectPath });
+      console.log("[OpenProject] Loaded JSON, length:", projectJson.length);
+
       const fullProjectData = JSON.parse(projectJson);
+      console.log("[OpenProject] Parsed project data:", fullProjectData);
 
       // Convert snake_case to camelCase for project
       const project: Project = {
@@ -73,30 +80,32 @@ const App = () => {
         duration: fullProjectData.duration || 0,
       };
 
+      console.log("[OpenProject] Converted project:", project);
+
       // Load project
       loadProject(project);
 
       // Restore media assets directly
       if (fullProjectData.media_assets && Array.isArray(fullProjectData.media_assets)) {
+        console.log("[OpenProject] Restoring media assets:", fullProjectData.media_assets.length);
         useProjectStore.setState({ mediaAssets: fullProjectData.media_assets });
       }
 
       // Restore tracks and clips directly
       const { useTimelineStore } = await import("./store/timelineStore");
       if (fullProjectData.tracks && Array.isArray(fullProjectData.tracks)) {
+        console.log("[OpenProject] Restoring tracks:", fullProjectData.tracks.length);
         useTimelineStore.setState({ tracks: fullProjectData.tracks });
       }
       if (fullProjectData.clips && Array.isArray(fullProjectData.clips)) {
+        console.log("[OpenProject] Restoring clips:", fullProjectData.clips.length);
         useTimelineStore.setState({ clips: fullProjectData.clips });
       }
 
-      console.log("[OpenProject] Loaded project:", project.name, {
-        mediaAssets: fullProjectData.media_assets?.length || 0,
-        tracks: fullProjectData.tracks?.length || 0,
-        clips: fullProjectData.clips?.length || 0,
-      });
+      console.log("[OpenProject] Successfully loaded project:", project.name);
     } catch (error) {
-      console.error("Failed to open project:", error);
+      console.error("[OpenProject] Failed to open project:", error);
+      alert(`Failed to open project: ${error}`);
     }
   };
 
