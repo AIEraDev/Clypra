@@ -3,7 +3,7 @@ import type { MediaAsset } from "../types";
 import { usePlaybackStore } from "./playbackStore";
 
 interface UIStore {
-  selectedClipId: string | null;
+  selectedClipIds: string[]; // Multi-select support
   selectedTrackId: string | null;
   // Note: previewMediaId is used for MediaPanel selection state only.
   previewMediaId: string | null;
@@ -19,6 +19,8 @@ interface UIStore {
   sourceOutPoint: number | null;
 
   selectClip: (clipId: string | null) => void;
+  toggleClipSelection: (clipId: string) => void;
+  clearSelection: () => void;
   selectTrack: (trackId: string | null) => void;
   setPreviewMedia: (mediaId: string | null) => void;
   setActivePanel: (panel: "media" | "properties") => void;
@@ -34,7 +36,7 @@ interface UIStore {
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
-  selectedClipId: null,
+  selectedClipIds: [],
   selectedTrackId: null,
   previewMediaId: null,
   activePanel: "media",
@@ -49,7 +51,20 @@ export const useUIStore = create<UIStore>((set, get) => ({
   sourceOutPoint: null,
 
   selectClip: (clipId) => {
-    set({ selectedClipId: clipId });
+    set({ selectedClipIds: clipId ? [clipId] : [] });
+  },
+
+  toggleClipSelection: (clipId) => {
+    set((state) => {
+      const already = state.selectedClipIds.includes(clipId);
+      return {
+        selectedClipIds: already ? state.selectedClipIds.filter((id) => id !== clipId) : [...state.selectedClipIds, clipId],
+      };
+    });
+  },
+
+  clearSelection: () => {
+    set({ selectedClipIds: [] });
   },
 
   selectTrack: (trackId) => {

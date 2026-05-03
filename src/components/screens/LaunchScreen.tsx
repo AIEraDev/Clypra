@@ -1,7 +1,8 @@
-import React, { useEffect } from "react";
-import { Film, ChevronRight } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Film, ChevronRight, Trash2 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
+import { Modal } from "../ui/Modal";
 import { useProjectStore } from "../../store/projectStore";
 import type { AspectRatio, Project } from "../../types";
 
@@ -11,7 +12,9 @@ interface LaunchScreenProps {
 }
 
 export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
-  const { recentProjects, setRecentProjects } = useProjectStore();
+  const { recentProjects, setRecentProjects, deleteProject } = useProjectStore();
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     const loadRecentProjects = async () => {
@@ -47,6 +50,30 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   const handleStartNewProject = () => {
     // Default to 9:16 @ 30fps for social media content
     onProjectCreate("Untitled Project", "9:16", 30);
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent, project: Project) => {
+    e.stopPropagation(); // Prevent opening the project
+    setProjectToDelete(project);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteProject(projectToDelete.id);
+      setProjectToDelete(null);
+    } catch (error) {
+      console.error("Failed to delete project:", error);
+      alert("Failed to delete project. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setProjectToDelete(null);
   };
 
   return (
@@ -86,21 +113,47 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                 {recentProjects.slice(0, 6).map((project) => (
-                  <button key={project.id} onClick={() => onProjectOpen(project)} className="group panel-shell text-left p-4 transition-all hover:-translate-y-0.5 hover:border-[#4a87c9] hover:shadow-[0_12px_20px_rgba(0,0,0,0.22)]">
-                    <div className="bg-[#12161b] rounded-md border border-[#2c3340] w-full h-24 mb-3 flex items-center justify-center">
-                      <Film className="w-8 h-8 text-text-muted group-hover:text-[#8cc7ff]" />
-                    </div>
-                    <h3 className="font-semibold text-text-primary truncate">{project.name}</h3>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <p className="text-text-muted">{new Date(project.createdAt).toLocaleDateString()}</p>
-                      <span className="px-2 py-0.5 rounded bg-[#1f2834] text-[#8cc7ff] border border-[#314154]">{project.aspectRatio}</span>
-                    </div>
-                  </button>
+                  <div key={project.id} className="relative group">
+                    <button onClick={() => onProjectOpen(project)} className="w-full panel-shell text-left p-4 transition-all hover:-translate-y-0.5 hover:border-[#4a87c9] hover:shadow-[0_12px_20px_rgba(0,0,0,0.22)]">
+                      <div className="bg-[#12161b] rounded-md border border-[#2c3340] w-full h-24 mb-3 flex items-center justify-center">
+                        <Film className="w-8 h-8 text-text-muted group-hover:text-[#8cc7ff]" />
+                      </div>
+                      <h3 className="font-semibold text-text-primary truncate">{project.name}</h3>
+                      <div className="mt-2 flex items-center justify-between text-xs">
+                        <p className="text-text-muted">{new Date(project.createdAt).toLocaleDateString()}</p>
+                        <span className="px-2 py-0.5 rounded bg-[#1f2834] text-[#8cc7ff] border border-[#314154]">{project.aspectRatio}</span>
+                      </div>
+                    </button>
+
+                    {/* Delete button */}
+                    <button onClick={(e) => handleDeleteClick(e, project)} className="absolute top-2 right-2 p-2 rounded-md bg-[#1a1f26]/90 border border-[#2c3340] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-danger/20 hover:border-danger/40" title="Delete project">
+                      <Trash2 className="w-4 h-4 text-text-muted hover:text-danger" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
           </div>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        <Modal isOpen={!!projectToDelete} onClose={handleCancelDelete} title="Delete Project">
+          <div className="space-y-4">
+            <p className="text-text-primary">
+              Are you sure you want to delete <strong>{projectToDelete?.name}</strong>?
+            </p>
+            <p className="text-sm text-text-muted">This action cannot be undone. All project data will be permanently deleted.</p>
+
+            <div className="flex gap-3 justify-end pt-4">
+              <Button variant="ghost" onClick={handleCancelDelete} disabled={isDeleting}>
+                Cancel
+              </Button>
+              <Button variant="default" onClick={handleConfirmDelete} disabled={isDeleting} className="bg-danger hover:bg-danger/80">
+                {isDeleting ? "Deleting..." : "Delete Project"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { useUIStore } from "../../../store/uiStore";
 import { useTimelineStore } from "../../../store/timelineStore";
 import { useTimeline } from "../../../hooks/useTimeline";
 import { Clip } from "./Clip";
+import { formatTime } from "../../../lib/utils";
 import type { Track as TrackType, DragItem } from "../../../types";
 
 interface TrackProps {
@@ -14,10 +15,11 @@ interface TrackProps {
 }
 
 export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) => {
-  const { selectedClipId, selectedTrackId } = useUIStore();
+  const { selectedClipIds, selectedTrackId } = useUIStore();
   const { addClipFromAsset, getMediaAsset, moveClip, updateClip, scrollLeft } = useTimeline();
   const { dragState, setDragState, calculateShiftedPositions } = useTimelineStore();
   const [isAltPressed, setIsAltPressed] = React.useState(false);
+  const [dropPosition, setDropPosition] = React.useState<number | null>(null);
 
   // Track Alt key state
   React.useEffect(() => {
@@ -62,6 +64,10 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) =
         const rect = (trackElement as HTMLElement).getBoundingClientRect();
         const x = clientOffset.x - rect.left + scrollLeft;
         const ghostStart = Math.max(0, x / pixelsPerSecond);
+
+        // Snap to 0.1s intervals
+        const snappedTime = Math.max(0, Math.round(ghostStart * 10) / 10);
+        setDropPosition(snappedTime);
 
         // Only handle CLIP dragging for magnetic behavior
         if (item.type === "CLIP") {
@@ -127,10 +133,15 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) =
     [track.id, pixelsPerSecond, addClipFromAsset, moveClip, updateClip, scrollLeft, isAltPressed, dragState, setDragState, calculateShiftedPositions],
   );
 
+  // Clear drop position when not hovering
+  React.useEffect(() => {
+    if (!isOver) setDropPosition(null);
+  }, [isOver]);
+
   const trackClips = clips.filter((c) => c.trackId === track.id);
 
   return (
-    <div ref={drop} data-track-id={track.id} className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-[#1f242b]" : "hover:bg-[#1f242b]"} ${isOver && canDrop ? "bg-cyan-500/10 ring-1 ring-cyan-500/50" : ""}`} style={{ height: `${track.height}px` }}>
+    <div ref={drop} data-track-id={track.id} className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-[#1f242b]" : ""}`} style={{ height: `${track.height}px` }}>
       {track.visible &&
         trackClips.map((clip) => {
           // If a drag is in progress in insert mode, use shifted position
@@ -138,10 +149,23 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) =
           const displayStartTime = shifted ? shifted.shiftedStartTime : clip.startTime;
           const isShifting = !!shifted && shifted.shiftedStartTime !== shifted.originalStartTime;
 
-          return <Clip key={clip.id} clip={clip} mediaAsset={getMediaAsset(clip.mediaId)} pixelsPerSecond={pixelsPerSecond} selected={clip.id === selectedClipId} locked={track.locked} displayStartTime={displayStartTime} isShifting={isShifting} />;
+          return <Clip key={clip.id} clip={clip} mediaAsset={getMediaAsset(clip.mediaId)} pixelsPerSecond={pixelsPerSecond} selected={selectedClipIds.includes(clip.id)} locked={track.locked} displayStartTime={displayStartTime} isShifting={isShifting} />;
         })}
 
-      {/* Ghost drop zone indicator */}
+      {/* Thin vertical drop indicator line - only position, no track background */}
+      {isOver && canDrop && dropPosition !== null && !dragState?.insertMode && (
+        <div
+          className="absolute top-0 bottom-0 w-0.5 bg-accent z-20 pointer-events-none"
+          style={{
+            left: `${dropPosition * pixelsPerSecond}px`,
+          }}
+        >
+          {/* Small time label */}
+          <div className="absolute -top-5 left-1 bg-accent text-white text-[10px] px-1 rounded whitespace-nowrap">{formatTime(dropPosition)}</div>
+        </div>
+      )}
+
+      {/* Ghost drop zone indicator for insert mode */}
       {dragState?.targetTrackId === track.id && dragState.insertMode && (
         <div
           className="absolute top-0 h-full bg-accent/20 border-2 border-accent border-dashed rounded pointer-events-none transition-all duration-100"

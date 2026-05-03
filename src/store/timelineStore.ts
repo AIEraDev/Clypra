@@ -38,6 +38,7 @@ interface TimelineStore {
   getTimelineEndTime: () => number;
   setDragState: (state: DragState | null) => void;
   calculateShiftedPositions: (trackId: string, ghostStart: number, ghostDuration: number, draggingId: string, insertMode: boolean) => AffectedClip[];
+  swapClips: () => { error: string | null };
 }
 
 const trackHeights: Record<string, number> = {
@@ -211,5 +212,77 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
         shiftedStartTime: clip.startTime,
       };
     });
+  },
+
+  swapClips: () => {
+    const { useUIStore } = require("./uiStore");
+    const { selectedClipIds } = useUIStore.getState();
+
+    // Guard: exactly 2 clips must be selected
+    if (selectedClipIds.length !== 2) {
+      return { error: "Select exactly 2 clips to swap" };
+    }
+
+    const state = get();
+    const clipA = state.clips.find((c) => c.id === selectedClipIds[0]);
+    const clipB = state.clips.find((c) => c.id === selectedClipIds[1]);
+
+    if (!clipA || !clipB) {
+      return { error: "Selected clips not found" };
+    }
+
+    // Case: different tracks — simple position + track swap
+    if (clipA.trackId !== clipB.trackId) {
+      set((state) => ({
+        clips: state.clips.map((c) => {
+          if (c.id === clipA.id) {
+            return { ...c, startTime: clipB.startTime, trackId: clipB.trackId };
+          }
+          if (c.id === clipB.id) {
+            return { ...c, startTime: clipA.startTime, trackId: clipA.trackId };
+          }
+          return c;
+        }),
+      }));
+
+      // Trigger auto-save
+      import("./projectStore").then(({ useProjectStore }) => {
+        useProjectStore.getState().scheduleAutoSave();
+      });
+
+      return { error: null };
+    }
+
+    // Case: same track — recalculate positions flush
+    // Ensure left is always the leftmost clip
+    const [left, right] = clipA.startTime < clipB.startTime ? [clipA, clipB] : [clipB, clipA];
+
+    const newLeftStart = left.startTime; // left clip stays at same start
+    const newRightStart = left.startTime + right.duration; // right fills left's old spot
+    const newLeftEnd = newRightStart + left.duration;
+
+    // Collision check: does the swapped left clip overlap anything after it?
+    const trackClips = state.clips.filter((c) => c.trackId === left.trackId && c.id !== left.id && c.id !== right.id).sort((a, b) => a.startTime - b.startTime);
+
+    const clipAfterRight = trackClips.find((c) => c.startTime >= right.startTime);
+
+    if (clipAfterRight && newLeftEnd > clipAfterRight.startTime) {
+      return { error: "Not enough space to swap — clips would overlap" };
+    }
+
+    set((state) => ({
+      clips: state.clips.map((c) => {
+        if (c.id === left.id) return { ...c, startTime: newRightStart };
+        if (c.id === right.id) return { ...c, startTime: newLeftStart };
+        return c;
+      }),
+    }));
+
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
+
+    return { error: null };
   },
 }));

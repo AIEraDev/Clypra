@@ -1,14 +1,18 @@
 import React, { useState } from "react";
-import { Plus, MousePointer2, Scissors, Magnet, Link2, Mic, Search, ZoomIn, ZoomOut } from "lucide-react";
+import { Plus, MousePointer2, Scissors, Magnet, Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../ui/Tooltip";
 import { useTimelineStore } from "../../../store/timelineStore";
+import { useUIStore } from "../../../store/uiStore";
+import { SuccessToast } from "../../ui/SuccessToast";
 
 export const TimelineToolbar: React.FC = () => {
-  const { zoomLevel, setZoom, addTrack } = useTimelineStore();
+  const { zoomLevel, setZoom, addTrack, swapClips } = useTimelineStore();
+  const { selectedClipIds } = useUIStore();
   const [snapMode, setSnapMode] = useState(true);
   const [splitMode, setSplitMode] = useState(false);
   const [linkMode, setLinkMode] = useState(true);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const handleZoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setZoom(Number(e.target.value));
@@ -24,6 +28,13 @@ export const TimelineToolbar: React.FC = () => {
     </Tooltip>
   );
 
+  const handleSwapClick = () => {
+    const result = swapClips();
+    if (result.error) {
+      setToastMessage(result.error);
+    }
+  };
+
   return (
     <TooltipProvider>
       <div className="h-12 border-b border-[#2c2f34] flex items-center px-3 gap-2">
@@ -33,12 +44,13 @@ export const TimelineToolbar: React.FC = () => {
               <Plus className="w-4 h-4" />
             </Button>
           </Tool>
-          <Tool label="Swap Clips">
-            <Button variant="ghost" size="icon-sm" className={toolButton}>
-              {/* prettier-ignore */}
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 8L7 4m0 0L3 8m4-4v16m6-4l4 4m0 0l4-4m-4 4V4"/></svg>
-            </Button>
-          </Tool>
+          {selectedClipIds.length === 2 && (
+            <Tool label="Swap selected clips (Ctrl+Shift+S)">
+              <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleSwapClick}>
+                <ArrowLeftRight className="w-4 h-4" />
+              </Button>
+            </Tool>
+          )}
           <Tool label="Select tool">
             <Button variant="ghost" size="icon-sm" className={toolButton}>
               <MousePointer2 className="w-4 h-4" />
@@ -89,6 +101,8 @@ export const TimelineToolbar: React.FC = () => {
           <span className="text-xs text-[#99a2ad] w-10 text-right">{zoomLevel.toFixed(1)}x</span>
         </div>
       </div>
+
+      <SuccessToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
     </TooltipProvider>
   );
 };

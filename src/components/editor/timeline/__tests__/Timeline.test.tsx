@@ -52,6 +52,18 @@ vi.mock("../Playhead", () => ({
   Playhead: () => <div data-timeline-interactive="true">Playhead</div>,
 }));
 
+vi.mock("../GhostTrack", () => ({
+  GhostTrack: () => null,
+}));
+
+vi.mock("../EmptyTimelineDropZone", () => ({
+  EmptyTimelineDropZone: () => null,
+}));
+
+vi.mock("react-dnd", () => ({
+  useDragLayer: () => ({ isDragging: false }),
+}));
+
 describe("Timeline click behavior", () => {
   beforeEach(() => {
     seekMock.mockClear();

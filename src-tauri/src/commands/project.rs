@@ -69,3 +69,18 @@ pub fn get_recent_projects(app: tauri::AppHandle) -> Result<Vec<String>, String>
     
     Ok(projects.into_iter().take(6).map(|(_, content)| content).collect())
 }
+
+#[tauri::command]
+pub fn delete_project(app: tauri::AppHandle, project_id: String) -> Result<(), String> {
+    let projects_dir = get_projects_dir(&app)?;
+    let file_path = projects_dir.join(format!("{}.json", project_id));
+    
+    if !file_path.exists() {
+        return Err(format!("Project file not found: {}", project_id));
+    }
+    
+    fs::remove_file(&file_path)
+        .map_err(|e| format!("Failed to delete project: {}", e))?;
+    
+    Ok(())
+}
