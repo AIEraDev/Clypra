@@ -81,6 +81,40 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   closeProject: () => {
+    // Ensure any pending auto-save completes before closing
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      // Trigger immediate save
+      const state = get();
+      const { project, mediaAssets } = state;
+
+      if (project) {
+        (async () => {
+          try {
+            const { useTimelineStore } = await import("./timelineStore");
+            const { tracks, clips } = useTimelineStore.getState();
+
+            const projectData = {
+              ...project,
+              updatedAt: Date.now(),
+              tracks,
+              clips,
+              mediaAssets,
+            };
+
+            const { invoke } = await import("@tauri-apps/api/core");
+            await invoke("save_project", {
+              projectData: JSON.stringify(projectData),
+            });
+
+            console.log("[CloseProject] Final save completed:", project.name);
+          } catch (error) {
+            console.error("[CloseProject] Failed to save project:", error);
+          }
+        })();
+      }
+    }
+
     set({ project: null, mediaAssets: [] });
   },
 

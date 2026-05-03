@@ -26,8 +26,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         console.error("Failed to load recent projects:", error);
       }
     };
+    // Load recent projects every time the launch screen is shown
     loadRecentProjects();
-  }, [setRecentProjects]);
+  }, []); // Empty dependency array, but runs on every mount
 
   const handleStartEditing = () => {
     if (selectedRatio && selectedFps) {
