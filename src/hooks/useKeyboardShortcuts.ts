@@ -6,7 +6,7 @@ import { useProjectStore } from "../store/projectStore";
 
 export const useKeyboardShortcuts = () => {
   const { isPlaying, currentTime, frameRate, play, pause, seek } = usePlaybackStore();
-  const { zoomLevel, setZoom, swapClips } = useTimelineStore();
+  const { zoomLevel, setZoom, swapClips, rippleEditEnabled, toggleRippleEdit } = useTimelineStore();
   const { selectedClipIds, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
   const { project } = useProjectStore();
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
@@ -85,12 +85,18 @@ export const useKeyboardShortcuts = () => {
       } else if (isMeta && e.key === "-") {
         e.preventDefault();
         setZoom(Math.max(0.5, zoomLevel - 0.1));
+      } else if (e.key === "r" && !isMeta) {
+        // R key - toggle ripple edit mode
+        e.preventDefault();
+        toggleRippleEdit();
+        setToastMessage(rippleEditEnabled ? "Ripple Edit: OFF" : "Ripple Edit: ON");
+        setTimeout(() => setToastMessage(null), 2000);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, currentTime, frameRate, zoomLevel, selectedClipIds, previewMode, play, pause, seek, setZoom, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips]);
+  }, [isPlaying, currentTime, frameRate, zoomLevel, selectedClipIds, previewMode, rippleEditEnabled, play, pause, seek, setZoom, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips, toggleRippleEdit]);
 
   return { toastMessage };
 };

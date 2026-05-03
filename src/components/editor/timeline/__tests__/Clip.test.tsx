@@ -110,7 +110,8 @@ describe("Clip Component", () => {
       renderClip(clip, undefined, { selected: true });
 
       const clipElement = screen.getByTestId("clip-clip-1");
-      expect(clipElement.className).toContain("border-accent/60");
+      expect(clipElement.className).toContain("ring-2");
+      expect(clipElement.className).toContain("ring-accent");
     });
 
     it("applies locked styling when locked", () => {
@@ -188,8 +189,8 @@ describe("Clip Component", () => {
       const leftHandle = screen.getByTestId("clip-clip-1-resize-left");
       const rightHandle = screen.getByTestId("clip-clip-1-resize-right");
 
-      expect(leftHandle.className).toContain("w-2");
-      expect(rightHandle.className).toContain("w-2");
+      expect(leftHandle.className).toContain("w-3");
+      expect(rightHandle.className).toContain("w-3");
     });
   });
 

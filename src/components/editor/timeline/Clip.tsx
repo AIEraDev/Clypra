@@ -17,9 +17,9 @@ interface ClipProps {
 
 export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, displayStartTime, isShifting = false }) => {
   const { selectClip, toggleClipSelection } = useUIStore();
-  const { updateClip } = useTimelineStore();
+  const { updateClip, rippleEditEnabled, rippleTrimClip } = useTimelineStore();
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
-  const [resizeStart, setResizeStart] = useState<{ x: number; startTime: number; duration: number; trimIn: number; trimOut: number } | null>(null);
+  const [resizeStart, setResizeStart] = useState<{ x: number; startTime: number; duration: number; trimIn: number; trimOut: number; isRipple: boolean } | null>(null);
 
   const [{ isDragging }, drag] = useDrag(
     () => ({
@@ -50,6 +50,9 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     e.stopPropagation();
     if (locked) return;
 
+    // Let's check if ripple mode is active (Shift key OR global ripple mode enabled)
+    const isRipple = e.shiftKey || rippleEditEnabled;
+
     setIsResizing(side);
     setResizeStart({
       x: e.clientX,
@@ -57,9 +60,10 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       duration: clip.duration,
       trimIn: clip.trimIn,
       trimOut: clip.trimOut,
+      isRipple,
     });
 
-    // Prevent text selection during resize
+    // Let's prevent text selection during resize
     document.body.style.userSelect = "none";
   };
 
@@ -70,36 +74,48 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       const deltaX = e.clientX - resizeStart.x;
       const deltaTime = deltaX / pixelsPerSecond;
 
-      if (isResizing === "left") {
-        // Resize from left (trim in)
-        const newStartTime = Math.max(0, resizeStart.startTime + deltaTime);
-        const newDuration = resizeStart.duration - (newStartTime - resizeStart.startTime);
-        const newTrimIn = resizeStart.trimIn + (newStartTime - resizeStart.startTime);
+      if (resizeStart.isRipple) {
+        // RIPPLE MODE: Shift downstream clips
+        rippleTrimClip(clip.id, isResizing, deltaTime);
 
-        // Get media asset duration for validation
-        const maxTrimIn = mediaAsset?.duration || resizeStart.trimOut;
-
-        // Clamp to valid range
-        if (newDuration >= 0.1 && newTrimIn >= 0 && newTrimIn < resizeStart.trimOut && newTrimIn <= maxTrimIn) {
-          updateClip(clip.id, {
-            startTime: newStartTime,
-            duration: newDuration,
-            trimIn: newTrimIn,
-          });
-        }
+        // Update resizeStart to track cumulative changes
+        setResizeStart({
+          ...resizeStart,
+          x: e.clientX,
+        });
       } else {
-        // Resize from right (trim out)
-        const newDuration = Math.max(0.1, resizeStart.duration + deltaTime);
-        const newTrimOut = resizeStart.trimIn + newDuration;
+        // STANDARD MODE: Normal trim (no ripple)
+        if (isResizing === "left") {
+          // Resize from left (trim in)
+          const newStartTime = Math.max(0, resizeStart.startTime + deltaTime);
+          const newDuration = resizeStart.duration - (newStartTime - resizeStart.startTime);
+          const newTrimIn = resizeStart.trimIn + (newStartTime - resizeStart.startTime);
 
-        // Get media asset duration for validation
-        const maxDuration = mediaAsset?.duration || resizeStart.trimOut;
+          // Get media asset duration for validation
+          const maxTrimIn = mediaAsset?.duration || resizeStart.trimOut;
 
-        if (newTrimOut <= maxDuration) {
-          updateClip(clip.id, {
-            duration: newDuration,
-            trimOut: newTrimOut,
-          });
+          // Clamp to valid range
+          if (newDuration >= 0.1 && newTrimIn >= 0 && newTrimIn < resizeStart.trimOut && newTrimIn <= maxTrimIn) {
+            updateClip(clip.id, {
+              startTime: newStartTime,
+              duration: newDuration,
+              trimIn: newTrimIn,
+            });
+          }
+        } else {
+          // Resize from right (trim out)
+          const newDuration = Math.max(0.1, resizeStart.duration + deltaTime);
+          const newTrimOut = resizeStart.trimIn + newDuration;
+
+          // Get media asset duration for validation
+          const maxDuration = mediaAsset?.duration || resizeStart.trimOut;
+
+          if (newTrimOut <= maxDuration) {
+            updateClip(clip.id, {
+              duration: newDuration,
+              trimOut: newTrimOut,
+            });
+          }
         }
       }
     };
@@ -117,7 +133,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isResizing, resizeStart, clip.id, pixelsPerSecond, updateClip, mediaAsset]);
+  }, [isResizing, resizeStart, clip.id, pixelsPerSecond, updateClip, rippleTrimClip, mediaAsset]);
 
   const getClipColor = () => {
     if (mediaAsset?.type === "audio") return "bg-[#153840] border-[#30a7c8]/40";
@@ -147,14 +163,14 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
         }
       }}
       onMouseDown={(e) => e.stopPropagation()}
-      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "border border-accent/60" : ""} ${isDragging ? "opacity-50" : ""} ${isResizing ? "ring-2 ring-cyan-500" : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()} ${isShifting ? "transition-all duration-150 ease-out" : ""}`}
+      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "ring-2 ring-accent" : ""} ${isDragging ? "opacity-50" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()} ${isShifting ? "transition-all duration-150 ease-out" : ""}`}
       style={{
         left: `${left}px`,
         width: `${width}px`,
       }}
     >
       {/* Left trim handle */}
-      <div data-testid={`clip-${clip.id}-resize-left`} className={`absolute left-0 w-2 h-full hover:bg-cyan-300/40 cursor-ew-resize z-10 ${isResizing === "left" ? "bg-cyan-300/60" : "bg-black/20"}`} onMouseDown={(e) => handleResizeStart(e, "left")} />
+      <div data-testid={`clip-${clip.id}-resize-left`} className={`absolute left-0 top-0 w-3 h-full hover:bg-cyan-300/40 cursor-ew-resize z-20 ${isResizing === "left" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`} onMouseDown={(e) => handleResizeStart(e, "left")} title={rippleEditEnabled ? "Ripple trim (ripple mode ON)" : "Hold Shift for ripple trim"} />
 
       {/* Clip content */}
       <div className="w-full h-full px-1 py-1 flex flex-col gap-1 overflow-hidden">
@@ -178,7 +194,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       </div>
 
       {/* Right trim handle */}
-      <div data-testid={`clip-${clip.id}-resize-right`} className={`absolute right-0 w-2 h-full hover:bg-cyan-300/40 cursor-ew-resize z-10 ${isResizing === "right" ? "bg-cyan-300/60" : "bg-black/20"}`} onMouseDown={(e) => handleResizeStart(e, "right")} />
+      <div data-testid={`clip-${clip.id}-resize-right`} className={`absolute right-0 top-0 w-3 h-full hover:bg-cyan-300/40 cursor-ew-resize z-20 ${isResizing === "right" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`} onMouseDown={(e) => handleResizeStart(e, "right")} title={rippleEditEnabled ? "Ripple trim (ripple mode ON)" : "Hold Shift for ripple trim"} />
     </div>
   );
 };

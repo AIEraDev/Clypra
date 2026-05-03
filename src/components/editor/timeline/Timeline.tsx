@@ -24,7 +24,7 @@ export const Timeline: React.FC = () => {
   const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack } = useTimelineStore();
   const { mediaAssets, addMediaAsset } = useProjectStore();
   const { previewMode, exitSourceMode } = useUIStore();
-  const { currentTime, duration, seek, setDuration } = usePlayback();
+  const { currentTime, duration, isPlaying, seek, setDuration } = usePlayback();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const isProcessingDropRef = useRef(false);
@@ -74,20 +74,39 @@ export const Timeline: React.FC = () => {
     setDuration(Math.max(timelineEnd, 10));
   }, [clips, getTimelineEndTime, setDuration]);
 
+  // Auto-scroll during playback: jump viewport when playhead reaches right edge
   useEffect(() => {
+    // Only auto-scroll when actually playing
+    if (!isPlaying) return;
+
     const container = containerRef.current;
     if (!container) return;
 
     const playheadX = currentTime * pixelsPerSecond;
     const containerWidth = container.clientWidth;
-    const scrollPadding = 100;
+    const currentScrollLeft = container.scrollLeft;
+    const viewportEnd = currentScrollLeft + containerWidth;
+    const maxScrollLeft = Math.max(0, contentWidth - containerWidth);
 
-    if (playheadX < scrollLeft + scrollPadding) {
-      setScrollLeft(Math.max(0, playheadX - scrollPadding));
-    } else if (playheadX > scrollLeft + containerWidth - scrollPadding) {
-      setScrollLeft(Math.min(playheadX - containerWidth + scrollPadding, contentWidth - containerWidth));
+    // Check if we're already at max scroll (within 10px tolerance)
+    const isAtMaxScroll = Math.abs(currentScrollLeft - maxScrollLeft) < 10;
+
+    // If playhead would go beyond viewport
+    if (playheadX >= viewportEnd && !isAtMaxScroll) {
+      // Calculate how much content remains after the playhead
+      const remainingContent = contentWidth - playheadX;
+
+      // If remaining content fits in one viewport, scroll to max to show everything
+      if (remainingContent <= containerWidth) {
+        container.scrollLeft = maxScrollLeft;
+        setScrollLeft(maxScrollLeft);
+      } else {
+        // Otherwise, jump viewport so playhead appears at left
+        container.scrollLeft = playheadX;
+        setScrollLeft(playheadX);
+      }
     }
-  }, [currentTime, pixelsPerSecond, scrollLeft, setScrollLeft, contentWidth]);
+  }, [currentTime, pixelsPerSecond, isPlaying, contentWidth]);
 
   const getMediaType = (path: string): "video" | "audio" | "image" => {
     const lower = path.toLowerCase();
@@ -172,12 +191,14 @@ export const Timeline: React.FC = () => {
 
   // Listen for drag events and handle file drops
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    let unlistenHover: (() => void) | undefined;
+    let unlistenDrop: (() => void) | undefined;
+    let unlistenCancel: (() => void) | undefined;
 
     const setupListener = async () => {
       try {
         // Listen for drag over
-        const unlistenHover = await listen<{ position: { x: number; y: number } }>("tauri://drag-over", (event) => {
+        unlistenHover = await listen<{ position: { x: number; y: number } }>("tauri://drag-over", (event) => {
           if (!containerRef.current) return;
 
           const rect = containerRef.current.getBoundingClientRect();
@@ -189,7 +210,7 @@ export const Timeline: React.FC = () => {
         });
 
         // Listen for drop and process files
-        const unlistenDrop = await listen<{
+        unlistenDrop = await listen<{
           paths: string[];
           position: { x: number; y: number };
         }>("tauri://drag-drop", async (event) => {
@@ -216,15 +237,9 @@ export const Timeline: React.FC = () => {
         });
 
         // Listen for drag cancelled
-        const unlistenCancel = await listen("tauri://drag-cancelled", () => {
+        unlistenCancel = await listen("tauri://drag-cancelled", () => {
           setIsDraggingOver(false);
         });
-
-        unlisten = () => {
-          unlistenHover();
-          unlistenDrop();
-          unlistenCancel();
-        };
       } catch (error) {
         console.error("[Timeline] Failed to setup drag listeners:", error);
       }
@@ -233,8 +248,27 @@ export const Timeline: React.FC = () => {
     setupListener();
 
     return () => {
-      if (unlisten) {
-        unlisten();
+      // Clean up listeners safely
+      if (unlistenHover) {
+        try {
+          unlistenHover();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+      if (unlistenDrop) {
+        try {
+          unlistenDrop();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+      if (unlistenCancel) {
+        try {
+          unlistenCancel();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
       }
     };
   }, [handleTauriFileDrop]);

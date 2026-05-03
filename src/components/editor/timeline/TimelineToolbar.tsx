@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Plus, MousePointer2, Scissors, Magnet, Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight } from "lucide-react";
+import { Plus, MousePointer2, Scissors, Magnet, Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Waves } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../ui/Tooltip";
 import { useTimelineStore } from "../../../store/timelineStore";
@@ -7,7 +7,7 @@ import { useUIStore } from "../../../store/uiStore";
 import { SuccessToast } from "../../ui/SuccessToast";
 
 export const TimelineToolbar: React.FC = () => {
-  const { zoomLevel, setZoom, addTrack, swapClips } = useTimelineStore();
+  const { zoomLevel, setZoom, addTrack, swapClips, rippleEditEnabled, toggleRippleEdit } = useTimelineStore();
   const { selectedClipIds } = useUIStore();
   const [snapMode, setSnapMode] = useState(true);
   const [splitMode, setSplitMode] = useState(false);
@@ -69,6 +69,11 @@ export const TimelineToolbar: React.FC = () => {
           <Tool label="Snap">
             <Button variant="ghost" size="icon-sm" className={snapMode ? activeButton : toolButton} onClick={() => setSnapMode(!snapMode)}>
               <Magnet className="w-4 h-4" />
+            </Button>
+          </Tool>
+          <Tool label="Ripple edit mode (R) - Hold Shift while trimming">
+            <Button variant="ghost" size="icon-sm" className={rippleEditEnabled ? activeButton : toolButton} onClick={toggleRippleEdit}>
+              <Waves className="w-4 h-4" />
             </Button>
           </Tool>
           <div className="w-px h-6 bg-[#30343a] mx-1" />

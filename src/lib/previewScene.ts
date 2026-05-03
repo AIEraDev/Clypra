@@ -1,4 +1,5 @@
 import type { Clip, MediaAsset, Project, Track } from "../types";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 export interface PreviewLayer {
   clipId: string;
@@ -39,21 +40,26 @@ export const resolvePreviewScene = ({ tracks, clips, assets, time }: ResolvePrev
       const track = trackMap.get(clip.trackId);
       if (!track || !track.visible) return false;
       const clipEnd = clip.startTime + clip.duration;
-      return time >= clip.startTime && time < clipEnd;
+      // Include the exact end time so the last frame is visible
+      return time >= clip.startTime && time <= clipEnd;
     })
     .map((clip) => {
       const asset = assetMap.get(clip.mediaId);
       if (!asset || (asset.type !== "video" && asset.type !== "image")) return null;
       const sourceTime = clip.trimIn + (time - clip.startTime);
-      const sourcePath = asset.path || asset.posterFrame || "";
+
+      // Convert file paths to Tauri-compatible URLs
+      const sourcePath = asset.path ? convertFileSrc(asset.path) : asset.posterFrame || "";
       if (!sourcePath) return null;
+
       return {
         clip,
         asset,
         sourceTime,
+        sourcePath,
       };
     })
-    .filter((item): item is { clip: Clip; asset: MediaAsset; sourceTime: number } => Boolean(item))
+    .filter((item): item is { clip: Clip; asset: MediaAsset; sourceTime: number; sourcePath: string } => Boolean(item))
     .sort((a, b) => {
       const ta = trackIndexMap.get(a.clip.trackId) ?? 0;
       const tb = trackIndexMap.get(b.clip.trackId) ?? 0;
@@ -63,12 +69,12 @@ export const resolvePreviewScene = ({ tracks, clips, assets, time }: ResolvePrev
     });
 
   return {
-    layers: active.map(({ clip, asset, sourceTime }, index) => ({
+    layers: active.map(({ clip, asset, sourceTime, sourcePath }, index) => ({
       clipId: clip.id,
       trackId: clip.trackId,
       mediaId: clip.mediaId,
       mediaType: asset.type === "video" ? "video" : "image",
-      sourcePath: asset.path || asset.posterFrame || "",
+      sourcePath,
       posterFrame: asset.posterFrame,
       sourceTime,
       x: clip.x,
@@ -81,4 +87,3 @@ export const resolvePreviewScene = ({ tracks, clips, assets, time }: ResolvePrev
     })),
   };
 };
-

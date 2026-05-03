@@ -1,17 +1,17 @@
-import { create } from 'zustand'
+import { create } from "zustand";
 
 interface PlaybackStore {
-  isPlaying: boolean
-  currentTime: number
-  duration: number
-  frameRate: number
-  intervalId: number | null
-  play: () => void
-  pause: () => void
-  stop: () => void
-  seek: (time: number) => void
-  setDuration: (duration: number) => void
-  setFrameRate: (fps: number) => void
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  frameRate: number;
+  intervalId: number | null;
+  play: () => void;
+  pause: () => void;
+  stop: () => void;
+  seek: (time: number) => void;
+  setDuration: (duration: number) => void;
+  setFrameRate: (fps: number) => void;
 }
 
 export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
@@ -22,56 +22,61 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   intervalId: null,
 
   play: () => {
-    const state = get()
-    if (state.isPlaying) return
+    const state = get();
+    if (state.isPlaying) return;
 
-    set({ isPlaying: true })
+    set({ isPlaying: true });
 
     const intervalId = window.setInterval(() => {
-      const current = get()
-      const frameTime = 1 / current.frameRate
-      const newTime = current.currentTime + frameTime
+      const current = get();
+      const frameTime = 1 / current.frameRate;
+      const newTime = current.currentTime + frameTime;
 
       if (newTime >= current.duration) {
-        get().stop()
+        // Pause at the end instead of stopping (which resets to 0)
+        // Clamp to duration to ensure we don't exceed it
+        set({ currentTime: current.duration, isPlaying: false, intervalId: null });
+        if (current.intervalId) {
+          clearInterval(current.intervalId);
+        }
       } else {
-        set({ currentTime: newTime })
+        set({ currentTime: newTime });
       }
-    }, 16) as unknown as number
+    }, 16) as unknown as number;
 
-    set({ intervalId })
+    set({ intervalId });
   },
 
   pause: () => {
-    const state = get()
+    const state = get();
     if (state.intervalId) {
-      clearInterval(state.intervalId)
+      clearInterval(state.intervalId);
     }
-    set({ isPlaying: false, intervalId: null })
+    set({ isPlaying: false, intervalId: null });
   },
 
   stop: () => {
-    const state = get()
+    const state = get();
     if (state.intervalId) {
-      clearInterval(state.intervalId)
+      clearInterval(state.intervalId);
     }
-    set({ isPlaying: false, currentTime: 0, intervalId: null })
+    set({ isPlaying: false, currentTime: 0, intervalId: null });
   },
 
   seek: (time) => {
-    const state = get()
+    const state = get();
     if (state.intervalId) {
-      clearInterval(state.intervalId)
+      clearInterval(state.intervalId);
     }
-    const clamped = Math.max(0, Math.min(time, state.duration))
-    set({ currentTime: clamped, isPlaying: false, intervalId: null })
+    const clamped = Math.max(0, Math.min(time, state.duration));
+    set({ currentTime: clamped, isPlaying: false, intervalId: null });
   },
 
   setDuration: (duration) => {
-    set({ duration })
+    set({ duration });
   },
 
   setFrameRate: (fps) => {
-    set({ frameRate: fps })
+    set({ frameRate: fps });
   },
-}))
+}));

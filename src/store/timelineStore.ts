@@ -23,6 +23,7 @@ interface TimelineStore {
   scrollLeft: number;
   pixelsPerSecond: number;
   dragState: DragState | null;
+  rippleEditEnabled: boolean;
   addTrack: (type: "video" | "audio" | "text") => void;
   removeTrack: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
@@ -39,6 +40,8 @@ interface TimelineStore {
   setDragState: (state: DragState | null) => void;
   calculateShiftedPositions: (trackId: string, ghostStart: number, ghostDuration: number, draggingId: string, insertMode: boolean) => AffectedClip[];
   swapClips: () => { error: string | null };
+  toggleRippleEdit: () => void;
+  rippleTrimClip: (clipId: string, side: "left" | "right", deltaTime: number) => void;
 }
 
 const trackHeights: Record<string, number> = {
@@ -54,6 +57,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   scrollLeft: 0,
   pixelsPerSecond: 100,
   dragState: null,
+  rippleEditEnabled: false,
 
   addTrack: (type) => {
     const newTrack: Track = {
@@ -284,5 +288,90 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     });
 
     return { error: null };
+  },
+
+  toggleRippleEdit: () => {
+    set((state) => ({ rippleEditEnabled: !state.rippleEditEnabled }));
+  },
+
+  rippleTrimClip: (clipId, side, deltaTime) => {
+    const state = get();
+    const clip = state.clips.find((c) => c.id === clipId);
+    if (!clip) return;
+
+    const track = state.tracks.find((t) => t.id === clip.trackId);
+    if (track?.locked) return;
+
+    // Calculate the new clip dimensions
+    let newStartTime = clip.startTime;
+    let newDuration = clip.duration;
+    let rippleAmount = 0;
+
+    if (side === "right") {
+      // Trimming right edge - changes duration
+      newDuration = Math.max(0.1, clip.duration + deltaTime);
+      rippleAmount = newDuration - clip.duration;
+    } else {
+      // Trimming left edge - changes both start time and duration
+      newStartTime = Math.max(0, clip.startTime + deltaTime);
+      const actualDelta = newStartTime - clip.startTime;
+      newDuration = clip.duration - actualDelta;
+      rippleAmount = actualDelta;
+
+      if (newDuration < 0.1) return; // Don't allow clip to become too small
+    }
+
+    // Find all clips downstream on the same track
+    const downstreamClips = state.clips
+      .filter((c) => {
+        if (c.id === clipId) return false;
+        if (c.trackId !== clip.trackId) return false;
+
+        // For right edge trim: clips that start after the clip's end
+        if (side === "right") {
+          return c.startTime >= clip.startTime + clip.duration;
+        }
+        // For left edge trim: clips that start after the clip's start
+        return c.startTime >= clip.startTime;
+      })
+      .sort((a, b) => a.startTime - b.startTime);
+
+    // Update the trimmed clip and all downstream clips
+    set((state) => ({
+      clips: state.clips.map((c) => {
+        if (c.id === clipId) {
+          // Update the clip being trimmed
+          const updates: Partial<Clip> = {
+            startTime: newStartTime,
+            duration: newDuration,
+          };
+
+          // Update trim points for media
+          if (side === "left") {
+            updates.trimIn = clip.trimIn + (newStartTime - clip.startTime);
+          } else {
+            updates.trimOut = clip.trimIn + newDuration;
+          }
+
+          return { ...c, ...updates };
+        }
+
+        // Shift downstream clips
+        const downstream = downstreamClips.find((dc) => dc.id === c.id);
+        if (downstream) {
+          return {
+            ...c,
+            startTime: c.startTime + rippleAmount,
+          };
+        }
+
+        return c;
+      }),
+    }));
+
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
   },
 }));
