@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { usePlaybackStore } from "../store/playbackStore";
 import { useTimelineStore } from "../store/timelineStore";
 import { useUIStore } from "../store/uiStore";
@@ -6,9 +6,10 @@ import { useProjectStore } from "../store/projectStore";
 
 export const useKeyboardShortcuts = () => {
   const { isPlaying, currentTime, frameRate, play, pause, seek } = usePlaybackStore();
-  const { zoomLevel, setZoom } = useTimelineStore();
-  const { selectedClipId, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
+  const { zoomLevel, setZoom, swapClips } = useTimelineStore();
+  const { selectedClipIds, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
   const { project } = useProjectStore();
+  const [toastMessage, setToastMessage] = React.useState<string | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -61,8 +62,16 @@ export const useKeyboardShortcuts = () => {
       } else if (isMeta && e.key === "i") {
         e.preventDefault();
         console.log("Import media");
+      } else if (isMeta && e.shiftKey && e.key === "S") {
+        // Ctrl+Shift+S — swap selected clips
+        e.preventDefault();
+        const result = swapClips();
+        if (result.error) {
+          setToastMessage(result.error);
+          setTimeout(() => setToastMessage(null), 3000);
+        }
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedClipId) {
+        if (selectedClipIds.length > 0) {
           e.preventDefault();
           console.log("Delete clip");
         }
@@ -81,5 +90,7 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, currentTime, frameRate, zoomLevel, selectedClipId, previewMode, play, pause, seek, setZoom, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut]);
+  }, [isPlaying, currentTime, frameRate, zoomLevel, selectedClipIds, previewMode, play, pause, seek, setZoom, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips]);
+
+  return { toastMessage };
 };

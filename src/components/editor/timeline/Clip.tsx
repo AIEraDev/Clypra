@@ -16,7 +16,7 @@ interface ClipProps {
 }
 
 export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, displayStartTime, isShifting = false }) => {
-  const { selectClip } = useUIStore();
+  const { selectClip, toggleClipSelection } = useUIStore();
   const { updateClip } = useTimelineStore();
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const [resizeStart, setResizeStart] = useState<{ x: number; startTime: number; duration: number; trimIn: number; trimOut: number } | null>(null);
@@ -138,7 +138,13 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       onClick={(e) => {
         e.stopPropagation();
         if (locked) return;
-        selectClip(clip.id);
+
+        // Multi-select with Shift/Cmd/Ctrl
+        if (e.shiftKey || e.metaKey || e.ctrlKey) {
+          toggleClipSelection(clip.id);
+        } else {
+          selectClip(clip.id);
+        }
       }}
       onMouseDown={(e) => e.stopPropagation()}
       className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "border border-accent/60" : ""} ${isDragging ? "opacity-50" : ""} ${isResizing ? "ring-2 ring-cyan-500" : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()} ${isShifting ? "transition-all duration-150 ease-out" : ""}`}

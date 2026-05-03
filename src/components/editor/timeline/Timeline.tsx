@@ -1,29 +1,45 @@
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, RefObject } from "react";
 import { FolderOpen } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+// @ts-ignore - react-dnd types issue
+import { useDragLayer } from "react-dnd";
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
 import { TrackList } from "./TrackList";
 import { Track } from "./Track";
 import { Playhead } from "./Playhead";
+import { GhostTrack } from "./GhostTrack";
+import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
 import { useTimelineStore } from "../../../store/timelineStore";
 import { useProjectStore } from "../../../store/projectStore";
 import { useUIStore } from "../../../store/uiStore";
 import { usePlayback } from "../../../hooks/usePlayback";
+import { useTimelineAutoScroll } from "../../../hooks/useTimelineAutoScroll";
 import type { VideoMetadata } from "../../../types";
 import { createClipFromAsset } from "../../../lib/timelineClip";
 
 export const Timeline: React.FC = () => {
-  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack, dragState } = useTimelineStore();
+  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack } = useTimelineStore();
   const { mediaAssets, addMediaAsset } = useProjectStore();
   const { previewMode, exitSourceMode } = useUIStore();
   const { currentTime, duration, seek, setDuration } = usePlayback();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const isProcessingDropRef = useRef(false);
-  const autoScrollIntervalRef = useRef<number | null>(null);
+
+  // Detect if something is being dragged (only show ghost zones for MEDIA_ASSET)
+  const { isDragging, itemType } = useDragLayer((monitor: any) => ({
+    isDragging: monitor.isDragging(),
+    itemType: monitor.getItemType(),
+  }));
+
+  // Only show ghost zones when dragging media assets, not clips
+  const showGhostZones = isDragging && itemType === "MEDIA_ASSET";
+
+  // Use new auto-scroll hook
+  useTimelineAutoScroll(containerRef as RefObject<HTMLDivElement>);
 
   const contentWidth = Math.max(1000, duration * pixelsPerSecond);
 
@@ -52,69 +68,6 @@ export const Timeline: React.FC = () => {
     const target = e.currentTarget;
     setScrollLeft(target.scrollLeft);
   };
-
-  // Auto-scroll when dragging near edges
-  useEffect(() => {
-    if (!dragState) {
-      // Clear auto-scroll when not dragging
-      if (autoScrollIntervalRef.current) {
-        clearInterval(autoScrollIntervalRef.current);
-        autoScrollIntervalRef.current = null;
-      }
-      return;
-    }
-
-    const container = containerRef.current;
-    if (!container) return;
-
-    const EDGE_THRESHOLD = 100; // pixels from edge to trigger scroll
-    const SCROLL_SPEED = 10; // pixels per frame
-
-    const handleAutoScroll = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const containerWidth = rect.width;
-
-      // Check if near left edge
-      if (mouseX < EDGE_THRESHOLD && container.scrollLeft > 0) {
-        if (!autoScrollIntervalRef.current) {
-          autoScrollIntervalRef.current = window.setInterval(() => {
-            const newScrollLeft = Math.max(0, container.scrollLeft - SCROLL_SPEED);
-            container.scrollLeft = newScrollLeft;
-            setScrollLeft(newScrollLeft);
-          }, 16); // ~60fps
-        }
-      }
-      // Check if near right edge
-      else if (mouseX > containerWidth - EDGE_THRESHOLD && container.scrollLeft < contentWidth - containerWidth) {
-        if (!autoScrollIntervalRef.current) {
-          autoScrollIntervalRef.current = window.setInterval(() => {
-            const maxScroll = contentWidth - containerWidth;
-            const newScrollLeft = Math.min(maxScroll, container.scrollLeft + SCROLL_SPEED);
-            container.scrollLeft = newScrollLeft;
-            setScrollLeft(newScrollLeft);
-          }, 16); // ~60fps
-        }
-      }
-      // Not near edges, stop scrolling
-      else {
-        if (autoScrollIntervalRef.current) {
-          clearInterval(autoScrollIntervalRef.current);
-          autoScrollIntervalRef.current = null;
-        }
-      }
-    };
-
-    window.addEventListener("mousemove", handleAutoScroll);
-
-    return () => {
-      window.removeEventListener("mousemove", handleAutoScroll);
-      if (autoScrollIntervalRef.current) {
-        clearInterval(autoScrollIntervalRef.current);
-        autoScrollIntervalRef.current = null;
-      }
-    };
-  }, [dragState, contentWidth, setScrollLeft]);
 
   useEffect(() => {
     const timelineEnd = getTimelineEndTime();
@@ -293,7 +246,7 @@ export const Timeline: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         <TrackList />
 
-        <div ref={containerRef} onScroll={handleScroll} onClick={seekFromPointer} className={`flex-1 overflow-x-auto overflow-y-auto scrollbar-thin px-1 relative transition-colors border-l border-[#2b3442] ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}>
+        <div ref={containerRef} onScroll={handleScroll} onClick={seekFromPointer} id="timeline-tracks-container" className={`flex-1 overflow-x-auto overflow-y-auto scrollbar-thin px-1 relative transition-colors border-l border-[#2b3442] ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}>
           {clips.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex items-center gap-3 text-[#6b7280] pointer-events-none">
@@ -313,9 +266,19 @@ export const Timeline: React.FC = () => {
             <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} />
 
             <div className="relative flex-1 flex flex-col justify-center min-h-0">
-              {tracks.map((track) => (
-                <Track key={track.id} track={track} pixelsPerSecond={pixelsPerSecond} clips={clips} />
+              {/* Ghost track above all tracks - only for media assets */}
+              <GhostTrack insertIndex={0} isDragging={showGhostZones} />
+
+              {tracks.map((track, index) => (
+                <React.Fragment key={track.id}>
+                  <Track track={track} pixelsPerSecond={pixelsPerSecond} clips={clips} />
+                  {/* Ghost track between tracks - only for media assets */}
+                  <GhostTrack insertIndex={index + 1} isDragging={showGhostZones} />
+                </React.Fragment>
               ))}
+
+              {/* Empty space below all tracks - only for media assets */}
+              <EmptyTimelineDropZone isDragging={showGhostZones} />
 
               <Playhead pixelsPerSecond={pixelsPerSecond} duration={duration} />
             </div>

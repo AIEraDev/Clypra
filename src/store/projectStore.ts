@@ -11,6 +11,7 @@ interface ProjectStore {
   removeMediaAsset: (assetId: string) => void;
   updateProject: (updates: Partial<Project>) => void;
   setRecentProjects: (projects: Project[]) => void;
+  deleteProject: (projectId: string) => Promise<void>;
   closeProject: () => void;
   scheduleAutoSave: () => void;
 }
@@ -48,6 +49,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       duration: 0,
     };
     set({ project, mediaAssets: [] });
+
+    // Clear timeline state for new project
+    import("./timelineStore").then(({ useTimelineStore }) => {
+      useTimelineStore.setState({ tracks: [], clips: [] });
+    });
+
     get().scheduleAutoSave();
   },
 
@@ -84,6 +91,29 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   setRecentProjects: (projects) => {
     set({ recentProjects: projects });
+  },
+
+  deleteProject: async (projectId) => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("delete_project", { projectId });
+
+      // Remove from recent projects list
+      set((state) => ({
+        recentProjects: state.recentProjects.filter((p) => p.id !== projectId),
+      }));
+
+      // If the deleted project is currently open, close it
+      const currentProject = get().project;
+      if (currentProject && currentProject.id === projectId) {
+        set({ project: null, mediaAssets: [] });
+      }
+
+      console.log("[DeleteProject] Project deleted:", projectId);
+    } catch (error) {
+      console.error("[DeleteProject] Failed to delete project:", error);
+      throw error;
+    }
   },
 
   closeProject: () => {
