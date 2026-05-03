@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { Film, ChevronRight } from "lucide-react";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
@@ -11,8 +11,6 @@ interface LaunchScreenProps {
 }
 
 export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
-  const [selectedRatio, setSelectedRatio] = useState<AspectRatio | null>(null);
-  const [selectedFps, setSelectedFps] = useState<24 | 30 | 60 | null>(null);
   const { recentProjects, setRecentProjects } = useProjectStore();
 
   useEffect(() => {
@@ -28,33 +26,11 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     };
     // Load recent projects every time the launch screen is shown
     loadRecentProjects();
-  }, []); // Empty dependency array, but runs on every mount
+  }, [setRecentProjects]);
 
-  const handleStartEditing = () => {
-    if (selectedRatio && selectedFps) {
-      onProjectCreate("Untitled Project", selectedRatio, selectedFps);
-    }
-  };
-
-  const aspectRatios: { ratio: AspectRatio; label: string; useCase: string }[] = [
-    { ratio: "16:9", label: "16:9", useCase: "YouTube" },
-    { ratio: "9:16", label: "9:16", useCase: "Reels" },
-    { ratio: "1:1", label: "1:1", useCase: "Square" },
-    { ratio: "4:3", label: "4:3", useCase: "Standard" },
-    { ratio: "21:9", label: "21:9", useCase: "Ultrawide" },
-  ];
-
-  // Calculate dimensions that maintain aspect ratio with proper visual balance
-  const getAspectRatioDimensions = (ratio: AspectRatio) => {
-    const baseSize = 64;
-    const aspectMap: Record<AspectRatio, { width: number; height: number }> = {
-      "16:9": { width: baseSize, height: baseSize * (9 / 16) },
-      "9:16": { width: baseSize * (9 / 16), height: baseSize },
-      "1:1": { width: baseSize * 0.7, height: baseSize * 0.7 },
-      "4:3": { width: baseSize * 0.85, height: baseSize * (3 / 4) * 0.85 },
-      "21:9": { width: baseSize * 1.1, height: baseSize * (9 / 21) * 1.1 },
-    };
-    return aspectMap[ratio];
+  const handleStartNewProject = () => {
+    // Default to 9:16 @ 30fps for social media content
+    onProjectCreate("Untitled Project", "9:16", 30);
   };
 
   return (
@@ -73,44 +49,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         <div className="panel-shell flex-1 min-h-0 p-6 md:p-8 overflow-y-auto scrollbar-thin">
           {/* New Project Section */}
           <div className="max-w-3xl mx-auto mb-12">
-            <h2 className="text-xl font-semibold text-text-primary mb-6 text-center">Start New Project</h2>
+            <h2 className="text-xl font-semibold text-text-primary mb-6 text-center">Start Creating</h2>
 
-            {/* Aspect Ratio Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-text-muted mb-3 text-center">Aspect Ratio</label>
-              <div className="flex gap-3 justify-center flex-wrap">
-                {aspectRatios.map(({ ratio, label, useCase }) => {
-                  const { width, height } = getAspectRatioDimensions(ratio);
-                  return (
-                    <button key={ratio} onClick={() => setSelectedRatio(ratio)} className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2.5 transition-all hover:scale-105 min-w-[100px] ${selectedRatio === ratio ? "border-accent bg-surface-raised shadow-lg" : "border-border hover:border-accent/50"}`}>
-                      <div className="bg-accent rounded-sm shadow-sm" style={{ width: `${width}px`, height: `${height}px` }} />
-                      <div className="text-center">
-                        <div className="text-sm font-bold text-text-primary">{label}</div>
-                        <div className="text-xs text-text-muted mt-0.5">{useCase}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Frame Rate Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-text-muted mb-3 text-center">Frame Rate</label>
-              <div className="flex gap-3 justify-center max-w-md mx-auto">
-                {[24, 30, 60].map((fps) => (
-                  <button key={fps} onClick={() => setSelectedFps(fps as any)} className={`flex-1 py-3 px-4 rounded-lg border-2 font-semibold transition-all hover:scale-105 ${selectedFps === fps ? "border-accent bg-accent text-white shadow-lg" : "border-border text-text-primary hover:border-accent/50"}`}>
-                    {fps} fps
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Start Button */}
-            <div className="flex justify-center mt-8">
-              <Button variant="default" size="lg" onClick={handleStartEditing} disabled={!selectedRatio || !selectedFps} className="px-12 py-3 text-base">
-                Start Editing
-                <ChevronRight className="w-5 h-5 ml-1" />
+            <div className="flex justify-center">
+              <Button variant="default" size="lg" onClick={handleStartNewProject} className="px-16 py-4 text-lg font-semibold">
+                Start New Project
+                <ChevronRight className="w-6 h-6 ml-2" />
               </Button>
             </div>
           </div>
