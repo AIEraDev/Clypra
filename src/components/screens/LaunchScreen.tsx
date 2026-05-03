@@ -11,7 +11,7 @@ interface LaunchScreenProps {
 }
 
 export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
-  const [selectedRatio, setSelectedRatio] = useState<AspectRatio>("16:9");
+  const [selectedRatio, setSelectedRatio] = useState<AspectRatio>("9:16");
   const [selectedFps, setSelectedFps] = useState<24 | 30 | 60>(30);
   const { recentProjects, setRecentProjects } = useProjectStore();
 
