@@ -16,11 +16,13 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
   const rafRef = useRef<number | null>(null);
   const scrollVelocityRef = useRef(0);
   const pointerIdRef = useRef<number | null>(null);
+  const pointerXRef = useRef(0); // Pointer position in viewport space
+  const dragOffsetRef = useRef(0); // Offset captured at drag start for smooth anchor
 
   // ✅ Use same pixel mapping as Timeline scroll logic (rounded to avoid subpixel issues)
   const left = Math.max(0, Math.round(currentTime * pixelsPerSecond));
 
-  // ✅ Continuous auto-scroll loop (runs independently of pointer events)
+  // ✅ Continuous loop: scroll FIRST, then derive playhead from pointer
   useEffect(() => {
     if (!isDragging) {
       scrollVelocityRef.current = 0;
@@ -40,6 +42,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         return;
       }
 
+      // ✅ 1. Update scroll FIRST
       const velocity = scrollVelocityRef.current;
       if (velocity !== 0) {
         const viewportWidth = container.clientWidth;
@@ -49,6 +52,15 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         container.scrollLeft = newScrollLeft;
         setScrollLeft(newScrollLeft);
       }
+
+      // ✅ 2. THEN derive playhead from pointer
+      // Invariant: playheadX - scrollX === pointerX (+ offset)
+      const scrollX = container.scrollLeft;
+      const playheadX = scrollX + pointerXRef.current + dragOffsetRef.current;
+
+      // Convert to time and seek
+      const newTime = Math.max(0, Math.min(playheadX / pixelsPerSecond, duration));
+      seek(newTime);
 
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -61,9 +73,9 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         rafRef.current = null;
       }
     };
-  }, [isDragging, containerRef, setScrollLeft]);
+  }, [isDragging, containerRef, setScrollLeft, pixelsPerSecond, duration, seek]);
 
-  // ✅ Global pointer tracking (works even when pointer leaves timeline)
+  // ✅ Global pointer tracking - only updates pointer position and velocity
   useEffect(() => {
     if (!isDragging) return;
 
@@ -71,18 +83,13 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       e.preventDefault();
 
       const container = containerRef.current;
-      const parent = playheadRef.current?.parentElement;
-      if (!parent || !container) return;
+      if (!container) return;
 
-      // Update playhead position based on pointer
-      const rect = parent.getBoundingClientRect();
-      const x = e.clientX - rect.left + container.scrollLeft;
-      const newTime = Math.max(0, Math.min(x / pixelsPerSecond, duration));
-      seek(newTime);
-
-      // ✅ Calculate auto-scroll velocity based on pointer position relative to VIEWPORT
+      // ✅ Store pointer position in viewport space
       const viewportRect = container.getBoundingClientRect();
-      const pointerXInViewport = e.clientX - viewportRect.left;
+      pointerXRef.current = e.clientX - viewportRect.left;
+
+      // ✅ Calculate auto-scroll velocity based on pointer position
       const viewportWidth = container.clientWidth;
       const scrollLeft = container.scrollLeft;
       const maxScrollLeft = Math.max(0, container.scrollWidth - viewportWidth);
@@ -90,14 +97,14 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       const EDGE_THRESHOLD = 80; // px from edge where auto-scroll starts
       const VELOCITY_MULTIPLIER = 0.3; // Acceleration factor
 
-      // ✅ Calculate velocity even when pointer is OUTSIDE viewport bounds
-      if (pointerXInViewport > viewportWidth - EDGE_THRESHOLD && scrollLeft < maxScrollLeft) {
+      // Calculate velocity even when pointer is OUTSIDE viewport bounds
+      if (pointerXRef.current > viewportWidth - EDGE_THRESHOLD && scrollLeft < maxScrollLeft) {
         // Near or beyond right edge → scroll right
-        const distance = pointerXInViewport - (viewportWidth - EDGE_THRESHOLD);
+        const distance = pointerXRef.current - (viewportWidth - EDGE_THRESHOLD);
         scrollVelocityRef.current = distance * VELOCITY_MULTIPLIER;
-      } else if (pointerXInViewport < EDGE_THRESHOLD && scrollLeft > 0) {
+      } else if (pointerXRef.current < EDGE_THRESHOLD && scrollLeft > 0) {
         // Near or beyond left edge → scroll left
-        const distance = EDGE_THRESHOLD - pointerXInViewport;
+        const distance = EDGE_THRESHOLD - pointerXRef.current;
         scrollVelocityRef.current = -distance * VELOCITY_MULTIPLIER;
       } else {
         // In safe zone → no scroll
@@ -151,11 +158,15 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       document.body.classList.remove("cursor-lock-ew");
       scrollVelocityRef.current = 0;
     };
-  }, [isDragging, duration, pixelsPerSecond, seek, containerRef, setScrollLeft]);
+  }, [isDragging, containerRef]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    const container = containerRef.current;
+    const parent = playheadRef.current?.parentElement;
+    if (!container || !parent) return;
 
     // ✅ Capture pointer to receive events even outside element
     if (playheadRef.current) {
@@ -168,15 +179,20 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       }
     }
 
-    // Seek to clicked position
-    const parent = playheadRef.current?.parentElement;
-    const container = containerRef.current;
-    if (parent && container) {
-      const rect = parent.getBoundingClientRect();
-      const x = e.clientX - rect.left + container.scrollLeft;
-      const newTime = Math.max(0, Math.min(x / pixelsPerSecond, duration));
-      seek(newTime);
-    }
+    // ✅ Calculate drag offset to prevent snapping
+    const viewportRect = container.getBoundingClientRect();
+    const pointerX = e.clientX - viewportRect.left;
+    const scrollX = container.scrollLeft;
+    const currentPlayheadX = currentTime * pixelsPerSecond;
+
+    // Store offset: where playhead is relative to where pointer thinks it should be
+    dragOffsetRef.current = currentPlayheadX - (scrollX + pointerX);
+    pointerXRef.current = pointerX;
+
+    // Seek to clicked position (with offset)
+    const playheadX = scrollX + pointerX + dragOffsetRef.current;
+    const newTime = Math.max(0, Math.min(playheadX / pixelsPerSecond, duration));
+    seek(newTime);
 
     setIsDragging(true);
   };
