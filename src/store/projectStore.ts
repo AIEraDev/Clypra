@@ -12,6 +12,7 @@ interface ProjectStore {
   updateProject: (updates: Partial<Project>) => void;
   setRecentProjects: (projects: Project[]) => void;
   closeProject: () => void;
+  scheduleAutoSave: () => void;
 }
 
 const getAspectRatioDimensions = (ratio: string): { width: number; height: number } => {
@@ -25,7 +26,10 @@ const getAspectRatioDimensions = (ratio: string): { width: number; height: numbe
   return map[ratio] || map["16:9"];
 };
 
-export const useProjectStore = create<ProjectStore>((set) => ({
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const AUTO_SAVE_DELAY = 500; // ms
+
+export const useProjectStore = create<ProjectStore>((set, get) => ({
   project: null,
   mediaAssets: [],
   recentProjects: [],
@@ -44,6 +48,7 @@ export const useProjectStore = create<ProjectStore>((set) => ({
       duration: 0,
     };
     set({ project, mediaAssets: [] });
+    get().scheduleAutoSave();
   },
 
   loadProject: (project) => {
@@ -54,18 +59,21 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     set((state) => ({
       mediaAssets: [...state.mediaAssets, asset],
     }));
+    get().scheduleAutoSave();
   },
 
   removeMediaAsset: (assetId) => {
     set((state) => ({
       mediaAssets: state.mediaAssets.filter((a) => a.id !== assetId),
     }));
+    get().scheduleAutoSave();
   },
 
   updateProject: (updates) => {
     set((state) => ({
       project: state.project ? { ...state.project, ...updates, updatedAt: Date.now() } : null,
     }));
+    get().scheduleAutoSave();
   },
 
   setRecentProjects: (projects) => {
@@ -74,5 +82,41 @@ export const useProjectStore = create<ProjectStore>((set) => ({
 
   closeProject: () => {
     set({ project: null, mediaAssets: [] });
+  },
+
+  scheduleAutoSave: () => {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+    }
+
+    autoSaveTimer = setTimeout(async () => {
+      const state = get();
+      const { project, mediaAssets } = state;
+
+      if (!project) return;
+
+      try {
+        // Import timeline store to get tracks and clips
+        const { useTimelineStore } = await import("./timelineStore");
+        const { tracks, clips } = useTimelineStore.getState();
+
+        const projectData = {
+          ...project,
+          updatedAt: Date.now(),
+          tracks,
+          clips,
+          mediaAssets,
+        };
+
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("save_project", {
+          projectData: JSON.stringify(projectData),
+        });
+
+        console.log("[AutoSave] Project saved:", project.name);
+      } catch (error) {
+        console.error("[AutoSave] Failed to save project:", error);
+      }
+    }, AUTO_SAVE_DELAY);
   },
 }));

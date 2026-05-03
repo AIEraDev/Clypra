@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Film, ChevronRight } from "lucide-react";
 import { Button } from "../ui/Button";
-import { Modal } from "../ui/Modal";
 import { EmptyState } from "../ui/EmptyState";
 import { useProjectStore } from "../../store/projectStore";
 import type { AspectRatio, Project } from "../../types";
@@ -12,8 +11,6 @@ interface LaunchScreenProps {
 }
 
 export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
-  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-  const [projectName, setProjectName] = useState("");
   const [selectedRatio, setSelectedRatio] = useState<AspectRatio>("16:9");
   const [selectedFps, setSelectedFps] = useState<24 | 30 | 60>(30);
   const { recentProjects, setRecentProjects } = useProjectStore();
@@ -32,14 +29,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     loadRecentProjects();
   }, [setRecentProjects]);
 
-  const handleCreateProject = () => {
-    if (projectName.trim()) {
-      onProjectCreate(projectName, selectedRatio, selectedFps);
-      setProjectName("");
-      setSelectedRatio("16:9");
-      setSelectedFps(30);
-      setShowNewProjectModal(false);
-    }
+  const handleStartEditing = () => {
+    onProjectCreate("Untitled Project", selectedRatio, selectedFps);
   };
 
   const aspectRatios: { ratio: AspectRatio; label: string; useCase: string }[] = [
@@ -52,7 +43,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
   // Calculate dimensions that maintain aspect ratio with proper visual balance
   const getAspectRatioDimensions = (ratio: AspectRatio) => {
-    const baseSize = 56;
+    const baseSize = 64;
     const aspectMap: Record<AspectRatio, { width: number; height: number }> = {
       "16:9": { width: baseSize, height: baseSize * (9 / 16) },
       "9:16": { width: baseSize * (9 / 16), height: baseSize },
@@ -74,97 +65,80 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               <p className="text-sm text-text-muted">Professional Video Editor</p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="default" size="sm" onClick={() => setShowNewProjectModal(true)}>
-              New Project
-            </Button>
-            <Button variant="secondary" size="sm">
-              Open Project
-            </Button>
-          </div>
         </div>
 
-        <div className="panel-shell flex-1 min-h-0 p-5 md:p-6 overflow-y-auto scrollbar-thin">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-lg font-semibold text-text-primary">Recent Projects</h2>
-            <Button variant="ghost" size="sm" onClick={() => setShowNewProjectModal(true)}>
-              Quick Create
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
+        <div className="panel-shell flex-1 min-h-0 p-6 md:p-8 overflow-y-auto scrollbar-thin">
+          {/* New Project Section */}
+          <div className="max-w-3xl mx-auto mb-12">
+            <h2 className="text-xl font-semibold text-text-primary mb-6 text-center">Start New Project</h2>
 
-          {recentProjects.length === 0 ? (
-            <EmptyState icon={Film} title="No recent projects" description="Create a new project to get started" action={{ label: "New Project", onClick: () => setShowNewProjectModal(true) }} />
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {recentProjects.slice(0, 6).map((project) => (
-                <button key={project.id} onClick={() => onProjectOpen(project)} className="group panel-shell text-left p-4 transition-all hover:-translate-y-0.5 hover:border-[#4a87c9] hover:shadow-[0_12px_20px_rgba(0,0,0,0.22)]">
-                  <div className="bg-[#12161b] rounded-md border border-[#2c3340] w-full h-24 mb-3 flex items-center justify-center">
-                    <Film className="w-8 h-8 text-text-muted group-hover:text-[#8cc7ff]" />
-                  </div>
-                  <h3 className="font-semibold text-text-primary truncate">{project.name}</h3>
-                  <div className="mt-2 flex items-center justify-between text-xs">
-                    <p className="text-text-muted">{new Date(project.createdAt).toLocaleDateString()}</p>
-                    <span className="px-2 py-0.5 rounded bg-[#1f2834] text-[#8cc7ff] border border-[#314154]">{project.aspectRatio}</span>
-                  </div>
-                </button>
-              ))}
+            {/* Aspect Ratio Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-text-muted mb-3 text-center">Aspect Ratio</label>
+              <div className="flex gap-3 justify-center flex-wrap">
+                {aspectRatios.map(({ ratio, label, useCase }) => {
+                  const { width, height } = getAspectRatioDimensions(ratio);
+                  return (
+                    <button key={ratio} onClick={() => setSelectedRatio(ratio)} className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2.5 transition-all hover:scale-105 min-w-[100px] ${selectedRatio === ratio ? "border-accent bg-surface-raised shadow-lg" : "border-border hover:border-accent/50"}`}>
+                      <div className="bg-accent rounded-sm shadow-sm" style={{ width: `${width}px`, height: `${height}px` }} />
+                      <div className="text-center">
+                        <div className="text-sm font-bold text-text-primary">{label}</div>
+                        <div className="text-xs text-text-muted mt-0.5">{useCase}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
 
-      <Modal
-        isOpen={showNewProjectModal}
-        onClose={() => setShowNewProjectModal(false)}
-        title="Create New Project"
-        footer={
-          <div className="flex gap-2 justify-end">
-            <Button variant="ghost" onClick={() => setShowNewProjectModal(false)}>
-              Cancel
-            </Button>
-            <Button variant="default" onClick={handleCreateProject} disabled={!projectName.trim()}>
-              Create Project
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-2">Project Name</label>
-            <input autoFocus type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="Untitled Project" className="w-full px-3 py-2 bg-surface-raised border border-border rounded text-text-primary placeholder-text-muted focus:outline-none focus:border-accent" onKeyPress={(e) => e.key === "Enter" && handleCreateProject()} />
+            {/* Frame Rate Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-text-muted mb-3 text-center">Frame Rate</label>
+              <div className="flex gap-3 justify-center max-w-md mx-auto">
+                {[24, 30, 60].map((fps) => (
+                  <button key={fps} onClick={() => setSelectedFps(fps as any)} className={`flex-1 py-3 px-4 rounded-lg border-2 font-semibold transition-all hover:scale-105 ${selectedFps === fps ? "border-accent bg-accent text-white shadow-lg" : "border-border text-text-primary hover:border-accent/50"}`}>
+                    {fps} fps
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Start Button */}
+            <div className="flex justify-center mt-8">
+              <Button variant="default" size="lg" onClick={handleStartEditing} className="px-12 py-3 text-base">
+                Start Editing
+                <ChevronRight className="w-5 h-5 ml-1" />
+              </Button>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-3">Aspect Ratio</label>
-            <div className="flex gap-3 justify-center flex-wrap">
-              {aspectRatios.map(({ ratio, label, useCase }) => {
-                const { width, height } = getAspectRatioDimensions(ratio);
-                return (
-                  <button key={ratio} onClick={() => setSelectedRatio(ratio)} className={`p-3 rounded-lg border-2 flex flex-col items-center gap-2.5 transition-all hover:scale-105 min-w-[90px] ${selectedRatio === ratio ? "border-accent bg-surface-raised shadow-lg" : "border-border hover:border-accent/50"}`}>
-                    <div className="bg-accent rounded-sm shadow-sm" style={{ width: `${width}px`, height: `${height}px` }} />
-                    <div className="text-center">
-                      <div className="text-xs font-bold text-text-primary">{label}</div>
-                      <div className="text-[10px] text-text-muted mt-0.5">{useCase}</div>
+          {/* Recent Projects Section */}
+          <div className="max-w-5xl mx-auto">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-semibold text-text-primary">Recent Projects</h2>
+            </div>
+
+            {recentProjects.length === 0 ? (
+              <EmptyState icon={Film} title="No recent projects" description="Your recent projects will appear here" />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                {recentProjects.slice(0, 6).map((project) => (
+                  <button key={project.id} onClick={() => onProjectOpen(project)} className="group panel-shell text-left p-4 transition-all hover:-translate-y-0.5 hover:border-[#4a87c9] hover:shadow-[0_12px_20px_rgba(0,0,0,0.22)]">
+                    <div className="bg-[#12161b] rounded-md border border-[#2c3340] w-full h-24 mb-3 flex items-center justify-center">
+                      <Film className="w-8 h-8 text-text-muted group-hover:text-[#8cc7ff]" />
+                    </div>
+                    <h3 className="font-semibold text-text-primary truncate">{project.name}</h3>
+                    <div className="mt-2 flex items-center justify-between text-xs">
+                      <p className="text-text-muted">{new Date(project.createdAt).toLocaleDateString()}</p>
+                      <span className="px-2 py-0.5 rounded bg-[#1f2834] text-[#8cc7ff] border border-[#314154]">{project.aspectRatio}</span>
                     </div>
                   </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-2">Frame Rate</label>
-            <div className="flex gap-2">
-              {[24, 30, 60].map((fps) => (
-                <button key={fps} onClick={() => setSelectedFps(fps as any)} className={`flex-1 py-2 px-3 rounded border-2 font-medium transition-colors ${selectedFps === fps ? "border-accent bg-accent text-white" : "border-border text-text-primary hover:border-surface-raised"}`}>
-                  {fps}fps
-                </button>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      </Modal>
+      </div>
     </div>
   );
 };

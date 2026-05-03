@@ -48,6 +48,10 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     set((state) => ({
       tracks: [...state.tracks, newTrack],
     }));
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
   },
 
   removeTrack: (trackId) => {
@@ -55,6 +59,10 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       tracks: state.tracks.filter((t) => t.id !== trackId),
       clips: state.clips.filter((c) => c.trackId !== trackId),
     }));
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
   },
 
   toggleTrackLock: (trackId) => {
@@ -79,24 +87,40 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     set((state) => ({
       clips: [...state.clips, clip],
     }));
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
   },
 
   removeClip: (clipId) => {
     set((state) => ({
       clips: state.clips.filter((c) => c.id !== clipId),
     }));
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
   },
 
   updateClip: (clipId, updates) => {
     set((state) => ({
       clips: state.clips.map((c) => (c.id === clipId ? { ...c, ...updates } : c)),
     }));
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
   },
 
   moveClip: (clipId, startTime) => {
     set((state) => ({
       clips: state.clips.map((c) => (c.id === clipId ? { ...c, startTime } : c)),
     }));
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
   },
 
   setZoom: (level) => {
