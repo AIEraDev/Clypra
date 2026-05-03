@@ -43,8 +43,9 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
 
   // Use displayStartTime if provided (for magnetic shifting), otherwise use clip.startTime
   const startTime = displayStartTime !== undefined ? displayStartTime : clip.startTime;
-  const left = startTime * pixelsPerSecond;
-  const width = clip.duration * pixelsPerSecond;
+  // ✅ Round to avoid subpixel rendering issues (same as Timeline scroll logic)
+  const left = Math.round(startTime * pixelsPerSecond);
+  const width = Math.round(clip.duration * pixelsPerSecond);
 
   const handleResizeStart = (e: React.MouseEvent, side: "left" | "right") => {
     e.stopPropagation();

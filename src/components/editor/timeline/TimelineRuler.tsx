@@ -36,7 +36,8 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
     <div className="relative h-8 bg-[#171a1f] border-b border-[#2c2f34] select-none overflow-hidden">
       {markers.map((time) => {
         const isMajor = Math.round((time / markerInterval) % 4) === 0;
-        const x = time * pixelsPerSecond;
+        // ✅ Round to avoid subpixel rendering issues
+        const x = Math.round(time * pixelsPerSecond);
         return (
           <div
             key={time}

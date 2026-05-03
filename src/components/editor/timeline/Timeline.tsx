@@ -74,7 +74,7 @@ export const Timeline: React.FC = () => {
     setDuration(Math.max(timelineEnd, 10));
   }, [clips, getTimelineEndTime, setDuration]);
 
-  // Auto-scroll during playback: jump viewport when playhead reaches right edge
+  // Auto-scroll during playback: bulletproof viewport tracking with strict invariants
   useEffect(() => {
     // Only auto-scroll when actually playing
     if (!isPlaying) return;
@@ -82,31 +82,63 @@ export const Timeline: React.FC = () => {
     const container = containerRef.current;
     if (!container) return;
 
-    const playheadX = currentTime * pixelsPerSecond;
-    const containerWidth = container.clientWidth;
-    const currentScrollLeft = container.scrollLeft;
-    const viewportEnd = currentScrollLeft + containerWidth;
-    const maxScrollLeft = Math.max(0, contentWidth - containerWidth);
+    // ✅ 1. Use DOM truth for all measurements
+    const viewportWidth = container.clientWidth;
+    const contentWidthActual = container.scrollWidth;
+    const maxScrollLeft = Math.max(0, contentWidthActual - viewportWidth);
 
-    // Check if we're already at max scroll (within 10px tolerance)
-    const isAtMaxScroll = Math.abs(currentScrollLeft - maxScrollLeft) < 10;
+    // ✅ 2. Derive playhead position in pixel space ONLY (single source of truth)
+    const playheadX = Math.round(currentTime * pixelsPerSecond);
 
-    // If playhead would go beyond viewport
-    if (playheadX >= viewportEnd && !isAtMaxScroll) {
-      // Calculate how much content remains after the playhead
-      const remainingContent = contentWidth - playheadX;
+    // ✅ 3. Get current scroll position
+    let newScrollLeft = container.scrollLeft;
 
-      // If remaining content fits in one viewport, scroll to max to show everything
-      if (remainingContent <= containerWidth) {
-        container.scrollLeft = maxScrollLeft;
-        setScrollLeft(maxScrollLeft);
-      } else {
-        // Otherwise, jump viewport so playhead appears at left
-        container.scrollLeft = playheadX;
-        setScrollLeft(playheadX);
-      }
+    // ✅ 4. Jump logic: when playhead reaches 90% of viewport, jump forward
+    const bufferPx = viewportWidth * 0.1;
+    const rightEdge = newScrollLeft + viewportWidth;
+
+    if (playheadX >= rightEdge - bufferPx) {
+      // Jump viewport so playhead appears at left edge
+      newScrollLeft = playheadX;
     }
-  }, [currentTime, pixelsPerSecond, isPlaying, contentWidth]);
+
+    // ✅ 5. HARD CLAMP to valid scroll range
+    newScrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
+
+    // ✅ 6. Snap to end if within epsilon (eliminate ghost gap)
+    const epsilon = 2; // px
+    if (maxScrollLeft - newScrollLeft < epsilon) {
+      newScrollLeft = maxScrollLeft;
+    }
+
+    // ✅ 7. Enforce visibility invariant: playhead must always be visible
+    const currentRightEdge = newScrollLeft + viewportWidth;
+    if (playheadX > currentRightEdge) {
+      newScrollLeft = Math.min(playheadX, maxScrollLeft);
+    }
+
+    // 🔍 Debug logging (uncomment to diagnose issues)
+    // if (currentTime > duration - 2) {
+    //   console.log('[Timeline Scroll Debug]', {
+    //     currentTime: currentTime.toFixed(2),
+    //     playheadX,
+    //     scrollLeft: container.scrollLeft,
+    //     newScrollLeft,
+    //     viewportWidth,
+    //     contentWidthActual,
+    //     contentWidthComputed: contentWidth,
+    //     maxScrollLeft,
+    //     gap: maxScrollLeft - newScrollLeft,
+    //     pixelsPerSecond,
+    //   });
+    // }
+
+    // ✅ 8. Apply scroll if changed (avoid unnecessary updates)
+    if (Math.abs(container.scrollLeft - newScrollLeft) > 0.5) {
+      container.scrollLeft = newScrollLeft;
+      setScrollLeft(newScrollLeft);
+    }
+  }, [currentTime, pixelsPerSecond, isPlaying, contentWidth, duration]);
 
   const getMediaType = (path: string): "video" | "audio" | "image" => {
     const lower = path.toLowerCase();

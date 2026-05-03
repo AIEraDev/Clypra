@@ -11,7 +11,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration })
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const left = Math.max(0, currentTime * pixelsPerSecond);
+  // ✅ Use same pixel mapping as Timeline scroll logic (rounded to avoid subpixel issues)
+  const left = Math.max(0, Math.round(currentTime * pixelsPerSecond));
 
   useEffect(() => {
     if (!isDragging) return;
