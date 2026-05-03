@@ -46,8 +46,58 @@ const App = () => {
     createProject(name, aspectRatio, frameRate);
   };
 
-  const handleOpenProject = (proj: Project) => {
-    loadProject(proj);
+  const handleOpenProject = async (proj: Project) => {
+    try {
+      // Load the full project data from disk
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { path } = await import("@tauri-apps/api");
+
+      // Get the project file path
+      const appDataDir = await path.appDataDir();
+      const projectPath = `${appDataDir}projects/${proj.id}.json`;
+
+      // Load the full project JSON
+      const projectJson: string = await invoke("load_project", { path: projectPath });
+      const fullProjectData = JSON.parse(projectJson);
+
+      // Convert snake_case to camelCase for project
+      const project: Project = {
+        id: fullProjectData.id,
+        name: fullProjectData.name,
+        createdAt: fullProjectData.created_at,
+        updatedAt: fullProjectData.modified_at || fullProjectData.created_at,
+        aspectRatio: fullProjectData.aspect_ratio,
+        canvasWidth: fullProjectData.canvas_width,
+        canvasHeight: fullProjectData.canvas_height,
+        frameRate: fullProjectData.frame_rate,
+        duration: fullProjectData.duration || 0,
+      };
+
+      // Load project
+      loadProject(project);
+
+      // Restore media assets directly
+      if (fullProjectData.media_assets && Array.isArray(fullProjectData.media_assets)) {
+        useProjectStore.setState({ mediaAssets: fullProjectData.media_assets });
+      }
+
+      // Restore tracks and clips directly
+      const { useTimelineStore } = await import("./store/timelineStore");
+      if (fullProjectData.tracks && Array.isArray(fullProjectData.tracks)) {
+        useTimelineStore.setState({ tracks: fullProjectData.tracks });
+      }
+      if (fullProjectData.clips && Array.isArray(fullProjectData.clips)) {
+        useTimelineStore.setState({ clips: fullProjectData.clips });
+      }
+
+      console.log("[OpenProject] Loaded project:", project.name, {
+        mediaAssets: fullProjectData.media_assets?.length || 0,
+        tracks: fullProjectData.tracks?.length || 0,
+        clips: fullProjectData.clips?.length || 0,
+      });
+    } catch (error) {
+      console.error("Failed to open project:", error);
+    }
   };
 
   if (isLoading) {

@@ -52,7 +52,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   loadProject: (project) => {
-    set({ project });
+    // Clear existing state first
+    set({ project, mediaAssets: [] });
+
+    // Clear timeline state
+    import("./timelineStore").then(({ useTimelineStore }) => {
+      useTimelineStore.setState({ tracks: [], clips: [] });
+    });
   },
 
   addMediaAsset: (asset) => {
