@@ -14,13 +14,16 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
   const [isDragging, setIsDragging] = useState(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
+  const scrollVelocityRef = useRef(0);
+  const pointerIdRef = useRef<number | null>(null);
 
   // ✅ Use same pixel mapping as Timeline scroll logic (rounded to avoid subpixel issues)
   const left = Math.max(0, Math.round(currentTime * pixelsPerSecond));
 
+  // ✅ Continuous auto-scroll loop (runs independently of pointer events)
   useEffect(() => {
     if (!isDragging) {
-      // Cancel any ongoing auto-scroll animation
+      scrollVelocityRef.current = 0;
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -28,111 +31,153 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       return;
     }
 
-    const handleMouseMove = (e: MouseEvent) => {
-      e.preventDefault(); // Prevent text selection
+    const tick = () => {
+      if (!isDragging) return;
+
+      const container = containerRef.current;
+      if (!container) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      const velocity = scrollVelocityRef.current;
+      if (velocity !== 0) {
+        const viewportWidth = container.clientWidth;
+        const maxScrollLeft = Math.max(0, container.scrollWidth - viewportWidth);
+        const newScrollLeft = Math.max(0, Math.min(container.scrollLeft + velocity, maxScrollLeft));
+
+        container.scrollLeft = newScrollLeft;
+        setScrollLeft(newScrollLeft);
+      }
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [isDragging, containerRef, setScrollLeft]);
+
+  // ✅ Global pointer tracking (works even when pointer leaves timeline)
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      e.preventDefault();
 
       const container = containerRef.current;
       const parent = playheadRef.current?.parentElement;
       if (!parent || !container) return;
 
-      // Get mouse position relative to the timeline content
+      // Update playhead position based on pointer
       const rect = parent.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const x = e.clientX - rect.left + container.scrollLeft;
       const newTime = Math.max(0, Math.min(x / pixelsPerSecond, duration));
       seek(newTime);
 
-      // Auto-scroll logic: scroll when playhead approaches viewport edges
+      // ✅ Calculate auto-scroll velocity based on pointer position relative to VIEWPORT
       const viewportRect = container.getBoundingClientRect();
-      const mouseXInViewport = e.clientX - viewportRect.left;
+      const pointerXInViewport = e.clientX - viewportRect.left;
       const viewportWidth = container.clientWidth;
       const scrollLeft = container.scrollLeft;
       const maxScrollLeft = Math.max(0, container.scrollWidth - viewportWidth);
 
-      const EDGE_ZONE = 80; // px from edge to trigger scroll
-      const SCROLL_SPEED_MIN = 2; // px per frame
-      const SCROLL_SPEED_MAX = 20; // px per frame
+      const EDGE_THRESHOLD = 80; // px from edge where auto-scroll starts
+      const VELOCITY_MULTIPLIER = 0.3; // Acceleration factor
 
-      let scrollSpeed = 0;
-
-      // Check if mouse is near right edge
-      const distFromRight = viewportWidth - mouseXInViewport;
-      if (distFromRight < EDGE_ZONE && distFromRight > 0 && scrollLeft < maxScrollLeft) {
-        const t = 1 - distFromRight / EDGE_ZONE; // 0→1 as cursor approaches edge
-        scrollSpeed = SCROLL_SPEED_MIN + t * (SCROLL_SPEED_MAX - SCROLL_SPEED_MIN);
-      }
-      // Check if mouse is near left edge
-      else if (mouseXInViewport < EDGE_ZONE && mouseXInViewport > 0 && scrollLeft > 0) {
-        const t = 1 - mouseXInViewport / EDGE_ZONE;
-        scrollSpeed = -(SCROLL_SPEED_MIN + t * (SCROLL_SPEED_MAX - SCROLL_SPEED_MIN));
-      }
-
-      // Apply scroll if needed
-      if (scrollSpeed !== 0) {
-        if (!rafRef.current) {
-          const scroll = () => {
-            if (!container) return;
-
-            const newScrollLeft = Math.max(0, Math.min(container.scrollLeft + scrollSpeed, maxScrollLeft));
-            container.scrollLeft = newScrollLeft;
-            setScrollLeft(newScrollLeft);
-
-            rafRef.current = requestAnimationFrame(scroll);
-          };
-          rafRef.current = requestAnimationFrame(scroll);
-        }
+      // ✅ Calculate velocity even when pointer is OUTSIDE viewport bounds
+      if (pointerXInViewport > viewportWidth - EDGE_THRESHOLD && scrollLeft < maxScrollLeft) {
+        // Near or beyond right edge → scroll right
+        const distance = pointerXInViewport - (viewportWidth - EDGE_THRESHOLD);
+        scrollVelocityRef.current = distance * VELOCITY_MULTIPLIER;
+      } else if (pointerXInViewport < EDGE_THRESHOLD && scrollLeft > 0) {
+        // Near or beyond left edge → scroll left
+        const distance = EDGE_THRESHOLD - pointerXInViewport;
+        scrollVelocityRef.current = -distance * VELOCITY_MULTIPLIER;
       } else {
-        // Stop scrolling if not in edge zone
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
-          rafRef.current = null;
+        // In safe zone → no scroll
+        scrollVelocityRef.current = 0;
+      }
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (pointerIdRef.current !== null && e.pointerId === pointerIdRef.current) {
+        setIsDragging(false);
+        scrollVelocityRef.current = 0;
+        pointerIdRef.current = null;
+        document.body.style.userSelect = "";
+        document.body.classList.remove("cursor-lock-ew");
+
+        // Release pointer capture if it was set
+        if (playheadRef.current) {
+          try {
+            playheadRef.current.releasePointerCapture(e.pointerId);
+          } catch (err) {
+            // Ignore if capture wasn't set
+          }
         }
       }
     };
 
-    const handleMouseUp = () => {
+    const handleWindowBlur = () => {
+      // Stop drag if window loses focus
       setIsDragging(false);
-      document.body.style.userSelect = ""; // Re-enable text selection
+      scrollVelocityRef.current = 0;
+      pointerIdRef.current = null;
+      document.body.style.userSelect = "";
       document.body.classList.remove("cursor-lock-ew");
-
-      // Cancel auto-scroll animation
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
     };
 
     // Prevent text selection during drag
     document.body.style.userSelect = "none";
     document.body.classList.add("cursor-lock-ew");
 
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    // ✅ Use GLOBAL pointer events (not element-bound)
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("blur", handleWindowBlur);
 
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("blur", handleWindowBlur);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.body.classList.remove("cursor-lock-ew");
-
-      // Cancel auto-scroll animation on cleanup
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      scrollVelocityRef.current = 0;
     };
   }, [isDragging, duration, pixelsPerSecond, seek, containerRef, setScrollLeft]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // ✅ Capture pointer to receive events even outside element
+    if (playheadRef.current) {
+      try {
+        playheadRef.current.setPointerCapture(e.pointerId);
+        pointerIdRef.current = e.pointerId;
+      } catch (err) {
+        // Fallback to global events if capture fails
+        pointerIdRef.current = e.pointerId;
+      }
+    }
+
+    // Seek to clicked position
     const parent = playheadRef.current?.parentElement;
-    if (parent) {
+    const container = containerRef.current;
+    if (parent && container) {
       const rect = parent.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const x = e.clientX - rect.left + container.scrollLeft;
       const newTime = Math.max(0, Math.min(x / pixelsPerSecond, duration));
       seek(newTime);
     }
+
     setIsDragging(true);
   };
 
@@ -147,8 +192,9 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         width: "8px",
         marginLeft: "-3px",
         zIndex: 100,
+        touchAction: "none", // Prevent default touch behaviors
       }}
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Visual line */}
