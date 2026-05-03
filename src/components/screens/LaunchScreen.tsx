@@ -11,8 +11,8 @@ interface LaunchScreenProps {
 }
 
 export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
-  const [selectedRatio, setSelectedRatio] = useState<AspectRatio>("9:16");
-  const [selectedFps, setSelectedFps] = useState<24 | 30 | 60>(30);
+  const [selectedRatio, setSelectedRatio] = useState<AspectRatio | null>(null);
+  const [selectedFps, setSelectedFps] = useState<24 | 30 | 60 | null>(null);
   const { recentProjects, setRecentProjects } = useProjectStore();
 
   useEffect(() => {
@@ -30,7 +30,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   }, [setRecentProjects]);
 
   const handleStartEditing = () => {
-    onProjectCreate("Untitled Project", selectedRatio, selectedFps);
+    if (selectedRatio && selectedFps) {
+      onProjectCreate("Untitled Project", selectedRatio, selectedFps);
+    }
   };
 
   const aspectRatios: { ratio: AspectRatio; label: string; useCase: string }[] = [
@@ -105,7 +107,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
             {/* Start Button */}
             <div className="flex justify-center mt-8">
-              <Button variant="default" size="lg" onClick={handleStartEditing} className="px-12 py-3 text-base">
+              <Button variant="default" size="lg" onClick={handleStartEditing} disabled={!selectedRatio || !selectedFps} className="px-12 py-3 text-base">
                 Start Editing
                 <ChevronRight className="w-5 h-5 ml-1" />
               </Button>
