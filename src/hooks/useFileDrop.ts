@@ -25,7 +25,6 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
       try {
         // Listen for file drop hover
         const unlistenHover = await listen<{ position: { x: number; y: number } }>("tauri://drag-over", (event) => {
-          console.log("[useFileDrop] Drag over event received", event.payload.position);
           if (!containerRef.current) return;
 
           const rect = containerRef.current.getBoundingClientRect();
@@ -33,7 +32,6 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
 
           // Check if mouse is over this container
           const isOver = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-          console.log("[useFileDrop] isOver:", isOver, "rect:", rect, "mouse:", { x, y });
 
           setIsDraggingOver(isOver);
         });
@@ -46,7 +44,6 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
           setIsDraggingOver(false);
 
           if (!containerRef.current || isProcessingRef.current) {
-            console.log("[useFileDrop] Drop ignored - already processing or no container");
             return;
           }
 
@@ -56,16 +53,12 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
           // Only process if dropped over this container
           const isOver = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 
-          console.log("[useFileDrop] Drop detected, isOver:", isOver, "position:", { x, y }, "rect:", rect);
-
           if (isOver) {
-            console.log("[useFileDrop] Processing drop for container");
             isProcessingRef.current = true;
             try {
               await onDrop(event.payload.paths);
             } finally {
               isProcessingRef.current = false;
-              console.log("[useFileDrop] Drop processing complete");
             }
           }
         });

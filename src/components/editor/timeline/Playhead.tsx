@@ -81,20 +81,21 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration })
         className="absolute inset-y-0 left-1/2 -translate-x-1/2 pointer-events-none"
         style={{
           width: "2px",
-          backgroundColor: "#f1f4f8",
+          backgroundColor: "#6c63ff",
           boxShadow: "0 0 0 1px rgba(0,0,0,0.25)",
         }}
       />
 
-      {/* Triangle handle at top */}
+      {/* Circle handle at top */}
       <div
-        className="absolute w-4 h-3 rounded-[2px] pointer-events-none"
+        className="absolute rounded-full pointer-events-none"
         style={{
           left: "50%",
           transform: "translateX(-50%)",
-          top: "-5px",
-          backgroundColor: "#f1f4f8",
-          clipPath: "polygon(0 100%, 50% 0, 100% 100%)",
+          top: "2px",
+          width: "10px",
+          height: "10px",
+          backgroundColor: "#6c63ff",
           boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",
         }}
       />

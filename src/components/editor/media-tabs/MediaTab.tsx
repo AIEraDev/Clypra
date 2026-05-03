@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from "react";
-import { CloudUpload, Music, Film, Image, Plus } from "lucide-react";
+import React, { useState, useCallback, useMemo } from "react";
+import { CloudUpload, Music, Film, Image, Plus, Check } from "lucide-react";
 // @ts-ignore - react-dnd types issue
 import { useDrag } from "react-dnd";
 import { invoke } from "@tauri-apps/api/core";
@@ -12,6 +12,7 @@ import { useMediaImport } from "../../../hooks/useMediaImport";
 import { useFileDrop } from "../../../hooks/useFileDrop";
 import { useProjectStore } from "../../../store/projectStore";
 import { useUIStore } from "../../../store/uiStore";
+import { useTimelineStore } from "../../../store/timelineStore";
 import type { VideoMetadata } from "../../../types";
 import type { MediaTabProps } from "./types";
 
@@ -21,7 +22,13 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
   // Note: previewMediaId is used for visual selection state only.
   // Preview rendering is now timeline-driven, not media-selection driven.
   const { setPreviewMedia, previewMediaId } = useUIStore();
+  const { clips } = useTimelineStore();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; mediaId: string } | null>(null);
+
+  // Track which media assets are used in the timeline
+  const usedMediaIds = useMemo(() => {
+    return new Set(clips.map((clip) => clip.mediaId));
+  }, [clips]);
 
   const getMediaType = (path: string): "video" | "audio" | "image" => {
     const lower = path.toLowerCase();
@@ -32,19 +39,14 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
 
   const handleTauriFileDrop = useCallback(
     async (paths: string[]) => {
-      console.log("[MediaTab] Processing dropped files:", paths);
-
       for (const filePath of paths) {
         try {
           const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "Unknown";
           const type = getMediaType(filename);
 
-          console.log("[MediaTab] Processing file:", filename, "type:", type);
-
           // Check if asset already exists
           const existingAsset = mediaAssets.find((a) => a.path === filePath);
           if (existingAsset) {
-            console.log("[MediaTab] Asset already imported:", filename);
             continue;
           }
 
@@ -65,7 +67,6 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
               size: metadata.size,
             };
 
-            console.log("[MediaTab] Adding video/audio asset:", asset);
             addMediaAsset(asset);
           } else {
             const asset = {
@@ -78,7 +79,6 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
               posterFrame: convertFileSrc(filePath),
             };
 
-            console.log("[MediaTab] Adding image asset:", asset);
             addMediaAsset(asset);
           }
         } catch (error) {
@@ -114,6 +114,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
                 key={asset.id}
                 asset={asset}
                 isSelected={previewMediaId === asset.id}
+                isUsedInTimeline={usedMediaIds.has(asset.id)}
                 onClick={() => setPreviewMedia(asset.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -150,12 +151,15 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
 interface MediaCardProps {
   asset: any;
   isSelected: boolean;
+  isUsedInTimeline: boolean;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onAddToTimeline: () => void;
 }
 
-const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, onClick, onContextMenu, onAddToTimeline }) => {
+const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, isUsedInTimeline, onClick, onContextMenu, onAddToTimeline }) => {
+  const { previewAsset } = useUIStore();
+
   const [{ isDragging }, drag] = useDrag(() => ({
     type: "MEDIA_ASSET",
     item: { type: "MEDIA_ASSET", asset },
@@ -164,13 +168,23 @@ const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, onClick, onCon
     }),
   }));
 
+  const handleClick = () => {
+    onClick(); // Keep selection state
+    previewAsset(asset); // Switch to source preview
+  };
+
   return (
-    <div ref={drag} onClick={onClick} onContextMenu={onContextMenu} className={`group relative bg-surface-raised rounded overflow-hidden transition-all cursor-pointer ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""}`}>
+    <div ref={drag} onClick={handleClick} onContextMenu={onContextMenu} className={`group relative bg-surface-raised rounded overflow-hidden transition-all cursor-pointer ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""}`}>
       <div className="aspect-video bg-surface-raised flex items-center justify-center relative">
         {asset.posterFrame ? <img src={asset.posterFrame} alt={asset.name} className="w-full h-full object-cover" /> : <div className="w-8 h-8">{asset.type === "video" ? <Film className="w-full h-full text-text-muted" /> : asset.type === "audio" ? <Music className="w-full h-full text-text-muted" /> : <Image className="w-full h-full text-text-muted" />}</div>}
         {asset.duration > 0 && (
           <div className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded text-xs text-white">
             {Math.floor(asset.duration / 60)}:{String(Math.floor(asset.duration % 60)).padStart(2, "0")}
+          </div>
+        )}
+        {isUsedInTimeline && (
+          <div className="absolute top-1 left-1 bg-purple-950/80 px-1 py-px rounded-[2px] text-[8px] text-white flex items-center gap-1">
+            <span>Added</span>
           </div>
         )}
       </div>

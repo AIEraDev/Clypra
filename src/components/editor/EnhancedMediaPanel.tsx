@@ -19,7 +19,14 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline })
     <div className="w-[23rem] min-h-0 panel-shell flex flex-col overflow-hidden shrink-0">
       {/* Tab Navigation */}
       <div className="panel-head border-b border-border">
-        <div className="flex overflow-x-auto scrollbar-none">
+        <div
+          className="flex overflow-x-auto scrollbar-none"
+          style={{
+            overflowY: "auto",
+            scrollbarWidth: "none", // Firefox
+            msOverflowStyle: "none", // IE 10+
+          }}
+        >
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (

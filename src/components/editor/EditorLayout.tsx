@@ -26,7 +26,6 @@ export const EditorLayout: React.FC = () => {
 
       // If no track exists for this type, create one
       if (!targetTrack) {
-        console.log("[EditorLayout] No track found for type:", targetTrackType, "- creating one");
         addTrack(targetTrackType);
         // Get the newly created track
         targetTrack = useTimelineStore.getState().tracks.find((t) => t.type === targetTrackType && !t.locked);
@@ -54,7 +53,7 @@ export const EditorLayout: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col app-shell overflow-hidden p-2 md:p-3 gap-2">
+    <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 gap-2">
       <TopBar />
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">

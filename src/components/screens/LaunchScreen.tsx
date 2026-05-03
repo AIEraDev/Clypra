@@ -64,8 +64,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   };
 
   return (
-    <div className="w-full h-full app-shell flex flex-col p-6 md:p-8">
-      <div className="max-w-6xl w-full mx-auto h-full flex flex-col gap-5">
+    <div className="w-full h-full app-shell flex flex-col p-1 md:p-2">
+      <div className="w-full mx-auto h-full flex flex-col gap-5">
         <div className="panel-shell panel-head px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Film className="w-7 h-7 text-accent" />

@@ -10,6 +10,7 @@ import { Track } from "./Track";
 import { Playhead } from "./Playhead";
 import { useTimelineStore } from "../../../store/timelineStore";
 import { useProjectStore } from "../../../store/projectStore";
+import { useUIStore } from "../../../store/uiStore";
 import { usePlayback } from "../../../hooks/usePlayback";
 import type { VideoMetadata } from "../../../types";
 import { createClipFromAsset } from "../../../lib/timelineClip";
@@ -17,6 +18,7 @@ import { createClipFromAsset } from "../../../lib/timelineClip";
 export const Timeline: React.FC = () => {
   const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack } = useTimelineStore();
   const { mediaAssets, addMediaAsset } = useProjectStore();
+  const { previewMode, exitSourceMode } = useUIStore();
   const { currentTime, duration, seek, setDuration } = usePlayback();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -29,6 +31,11 @@ export const Timeline: React.FC = () => {
       const target = event.target as HTMLElement;
       if (target.closest('[data-timeline-interactive="true"]')) return;
 
+      // Exit source mode when clicking on timeline
+      if (previewMode === "source") {
+        exitSourceMode();
+      }
+
       const container = containerRef.current;
       if (!container) return;
 
@@ -37,7 +44,7 @@ export const Timeline: React.FC = () => {
       const time = Math.max(0, Math.min(x / pixelsPerSecond, duration));
       seek(time);
     },
-    [duration, pixelsPerSecond, seek],
+    [duration, pixelsPerSecond, seek, previewMode, exitSourceMode],
   );
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -74,16 +81,12 @@ export const Timeline: React.FC = () => {
 
   const handleTauriFileDrop = useCallback(
     async (paths: string[]) => {
-      console.log("[Timeline] Processing dropped files:", paths);
-
       const dropTime = getTimelineEndTime();
 
       for (const filePath of paths) {
         try {
           const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "Unknown";
           const type = getMediaType(filename);
-
-          console.log("[Timeline] Processing file:", filename, "type:", type);
 
           // Check if asset already exists
           let asset = mediaAssets.find((a) => a.path === filePath);
@@ -117,7 +120,6 @@ export const Timeline: React.FC = () => {
               };
             }
 
-            console.log("[Timeline] Adding new asset to media library:", asset);
             addMediaAsset(asset);
           }
 
@@ -127,7 +129,6 @@ export const Timeline: React.FC = () => {
 
           // If no track exists for this type, create one
           if (!targetTrack) {
-            console.log("[Timeline] No track found for type:", targetTrackType, "- creating one");
             addTrack(targetTrackType);
             // Get the newly created track
             targetTrack = useTimelineStore.getState().tracks.find((t) => t.type === targetTrackType && !t.locked);
@@ -142,7 +143,6 @@ export const Timeline: React.FC = () => {
               height: useProjectStore.getState().project?.canvasHeight || 1080,
             });
 
-            console.log("[Timeline] Adding clip to track:", targetTrack.id, "at time:", dropTime);
             addClip(newClip);
           }
         } catch (error) {
@@ -159,11 +159,8 @@ export const Timeline: React.FC = () => {
 
     const setupListener = async () => {
       try {
-        console.log("[Timeline] Setting up drag listeners");
-
         // Listen for drag over
         const unlistenHover = await listen<{ position: { x: number; y: number } }>("tauri://drag-over", (event) => {
-          console.log("[Timeline] Drag over event received", event.payload.position);
           if (!containerRef.current) return;
 
           const rect = containerRef.current.getBoundingClientRect();
@@ -171,7 +168,6 @@ export const Timeline: React.FC = () => {
 
           // Check if mouse is over this container
           const isOver = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-          console.log("[Timeline] isOver:", isOver, "rect:", rect, "mouse:", { x, y });
           setIsDraggingOver(isOver);
         });
 
@@ -183,7 +179,6 @@ export const Timeline: React.FC = () => {
           setIsDraggingOver(false);
 
           if (!containerRef.current || isProcessingDropRef.current) {
-            console.log("[Timeline] Drop ignored - already processing or no container");
             return;
           }
 
@@ -193,23 +188,18 @@ export const Timeline: React.FC = () => {
           // Check if dropped over this container
           const isOver = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 
-          console.log("[Timeline] Drop detected, isOver:", isOver, "position:", { x, y }, "rect:", rect);
-
           if (isOver) {
             isProcessingDropRef.current = true;
-            console.log("[Timeline] Processing drop...");
             try {
               await handleTauriFileDrop(event.payload.paths);
             } finally {
               isProcessingDropRef.current = false;
-              console.log("[Timeline] Drop processing complete");
             }
           }
         });
 
         // Listen for drag cancelled
         const unlistenCancel = await listen("tauri://drag-cancelled", () => {
-          console.log("[Timeline] Drag cancelled");
           setIsDraggingOver(false);
         });
 
@@ -227,7 +217,6 @@ export const Timeline: React.FC = () => {
 
     return () => {
       if (unlisten) {
-        console.log("[Timeline] Cleaning up drag listeners");
         unlisten();
       }
     };

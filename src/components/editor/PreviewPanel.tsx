@@ -4,9 +4,23 @@ import { Button } from "../ui/Button";
 import { usePlayback } from "../../hooks/usePlayback";
 import { useProjectStore } from "../../store/projectStore";
 import { useTimelineStore } from "../../store/timelineStore";
+import { useUIStore } from "../../store/uiStore";
 import { resolvePreviewScene } from "../../lib/previewScene";
+import { SourcePreview } from "./SourcePreview";
 
 export const PreviewPanel: React.FC = () => {
+  const { previewMode } = useUIStore();
+
+  // If in source mode, show SourcePreview
+  if (previewMode === "source") {
+    return <SourcePreview />;
+  }
+
+  // Otherwise show program (timeline) preview
+  return <ProgramPreview />;
+};
+
+const ProgramPreview: React.FC = () => {
   const { isPlaying, currentTime, duration, frameRate, play, pause, seek, formatTime } = usePlayback();
   const { project, mediaAssets } = useProjectStore();
   const { tracks, clips } = useTimelineStore();
@@ -94,48 +108,46 @@ export const PreviewPanel: React.FC = () => {
 
   return (
     <div className="flex-1 bg-transparent flex flex-col min-h-0">
-      <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+      <div className="flex-1 flex items-center justify-center p-2 overflow-hidden">
         <div ref={containerRef} className="w-full h-full flex items-center justify-center">
-          <div className="checkerboard rounded-xl border border-[#2d3440] elev-soft p-1 bg-[#12171d]" style={{ width: displayWidth, height: displayHeight }}>
-            <div className="w-full h-full rounded-lg bg-surface-raised overflow-hidden relative" style={{ width: displayWidth, height: displayHeight }}>
-              {scene.layers.length === 0 ? (
-                <div className="absolute inset-0 flex items-center justify-center text-text-muted">Preview</div>
-              ) : (
-                scene.layers.map((layer) => (
-                  <div
-                    key={`${layer.clipId}-${layer.mediaId}`}
-                    data-testid="preview-layer"
-                    className="absolute overflow-hidden"
-                    style={{
-                      left: layer.x * scale,
-                      top: layer.y * scale,
-                      width: layer.width * scale,
-                      height: layer.height * scale,
-                      opacity: Math.max(0, Math.min(1, layer.opacity > 1 ? layer.opacity / 100 : layer.opacity)),
-                      transform: `rotate(${layer.rotation}deg)`,
-                      transformOrigin: "center center",
-                      zIndex: layer.zIndex + 1,
-                    }}
-                  >
-                    {layer.mediaType === "video" ? (
-                      <video
-                        data-media-id={layer.mediaId}
-                        data-clip-id={layer.clipId}
-                        ref={(el) => {
-                          videoRefs.current[`${layer.clipId}-${layer.mediaId}`] = el;
-                        }}
-                        src={layer.sourcePath}
-                        muted
-                        playsInline
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <img src={layer.posterFrame || layer.sourcePath} alt={layer.mediaId} className="w-full h-full object-cover" />
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
+          <div className="relative bg-black" style={{ width: displayWidth, height: displayHeight }}>
+            {scene.layers.length === 0 ? (
+              <div className="absolute inset-0 flex items-center justify-center text-text-muted">Preview</div>
+            ) : (
+              scene.layers.map((layer) => (
+                <div
+                  key={`${layer.clipId}-${layer.mediaId}`}
+                  data-testid="preview-layer"
+                  className="absolute overflow-hidden"
+                  style={{
+                    left: layer.x * scale,
+                    top: layer.y * scale,
+                    width: layer.width * scale,
+                    height: layer.height * scale,
+                    opacity: Math.max(0, Math.min(1, layer.opacity > 1 ? layer.opacity / 100 : layer.opacity)),
+                    transform: `rotate(${layer.rotation}deg)`,
+                    transformOrigin: "center center",
+                    zIndex: layer.zIndex + 1,
+                  }}
+                >
+                  {layer.mediaType === "video" ? (
+                    <video
+                      data-media-id={layer.mediaId}
+                      data-clip-id={layer.clipId}
+                      ref={(el) => {
+                        videoRefs.current[`${layer.clipId}-${layer.mediaId}`] = el;
+                      }}
+                      src={layer.sourcePath}
+                      muted
+                      playsInline
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <img src={layer.posterFrame || layer.sourcePath} alt={layer.mediaId} className="w-full h-full object-contain" />
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

@@ -1,7 +1,6 @@
 import React from "react";
 // @ts-ignore - react-dnd types issue
 import { useDrop } from "react-dnd";
-import { Film, Music, Type } from "lucide-react";
 import { useUIStore } from "../../../store/uiStore";
 import { useTimeline } from "../../../hooks/useTimeline";
 import { Clip } from "./Clip";
@@ -15,13 +14,19 @@ interface TrackProps {
 
 export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) => {
   const { selectedClipId, selectedTrackId } = useUIStore();
-  const { addClipFromAsset, getMediaAsset } = useTimeline();
+  const { addClipFromAsset, getMediaAsset, moveClip, updateClip, scrollLeft } = useTimeline();
 
-  const [, drop] = useDrop(
+  // Drop handler
+  const [{ isOver, canDrop }, drop] = useDrop(
     () => ({
-      accept: "MEDIA_ASSET",
+      accept: ["MEDIA_ASSET", "CLIP"],
+      collect: (monitor: any) => ({
+        isOver: monitor.isOver(),
+        canDrop: monitor.canDrop(),
+      }),
       drop: (item: DragItem, monitor: any) => {
         if (track.locked) return;
+
         const clientOffset = monitor.getClientOffset();
         if (!clientOffset) return;
 
@@ -29,29 +34,30 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) =
         if (!trackElement) return;
 
         const rect = (trackElement as HTMLElement).getBoundingClientRect();
-        const x = clientOffset.x - rect.left;
+        const x = clientOffset.x - rect.left + scrollLeft;
         const startTime = x / pixelsPerSecond;
 
-        addClipFromAsset(item.asset, track.id, startTime);
+        // Check if it's a media asset or existing clip
+        if (item.type === "MEDIA_ASSET") {
+          addClipFromAsset(item.asset, track.id, startTime);
+        } else if (item.type === "CLIP") {
+          const clip = item.clip;
+          if (clip.trackId === track.id) {
+            moveClip(clip.id, startTime);
+          } else {
+            updateClip(clip.id, { trackId: track.id, startTime });
+          }
+        }
       },
     }),
-    [track.id, pixelsPerSecond, addClipFromAsset],
+    [track.id, pixelsPerSecond, addClipFromAsset, moveClip, updateClip, scrollLeft],
   );
-
-  const getTrackIcon = () => {
-    if (track.type === "video") return <Film className="w-4 h-4" />;
-    if (track.type === "audio") return <Music className="w-4 h-4" />;
-    return <Type className="w-4 h-4" />;
-  };
 
   const trackClips = clips.filter((c) => c.trackId === track.id);
 
   return (
-    <div ref={drop} data-track-id={track.id} className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-[#1f242b]" : "hover:bg-[#1f242b]"}`} style={{ height: `${track.height}px` }}>
-      {track.visible &&
-        trackClips.map((clip) => (
-          <Clip key={clip.id} clip={clip} mediaAsset={getMediaAsset(clip.mediaId)} pixelsPerSecond={pixelsPerSecond} selected={clip.id === selectedClipId} locked={track.locked} />
-        ))}
+    <div ref={drop} data-track-id={track.id} className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-[#1f242b]" : "hover:bg-[#1f242b]"} ${isOver && canDrop ? "bg-cyan-500/10 ring-1 ring-cyan-500/50" : ""}`} style={{ height: `${track.height}px` }}>
+      {track.visible && trackClips.map((clip) => <Clip key={clip.id} clip={clip} mediaAsset={getMediaAsset(clip.mediaId)} pixelsPerSecond={pixelsPerSecond} selected={clip.id === selectedClipId} locked={track.locked} />)}
     </div>
   );
 };

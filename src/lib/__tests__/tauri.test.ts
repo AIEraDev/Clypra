@@ -541,8 +541,8 @@ Failed to inject frame into filter network`;
       vi.mocked(invoke).mockResolvedValue("data:image/png;base64,frame=");
 
       // Simulate rapid scrubbing through timeline
-      for (let i = 0; i < 100; i += 0.1) {
-        await extractFrameAtTime("/test/video.mp4", i, 1920, 1080);
+      for (let i = 0; i < 1000; i++) {
+        await extractFrameAtTime("/test/video.mp4", i / 10, 1920, 1080);
       }
 
       expect(invoke).toHaveBeenCalledTimes(1000);

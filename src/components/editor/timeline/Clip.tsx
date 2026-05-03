@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 // @ts-ignore - react-dnd types issue
 import { useDrag } from "react-dnd";
 import { useUIStore } from "../../../store/uiStore";
@@ -14,20 +14,29 @@ interface ClipProps {
 }
 
 export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false }) => {
-  const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const { selectClip } = useUIStore();
-  const { updateClip, moveClip } = useTimelineStore();
+  const { updateClip } = useTimelineStore();
+  const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
+  const [resizeStart, setResizeStart] = useState<{ x: number; startTime: number; duration: number; trimIn: number; trimOut: number } | null>(null);
 
   const [{ isDragging }, drag] = useDrag(
     () => ({
       type: "CLIP",
-      item: clip,
-      canDrag: !locked,
+      item: () => {
+        // Return the full clip object
+        return { type: "CLIP" as const, clip };
+      },
+      canDrag: !locked && !isResizing,
       collect: (monitor: any) => ({
         isDragging: monitor.isDragging(),
       }),
+      end: (_: any, monitor: any) => {
+        if (!monitor.didDrop()) {
+          console.log("Drag cancelled");
+        }
+      },
     }),
-    [clip, locked],
+    [clip, locked, isResizing],
   );
 
   const left = clip.startTime * pixelsPerSecond;
@@ -36,8 +45,75 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
   const handleResizeStart = (e: React.MouseEvent, side: "left" | "right") => {
     e.stopPropagation();
     if (locked) return;
+
     setIsResizing(side);
+    setResizeStart({
+      x: e.clientX,
+      startTime: clip.startTime,
+      duration: clip.duration,
+      trimIn: clip.trimIn,
+      trimOut: clip.trimOut,
+    });
+
+    // Prevent text selection during resize
+    document.body.style.userSelect = "none";
   };
+
+  useEffect(() => {
+    if (!isResizing || !resizeStart) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - resizeStart.x;
+      const deltaTime = deltaX / pixelsPerSecond;
+
+      if (isResizing === "left") {
+        // Resize from left (trim in)
+        const newStartTime = Math.max(0, resizeStart.startTime + deltaTime);
+        const newDuration = resizeStart.duration - (newStartTime - resizeStart.startTime);
+        const newTrimIn = resizeStart.trimIn + (newStartTime - resizeStart.startTime);
+
+        // Get media asset duration for validation
+        const maxTrimIn = mediaAsset?.duration || resizeStart.trimOut;
+
+        // Clamp to valid range
+        if (newDuration >= 0.1 && newTrimIn >= 0 && newTrimIn < resizeStart.trimOut && newTrimIn <= maxTrimIn) {
+          updateClip(clip.id, {
+            startTime: newStartTime,
+            duration: newDuration,
+            trimIn: newTrimIn,
+          });
+        }
+      } else {
+        // Resize from right (trim out)
+        const newDuration = Math.max(0.1, resizeStart.duration + deltaTime);
+        const newTrimOut = resizeStart.trimIn + newDuration;
+
+        // Get media asset duration for validation
+        const maxDuration = mediaAsset?.duration || resizeStart.trimOut;
+
+        if (newTrimOut <= maxDuration) {
+          updateClip(clip.id, {
+            duration: newDuration,
+            trimOut: newTrimOut,
+          });
+        }
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(null);
+      setResizeStart(null);
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing, resizeStart, clip.id, pixelsPerSecond, updateClip, mediaAsset]);
 
   const getClipColor = () => {
     if (mediaAsset?.type === "audio") return "bg-[#153840] border-[#30a7c8]/40";
@@ -54,20 +130,21 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     <div
       ref={drag}
       data-timeline-interactive="true"
+      data-testid={`clip-${clip.id}`}
       onClick={(e) => {
         e.stopPropagation();
         if (locked) return;
         selectClip(clip.id);
       }}
       onMouseDown={(e) => e.stopPropagation()}
-      className={`absolute h-full rounded-sm overflow-hidden transition-colors border ${selected ? "border border-accent/60" : ""} ${isDragging ? "opacity-50" : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()}`}
+      className={`absolute h-full rounded-sm overflow-hidden transition-colors border ${selected ? "border border-accent/60" : ""} ${isDragging ? "opacity-50" : ""} ${isResizing ? "ring-2 ring-cyan-500" : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()}`}
       style={{
         left: `${left}px`,
         width: `${width}px`,
       }}
     >
       {/* Left trim handle */}
-      <div className="absolute left-0 w-1 h-full bg-black/20 hover:bg-cyan-300/40" onMouseDown={(e) => handleResizeStart(e, "left")} />
+      <div data-testid={`clip-${clip.id}-resize-left`} className={`absolute left-0 w-2 h-full hover:bg-cyan-300/40 cursor-ew-resize z-10 ${isResizing === "left" ? "bg-cyan-300/60" : "bg-black/20"}`} onMouseDown={(e) => handleResizeStart(e, "left")} />
 
       {/* Clip content */}
       <div className="w-full h-full px-1 py-1 flex flex-col gap-1 overflow-hidden">
@@ -91,7 +168,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       </div>
 
       {/* Right trim handle */}
-      <div className="absolute right-0 w-1 h-full bg-black/20 hover:bg-cyan-300/40" onMouseDown={(e) => handleResizeStart(e, "right")} />
+      <div data-testid={`clip-${clip.id}-resize-right`} className={`absolute right-0 w-2 h-full hover:bg-cyan-300/40 cursor-ew-resize z-10 ${isResizing === "right" ? "bg-cyan-300/60" : "bg-black/20"}`} onMouseDown={(e) => handleResizeStart(e, "right")} />
     </div>
   );
 };
