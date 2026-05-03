@@ -11,9 +11,11 @@ interface ClipProps {
   pixelsPerSecond: number;
   selected?: boolean;
   locked?: boolean;
+  displayStartTime?: number; // For magnetic timeline shifting
+  isShifting?: boolean; // Whether clip is being shifted
 }
 
-export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false }) => {
+export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, displayStartTime, isShifting = false }) => {
   const { selectClip } = useUIStore();
   const { updateClip } = useTimelineStore();
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
@@ -39,7 +41,9 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     [clip, locked, isResizing],
   );
 
-  const left = clip.startTime * pixelsPerSecond;
+  // Use displayStartTime if provided (for magnetic shifting), otherwise use clip.startTime
+  const startTime = displayStartTime !== undefined ? displayStartTime : clip.startTime;
+  const left = startTime * pixelsPerSecond;
   const width = clip.duration * pixelsPerSecond;
 
   const handleResizeStart = (e: React.MouseEvent, side: "left" | "right") => {
@@ -137,7 +141,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
         selectClip(clip.id);
       }}
       onMouseDown={(e) => e.stopPropagation()}
-      className={`absolute h-full rounded-sm overflow-hidden transition-colors border ${selected ? "border border-accent/60" : ""} ${isDragging ? "opacity-50" : ""} ${isResizing ? "ring-2 ring-cyan-500" : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()}`}
+      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "border border-accent/60" : ""} ${isDragging ? "opacity-50" : ""} ${isResizing ? "ring-2 ring-cyan-500" : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()} ${isShifting ? "transition-all duration-150 ease-out" : ""}`}
       style={{
         left: `${left}px`,
         width: `${width}px`,

@@ -33,6 +33,11 @@ export const TimelineToolbar: React.FC = () => {
               <Plus className="w-4 h-4" />
             </Button>
           </Tool>
+          <Tool label="Swap Clips">
+            <Button variant="ghost" size="icon-sm" className={toolButton}>
+              <MousePointer2 className="w-4 h-4" />
+            </Button>
+          </Tool>
           <Tool label="Select tool">
             <Button variant="ghost" size="icon-sm" className={toolButton}>
               <MousePointer2 className="w-4 h-4" />
