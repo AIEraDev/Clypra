@@ -41,7 +41,8 @@ export const Timeline: React.FC = () => {
   // Use new auto-scroll hook
   useTimelineAutoScroll(containerRef as RefObject<HTMLDivElement>);
 
-  const contentWidth = Math.max(1000, duration * pixelsPerSecond);
+  // ✅ Ensure content width uses same rounding as all other pixel calculations
+  const contentWidth = Math.max(1000, Math.round(duration * pixelsPerSecond));
 
   const seekFromPointer = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -76,9 +77,6 @@ export const Timeline: React.FC = () => {
 
   // Auto-scroll during playback: bulletproof viewport tracking with strict invariants
   useEffect(() => {
-    // Only auto-scroll when actually playing
-    if (!isPlaying) return;
-
     const container = containerRef.current;
     if (!container) return;
 
@@ -93,47 +91,59 @@ export const Timeline: React.FC = () => {
     // ✅ 3. Get current scroll position
     let newScrollLeft = container.scrollLeft;
 
-    // ✅ 4. Jump logic: when playhead reaches 90% of viewport, jump forward
-    const bufferPx = viewportWidth * 0.1;
-    const rightEdge = newScrollLeft + viewportWidth;
+    // ✅ 4. CRITICAL: When playhead is at the absolute end, force scroll to max
+    // This handles the case where playback stops (isPlaying becomes false) at the end
+    const isAtAbsoluteEnd = currentTime >= duration - 0.01; // Within 10ms of end
 
-    if (playheadX >= rightEdge - bufferPx) {
-      // Jump viewport so playhead appears at left edge
-      newScrollLeft = playheadX;
+    if (isAtAbsoluteEnd) {
+      // Force scroll to absolute maximum when at the end
+      newScrollLeft = maxScrollLeft;
+    } else if (isPlaying) {
+      // ✅ 5. Jump logic during playback: when playhead reaches 90% of viewport, jump forward
+      const bufferPx = viewportWidth * 0.1;
+      const rightEdge = newScrollLeft + viewportWidth;
+
+      if (playheadX >= rightEdge - bufferPx) {
+        // Jump viewport so playhead appears at left edge
+        newScrollLeft = playheadX;
+      }
+
+      // ✅ 6. Enforce visibility invariant during playback: playhead must always be visible
+      const currentRightEdge = newScrollLeft + viewportWidth;
+      if (playheadX > currentRightEdge) {
+        newScrollLeft = Math.min(playheadX, maxScrollLeft);
+      }
     }
 
-    // ✅ 5. HARD CLAMP to valid scroll range
+    // ✅ 7. HARD CLAMP to valid scroll range
     newScrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
 
-    // ✅ 6. Snap to end if within epsilon (eliminate ghost gap)
+    // ✅ 8. Snap to end if within epsilon (eliminate ghost gap)
     const epsilon = 2; // px
     if (maxScrollLeft - newScrollLeft < epsilon) {
       newScrollLeft = maxScrollLeft;
     }
 
-    // ✅ 7. Enforce visibility invariant: playhead must always be visible
-    const currentRightEdge = newScrollLeft + viewportWidth;
-    if (playheadX > currentRightEdge) {
-      newScrollLeft = Math.min(playheadX, maxScrollLeft);
+    // 🔍 Debug logging - ENABLED to diagnose remaining gap
+    if (currentTime > duration - 2) {
+      console.log("[Timeline Scroll Debug]", {
+        currentTime: currentTime.toFixed(2),
+        duration: duration.toFixed(2),
+        isAtAbsoluteEnd,
+        playheadX,
+        scrollLeft: container.scrollLeft,
+        newScrollLeft,
+        viewportWidth,
+        contentWidthActual,
+        contentWidthComputed: contentWidth,
+        maxScrollLeft,
+        gap: maxScrollLeft - newScrollLeft,
+        pixelsPerSecond,
+        isPlaying,
+      });
     }
 
-    // 🔍 Debug logging (uncomment to diagnose issues)
-    // if (currentTime > duration - 2) {
-    //   console.log('[Timeline Scroll Debug]', {
-    //     currentTime: currentTime.toFixed(2),
-    //     playheadX,
-    //     scrollLeft: container.scrollLeft,
-    //     newScrollLeft,
-    //     viewportWidth,
-    //     contentWidthActual,
-    //     contentWidthComputed: contentWidth,
-    //     maxScrollLeft,
-    //     gap: maxScrollLeft - newScrollLeft,
-    //     pixelsPerSecond,
-    //   });
-    // }
-
-    // ✅ 8. Apply scroll if changed (avoid unnecessary updates)
+    // ✅ 9. Apply scroll if changed (avoid unnecessary updates)
     if (Math.abs(container.scrollLeft - newScrollLeft) > 0.5) {
       container.scrollLeft = newScrollLeft;
       setScrollLeft(newScrollLeft);
