@@ -5,4 +5,4 @@ export { StickersTab } from "./StickersTab";
 export { EffectsTab } from "./EffectsTab";
 export { TransitionsTab } from "./TransitionsTab";
 export { CaptionsTab } from "./CaptionsTab";
-export type { TabType, TabProps } from "./types";
+export type { TabType, MediaTabProps } from "./types";

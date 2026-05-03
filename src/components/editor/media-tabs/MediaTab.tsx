@@ -13,9 +13,9 @@ import { useFileDrop } from "../../../hooks/useFileDrop";
 import { useProjectStore } from "../../../store/projectStore";
 import { useUIStore } from "../../../store/uiStore";
 import type { VideoMetadata } from "../../../types";
-import type { TabProps } from "./types";
+import type { MediaTabProps } from "./types";
 
-export const MediaTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
+export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
   const { mediaAssets, removeMediaAsset, addMediaAsset } = useProjectStore();
   const { importMedia, isLoading } = useMediaImport();
   // Note: previewMediaId is used for visual selection state only.
