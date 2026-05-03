@@ -89,7 +89,21 @@ const App = () => {
       // Restore media assets directly
       if (fullProjectData.media_assets && Array.isArray(fullProjectData.media_assets)) {
         console.log("[OpenProject] Restoring media assets:", fullProjectData.media_assets.length);
-        useProjectStore.setState({ mediaAssets: fullProjectData.media_assets });
+
+        // Convert posterFrame paths using convertFileSrc
+        const { convertFileSrc } = await import("@tauri-apps/api/core");
+        const convertedAssets = fullProjectData.media_assets.map((asset: any) => {
+          if (asset.posterFrame && !asset.posterFrame.startsWith("http") && !asset.posterFrame.startsWith("asset://")) {
+            // Re-convert the posterFrame path
+            return {
+              ...asset,
+              posterFrame: convertFileSrc(asset.path),
+            };
+          }
+          return asset;
+        });
+
+        useProjectStore.setState({ mediaAssets: convertedAssets });
       }
 
       // Restore tracks and clips directly
