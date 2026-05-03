@@ -16,13 +16,14 @@ import type { VideoMetadata } from "../../../types";
 import { createClipFromAsset } from "../../../lib/timelineClip";
 
 export const Timeline: React.FC = () => {
-  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack } = useTimelineStore();
+  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack, dragState } = useTimelineStore();
   const { mediaAssets, addMediaAsset } = useProjectStore();
   const { previewMode, exitSourceMode } = useUIStore();
   const { currentTime, duration, seek, setDuration } = usePlayback();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const isProcessingDropRef = useRef(false);
+  const autoScrollIntervalRef = useRef<number | null>(null);
 
   const contentWidth = Math.max(1000, duration * pixelsPerSecond);
 
@@ -51,6 +52,69 @@ export const Timeline: React.FC = () => {
     const target = e.currentTarget;
     setScrollLeft(target.scrollLeft);
   };
+
+  // Auto-scroll when dragging near edges
+  useEffect(() => {
+    if (!dragState) {
+      // Clear auto-scroll when not dragging
+      if (autoScrollIntervalRef.current) {
+        clearInterval(autoScrollIntervalRef.current);
+        autoScrollIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const EDGE_THRESHOLD = 100; // pixels from edge to trigger scroll
+    const SCROLL_SPEED = 10; // pixels per frame
+
+    const handleAutoScroll = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const containerWidth = rect.width;
+
+      // Check if near left edge
+      if (mouseX < EDGE_THRESHOLD && container.scrollLeft > 0) {
+        if (!autoScrollIntervalRef.current) {
+          autoScrollIntervalRef.current = window.setInterval(() => {
+            const newScrollLeft = Math.max(0, container.scrollLeft - SCROLL_SPEED);
+            container.scrollLeft = newScrollLeft;
+            setScrollLeft(newScrollLeft);
+          }, 16); // ~60fps
+        }
+      }
+      // Check if near right edge
+      else if (mouseX > containerWidth - EDGE_THRESHOLD && container.scrollLeft < contentWidth - containerWidth) {
+        if (!autoScrollIntervalRef.current) {
+          autoScrollIntervalRef.current = window.setInterval(() => {
+            const maxScroll = contentWidth - containerWidth;
+            const newScrollLeft = Math.min(maxScroll, container.scrollLeft + SCROLL_SPEED);
+            container.scrollLeft = newScrollLeft;
+            setScrollLeft(newScrollLeft);
+          }, 16); // ~60fps
+        }
+      }
+      // Not near edges, stop scrolling
+      else {
+        if (autoScrollIntervalRef.current) {
+          clearInterval(autoScrollIntervalRef.current);
+          autoScrollIntervalRef.current = null;
+        }
+      }
+    };
+
+    window.addEventListener("mousemove", handleAutoScroll);
+
+    return () => {
+      window.removeEventListener("mousemove", handleAutoScroll);
+      if (autoScrollIntervalRef.current) {
+        clearInterval(autoScrollIntervalRef.current);
+        autoScrollIntervalRef.current = null;
+      }
+    };
+  }, [dragState, contentWidth, setScrollLeft]);
 
   useEffect(() => {
     const timelineEnd = getTimelineEndTime();
