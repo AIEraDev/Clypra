@@ -52,11 +52,12 @@ const App = () => {
 
       // Load the full project data from disk
       const { invoke } = await import("@tauri-apps/api/core");
-      const { path } = await import("@tauri-apps/api");
+      const { appDataDir, join } = await import("@tauri-apps/api/path");
 
-      // Get the project file path
-      const appDataDir = await path.appDataDir();
-      const projectPath = `${appDataDir}projects/${proj.id}.json`;
+      // Get the project file path - use proper path joining
+      const appData = await appDataDir();
+      const projectsDir = await join(appData, "projects");
+      const projectPath = await join(projectsDir, `${proj.id}.json`);
 
       console.log("[OpenProject] Loading from path:", projectPath);
 
