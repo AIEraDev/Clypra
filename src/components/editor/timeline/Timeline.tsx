@@ -356,7 +356,7 @@ export const Timeline: React.FC = () => {
               {/* Empty space below all tracks - only for media assets */}
               <EmptyTimelineDropZone isDragging={showGhostZones} />
 
-              <Playhead pixelsPerSecond={pixelsPerSecond} duration={duration} />
+              <Playhead pixelsPerSecond={pixelsPerSecond} duration={duration} containerRef={containerRef} />
             </div>
           </div>
         </div>
