@@ -14,7 +14,23 @@ const App = () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         const projectsJson: string[] = await invoke("get_recent_projects");
-        const projects = projectsJson.map((json) => JSON.parse(json));
+
+        // Convert snake_case from Rust to camelCase for frontend
+        const projects = projectsJson.map((json) => {
+          const rustProject = JSON.parse(json);
+          return {
+            id: rustProject.id,
+            name: rustProject.name,
+            createdAt: rustProject.created_at,
+            updatedAt: rustProject.modified_at || rustProject.created_at,
+            aspectRatio: rustProject.aspect_ratio,
+            canvasWidth: rustProject.canvas_width,
+            canvasHeight: rustProject.canvas_height,
+            frameRate: rustProject.frame_rate,
+            duration: rustProject.duration || 0,
+          };
+        });
+
         setRecentProjects(projects);
       } catch (error) {
         console.error("Failed to initialize app:", error);
