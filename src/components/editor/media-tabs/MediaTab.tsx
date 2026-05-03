@@ -182,6 +182,7 @@ const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, isUsedInTimeli
             {Math.floor(asset.duration / 60)}:{String(Math.floor(asset.duration % 60)).padStart(2, "0")}
           </div>
         )}
+        {/* "Added" badge */}
         {isUsedInTimeline && (
           <div className="absolute top-1 left-1 bg-purple-950/80 px-1 py-px rounded-[2px] text-[8px] text-white flex items-center gap-1">
             <span>Added</span>
