@@ -94,12 +94,20 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             const { useTimelineStore } = await import("./timelineStore");
             const { tracks, clips } = useTimelineStore.getState();
 
+            // Convert camelCase to snake_case for Rust backend
             const projectData = {
-              ...project,
-              updatedAt: Date.now(),
+              id: project.id,
+              name: project.name,
+              created_at: project.createdAt,
+              modified_at: Date.now(),
+              aspect_ratio: project.aspectRatio,
+              canvas_width: project.canvasWidth,
+              canvas_height: project.canvasHeight,
+              frame_rate: project.frameRate,
+              duration: project.duration,
               tracks,
               clips,
-              mediaAssets,
+              media_assets: mediaAssets,
             };
 
             const { invoke } = await import("@tauri-apps/api/core");
@@ -134,12 +142,20 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         const { useTimelineStore } = await import("./timelineStore");
         const { tracks, clips } = useTimelineStore.getState();
 
+        // Convert camelCase to snake_case for Rust backend
         const projectData = {
-          ...project,
-          updatedAt: Date.now(),
+          id: project.id,
+          name: project.name,
+          created_at: project.createdAt,
+          modified_at: Date.now(),
+          aspect_ratio: project.aspectRatio,
+          canvas_width: project.canvasWidth,
+          canvas_height: project.canvasHeight,
+          frame_rate: project.frameRate,
+          duration: project.duration,
           tracks,
           clips,
-          mediaAssets,
+          media_assets: mediaAssets,
         };
 
         const { invoke } = await import("@tauri-apps/api/core");
