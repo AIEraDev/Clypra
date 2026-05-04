@@ -27,10 +27,13 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
 
     set({ isPlaying: true });
 
+    const fps = Math.max(1, state.frameRate);
+    const intervalMs = 1000 / fps;
+
     const intervalId = window.setInterval(() => {
       const current = get();
-      const frameTime = 1 / current.frameRate;
-      const newTime = current.currentTime + frameTime;
+      const step = 1 / Math.max(1, current.frameRate);
+      const newTime = current.currentTime + step;
 
       if (newTime >= current.duration) {
         // Pause at the end instead of stopping (which resets to 0)
@@ -42,7 +45,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       } else {
         set({ currentTime: newTime });
       }
-    }, 16) as unknown as number;
+    }, intervalMs) as unknown as number;
 
     set({ intervalId });
   },
@@ -77,6 +80,15 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   },
 
   setFrameRate: (fps) => {
-    set({ frameRate: fps });
+    const clamped = Math.max(1, fps);
+    const state = get();
+    if (state.intervalId) {
+      clearInterval(state.intervalId);
+    }
+    const wasPlaying = state.isPlaying;
+    set({ frameRate: clamped, intervalId: null, isPlaying: false });
+    if (wasPlaying) {
+      get().play();
+    }
   },
 }));
