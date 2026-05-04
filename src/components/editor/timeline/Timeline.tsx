@@ -12,11 +12,13 @@ import { Track } from "./Track";
 import { Playhead } from "./Playhead";
 import { GhostTrack } from "./GhostTrack";
 import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
+import { ClipDragLayer } from "./ClipDragLayer";
 import { useTimelineStore } from "../../../store/timelineStore";
 import { useProjectStore } from "../../../store/projectStore";
 import { useUIStore } from "../../../store/uiStore";
 import { usePlayback } from "../../../hooks/usePlayback";
 import { useTimelineAutoScroll } from "../../../hooks/useTimelineAutoScroll";
+import { useDragStateStore } from "../../../store/dragStateStore";
 import type { VideoMetadata } from "../../../types";
 import { createClipFromAsset } from "../../../lib/timelineClip";
 
@@ -25,6 +27,7 @@ export const Timeline: React.FC = () => {
   const { mediaAssets, addMediaAsset } = useProjectStore();
   const { previewMode, exitSourceMode } = useUIStore();
   const { currentTime, duration, isPlaying, seek, setDuration } = usePlayback();
+  const { draggingClip, originalTrackId, originalStartTime, clearDragging } = useDragStateStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const isProcessingDropRef = useRef(false);
@@ -37,6 +40,19 @@ export const Timeline: React.FC = () => {
 
   // Only show ghost zones when dragging media assets, not clips
   const showGhostZones = isDragging && itemType === "MEDIA_ASSET";
+
+  // ✅ Handle drag cancellation (Escape key or drop outside valid target)
+  useEffect(() => {
+    if (!isDragging && draggingClip && originalTrackId && originalStartTime !== null) {
+      // Drag ended without a valid drop - restore clip to original position
+      addClip({
+        ...draggingClip,
+        trackId: originalTrackId,
+        startTime: originalStartTime,
+      });
+      clearDragging();
+    }
+  }, [isDragging, draggingClip, originalTrackId, originalStartTime, addClip, clearDragging]);
 
   // Use new auto-scroll hook
   useTimelineAutoScroll(containerRef as RefObject<HTMLDivElement>);
@@ -361,6 +377,9 @@ export const Timeline: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ✅ Custom drag layer for floating clip */}
+      <ClipDragLayer />
     </div>
   );
 };

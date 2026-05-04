@@ -3,9 +3,9 @@ import React from "react";
 import { useDrop } from "react-dnd";
 import { useUIStore } from "../../../store/uiStore";
 import { useTimelineStore } from "../../../store/timelineStore";
+import { useDragStateStore } from "../../../store/dragStateStore";
 import { useTimeline } from "../../../hooks/useTimeline";
 import { Clip } from "./Clip";
-import { formatTime } from "../../../lib/utils";
 import type { Track as TrackType, DragItem } from "../../../types";
 
 interface TrackProps {
@@ -16,33 +16,9 @@ interface TrackProps {
 
 export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) => {
   const { selectedClipIds, selectedTrackId } = useUIStore();
-  const { addClipFromAsset, getMediaAsset, moveClip, updateClip, scrollLeft } = useTimeline();
-  const { dragState, setDragState, calculateShiftedPositions } = useTimelineStore();
-  const [isAltPressed, setIsAltPressed] = React.useState(false);
-  const [dropPosition, setDropPosition] = React.useState<number | null>(null);
-
-  // Track Alt key state
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.altKey && !isAltPressed) {
-        setIsAltPressed(true);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (!e.altKey && isAltPressed) {
-        setIsAltPressed(false);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, [isAltPressed]);
+  const { addClipFromAsset, getMediaAsset, scrollLeft } = useTimeline();
+  const { addClip } = useTimelineStore();
+  const { draggingClip, insertionTrackId, insertionTime, setInsertion, clearDragging, originalTrackId, originalStartTime } = useDragStateStore();
 
   // Drop handler
   const [{ isOver, canDrop }, drop] = useDrop(
@@ -63,29 +39,62 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) =
 
         const rect = (trackElement as HTMLElement).getBoundingClientRect();
         const x = clientOffset.x - rect.left + scrollLeft;
-        const ghostStart = Math.max(0, x / pixelsPerSecond);
+        const pointerTime = Math.max(0, x / pixelsPerSecond);
 
-        // Snap to 0.1s intervals
-        const snappedTime = Math.max(0, Math.round(ghostStart * 10) / 10);
-        setDropPosition(snappedTime);
+        // Only handle CLIP dragging for insertion gap
+        if (item.type === "CLIP" && draggingClip) {
+          // ✅ Find insertion point between clips
+          const trackClips = clips.filter((c) => c.trackId === track.id).sort((a, b) => a.startTime - b.startTime);
 
-        // Only handle CLIP dragging for magnetic behavior
-        if (item.type === "CLIP") {
-          const clip = item.clip;
-          const insertMode = isAltPressed;
+          let insertTime = 0;
 
-          // Calculate affected clips
-          const affectedClips = calculateShiftedPositions(track.id, ghostStart, clip.duration, clip.id, insertMode);
+          if (trackClips.length === 0) {
+            // Empty track - insert at pointer position
+            insertTime = pointerTime;
+          } else {
+            // Find the gap the pointer is in
+            let foundGap = false;
 
-          // Update drag state
-          setDragState({
-            draggingClipId: clip.id,
-            targetTrackId: track.id,
-            ghostStartTime: ghostStart,
-            ghostDuration: clip.duration,
-            insertMode,
-            affectedClips,
-          });
+            for (let i = 0; i < trackClips.length; i++) {
+              const currentClip = trackClips[i];
+              const nextClip = trackClips[i + 1];
+
+              // Check if pointer is before first clip
+              if (i === 0 && pointerTime < currentClip.startTime) {
+                insertTime = 0;
+                foundGap = true;
+                break;
+              }
+
+              // Check if pointer is in gap between current and next
+              if (nextClip) {
+                const gapStart = currentClip.startTime + currentClip.duration;
+                const gapEnd = nextClip.startTime;
+                const gapMidpoint = (gapStart + gapEnd) / 2;
+
+                if (pointerTime >= gapStart && pointerTime < gapEnd) {
+                  // Snap to start of gap if before midpoint, end if after
+                  insertTime = pointerTime < gapMidpoint ? gapStart : gapEnd;
+                  foundGap = true;
+                  break;
+                }
+              }
+
+              // Check if pointer is after last clip
+              if (i === trackClips.length - 1 && pointerTime >= currentClip.startTime + currentClip.duration) {
+                insertTime = currentClip.startTime + currentClip.duration;
+                foundGap = true;
+                break;
+              }
+            }
+
+            if (!foundGap) {
+              insertTime = pointerTime;
+            }
+          }
+
+          // ✅ Update insertion state
+          setInsertion(track.id, insertTime);
         }
       },
       drop: (item: DragItem, monitor: any) => {
@@ -94,84 +103,68 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) =
         const clientOffset = monitor.getClientOffset();
         if (!clientOffset) return;
 
-        const trackElement = document.querySelector(`[data-track-id="${track.id}"]`);
-        if (!trackElement) return;
-
-        const rect = (trackElement as HTMLElement).getBoundingClientRect();
-        const x = clientOffset.x - rect.left + scrollLeft;
-        let startTime = Math.max(0, x / pixelsPerSecond);
-
         // Check if it's a media asset or existing clip
         if (item.type === "MEDIA_ASSET") {
+          const trackElement = document.querySelector(`[data-track-id="${track.id}"]`);
+          if (!trackElement) return;
+
+          const rect = (trackElement as HTMLElement).getBoundingClientRect();
+          const x = clientOffset.x - rect.left + scrollLeft;
+          const startTime = Math.max(0, x / pixelsPerSecond);
+
           addClipFromAsset(item.asset, track.id, startTime);
-        } else if (item.type === "CLIP") {
-          const clip = item.clip;
-          const insertMode = isAltPressed;
+        } else if (item.type === "CLIP" && draggingClip && insertionTime !== null) {
+          // ✅ Add clip at insertion position
+          addClip({
+            ...draggingClip,
+            trackId: track.id,
+            startTime: insertionTime,
+          });
 
-          // In insert mode, shift other clips
-          if (insertMode && dragState?.affectedClips) {
-            // Apply shifts to all affected clips
-            dragState.affectedClips.forEach((affected) => {
-              if (affected.shiftedStartTime !== affected.originalStartTime) {
-                moveClip(affected.clipId, affected.shiftedStartTime);
-              }
-            });
-          }
-
-          // Move the dragged clip
-          if (clip.trackId === track.id) {
-            moveClip(clip.id, startTime);
-          } else {
-            updateClip(clip.id, { trackId: track.id, startTime });
-          }
+          // ✅ Clear drag state
+          clearDragging();
         }
-
-        // Clear drag state
-        setDragState(null);
       },
+      canDrop: () => !track.locked,
     }),
-    [track.id, pixelsPerSecond, addClipFromAsset, moveClip, updateClip, scrollLeft, isAltPressed, dragState, setDragState, calculateShiftedPositions],
+    [track.id, track.locked, pixelsPerSecond, addClipFromAsset, scrollLeft, draggingClip, insertionTime, setInsertion, addClip, clearDragging, clips],
   );
 
-  // Clear drop position when not hovering
-  React.useEffect(() => {
-    if (!isOver) setDropPosition(null);
-  }, [isOver]);
-
   const trackClips = clips.filter((c) => c.trackId === track.id);
+
+  // ✅ Calculate shifted positions for clips after insertion point
+  const getDisplayStartTime = (clip: any) => {
+    if (insertionTrackId === track.id && insertionTime !== null && draggingClip) {
+      // Shift clips that start at or after insertion point
+      if (clip.startTime >= insertionTime) {
+        return clip.startTime + draggingClip.duration;
+      }
+    }
+    return clip.startTime;
+  };
 
   return (
     <div ref={drop} data-track-id={track.id} className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-[#1f242b]" : ""}`} style={{ height: `${track.height}px` }}>
       {track.visible &&
         trackClips.map((clip) => {
-          // If a drag is in progress in insert mode, use shifted position
-          const shifted = dragState?.affectedClips.find((a) => a.clipId === clip.id);
-          const displayStartTime = shifted ? shifted.shiftedStartTime : clip.startTime;
-          const isShifting = !!shifted && shifted.shiftedStartTime !== shifted.originalStartTime;
+          const displayStartTime = getDisplayStartTime(clip);
+          const isShifting = displayStartTime !== clip.startTime;
 
           return <Clip key={clip.id} clip={clip} mediaAsset={getMediaAsset(clip.mediaId)} pixelsPerSecond={pixelsPerSecond} selected={selectedClipIds.includes(clip.id)} locked={track.locked} displayStartTime={displayStartTime} isShifting={isShifting} />;
         })}
 
-      {/* Thin vertical drop indicator line - only position, no track background */}
-      {isOver && canDrop && dropPosition !== null && !dragState?.insertMode && (
+      {/* ✅ Insertion gap highlight (CapCut style) */}
+      {insertionTrackId === track.id && insertionTime !== null && draggingClip && (
         <div
-          className="absolute top-0 bottom-0 w-0.5 bg-accent z-20 pointer-events-none"
+          className="absolute top-0 pointer-events-none z-10"
           style={{
-            left: `${dropPosition * pixelsPerSecond}px`,
-          }}
-        >
-          {/* Small time label */}
-          <div className="absolute -top-5 left-1 bg-accent text-white text-[10px] px-1 rounded whitespace-nowrap">{formatTime(dropPosition)}</div>
-        </div>
-      )}
-
-      {/* Ghost drop zone indicator for insert mode */}
-      {dragState?.targetTrackId === track.id && dragState.insertMode && (
-        <div
-          className="absolute top-0 h-full bg-accent/20 border-2 border-accent border-dashed rounded pointer-events-none transition-all duration-100"
-          style={{
-            left: `${dragState.ghostStartTime * pixelsPerSecond}px`,
-            width: `${dragState.ghostDuration * pixelsPerSecond}px`,
+            left: `${Math.round(insertionTime * pixelsPerSecond)}px`,
+            width: `${Math.round(draggingClip.duration * pixelsPerSecond)}px`,
+            height: "100%",
+            background: "rgba(108, 99, 255, 0.12)",
+            border: "1.5px dashed #6c63ff",
+            borderRadius: "4px",
+            transition: "left 100ms ease-out, width 100ms ease-out",
           }}
         />
       )}

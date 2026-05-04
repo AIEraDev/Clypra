@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 // @ts-ignore - react-dnd types issue
-import { useDrag } from "react-dnd";
+import { useDrag, useDragLayer } from "react-dnd";
+import { getEmptyImage } from "react-dnd-html5-backend";
 import { useUIStore } from "../../../store/uiStore";
 import { useTimelineStore } from "../../../store/timelineStore";
+import { useDragStateStore } from "../../../store/dragStateStore";
 import type { Clip as ClipType, MediaAsset } from "../../../types";
 
 interface ClipProps {
@@ -17,15 +19,21 @@ interface ClipProps {
 
 export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, displayStartTime, isShifting = false }) => {
   const { selectClip, toggleClipSelection } = useUIStore();
-  const { updateClip, rippleEditEnabled, rippleTrimClip } = useTimelineStore();
+  const { updateClip, rippleEditEnabled, rippleTrimClip, removeClip, addClip } = useTimelineStore();
+  const { setDragging, setGrabOffset, draggingClip } = useDragStateStore();
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const [resizeStart, setResizeStart] = useState<{ x: number; startTime: number; duration: number; trimIn: number; trimOut: number; isRipple: boolean } | null>(null);
 
-  const [{ isDragging }, drag] = useDrag(
+  const [{ isDragging }, drag, dragPreview] = useDrag(
     () => ({
       type: "CLIP",
       item: () => {
-        // Return the full clip object
+        // ✅ Immediately remove clip from timeline (CapCut model)
+        removeClip(clip.id);
+
+        // ✅ Store in drag state
+        setDragging(clip, clip.trackId, clip.startTime);
+
         return { type: "CLIP" as const, clip };
       },
       canDrag: !locked && !isResizing,
@@ -33,13 +41,23 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
         isDragging: monitor.isDragging(),
       }),
       end: (_: any, monitor: any) => {
-        if (!monitor.didDrop()) {
-          console.log("Drag cancelled");
-        }
+        // Handled by Track drop or Timeline cleanup
       },
     }),
-    [clip, locked, isResizing],
+    [clip, locked, isResizing, removeClip, setDragging],
   );
+
+  // ✅ Suppress default drag image (we use custom ClipDragLayer)
+  useEffect(() => {
+    if (dragPreview && typeof dragPreview === "function") {
+      dragPreview(getEmptyImage(), { captureDraggingState: true });
+    }
+  }, [dragPreview]);
+
+  // ✅ If this clip is being dragged, don't render it (it's in the drag layer)
+  if (draggingClip?.id === clip.id) {
+    return null;
+  }
 
   // Use displayStartTime if provided (for magnetic shifting), otherwise use clip.startTime
   const startTime = displayStartTime !== undefined ? displayStartTime : clip.startTime;
@@ -163,8 +181,14 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
           selectClip(clip.id);
         }
       }}
-      onMouseDown={(e) => e.stopPropagation()}
-      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "ring-2 ring-accent" : ""} ${isDragging ? "opacity-50" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()} ${isShifting ? "transition-all duration-150 ease-out" : ""}`}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+
+        // ✅ Capture grab offset for accurate drag positioning
+        const rect = e.currentTarget.getBoundingClientRect();
+        setGrabOffset(e.clientX - rect.left, e.clientY - rect.top);
+      }}
+      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "ring-2 ring-accent" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()} ${isShifting ? "transition-all duration-150 ease-out" : ""}`}
       style={{
         left: `${left}px`,
         width: `${width}px`,
