@@ -202,7 +202,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       ref={playheadRef}
       data-playhead="true"
       data-timeline-interactive="true"
-      className={`absolute inset-y-0 select-none cursor-timeline-ew ${isDragging ? "cursor-timeline-ew-grabbing" : ""}`}
+      className={`absolute inset-y-0 select-none cursor-timeline-ew pointer-events-none ${isDragging ? "cursor-timeline-ew-grabbing" : ""}`}
       style={{
         left: `${left}px`,
         width: "8px",
@@ -215,7 +215,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     >
       {/* Visual line */}
       <div
-        className="absolute inset-y-0 left-1/2 -translate-x-1/2 pointer-events-none"
+        className="absolute inset-y-0 left-1/2 -translate-x-1/2 pointer-events-auto"
         style={{
           width: "2px",
           backgroundColor: "#6c63ff",
@@ -225,7 +225,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
 
       {/* Circle handle at top */}
       <div
-        className="absolute rounded-full pointer-events-none"
+        className="absolute rounded-full pointer-events-auto"
         style={{
           left: "50%",
           transform: "translateX(-50%)",

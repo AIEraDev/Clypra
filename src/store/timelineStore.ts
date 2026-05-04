@@ -24,6 +24,10 @@ interface TimelineStore {
   swapClips: () => { error: string | null };
   toggleRippleEdit: () => void;
   rippleTrimClip: (clipId: string, side: "left" | "right", deltaTime: number) => void;
+  // Sequence-based operations
+  insertClipAtIndex: (clipId: string, trackId: string, index: number) => void;
+  normalizeTrack: (trackId: string) => void;
+  getTrackClips: (trackId: string) => Clip[];
 }
 
 const trackHeights: Record<string, number> = {
@@ -325,5 +329,63 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     import("./projectStore").then(({ useProjectStore }) => {
       useProjectStore.getState().scheduleAutoSave();
     });
+  },
+
+  // Sequence-based operations for gap engine
+  getTrackClips: (trackId) => {
+    const state = get();
+    return state.clips.filter((c) => c.trackId === trackId).sort((a, b) => a.startTime - b.startTime);
+  },
+
+  insertClipAtIndex: (clipId, trackId, index) => {
+    const state = get();
+    const clip = state.clips.find((c) => c.id === clipId);
+    if (!clip) return;
+
+    // Get all clips on target track (excluding the dragged clip)
+    const trackClips = state.clips.filter((c) => c.trackId === trackId && c.id !== clipId).sort((a, b) => a.startTime - b.startTime);
+
+    // Insert clip at index
+    trackClips.splice(index, 0, clip);
+
+    // Recalculate all positions (no gaps, no overlaps)
+    let currentTime = 0;
+    const updatedClips = trackClips.map((c) => {
+      const updated = { ...c, startTime: currentTime, trackId };
+      currentTime += c.duration;
+      return updated;
+    });
+
+    // Update state with normalized positions
+    set((state) => ({
+      clips: state.clips.map((c) => {
+        const updated = updatedClips.find((uc) => uc.id === c.id);
+        return updated || c;
+      }),
+    }));
+
+    // Trigger auto-save
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
+  },
+
+  normalizeTrack: (trackId) => {
+    const state = get();
+    const trackClips = state.clips.filter((c) => c.trackId === trackId).sort((a, b) => a.startTime - b.startTime);
+
+    let currentTime = 0;
+    const normalized = trackClips.map((clip) => {
+      const updated = { ...clip, startTime: currentTime };
+      currentTime += clip.duration;
+      return updated;
+    });
+
+    set((state) => ({
+      clips: state.clips.map((c) => {
+        const norm = normalized.find((n) => n.id === c.id);
+        return norm || c;
+      }),
+    }));
   },
 }));

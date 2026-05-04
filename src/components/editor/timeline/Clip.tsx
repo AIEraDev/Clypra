@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from "react";
-// @ts-ignore - react-dnd types issue
-import { useDrag, useDragLayer } from "react-dnd";
-import { getEmptyImage } from "react-dnd-html5-backend";
+import React, { useState, useEffect, useRef } from "react";
 import { useUIStore } from "../../../store/uiStore";
 import { useTimelineStore } from "../../../store/timelineStore";
-import { useDragStateStore } from "../../../store/dragStateStore";
 import type { Clip as ClipType, MediaAsset } from "../../../types";
+
+console.log("[CLIP MODULE] 📦 Clip.tsx loaded");
 
 interface ClipProps {
   clip: ClipType;
@@ -13,57 +11,125 @@ interface ClipProps {
   pixelsPerSecond: number;
   selected?: boolean;
   locked?: boolean;
-  displayStartTime?: number; // For magnetic timeline shifting
-  isShifting?: boolean; // Whether clip is being shifted
+  onDragStart?: (clipId: string, startX: number, startY: number) => void;
+  onDragMove?: (clipId: string, deltaX: number, deltaY: number, clientX: number, clientY: number) => void;
+  onDragEnd?: (clipId: string) => void;
+  dragState?: {
+    isDragging: boolean;
+    offsetX: number;
+    offsetY: number;
+    isInvalidPosition?: boolean;
+  };
 }
 
-export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, displayStartTime, isShifting = false }) => {
+export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, onDragStart, onDragMove, onDragEnd, dragState }) => {
+  console.log("[CLIP] 🔄 Render", { clipId: clip.id, locked, selected });
+
   const { selectClip, toggleClipSelection } = useUIStore();
-  const { updateClip, rippleEditEnabled, rippleTrimClip, removeClip, addClip } = useTimelineStore();
-  const { setDragging, setGrabOffset, draggingClip } = useDragStateStore();
+  const { updateClip, rippleEditEnabled, rippleTrimClip } = useTimelineStore();
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const [resizeStart, setResizeStart] = useState<{ x: number; startTime: number; duration: number; trimIn: number; trimOut: number; isRipple: boolean } | null>(null);
+  const clipRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{ startX: number; startY: number; startTime: number; hasMoved: boolean } | null>(null);
 
-  const [{ isDragging }, drag, dragPreview] = useDrag(
-    () => ({
-      type: "CLIP",
-      item: () => {
-        // ✅ Immediately remove clip from timeline (CapCut model)
-        removeClip(clip.id);
-
-        // ✅ Store in drag state
-        setDragging(clip, clip.trackId, clip.startTime);
-
-        return { type: "CLIP" as const, clip };
-      },
-      canDrag: !locked && !isResizing,
-      collect: (monitor: any) => ({
-        isDragging: monitor.isDragging(),
-      }),
-      end: (_: any, monitor: any) => {
-        // Handled by Track drop or Timeline cleanup
-      },
-    }),
-    [clip, locked, isResizing, removeClip, setDragging],
-  );
-
-  // ✅ Suppress default drag image (we use custom ClipDragLayer)
-  useEffect(() => {
-    if (dragPreview && typeof dragPreview === "function") {
-      dragPreview(getEmptyImage(), { captureDraggingState: true });
-    }
-  }, [dragPreview]);
-
-  // ✅ If this clip is being dragged, don't render it (it's in the drag layer)
-  if (draggingClip?.id === clip.id) {
-    return null;
-  }
-
-  // Use displayStartTime if provided (for magnetic shifting), otherwise use clip.startTime
-  const startTime = displayStartTime !== undefined ? displayStartTime : clip.startTime;
-  // ✅ Round to avoid subpixel rendering issues (same as Timeline scroll logic)
-  const left = Math.round(startTime * pixelsPerSecond);
+  // Calculate position
+  const left = Math.round(clip.startTime * pixelsPerSecond);
   const width = Math.round(clip.duration * pixelsPerSecond);
+
+  // Apply drag offset if dragging
+  const isDragging = dragState?.isDragging || false;
+  const isInvalidPosition = dragState?.isInvalidPosition || false;
+  const displayLeft = isDragging ? left + (dragState?.offsetX || 0) : left;
+
+  // Handle pointer-based drag
+  const handlePointerDown = (e: React.PointerEvent) => {
+    console.log("[CLIP] ⬇️ onPointerDown", {
+      clipId: clip.id,
+      button: e.button,
+      target: (e.target as HTMLElement).className,
+      locked,
+      isResizing,
+    });
+
+    // Ignore if locked, resizing, or not left button
+    if (locked || isResizing || e.button !== 0) return;
+
+    // Check if clicking resize handle
+    const target = e.target as HTMLElement;
+    const isResizeHandle = target.closest('[data-testid*="resize"]');
+    if (isResizeHandle) {
+      console.log("[CLIP] 🚫 Resize handle clicked - not dragging");
+      return;
+    }
+
+    // Start drag
+    e.stopPropagation();
+    const rect = clipRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: clip.startTime,
+      hasMoved: false,
+    };
+
+    // Capture pointer for smooth dragging
+    clipRef.current?.setPointerCapture(e.pointerId);
+
+    console.log("[CLIP] 🚀 Drag START", { clipId: clip.id, startX: e.clientX, startY: e.clientY });
+    onDragStart?.(clip.id, e.clientX, e.clientY);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragStartRef.current || !onDragMove) {
+      console.log("[CLIP] ⚠️ Pointer move ignored", {
+        hasDragStart: !!dragStartRef.current,
+        hasOnDragMove: !!onDragMove,
+      });
+      return;
+    }
+
+    const deltaX = e.clientX - dragStartRef.current.startX;
+    const deltaY = e.clientY - dragStartRef.current.startY;
+
+    console.log("[CLIP] 🔄 Pointer move", {
+      clipId: clip.id,
+      deltaX,
+      deltaY,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      hasMoved: dragStartRef.current.hasMoved,
+    });
+
+    // Mark as moved if threshold exceeded
+    if (!dragStartRef.current.hasMoved && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
+      dragStartRef.current.hasMoved = true;
+      console.log("[CLIP] ✅ Movement threshold exceeded - starting drag");
+    }
+
+    if (dragStartRef.current.hasMoved) {
+      onDragMove(clip.id, deltaX, deltaY, e.clientX, e.clientY);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!dragStartRef.current) return;
+
+    console.log("[CLIP] 🏁 Drag END", { clipId: clip.id, hasMoved: dragStartRef.current.hasMoved });
+
+    // If didn't move, treat as click for selection
+    if (!dragStartRef.current.hasMoved) {
+      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        toggleClipSelection(clip.id);
+      } else {
+        selectClip(clip.id);
+      }
+    }
+
+    onDragEnd?.(clip.id);
+    dragStartRef.current = null;
+  };
 
   const handleResizeStart = (e: React.MouseEvent, side: "left" | "right") => {
     e.stopPropagation();
@@ -167,35 +233,36 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
 
   return (
     <div
-      ref={drag}
+      ref={clipRef}
       data-timeline-interactive="true"
       data-testid={`clip-${clip.id}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (locked) return;
-
-        // Multi-select with Shift/Cmd/Ctrl
-        if (e.shiftKey || e.metaKey || e.ctrlKey) {
-          toggleClipSelection(clip.id);
-        } else {
-          selectClip(clip.id);
-        }
-      }}
-      onMouseDown={(e) => {
-        e.stopPropagation();
-
-        // ✅ Capture grab offset for accurate drag positioning
-        const rect = e.currentTarget.getBoundingClientRect();
-        setGrabOffset(e.clientX - rect.left, e.clientY - rect.top);
-      }}
-      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "ring-2 ring-accent" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : ""} ${getClipColor()} ${isShifting ? "transition-all duration-150 ease-out" : ""}`}
+      data-clip-id={clip.id}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "ring-2 ring-accent" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-grab"} ${getClipColor()} transition-none`}
       style={{
-        left: `${left}px`,
+        left: `${displayLeft}px`,
         width: `${width}px`,
+        opacity: isInvalidPosition ? 0.5 : 1,
+        pointerEvents: "auto",
+        zIndex: isDragging ? 100 : 1,
+        boxShadow: isDragging ? (isInvalidPosition ? "0 8px 32px rgba(255,0,0,0.6)" : "0 8px 32px rgba(0,0,0,0.6)") : "none",
+        transformOrigin: isDragging ? "0 0" : undefined,
+        transform: isDragging ? `translateY(${dragState?.offsetY ?? 0}px) scale(1.02)` : "scale(1)",
+        border: isInvalidPosition ? "2px solid #ef4444" : undefined,
       }}
     >
       {/* Left trim handle */}
-      <div data-testid={`clip-${clip.id}-resize-left`} className={`absolute left-0 top-0 w-3 h-full hover:bg-cyan-300/40 cursor-ew-resize z-20 ${isResizing === "left" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`} onMouseDown={(e) => handleResizeStart(e, "left")} title={rippleEditEnabled ? "Ripple trim (ripple mode ON)" : "Hold Shift for ripple trim"} />
+      <div
+        data-testid={`clip-${clip.id}-resize-left`}
+        className={`absolute left-0 top-0 w-3 h-full hover:bg-cyan-300/40 cursor-ew-resize z-20 ${isResizing === "left" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`}
+        onMouseDown={(e) => {
+          e.stopPropagation(); // Prevent drag when clicking resize handle
+          handleResizeStart(e, "left");
+        }}
+        title={rippleEditEnabled ? "Ripple trim (ripple mode ON)" : "Hold Shift for ripple trim"}
+      />
 
       {/* Clip content */}
       <div className="w-full h-full px-1 py-1 flex flex-col gap-1 overflow-hidden">
@@ -219,7 +286,15 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       </div>
 
       {/* Right trim handle */}
-      <div data-testid={`clip-${clip.id}-resize-right`} className={`absolute right-0 top-0 w-3 h-full hover:bg-cyan-300/40 cursor-ew-resize z-20 ${isResizing === "right" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`} onMouseDown={(e) => handleResizeStart(e, "right")} title={rippleEditEnabled ? "Ripple trim (ripple mode ON)" : "Hold Shift for ripple trim"} />
+      <div
+        data-testid={`clip-${clip.id}-resize-right`}
+        className={`absolute right-0 top-0 w-3 h-full hover:bg-cyan-300/40 cursor-ew-resize z-20 ${isResizing === "right" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`}
+        onMouseDown={(e) => {
+          e.stopPropagation(); // Prevent drag when clicking resize handle
+          handleResizeStart(e, "right");
+        }}
+        title={rippleEditEnabled ? "Ripple trim (ripple mode ON)" : "Hold Shift for ripple trim"}
+      />
     </div>
   );
 };
