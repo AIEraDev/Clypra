@@ -9,6 +9,8 @@ interface TimelineStore {
   pixelsPerSecond: number;
   rippleEditEnabled: boolean;
   addTrack: (type: "video" | "audio" | "text") => void;
+  /** Inserts a track at index (clamped); returns the new track id. */
+  insertTrackAt: (type: "video" | "audio" | "text", index: number) => string;
   removeTrack: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
   toggleTrackMute: (trackId: string) => void;
@@ -36,6 +38,18 @@ const trackHeights: Record<string, number> = {
   text: 56,
 };
 
+/** Where to insert a new row when dropping off-track: video/text at top; audio under first video (or append if no video). */
+export function getInsertIndexForNewTrack(tracks: Track[], trackType: "video" | "audio" | "text"): number {
+  if (trackType === "video" || trackType === "text") {
+    return 0;
+  }
+  const mainIdx = tracks.findIndex((t) => t.type === "video");
+  if (mainIdx >= 0) {
+    return mainIdx + 1;
+  }
+  return tracks.length;
+}
+
 export const useTimelineStore = create<TimelineStore>((set, get) => ({
   tracks: [],
   clips: [],
@@ -61,6 +75,29 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     import("./projectStore").then(({ useProjectStore }) => {
       useProjectStore.getState().scheduleAutoSave();
     });
+  },
+
+  insertTrackAt: (type, index) => {
+    const newTrack: Track = {
+      id: `track-${Date.now()}`,
+      type,
+      name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${Date.now() % 100}`,
+      muted: false,
+      locked: false,
+      visible: true,
+      height: trackHeights[type],
+    };
+    const id = newTrack.id;
+    set((state) => {
+      const clamped = Math.max(0, Math.min(index, state.tracks.length));
+      const next = [...state.tracks];
+      next.splice(clamped, 0, newTrack);
+      return { tracks: next };
+    });
+    import("./projectStore").then(({ useProjectStore }) => {
+      useProjectStore.getState().scheduleAutoSave();
+    });
+    return id;
   },
 
   removeTrack: (trackId) => {

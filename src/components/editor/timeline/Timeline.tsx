@@ -8,7 +8,7 @@ import { TimelineRuler } from "./TimelineRuler";
 import { TrackList } from "./TrackList";
 import { Track } from "./Track";
 import { Playhead } from "./Playhead";
-import { useTimelineStore } from "../../../store/timelineStore";
+import { useTimelineStore, getInsertIndexForNewTrack } from "../../../store/timelineStore";
 import { useProjectStore } from "../../../store/projectStore";
 import { useUIStore } from "../../../store/uiStore";
 import { usePlayback } from "../../../hooks/usePlayback";
@@ -71,7 +71,7 @@ function resolveTrackAtClientY(
 }
 
 export const Timeline: React.FC = () => {
-  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack, insertClipAtIndex, getTrackClips, updateClip, normalizeTrack } = useTimelineStore();
+  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack, insertTrackAt, insertClipAtIndex, getTrackClips, updateClip, normalizeTrack } = useTimelineStore();
 
   console.log("[TIMELINE] 🎬 Timeline render", {
     tracksCount: tracks.length,
@@ -339,20 +339,15 @@ export const Timeline: React.FC = () => {
         return;
       }
 
-      // Handle new track creation
+      // Handle new track creation (ordered: video at top, audio after first video track)
       if (dragSnapshot.willCreateNewTrack && dragSnapshot.newTrackPosition) {
         const mediaAsset = useProjectStore.getState().mediaAssets.find((a) => a.id === clip.mediaId);
         const trackType = mediaAsset?.type === "audio" ? "audio" : "video";
 
-        addTrack(trackType);
-
-        setTimeout(() => {
-          const newTrack = useTimelineStore.getState().tracks[useTimelineStore.getState().tracks.length - 1];
-
-          if (newTrack) {
-            insertClipAtIndex(clipId, newTrack.id, 0);
-          }
-        }, 0);
+        const store = useTimelineStore.getState();
+        const insertIndex = getInsertIndexForNewTrack(store.tracks, trackType);
+        const newTrackId = store.insertTrackAt(trackType, insertIndex);
+        insertClipAtIndex(clipId, newTrackId, 0);
 
         dragStateRef.current = null;
         setDragState(null);
@@ -377,7 +372,7 @@ export const Timeline: React.FC = () => {
       dragStateRef.current = null;
       setDragState(null);
     },
-    [insertClipAtIndex, updateClip, addTrack, normalizeTrack],
+    [insertClipAtIndex, updateClip, insertTrackAt, normalizeTrack],
   );
 
   // Handle ESC key to cancel drag
