@@ -1,28 +1,12 @@
 import { create } from "zustand";
 import type { Track, Clip } from "../types";
 
-interface AffectedClip {
-  clipId: string;
-  originalStartTime: number;
-  shiftedStartTime: number;
-}
-
-interface DragState {
-  draggingClipId: string;
-  targetTrackId: string;
-  ghostStartTime: number;
-  ghostDuration: number;
-  insertMode: boolean; // Alt key held
-  affectedClips: AffectedClip[];
-}
-
 interface TimelineStore {
   tracks: Track[];
   clips: Clip[];
   zoomLevel: number;
   scrollLeft: number;
   pixelsPerSecond: number;
-  dragState: DragState | null;
   rippleEditEnabled: boolean;
   addTrack: (type: "video" | "audio" | "text") => void;
   removeTrack: (trackId: string) => void;
@@ -37,8 +21,6 @@ interface TimelineStore {
   setScrollLeft: (left: number) => void;
   splitClipAtTime: (clipId: string, time: number) => void;
   getTimelineEndTime: () => number;
-  setDragState: (state: DragState | null) => void;
-  calculateShiftedPositions: (trackId: string, ghostStart: number, ghostDuration: number, draggingId: string, insertMode: boolean) => AffectedClip[];
   swapClips: () => { error: string | null };
   toggleRippleEdit: () => void;
   rippleTrimClip: (clipId: string, side: "left" | "right", deltaTime: number) => void;
@@ -56,7 +38,6 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   zoomLevel: 1.0,
   scrollLeft: 0,
   pixelsPerSecond: 100,
-  dragState: null,
   rippleEditEnabled: false,
 
   addTrack: (type) => {
@@ -187,35 +168,6 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       const clipEndTime = clip.startTime + clip.duration;
       return Math.max(maxTime, clipEndTime);
     }, 0);
-  },
-
-  setDragState: (state) => {
-    set({ dragState: state });
-  },
-
-  calculateShiftedPositions: (trackId, ghostStart, ghostDuration, draggingId, insertMode) => {
-    if (!insertMode) return []; // No shifting in overwrite mode
-
-    const state = get();
-    // Get all clips on the same track, excluding the one being dragged
-    const trackClips = state.clips.filter((c) => c.trackId === trackId && c.id !== draggingId).sort((a, b) => a.startTime - b.startTime);
-
-    return trackClips.map((clip) => {
-      // Clips that start at or after the ghost insertion point → shift right
-      if (clip.startTime >= ghostStart) {
-        return {
-          clipId: clip.id,
-          originalStartTime: clip.startTime,
-          shiftedStartTime: clip.startTime + ghostDuration,
-        };
-      }
-      // Clips before ghost → don't move
-      return {
-        clipId: clip.id,
-        originalStartTime: clip.startTime,
-        shiftedStartTime: clip.startTime,
-      };
-    });
   },
 
   swapClips: () => {
