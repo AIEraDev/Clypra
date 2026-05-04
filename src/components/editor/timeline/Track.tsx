@@ -130,6 +130,13 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips }) =
     [track.id, track.locked, pixelsPerSecond, addClipFromAsset, scrollLeft, draggingClip, insertionTime, setInsertion, addClip, clearDragging, clips],
   );
 
+  // ✅ Clear insertion state when not hovering over this track
+  React.useEffect(() => {
+    if (!isOver && insertionTrackId === track.id) {
+      setInsertion(null, null);
+    }
+  }, [isOver, insertionTrackId, track.id, setInsertion]);
+
   const trackClips = clips.filter((c) => c.trackId === track.id);
 
   // ✅ Calculate shifted positions for clips after insertion point
