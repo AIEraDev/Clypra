@@ -19,9 +19,17 @@ export const ClipDragLayer: React.FC = () => {
     return null;
   }
 
-  const mediaAsset = mediaAssets.find((a) => a.id === draggingClip.assetId);
+  const mediaAsset = mediaAssets.find((a) => a.id === draggingClip.mediaId);
   const clipWidth = Math.min(Math.round(draggingClip.duration * pixelsPerSecond), 360);
   const trackHeight = 68; // Standard video track height
+
+  // Determine background color based on media asset type
+  const getBackgroundColor = () => {
+    if (!mediaAsset) return "#2d2340";
+    if (mediaAsset.type === "audio") return "#1a3040";
+    if (mediaAsset.type === "video") return "#2d2340";
+    return "#3d3010"; // image
+  };
 
   return (
     <div
@@ -44,12 +52,12 @@ export const ClipDragLayer: React.FC = () => {
       <div
         className="relative w-full h-full"
         style={{
-          backgroundColor: draggingClip.type === "video" ? "#2d2340" : draggingClip.type === "audio" ? "#1a3040" : "#3d3010",
+          backgroundColor: getBackgroundColor(),
           border: "1px solid rgba(255,255,255,0.1)",
         }}
       >
         {/* Thumbnail if available */}
-        {mediaAsset?.posterFrame && draggingClip.type === "video" && <img src={mediaAsset.posterFrame} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" style={{ pointerEvents: "none" }} />}
+        {mediaAsset?.posterFrame && mediaAsset.type === "video" && <img src={mediaAsset.posterFrame} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" style={{ pointerEvents: "none" }} />}
 
         {/* Clip name */}
         <div className="absolute top-1 left-2 text-xs text-white/90 font-medium truncate max-w-[calc(100%-16px)]">{mediaAsset?.name || "Clip"}</div>
