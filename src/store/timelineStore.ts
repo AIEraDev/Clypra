@@ -4,6 +4,8 @@ import type { Track, Clip } from "../types";
 interface TimelineStore {
   tracks: Track[];
   clips: Clip[];
+  /** First created video track; treated as persistent main lane. */
+  mainVideoTrackId: string | null;
   zoomLevel: number;
   scrollLeft: number;
   pixelsPerSecond: number;
@@ -32,6 +34,7 @@ interface TimelineStore {
   insertClipAtIndex: (clipId: string, trackId: string, index: number) => void;
   normalizeTrack: (trackId: string) => void;
   getTrackClips: (trackId: string) => Clip[];
+  removeEmptyNonMainTracks: (candidateTrackIds?: string[]) => void;
 }
 
 const trackHeights: Record<string, number> = {
@@ -55,6 +58,7 @@ export function getInsertIndexForNewTrack(tracks: Track[], trackType: "video" | 
 export const useTimelineStore = create<TimelineStore>((set, get) => ({
   tracks: [],
   clips: [],
+  mainVideoTrackId: null,
   zoomLevel: 1.0,
   scrollLeft: 0,
   pixelsPerSecond: 100,
@@ -72,6 +76,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     };
     set((state) => ({
       tracks: [...state.tracks, newTrack],
+      mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
     }));
     // Trigger auto-save
     import("./projectStore").then(({ useProjectStore }) => {
@@ -94,7 +99,10 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       const clamped = Math.max(0, Math.min(index, state.tracks.length));
       const next = [...state.tracks];
       next.splice(clamped, 0, newTrack);
-      return { tracks: next };
+      return {
+        tracks: next,
+        mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
+      };
     });
     import("./projectStore").then(({ useProjectStore }) => {
       useProjectStore.getState().scheduleAutoSave();
@@ -431,5 +439,21 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
         return norm || c;
       }),
     }));
+  },
+
+  removeEmptyNonMainTracks: (candidateTrackIds) => {
+    set((state) => {
+      const mainVideoTrackId = state.mainVideoTrackId ?? state.tracks.find((t) => t.type === "video")?.id ?? null;
+      const candidateSet = candidateTrackIds ? new Set(candidateTrackIds) : null;
+      const nextTracks = state.tracks.filter((track) => {
+        if (track.id === mainVideoTrackId) return true;
+        if (candidateSet && !candidateSet.has(track.id)) return true;
+        return state.clips.some((c) => c.trackId === track.id);
+      });
+      return {
+        tracks: nextTracks,
+        mainVideoTrackId,
+      };
+    });
   },
 }));

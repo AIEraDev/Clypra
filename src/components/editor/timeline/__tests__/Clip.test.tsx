@@ -140,7 +140,7 @@ describe("Clip Component", () => {
 
       const clipElement = screen.getByTestId("clip-clip-1");
       expect(clipElement.className).toContain("ring-2");
-      expect(clipElement.className).toContain("ring-accent");
+      expect(clipElement.className).toContain("ring-white");
     });
 
     it("applies locked styling when locked", () => {

@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import {vi, describe, expect, it } from "vitest";
 import { resolvePreviewScene } from "../previewScene";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (value: string) => value,
+}));
 
 const tracks = [
   { id: "t1", type: "video", name: "V1", muted: false, locked: false, visible: true, height: 68 },

@@ -4,9 +4,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { Timeline } from "../Timeline";
 import { useTimelineStore } from "../../../../store/timelineStore";
 import { useProjectStore } from "../../../../store/projectStore";
+import { useUIStore } from "../../../../store/uiStore";
 
 const seekMock = vi.fn();
 const setDurationMock = vi.fn();
+const trackPropsSpy = vi.fn();
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => undefined),
@@ -45,7 +47,14 @@ vi.mock("../TrackList", () => ({
 }));
 
 vi.mock("../Track", () => ({
-  Track: () => <div data-timeline-interactive="true">Interactive Clip</div>,
+  Track: (props: any) => {
+    trackPropsSpy(props);
+    return (
+      <div data-timeline-interactive="true" data-track-id={props.track.id} style={{ height: `${props.track.height}px` }}>
+        Interactive Clip
+      </div>
+    );
+  },
 }));
 
 vi.mock("../Playhead", () => ({
@@ -68,6 +77,8 @@ describe("Timeline click behavior", () => {
   beforeEach(() => {
     seekMock.mockClear();
     setDurationMock.mockClear();
+    trackPropsSpy.mockClear();
+    useUIStore.setState({ selectedClipIds: [] });
     useTimelineStore.setState({
       tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
       clips: [],
@@ -109,6 +120,194 @@ describe("Timeline click behavior", () => {
     fireEvent.click(screen.getByText("Playhead"));
 
     expect(seekMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Timeline drag interactions", () => {
+  beforeEach(() => {
+    trackPropsSpy.mockClear();
+    useUIStore.setState({ selectedClipIds: [] });
+    useTimelineStore.setState({
+      tracks: [
+        { id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 },
+        { id: "track-2", type: "video", name: "Video 2", muted: false, locked: false, visible: true, height: 68 },
+      ],
+      mainVideoTrackId: "track-1",
+      clips: [
+        { id: "c1", trackId: "track-1", mediaId: "m1", startTime: 0, duration: 3, trimIn: 0, trimOut: 3, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+        { id: "c2", trackId: "track-1", mediaId: "m2", startTime: 3, duration: 2, trimIn: 0, trimOut: 2, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+      ],
+      zoomLevel: 1,
+      scrollLeft: 0,
+      pixelsPerSecond: 100,
+      rippleEditEnabled: false,
+    });
+    useProjectStore.setState({
+      project: null,
+      mediaAssets: [
+        { id: "m1", name: "v1", path: "/v1.mp4", type: "video", duration: 10, width: 1920, height: 1080, size: 1 },
+        { id: "m2", name: "v2", path: "/v2.mp4", type: "video", duration: 10, width: 1920, height: 1080, size: 1 },
+      ],
+      recentProjects: [],
+    });
+  });
+
+  const setupRects = (container: HTMLElement) => {
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+    Object.defineProperty(scroller, "scrollLeft", { value: 0, writable: true, configurable: true });
+    scroller.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 1000, bottom: 300, width: 1000, height: 300, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const rows = Array.from(container.querySelectorAll("[data-track-id]")) as HTMLElement[];
+    rows.forEach((el, i) => {
+      el.getBoundingClientRect = () =>
+        ({ left: 0, top: i * 68, right: 1000, bottom: i * 68 + 68, width: 1000, height: 68, x: 0, y: i * 68, toJSON: () => ({}) }) as DOMRect;
+    });
+  };
+
+  it("drags clip to different track", () => {
+    const { container } = render(<Timeline />);
+    setupRects(container);
+    const firstTrackProps = trackPropsSpy.mock.calls[0][0];
+
+    act(() => {
+      firstTrackProps.onClipDragStart("c1", 100, 10);
+    });
+    act(() => {
+      firstTrackProps.onClipDragMove("c1", 0, 0, 400, 80);
+    });
+    act(() => {
+      firstTrackProps.onClipDragEnd("c1");
+    });
+
+    const c1 = useTimelineStore.getState().clips.find((c) => c.id === "c1");
+    expect(c1?.trackId).toBe("track-2");
+  });
+
+  it("drags clip within same track", () => {
+    const { container } = render(<Timeline />);
+    setupRects(container);
+    const firstTrackProps = trackPropsSpy.mock.calls[0][0];
+
+    act(() => {
+      firstTrackProps.onClipDragStart("c1", 100, 10);
+      firstTrackProps.onClipDragMove("c1", 0, 0, 700, 20);
+      firstTrackProps.onClipDragEnd("c1");
+    });
+
+    const c1 = useTimelineStore.getState().clips.find((c) => c.id === "c1");
+    expect(c1?.trackId).toBe("track-1");
+    expect((c1?.startTime ?? 0) + c1!.duration).toBeLessThanOrEqual(10);
+  });
+
+  it("rejects drag to locked track", () => {
+    useTimelineStore.setState((s) => ({
+      tracks: s.tracks.map((t) => (t.id === "track-2" ? { ...t, locked: true } : t)),
+    }));
+    const { container } = render(<Timeline />);
+    setupRects(container);
+    const firstTrackProps = trackPropsSpy.mock.calls[0][0];
+
+    act(() => {
+      firstTrackProps.onClipDragStart("c1", 100, 10);
+    });
+    act(() => {
+      firstTrackProps.onClipDragMove("c1", 0, 0, 400, 80);
+    });
+    act(() => {
+      firstTrackProps.onClipDragEnd("c1");
+    });
+
+    const c1 = useTimelineStore.getState().clips.find((c) => c.id === "c1");
+    expect(c1?.trackId).toBe("track-1");
+  });
+
+  it("cancels drag on ESC and restores original placement", () => {
+    const { container } = render(<Timeline />);
+    setupRects(container);
+    const firstTrackProps = trackPropsSpy.mock.calls[0][0];
+
+    act(() => {
+      firstTrackProps.onClipDragStart("c1", 100, 10);
+      firstTrackProps.onClipDragMove("c1", 0, 0, 400, 80);
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+
+    const c1 = useTimelineStore.getState().clips.find((c) => c.id === "c1");
+    expect(c1?.trackId).toBe("track-1");
+    expect(c1?.startTime).toBe(0);
+  });
+
+  it("drags selected clip group together", () => {
+    useTimelineStore.setState({ mainVideoTrackId: "track-2" });
+    useUIStore.setState({ selectedClipIds: ["c1", "c2"] });
+    const { container } = render(<Timeline />);
+    setupRects(container);
+    const firstTrackProps = trackPropsSpy.mock.calls[0][0];
+
+    act(() => {
+      firstTrackProps.onClipDragStart("c1", 100, 10);
+      firstTrackProps.onClipDragMove("c1", 0, 0, 400, 80);
+      firstTrackProps.onClipDragEnd("c1");
+    });
+
+    const state = useTimelineStore.getState();
+    expect(state.clips.find((c) => c.id === "c1")?.trackId).toBe("track-2");
+    expect(state.clips.find((c) => c.id === "c2")?.trackId).toBe("track-2");
+  });
+
+  it("removes a non-main source track when it becomes empty after drop", () => {
+    useTimelineStore.setState({
+      mainVideoTrackId: "track-1",
+      tracks: [
+        { id: "track-1", type: "video", name: "Main", muted: false, locked: false, visible: true, height: 68 },
+        { id: "track-2", type: "video", name: "Aux", muted: false, locked: false, visible: true, height: 68 },
+      ],
+      clips: [{ id: "c2", trackId: "track-2", mediaId: "m2", startTime: 0, duration: 2, trimIn: 0, trimOut: 2, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 }],
+    });
+
+    const { container } = render(<Timeline />);
+    setupRects(container);
+    const track2Props = trackPropsSpy.mock.calls.map((c) => c[0]).find((p) => p.track.id === "track-2");
+    expect(track2Props).toBeTruthy();
+
+    act(() => {
+      track2Props.onClipDragStart("c2", 100, 80);
+      track2Props.onClipDragMove("c2", 0, 0, 400, 10); // move to track-1 row
+      track2Props.onClipDragEnd("c2");
+    });
+
+    const state = useTimelineStore.getState();
+    expect(state.clips.find((c) => c.id === "c2")?.trackId).toBe("track-1");
+    expect(state.tracks.some((t) => t.id === "track-2")).toBe(false);
+  });
+
+  it("rejects drop that would leave main track empty", () => {
+    useTimelineStore.setState({
+      mainVideoTrackId: "track-1",
+      tracks: [
+        { id: "track-1", type: "video", name: "Main", muted: false, locked: false, visible: true, height: 68 },
+        { id: "track-2", type: "video", name: "Aux", muted: false, locked: false, visible: true, height: 68 },
+      ],
+      clips: [
+        { id: "c1", trackId: "track-1", mediaId: "m1", startTime: 0, duration: 3, trimIn: 0, trimOut: 3, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+        { id: "c2", trackId: "track-2", mediaId: "m2", startTime: 0, duration: 2, trimIn: 0, trimOut: 2, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+      ],
+    });
+
+    const { container } = render(<Timeline />);
+    setupRects(container);
+    const track1Props = trackPropsSpy.mock.calls.map((c) => c[0]).find((p) => p.track.id === "track-1");
+    expect(track1Props).toBeTruthy();
+
+    act(() => {
+      track1Props.onClipDragStart("c1", 100, 10);
+      track1Props.onClipDragMove("c1", 0, 0, 400, 80); // move to track-2 row
+      track1Props.onClipDragEnd("c1");
+    });
+
+    const state = useTimelineStore.getState();
+    expect(state.clips.find((c) => c.id === "c1")?.trackId).toBe("track-1");
+    expect(state.tracks.some((t) => t.id === "track-1")).toBe(true);
   });
 });
 

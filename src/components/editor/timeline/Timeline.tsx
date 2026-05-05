@@ -87,7 +87,7 @@ function resolveTrackAtClientY(
 }
 
 export const Timeline: React.FC = () => {
-  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack, insertTrackAt, insertClipAtIndex, getTrackClips, updateClip, normalizeTrack } = useTimelineStore();
+  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack, insertTrackAt, insertClipAtIndex, getTrackClips, updateClip, normalizeTrack, removeEmptyNonMainTracks } = useTimelineStore();
 
   console.log("[TIMELINE] 🎬 Timeline render", {
     tracksCount: tracks.length,
@@ -105,6 +105,7 @@ export const Timeline: React.FC = () => {
   // Pointer-based drag state with gap engine
   const [dragState, setDragState] = useState<{
     draggingClipId: string | null;
+    draggedClipIds: string[];
     offsetX: number;
     offsetY: number;
     /** Pointer X in timeline content space at drag start (handles horizontal scroll). */
@@ -116,6 +117,7 @@ export const Timeline: React.FC = () => {
     originalTrackId: string;
     originalIndex: number;
     originalStartTime: number; // Keep for ESC cancel
+    originalPlacements: Record<string, { trackId: string; startTime: number; index: number }>;
     // Gap engine state
     targetTrackId: string | null;
     insertionIndex: number | null;
@@ -135,15 +137,29 @@ export const Timeline: React.FC = () => {
     (clipId: string, startX: number, startY: number) => {
       const clip = clips.find((c) => c.id === clipId);
       if (!clip) return;
+      const selectedClipIds = useUIStore.getState().selectedClipIds;
+      const draggedClipIds = selectedClipIds.includes(clipId) ? selectedClipIds : [clipId];
 
       // Find clip's index in its track
       const trackClips = getTrackClips(clip.trackId);
       const originalIndex = trackClips.findIndex((c) => c.id === clipId);
+      const originalPlacements: Record<string, { trackId: string; startTime: number; index: number }> = {};
+      for (const draggedId of draggedClipIds) {
+        const dragged = clips.find((c) => c.id === draggedId);
+        if (!dragged) continue;
+        const draggedTrackClips = getTrackClips(dragged.trackId);
+        originalPlacements[dragged.id] = {
+          trackId: dragged.trackId,
+          startTime: dragged.startTime,
+          index: draggedTrackClips.findIndex((c) => c.id === dragged.id),
+        };
+      }
 
       console.log("[TIMELINE] 🚀 Clip drag start", {
         clipId,
         originalIndex,
         trackId: clip.trackId,
+        draggedClipIds,
       });
 
       // Pack other clips to t=0.. — then move dragged clip to tail so it never shares startTime with siblings (avoids overlap in store).
@@ -172,6 +188,7 @@ export const Timeline: React.FC = () => {
 
       const nextDragState = {
         draggingClipId: clipId,
+        draggedClipIds,
         offsetX: visualLeftAnchorDelta,
         offsetY: 0,
         pointerXContentStart,
@@ -180,6 +197,7 @@ export const Timeline: React.FC = () => {
         originalTrackId: clip.trackId,
         originalIndex,
         originalStartTime: clip.startTime,
+        originalPlacements,
         targetTrackId: null as string | null,
         insertionIndex: null as number | null,
         gapStartTime: null as number | null,
@@ -215,26 +233,20 @@ export const Timeline: React.FC = () => {
 
     // If creating new track, show indicator and skip gap calculation
     if (willCreateNewTrack) {
-      setDragState((prev) => {
-        if (!prev) {
-          dragStateRef.current = null;
-          return null;
-        }
-        const next = {
-          ...prev,
-          offsetX,
-          offsetY,
-          isInvalidPosition: false,
-          targetTrackId: null,
-          insertionIndex: null,
-          gapStartTime: null,
-          gapDuration: null,
-          willCreateNewTrack: true,
-          newTrackPosition,
-        };
-        dragStateRef.current = next;
-        return next;
-      });
+      const next = {
+        ...ds,
+        offsetX,
+        offsetY,
+        isInvalidPosition: false,
+        targetTrackId: null,
+        insertionIndex: null,
+        gapStartTime: null,
+        gapDuration: null,
+        willCreateNewTrack: true,
+        newTrackPosition,
+      };
+      dragStateRef.current = next;
+      setDragState(next);
       return;
     }
 
@@ -243,39 +255,27 @@ export const Timeline: React.FC = () => {
     const isInvalidPosition = targetTrack?.locked || false;
 
     if (isInvalidPosition) {
-      setDragState((prev) => {
-        if (!prev) {
-          dragStateRef.current = null;
-          return null;
-        }
-        const next = {
-          ...prev,
-          offsetX,
-          offsetY,
-          isInvalidPosition,
-          targetTrackId: null,
-          insertionIndex: null,
-          gapStartTime: null,
-          gapDuration: null,
-          willCreateNewTrack: false,
-          newTrackPosition: null,
-        };
-        dragStateRef.current = next;
-        return next;
-      });
+      const next = {
+        ...ds,
+        offsetX,
+        offsetY,
+        isInvalidPosition,
+        targetTrackId: null,
+        insertionIndex: null,
+        gapStartTime: null,
+        gapDuration: null,
+        willCreateNewTrack: false,
+        newTrackPosition: null,
+      };
+      dragStateRef.current = next;
+      setDragState(next);
       return;
     }
 
     if (!targetTrackId) {
-      setDragState((prev) => {
-        if (!prev) {
-          dragStateRef.current = null;
-          return null;
-        }
-        const next = { ...prev, offsetX, offsetY };
-        dragStateRef.current = next;
-        return next;
-      });
+      const next = { ...ds, offsetX, offsetY };
+      dragStateRef.current = next;
+      setDragState(next);
       return;
     }
 
@@ -313,26 +313,20 @@ export const Timeline: React.FC = () => {
       clipDuration: clip.duration,
     });
 
-    setDragState((prev) => {
-      if (!prev) {
-        dragStateRef.current = null;
-        return null;
-      }
-      const next = {
-        ...prev,
-        offsetX,
-        offsetY,
-        isInvalidPosition: false,
-        targetTrackId,
-        insertionIndex,
-        gapStartTime,
-        gapDuration: clip.duration,
-        willCreateNewTrack: false,
-        newTrackPosition: null,
-      };
-      dragStateRef.current = next;
-      return next;
-    });
+    const next = {
+      ...ds,
+      offsetX,
+      offsetY,
+      isInvalidPosition: false,
+      targetTrackId,
+      insertionIndex,
+      gapStartTime,
+      gapDuration: clip.duration,
+      willCreateNewTrack: false,
+      newTrackPosition: null,
+    };
+    dragStateRef.current = next;
+    setDragState(next);
   }, []);
 
   const handleClipDragEnd = useCallback(
@@ -347,12 +341,46 @@ export const Timeline: React.FC = () => {
         willCreateNewTrack: dragSnapshot.willCreateNewTrack,
         newTrackPosition: dragSnapshot.newTrackPosition,
       });
+      const sourceTrackIds = Array.from(new Set(Object.values(dragSnapshot.originalPlacements).map((p) => p.trackId)));
+      const restoreDraggedToOriginal = () => {
+        const affectedTracks = new Set<string>();
+        dragSnapshot.draggedClipIds.forEach((id) => {
+          const placement = dragSnapshot.originalPlacements[id];
+          if (!placement) return;
+          affectedTracks.add(placement.trackId);
+          updateClip(id, {
+            trackId: placement.trackId,
+            startTime: placement.startTime,
+          });
+        });
+        affectedTracks.forEach((trackId) => normalizeTrack(trackId));
+      };
 
       const clip = useTimelineStore.getState().clips.find((c) => c.id === clipId);
       if (!clip) {
         dragStateRef.current = null;
         setDragState(null);
         return;
+      }
+      const store = useTimelineStore.getState();
+      const mainTrackId = store.mainVideoTrackId;
+      if (mainTrackId) {
+        const mainClipIds = store.clips.filter((c) => c.trackId === mainTrackId).map((c) => c.id);
+        const movingAwayFromMain = (dragSnapshot.willCreateNewTrack && !!dragSnapshot.newTrackPosition) || (!!dragSnapshot.targetTrackId && dragSnapshot.targetTrackId !== mainTrackId);
+        const draggedMainClipCount = mainClipIds.filter((id) => dragSnapshot.draggedClipIds.includes(id)).length;
+        const wouldEmptyMain = movingAwayFromMain && mainClipIds.length > 0 && draggedMainClipCount === mainClipIds.length;
+
+        if (wouldEmptyMain) {
+          console.log("[TIMELINE] 🚫 Drop rejected: main track must keep at least one clip", {
+            mainTrackId,
+            mainClipIds,
+            draggedClipIds: dragSnapshot.draggedClipIds,
+          });
+          restoreDraggedToOriginal();
+          dragStateRef.current = null;
+          setDragState(null);
+          return;
+        }
       }
 
       // Handle new track creation (ordered: video at top, audio after first video track)
@@ -363,7 +391,15 @@ export const Timeline: React.FC = () => {
         const store = useTimelineStore.getState();
         const insertIndex = getInsertIndexForNewTrack(store.tracks, trackType);
         const newTrackId = store.insertTrackAt(trackType, insertIndex);
-        insertClipAtIndex(clipId, newTrackId, 0);
+        const orderedDragged = [...dragSnapshot.draggedClipIds].sort((a, b) => {
+          const pa = dragSnapshot.originalPlacements[a];
+          const pb = dragSnapshot.originalPlacements[b];
+          if (!pa || !pb) return a.localeCompare(b);
+          if (pa.startTime !== pb.startTime) return pa.startTime - pb.startTime;
+          return a.localeCompare(b);
+        });
+        orderedDragged.forEach((id, i) => insertClipAtIndex(id, newTrackId, i));
+        removeEmptyNonMainTracks(sourceTrackIds);
 
         dragStateRef.current = null;
         setDragState(null);
@@ -371,24 +407,43 @@ export const Timeline: React.FC = () => {
       }
 
       if (dragSnapshot.targetTrackId && dragSnapshot.insertionIndex !== null) {
-        insertClipAtIndex(clipId, dragSnapshot.targetTrackId, dragSnapshot.insertionIndex);
+        const orderedDragged = [...dragSnapshot.draggedClipIds].sort((a, b) => {
+          const pa = dragSnapshot.originalPlacements[a];
+          const pb = dragSnapshot.originalPlacements[b];
+          if (!pa || !pb) return a.localeCompare(b);
+          if (pa.startTime !== pb.startTime) return pa.startTime - pb.startTime;
+          return a.localeCompare(b);
+        });
+        orderedDragged.forEach((id, i) => insertClipAtIndex(id, dragSnapshot.targetTrackId!, dragSnapshot.insertionIndex! + i));
       } else {
         const pps = useTimelineStore.getState().pixelsPerSecond;
         const anchor = dragSnapshot.visualLeftAnchorDelta ?? 0;
         const deltaTime = (dragSnapshot.offsetX - anchor) / pps;
-        const newStartTime = Math.max(0, dragSnapshot.originalStartTime + deltaTime);
-
-        updateClip(clipId, {
-          startTime: newStartTime,
-          trackId: clip.trackId,
+        const normalizedDeltaTime = Math.max(
+          deltaTime,
+          ...dragSnapshot.draggedClipIds.map((id) => {
+            const placement = dragSnapshot.originalPlacements[id];
+            return placement ? -placement.startTime : 0;
+          }),
+        );
+        const affectedTracks = new Set<string>();
+        dragSnapshot.draggedClipIds.forEach((id) => {
+          const placement = dragSnapshot.originalPlacements[id];
+          if (!placement) return;
+          affectedTracks.add(placement.trackId);
+          updateClip(id, {
+            startTime: Math.max(0, placement.startTime + normalizedDeltaTime),
+            trackId: placement.trackId,
+          });
         });
-        normalizeTrack(clip.trackId);
+        affectedTracks.forEach((trackId) => normalizeTrack(trackId));
       }
+      removeEmptyNonMainTracks(sourceTrackIds);
 
       dragStateRef.current = null;
       setDragState(null);
     },
-    [insertClipAtIndex, updateClip, insertTrackAt, normalizeTrack],
+    [insertClipAtIndex, updateClip, insertTrackAt, normalizeTrack, removeEmptyNonMainTracks],
   );
 
   // Handle ESC key to cancel drag
@@ -400,12 +455,17 @@ export const Timeline: React.FC = () => {
 
       console.log("[TIMELINE] ⚠️ Drag cancelled with ESC", { clipId: ds.draggingClipId });
 
-      if (ds.draggingClipId) {
-        const clip = useTimelineStore.getState().clips.find((c) => c.id === ds.draggingClipId);
-        if (clip) {
-          insertClipAtIndex(ds.draggingClipId, ds.originalTrackId, ds.originalIndex);
-        }
-      }
+      const affectedTracks = new Set<string>();
+      ds.draggedClipIds.forEach((id) => {
+        const placement = ds.originalPlacements[id];
+        if (!placement) return;
+        affectedTracks.add(placement.trackId);
+        updateClip(id, {
+          trackId: placement.trackId,
+          startTime: placement.startTime,
+        });
+      });
+      affectedTracks.forEach((trackId) => normalizeTrack(trackId));
 
       dragStateRef.current = null;
       setDragState(null);
@@ -413,7 +473,7 @@ export const Timeline: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [insertClipAtIndex]);
+  }, [normalizeTrack, updateClip]);
 
   // ✅ Ensure content width uses same rounding as all other pixel calculations
   const contentWidth = Math.max(1000, Math.round(duration * pixelsPerSecond));

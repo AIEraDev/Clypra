@@ -31,7 +31,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const [resizeStart, setResizeStart] = useState<{ x: number; startTime: number; duration: number; trimIn: number; trimOut: number; isRipple: boolean } | null>(null);
   const clipRef = useRef<HTMLDivElement>(null);
-  const dragStartRef = useRef<{ startX: number; startY: number; startTime: number; hasMoved: boolean } | null>(null);
+  const dragStartRef = useRef<{ startX: number; startY: number; startTime: number; hasMoved: boolean; hasDragStarted: boolean; pointerId: number } | null>(null);
 
   // Calculate position
   const left = Math.round(clip.startTime * pixelsPerSecond);
@@ -73,13 +73,12 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       startY: e.clientY,
       startTime: clip.startTime,
       hasMoved: false,
+      hasDragStarted: false,
+      pointerId: e.pointerId,
     };
 
     // Capture pointer for smooth dragging
     clipRef.current?.setPointerCapture(e.pointerId);
-
-    console.log("[CLIP] 🚀 Drag START", { clipId: clip.id, startX: e.clientX, startY: e.clientY });
-    onDragStart?.(clip.id, e.clientX, e.clientY);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -107,6 +106,11 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     if (!dragStartRef.current.hasMoved && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
       dragStartRef.current.hasMoved = true;
       console.log("[CLIP] ✅ Movement threshold exceeded - starting drag");
+      if (!dragStartRef.current.hasDragStarted) {
+        dragStartRef.current.hasDragStarted = true;
+        console.log("[CLIP] 🚀 Drag START", { clipId: clip.id, startX: dragStartRef.current.startX, startY: dragStartRef.current.startY });
+        onDragStart?.(clip.id, dragStartRef.current.startX, dragStartRef.current.startY);
+      }
     }
 
     if (dragStartRef.current.hasMoved) {
@@ -122,13 +126,27 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     // If didn't move, treat as click for selection
     if (!dragStartRef.current.hasMoved) {
       if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        console.log("[CLIP] 🖱️ Selection only (toggle)", { clipId: clip.id, multiKey: true });
         toggleClipSelection(clip.id);
       } else {
+        console.log("[CLIP] 🖱️ Selection only (single)", { clipId: clip.id, multiKey: false });
         selectClip(clip.id);
       }
     }
 
-    onDragEnd?.(clip.id);
+    if (dragStartRef.current.hasDragStarted) {
+      onDragEnd?.(clip.id);
+    }
+    clipRef.current?.releasePointerCapture(dragStartRef.current.pointerId);
+    dragStartRef.current = null;
+  };
+
+  const handlePointerCancel = () => {
+    if (!dragStartRef.current) return;
+    if (dragStartRef.current.hasDragStarted) {
+      onDragEnd?.(clip.id);
+    }
+    clipRef.current?.releasePointerCapture(dragStartRef.current.pointerId);
     dragStartRef.current = null;
   };
 
@@ -223,7 +241,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
 
   const getClipColor = () => {
     if (mediaAsset?.type === "audio") return "bg-[#153840] border-[#30a7c8]/40";
-    return "bg-accent/10";
+    return "bg-accent";
   };
 
   const formatDuration = (seconds: number) => {
@@ -241,16 +259,17 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "ring-2 ring-accent" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-grab"} ${getClipColor()} transition-none`}
+      onPointerCancel={handlePointerCancel}
+      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "ring-2 ring-white" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipColor()} transition-none`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
         opacity: isInvalidPosition ? 0.5 : 1,
         pointerEvents: "auto",
         zIndex: isDragging ? 100 : 1,
-        boxShadow: isDragging ? (isInvalidPosition ? "0 8px 32px rgba(255,0,0,0.6)" : "0 8px 32px rgba(0,0,0,0.6)") : "none",
+        boxShadow: "none",
         transformOrigin: isDragging ? "0 0" : undefined,
-        transform: isDragging ? `translateY(${dragState?.offsetY ?? 0}px) scale(1.02)` : "scale(1)",
+        transform: isDragging ? `translateY(${dragState?.offsetY ?? 0}px)` : "none",
         border: isInvalidPosition ? "2px solid #ef4444" : undefined,
       }}
     >
@@ -273,44 +292,22 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
         </div>
         {mediaAsset?.type === "video" ? (
           <div className="flex min-h-0 w-full flex-1 items-center">
-            <ClipFilmstrip
-              className="w-full shrink-0"
-              clip={clip}
-              mediaAsset={mediaAsset}
-              clipWidthPx={width}
-              pixelsPerSecond={pixelsPerSecond}
-              stripHeightPx={40}
-            />
+            <ClipFilmstrip className="w-full shrink-0" clip={clip} mediaAsset={mediaAsset} clipWidthPx={width} pixelsPerSecond={pixelsPerSecond} stripHeightPx={40} />
           </div>
         ) : mediaAsset?.type === "image" ? (
           mediaAsset.posterFrame ? (
-            <img
-              src={mediaAsset.posterFrame}
-              alt=""
-              className="h-8 w-full rounded-[2px] border border-black/20 object-cover"
-              draggable={false}
-            />
+            <img src={mediaAsset.posterFrame} alt="" className="h-8 w-full rounded-[2px] border border-black/20 object-cover" draggable={false} />
           ) : (
             <div className="h-8 w-full rounded-[2px] bg-[#0c2730]/60" />
           )
         ) : mediaAsset?.type === "audio" ? (
           mediaAsset.posterFrame ? (
-            <img
-              src={mediaAsset.posterFrame}
-              alt=""
-              className="h-8 w-full rounded-[2px] border border-black/20 object-cover"
-              draggable={false}
-            />
+            <img src={mediaAsset.posterFrame} alt="" className="h-8 w-full rounded-[2px] border border-black/20 object-cover" draggable={false} />
           ) : (
             <div className="h-8 w-full rounded-[2px] bg-[#0c2730]/60" />
           )
         ) : mediaAsset?.posterFrame ? (
-          <img
-            src={mediaAsset.posterFrame}
-            alt=""
-            className="h-8 w-full rounded-[2px] border border-black/20 object-cover"
-            draggable={false}
-          />
+          <img src={mediaAsset.posterFrame} alt="" className="h-8 w-full rounded-[2px] border border-black/20 object-cover" draggable={false} />
         ) : (
           <div className="h-8 w-full rounded-[2px] bg-[#0c2730]/60" />
         )}

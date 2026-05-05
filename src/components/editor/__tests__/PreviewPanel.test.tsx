@@ -6,6 +6,10 @@ import { useProjectStore } from "../../../store/projectStore";
 import { useTimelineStore } from "../../../store/timelineStore";
 import { usePlaybackStore } from "../../../store/playbackStore";
 
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (value: string) => value,
+}));
+
 class MockResizeObserver {
   private cb: ResizeObserverCallback;
   constructor(cb: ResizeObserverCallback) {
@@ -43,8 +47,8 @@ describe("PreviewPanel timeline rendering", () => {
         duration: 20,
       },
       mediaAssets: [
-        { id: "m1", name: "v1", path: "/v1.mp4", type: "video", duration: 20, posterFrame: "/v1.jpg", size: 1 },
-        { id: "m2", name: "i1", path: "/i1.png", type: "image", duration: 0, posterFrame: "/i1.png", size: 1 },
+        { id: "m1", name: "v1", path: "/v1.mp4", type: "video", duration: 20, width: 1080, height: 1920, posterFrame: "/v1.jpg", size: 1 },
+        { id: "m2", name: "i1", path: "/i1.png", type: "image", duration: 0, width: 2000, height: 1000, posterFrame: "/i1.png", size: 1 },
       ],
       recentProjects: [],
     });
@@ -79,5 +83,24 @@ describe("PreviewPanel timeline rendering", () => {
     usePlaybackStore.setState({ currentTime: 15 });
     render(<PreviewPanel />);
     expect(screen.getByText("Preview")).toBeInTheDocument();
+  });
+
+  it("uses active media intrinsic ratio for Original when exactly one visual layer is active", () => {
+    useTimelineStore.setState({
+      tracks: [{ id: "t1", type: "video", name: "V1", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [{ id: "c1", trackId: "t1", mediaId: "m1", startTime: 0, duration: 10, trimIn: 0, trimOut: 10, x: 0, y: 0, width: 320, height: 180, opacity: 100, rotation: 0 }],
+    });
+    render(<PreviewPanel />);
+
+    const viewport = screen.getByTestId("program-preview-viewport");
+    expect(parseFloat(viewport.style.width)).toBeCloseTo(450, 1);
+    expect(parseFloat(viewport.style.height)).toBeCloseTo(800, 1);
+  });
+
+  it("falls back to project ratio for Original when multiple layers are active", () => {
+    render(<PreviewPanel />);
+    const viewport = screen.getByTestId("program-preview-viewport");
+    expect(parseFloat(viewport.style.width)).toBeCloseTo(1200, 1);
+    expect(parseFloat(viewport.style.height)).toBeCloseTo(675, 1);
   });
 });

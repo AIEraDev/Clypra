@@ -57,6 +57,20 @@ function previewAspectWidthOverHeight(preset: PreviewAspectPreset, canvasWidth: 
   return PREVIEW_ASPECT_RATIO[preset] ?? canvasWidth / ch;
 }
 
+function resolveOriginalPreviewAspect(
+  layers: Array<{ mediaId: string }>,
+  mediaAssets: Array<{ id: string; width?: number; height?: number }>,
+  canvasWidth: number,
+  canvasHeight: number,
+): number {
+  const projectRatio = canvasWidth / Math.max(1, canvasHeight);
+  if (layers.length !== 1) return projectRatio;
+  const onlyLayer = layers[0];
+  const asset = mediaAssets.find((a) => a.id === onlyLayer.mediaId);
+  if (!asset?.width || !asset?.height || asset.width <= 0 || asset.height <= 0) return projectRatio;
+  return asset.width / asset.height;
+}
+
 /** Largest rectangle with aspect W/H = R inside the panel. */
 function previewViewportSize(panelWidth: number, panelHeight: number, widthOverHeight: number): { vw: number; vh: number } {
   const R = widthOverHeight;
@@ -237,7 +251,8 @@ const ProgramPreview: React.FC = () => {
 
   const canvasWidth = project.canvasWidth;
   const canvasHeight = project.canvasHeight;
-  const aspectR = previewAspectWidthOverHeight(previewAspectPreset, canvasWidth, canvasHeight);
+  const originalAspectR = resolveOriginalPreviewAspect(scene.layers, mediaAssets, canvasWidth, canvasHeight);
+  const aspectR = previewAspectPreset === "original" ? originalAspectR : previewAspectWidthOverHeight(previewAspectPreset, canvasWidth, canvasHeight);
   const { vw, vh } = previewViewportSize(dimensions.width, dimensions.height, aspectR);
   const scaleFit = Math.min(vw / canvasWidth, vh / canvasHeight);
   const scaleFill = Math.max(vw / canvasWidth, vh / canvasHeight);
@@ -260,8 +275,8 @@ const ProgramPreview: React.FC = () => {
     <div className="flex-1 bg-transparent flex flex-col min-h-0">
       <div className="flex-1 flex items-center justify-center p-2 overflow-hidden">
         <div ref={containerRef} className="w-full h-full flex items-center justify-center overflow-hidden">
-          <div className="relative flex shrink-0 items-center justify-center overflow-hidden" style={{ width: vw, height: vh }}>
-            <div className="relative shrink-0 bg-black" style={{ width: displayWidth, height: displayHeight }}>
+          <div data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-hidden" style={{ width: vw, height: vh }}>
+            <div data-testid="program-preview-canvas" className="relative shrink-0 bg-black" style={{ width: displayWidth, height: displayHeight }}>
             {scene.layers.length === 0 ? (
               <div className="absolute inset-0 flex items-center justify-center text-text-muted">Preview</div>
             ) : (
