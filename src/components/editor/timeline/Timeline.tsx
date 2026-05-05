@@ -96,7 +96,7 @@ export const Timeline: React.FC = () => {
   });
 
   const { mediaAssets, addMediaAsset } = useProjectStore();
-  const { previewMode, exitSourceMode } = useUIStore();
+  const { previewMode, exitSourceMode, clearSelection } = useUIStore();
   const { currentTime, duration, isPlaying, seek, setDuration } = usePlayback();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -475,14 +475,30 @@ export const Timeline: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [normalizeTrack, updateClip]);
 
+  // Clicking anywhere that is not a clip clears clip selection.
+  useEffect(() => {
+    const handleWindowPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('[data-timeline-interactive="true"]')) return;
+      useUIStore.getState().clearSelection();
+    };
+
+    window.addEventListener("pointerdown", handleWindowPointerDown);
+    return () => window.removeEventListener("pointerdown", handleWindowPointerDown);
+  }, []);
+
   // ✅ Ensure content width uses same rounding as all other pixel calculations
   const contentWidth = Math.max(1000, Math.round(duration * pixelsPerSecond));
 
   const seekFromPointer = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
-      console.log(target);
       if (target.closest('[data-timeline-interactive="true"]')) return;
+
+      // Clicking any non-clip area in timeline deselects all clips.
+      clearSelection();
 
       // Exit source mode when clicking on timeline
       if (previewMode === "source") {
@@ -497,7 +513,7 @@ export const Timeline: React.FC = () => {
       const time = Math.max(0, Math.min(x / pixelsPerSecond, duration));
       seek(time);
     },
-    [duration, pixelsPerSecond, seek, previewMode, exitSourceMode],
+    [duration, pixelsPerSecond, seek, previewMode, exitSourceMode, clearSelection],
   );
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {

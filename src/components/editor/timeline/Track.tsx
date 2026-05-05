@@ -1,9 +1,8 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useUIStore } from "../../../store/uiStore";
-import { useTimelineStore } from "../../../store/timelineStore";
 import { useTimeline } from "../../../hooks/useTimeline";
 import { Clip } from "./Clip";
-import type { Track as TrackType } from "../../../types";
+import type { Clip as ClipType, Track as TrackType } from "../../../types";
 
 interface TrackProps {
   track: TrackType;
@@ -38,22 +37,28 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onC
     draggingClipId: dragState?.draggingClipId,
   });
 
+  // Chronological order for gap shifts — must NOT sort `trackClips` in place while `.map()` iterates it.
+  const sortedTrackClips = useMemo(() => [...trackClips].sort((a, b) => a.startTime - b.startTime), [trackClips]);
+
   // Calculate shifted positions for gap engine (not the clip being dragged — it already uses offsetX/Y)
-  const getDisplayStartTime = (clip: any) => {
+  const getDisplayStartTime = (clip: ClipType) => {
     if (dragState?.draggingClipId === clip.id) {
       return clip.startTime;
     }
     // Only shift if dragging and this is the target track
-    if (dragState?.targetTrackId === track.id && dragState?.insertionIndex !== null && dragState?.gapStartTime !== null && dragState?.gapDuration !== null) {
-      // Get clips on this track excluding the dragged clip
-      const otherClips = trackClips.sort((a, b) => a.startTime - b.startTime);
+    if (
+      dragState?.targetTrackId === track.id &&
+      dragState.insertionIndex != null &&
+      dragState.gapStartTime != null &&
+      dragState.gapDuration != null
+    ) {
+      const clipIndex = sortedTrackClips.findIndex((c) => c.id === clip.id);
+      const insertionIndex = dragState.insertionIndex;
+      const gapDuration = dragState.gapDuration;
 
-      // Find this clip's index in the sequence
-      const clipIndex = otherClips.findIndex((c) => c.id === clip.id);
-
-      if (clipIndex >= dragState.insertionIndex!) {
+      if (clipIndex >= insertionIndex) {
         // Shift clips at or after insertion point
-        return clip.startTime + dragState.gapDuration;
+        return clip.startTime + gapDuration;
       }
     }
 

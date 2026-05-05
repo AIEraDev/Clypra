@@ -6,6 +6,9 @@ import { ClipFilmstrip } from "./ClipFilmstrip";
 
 console.log("[CLIP MODULE] 📦 Clip.tsx loaded");
 
+/** Movement past this (px) starts a clip drag; below it, release is still a click (selection set on pointerDown). */
+const DRAG_THRESHOLD_PX = 6;
+
 interface ClipProps {
   clip: ClipType;
   mediaAsset?: MediaAsset;
@@ -41,6 +44,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
   const isDragging = dragState?.isDragging || false;
   const isInvalidPosition = dragState?.isInvalidPosition || false;
   const displayLeft = isDragging ? left + (dragState?.offsetX || 0) : left;
+  const showResizeHandles = Boolean(selected || isResizing);
 
   // Handle pointer-based drag
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -67,6 +71,15 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     e.stopPropagation();
     const rect = clipRef.current?.getBoundingClientRect();
     if (!rect) return;
+
+    // Select on press so a real click always selects; drag only starts after DRAG_THRESHOLD_PX.
+    const isMultiKey = e.shiftKey || e.metaKey || e.ctrlKey;
+    const alreadySelected = useUIStore.getState().selectedClipIds.includes(clip.id);
+    if (isMultiKey) {
+      toggleClipSelection(clip.id);
+    } else if (!alreadySelected) {
+      selectClip(clip.id);
+    }
 
     dragStartRef.current = {
       startX: e.clientX,
@@ -103,7 +116,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     });
 
     // Mark as moved if threshold exceeded
-    if (!dragStartRef.current.hasMoved && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
+    if (!dragStartRef.current.hasMoved && (Math.abs(deltaX) > DRAG_THRESHOLD_PX || Math.abs(deltaY) > DRAG_THRESHOLD_PX)) {
       dragStartRef.current.hasMoved = true;
       console.log("[CLIP] ✅ Movement threshold exceeded - starting drag");
       if (!dragStartRef.current.hasDragStarted) {
@@ -122,17 +135,6 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     if (!dragStartRef.current) return;
 
     console.log("[CLIP] 🏁 Drag END", { clipId: clip.id, hasMoved: dragStartRef.current.hasMoved });
-
-    // If didn't move, treat as click for selection
-    if (!dragStartRef.current.hasMoved) {
-      if (e.shiftKey || e.metaKey || e.ctrlKey) {
-        console.log("[CLIP] 🖱️ Selection only (toggle)", { clipId: clip.id, multiKey: true });
-        toggleClipSelection(clip.id);
-      } else {
-        console.log("[CLIP] 🖱️ Selection only (single)", { clipId: clip.id, multiKey: false });
-        selectClip(clip.id);
-      }
-    }
 
     if (dragStartRef.current.hasDragStarted) {
       onDragEnd?.(clip.id);
@@ -260,7 +262,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "ring-2 ring-white" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipColor()} transition-none`}
+      className={`absolute h-full rounded-sm overflow-hidden border ${selected ? "border-red-500 border-2" : ""} ${isResizing ? (resizeStart?.isRipple ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipColor()} transition-none`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
@@ -276,7 +278,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       {/* Left trim handle */}
       <div
         data-testid={`clip-${clip.id}-resize-left`}
-        className={`absolute left-0 top-0 w-3 h-full hover:bg-cyan-300/40 cursor-ew-resize z-20 ${isResizing === "left" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`}
+        className={`absolute left-0 top-0 w-1.5 h-full cursor-ew-resize z-20 bg-red-600 ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
         onMouseDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "left");
@@ -316,7 +318,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       {/* Right trim handle */}
       <div
         data-testid={`clip-${clip.id}-resize-right`}
-        className={`absolute right-0 top-0 w-3 h-full hover:bg-cyan-300/40 cursor-ew-resize z-20 ${isResizing === "right" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`}
+        className={`absolute right-0 top-0 w-1.5 h-full cursor-ew-resize z-20 bg-red-600 ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}}`}
         onMouseDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "right");
