@@ -4,8 +4,6 @@ import { useTimelineStore } from "../../../store/timelineStore";
 import type { Clip as ClipType, MediaAsset } from "../../../types";
 import { ClipFilmstrip } from "./ClipFilmstrip";
 
-console.log("[CLIP MODULE] 📦 Clip.tsx loaded");
-
 /** Movement past this (px) starts a clip drag; below it, release is still a click (selection set on pointerDown). */
 const DRAG_THRESHOLD_PX = 6;
 
@@ -26,9 +24,7 @@ interface ClipProps {
   };
 }
 
-export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, onDragStart, onDragMove, onDragEnd, dragState }) => {
-  console.log("[CLIP] 🔄 Render", { clipId: clip.id, locked, selected });
-
+const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, onDragStart, onDragMove, onDragEnd, dragState }) => {
   const { selectClip, toggleClipSelection } = useUIStore();
   const { updateClip, rippleEditEnabled, rippleTrimClip } = useTimelineStore();
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
@@ -193,35 +189,43 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
         // STANDARD MODE: Normal trim (no ripple)
         if (isResizing === "left") {
           // Resize from left (trim in)
-          const newStartTime = Math.max(0, resizeStart.startTime + deltaTime);
-          const newDuration = resizeStart.duration - (newStartTime - resizeStart.startTime);
-          const newTrimIn = resizeStart.trimIn + (newStartTime - resizeStart.startTime);
+          const minDuration = 0.1;
+          const maxMediaTime = mediaAsset?.duration ?? resizeStart.trimOut;
+          const maxTrimIn = Math.min(maxMediaTime, resizeStart.trimOut - 0.001);
 
-          // Get media asset duration for validation
-          const maxTrimIn = mediaAsset?.duration || resizeStart.trimOut;
+          // Desired new trimIn based on pointer movement; clamp instead of freezing.
+          const desiredStartTime = resizeStart.startTime + deltaTime;
+          const desiredDelta = desiredStartTime - resizeStart.startTime;
 
-          // Clamp to valid range
-          if (newDuration >= 0.1 && newTrimIn >= 0 && newTrimIn < resizeStart.trimOut && newTrimIn <= maxTrimIn) {
-            updateClip(clip.id, {
-              startTime: newStartTime,
-              duration: newDuration,
-              trimIn: newTrimIn,
-            });
-          }
+          // Clamp delta by: timeline start, minimum duration, and media trimIn bounds.
+          const minDelta = -resizeStart.startTime;
+          const maxDeltaByDuration = resizeStart.duration - minDuration;
+          const maxDeltaByMedia = maxTrimIn - resizeStart.trimIn;
+          const clampedDelta = Math.max(minDelta, Math.min(desiredDelta, maxDeltaByDuration, maxDeltaByMedia));
+
+          const newStartTime = resizeStart.startTime + clampedDelta;
+          const newDuration = resizeStart.duration - clampedDelta;
+          const newTrimIn = resizeStart.trimIn + clampedDelta;
+
+          updateClip(clip.id, {
+            startTime: Math.max(0, newStartTime),
+            duration: Math.max(minDuration, newDuration),
+            trimIn: Math.max(0, Math.min(newTrimIn, maxTrimIn)),
+          });
         } else {
           // Resize from right (trim out)
-          const newDuration = Math.max(0.1, resizeStart.duration + deltaTime);
+          const minDuration = 0.1;
+          const maxMediaTime = mediaAsset?.duration ?? resizeStart.trimOut;
+          const maxDuration = Math.max(minDuration, maxMediaTime - resizeStart.trimIn);
+
+          const desiredDuration = resizeStart.duration + deltaTime;
+          const newDuration = Math.max(minDuration, Math.min(desiredDuration, maxDuration));
           const newTrimOut = resizeStart.trimIn + newDuration;
 
-          // Get media asset duration for validation
-          const maxDuration = mediaAsset?.duration || resizeStart.trimOut;
-
-          if (newTrimOut <= maxDuration) {
-            updateClip(clip.id, {
-              duration: newDuration,
-              trimOut: newTrimOut,
-            });
-          }
+          updateClip(clip.id, {
+            duration: newDuration,
+            trimOut: Math.min(newTrimOut, maxMediaTime),
+          });
         }
       }
     };
@@ -278,7 +282,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       {/* Left trim handle */}
       <div
         data-testid={`clip-${clip.id}-resize-left`}
-        className={`absolute left-0 top-0 w-1.5 h-full cursor-ew-resize z-20 bg-red-600 ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+        className={`absolute left-0 top-0 w-3 h-full cursor-ew-resize z-20 ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"} ${isResizing === "left" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`}
         onMouseDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "left");
@@ -292,16 +296,10 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
           <div className="text-[9px] font-semibold tracking-[0.01em] text-[#d8edf1] truncate">{mediaAsset?.name || "Clip"}</div>
           <div className="text-[9px] font-medium text-[#b9e0e6] shrink-0">{formatDuration(clip.duration)}</div>
         </div>
-        {mediaAsset?.type === "video" ? (
+        {mediaAsset && (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
           <div className="flex min-h-0 w-full flex-1 items-center">
             <ClipFilmstrip className="w-full shrink-0" clip={clip} mediaAsset={mediaAsset} clipWidthPx={width} pixelsPerSecond={pixelsPerSecond} stripHeightPx={40} />
           </div>
-        ) : mediaAsset?.type === "image" ? (
-          mediaAsset.posterFrame ? (
-            <img src={mediaAsset.posterFrame} alt="" className="h-8 w-full rounded-[2px] border border-black/20 object-cover" draggable={false} />
-          ) : (
-            <div className="h-8 w-full rounded-[2px] bg-[#0c2730]/60" />
-          )
         ) : mediaAsset?.type === "audio" ? (
           mediaAsset.posterFrame ? (
             <img src={mediaAsset.posterFrame} alt="" className="h-8 w-full rounded-[2px] border border-black/20 object-cover" draggable={false} />
@@ -318,7 +316,7 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       {/* Right trim handle */}
       <div
         data-testid={`clip-${clip.id}-resize-right`}
-        className={`absolute right-0 top-0 w-1.5 h-full cursor-ew-resize z-20 bg-red-600 ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}}`}
+        className={`absolute right-0 top-0 w-3 h-full cursor-ew-resize z-20 ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"} ${isResizing === "right" ? (resizeStart?.isRipple ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-transparent"}`}
         onMouseDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "right");
@@ -328,3 +326,5 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
     </div>
   );
 };
+
+export const Clip = React.memo(ClipInner);

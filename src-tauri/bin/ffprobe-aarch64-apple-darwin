@@ -1,0 +1,5 @@
+#!/bin/sh
+# Dev helper: runs ffprobe from PATH. Replace with a static ffprobe for release builds.
+if command -v ffprobe >/dev/null 2>&1; then exec ffprobe "$@"; fi
+echo "clypra: ffprobe not on PATH and sidecar is a stub. Install ffmpeg (brew install ffmpeg) or replace this file per src-tauri/bin/README.md" >&2
+exit 127

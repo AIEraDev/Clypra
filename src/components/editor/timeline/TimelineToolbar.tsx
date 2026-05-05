@@ -37,7 +37,7 @@ export const TimelineToolbar: React.FC = () => {
 
   return (
     <TooltipProvider>
-      <div className="h-12 border-b border-[#2c2f34] flex items-center px-3 gap-2">
+      <div data-timeline-interactive="true" className="h-12 border-b border-[#2c2f34] flex items-center px-3 gap-2">
         <div className="flex items-center gap-1">
           <Tool label="Add video track">
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => addTrack("video")}>

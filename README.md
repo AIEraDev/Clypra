@@ -52,12 +52,12 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed documentation.
 
 - **Node.js** 18+ and npm
 - **Rust** and Cargo (latest stable)
-- **FFmpeg** (for video/audio processing)
+- **macOS desktop builds**: FFmpeg and FFprobe are bundled as **Tauri sidecars** (`src-tauri/bin/`). The checked-in files are small wrappers that call `ffmpeg` / `ffprobe` from your **`PATH`** so local `cargo tauri dev` works without copying static binaries. For release DMGs, replace them with static builds per [`src-tauri/bin/README.md`](./src-tauri/bin/README.md) (GPL/LGPL compliance, **code-signing** / notarization for sidecars). Until Linux/Windows sidecars exist, install FFmpeg on those platforms as before.
 
-### Install FFmpeg
+### Install FFmpeg (dev / non-macOS)
 
 ```bash
-# macOS
+# macOS (used by sidecar wrappers until you drop in static binaries)
 brew install ffmpeg
 
 # Ubuntu/Debian

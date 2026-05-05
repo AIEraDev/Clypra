@@ -478,8 +478,6 @@ impl ExtractionQueue {
         video_id: &str,
         density: DensityLevel,
     ) -> Result<PathBuf, String> {
-        use tokio::process::Command;
-
         // Get cache path
         let cache_path = GLOBAL_CACHE
             .frame_path(video_id, density, time)
@@ -518,21 +516,32 @@ impl ExtractionQueue {
             scale_str, width, height
         );
 
-        let output = Command::new("ffmpeg")
-            .args(&[
-                "-hide_banner",
-                "-loglevel", "error",
-                "-ss", &fast_seek_str,
-                "-i", video_path,
-                "-ss", precise_seek,
-                "-vframes", "1",
-                "-vf", &vf_filter,
-                "-c:v", "libwebp",
-                "-quality", "80",
-                "-f", "image2",
-                cache_path.to_str().ok_or("Invalid cache path")?,
-            ])
-            .output()
+        let args = vec![
+            "-hide_banner".to_string(),
+            "-loglevel".to_string(),
+            "error".to_string(),
+            "-ss".to_string(),
+            fast_seek_str.clone(),
+            "-i".to_string(),
+            video_path.to_string(),
+            "-ss".to_string(),
+            precise_seek.to_string(),
+            "-vframes".to_string(),
+            "1".to_string(),
+            "-vf".to_string(),
+            vf_filter.clone(),
+            "-c:v".to_string(),
+            "libwebp".to_string(),
+            "-quality".to_string(),
+            "80".to_string(),
+            "-f".to_string(),
+            "image2".to_string(),
+            cache_path
+                .to_str()
+                .ok_or("Invalid cache path")?
+                .to_string(),
+        ];
+        let output = crate::ffmpeg_sidecar::ffmpeg_output_strings(&args)
             .await
             .map_err(|e| format!("FFmpeg failed: {}", e))?;
 
@@ -560,8 +569,6 @@ impl ExtractionQueue {
         video_id: &str,
         density: DensityLevel,
     ) -> Vec<Result<PathBuf, String>> {
-        use tokio::process::Command;
-
         let mut results = Vec::with_capacity(times.len());
 
         // For batch extraction, we process in chunks of 4 frames
@@ -608,22 +615,29 @@ impl ExtractionQueue {
                     scale_str, width, height
                 );
 
-                let result = Command::new("ffmpeg")
-                    .args(&[
-                        "-hide_banner",
-                        "-loglevel", "error",
-                        "-ss", &fast_seek_str,
-                        "-i", video_path,
-                        "-ss", precise_seek,
-                        "-vframes", "1",
-                        "-vf", &vf_filter,
-                        "-c:v", "libwebp",
-                        "-quality", "80",
-                        "-f", "image2",
-                        cache_path.to_str().unwrap_or(""),
-                    ])
-                    .output()
-                    .await;
+                let args = vec![
+                    "-hide_banner".to_string(),
+                    "-loglevel".to_string(),
+                    "error".to_string(),
+                    "-ss".to_string(),
+                    fast_seek_str.clone(),
+                    "-i".to_string(),
+                    video_path.to_string(),
+                    "-ss".to_string(),
+                    precise_seek.to_string(),
+                    "-vframes".to_string(),
+                    "1".to_string(),
+                    "-vf".to_string(),
+                    vf_filter.clone(),
+                    "-c:v".to_string(),
+                    "libwebp".to_string(),
+                    "-quality".to_string(),
+                    "80".to_string(),
+                    "-f".to_string(),
+                    "image2".to_string(),
+                    cache_path.to_str().unwrap_or("").to_string(),
+                ];
+                let result = crate::ffmpeg_sidecar::ffmpeg_output_strings(&args).await;
 
                 match result {
                     Ok(output) if output.status.success() => {

@@ -23,19 +23,12 @@ interface TrackProps {
   };
 }
 
-export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, dragState }) => {
+const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, dragState }) => {
   const { selectedClipIds, selectedTrackId } = useUIStore();
   const { getMediaAsset } = useTimeline();
 
-  // Get all clips for this track (keep dragged clip for pointer events)
-  const trackClips = clips.filter((c) => c.trackId === track.id);
-
-  console.log("[TRACK] 🎬 Track render", {
-    trackId: track.id,
-    trackClipsCount: trackClips.length,
-    trackClips: trackClips.map((c) => c.id),
-    draggingClipId: dragState?.draggingClipId,
-  });
+  // Get all clips for this track (stable array ref when clips + track.id unchanged — helps memoized children)
+  const trackClips = useMemo(() => clips.filter((c) => c.trackId === track.id), [clips, track.id]);
 
   // Chronological order for gap shifts — must NOT sort `trackClips` in place while `.map()` iterates it.
   const sortedTrackClips = useMemo(() => [...trackClips].sort((a, b) => a.startTime - b.startTime), [trackClips]);
@@ -120,3 +113,5 @@ export const Track: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onC
     </div>
   );
 };
+
+export const Track = React.memo(TrackInner);

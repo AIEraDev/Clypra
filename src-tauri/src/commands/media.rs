@@ -1,56 +1,54 @@
+use crate::ffmpeg_sidecar;
 use crate::models::VideoMetadata;
 use base64::Engine;
-use std::process::Command;
 use std::fs;
 
 #[tauri::command]
-pub fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
-    // Check if ffprobe exists
-    let check = Command::new("which")
-        .arg("ffprobe")
-        .output();
-    
-    if check.is_err() || !check.unwrap().status.success() {
-        return Err("ffprobe not found. Please install FFmpeg: brew install ffmpeg".to_string());
-    }
+pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
+    let stream_check = ffmpeg_sidecar::ffprobe_output(&[
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=codec_type",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        path.as_str(),
+    ])
+    .await
+    .map_err(|e| format!("ffprobe stream check failed: {e}"))?;
 
-    // First, check if this is an audio-only file
-    let stream_check = Command::new("ffprobe")
-        .args(&[
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=codec_type",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            &path,
-        ])
-        .output()
-        .map_err(|e| format!("ffprobe stream check failed: {}", e))?;
-
-    let has_video = !String::from_utf8_lossy(&stream_check.stdout).trim().is_empty();
+    let has_video = !String::from_utf8_lossy(&stream_check.stdout)
+        .trim()
+        .is_empty();
 
     let output = if has_video {
-        // Video file - get video stream info
-        Command::new("ffprobe")
-            .args(&[
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=width,height,r_frame_rate,duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                &path,
-            ])
-            .output()
-            .map_err(|e| format!("ffprobe execution failed: {}", e))?
+        ffmpeg_sidecar::ffprobe_output(&[
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,r_frame_rate,duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path.as_str(),
+        ])
+        .await
+        .map_err(|e| format!("ffprobe execution failed: {e}"))?
     } else {
-        // Audio file - get format duration instead
-        Command::new("ffprobe")
-            .args(&[
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                &path,
-            ])
-            .output()
-            .map_err(|e| format!("ffprobe execution failed: {}", e))?
+        ffmpeg_sidecar::ffprobe_output(&[
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path.as_str(),
+        ])
+        .await
+        .map_err(|e| format!("ffprobe execution failed: {e}"))?
     };
 
     if !output.status.success() {
@@ -63,7 +61,11 @@ pub fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
 
     let (width, height, fps, duration) = if has_video {
         if lines.len() < 4 {
-            return Err(format!("Invalid ffprobe output (got {} lines, expected 4): {}", lines.len(), output_str));
+            return Err(format!(
+                "Invalid ffprobe output (got {} lines, expected 4): {}",
+                lines.len(),
+                output_str
+            ));
         }
         let width = lines[0].parse::<u32>().unwrap_or(1920);
         let height = lines[1].parse::<u32>().unwrap_or(1080);
@@ -78,7 +80,6 @@ pub fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
         let duration = lines[3].parse::<f64>().unwrap_or(0.0);
         (width, height, fps, duration)
     } else {
-        // Audio file - use default dimensions and get duration
         if lines.is_empty() {
             return Err(format!("Invalid ffprobe output for audio: {}", output_str));
         }
@@ -86,9 +87,7 @@ pub fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
         (0, 0, 0.0, duration)
     };
 
-    let metadata = fs::metadata(&path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let metadata = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
     Ok(VideoMetadata {
         duration,
@@ -100,27 +99,23 @@ pub fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
 }
 
 #[tauri::command]
-pub fn extract_poster_frame(path: String, time: f64) -> Result<String, String> {
-    // Check if ffmpeg exists
-    let check = Command::new("which")
-        .arg("ffmpeg")
-        .output();
-    
-    if check.is_err() || !check.unwrap().status.success() {
-        return Err("ffmpeg not found. Please install FFmpeg: brew install ffmpeg".to_string());
-    }
-
-    let output = Command::new("ffmpeg")
-        .args(&[
-            "-ss", &time.to_string(),
-            "-i", &path,
-            "-vframes", "1",
-            "-f", "image2",
-            "-vcodec", "png",
-            "pipe:1",
-        ])
-        .output()
-        .map_err(|e| format!("ffmpeg execution failed: {}", e))?;
+pub async fn extract_poster_frame(path: String, time: f64) -> Result<String, String> {
+    let t = time.to_string();
+    let output = ffmpeg_sidecar::ffmpeg_output_strings_raw(&[
+        "-ss".into(),
+        t,
+        "-i".into(),
+        path.clone(),
+        "-vframes".into(),
+        "1".into(),
+        "-f".into(),
+        "image2".into(),
+        "-vcodec".into(),
+        "png".into(),
+        "pipe:1".into(),
+    ])
+    .await
+    .map_err(|e| format!("ffmpeg execution failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

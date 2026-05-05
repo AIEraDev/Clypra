@@ -1,0 +1,5 @@
+#!/bin/sh
+# Dev helper: runs ffmpeg from PATH. Replace with a static ffmpeg for release builds.
+if command -v ffmpeg >/dev/null 2>&1; then exec ffmpeg "$@"; fi
+echo "clypra: ffmpeg not on PATH and sidecar is a stub. Install ffmpeg (brew install ffmpeg) or replace this file per src-tauri/bin/README.md" >&2
+exit 127

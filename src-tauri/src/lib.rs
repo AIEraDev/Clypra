@@ -1,8 +1,8 @@
 use std::path::PathBuf;
-use tauri::{Manager};
-use tokio::io::AsyncReadExt;
-use tokio::process::Command;
+use tauri::Manager;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+mod ffmpeg_sidecar;
 
 pub mod thumbnail_engine;
 use thumbnail_engine::{DensityLevel, Priority, init_thumbnail_engine, request_batch_thumbnails, request_thumbnail, generate_timestamp_grid, get_cache_stats, clear_video_thumbnail_cache};
@@ -21,40 +21,34 @@ async fn audio_waveform_peaks(input_path: String, bucket_count: u32) -> Result<V
     }
 
     let buckets = (bucket_count as usize).clamp(32, 512);
-    let has = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "a",
-            "-show_entries",
-            "stream=index",
-            "-of",
-            "csv=p=0",
-            &input_path,
-        ])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
+    let has = ffmpeg_sidecar::ffprobe_output(&[
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=index",
+        "-of",
+        "csv=p=0",
+        input_path.as_str(),
+    ])
+    .await?;
 
     let stream_list = String::from_utf8_lossy(&has.stdout);
     if !has.status.success() || stream_list.trim().is_empty() {
         return Ok(vec![0.0; buckets]);
     }
 
-    let probe = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            &input_path,
-        ])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
+    let probe = ffmpeg_sidecar::ffprobe_output(&[
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        input_path.as_str(),
+    ])
+    .await?;
 
     if !probe.status.success() {
         return Ok(vec![0.0; buckets]);
@@ -73,94 +67,10 @@ async fn audio_waveform_peaks(input_path: String, bucket_count: u32) -> Result<V
     let total_samples = ((duration * f64::from(SR)).floor() as usize).max(1);
     let samples_per_bucket = (total_samples / buckets).max(1);
 
-    let mut child = Command::new("ffmpeg")
-        .args([
-            "-v",
-            "error",
-            "-i",
-            &input_path,
-            "-map",
-            "0:a:0",
-            "-ac",
-            "1",
-            "-ar",
-            &SR.to_string(),
-            "-f",
-            "f32le",
-            "-",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("ffmpeg: {e}"))?;
-
-    let mut stdout = child.stdout.take().ok_or("no ffmpeg stdout")?;
-
-    let mut peaks = vec![0.0f32; buckets];
-    let mut bucket_idx = 0usize;
-    let mut count_in_bucket = 0usize;
-    let mut max_in_bucket = 0.0f32;
-
-    let mut stash: Vec<u8> = Vec::new();
-    let mut buf = vec![0u8; 32 * 1024];
-
-    loop {
-        let n = stdout.read(&mut buf).await.map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        stash.extend_from_slice(&buf[..n]);
-        let mut i = 0usize;
-        while i + 4 <= stash.len() {
-            let sample = f32::from_le_bytes(stash[i..i + 4].try_into().unwrap());
-            i += 4;
-            let a = sample.abs();
-            if bucket_idx >= buckets {
-                continue;
-            }
-            if count_in_bucket >= samples_per_bucket {
-                peaks[bucket_idx] = max_in_bucket;
-                bucket_idx += 1;
-                count_in_bucket = 0;
-                max_in_bucket = 0.0;
-            }
-            if a > max_in_bucket {
-                max_in_bucket = a;
-            }
-            count_in_bucket += 1;
-        }
-        if i > 0 {
-            stash.copy_within(i.., 0);
-            stash.truncate(stash.len() - i);
-        }
-    }
-
-    if bucket_idx < buckets && (count_in_bucket > 0 || max_in_bucket > 0.0) {
-        peaks[bucket_idx] = max_in_bucket;
-    }
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    if !status.success() {
-        return Ok(vec![0.0; buckets]);
-    }
-
-    let mut max_peak = 0.0f32;
-    for &p in &peaks {
-        if p > max_peak {
-            max_peak = p;
-        }
-    }
-    if max_peak > 1.0e-12 {
-        for p in &mut peaks {
-            *p = (*p / max_peak).min(1.0);
-        }
-    }
-
-    Ok(peaks)
+    ffmpeg_sidecar::audio_peaks_f32le_buckets(input_path.as_str(), SR, buckets, samples_per_bucket).await
 }
 
-/// Trim `input_path` to `[start_sec, end_sec)` and write to `output_path` using stream copy.
-/// Requires `ffmpeg` on `PATH` (e.g. `brew install ffmpeg` on macOS).
+/// Trim `input_path` to `[start_sec, end_sec)` and write to `output_path` using stream copy (bundled ffmpeg sidecar).
 #[tauri::command]
 async fn trim_export(
     input_path: String,
@@ -183,26 +93,20 @@ async fn trim_export(
     let ss = format!("{:.6}", start_sec);
     let to = format!("{:.6}", end_sec);
 
-    let output = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-i",
-            &input_path,
-            "-ss",
-            &ss,
-            "-to",
-            &to,
-            "-c",
-            "copy",
-            &output_path,
-        ])
-        .output()
-        .await
-        .map_err(|e| {
-            format!(
-                "Could not run ffmpeg ({e}). Install ffmpeg and ensure it is on your PATH."
-            )
-        })?;
+    let output = ffmpeg_sidecar::ffmpeg_output_strings(&[
+        "-y".into(),
+        "-i".into(),
+        input_path.clone(),
+        "-ss".into(),
+        ss.clone(),
+        "-to".into(),
+        to.clone(),
+        "-c".into(),
+        "copy".into(),
+        output_path.clone(),
+    ])
+    .await
+    .map_err(|e| format!("Could not run ffmpeg sidecar ({e})."))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -252,15 +156,12 @@ pub(crate) fn get_hwaccel_args() -> Vec<&'static str> {
     }
 }
 
-/// Check if FFmpeg is installed and available on PATH
+/// Check that the bundled ffmpeg sidecar runs (`-version`).
 pub(crate) async fn check_ffmpeg_available() -> Result<(), String> {
-    match Command::new("ffmpeg").arg("-version").output().await {
+    match ffmpeg_sidecar::ffmpeg_output(&["-version"]).await {
         Ok(output) if output.status.success() => Ok(()),
-        Ok(_) => Err("FFmpeg found but returned error".into()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            Err("FFmpeg not found. Please install FFmpeg:\n• macOS: brew install ffmpeg\n• Ubuntu: sudo apt install ffmpeg\n• Windows: Download from ffmpeg.org".into())
-        }
-        Err(e) => Err(format!("Failed to check FFmpeg: {}", e)),
+        Ok(_) => Err("FFmpeg sidecar returned an error for -version.".into()),
+        Err(e) => Err(format!("Failed to run FFmpeg sidecar: {e}")),
     }
 }
 
@@ -303,54 +204,53 @@ async fn extract_frame_at_time(
     // 1. Fast seek to 2 seconds before target (keyframe, fast)
     // 2. Precise decode the remaining 2 seconds to exact frame (accurate)
     let fast_seek_time = (time_secs - 2.0).max(0.0);
-    let precise_seek_secs = if fast_seek_time > 0.0 { "2.0" } else { &time_str };
-    
     let fast_seek_str = format!("{:.3}", fast_seek_time);
 
-    // Build FFmpeg args with hardware acceleration if available
     let hwaccel_args = get_hwaccel_args();
-    let mut ffmpeg_args: Vec<&str> = vec![
-        "-hide_banner",
-        "-loglevel", "error",
-        // Fast input seek to keyframe near target (fast but less accurate)
-        "-ss", &fast_seek_str,
+    let vf_filter = format!(
+        "scale={}:force_original_aspect_ratio=increase,crop={}:{}",
+        scale_str, width, height
+    );
+    let precise_seek_owned = if fast_seek_time > 0.0 {
+        "2.0".to_string()
+    } else {
+        time_str.clone()
+    };
+
+    let mut ffmpeg_args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-ss".into(),
+        fast_seek_str.clone(),
     ];
-    
-    // Add hardware acceleration args before -i
-    ffmpeg_args.extend(hwaccel_args.iter().cloned());
-    
-    // Create vf filter string - scale to fill then crop (no black bars)
-    // force_original_aspect_ratio=increase scales up to fill, then crop centers the crop
-    let vf_filter = format!("scale={}:force_original_aspect_ratio=increase,crop={}:{}", scale_str, width, height);
-    
-    // Continue with input and output args
+    for a in hwaccel_args {
+        ffmpeg_args.push(a.to_string());
+    }
     ffmpeg_args.extend([
-        "-i", &input_path,
-        // Precise output seek to exact frame (decodes from keyframe to target)
-        "-ss", precise_seek_secs,
-        // Output just one frame
-        "-vframes", "1",
-        // Scale to requested dimensions
-        "-vf", &vf_filter,
-        // PNG for lossless quality
-        "-f", "image2",
-        "-vcodec", "png",
-        "-pix_fmt", "rgba",
-        "pipe:1", // Output to stdout
+        "-i".into(),
+        input_path.clone(),
+        "-ss".into(),
+        precise_seek_owned,
+        "-vframes".into(),
+        "1".into(),
+        "-vf".into(),
+        vf_filter,
+        "-f".into(),
+        "image2".into(),
+        "-vcodec".into(),
+        "png".into(),
+        "-pix_fmt".into(),
+        "rgba".into(),
+        "pipe:1".into(),
     ]);
 
     // Log the command for debugging
     eprintln!("[FFmpeg] Extracting frame at {}s from {}", time_secs, input_path);
 
-    // Spawn FFmpeg with 15-second timeout (increased from 5s for larger files)
     let ffmpeg_result = timeout(
         Duration::from_secs(15),
-        Command::new("ffmpeg")
-            .args(&ffmpeg_args)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .output(),
+        ffmpeg_sidecar::ffmpeg_output_strings_raw(&ffmpeg_args),
     )
     .await;
 
@@ -413,17 +313,17 @@ async fn extract_filmstrip_frames(
 
     use tokio::time::{timeout, Duration};
 
-    // Probe video for duration and frame rate
-    let probe = Command::new("ffprobe")
-        .args([
-            "-v", "error",
-            "-show_entries", "format=duration:stream=r_frame_rate",
-            "-of", "default=noprint_wrappers=1",
-            &input_path,
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("FFprobe failed: {}", e))?;
+    let probe = ffmpeg_sidecar::ffprobe_output(&[
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration:stream=r_frame_rate",
+        "-of",
+        "default=noprint_wrappers=1",
+        input_path.as_str(),
+    ])
+    .await
+    .map_err(|e| format!("FFprobe failed: {}", e))?;
 
     if !probe.status.success() {
         return Err("Failed to probe video".into());
@@ -522,30 +422,35 @@ async fn extract_filmstrip_frames(
             }
         }
 
-        let mut ffmpeg_cmd = Command::new("ffmpeg");
-        ffmpeg_cmd
-            .arg("-hide_banner")
-            .arg("-loglevel")
-            .arg("error");
+        let mut argv: Vec<String> = vec![
+            "-hide_banner".into(),
+            "-loglevel".into(),
+            "error".into(),
+        ];
         if *use_hwaccel {
             for a in get_hwaccel_args() {
-                ffmpeg_cmd.arg(a);
+                argv.push(a.to_string());
             }
         }
-        ffmpeg_cmd
-            .arg("-ss")
-            .arg(&ss_str)
-            .arg("-i")
-            .arg(&input_path)
-            .arg("-t")
-            .arg(&dur_str)
-            .arg("-vf")
-            .arg(&filter_str)
-            .arg("-frames:v")
-            .arg(frame_count.to_string())
-            .arg(&output_pattern);
+        argv.extend([
+            "-ss".into(),
+            ss_str.clone(),
+            "-i".into(),
+            input_path.clone(),
+            "-t".into(),
+            dur_str.clone(),
+            "-vf".into(),
+            filter_str.clone(),
+            "-frames:v".into(),
+            frame_count.to_string(),
+            output_pattern.clone(),
+        ]);
 
-        let ffmpeg_result = timeout(timeout_dur, ffmpeg_cmd.output()).await;
+        let ffmpeg_result = timeout(
+            timeout_dur,
+            ffmpeg_sidecar::ffmpeg_output_strings(&argv),
+        )
+        .await;
 
         match ffmpeg_result {
             Ok(Ok(output)) => {
@@ -831,19 +736,82 @@ async fn extract_poster_frame_command(
     Ok(format!("data:image/webp;base64,{}", base64_data))
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilmstripTile {
+    pub index: u32,
+    pub time: f64,
+    pub path: String,
+}
+
+/// Stream filmstrip thumbnails from the on-disk thumbnail cache (paths, not base64).
+#[tauri::command]
+async fn request_filmstrip_tiles(
+    video_path: String,
+    trim_in: f64,
+    trim_out: f64,
+    frame_count: u32,
+    width: u32,
+    height: u32,
+    on_tile: tauri::ipc::Channel<FilmstripTile>,
+) -> Result<(), String> {
+    let n = frame_count.max(1) as usize;
+    let span = (trim_out - trim_in).max(0.001);
+    let mut times = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = trim_in + span * (i as f64 + 0.5) / (n as f64);
+        times.push(t);
+    }
+
+    tokio::spawn(async move {
+        for (i, t) in times.into_iter().enumerate() {
+            let res = request_thumbnail(
+                &video_path,
+                t,
+                DensityLevel::Medium,
+                Priority::Critical,
+                width,
+                height,
+            )
+            .await;
+            if let Ok(p) = res {
+                let _ = on_tile.send(FilmstripTile {
+                    index: i as u32,
+                    time: t,
+                    path: p.to_string_lossy().to_string(),
+                });
+            }
+        }
+    });
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod lib_test;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            ffmpeg_sidecar::set_app_handle(app.handle());
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(dir) = handle.path().app_cache_dir() {
+                    let _ = init_thumbnail_engine(dir).await;
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             trim_export,
             audio_waveform_peaks,
             extract_frame_at_time,
             extract_filmstrip_frames,
+            request_filmstrip_tiles,
             get_frame_cache_dir,
             get_cached_frame_path,
             save_frame_to_cache,

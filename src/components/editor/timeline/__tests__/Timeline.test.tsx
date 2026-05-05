@@ -313,6 +313,12 @@ describe("Timeline drag interactions", () => {
 
 describe("Timeline wheel zoom", () => {
   beforeEach(() => {
+    // Coalesced zoom uses requestAnimationFrame; run flush synchronously in tests.
+    vi.stubGlobal("requestAnimationFrame", (cb: (time: number) => void) => {
+      cb(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
     seekMock.mockClear();
     setDurationMock.mockClear();
     useTimelineStore.setState({
@@ -326,6 +332,10 @@ describe("Timeline wheel zoom", () => {
     useProjectStore.setState({ project: null, mediaAssets: [], recentProjects: [] });
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("Ctrl+wheel changes pixelsPerSecond and scroll (zoom-to-cursor)", async () => {
     const { container } = render(<Timeline />);
     const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
@@ -333,6 +343,8 @@ describe("Timeline wheel zoom", () => {
 
     Object.defineProperty(scroller, "clientWidth", { value: 800, configurable: true });
     Object.defineProperty(scroller, "scrollLeft", { value: 200, writable: true, configurable: true });
+    // jsdom does not lay out children; without this the auto-scroll effect clamps scroll to 0.
+    Object.defineProperty(scroller, "scrollWidth", { value: 5000, configurable: true });
 
     scroller.getBoundingClientRect = () =>
       ({
@@ -350,18 +362,20 @@ describe("Timeline wheel zoom", () => {
     await act(async () => {});
 
     const beforePps = useTimelineStore.getState().pixelsPerSecond;
-    // deltaY < 0 → zoom in (increase pps)
-    scroller.dispatchEvent(
-      new WheelEvent("wheel", {
-        bubbles: true,
-        cancelable: true,
-        clientX: 400,
-        clientY: 50,
-        deltaY: -120,
-        deltaMode: WheelEvent.DOM_DELTA_PIXEL,
-        ctrlKey: true,
-      }),
-    );
+    // deltaY < 0 → zoom in (increase pps). Zoom handler coalesces to requestAnimationFrame.
+    await act(async () => {
+      scroller.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 400,
+          clientY: 50,
+          deltaY: -120,
+          deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+          ctrlKey: true,
+        }),
+      );
+    });
 
     const afterPps = useTimelineStore.getState().pixelsPerSecond;
     expect(afterPps).toBeGreaterThan(beforePps);
@@ -408,17 +422,19 @@ describe("Timeline wheel zoom", () => {
     await act(async () => {});
 
     const before = useTimelineStore.getState().pixelsPerSecond;
-    el.dispatchEvent(
-      new WheelEvent("wheel", {
-        bubbles: true,
-        cancelable: true,
-        clientX: 100,
-        clientY: 50,
-        deltaY: 1,
-        deltaMode: WheelEvent.DOM_DELTA_LINE,
-        ctrlKey: true,
-      }),
-    );
+    await act(async () => {
+      el.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 100,
+          clientY: 50,
+          deltaY: 1,
+          deltaMode: WheelEvent.DOM_DELTA_LINE,
+          ctrlKey: true,
+        }),
+      );
+    });
     expect(useTimelineStore.getState().pixelsPerSecond).not.toBe(before);
   });
 });

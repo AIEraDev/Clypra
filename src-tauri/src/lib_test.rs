@@ -81,7 +81,11 @@ mod tests {
         
         let result = check_ffmpeg_available().await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("FFmpeg not found"));
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("ffmpeg") || msg.contains("FFmpeg"),
+            "unexpected: {msg}"
+        );
         
         // Restore PATH
         std::env::set_var("PATH", original_path);
@@ -98,10 +102,11 @@ mod tests {
                 // FFmpeg is available
             }
             Err(e) => {
-                // FFmpeg not installed - should have specific error message
                 assert!(
-                    e.contains("FFmpeg not found") || e.contains("FFmpeg found but returned error"),
-                    "Unexpected error: {}", e
+                    e.contains("ffmpeg")
+                        || e.contains("FFmpeg")
+                        || e.contains("sidecar"),
+                    "Unexpected error: {e}"
                 );
             }
         }

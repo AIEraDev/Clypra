@@ -1,5 +1,6 @@
+import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { extractFilmstripFrames } from "../../../lib/tauri";
+import { normalizePathForTauriInvoke } from "../../../lib/tauri";
 import { cn } from "@/lib/utils";
 import type { Clip, MediaAsset } from "../../../types";
 
@@ -10,9 +11,14 @@ const FRAME_COUNT_MIN = 4;
 /** Backend `extract_filmstrip_frames` rejects frame_count > 100. */
 const FRAME_COUNT_MAX = 100;
 /** Bump when extraction or layout changes so stale cached strips are not reused. */
-const FILMSTRIP_CACHE_VERSION = 3;
+const FILMSTRIP_CACHE_VERSION = 4;
+
+/** Paths that must use poster tiling, not ffmpeg filmstrip (still images / mis-typed video). */
+const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif)$/i;
 
 type LoadState = "idle" | "loading" | "ready" | "error";
+
+type FilmstripTileMsg = { index: number; time: number; path: string };
 
 const frameCache = new Map<string, string[]>();
 
@@ -21,16 +27,8 @@ export function clearFilmstripFrameCache(): void {
   frameCache.clear();
 }
 
-function cacheKeyFor(
-  mediaId: string,
-  trimIn: number,
-  trimOut: number,
-  frameCount: number,
-  ppsRounded: number,
-  thumbW: number,
-  thumbH: number,
-): string {
-  return `${FILMSTRIP_CACHE_VERSION}:${mediaId}:${trimIn}:${trimOut}:${frameCount}:${ppsRounded}:${thumbW}x${thumbH}`;
+function cacheKeyFor(mediaId: string, trimIn: number, trimOut: number, frameCount: number, thumbW: number, thumbH: number): string {
+  return `${FILMSTRIP_CACHE_VERSION}:${mediaId}:${trimIn}:${trimOut}:${frameCount}:${thumbW}x${thumbH}`;
 }
 
 export interface ClipFilmstripProps {
@@ -42,17 +40,21 @@ export interface ClipFilmstripProps {
   className?: string;
 }
 
-export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, stripHeightPx = 32, className }: ClipFilmstripProps) {
+export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond: _pixelsPerSecond, stripHeightPx = 32, className }: ClipFilmstripProps) {
   const [urls, setUrls] = useState<string[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const effectGen = useRef(0);
+
+  const isVideoSource = useMemo(() => {
+    const path = mediaAsset.path ?? "";
+    return mediaAsset.type === "video" && path.length > 0 && !IMAGE_EXT.test(path);
+  }, [mediaAsset.type, mediaAsset.path]);
 
   const frameCount = useMemo(() => {
     const raw = Math.ceil(clipWidthPx / CELL_WIDTH_PX);
     return Math.min(FRAME_COUNT_MAX, Math.max(FRAME_COUNT_MIN, raw || FRAME_COUNT_MIN));
   }, [clipWidthPx]);
 
-  const ppsRounded = Math.round(pixelsPerSecond * 100) / 100;
   const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   /** Decode thumbs at ~one tile wide × DPR (matches on-screen ~40px column). */
   const thumbW = useMemo(() => {
@@ -62,13 +64,28 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
   const thumbH = useMemo(() => Math.max(32, Math.ceil(stripHeightPx * dpr)), [stripHeightPx, dpr]);
 
   const cacheKey = useMemo(
-    () => cacheKeyFor(mediaAsset.id, clip.trimIn, clip.trimOut, frameCount, ppsRounded, thumbW, thumbH),
-    [mediaAsset.id, clip.trimIn, clip.trimOut, frameCount, ppsRounded, thumbW, thumbH],
+    () => cacheKeyFor(mediaAsset.id, clip.trimIn, clip.trimOut, frameCount, thumbW, thumbH),
+    [mediaAsset.id, clip.trimIn, clip.trimOut, frameCount, thumbW, thumbH],
   );
 
   useEffect(() => {
     const gen = ++effectGen.current;
     let cancelled = false;
+
+    // Still / image: CapCut-style — repeat poster N times (N scales with clip width / zoom). No ffmpeg.
+    if (!isVideoSource) {
+      if (mediaAsset.posterFrame) {
+        const tiles = Array.from({ length: frameCount }, () => mediaAsset.posterFrame!);
+        setUrls(tiles);
+        setLoadState("ready");
+      } else {
+        setUrls([]);
+        setLoadState("error");
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const cached = frameCache.get(cacheKey);
     if (cached && cached.length > 0) {
@@ -87,33 +104,50 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
       };
     }
 
-    setLoadState("loading");
+    const poster = mediaAsset.posterFrame;
+    // CapCut-style: fill the row immediately with repeated poster, then swap in real tiles by index.
+    const initialRow = poster
+      ? Array.from({ length: frameCount }, () => poster)
+      : Array.from({ length: frameCount }, () => "");
+    setUrls(initialRow);
+    setLoadState(poster ? "ready" : "loading");
 
     const timer = window.setTimeout(() => {
-      extractFilmstripFrames(mediaAsset.path, frameCount, thumbW, thumbH, clip.trimIn, clip.trimOut)
-        .then((frames) => {
-          if (cancelled || gen !== effectGen.current) return;
-          if (!frames.length) {
-            setLoadState("error");
-            setUrls([]);
-            return;
+      const videoPath = normalizePathForTauriInvoke(mediaAsset.path!);
+      const channel = new Channel<FilmstripTileMsg>();
+      channel.onmessage = (tile) => {
+        if (cancelled || gen !== effectGen.current) return;
+        setUrls((prev) => {
+          const next = prev.length === frameCount ? [...prev] : Array.from({ length: frameCount }, (_, i) => prev[i] ?? "");
+          next[tile.index] = convertFileSrc(tile.path);
+          if (next.every((u) => u.length > 0)) {
+            frameCache.set(cacheKey, next);
           }
-          frameCache.set(cacheKey, frames);
-          setUrls(frames);
-          setLoadState("ready");
-        })
-        .catch(() => {
-          if (cancelled || gen !== effectGen.current) return;
-          setLoadState("error");
-          setUrls([]);
+          return next;
         });
+        setLoadState("ready");
+      };
+
+      invoke("request_filmstrip_tiles", {
+        videoPath,
+        trimIn: clip.trimIn,
+        trimOut: clip.trimOut,
+        frameCount,
+        width: thumbW,
+        height: thumbH,
+        onTile: channel,
+      }).catch(() => {
+        if (cancelled || gen !== effectGen.current) return;
+        setLoadState("error");
+        setUrls([]);
+      });
     }, FILMSTRIP_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [cacheKey, mediaAsset.path, frameCount, thumbW, thumbH, clip.trimIn, clip.trimOut]);
+  }, [cacheKey, mediaAsset.path, mediaAsset.posterFrame, frameCount, thumbW, thumbH, clip.trimIn, clip.trimOut, isVideoSource]);
 
   const poster = mediaAsset.posterFrame;
 
@@ -129,7 +163,7 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
       <div data-testid="clip-filmstrip" className={shellClass} style={{ height: stripHeightPx }}>
         {urls.map((src, i) => (
           <div
-            key={`${cacheKey}-${i}`}
+            key={i}
             className="h-full shrink-0 overflow-hidden"
             style={{ width: CELL_WIDTH_PX }}
           >

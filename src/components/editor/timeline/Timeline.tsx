@@ -20,6 +20,8 @@ const TIMELINE_MIN_PPS = 50;
 const TIMELINE_MAX_PPS = 500;
 /** Multiplier on normalized wheel delta (pixels); higher = stronger zoom per tick. */
 const WHEEL_ZOOM_SENSITIVITY = 0.001;
+/** Extra multiplier for Ctrl/⌘ + wheel zoom feel (higher = faster). */
+const WHEEL_ZOOM_SPEED_MULTIPLIER = 1.35;
 
 function normalizeWheelDeltaY(e: WheelEvent, viewportClientHeight: number): number {
   switch (e.deltaMode) {
@@ -88,12 +90,6 @@ function resolveTrackAtClientY(
 
 export const Timeline: React.FC = () => {
   const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, addClip, addTrack, insertTrackAt, insertClipAtIndex, getTrackClips, updateClip, normalizeTrack, removeEmptyNonMainTracks } = useTimelineStore();
-
-  console.log("[TIMELINE] 🎬 Timeline render", {
-    tracksCount: tracks.length,
-    clipsCount: clips.length,
-    clips: clips.map((c) => ({ id: c.id, trackId: c.trackId })),
-  });
 
   const { mediaAssets, addMediaAsset } = useProjectStore();
   const { previewMode, exitSourceMode, clearSelection } = useUIStore();
@@ -522,21 +518,28 @@ export const Timeline: React.FC = () => {
   };
 
   // Ctrl/Cmd + wheel (and trackpad pinch → ctrlKey in Chromium): zoom timeline; anchor time under pointer.
+  // Coalesce wheel deltas to one rAF so rapid zoom does not sync-layout + setState per native wheel event.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const onWheel = (e: WheelEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      e.preventDefault();
+    let pendingDy = 0;
+    let pendingClientX = 0;
+    let rafId = 0;
+
+    const flush = () => {
+      rafId = 0;
+      if (pendingDy === 0) return;
+
+      const dy = pendingDy * WHEEL_ZOOM_SPEED_MULTIPLIER;
+      pendingDy = 0;
 
       const oldPps = useTimelineStore.getState().pixelsPerSecond;
-      const dy = normalizeWheelDeltaY(e, container.clientHeight);
       const nextPps = Math.max(TIMELINE_MIN_PPS, Math.min(TIMELINE_MAX_PPS, oldPps * Math.exp(-dy * WHEEL_ZOOM_SENSITIVITY)));
       if (Math.abs(nextPps - oldPps) < 0.05) return;
 
       const rect = container.getBoundingClientRect();
-      const localX = e.clientX - rect.left;
+      const localX = pendingClientX - rect.left;
       const scrollLeftDom = container.scrollLeft;
 
       let anchorTime = (scrollLeftDom + localX) / oldPps;
@@ -553,8 +556,22 @@ export const Timeline: React.FC = () => {
       useTimelineStore.getState().setScrollLeft(nextScrollLeft);
     };
 
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+
+      pendingDy += normalizeWheelDeltaY(e, container.clientHeight);
+      pendingClientX = e.clientX;
+      if (!rafId) {
+        rafId = requestAnimationFrame(flush);
+      }
+    };
+
     container.addEventListener("wheel", onWheel, { passive: false });
-    return () => container.removeEventListener("wheel", onWheel);
+    return () => {
+      container.removeEventListener("wheel", onWheel);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [duration]);
 
   useEffect(() => {

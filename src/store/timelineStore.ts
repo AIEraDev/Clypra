@@ -310,6 +310,23 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     const track = state.tracks.find((t) => t.id === clip.trackId);
     if (track?.locked) return;
 
+    // Clamp trimming to underlying media duration when available.
+    // Falls back to current trimOut (treating it as the media bound).
+    let mediaDurationBound = clip.trimOut;
+    try {
+      // Lazy import to avoid circular deps during store init.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { useProjectStore } = require("./projectStore");
+      const asset = useProjectStore.getState().mediaAssets?.find((a: any) => a.id === clip.mediaId);
+      if (asset?.duration && Number.isFinite(asset.duration) && asset.duration > 0) {
+        mediaDurationBound = asset.duration;
+      }
+    } catch {
+      // ignore; keep fallback bound
+    }
+
+    const minDuration = 0.1;
+
     // Calculate the new clip dimensions
     let newStartTime = clip.startTime;
     let newDuration = clip.duration;
@@ -317,16 +334,24 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
 
     if (side === "right") {
       // Trimming right edge - changes duration
-      newDuration = Math.max(0.1, clip.duration + deltaTime);
+      const maxDuration = Math.max(minDuration, mediaDurationBound - clip.trimIn);
+      const desiredDuration = clip.duration + deltaTime;
+      newDuration = Math.max(minDuration, Math.min(desiredDuration, maxDuration));
       rippleAmount = newDuration - clip.duration;
     } else {
       // Trimming left edge - changes both start time and duration
-      newStartTime = Math.max(0, clip.startTime + deltaTime);
-      const actualDelta = newStartTime - clip.startTime;
-      newDuration = clip.duration - actualDelta;
-      rippleAmount = actualDelta;
+      const maxTrimIn = Math.min(mediaDurationBound, clip.trimOut - 0.001);
+      const desiredStartTime = clip.startTime + deltaTime;
+      const desiredDelta = desiredStartTime - clip.startTime;
 
-      if (newDuration < 0.1) return; // Don't allow clip to become too small
+      const minDelta = -clip.startTime;
+      const maxDeltaByDuration = clip.duration - minDuration;
+      const maxDeltaByMedia = maxTrimIn - clip.trimIn;
+      const clampedDelta = Math.max(minDelta, Math.min(desiredDelta, maxDeltaByDuration, maxDeltaByMedia));
+
+      newStartTime = clip.startTime + clampedDelta;
+      newDuration = clip.duration - clampedDelta;
+      rippleAmount = clampedDelta;
     }
 
     // Find all clips downstream on the same track
@@ -358,7 +383,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
           if (side === "left") {
             updates.trimIn = clip.trimIn + (newStartTime - clip.startTime);
           } else {
-            updates.trimOut = clip.trimIn + newDuration;
+            updates.trimOut = Math.min(clip.trimIn + newDuration, mediaDurationBound);
           }
 
           return { ...c, ...updates };

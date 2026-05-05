@@ -21,6 +21,27 @@ vi.mock("../../../../lib/tauri", async (importOriginal) => {
   };
 });
 
+vi.mock("@tauri-apps/api/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tauri-apps/api/core")>();
+  class MockChannel {
+    onmessage: ((msg: unknown) => void) | null = null;
+  }
+  return {
+    ...actual,
+    Channel: MockChannel as unknown as typeof actual.Channel,
+    convertFileSrc: (path: string) => path,
+    invoke: vi.fn(async (_cmd: string, args: Record<string, unknown>) => {
+      const ch = args.onTile as MockChannel | undefined;
+      const fc = Math.min(Math.max(Number(args.frameCount) || 4, 1), 100);
+      if (ch?.onmessage) {
+        for (let i = 0; i < fc; i++) {
+          ch.onmessage({ index: i, time: 0, path: "/tmp/tile.webp" });
+        }
+      }
+    }),
+  };
+});
+
 // Mock stores
 const mockSelectClip = vi.fn();
 const mockUpdateClip = vi.fn();
@@ -120,7 +141,8 @@ describe("Clip Component", () => {
         renderClip(clip, mediaAsset);
         await act(async () => {});
 
-        expect(screen.getByTestId("clip-filmstrip-loading")).toBeInTheDocument();
+        // With a poster, the strip shows immediately (poster tiles) while streaming loads in the background.
+        expect(screen.getByTestId("clip-filmstrip")).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(300);
@@ -139,8 +161,8 @@ describe("Clip Component", () => {
       renderClip(clip, undefined, { selected: true });
 
       const clipElement = screen.getByTestId("clip-clip-1");
-      expect(clipElement.className).toContain("ring-2");
-      expect(clipElement.className).toContain("ring-white");
+      expect(clipElement.className).toContain("border-red-500");
+      expect(clipElement.className).toContain("border-2");
     });
 
     it("applies locked styling when locked", () => {
