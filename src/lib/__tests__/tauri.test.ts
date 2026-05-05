@@ -97,8 +97,36 @@ describe("Tauri IPC Bridge", () => {
         frameCount: 3,
         width: 320,
         height: 180,
+        timeStart: null,
+        timeEnd: null,
       });
       expect(result).toEqual(mockFrames);
+    });
+
+    it("should pass trim times to extract_filmstrip_frames when provided", async () => {
+      vi.mocked(invoke).mockResolvedValueOnce([]);
+
+      await extractFilmstripFrames("/test/video.mp4", 6, 120, 68, 1.25, 8.5);
+
+      expect(invoke).toHaveBeenCalledWith("extract_filmstrip_frames", {
+        inputPath: "/test/video.mp4",
+        frameCount: 6,
+        width: 120,
+        height: 68,
+        timeStart: 1.25,
+        timeEnd: 8.5,
+      });
+    });
+
+    it("should normalize file:// URLs before extract_filmstrip_frames invoke", async () => {
+      vi.mocked(invoke).mockResolvedValueOnce(["data:image/png;base64,x="]);
+      await extractFilmstripFrames("file:///Users/test/clip.mov", 1, 64, 36);
+      expect(invoke).toHaveBeenCalledWith(
+        "extract_filmstrip_frames",
+        expect.objectContaining({
+          inputPath: "/Users/test/clip.mov",
+        }),
+      );
     });
 
     it("should handle successful frame cache operations", async () => {

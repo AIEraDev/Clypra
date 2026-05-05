@@ -1,9 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { Clip } from "../Clip";
+import { clearFilmstripFrameCache } from "../ClipFilmstrip";
 import type { Clip as ClipType, MediaAsset } from "../../../types";
+
+const filmstripFrames = [
+  "data:image/png;base64,frame0",
+  "data:image/png;base64,frame1",
+  "data:image/png;base64,frame2",
+  "data:image/png;base64,frame3",
+];
+
+vi.mock("../../../../lib/tauri", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../lib/tauri")>();
+  return {
+    ...actual,
+    extractFilmstripFrames: vi.fn(() => Promise.resolve(filmstripFrames)),
+  };
+});
 
 // Mock stores
 const mockSelectClip = vi.fn();
@@ -12,12 +28,15 @@ const mockUpdateClip = vi.fn();
 vi.mock("../../../store/uiStore", () => ({
   useUIStore: () => ({
     selectClip: mockSelectClip,
+    toggleClipSelection: vi.fn(),
   }),
 }));
 
 vi.mock("../../../store/timelineStore", () => ({
   useTimelineStore: () => ({
     updateClip: mockUpdateClip,
+    rippleEditEnabled: false,
+    rippleTrimClip: vi.fn(),
   }),
 }));
 
@@ -64,6 +83,7 @@ const renderClip = (clip: ClipType, mediaAsset?: MediaAsset, props?: Partial<any
 describe("Clip Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearFilmstripFrameCache();
   });
 
   describe("Rendering", () => {
@@ -92,17 +112,26 @@ describe("Clip Component", () => {
       expect(screen.getByText("00:02:05:00")).toBeInTheDocument();
     });
 
-    it("shows poster frame when available", () => {
-      const clip = createMockClip();
-      const mediaAsset = createMockMediaAsset({ posterFrame: "data:image/png;base64,test" });
-      const { container } = renderClip(clip, mediaAsset);
+    it("shows video filmstrip after debounced extraction", async () => {
+      vi.useFakeTimers();
+      try {
+        const clip = createMockClip();
+        const mediaAsset = createMockMediaAsset({ posterFrame: "data:image/png;base64,test" });
+        renderClip(clip, mediaAsset);
+        await act(async () => {});
 
-      const posterElement = container.querySelector(".h-8.rounded-\\[2px\\].border");
-      expect(posterElement).toBeInTheDocument();
+        expect(screen.getByTestId("clip-filmstrip-loading")).toBeInTheDocument();
 
-      const style = posterElement?.getAttribute("style");
-      expect(style).toContain("background-image");
-      expect(style).toContain("data:image/png;base64,test");
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(300);
+        });
+
+        expect(screen.getByTestId("clip-filmstrip")).toBeInTheDocument();
+        const imgs = screen.getByTestId("clip-filmstrip").querySelectorAll("img");
+        expect(imgs.length).toBeGreaterThanOrEqual(4);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("applies selected styling when selected", () => {
@@ -367,13 +396,24 @@ describe("Clip Component", () => {
       expect(screen.getByText("Clip")).toBeInTheDocument();
     });
 
-    it("handles media asset without poster frame", () => {
-      const clip = createMockClip();
-      const mediaAsset = createMockMediaAsset({ posterFrame: undefined });
-      const { container } = renderClip(clip, mediaAsset);
+    it("handles media asset without poster frame", async () => {
+      vi.useFakeTimers();
+      try {
+        const clip = createMockClip();
+        const mediaAsset = createMockMediaAsset({ posterFrame: undefined });
+        renderClip(clip, mediaAsset);
+        await act(async () => {});
 
-      const fallbackElement = container.querySelector(".bg-\\[\\#0c2730\\]\\/60");
-      expect(fallbackElement).toBeInTheDocument();
+        expect(screen.getByTestId("clip-filmstrip-loading")).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(300);
+        });
+
+        expect(screen.getByTestId("clip-filmstrip")).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("formats duration correctly for various times", () => {

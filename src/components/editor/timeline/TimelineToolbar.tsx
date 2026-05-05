@@ -90,20 +90,20 @@ export const TimelineToolbar: React.FC = () => {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <Tool label="Zoom out">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => setZoom(Math.max(0.5, zoomLevel - 0.1))}>
-              <ZoomOut className="w-4 h-4" />
-            </Button>
-          </Tool>
+          <Tool label="Zoom timeline — Ctrl or ⌘ + scroll, or trackpad pinch (same as browser zoom gesture)">
+            <span className="inline-flex items-center gap-2">
+              <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => setZoom(Math.max(0.5, zoomLevel - 0.1))}>
+                <ZoomOut className="w-4 h-4" />
+              </Button>
 
-          <input type="range" min="0.5" max="5" step="0.1" value={zoomLevel} onChange={handleZoomChange} className="w-36 accent-cyan-400" />
+              <input type="range" min="0.5" max="5" step="0.1" value={zoomLevel} onChange={handleZoomChange} className="w-36 accent-cyan-400" />
 
-          <Tool label="Zoom in">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => setZoom(Math.min(5, zoomLevel + 0.1))}>
-              <ZoomIn className="w-4 h-4" />
-            </Button>
+              <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => setZoom(Math.min(5, zoomLevel + 0.1))}>
+                <ZoomIn className="w-4 h-4" />
+              </Button>
+              <span className="text-xs text-[#99a2ad] w-10 text-right">{zoomLevel.toFixed(1)}x</span>
+            </span>
           </Tool>
-          <span className="text-xs text-[#99a2ad] w-10 text-right">{zoomLevel.toFixed(1)}x</span>
         </div>
       </div>
 

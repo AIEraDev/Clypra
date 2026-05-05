@@ -141,4 +141,24 @@ describe("timelineStore track controls", () => {
 
     expect(useTimelineStore.getState().getTimelineEndTime()).toBe(16);
   });
+
+  it("setPixelsPerSecond clamps to 50–500 and sets zoomLevel to pps / 100", () => {
+    useTimelineStore.getState().setPixelsPerSecond(999);
+    expect(useTimelineStore.getState().pixelsPerSecond).toBe(500);
+    expect(useTimelineStore.getState().zoomLevel).toBe(5);
+
+    useTimelineStore.getState().setPixelsPerSecond(10);
+    expect(useTimelineStore.getState().pixelsPerSecond).toBe(50);
+    expect(useTimelineStore.getState().zoomLevel).toBe(0.5);
+
+    useTimelineStore.getState().setPixelsPerSecond(175);
+    expect(useTimelineStore.getState().pixelsPerSecond).toBe(175);
+    expect(useTimelineStore.getState().zoomLevel).toBe(1.75);
+  });
+
+  it("setZoom uses the same bounds via setPixelsPerSecond", () => {
+    useTimelineStore.getState().setZoom(10);
+    expect(useTimelineStore.getState().pixelsPerSecond).toBe(500);
+    expect(useTimelineStore.getState().zoomLevel).toBe(5);
+  });
 });

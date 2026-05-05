@@ -16,6 +16,22 @@ import { useTimelineAutoScroll } from "../../../hooks/useTimelineAutoScroll";
 import type { VideoMetadata } from "../../../types";
 import { createClipFromAsset } from "../../../lib/timelineClip";
 
+const TIMELINE_MIN_PPS = 50;
+const TIMELINE_MAX_PPS = 500;
+/** Multiplier on normalized wheel delta (pixels); higher = stronger zoom per tick. */
+const WHEEL_ZOOM_SENSITIVITY = 0.001;
+
+function normalizeWheelDeltaY(e: WheelEvent, viewportClientHeight: number): number {
+  switch (e.deltaMode) {
+    case WheelEvent.DOM_DELTA_LINE:
+      return e.deltaY * 16;
+    case WheelEvent.DOM_DELTA_PAGE:
+      return e.deltaY * Math.max(1, viewportClientHeight);
+    default:
+      return e.deltaY;
+  }
+}
+
 /** Map viewport Y to a track using each row's DOM rect (ruler / flex centering safe). */
 function resolveTrackAtClientY(
   container: HTMLElement,
@@ -428,6 +444,42 @@ export const Timeline: React.FC = () => {
     const target = e.currentTarget;
     setScrollLeft(target.scrollLeft);
   };
+
+  // Ctrl/Cmd + wheel (and trackpad pinch → ctrlKey in Chromium): zoom timeline; anchor time under pointer.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+
+      const oldPps = useTimelineStore.getState().pixelsPerSecond;
+      const dy = normalizeWheelDeltaY(e, container.clientHeight);
+      const nextPps = Math.max(TIMELINE_MIN_PPS, Math.min(TIMELINE_MAX_PPS, oldPps * Math.exp(-dy * WHEEL_ZOOM_SENSITIVITY)));
+      if (Math.abs(nextPps - oldPps) < 0.05) return;
+
+      const rect = container.getBoundingClientRect();
+      const localX = e.clientX - rect.left;
+      const scrollLeftDom = container.scrollLeft;
+
+      let anchorTime = (scrollLeftDom + localX) / oldPps;
+      anchorTime = Math.max(0, Math.min(anchorTime, duration));
+
+      useTimelineStore.getState().setPixelsPerSecond(nextPps);
+
+      const nextContentWidth = Math.max(1000, Math.round(duration * nextPps));
+      const maxScrollLeft = Math.max(0, nextContentWidth - container.clientWidth);
+      let nextScrollLeft = anchorTime * nextPps - localX;
+      nextScrollLeft = Math.max(0, Math.min(nextScrollLeft, maxScrollLeft));
+
+      container.scrollLeft = nextScrollLeft;
+      useTimelineStore.getState().setScrollLeft(nextScrollLeft);
+    };
+
+    container.addEventListener("wheel", onWheel, { passive: false });
+    return () => container.removeEventListener("wheel", onWheel);
+  }, [duration]);
 
   useEffect(() => {
     const timelineEnd = getTimelineEndTime();

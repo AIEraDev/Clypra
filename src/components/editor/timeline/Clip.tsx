@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useUIStore } from "../../../store/uiStore";
 import { useTimelineStore } from "../../../store/timelineStore";
 import type { Clip as ClipType, MediaAsset } from "../../../types";
+import { ClipFilmstrip } from "./ClipFilmstrip";
 
 console.log("[CLIP MODULE] 📦 Clip.tsx loaded");
 
@@ -265,23 +266,53 @@ export const Clip: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, s
       />
 
       {/* Clip content */}
-      <div className="w-full h-full px-1 py-1 flex flex-col gap-1 overflow-hidden">
-        <div className="flex items-center gap-3">
+      <div className="flex h-full min-h-0 w-full flex-col gap-1 overflow-hidden px-1 py-1">
+        <div className="flex shrink-0 items-center gap-3">
           <div className="text-[9px] font-semibold tracking-[0.01em] text-[#d8edf1] truncate">{mediaAsset?.name || "Clip"}</div>
           <div className="text-[9px] font-medium text-[#b9e0e6] shrink-0">{formatDuration(clip.duration)}</div>
         </div>
-        {mediaAsset?.posterFrame ? (
-          <div
-            className="h-8 rounded-[2px] border border-black/20"
-            style={{
-              backgroundImage: `url(${mediaAsset.posterFrame})`,
-              backgroundRepeat: "repeat-x",
-              backgroundSize: "auto 100%",
-              backgroundPosition: "left center",
-            }}
+        {mediaAsset?.type === "video" ? (
+          <div className="flex min-h-0 w-full flex-1 items-center">
+            <ClipFilmstrip
+              className="w-full shrink-0"
+              clip={clip}
+              mediaAsset={mediaAsset}
+              clipWidthPx={width}
+              pixelsPerSecond={pixelsPerSecond}
+              stripHeightPx={40}
+            />
+          </div>
+        ) : mediaAsset?.type === "image" ? (
+          mediaAsset.posterFrame ? (
+            <img
+              src={mediaAsset.posterFrame}
+              alt=""
+              className="h-8 w-full rounded-[2px] border border-black/20 object-cover"
+              draggable={false}
+            />
+          ) : (
+            <div className="h-8 w-full rounded-[2px] bg-[#0c2730]/60" />
+          )
+        ) : mediaAsset?.type === "audio" ? (
+          mediaAsset.posterFrame ? (
+            <img
+              src={mediaAsset.posterFrame}
+              alt=""
+              className="h-8 w-full rounded-[2px] border border-black/20 object-cover"
+              draggable={false}
+            />
+          ) : (
+            <div className="h-8 w-full rounded-[2px] bg-[#0c2730]/60" />
+          )
+        ) : mediaAsset?.posterFrame ? (
+          <img
+            src={mediaAsset.posterFrame}
+            alt=""
+            className="h-8 w-full rounded-[2px] border border-black/20 object-cover"
+            draggable={false}
           />
         ) : (
-          <div className="h-8 rounded-[2px] bg-[#0c2730]/60" />
+          <div className="h-8 w-full rounded-[2px] bg-[#0c2730]/60" />
         )}
       </div>
 

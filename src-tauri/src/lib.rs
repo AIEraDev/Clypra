@@ -386,6 +386,8 @@ async fn extract_filmstrip_frames(
     frame_count: u32,
     width: u32,
     height: u32,
+    time_start: Option<f64>,
+    time_end: Option<f64>,
 ) -> Result<Vec<String>, String> {
     // Check FFmpeg availability first
     if let Err(e) = check_ffmpeg_available().await {
@@ -397,6 +399,16 @@ async fn extract_filmstrip_frames(
     }
     if width == 0 || height == 0 {
         return Err("Width and height must be positive".into());
+    }
+    if let Some(v) = time_start {
+        if !v.is_finite() {
+            return Err("time_start must be a finite number".into());
+        }
+    }
+    if let Some(v) = time_end {
+        if !v.is_finite() {
+            return Err("time_end must be a finite number".into());
+        }
     }
 
     use tokio::time::{timeout, Duration};
@@ -443,6 +455,21 @@ async fn extract_filmstrip_frames(
         return Err("Invalid video duration".into());
     }
 
+    let mut t0 = time_start.unwrap_or(0.0).clamp(0.0, duration);
+    let mut t1 = time_end.unwrap_or(duration).clamp(0.0, duration);
+    if t1 <= t0 {
+        let eps = (1.0 / fps).min(0.05_f64).max(duration * 1e-9);
+        t1 = (t0 + eps).min(duration);
+        if t1 <= t0 {
+            t1 = duration;
+            t0 = (duration - eps).max(0.0_f64).min(t0);
+        }
+        if t1 <= t0 {
+            return Err("Invalid trim segment for filmstrip".into());
+        }
+    }
+    let segment_duration = t1 - t0;
+
     // Create temp directory for frames with RAII cleanup guard
     let temp_dir = std::env::temp_dir().join("clypra_filmstrip").join(
         &format!("{}_{}",
@@ -454,81 +481,126 @@ async fn extract_filmstrip_frames(
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
     let _temp_guard = TempDirGuard(temp_dir.clone()); // Auto-cleanup on drop
 
-    // Calculate frame interval using actual video FPS
-    let interval = duration / f64::from(frame_count);
-    let select_expr = (0..frame_count)
-        .map(|i| format!("eq(n,{})", (i as f64 * interval * fps) as u32))
-        .collect::<Vec<_>>()
-        .join("+");
-
     let scale_str = format!("{}:{}", width, height);
     let output_pattern = temp_dir.join("frame_%03d.png").to_string_lossy().to_string();
 
-    // Extract all frames in one FFmpeg call with hardware acceleration
-    let hwaccel_args = get_hwaccel_args();
-    let mut ffmpeg_args: Vec<&str> = vec![
-        "-hide_banner",
-        "-loglevel", "error",
-    ];
-    
-    // Add hardware acceleration args before -i
-    ffmpeg_args.extend(hwaccel_args.iter().cloned());
-    
-    // Create filter string - crop to fill, target upper portion where faces are
-    // (in_h-out_h)/3 positions crop higher than center to capture faces in selfie videos
+    // Input seek before -i limits demux/decode to the segment; -t caps segment length.
+    let ss_str = format!("{:.6}", t0);
+    let dur_str = format!("{:.6}", segment_duration);
+
+    // Evenly sample `frame_count` frames across the segment using the fps filter (constant
+    // output rate = frame_count / segment_duration). The old `select=eq(n,a)+eq(n,b)+…`
+    // approach often mapped many bins to the same output frame index n, so FFmpeg emitted
+    // only a handful of PNGs while the UI still laid out 32 cells — thin vertical strips.
+    let fps_rate = f64::from(frame_count) / segment_duration;
+    if !fps_rate.is_finite() || fps_rate <= 0.0 {
+        return Err("Invalid filmstrip sample rate".into());
+    }
+
+    // setpts=PTS-STARTPTS: timeline starts at 0 after trim so fps samples the full segment.
+    // Crop slightly above vertical center (same bias as before) for talking-head framing.
     let filter_str = format!(
-        "select='{}',scale={}:force_original_aspect_ratio=increase,crop={}:{}:(in_w-{})/2:(in_h-{})/3,setpts=N/FRAME_RATE/TB",
-        select_expr, scale_str, width, height, width, height
+        "setpts=PTS-STARTPTS,fps={:.12},scale={}:force_original_aspect_ratio=increase,crop={}:{}:(in_w-{})/2:(in_h-{})/3",
+        fps_rate, scale_str, width, height, width, height
     );
-    
-    // Continue with input and filter args
-    ffmpeg_args.extend([
-        "-i", &input_path,
-        "-vf", &filter_str,
-        "-vsync", "vfr",
-        &output_pattern,
-    ]);
 
-    let ffmpeg_result = timeout(
-        Duration::from_secs(30),
-        Command::new("ffmpeg")
-            .args(&ffmpeg_args)
-            .output(),
-    )
-    .await;
+    // Longer timeout than single-frame extract: many thumbnails + decode-heavy codecs.
+    let timeout_secs = 45u64
+        .saturating_add((frame_count as u64).saturating_mul(8))
+        .min(180);
+    let timeout_dur = Duration::from_secs(timeout_secs);
 
-    match ffmpeg_result {
-        Ok(Ok(output)) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("FFmpeg failed: {}", stderr));
-            }
+    // Try with platform hwaccel first (faster when it works). Many MOV/ProRes files fail
+    // with VideoToolbox/D3D11VA + complex vf while plain decode works — same as
+    // `extract_poster_frame` which does not use hwaccel.
+    let mut last_err: Option<String> = None;
 
-            // Read and encode each frame
-            let mut frames = Vec::new();
+    for (attempt, use_hwaccel) in [(0u32, true), (1, false)].iter() {
+        if *attempt > 0 {
             for i in 1..=frame_count {
-                let frame_path = temp_dir.join(format!("frame_{:03}.png", i));
-                if let Ok(data) = std::fs::read(&frame_path) {
-                    let base64_data = BASE64.encode(&data);
-                    frames.push(format!("data:image/png;base64,{}", base64_data));
+                let _ = std::fs::remove_file(temp_dir.join(format!("frame_{:03}.png", i)));
+            }
+        }
+
+        let mut ffmpeg_cmd = Command::new("ffmpeg");
+        ffmpeg_cmd
+            .arg("-hide_banner")
+            .arg("-loglevel")
+            .arg("error");
+        if *use_hwaccel {
+            for a in get_hwaccel_args() {
+                ffmpeg_cmd.arg(a);
+            }
+        }
+        ffmpeg_cmd
+            .arg("-ss")
+            .arg(&ss_str)
+            .arg("-i")
+            .arg(&input_path)
+            .arg("-t")
+            .arg(&dur_str)
+            .arg("-vf")
+            .arg(&filter_str)
+            .arg("-frames:v")
+            .arg(frame_count.to_string())
+            .arg(&output_pattern);
+
+        let ffmpeg_result = timeout(timeout_dur, ffmpeg_cmd.output()).await;
+
+        match ffmpeg_result {
+            Ok(Ok(output)) => {
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let msg = format!("FFmpeg failed: {}", stderr);
+                    eprintln!(
+                        "[filmstrip] hwaccel={} attempt {}: {}",
+                        use_hwaccel, attempt, msg
+                    );
+                    last_err = Some(msg);
+                    continue;
                 }
+
+                let mut frames = Vec::new();
+                for i in 1..=frame_count {
+                    let frame_path = temp_dir.join(format!("frame_{:03}.png", i));
+                    if let Ok(data) = std::fs::read(&frame_path) {
+                        let base64_data = BASE64.encode(&data);
+                        frames.push(format!("data:image/png;base64,{}", base64_data));
+                    }
+                }
+
+                if frames.is_empty() {
+                    let msg = "No frames extracted (empty output files)".to_string();
+                    eprintln!(
+                        "[filmstrip] hwaccel={} attempt {}: {}",
+                        use_hwaccel, attempt, msg
+                    );
+                    last_err = Some(msg);
+                    continue;
+                }
+
+                return Ok(frames);
             }
-
-            // TempDirGuard auto-cleans temp directory when function returns
-
-            if frames.is_empty() {
-                return Err("No frames extracted".into());
+            Ok(Err(e)) => {
+                let msg = format!("Failed to spawn FFmpeg: {}", e);
+                eprintln!(
+                    "[filmstrip] hwaccel={} attempt {}: {}",
+                    use_hwaccel, attempt, msg
+                );
+                last_err = Some(msg);
             }
-
-            Ok(frames)
-        }
-        Ok(Err(e)) => {
-            Err(format!("Failed to spawn FFmpeg: {}", e))
-        }
-        Err(_) => {
-            Err("Filmstrip extraction timeout (30s exceeded)".into())
+            Err(_) => {
+                let msg = format!(
+                    "Filmstrip extraction timeout ({}s exceeded, hwaccel={})",
+                    timeout_secs, use_hwaccel
+                );
+                eprintln!("[filmstrip] {}", msg);
+                last_err = Some(msg);
+            }
         }
     }
+
+    Err(last_err.unwrap_or_else(|| "Filmstrip extraction failed".into()))
 }
 
 /// Get the frame cache directory path

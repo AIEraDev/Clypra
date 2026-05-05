@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { Timeline } from "../Timeline";
 import { useTimelineStore } from "../../../../store/timelineStore";
 import { useProjectStore } from "../../../../store/projectStore";
@@ -109,5 +109,117 @@ describe("Timeline click behavior", () => {
     fireEvent.click(screen.getByText("Playhead"));
 
     expect(seekMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Timeline wheel zoom", () => {
+  beforeEach(() => {
+    seekMock.mockClear();
+    setDurationMock.mockClear();
+    useTimelineStore.setState({
+      tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [],
+      zoomLevel: 1,
+      scrollLeft: 200,
+      pixelsPerSecond: 100,
+      rippleEditEnabled: false,
+    });
+    useProjectStore.setState({ project: null, mediaAssets: [], recentProjects: [] });
+  });
+
+  it("Ctrl+wheel changes pixelsPerSecond and scroll (zoom-to-cursor)", async () => {
+    const { container } = render(<Timeline />);
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+    expect(scroller).toBeTruthy();
+
+    Object.defineProperty(scroller, "clientWidth", { value: 800, configurable: true });
+    Object.defineProperty(scroller, "scrollLeft", { value: 200, writable: true, configurable: true });
+
+    scroller.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 400,
+        width: 800,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    await act(async () => {});
+
+    const beforePps = useTimelineStore.getState().pixelsPerSecond;
+    // deltaY < 0 → zoom in (increase pps)
+    scroller.dispatchEvent(
+      new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 400,
+        clientY: 50,
+        deltaY: -120,
+        deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+        ctrlKey: true,
+      }),
+    );
+
+    const afterPps = useTimelineStore.getState().pixelsPerSecond;
+    expect(afterPps).toBeGreaterThan(beforePps);
+    expect(afterPps).toBeLessThanOrEqual(500);
+
+    // Anchor time was (200 + 400) / 100 = 6s; scroll should move to keep ~that time under x=400
+    expect(scroller.scrollLeft).toBeGreaterThan(200);
+    expect(useTimelineStore.getState().scrollLeft).toBe(scroller.scrollLeft);
+  });
+
+  it("plain wheel without Ctrl does not change pixelsPerSecond", async () => {
+    render(<Timeline />);
+    const el = document.getElementById("timeline-tracks-container") as HTMLDivElement;
+    expect(el).toBeTruthy();
+
+    Object.defineProperty(el, "clientWidth", { value: 800, configurable: true });
+
+    await act(async () => {});
+
+    const before = useTimelineStore.getState().pixelsPerSecond;
+    el.dispatchEvent(
+      new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 50,
+        deltaY: -500,
+        deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+        ctrlKey: false,
+      }),
+    );
+
+    expect(useTimelineStore.getState().pixelsPerSecond).toBe(before);
+  });
+
+  it("normalizes DOM_DELTA_LINE wheel delta", async () => {
+    render(<Timeline />);
+    const el = document.getElementById("timeline-tracks-container") as HTMLDivElement;
+    Object.defineProperty(el, "clientWidth", { value: 800, configurable: true });
+    Object.defineProperty(el, "scrollLeft", { value: 0, writable: true, configurable: true });
+    el.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 800, bottom: 400, width: 800, height: 400, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+    await act(async () => {});
+
+    const before = useTimelineStore.getState().pixelsPerSecond;
+    el.dispatchEvent(
+      new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 50,
+        deltaY: 1,
+        deltaMode: WheelEvent.DOM_DELTA_LINE,
+        ctrlKey: true,
+      }),
+    );
+    expect(useTimelineStore.getState().pixelsPerSecond).not.toBe(before);
   });
 });

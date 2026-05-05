@@ -20,6 +20,8 @@ interface TimelineStore {
   updateClip: (clipId: string, updates: Partial<Clip>) => void;
   moveClip: (clipId: string, startTime: number) => void;
   setZoom: (level: number) => void;
+  /** Clamps to 50–500 px/s and syncs `zoomLevel` to `pixelsPerSecond / 100`. */
+  setPixelsPerSecond: (pps: number) => void;
   setScrollLeft: (left: number) => void;
   splitClipAtTime: (clipId: string, time: number) => void;
   getTimelineEndTime: () => number;
@@ -169,12 +171,17 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     });
   },
 
-  setZoom: (level) => {
-    const clamped = Math.max(0.5, Math.min(level, 5));
+  setPixelsPerSecond: (pps) => {
+    const clamped = Math.max(50, Math.min(pps, 500));
     set({
-      zoomLevel: clamped,
-      pixelsPerSecond: 100 * clamped,
+      pixelsPerSecond: clamped,
+      zoomLevel: clamped / 100,
     });
+  },
+
+  setZoom: (level) => {
+    const clampedLevel = Math.max(0.5, Math.min(level, 5));
+    get().setPixelsPerSecond(100 * clampedLevel);
   },
 
   setScrollLeft: (left) => {

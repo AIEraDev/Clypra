@@ -339,6 +339,8 @@ mod tests {
             0,
             1920,
             1080,
+            None,
+            None,
         ).await;
         
         assert!(result.is_err());
@@ -352,6 +354,8 @@ mod tests {
             101,
             1920,
             1080,
+            None,
+            None,
         ).await;
         
         assert!(result.is_err());
@@ -365,6 +369,8 @@ mod tests {
             10,
             0,
             1080,
+            None,
+            None,
         ).await;
         
         assert!(result.is_err());
@@ -378,6 +384,8 @@ mod tests {
             10,
             1920,
             0,
+            None,
+            None,
         ).await;
         
         assert!(result.is_err());
@@ -392,6 +400,8 @@ mod tests {
             1,
             1920,
             1080,
+            None,
+            None,
         ).await;
         assert!(result.is_err()); // Will fail due to missing file
         
@@ -401,6 +411,8 @@ mod tests {
             100,
             1920,
             1080,
+            None,
+            None,
         ).await;
         assert!(result.is_err()); // Will fail due to missing file
     }
@@ -561,6 +573,8 @@ mod tests {
                     10,
                     320,
                     180,
+                    None,
+                    None,
                 ).await
             });
             handles.push(handle);

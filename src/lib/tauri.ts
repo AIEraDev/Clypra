@@ -1,6 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /**
+ * Tauri `invoke` / FFmpeg need a native filesystem path. The webview may use
+ * `convertFileSrc` URLs or `file://` URLs elsewhere — normalize before calling Rust.
+ */
+export function normalizePathForTauriInvoke(inputPath: string): string {
+  const p = inputPath.trim();
+  if (!p.startsWith("file://")) {
+    return p;
+  }
+  try {
+    const url = new URL(p);
+    let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
+    // Windows: file:///C:/Users/... → pathname often /C:/Users/...
+    if (/^\/[A-Za-z]:/.test(pathname)) {
+      pathname = pathname.slice(1);
+    }
+    return pathname;
+  } catch {
+    return p;
+  }
+}
+
+/**
  * Generates audio waveform peaks for visualization.
  */
 export async function getAudioWaveformPeaks(inputPath: string, bucketCount: number): Promise<number[]> {
@@ -40,12 +62,22 @@ export async function extractFrameAtTime(inputPath: string, timeSecs: number, wi
  * More efficient than multiple individual frame extractions.
  * Returns an array of base64-encoded PNG data URLs.
  */
-export async function extractFilmstripFrames(inputPath: string, frameCount: number, width: number, height: number): Promise<string[]> {
+export async function extractFilmstripFrames(
+  inputPath: string,
+  frameCount: number,
+  width: number,
+  height: number,
+  timeStartSec?: number | null,
+  timeEndSec?: number | null,
+): Promise<string[]> {
+  const fsPath = normalizePathForTauriInvoke(inputPath);
   return invoke<string[]>("extract_filmstrip_frames", {
-    inputPath,
+    inputPath: fsPath,
     frameCount,
     width,
     height,
+    timeStart: timeStartSec ?? null,
+    timeEnd: timeEndSec ?? null,
   });
 }
 
