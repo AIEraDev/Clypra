@@ -34,6 +34,10 @@ crossbeam = "0.8"
 web-time = "1"
 once_cell = "1"
 
+# Native FFmpeg bindings for fast thumbnail extraction
+ffmpeg-next = "7"
+ffmpeg-sys-next = "7"
+
 [dev-dependencies]
 proptest = "1"
 
