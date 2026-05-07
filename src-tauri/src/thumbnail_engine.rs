@@ -6,6 +6,8 @@
 //! - Priority-based async extraction (viewport first, then background)
 //! - WebP disk cache with LRU memory cache
 
+pub mod decoder;
+
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};

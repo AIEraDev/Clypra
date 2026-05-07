@@ -6,6 +6,7 @@ mod ffmpeg_sidecar;
 
 pub mod thumbnail_engine;
 use thumbnail_engine::{DensityLevel, Priority, ThumbnailTile, init_thumbnail_engine, request_batch_thumbnails, request_thumbnail, generate_timestamp_grid, get_cache_stats, clear_video_thumbnail_cache};
+use thumbnail_engine::decoder::{get_decoder, release_decoder};
 
 #[cfg(test)]
 mod thumbnail_engine_tests;
@@ -1066,6 +1067,11 @@ pub fn run() {
             commands::project::load_project,
             commands::project::get_recent_projects,
             commands::project::delete_project,
+            // Native FFmpeg decoder commands (fast path for thumbnails)
+            decode_frame,
+            decode_frames_streaming,
+            release_video_decoder,
+            get_video_metadata_fast,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
