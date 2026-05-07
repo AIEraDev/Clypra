@@ -34,6 +34,7 @@ async fn test_extract_single_frame_returns_valid_webp() {
         Priority::Critical,
         160,
         90,
+        1.0,
     ).await;
 
     // Cleanup
@@ -71,6 +72,7 @@ async fn test_extract_frame_with_invalid_video_path() {
         Priority::Critical,
         160,
         90,
+        1.0,
     ).await;
 
     // Cleanup
@@ -108,6 +110,7 @@ async fn test_extract_frame_beyond_duration_returns_error() {
         Priority::Critical,
         160,
         90,
+        1.0,
     ).await;
 
     // Cleanup
@@ -132,6 +135,7 @@ async fn test_extract_frame_at_negative_time() {
         Priority::Critical,
         160,
         90,
+        1.0,
     ).await;
 
     // Cleanup

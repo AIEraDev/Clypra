@@ -22,24 +22,7 @@
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": [
-            "$HOME/**/*.mp4", "$HOME/**/*.mov", "$HOME/**/*.webm", "$HOME/**/*.mkv", "$HOME/**/*.m4v", "$HOME/**/*.avi",
-            "$DESKTOP/**/*.mp4", "$DESKTOP/**/*.mov", "$DESKTOP/**/*.webm", "$DESKTOP/**/*.mkv", "$DESKTOP/**/*.m4v", "$DESKTOP/**/*.avi",
-            "$DOCUMENT/**/*.mp4", "$DOCUMENT/**/*.mov", "$DOCUMENT/**/*.webm", "$DOCUMENT/**/*.mkv", "$DOCUMENT/**/*.m4v", "$DOCUMENT/**/*.avi",
-            "$DOWNLOAD/**/*.mp4", "$DOWNLOAD/**/*.mov", "$DOWNLOAD/**/*.webm", "$DOWNLOAD/**/*.mkv", "$DOWNLOAD/**/*.m4v", "$DOWNLOAD/**/*.avi",
-            "$VIDEO/**/*.mp4", "$VIDEO/**/*.mov", "$VIDEO/**/*.webm", "$VIDEO/**/*.mkv", "$VIDEO/**/*.m4v", "$VIDEO/**/*.avi",
-            "$PUBLIC/**/*.mp4", "$PUBLIC/**/*.mov", "$PUBLIC/**/*.webm", "$PUBLIC/**/*.mkv", "$PUBLIC/**/*.m4v", "$PUBLIC/**/*.avi",
-            "/Volumes/**/*.mp4", "/Volumes/**/*.mov", "/Volumes/**/*.webm", "/Volumes/**/*.mkv", "/Volumes/**/*.m4v", "/Volumes/**/*.avi",
-
-            "$HOME/**/*.png", "$HOME/**/*.jpg", "$HOME/**/*.jpeg", "$HOME/**/*.webp",
-            "$DESKTOP/**/*.png", "$DESKTOP/**/*.jpg", "$DESKTOP/**/*.jpeg", "$DESKTOP/**/*.webp",
-            "$DOCUMENT/**/*.png", "$DOCUMENT/**/*.jpg", "$DOCUMENT/**/*.jpeg", "$DOCUMENT/**/*.webp",
-            "$DOWNLOAD/**/*.png", "$DOWNLOAD/**/*.jpg", "$DOWNLOAD/**/*.jpeg", "$DOWNLOAD/**/*.webp",
-            "$PUBLIC/**/*.png", "$PUBLIC/**/*.jpg", "$PUBLIC/**/*.jpeg", "$PUBLIC/**/*.webp",
-            "/Volumes/**/*.png", "/Volumes/**/*.jpg", "/Volumes/**/*.jpeg", "/Volumes/**/*.webp",
-
-            "$APPCACHE/**/*.webp", "$APPCACHE/**/*.jpg", "$APPCACHE/**/*.jpeg", "$APPCACHE/**/*.png"
-          ]
+          "allow": ["$HOME/**", "$DESKTOP/**", "$DOCUMENT/**", "$DOWNLOAD/**", "$VIDEO/**", "$PUBLIC/**", "/Volumes/**", "$APPCACHE/**"]
         }
       }
     }

@@ -235,41 +235,66 @@ pub async fn audio_peaks_f32le_buckets(
 #[cfg(test)]
 mod devenv {
     use super::Output;
+    use tauri_plugin_shell::process::ExitStatus;
     use tokio::io::AsyncReadExt;
     use tokio::process::Command;
 
+    /// Convert a `std::process::Output` into the `tauri_plugin_shell::process::Output`
+    /// type expected by the outer functions.
+    ///
+    /// # Safety
+    /// `tauri_plugin_shell::process::ExitStatus` is a newtype over `Option<i32>`.
+    /// We transmute the exit code into it because the field is private but the layout
+    /// is guaranteed to be identical to `Option<i32>` (a single-field struct with no
+    /// explicit repr has the same layout as its only field in Rust).
+    fn convert_output(out: std::process::Output) -> Output {
+        let code: Option<i32> = out.status.code();
+        // SAFETY: ExitStatus is `struct ExitStatus { code: Option<i32> }` with no
+        // explicit repr, so its layout equals Option<i32> on all platforms.
+        let status: ExitStatus = unsafe { std::mem::transmute(code) };
+        Output {
+            status,
+            stdout: out.stdout,
+            stderr: out.stderr,
+        }
+    }
+
     pub async fn ffmpeg_output(args: &[&str]) -> Result<Output, String> {
-        Command::new("ffmpeg")
+        let out = Command::new("ffmpeg")
             .args(args)
             .output()
             .await
-            .map_err(|e| format!("ffmpeg: {e}"))
+            .map_err(|e| format!("ffmpeg: {e}"))?;
+        Ok(convert_output(out))
     }
 
     pub async fn ffmpeg_output_strings(args: &[String]) -> Result<Output, String> {
         let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
-        Command::new("ffmpeg")
+        let out = Command::new("ffmpeg")
             .args(&args_ref)
             .output()
             .await
-            .map_err(|e| format!("ffmpeg: {e}"))
+            .map_err(|e| format!("ffmpeg: {e}"))?;
+        Ok(convert_output(out))
     }
 
     pub async fn ffprobe_output(args: &[&str]) -> Result<Output, String> {
-        Command::new("ffprobe")
+        let out = Command::new("ffprobe")
             .args(args)
             .output()
             .await
-            .map_err(|e| format!("ffprobe: {e}"))
+            .map_err(|e| format!("ffprobe: {e}"))?;
+        Ok(convert_output(out))
     }
 
     pub async fn ffprobe_output_strings(args: &[String]) -> Result<Output, String> {
         let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
-        Command::new("ffprobe")
+        let out = Command::new("ffprobe")
             .args(&args_ref)
             .output()
             .await
-            .map_err(|e| format!("ffprobe: {e}"))
+            .map_err(|e| format!("ffprobe: {e}"))?;
+        Ok(convert_output(out))
     }
 
     pub async fn ffmpeg_stdout_bytes(args: &[String]) -> Result<Vec<u8>, String> {

@@ -1,5 +1,40 @@
 export type AspectRatio = "16:9" | "9:16" | "1:1" | "4:3" | "21:9";
 
+export enum DensityLevel {
+  Low = "low",
+  Medium = "medium",
+  High = "high",
+  Ultra = "ultra",
+}
+
+export interface DensityConfig {
+  level: DensityLevel;
+  interval: number;
+  minZoom: number;
+  maxZoom: number;
+}
+
+export interface ThumbnailRequest {
+  videoPath: string;
+  timestamps: number[];
+  density: DensityLevel;
+  width: number;
+  height: number;
+}
+
+export interface ThumbnailTile {
+  time: number;
+  path: string;
+  density: DensityLevel;
+}
+
+export interface FilmstripState {
+  tiles: Map<number, ThumbnailTile>;
+  loadingTimestamps: Set<number>;
+  currentDensity: DensityLevel;
+  posterFrame: string | null;
+}
+
 export interface VideoMetadata {
   duration: number;
   width: number;

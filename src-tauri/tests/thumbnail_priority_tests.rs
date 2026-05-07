@@ -3,7 +3,7 @@
 //! These tests validate priority ordering and density level calculations.
 
 use tauri_app_lib::thumbnail_engine::{
-    DensityLevel, Priority, ExtractionJob, GLOBAL_QUEUE, GLOBAL_CACHE
+    DensityLevel, Priority, ExtractionJob, ResolutionTier, GLOBAL_QUEUE, GLOBAL_CACHE
 };
 use tokio::sync::oneshot;
 
@@ -30,6 +30,7 @@ async fn test_priority_queue_processes_p0_before_p3() {
         priority: Priority::Normal, // P3 equivalent
         width: 160,
         height: 90,
+        resolution_tier: ResolutionTier::Tier2x,
         result_tx: tx_p3,
     };
 
@@ -41,6 +42,7 @@ async fn test_priority_queue_processes_p0_before_p3() {
         priority: Priority::Critical, // P0
         width: 160,
         height: 90,
+        resolution_tier: ResolutionTier::Tier2x,
         result_tx: tx_p0,
     };
 

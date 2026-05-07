@@ -6,12 +6,7 @@ import { Clip } from "../Clip";
 import { clearFilmstripFrameCache } from "../ClipFilmstrip";
 import type { Clip as ClipType, MediaAsset } from "../../../types";
 
-const filmstripFrames = [
-  "data:image/png;base64,frame0",
-  "data:image/png;base64,frame1",
-  "data:image/png;base64,frame2",
-  "data:image/png;base64,frame3",
-];
+const filmstripFrames = ["data:image/png;base64,frame0", "data:image/png;base64,frame1", "data:image/png;base64,frame2", "data:image/png;base64,frame3"];
 
 vi.mock("../../../../lib/tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../../lib/tauri")>();
@@ -419,23 +414,14 @@ describe("Clip Component", () => {
     });
 
     it("handles media asset without poster frame", async () => {
-      vi.useFakeTimers();
-      try {
-        const clip = createMockClip();
-        const mediaAsset = createMockMediaAsset({ posterFrame: undefined });
-        renderClip(clip, mediaAsset);
-        await act(async () => {});
+      const clip = createMockClip();
+      const mediaAsset = createMockMediaAsset({ posterFrame: undefined });
+      renderClip(clip, mediaAsset);
+      await act(async () => {});
 
-        expect(screen.getByTestId("clip-filmstrip-loading")).toBeInTheDocument();
-
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(300);
-        });
-
-        expect(screen.getByTestId("clip-filmstrip")).toBeInTheDocument();
-      } finally {
-        vi.useRealTimers();
-      }
+      // Without a poster frame and without debounce, invoke fires immediately.
+      // The mock resolves synchronously so the filmstrip goes straight to ready.
+      expect(screen.getByTestId("clip-filmstrip")).toBeInTheDocument();
     });
 
     it("formats duration correctly for various times", () => {

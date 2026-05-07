@@ -5,7 +5,13 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 mod ffmpeg_sidecar;
 
 pub mod thumbnail_engine;
-use thumbnail_engine::{DensityLevel, Priority, init_thumbnail_engine, request_batch_thumbnails, request_thumbnail, generate_timestamp_grid, get_cache_stats, clear_video_thumbnail_cache};
+use thumbnail_engine::{DensityLevel, Priority, ThumbnailTile, init_thumbnail_engine, request_batch_thumbnails, request_thumbnail, generate_timestamp_grid, get_cache_stats, clear_video_thumbnail_cache};
+
+#[cfg(test)]
+mod thumbnail_engine_tests;
+
+#[cfg(test)]
+mod thumbnail_engine_proptest;
 
 pub mod models;
 pub mod commands;
@@ -640,6 +646,7 @@ async fn get_thumbnails_for_range(
     px_per_sec: f64,
     ruler_interval: f64,
     thumbs_per_interval: u32,
+    dpr: f64,
 ) -> Result<Vec<(f64, String, f64)>, String> {
     // Calculate time per thumbnail using the zoom level configuration
     // time_per_thumb = ruler_interval / thumbs_per_interval
@@ -663,6 +670,7 @@ async fn get_thumbnails_for_range(
         Priority::Critical,
         160,  // Width: 160px as per spec (Requirement 15.1)
         90,   // Height: 90px as per spec (Requirement 15.1)
+        dpr,
     ).await;
 
     // Convert results to (time, data_url, x_position) tuples
@@ -710,6 +718,7 @@ async fn clear_thumbnail_cache(video_path: String) {
 async fn extract_poster_frame_command(
     video_path: String,
     duration: f64,
+    dpr: f64,
 ) -> Result<String, String> {
     // Calculate poster frame time (10% of duration, or 0.5s for short clips)
     let poster_time = if duration < 1.0 {
@@ -726,6 +735,7 @@ async fn extract_poster_frame_command(
         Priority::Critical,
         160,
         90,
+        dpr,
     ).await?;
     
     // Read the cached frame and convert to data URL
@@ -736,59 +746,285 @@ async fn extract_poster_frame_command(
     Ok(format!("data:image/webp;base64,{}", base64_data))
 }
 
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FilmstripTile {
-    pub index: u32,
-    pub time: f64,
-    pub path: String,
-}
 
-/// Stream filmstrip thumbnails from the on-disk thumbnail cache (paths, not base64).
+
+/// Get thumbnails for specific timestamps (streaming)
+/// 
+/// This command implements the time-based caching architecture for zoom-stable thumbnail rendering.
+/// It checks the cache synchronously for each timestamp and streams results as they become available.
+/// 
+/// # Parameters
+/// - `video_path`: Path to the video file
+/// - `timestamps`: List of timestamps (in seconds) to extract
+/// - `density`: Target density level for extraction
+/// - `width`: Thumbnail width in pixels
+/// - `height`: Thumbnail height in pixels
+/// - `duration`: Video duration in seconds (for cache initialization)
+/// - `on_tile`: Channel for streaming thumbnail results
+/// 
+/// # Channel Lifetime
+/// The channel remains open after this command returns because the frontend Channel object
+/// keeps it alive. This is intentional — we stream results as they become available from
+/// the background extraction queue.
 #[tauri::command]
-async fn request_filmstrip_tiles(
+async fn get_thumbnails_for_timestamps(
     video_path: String,
-    trim_in: f64,
-    trim_out: f64,
-    frame_count: u32,
+    timestamps: Vec<f64>,
+    density: DensityLevel,
     width: u32,
     height: u32,
-    on_tile: tauri::ipc::Channel<FilmstripTile>,
+    duration: f64,
+    on_tile: tauri::ipc::Channel<ThumbnailTile>,
 ) -> Result<(), String> {
-    let n = frame_count.max(1) as usize;
-    let span = (trim_out - trim_in).max(0.001);
-    let mut times = Vec::with_capacity(n);
-    for i in 0..n {
-        let t = trim_in + span * (i as f64 + 0.5) / (n as f64);
-        times.push(t);
+    let video_id = format!("{:x}", md5::compute(&video_path));
+    
+    // Get or create video cache entry
+    let video_cache = thumbnail_engine::get_video_cache(&video_path, duration).await;
+    
+    // Cancel stale timestamps from previous requests before processing
+    let _cancelled = thumbnail_engine::ACTIVE_TRACKER.cancel_stale_timestamps(&video_id, &timestamps);
+    
+    // Synchronously check cache for each timestamp using fallback chain
+    // TEMPORARY: Performance instrumentation for Task 5.1 and 5.3
+    let mut cache_hit_latencies: Vec<u128> = Vec::new();
+    let mut missing_times = Vec::new();
+    let mut cache_hits = 0u32;
+    let mut cache_misses = 0u32;
+    
+    for &time in &timestamps {
+        let start = std::time::Instant::now();
+        
+        if let Some((path, found_density)) = video_cache.get_frame_path(time, density) {
+            let latency = start.elapsed().as_micros();
+            cache_hit_latencies.push(latency);
+            cache_hits += 1;
+            
+            // Send cached tile immediately
+            let _ = on_tile.send(ThumbnailTile {
+                time,
+                path: path.to_string_lossy().to_string(),
+                density: found_density,
+            });
+        } else {
+            missing_times.push(time);
+            cache_misses += 1;
+        }
     }
-
+    
+    // TEMPORARY: Log performance metrics (Task 5.1) and hit rate (Task 5.3)
+    let total_requests = cache_hits + cache_misses;
+    if total_requests > 0 {
+        let hit_rate = (cache_hits as f64 / total_requests as f64) * 100.0;
+        
+        // Log hit rate for all requests (Task 5.3)
+        eprintln!(
+            "[PERF] Cache Hit Rate: {}/{} = {:.1}% (target: >=85% for zoom within bucket)",
+            cache_hits, total_requests, hit_rate
+        );
+        
+        // Warn if hit rate below target
+        if hit_rate < 85.0 {
+            eprintln!(
+                "[PERF WARNING] Cache hit rate {:.1}% below 85% target!",
+                hit_rate
+            );
+        }
+        
+        // Log latency metrics for cache hits (Task 5.1)
+        if !cache_hit_latencies.is_empty() {
+            let total_hits = cache_hit_latencies.len();
+            let total_us: u128 = cache_hit_latencies.iter().sum();
+            let avg_us = total_us / total_hits as u128;
+            let max_us = *cache_hit_latencies.iter().max().unwrap_or(&0);
+            let min_us = *cache_hit_latencies.iter().min().unwrap_or(&0);
+            
+            // Sort for percentile calculation
+            let mut sorted = cache_hit_latencies.clone();
+            sorted.sort();
+            let p95_idx = ((total_hits as f64 * 0.95) as usize).min(total_hits - 1);
+            let p95_us = sorted[p95_idx];
+            
+            // Convert to milliseconds for readability
+            let avg_ms = avg_us as f64 / 1000.0;
+            let p95_ms = p95_us as f64 / 1000.0;
+            let max_ms = max_us as f64 / 1000.0;
+            let min_ms = min_us as f64 / 1000.0;
+            
+            eprintln!(
+                "[PERF] Cache Hit Latency: n={}, avg={:.3}ms, p95={:.3}ms, max={:.3}ms, min={:.3}ms",
+                total_hits, avg_ms, p95_ms, max_ms, min_ms
+            );
+            
+            // Validate 95th percentile < 5ms
+            if p95_ms > 5.0 {
+                eprintln!(
+                    "[PERF WARNING] 95th percentile cache hit latency ({:.3}ms) exceeds 5ms threshold!",
+                    p95_ms
+                );
+            }
+        }
+    }
+    
+    // Register this request as active after cache check
+    thumbnail_engine::ACTIVE_TRACKER.register_request(&video_id, &timestamps);
+    
+    // If all timestamps are cached, return early
+    if missing_times.is_empty() {
+        return Ok(());
+    }
+    
+    // Spawn background task for missing timestamps
+    // NOTE: Channel stays open after command returns - frontend keeps it alive
     tokio::spawn(async move {
-        for (i, t) in times.into_iter().enumerate() {
-            let res = request_thumbnail(
+        // Determine DPR from width (80px = 1x, 160px = 2x)
+        let dpr = if width >= 160 { 2.0 } else { 1.0 };
+        
+        // Extract missing frames with Critical priority (visible range)
+        for time in missing_times {
+            let result = request_thumbnail(
                 &video_path,
-                t,
-                DensityLevel::Medium,
+                time,
+                density,
                 Priority::Critical,
                 width,
                 height,
+                dpr,
             )
             .await;
-            if let Ok(p) = res {
-                let _ = on_tile.send(FilmstripTile {
-                    index: i as u32,
-                    time: t,
-                    path: p.to_string_lossy().to_string(),
+            
+            if let Ok(path) = result {
+                // Stream result via channel as it completes
+                let _ = on_tile.send(ThumbnailTile {
+                    time,
+                    path: path.to_string_lossy().to_string(),
+                    density,
                 });
+            } else if let Err(e) = result {
+                eprintln!("[get_thumbnails_for_timestamps] Failed to extract frame at {}: {}", time, e);
             }
         }
     });
+    
+    Ok(())
+}
 
+/// Preload video thumbnails with cascading density levels
+/// 
+/// This command triggers background thumbnail extraction at import time.
+/// It chains density levels: Low → Medium → High, with each level starting
+/// after the previous completes. This ensures instant zoom response.
+/// 
+/// # Parameters
+/// - `video_path`: Path to the video file
+/// - `duration`: Video duration in seconds
+/// 
+/// # Cascade Behavior
+/// The cascade happens in Rust (not frontend):
+/// 1. Extract Low density first (5s intervals)
+/// 2. If Low succeeds, extract Medium density (1s intervals)
+/// 3. If Medium succeeds, extract High density (0.2s intervals)
+/// 4. Errors are logged but don't block the cascade
+/// 
+/// All extractions use Priority::Normal (background priority).
+#[tauri::command]
+async fn preload_video_thumbnails(
+    video_path: String,
+    duration: f64,
+) -> Result<(), String> {
+    // Spawn background task for cascading extraction
+    // This returns immediately without blocking the import
+    tokio::spawn(async move {
+        // TEMPORARY: Performance instrumentation for Task 5.2
+        let preload_start = std::time::Instant::now();
+        
+        // Use default DPR of 1.0 for preloading (1x resolution)
+        let dpr = 1.0;
+        
+        // Extract Low density first
+        eprintln!("[preload_video_thumbnails] Starting Low density extraction for {} (duration: {}s)", video_path, duration);
+        let low_start = std::time::Instant::now();
+        
+        match thumbnail_engine::preload_density_level(
+            &video_path,
+            DensityLevel::Low,
+            duration,
+            dpr,
+        ).await {
+            Ok(_) => {
+                let low_elapsed_ms = low_start.elapsed().as_millis() as f64;
+                let total_elapsed_ms = preload_start.elapsed().as_millis() as f64;
+                
+                eprintln!(
+                    "[PERF] Low density extraction complete: {:.1}ms (target: <1000ms for 60s video)",
+                    low_elapsed_ms
+                );
+                eprintln!(
+                    "[PERF] Pre-extraction summary: video_duration={}s, low_density_time={:.1}ms, total_time={:.1}ms",
+                    duration, low_elapsed_ms, total_elapsed_ms
+                );
+                
+                // Warn if significantly over target (for 60s videos)
+                if duration >= 50.0 && duration <= 70.0 && low_elapsed_ms > 1000.0 {
+                    eprintln!(
+                        "[PERF WARNING] Low density extraction ({:.1}ms) exceeded 1000ms target for 60s video!",
+                        low_elapsed_ms
+                    );
+                }
+            }
+            Err(e) => {
+                let low_elapsed_ms = low_start.elapsed().as_millis() as f64;
+                eprintln!(
+                    "[preload_video_thumbnails] Low density failed after {:.1}ms for {}: {}",
+                    low_elapsed_ms, video_path, e
+                );
+                return; // Return early if Low fails
+            }
+        }
+        
+        // Extract Medium density after Low completes
+        eprintln!("[preload_video_thumbnails] Starting Medium density extraction for {}", video_path);
+        match thumbnail_engine::preload_density_level(
+            &video_path,
+            DensityLevel::Medium,
+            duration,
+            dpr,
+        ).await {
+            Ok(_) => {
+                eprintln!("[preload_video_thumbnails] Medium density complete for {}", video_path);
+            }
+            Err(e) => {
+                eprintln!("[preload_video_thumbnails] Medium density failed for {}: {}", video_path, e);
+                return; // Return early if Medium fails
+            }
+        }
+        
+        // Extract High density after Medium completes
+        eprintln!("[preload_video_thumbnails] Starting High density extraction for {}", video_path);
+        match thumbnail_engine::preload_density_level(
+            &video_path,
+            DensityLevel::High,
+            duration,
+            dpr,
+        ).await {
+            Ok(_) => {
+                eprintln!("[preload_video_thumbnails] High density complete for {}", video_path);
+            }
+            Err(e) => {
+                eprintln!("[preload_video_thumbnails] High density failed for {}: {}", video_path, e);
+                // Don't return - this is the last level
+            }
+        }
+    });
+    
+    // Return immediately - cascade happens in background
     Ok(())
 }
 
 #[cfg(test)]
 mod lib_test;
+
+#[cfg(test)]
+mod preload_test;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -811,7 +1047,8 @@ pub fn run() {
             audio_waveform_peaks,
             extract_frame_at_time,
             extract_filmstrip_frames,
-            request_filmstrip_tiles,
+            get_thumbnails_for_timestamps,
+            preload_video_thumbnails,
             get_frame_cache_dir,
             get_cached_frame_path,
             save_frame_to_cache,

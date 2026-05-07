@@ -73,6 +73,21 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       mediaAssets: [...state.mediaAssets, asset],
     }));
     get().scheduleAutoSave();
+
+    // Trigger background thumbnail pre-extraction for video assets.
+    // The Low → Medium → High density cascade is handled entirely in Rust
+    // (preload_video_thumbnails queues each level after the previous completes).
+    if (asset.type === "video" && asset.path && asset.duration) {
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        import("../lib/tauri").then(({ normalizePathForTauriInvoke }) => {
+          const videoPath = normalizePathForTauriInvoke(asset.path);
+          // Fire-and-forget: do not await, errors must not block the import
+          invoke("preload_video_thumbnails", { videoPath, duration: asset.duration }).catch((err) => {
+            console.error("[addMediaAsset] preload_video_thumbnails failed:", err);
+          });
+        });
+      });
+    }
   },
 
   removeMediaAsset: (assetId) => {
