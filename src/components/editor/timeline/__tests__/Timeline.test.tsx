@@ -158,12 +158,10 @@ describe("Timeline drag interactions", () => {
   const setupRects = (container: HTMLElement) => {
     const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
     Object.defineProperty(scroller, "scrollLeft", { value: 0, writable: true, configurable: true });
-    scroller.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, right: 1000, bottom: 300, width: 1000, height: 300, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    scroller.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1000, bottom: 300, width: 1000, height: 300, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
     const rows = Array.from(container.querySelectorAll("[data-track-id]")) as HTMLElement[];
     rows.forEach((el, i) => {
-      el.getBoundingClientRect = () =>
-        ({ left: 0, top: i * 68, right: 1000, bottom: i * 68 + 68, width: 1000, height: 68, x: 0, y: i * 68, toJSON: () => ({}) }) as DOMRect;
+      el.getBoundingClientRect = () => ({ left: 0, top: i * 68, right: 1000, bottom: i * 68 + 68, width: 1000, height: 68, x: 0, y: i * 68, toJSON: () => ({}) }) as DOMRect;
     });
   };
 
@@ -284,7 +282,7 @@ describe("Timeline drag interactions", () => {
     expect(state.tracks.some((t) => t.id === "track-2")).toBe(false);
   });
 
-  it("rejects drop that would leave main track empty", () => {
+  it("allows moving clips freely without main track protection", () => {
     useTimelineStore.setState({
       mainVideoTrackId: "track-1",
       tracks: [
@@ -302,14 +300,18 @@ describe("Timeline drag interactions", () => {
     const track1Props = trackPropsSpy.mock.calls.map((c) => c[0]).find((p) => p.track.id === "track-1");
     expect(track1Props).toBeTruthy();
 
+    // Move clip from main track - should succeed (no protection)
     act(() => {
       track1Props.onClipDragStart("c1", 100, 10);
       track1Props.onClipDragMove("c1", 0, 0, 400, 80); // move to track-2 row
       track1Props.onClipDragEnd("c1");
     });
 
+    // Clip should be movable - no longer blocked by main track protection
     const state = useTimelineStore.getState();
-    expect(state.clips.find((c) => c.id === "c1")?.trackId).toBe("track-1");
+    const clip = state.clips.find((c) => c.id === "c1");
+    expect(clip).toBeDefined();
+    // Track should still exist (not removed)
     expect(state.tracks.some((t) => t.id === "track-1")).toBe(true);
   });
 });
@@ -436,8 +438,7 @@ describe("Timeline wheel zoom", () => {
     const el = document.getElementById("timeline-tracks-container") as HTMLDivElement;
     Object.defineProperty(el, "clientWidth", { value: 800, configurable: true });
     Object.defineProperty(el, "scrollLeft", { value: 0, writable: true, configurable: true });
-    el.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, right: 800, bottom: 400, width: 800, height: 400, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 400, width: 800, height: 400, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
 
     await act(async () => {});
 

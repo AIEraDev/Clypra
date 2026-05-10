@@ -8,7 +8,12 @@ import { getTimelineContentEnd } from "../lib/timelineClip";
 interface TimelineStore {
   tracks: Track[];
   clips: Clip[];
-  /** First created video track; treated as persistent main lane. */
+  /**
+   * First created video track - UI metadata only.
+   * Used for: default drop target, visual highlighting, user expectations.
+   * NOT used for: enforcement, validation, or blocking operations.
+   * The compositor resolves frames by time, not by track constraints.
+   */
   mainVideoTrackId: string | null;
   zoomLevel: number;
   scrollLeft: number;

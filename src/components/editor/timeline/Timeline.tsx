@@ -349,21 +349,9 @@ export const Timeline: React.FC = () => {
         setDragState(null);
         return;
       }
-      const store = useTimelineStore.getState();
-      const mainTrackId = store.mainVideoTrackId;
-      if (mainTrackId) {
-        const mainClipIds = store.clips.filter((c) => c.trackId === mainTrackId).map((c) => c.id);
-        const movingAwayFromMain = (dragSnapshot.willCreateNewTrack && !!dragSnapshot.newTrackPosition) || (!!dragSnapshot.targetTrackId && dragSnapshot.targetTrackId !== mainTrackId);
-        const draggedMainClipCount = mainClipIds.filter((id) => dragSnapshot.draggedClipIds.includes(id)).length;
-        const wouldEmptyMain = movingAwayFromMain && mainClipIds.length > 0 && draggedMainClipCount === mainClipIds.length;
-
-        if (wouldEmptyMain) {
-          restoreDraggedToOriginal();
-          dragStateRef.current = null;
-          setDragState(null);
-          return;
-        }
-      }
+      // Note: Main track protection removed - timeline is now time-centric, not track-centric
+      // Users can freely move clips between tracks without structural constraints
+      // The compositor will handle rendering at any time, even if tracks are empty
 
       // Handle new track creation (ordered: video at top, audio after first video track)
       if (dragSnapshot.willCreateNewTrack && dragSnapshot.newTrackPosition) {
@@ -470,21 +458,12 @@ export const Timeline: React.FC = () => {
       const { selectedClipIds } = useUIStore.getState();
       if (selectedClipIds.length === 0) return;
 
-      // Prevent deleting all clips from main track
-      const store = useTimelineStore.getState();
-      const mainTrackId = store.mainVideoTrackId;
-
-      if (mainTrackId) {
-        const mainClipIds = store.clips.filter((c) => c.trackId === mainTrackId).map((c) => c.id);
-        const deletingFromMain = selectedClipIds.filter((id) => mainClipIds.includes(id));
-        const wouldEmptyMain = mainClipIds.length > 0 && deletingFromMain.length === mainClipIds.length;
-
-        if (wouldEmptyMain) {
-          return;
-        }
-      }
+      // Note: Main track protection removed - users can delete any clips
+      // Timeline validation will inform about gaps, but never blocks deletion
+      // The compositor handles rendering gracefully even with empty tracks
 
       // Remove each selected clip
+      const store = useTimelineStore.getState();
       const { removeClip, normalizeTrack } = useTimelineStore.getState();
       const affectedTracks = new Set<string>();
 

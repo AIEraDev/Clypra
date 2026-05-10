@@ -1,3 +1,5 @@
+// Take note that before you editing or suggest an approach, check if we have the implementation or same solution somewhere
+
 import React, { useState, useEffect } from "react";
 import { LaunchScreen } from "./components/screens/LaunchScreen";
 import { EditorScreen } from "./components/screens/EditorScreen";
@@ -24,15 +26,9 @@ const App = () => {
           const mediaAssets: MediaAsset[] = Array.isArray(rustProject.media_assets)
             ? rustProject.media_assets.map((asset: MediaAsset) => ({
                 ...asset,
-                posterFrame: asset.posterFrame && !isExternalOrDataUrl(asset.posterFrame)
-                  ? convertFileSrc(asset.posterFrame)
-                  : asset.posterFrame,
-                coverArt: asset.coverArt && !isExternalOrDataUrl(asset.coverArt)
-                  ? convertFileSrc(asset.coverArt)
-                  : asset.coverArt,
-                path: asset.path && asset.type === "image" && !isExternalOrDataUrl(asset.path)
-                  ? convertFileSrc(asset.path)
-                  : asset.path,
+                posterFrame: asset.posterFrame && !isExternalOrDataUrl(asset.posterFrame) ? convertFileSrc(asset.posterFrame) : asset.posterFrame,
+                coverArt: asset.coverArt && !isExternalOrDataUrl(asset.coverArt) ? convertFileSrc(asset.coverArt) : asset.coverArt,
+                path: asset.path && asset.type === "image" && !isExternalOrDataUrl(asset.path) ? convertFileSrc(asset.path) : asset.path,
               }))
             : [];
           return {
@@ -129,8 +125,8 @@ const App = () => {
         const { normalizeClipTiming } = await import("./lib/timelineClip");
         const mediaAssets = useProjectStore.getState().mediaAssets;
         const normalizedClips = fullProjectData.clips.map((clip: any) => {
-           const asset = mediaAssets.find((a: any) => a.id === clip.mediaId);
-           return normalizeClipTiming(clip, asset);
+          const asset = mediaAssets.find((a: any) => a.id === clip.mediaId);
+          return normalizeClipTiming(clip, asset);
         });
         useTimelineStore.setState({ clips: normalizedClips });
       }

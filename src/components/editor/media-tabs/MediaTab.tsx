@@ -142,20 +142,8 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
                     // Find all clips using this media asset
                     const clipsToRemove = clips.filter((c) => c.mediaId === contextMenu.mediaId);
 
-                    // Prevent removing all clips from main track
-                    const store = useTimelineStore.getState();
-                    const mainTrackId = store.mainVideoTrackId;
-
-                    if (mainTrackId) {
-                      const mainClipIds = store.clips.filter((c) => c.trackId === mainTrackId).map((c) => c.id);
-                      const removingFromMain = clipsToRemove.filter((c) => mainClipIds.includes(c.id));
-                      const wouldEmptyMain = mainClipIds.length > 0 && removingFromMain.length === mainClipIds.length;
-
-                      if (wouldEmptyMain) {
-                        console.log("[MediaTab] 🚫 Cannot remove all clips from main track");
-                        return;
-                      }
-                    }
+                    // Note: Main track protection removed - users can remove any clips
+                    // Timeline validation will inform about gaps, but never blocks removal
 
                     console.log("[MediaTab] 🗑️ Removing clips from timeline", {
                       mediaId: contextMenu.mediaId,
