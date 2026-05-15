@@ -121,11 +121,12 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     );
   }
 
-  // Image asset — poster only
-  if (mediaAsset.posterFrame) {
+  // Image asset — poster or direct path
+  if (mediaAsset.posterFrame || mediaAsset.path) {
+    const src = mediaAsset.posterFrame ? (mediaAsset.posterFrame.startsWith("data:") ? mediaAsset.posterFrame : convertFileSrc(mediaAsset.posterFrame)) : mediaAsset.path.startsWith("asset://") ? mediaAsset.path : convertFileSrc(mediaAsset.path);
     return (
       <div data-testid="clip-filmstrip-fallback" className={cn("relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border", className)} style={{ height: stripHeightPx, width: "100%" }}>
-        <img src={mediaAsset.posterFrame.startsWith("data:") ? mediaAsset.posterFrame : convertFileSrc(mediaAsset.posterFrame)} alt="" className="absolute inset-0 block h-full w-full object-cover select-none" draggable={false} />
+        <img src={src} alt="" className="absolute inset-0 block h-full w-full object-cover select-none" draggable={false} />
       </div>
     );
   }
