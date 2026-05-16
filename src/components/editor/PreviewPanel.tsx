@@ -27,6 +27,7 @@ import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { SourcePreview } from "./SourcePreview";
 import { PreviewTransport } from "./PreviewTransport";
+import { TransformOverlay } from "./transform/TransformOverlay";
 import { GPUTextureCache } from "@/lib/gpuTextureCache";
 import { PreviewQualityManager, PreviewQualityTier } from "@/lib/preview/PreviewQualityManager";
 import { cn } from "@/lib/utils";
@@ -897,6 +898,10 @@ const ProgramPreview: React.FC = () => {
                   }}
                   className="bg-black"
                 />
+
+                {/* Transform overlay for selected clips */}
+                <TransformOverlay canvasWidth={displayWidth} canvasHeight={displayHeight} scale={1} />
+
                 {/* Hidden video elements for audio/video sync (ENGINE CLOCK IS MASTER). 
                     CRITICAL: Do NOT use width: 0, height: 0, or opacity: 0. 
                     Browsers throttle decoding for invisible videos, destroying A/V sync.

@@ -120,3 +120,32 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
     execute(new AddClipCommand({ ...item.clip, trackId: newTrack.id, startTime }));
   }
 }
+
+// Handle dropping media assets onto existing tracks
+export function handleDropOnTrack(item: DragItem, monitor: any, trackId: string) {
+  const { pixelsPerSecond, scrollLeft } = useTimelineStore.getState();
+  const { execute } = useHistoryStore.getState();
+
+  const offset = monitor.getClientOffset();
+  const containerRect = document.getElementById("timeline-tracks-container")?.getBoundingClientRect();
+
+  const startTime = offset && containerRect ? Math.max(0, (offset.x - containerRect.left + scrollLeft) / pixelsPerSecond) : 0;
+
+  if (item.type === "MEDIA_ASSET") {
+    const { project } = useProjectStore.getState();
+    const canvasWidth = project?.canvasWidth ?? 1920;
+    const canvasHeight = project?.canvasHeight ?? 1080;
+
+    // Use createClipFromAsset to preserve aspect ratio (professional behavior)
+    const newClip = createClipFromAsset({
+      asset: item.asset,
+      trackId,
+      startTime,
+      width: canvasWidth,
+      height: canvasHeight,
+    });
+
+    // Use command to add clip (enables undo/redo)
+    execute(new AddClipCommand(newClip));
+  }
+}

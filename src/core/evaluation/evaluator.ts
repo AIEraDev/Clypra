@@ -62,8 +62,8 @@ export function evaluateScene(time: number, clips: Clip[], tracks: Track[], asse
     const roleOrder = getRoleOrder(a.role) - getRoleOrder(b.role);
     if (roleOrder !== 0) return roleOrder;
 
-    // 2. Track index
-    const trackOrder = a.trackIndex - b.trackIndex;
+    // 2. Track index (INVERTED: higher index renders below, so top track renders on top)
+    const trackOrder = b.trackIndex - a.trackIndex;
     if (trackOrder !== 0) return trackOrder;
 
     // 3. Z-index

@@ -152,6 +152,9 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height }
     "contain", // Professional default: fill canvas, crop overflow
   );
 
+  // Calculate source aspect ratio for transform constraints
+  const sourceAspectRatio = asset.width && asset.height ? asset.width / asset.height : clipWidth / clipHeight;
+
   return {
     id: generateId("clip"),
     trackId,
@@ -166,5 +169,7 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height }
     height: clipHeight,
     opacity: 1,
     rotation: 0,
+    aspectRatioLocked: true, // Lock aspect ratio by default for video/images
+    sourceAspectRatio,
   };
 };

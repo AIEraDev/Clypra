@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo, RefObject } from "react";
+import { useDragLayer } from "react-dnd";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -18,6 +19,7 @@ import { TimelineRuler } from "./TimelineRuler";
 import { TrackList } from "./TrackList";
 import { Track } from "./Track";
 import { Playhead } from "./Playhead";
+import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
 
 /** Multiplier on normalized wheel delta (pixels); higher = stronger zoom per tick. */
 const WHEEL_ZOOM_SENSITIVITY = 0.006;
@@ -93,7 +95,17 @@ export const Timeline: React.FC = () => {
   const { currentTime, duration, isPlaying, seek, setDuration } = usePlayback();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const isProcessingDropRef = useRef(false);
+
+  // Monitor drag state from MediaTab
+  const { isDragging: isMediaDragging } = useDragLayer((monitor) => ({
+    isDragging: monitor.isDragging() && monitor.getItemType() === "MEDIA_ASSET",
+  }));
+
+  useEffect(() => {
+    setIsDraggingMedia(isMediaDragging);
+  }, [isMediaDragging]);
 
   // ── RenderRuntime event wiring ──────────────────────────────────────────────
   const runtime = useRenderRuntime();
@@ -916,7 +928,9 @@ export const Timeline: React.FC = () => {
             <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} />
 
             <div className="relative flex-1 flex flex-col min-h-0">
-              {clips.length > 0 && (
+              {clips.length === 0 ? (
+                <EmptyTimelineDropZone isDragging={isDraggingMedia} />
+              ) : (
                 <>
                   {/* New track indicator - above all tracks */}
                   {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "above" && (

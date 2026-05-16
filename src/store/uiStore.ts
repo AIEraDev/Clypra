@@ -26,7 +26,7 @@
  */
 
 import { create } from "zustand";
-import type { MediaAsset } from "@/types";
+import type { MediaAsset, TransformState } from "@/types";
 
 interface UIStore {
   selectedClipIds: string[]; // Multi-select support
@@ -44,6 +44,10 @@ interface UIStore {
   sourceInPoint: number | null;
   sourceOutPoint: number | null;
 
+  // Transform tool state
+  activeTransform: TransformState | null;
+  transformMode: "select" | "transform" | null;
+
   selectClip: (clipId: string | null) => void;
   toggleClipSelection: (clipId: string) => void;
   clearSelection: () => void;
@@ -59,6 +63,12 @@ interface UIStore {
   exitSourceMode: () => void;
   markSourceIn: (time: number | null) => void;
   markSourceOut: (time: number | null) => void;
+
+  // Transform tool actions
+  startTransform: (state: TransformState) => void;
+  updateTransform: (state: TransformState) => void;
+  endTransform: () => void;
+  setTransformMode: (mode: "select" | "transform" | null) => void;
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
@@ -75,6 +85,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
   sourceAsset: null,
   sourceInPoint: null,
   sourceOutPoint: null,
+
+  // Transform tool state
+  activeTransform: null,
+  transformMode: null,
 
   selectClip: (clipId) => {
     set({ selectedClipIds: clipId ? [clipId] : [] });
@@ -153,5 +167,22 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   markSourceOut: (time) => {
     set({ sourceOutPoint: time });
+  },
+
+  // Transform tool actions
+  startTransform: (state) => {
+    set({ activeTransform: state, transformMode: "transform" });
+  },
+
+  updateTransform: (state) => {
+    set({ activeTransform: state });
+  },
+
+  endTransform: () => {
+    set({ activeTransform: null, transformMode: "select" });
+  },
+
+  setTransformMode: (mode) => {
+    set({ transformMode: mode });
   },
 }));

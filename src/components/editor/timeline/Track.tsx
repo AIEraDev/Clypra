@@ -1,8 +1,10 @@
 import React, { useMemo } from "react";
+import { useDrop } from "react-dnd";
 import { useUIStore } from "@/store/uiStore";
 import { useTimeline } from "@/hooks/useTimeline";
 import { Clip } from "./Clip";
-import type { Clip as ClipType, Track as TrackType } from "@/types";
+import { handleDropOnTrack } from "@/lib/timelineUtils";
+import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
 
 interface TrackProps {
   track: TrackType;
@@ -26,6 +28,24 @@ interface TrackProps {
 const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, dragState }) => {
   const { selectedClipIds, selectedTrackId } = useUIStore();
   const { getMediaAsset } = useTimeline();
+
+  // Drop handler for media assets from MediaTab
+  const [{ isOver, canDrop }, drop] = useDrop(
+    () => ({
+      accept: ["MEDIA_ASSET"],
+      drop: (item: DragItem, monitor: any) => {
+        if (!track.locked) {
+          handleDropOnTrack(item, monitor, track.id);
+        }
+      },
+      canDrop: () => !track.locked,
+      collect: (monitor: any) => ({
+        isOver: monitor.isOver(),
+        canDrop: monitor.canDrop(),
+      }),
+    }),
+    [track.id, track.locked],
+  );
 
   // Get all clips for this track (stable array ref when clips + track.id unchanged — helps memoized children)
   const trackClips = useMemo(() => clips.filter((c) => c.trackId === track.id), [clips, track.id]);
@@ -54,7 +74,14 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
   };
 
   return (
-    <div data-track-id={track.id} className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""}`} style={{ height: `${track.height}px` }}>
+    <div
+      ref={(node) => {
+        drop(node);
+      }}
+      data-track-id={track.id}
+      className={`relative border-b border-border transition-colors ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-accent/10" : ""}`}
+      style={{ height: `${track.height}px` }}
+    >
       {/* Clips layer */}
       {track.visible &&
         trackClips.map((clip) => {

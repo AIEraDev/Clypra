@@ -10,3 +10,4 @@ export { TrimClipCommand } from "./TrimClipCommand";
 export { SplitClipCommand } from "./SplitClipCommand";
 export { UpdateClipCommand } from "./UpdateClipCommand";
 export { AddTrackCommand, DeleteTrackCommand, ToggleTrackPropertyCommand } from "./TrackCommands";
+export { TransformClipCommand } from "./TransformCommand";

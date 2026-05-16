@@ -18,7 +18,7 @@ import { getClipEndTime } from "@/lib/timelineClip";
  *
  * Compositing order (deterministic):
  * 1. Layer type (background < primary < overlay < text < effect)
- * 2. Track index (lower tracks render below higher tracks)
+ * 2. Track index (HIGHER index renders BELOW - top track in UI renders on top)
  * 3. Z-index (explicit layer ordering)
  * 4. Evaluation priority (tie-breaker)
  *
@@ -94,7 +94,7 @@ export function evaluateClipAtTime(clip: CompositorClip, time: number): RenderLa
  *
  * Ordering rules:
  * 1. Role type (background < primary < overlay < text < effect)
- * 2. Track index (lower index = lower in stack)
+ * 2. Track index (HIGHER index = lower in stack, so top track in UI renders on top)
  * 3. Z-index (explicit layer control)
  * 4. Evaluation priority (tie-breaker)
  */
@@ -103,8 +103,9 @@ function compareRenderLayers(a: RenderLayer, b: RenderLayer): number {
   const roleOrder = getRoleOrder(a.clip.role) - getRoleOrder(b.clip.role);
   if (roleOrder !== 0) return roleOrder;
 
-  // 2. Compare by track index
-  const trackOrder = a.clip.trackIndex - b.clip.trackIndex;
+  // 2. Compare by track index (INVERTED: higher track index renders BELOW lower track index)
+  // This makes the top track in the UI (index 0) render on top
+  const trackOrder = b.clip.trackIndex - a.clip.trackIndex;
   if (trackOrder !== 0) return trackOrder;
 
   // 3. Compare by z-index

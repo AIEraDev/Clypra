@@ -1,3 +1,4 @@
+// NLE placement policy for media and clips
 import { useState, useEffect } from "react";
 import { LaunchScreen } from "@/components/screens/LaunchScreen";
 import { EditorScreen } from "@/components/screens/EditorScreen";
