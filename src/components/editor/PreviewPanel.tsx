@@ -27,7 +27,9 @@ import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { SourcePreview } from "./SourcePreview";
 import { PreviewTransport } from "./PreviewTransport";
-import { TransformOverlay } from "./transform/TransformOverlay";
+import { TransformOverlayMemoized as TransformOverlay } from "./transform/TransformOverlay";
+import { ViewportControls, useViewportKeyboardShortcuts, useViewportWheelZoom, useViewportPan } from "./ViewportControls";
+import { calculateDisplayTransform } from "@/lib/coordinateSystem";
 import { GPUTextureCache } from "@/lib/gpuTextureCache";
 import { PreviewQualityManager, PreviewQualityTier } from "@/lib/preview/PreviewQualityManager";
 import { cn } from "@/lib/utils";
@@ -118,6 +120,7 @@ const ProgramPreview: React.FC = () => {
   const tracks = useTimelineStore((s) => s.tracks);
   const clips = useTimelineStore((s) => s.clips);
   const epoch = useTimelineStore((s) => s.epoch);
+  const { previewViewport } = useUIStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
@@ -289,22 +292,21 @@ const ProgramPreview: React.FC = () => {
 
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
 
-  // Calculate display dimensions for canvas
+  // Calculate display dimensions for canvas with viewport transform
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
-  const originalAspectR = resolveOriginalPreviewAspect(
-    scene.visualLayers.filter((l) => l.layerType === "media"),
-    mediaAssets,
-    canvasWidth,
-    canvasHeight,
-  );
-  const aspectR = previewAspectPreset === "original" ? originalAspectR : previewAspectWidthOverHeight(previewAspectPreset, canvasWidth, canvasHeight);
-  const { vw, vh } = previewViewportSize(dimensions.width, dimensions.height, aspectR);
-  const scaleFit = Math.min(vw / canvasWidth, vh / canvasHeight);
-  const scaleFill = Math.max(vw / canvasWidth, vh / canvasHeight);
-  const scale = previewScaleMode === "fit" ? scaleFit : scaleFill;
-  const displayWidth = canvasWidth * scale;
-  const displayHeight = canvasHeight * scale;
+
+  // Calculate display transform with viewport zoom/pan
+  const displayTransform = useMemo(() => {
+    return calculateDisplayTransform({ width: canvasWidth, height: canvasHeight }, previewViewport, dimensions.width, dimensions.height, previewScaleMode);
+  }, [canvasWidth, canvasHeight, previewViewport, dimensions.width, dimensions.height, previewScaleMode]);
+
+  const { scale, offsetX, offsetY, displayWidth, displayHeight } = displayTransform;
+
+  // Add viewport control hooks
+  useViewportKeyboardShortcuts(canvasWidth, canvasHeight, dimensions.width, dimensions.height);
+  useViewportWheelZoom(containerRef as React.RefObject<HTMLElement>);
+  const { isPanning, spacePressed } = useViewportPan(containerRef as React.RefObject<HTMLElement>);
 
   // Preview Quality Manager — prevents 4K × DPR VRAM explosion
   const dpr = window.devicePixelRatio || 1;
@@ -357,6 +359,14 @@ const ProgramPreview: React.FC = () => {
 
     if (displayWidth === 0 || displayHeight === 0) return;
 
+    // Apply DPR to canvas backing store for crisp rendering on Retina/HiDPI.
+    // CSS size stays at displayWidth × displayHeight; pixel buffer is DPR-scaled.
+    const canvasDpr = window.devicePixelRatio || 1;
+    const backingW = Math.round(displayWidth * canvasDpr);
+    const backingH = Math.round(displayHeight * canvasDpr);
+    canvas.width = backingW;
+    canvas.height = backingH;
+
     // ── Resolve rendering context (GPU cache persists across re-runs) ──
     const gpuCache = gpuCacheRef.current;
     let ctx2d: CanvasRenderingContext2D | null = null;
@@ -364,6 +374,8 @@ const ProgramPreview: React.FC = () => {
     if (!gpuCache) {
       ctx2d = canvas.getContext("2d");
       if (ctx2d) {
+        // Scale context so subsequent draws use CSS-pixel coordinates
+        ctx2d.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
         ctx2d.clearRect(0, 0, displayWidth, displayHeight);
       }
     }
@@ -465,15 +477,16 @@ const ProgramPreview: React.FC = () => {
               gpuCache.evictLRU(GPU_MEMORY_LIMIT_MB);
             } else if (ctx2d) {
               // Canvas2D fallback path: center bitmap with aspect-ratio preservation
+              // Context transform already set to canvasDpr, so use CSS-pixel coords.
               const bitmapW = result.data.width;
               const bitmapH = result.data.height;
               const fitScale = Math.min(displayWidth / bitmapW, displayHeight / bitmapH);
               const drawW = bitmapW * fitScale;
               const drawH = bitmapH * fitScale;
-              const offsetX = (displayWidth - drawW) / 2;
-              const offsetY = (displayHeight - drawH) / 2;
+              const ox = (displayWidth - drawW) / 2;
+              const oy = (displayHeight - drawH) / 2;
               ctx2d.clearRect(0, 0, displayWidth, displayHeight);
-              ctx2d.drawImage(result.data, offsetX, offsetY, drawW, drawH);
+              ctx2d.drawImage(result.data, ox, oy, drawW, drawH);
               result.data.close();
             }
           }
@@ -881,16 +894,17 @@ const ProgramPreview: React.FC = () => {
       {/* ── Video Area ─────────────────────────────────────────────── */}
       <div className="flex-1 flex items-center justify-center overflow-hidden bg-[#06080a] relative">
         <div className="absolute inset-0 checkerboard opacity-[0.15] pointer-events-none" />
-        <div ref={containerRef} className="w-full h-full flex items-center justify-center relative z-10 overflow-hidden">
-          <div data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-hidden shadow-[0_0_40px_rgba(0, 0, 0, 0.36)]" style={{ width: vw, height: vh }}>
+        <div ref={containerRef} className={cn("w-full h-full flex items-center justify-center relative z-10 overflow-hidden", isPanning && "cursor-grabbing", spacePressed && !isPanning && "cursor-grab")}>
+          <div data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-hidden shadow-[0_0_40px_rgba(0, 0, 0, 0.36)]" style={{ width: displayWidth, height: displayHeight }}>
             {useCanvasPreview ? (
               <>
                 {/* Canvas-based preview (matches export rendering) */}
                 <canvas
                   ref={canvasRef}
                   data-testid="program-preview-canvas"
-                  width={displayWidth}
-                  height={displayHeight}
+                  /* Backing-store size is set dynamically in the render-loop effect
+                     to displayWidth*dpr × displayHeight*dpr for crisp HiDPI rendering.
+                     CSS size controls layout. */
                   style={{
                     width: displayWidth,
                     height: displayHeight,
@@ -900,7 +914,10 @@ const ProgramPreview: React.FC = () => {
                 />
 
                 {/* Transform overlay for selected clips */}
-                <TransformOverlay canvasWidth={displayWidth} canvasHeight={displayHeight} scale={1} />
+                <TransformOverlay canvasWidth={canvasWidth} canvasHeight={canvasHeight} scale={scale} viewport={previewViewport} displayOffset={{ x: offsetX, y: offsetY }} displayWidth={displayWidth} displayHeight={displayHeight} />
+
+                {/* Viewport controls */}
+                <ViewportControls canvasWidth={canvasWidth} canvasHeight={canvasHeight} containerWidth={dimensions.width} containerHeight={dimensions.height} />
 
                 {/* Hidden video elements for audio/video sync (ENGINE CLOCK IS MASTER). 
                     CRITICAL: Do NOT use width: 0, height: 0, or opacity: 0. 
@@ -1098,7 +1115,7 @@ const ProgramPreview: React.FC = () => {
 
         {/* Professional empty state - shows sequence context when no clips. Applied same width and height has canvas, so that it's always fit-in professionally*/}
         {clips.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none mx-auto" style={{ width: vw, height: vh }}>
+          <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none mx-auto" style={{ width: displayWidth, height: displayHeight }}>
             <div className="text-center space-y-3">
               <div className="text-sm font-medium text-text-muted">No clips in sequence</div>
               <div className="text-xs text-text-muted/80 space-y-1 font-mono">

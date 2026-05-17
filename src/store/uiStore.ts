@@ -48,6 +48,13 @@ interface UIStore {
   activeTransform: TransformState | null;
   transformMode: "select" | "transform" | null;
 
+  // Preview viewport state (editor-only, NOT exported)
+  previewViewport: {
+    zoom: number; // 0.1 to 5.0 (10% to 500%)
+    panX: number; // Canvas space offset
+    panY: number; // Canvas space offset
+  };
+
   selectClip: (clipId: string | null) => void;
   toggleClipSelection: (clipId: string) => void;
   clearSelection: () => void;
@@ -69,7 +76,16 @@ interface UIStore {
   updateTransform: (state: TransformState) => void;
   endTransform: () => void;
   setTransformMode: (mode: "select" | "transform" | null) => void;
+
+  // Preview viewport actions (editor-only zoom/pan)
+  setPreviewZoom: (zoom: number) => void;
+  setPreviewPan: (panX: number, panY: number) => void;
+  resetPreviewViewport: () => void;
+  zoomPreviewToFit: (canvasWidth: number, canvasHeight: number, viewportWidth: number, viewportHeight: number) => void;
 }
+
+const PREVIEW_ZOOM_MIN = 0.1;
+const PREVIEW_ZOOM_MAX = 5.0;
 
 export const useUIStore = create<UIStore>((set, get) => ({
   selectedClipIds: [],
@@ -89,6 +105,13 @@ export const useUIStore = create<UIStore>((set, get) => ({
   // Transform tool state
   activeTransform: null,
   transformMode: null,
+
+  // Preview viewport state (editor-only)
+  previewViewport: {
+    zoom: 1.0,
+    panX: 0,
+    panY: 0,
+  },
 
   selectClip: (clipId) => {
     set({ selectedClipIds: clipId ? [clipId] : [] });
@@ -184,5 +207,34 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   setTransformMode: (mode) => {
     set({ transformMode: mode });
+  },
+
+  // Preview viewport actions (editor-only zoom/pan)
+  setPreviewZoom: (zoom) => {
+    const clamped = Math.max(PREVIEW_ZOOM_MIN, Math.min(PREVIEW_ZOOM_MAX, zoom));
+    set((state) => ({
+      previewViewport: { ...state.previewViewport, zoom: clamped },
+    }));
+  },
+
+  setPreviewPan: (panX, panY) => {
+    set((state) => ({
+      previewViewport: { ...state.previewViewport, panX, panY },
+    }));
+  },
+
+  resetPreviewViewport: () => {
+    set({
+      previewViewport: { zoom: 1.0, panX: 0, panY: 0 },
+    });
+  },
+
+  zoomPreviewToFit: (canvasWidth, canvasHeight, viewportWidth, viewportHeight) => {
+    const scaleX = viewportWidth / canvasWidth;
+    const scaleY = viewportHeight / canvasHeight;
+    const zoom = Math.min(scaleX, scaleY, 1.0); // Never zoom in beyond 100%
+    set({
+      previewViewport: { zoom, panX: 0, panY: 0 },
+    });
   },
 }));

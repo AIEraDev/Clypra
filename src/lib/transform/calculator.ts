@@ -51,6 +51,14 @@ function handleMove(clip: Clip, delta: { x: number; y: number }, constraints: Tr
   let newX = clip.x + delta.x;
   let newY = clip.y + delta.y;
 
+  if (import.meta.env.DEV) {
+    console.log("[Transform Calculator] handleMove", {
+      clipPosition: { x: clip.x, y: clip.y },
+      delta,
+      calculatedNew: { x: newX, y: newY },
+    });
+  }
+
   // Constrain to canvas bounds (allow partial off-canvas)
   const minX = -clip.width * 0.5;
   const maxX = constraints.canvasWidth - clip.width * 0.5;
@@ -59,6 +67,13 @@ function handleMove(clip: Clip, delta: { x: number; y: number }, constraints: Tr
 
   newX = Math.max(minX, Math.min(maxX, newX));
   newY = Math.max(minY, Math.min(maxY, newY));
+
+  if (import.meta.env.DEV) {
+    console.log("[Transform Calculator] handleMove - after constraints", {
+      constraints: { minX, maxX, minY, maxY },
+      finalPosition: { x: newX, y: newY },
+    });
+  }
 
   return { x: newX, y: newY };
 }
