@@ -19,5 +19,22 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
     }
 
+    // FFmpeg static on Windows requires system libraries that vcpkg doesn't automatically pass downstream
+    #[cfg(target_os = "windows")]
+    {
+        println!("cargo:rustc-link-lib=strmiids");
+        println!("cargo:rustc-link-lib=ole32");
+        println!("cargo:rustc-link-lib=oleaut32");
+        println!("cargo:rustc-link-lib=uuid");
+        println!("cargo:rustc-link-lib=mfplat");
+        println!("cargo:rustc-link-lib=mfuuid");
+        println!("cargo:rustc-link-lib=secur32");
+        println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=bcrypt");
+        println!("cargo:rustc-link-lib=shlwapi");
+        println!("cargo:rustc-link-lib=advapi32");
+        println!("cargo:rustc-link-lib=mfreadwrite");
+    }
+
     tauri_build::build()
 }
