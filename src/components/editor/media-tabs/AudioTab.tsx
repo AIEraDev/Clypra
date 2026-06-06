@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Download, Eye, Loader2, Music2, Pause, Play, Plus, Search } from "lucide-react";
+import { AlertCircle, CheckCircle, Download, Eye, Loader2, Music2, Pause, Play, Plus, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip";
 import { AUDIO_LIBRARY_CATEGORIES, ClypraAudioApi, type AudioLibraryCategory, type AudioLibraryItem } from "@/features/audio-library/api/clypraAudioApi";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
@@ -67,7 +67,7 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
         {!loading && error && (
           <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300 flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
@@ -121,17 +121,6 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
       .catch(() => setIsPlaying(false));
   };
 
-  // Handle preview (download first, then open SourcePreview)
-  const handlePreview = async () => {
-    try {
-      await startDownload(item);
-      // TODO: Open SourcePreview with downloaded file
-      console.log("[AudioItem] Preview clicked - download completed");
-    } catch (error) {
-      console.error("[AudioItem] Preview failed:", error);
-    }
-  };
-
   // Handle add to timeline (download first, then add)
   const handleAddToTimeline = async () => {
     try {
@@ -147,47 +136,72 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
   const hasError = downloadState?.status === "error";
 
   return (
-    <div className="group flex items-center gap-3 p-2 bg-surface-raised hover:bg-surface-raised/80 rounded-lg transition-colors">
+    <div className="group flex items-center gap-3 p-2.5 hover:bg-surface-raised/60 rounded-lg transition-colors">
       {/* Hidden audio element for inline streaming */}
       <audio ref={audioRef} src={item.audioUrl} preload="none" onEnded={() => setIsPlaying(false)} onPause={() => setIsPlaying(false)} className="hidden" />
 
-      {/* Play button - streams directly */}
-      <button onClick={handleInlinePlay} disabled={isDownloading} className="w-10 h-10 flex items-center justify-center bg-accent/20 hover:bg-accent/30 rounded-lg transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
-        {isPlaying ? <Pause className="w-4 h-4 text-accent" /> : <Play className="w-4 h-4 text-accent" />}
+      {/* Cover Art with Play Overlay */}
+      <button onClick={handleInlinePlay} disabled={isDownloading} className="relative w-14 h-14 rounded-lg overflow-hidden shrink-0 bg-surface-raised border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed group/cover">
+        {item.coverArtUrl ? (
+          <img src={item.coverArtUrl} alt={item.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-accent/20 to-accent/10">
+            <Music2 className="w-6 h-6 text-accent/60" />
+          </div>
+        )}
+        {/* Play/Pause Overlay */}
+        <div className="absolute inset-0 bg-black/0 group-hover/cover:bg-black/60 transition-colors flex items-center justify-center">{isPlaying ? <Pause className="w-5 h-5 text-white opacity-0 group-hover/cover:opacity-100 transition-opacity" /> : <Play className="w-5 h-5 text-white opacity-0 group-hover/cover:opacity-100 transition-opacity" />}</div>
+        {/* Download Progress Indicator */}
+        {isDownloading && (
+          <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+            <Download className="w-4 h-4 text-accent animate-pulse" />
+          </div>
+        )}
       </button>
 
+      {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-text-primary truncate">{item.name}</p>
-        <p className="text-xs text-text-muted truncate">
-          {item.author} • {formatDuration(item.duration)}
-          {item.bpm ? ` • ${item.bpm} BPM` : ""}
-        </p>
-        <div className="flex items-center gap-2 mt-1">
-          <p className="text-[10px] uppercase tracking-wide text-text-muted/80">{item.license.type}</p>
-          {downloadState && <DownloadProgress state={downloadState} compact />}
+        <h4 className="text-sm font-medium text-text-primary truncate mb-0.5">{item.name}</h4>
+        <div className="flex items-center gap-1.5 text-xs text-text-muted">
+          <span className="truncate">{item.author}</span>
+          <span>•</span>
+          <span className="shrink-0">{formatDuration(item.duration)}</span>
         </div>
+        {/* Status Indicators */}
+        {(isDownloadedFlag || downloadState) && (
+          <div className="flex items-center gap-1.5 mt-1">
+            {isDownloadedFlag && !isDownloading && (
+              <span className="flex items-center gap-1 text-[10px] text-green-400/80">
+                <CheckCircle className="w-3 h-3" />
+                Cached
+              </span>
+            )}
+            {isDownloading && (
+              <span className="flex items-center gap-1 text-[10px] text-accent">
+                <Download className="w-3 h-3" />
+                {downloadState.progress}%
+              </span>
+            )}
+            {hasError && (
+              <span className="flex items-center gap-1 text-[10px] text-red-400">
+                <AlertCircle className="w-3 h-3" />
+                Failed
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
+      {/* Action Buttons */}
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={handlePreview} disabled={isDownloading} className="w-7 h-7 flex items-center justify-center hover:bg-surface-raised rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              <Eye className="w-4 h-4 text-text-primary" />
+            <button onClick={handleAddToTimeline} disabled={isDownloading} className="w-9 h-9 flex items-center justify-center hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {isDownloading ? <Download className="w-4 h-4 text-accent animate-pulse" /> : <Plus className="w-4 h-4 text-text-primary" />}
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">
-            <p>{isDownloadedFlag ? "Preview" : "Download & Preview"}</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={handleAddToTimeline} disabled={isDownloading} className="w-7 h-7 flex items-center justify-center hover:bg-surface-raised rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              <Plus className="w-4 h-4 text-text-primary" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{isDownloadedFlag ? "Add to Track" : "Download & Add"}</p>
+            <p>{isDownloadedFlag ? "Add to Timeline" : "Download & Add"}</p>
           </TooltipContent>
         </Tooltip>
       </div>
