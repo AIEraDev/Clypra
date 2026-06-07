@@ -386,7 +386,7 @@ export const SourcePreview: React.FC = () => {
               <video ref={videoRef} src={sourcePath} className="max-w-full max-h-full shadow-[0_0_40px_rgba(0,0,0,0.8)] ring-1 ring-white/10 bg-black" playsInline preload="auto" />
             )
           ) : sourceAsset.type === "image" ? (
-            <img src={sourcePath} alt={sourceAsset.name} className="max-w-full max-h-full rounded shadow-[0_0_40px_rgba(0,0,0,0.8)] ring-1 ring-white/10 bg-black object-contain" />
+            <img src={sourcePath} alt={sourceAsset.name} className="max-w-full max-h-full object-contain" />
           ) : sourceAsset.type === "text" ? (
             <TextSourcePreview preset={sourceTextPreset} />
           ) : (

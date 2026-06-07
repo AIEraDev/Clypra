@@ -248,12 +248,18 @@ async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanv
 
     // 2. Try to use pre-resolved resource
     if (layer.resourceHandle) {
+      console.log(`[Rasterizer DEBUG] Using resourceHandle ${layer.resourceHandle} for ${layer.mediaType} clip ${layer.clipId}`);
       const resourceCache = getResourceCache();
       const resource = resourceCache.get(layer.resourceHandle);
 
       if (resource && resource.data instanceof ImageBitmap) {
         imageBitmap = resource.data;
+        console.log(`[Rasterizer DEBUG] Got ImageBitmap ${imageBitmap.width}x${imageBitmap.height} from cache`);
+      } else {
+        console.warn(`[Rasterizer DEBUG] Resource handle ${layer.resourceHandle} not found or not ImageBitmap`);
       }
+    } else if (layer.mediaType === "image") {
+      console.warn(`[Rasterizer DEBUG] No resourceHandle for image clip ${layer.clipId}, falling back to fetch`);
     }
 
     // Fallback: load on-demand (legacy path, should be avoided)
