@@ -154,46 +154,57 @@ export const EditorLayout: React.FC = () => {
         return;
       }
 
-      // Use local cached file path
-      const mediaAsset: MediaAsset = {
-        id: `audio-library-${item.id}`,
-        name: item.name || "Library Audio",
-        path: cachedFile.localPath, // Use local cached file path
-        type: "audio",
-        duration: cachedFile.metadata.duration || Number(item.duration) || 5,
-        size: cachedFile.size,
-        coverArt: item.coverArtUrl,
-      };
+      // Convert relative cache path to absolute path
+      // cachedFile.localPath is relative to AppCache (e.g., "audio-library/filename.wav")
+      (async () => {
+        const { appCacheDir } = await import("@tauri-apps/api/path");
+        const { join } = await import("@tauri-apps/api/path");
+        const appCache = await appCacheDir();
+        const absolutePath = await join(appCache, cachedFile.localPath);
 
-      addMediaAsset(mediaAsset);
+        // Use local cached file path
+        const mediaAsset: MediaAsset = {
+          id: `audio-library-${item.id}`,
+          name: item.name || "Library Audio",
+          path: absolutePath, // Use absolute path for media playback
+          type: "audio",
+          duration: cachedFile.metadata.duration || Number(item.duration) || 5,
+          size: cachedFile.size,
+          coverArt: item.coverArtUrl,
+        };
 
-      const latestTracks = useTimelineStore.getState().tracks;
-      const latestClips = useTimelineStore.getState().clips;
-      const placement = resolveAddToTimelinePlacement({
-        asset: mediaAsset,
-        tracks: latestTracks,
-        clips: latestClips,
-        playheadTime: getPlaybackClock().time,
-        sequenceEndTime: getTimelineEndTime(),
-      });
-      let targetTrackId = placement.targetTrackId;
-      if (placement.shouldCreateTrack || !targetTrackId) {
-        const insertIndex = getInsertIndexForNewTrack(useTimelineStore.getState().tracks, "audio");
-        targetTrackId = insertTrackAt("audio", insertIndex);
-      }
+        addMediaAsset(mediaAsset);
 
-      if (!targetTrackId) return;
-
-      addClip(
-        createClipFromAsset({
+        const latestTracks = useTimelineStore.getState().tracks;
+        const latestClips = useTimelineStore.getState().clips;
+        const placement = resolveAddToTimelinePlacement({
           asset: mediaAsset,
-          trackId: targetTrackId,
-          startTime: placement.startTime,
-          width: project?.canvasWidth || 1920,
-          height: project?.canvasHeight || 1080,
-          fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-        }),
-      );
+          tracks: latestTracks,
+          clips: latestClips,
+          playheadTime: getPlaybackClock().time,
+          sequenceEndTime: getTimelineEndTime(),
+        });
+        let targetTrackId = placement.targetTrackId;
+        if (placement.shouldCreateTrack || !targetTrackId) {
+          const insertIndex = getInsertIndexForNewTrack(useTimelineStore.getState().tracks, "audio");
+          targetTrackId = insertTrackAt("audio", insertIndex);
+        }
+
+        if (!targetTrackId) return;
+
+        addClip(
+          createClipFromAsset({
+            asset: mediaAsset,
+            trackId: targetTrackId,
+            startTime: placement.startTime,
+            width: project?.canvasWidth || 1920,
+            height: project?.canvasHeight || 1080,
+            fitMode: resolveDefaultFitModeForAsset(mediaAsset),
+          }),
+        );
+      })().catch((error) => {
+        console.error("[EditorLayout] Failed to add audio to timeline:", error);
+      });
     } else if (type === "transitions") {
       const selectedPair = selectedClipIds.length === 2 ? ([selectedClipIds[0], selectedClipIds[1]] as const) : null;
       const pair = selectedPair ?? findAdjacentClipsAtPlayhead();

@@ -384,8 +384,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
       traceSelect("transform mousemove", { clipId: activeTransform.clipId, handle: activeTransform.handle, x: newTransform.x, y: newTransform.y, width: newTransform.width, height: newTransform.height });
 
-      // Optimistic update (no history yet)
-      updateClip(activeTransform.clipId, newTransform);
+      // Optimistic preview update - skip epoch increment to avoid cache thrashing
+      // The final mouseup will commit to history which properly increments epoch
+      updateClip(activeTransform.clipId, { ...newTransform, _skipEpochIncrement: true } as any);
     },
     [isDragging, activeTransform, scale, viewport, canvasWidth, canvasHeight, updateClip],
   );

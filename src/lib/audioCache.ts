@@ -170,9 +170,11 @@ class AudioCacheManager {
       const ext = getFileExtension(item.audioUrl);
       const sanitizedName = sanitizeFileName(item.name);
       const fileName = `${item.id}_${sanitizedName}.${ext}`;
-      const filePath = await join(this.cacheDir, fileName);
 
-      console.log("[AudioCache] Downloading:", item.audioUrl, "->", filePath);
+      // Use relative path for storage (just CACHE_DIR/filename)
+      const relativePath = `${CACHE_DIR}/${fileName}`;
+
+      console.log("[AudioCache] Downloading:", item.audioUrl, "->", relativePath);
 
       // Download file with progress tracking
       const response = await fetch(item.audioUrl);
@@ -218,13 +220,13 @@ class AudioCacheManager {
         offset += chunk.length;
       }
 
-      // Write to disk
-      await writeFile(filePath, fileData, { baseDir: BaseDirectory.AppCache });
+      // Write to disk using relative path from AppCache base
+      await writeFile(relativePath, fileData, { baseDir: BaseDirectory.AppCache });
 
-      // Create cache entry
+      // Create cache entry with relative path
       const cachedFile: CachedAudioFile = {
         id: item.id,
-        localPath: filePath,
+        localPath: relativePath, // Store relative path, not absolute
         originalUrl: item.audioUrl,
         fileName,
         size: loaded,

@@ -134,11 +134,16 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
       // Download if not already cached
       const cachedFile = await startDownload(item);
 
+      // Convert relative cache path to absolute path for the webview
+      // cachedFile.localPath is relative to AppCache (e.g., "audio-library/filename.wav")
+      const appCache = await import("@tauri-apps/api/path").then((m) => m.appCacheDir());
+      const absolutePath = await import("@tauri-apps/api/path").then((m) => m.join(appCache, cachedFile.localPath));
+
       // Create MediaAsset from cached file
       const mediaAsset: MediaAsset = {
         id: `audio-library-${item.id}`,
         name: item.name || "Library Audio",
-        path: cachedFile.localPath,
+        path: absolutePath, // Use absolute path for media playback
         type: "audio",
         duration: cachedFile.metadata.duration || item.duration,
         size: cachedFile.size,
@@ -151,7 +156,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
       // Open in SourcePreview
       previewAsset(mediaAsset);
 
-      console.log("[AudioItem] Preview opened with cached file:", cachedFile.localPath);
+      console.log("[AudioItem] Preview opened with cached file:", absolutePath);
     } catch (error) {
       console.error("[AudioItem] Preview failed:", error);
     }

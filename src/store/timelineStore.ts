@@ -300,79 +300,79 @@ export const useTimelineStore = create<TimelineStore>(
         }
         return next;
       });
-	    },
+    },
 
-	    addTransition: (transition) => {
-	      set((state) => {
-	        const next: Partial<TimelineStore> = {
-	          transitions: [...state.transitions.filter((t) => t.id !== transition.id), transition],
-	        };
-	        if (state._batchDepth > 0) {
-	          next._pendingEpochIncrement = true;
-	        } else {
-	          next.epoch = state.epoch + 1;
-	        }
-	        return next;
-	      });
-	    },
+    addTransition: (transition) => {
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          transitions: [...state.transitions.filter((t) => t.id !== transition.id), transition],
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
 
-	    removeTransition: (transitionId) => {
-	      set((state) => {
-	        const next: Partial<TimelineStore> = {
-	          transitions: state.transitions.filter((transition) => transition.id !== transitionId),
-	        };
-	        if (state._batchDepth > 0) {
-	          next._pendingEpochIncrement = true;
-	        } else {
-	          next.epoch = state.epoch + 1;
-	        }
-	        return next;
-	      });
-	    },
+    removeTransition: (transitionId) => {
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          transitions: state.transitions.filter((transition) => transition.id !== transitionId),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
 
-	    createTransitionBetweenClips: (fromClipId, toClipId, type, duration = 0.5) => {
-	      const state = get();
-	      const fromClip = state.clips.find((clip) => clip.id === fromClipId);
-	      const toClip = state.clips.find((clip) => clip.id === toClipId);
-	      if (!fromClip || !toClip) return { error: "Select two clips to add a transition" };
-	      if (fromClip.trackId !== toClip.trackId) return { error: "Transitions require two clips on the same track" };
+    createTransitionBetweenClips: (fromClipId, toClipId, type, duration = 0.5) => {
+      const state = get();
+      const fromClip = state.clips.find((clip) => clip.id === fromClipId);
+      const toClip = state.clips.find((clip) => clip.id === toClipId);
+      if (!fromClip || !toClip) return { error: "Select two clips to add a transition" };
+      if (fromClip.trackId !== toClip.trackId) return { error: "Transitions require two clips on the same track" };
 
-	      const track = state.tracks.find((t) => t.id === fromClip.trackId);
-	      if (!track) return { error: "Transition track was not found" };
-	      if (track.locked) return { error: "Unlock the track before adding a transition" };
-	      if (track.type === "audio") return { error: "Visual transitions can only be added to video or text tracks" };
+      const track = state.tracks.find((t) => t.id === fromClip.trackId);
+      if (!track) return { error: "Transition track was not found" };
+      if (track.locked) return { error: "Unlock the track before adding a transition" };
+      if (track.type === "audio") return { error: "Visual transitions can only be added to video or text tracks" };
 
-	      const [left, right] = fromClip.startTime <= toClip.startTime ? [fromClip, toClip] : [toClip, fromClip];
-	      const leftEnd = left.startTime + left.duration;
-	      const gap = right.startTime - leftEnd;
-	      if (gap > 0.001) return { error: "Move clips together before adding a transition" };
-	      if (left.duration < duration / 2 || right.duration < duration / 2) return { error: "Clips are too short for this transition" };
+      const [left, right] = fromClip.startTime <= toClip.startTime ? [fromClip, toClip] : [toClip, fromClip];
+      const leftEnd = left.startTime + left.duration;
+      const gap = right.startTime - leftEnd;
+      if (gap > 0.001) return { error: "Move clips together before adding a transition" };
+      if (left.duration < duration / 2 || right.duration < duration / 2) return { error: "Clips are too short for this transition" };
 
-	      const transitionStart = Math.max(0, leftEnd - duration / 2);
-	      const transition: TransitionTimelineItem = {
-	        id: generateId("transition"),
-	        kind: "transition",
-	        type,
-	        fromItemId: left.id,
-	        toItemId: right.id,
-	        alignment: "center",
-	        easing: "easeInOut",
-	        placement: {
-	          trackId: left.trackId,
-	          startTime: transitionStart,
-	          duration,
-	          role: "effect",
-	          zIndex: Number.MAX_SAFE_INTEGER,
-	        },
-	        effects: { effects: [], version: 0 },
-	        metadata: {
-	          createdFrom: "transitions-panel",
-	        },
-	      };
+      const transitionStart = Math.max(0, leftEnd - duration / 2);
+      const transition: TransitionTimelineItem = {
+        id: generateId("transition"),
+        kind: "transition",
+        type,
+        fromItemId: left.id,
+        toItemId: right.id,
+        alignment: "center",
+        easing: "easeInOut",
+        placement: {
+          trackId: left.trackId,
+          startTime: transitionStart,
+          duration,
+          role: "effect",
+          zIndex: Number.MAX_SAFE_INTEGER,
+        },
+        effects: { effects: [], version: 0 },
+        metadata: {
+          createdFrom: "transitions-panel",
+        },
+      };
 
-	      get().addTransition(transition);
-	      return { transition, error: null };
-	    },
+      get().addTransition(transition);
+      return { transition, error: null };
+    },
 
     updateClip: (clipId, updates) => {
       set((state) => {
@@ -402,6 +402,13 @@ export const useTimelineStore = create<TimelineStore>(
             return { ...c, ...updates };
           }),
         };
+        // Skip epoch increment during transform preview (high-frequency updates)
+        // The final mouseup will commit to history which will increment epoch properly
+        const isTransformPreview = "_skipEpochIncrement" in updates && (updates as any)._skipEpochIncrement;
+        if (isTransformPreview) {
+          // Don't increment epoch for preview updates
+          return next;
+        }
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
         } else {
@@ -467,17 +474,25 @@ export const useTimelineStore = create<TimelineStore>(
 
       // Case: different tracks — simple position + track swap
       if (clipA.trackId !== clipB.trackId) {
-        set((state) => ({
-          clips: state.clips.map((c) => {
-            if (c.id === clipA.id) {
-              return { ...c, startTime: clipB.startTime, trackId: clipB.trackId };
-            }
-            if (c.id === clipB.id) {
-              return { ...c, startTime: clipA.startTime, trackId: clipA.trackId };
-            }
-            return c;
-          }),
-        }));
+        set((state) => {
+          const next: Partial<TimelineStore> = {
+            clips: state.clips.map((c) => {
+              if (c.id === clipA.id) {
+                return { ...c, startTime: clipB.startTime, trackId: clipB.trackId };
+              }
+              if (c.id === clipB.id) {
+                return { ...c, startTime: clipA.startTime, trackId: clipA.trackId };
+              }
+              return c;
+            }),
+          };
+          if (state._batchDepth > 0) {
+            next._pendingEpochIncrement = true;
+          } else {
+            next.epoch = state.epoch + 1;
+          }
+          return next;
+        });
 
         return { error: null };
       }
@@ -508,13 +523,21 @@ export const useTimelineStore = create<TimelineStore>(
         return { error: "Not enough space to swap — clips would overlap" };
       }
 
-      set((state) => ({
-        clips: state.clips.map((c) => {
-          if (c.id === left.id) return { ...c, startTime: newRightStart };
-          if (c.id === right.id) return { ...c, startTime: newLeftStart };
-          return c;
-        }),
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          clips: state.clips.map((c) => {
+            if (c.id === left.id) return { ...c, startTime: newRightStart };
+            if (c.id === right.id) return { ...c, startTime: newLeftStart };
+            return c;
+          }),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
 
       return { error: null };
     },
@@ -610,39 +633,47 @@ export const useTimelineStore = create<TimelineStore>(
         .sort((a, b) => a.startTime - b.startTime);
 
       // Update the trimmed clip and all downstream clips
-      set((state) => ({
-        clips: state.clips.map((c) => {
-          if (c.id === clipId) {
-            // Update the clip being trimmed
-            const updates: Partial<Clip> = {
-              startTime: newStartTime,
-              duration: newDuration,
-            };
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          clips: state.clips.map((c) => {
+            if (c.id === clipId) {
+              // Update the clip being trimmed
+              const updates: Partial<Clip> = {
+                startTime: newStartTime,
+                duration: newDuration,
+              };
 
-            // Update trim points for media
-            if (side === "left") {
-              updates.trimIn = clip.trimIn + (newStartTime - clip.startTime);
-              updates.duration = clip.trimOut - updates.trimIn;
-            } else {
-              updates.trimOut = Math.min(clip.trimIn + newDuration, mediaDurationBound);
-              updates.duration = updates.trimOut - clip.trimIn;
+              // Update trim points for media
+              if (side === "left") {
+                updates.trimIn = clip.trimIn + (newStartTime - clip.startTime);
+                updates.duration = clip.trimOut - updates.trimIn;
+              } else {
+                updates.trimOut = Math.min(clip.trimIn + newDuration, mediaDurationBound);
+                updates.duration = updates.trimOut - clip.trimIn;
+              }
+
+              return { ...c, ...updates };
             }
 
-            return { ...c, ...updates };
-          }
+            // Shift downstream clips
+            const downstream = downstreamClips.find((dc) => dc.id === c.id);
+            if (downstream) {
+              return {
+                ...c,
+                startTime: c.startTime + rippleAmount,
+              };
+            }
 
-          // Shift downstream clips
-          const downstream = downstreamClips.find((dc) => dc.id === c.id);
-          if (downstream) {
-            return {
-              ...c,
-              startTime: c.startTime + rippleAmount,
-            };
-          }
-
-          return c;
-        }),
-      }));
+            return c;
+          }),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
     },
 
     // Sequence-based operations for gap engine
@@ -671,12 +702,20 @@ export const useTimelineStore = create<TimelineStore>(
       });
 
       // Update state with normalized positions
-      set((state) => ({
-        clips: state.clips.map((c) => {
-          const updated = updatedClips.find((uc) => uc.id === c.id);
-          return updated || c;
-        }),
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          clips: state.clips.map((c) => {
+            const updated = updatedClips.find((uc) => uc.id === c.id);
+            return updated || c;
+          }),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
     },
 
     normalizeTrack: (trackId) => {
@@ -690,12 +729,20 @@ export const useTimelineStore = create<TimelineStore>(
         return updated;
       });
 
-      set((state) => ({
-        clips: state.clips.map((c) => {
-          const norm = normalized.find((n) => n.id === c.id);
-          return norm || c;
-        }),
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          clips: state.clips.map((c) => {
+            const norm = normalized.find((n) => n.id === c.id);
+            return norm || c;
+          }),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
     },
 
     removeEmptyNonMainTracks: (candidateTrackIds) => {
