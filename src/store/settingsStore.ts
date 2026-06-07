@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { changeLanguage } from "@/i18n";
 
 export type Theme = "dark" | "midnight" | "ocean" | "forest" | "custom";
 export type FontFamily = "inter" | "montserrat" | "geist" | "outfit" | "roboto" | "space-grotesk" | "system" | "mono";
+export type Language = "en" | "ja" | "zh-CN";
 export type FrameRate = 24 | 30 | 60;
 export type PreviewQuality = "full" | "high" | "medium" | "low";
 
@@ -10,9 +12,11 @@ interface SettingsStore {
   // Appearance
   theme: Theme;
   fontFamily: FontFamily;
+  language: Language;
   customTheme: Record<string, string> | null;
   setTheme: (theme: Theme) => void;
   setFontFamily: (fontFamily: FontFamily) => void;
+  setLanguage: (language: Language) => Promise<void>;
   setCustomTheme: (colors: Record<string, string>) => void;
   resetCustomTheme: () => void;
   // Editor
@@ -33,6 +37,7 @@ export const useSettingsStore = create<SettingsStore>()(
     (set, get) => ({
       theme: "dark",
       fontFamily: "inter",
+      language: "en",
       customTheme: null,
       snapToGrid: true,
       autoRipple: false,
@@ -47,7 +52,16 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setFontFamily: (fontFamily) => {
         set({ fontFamily });
-        applyFontFamily(fontFamily);
+        applyFontFamily(fontFamily, get().language);
+      },
+
+      setLanguage: async (language) => {
+        // Update selected state immediately so the UI reflects the choice
+        // while the (async) language chunk loads.
+        set({ language });
+        await changeLanguage(language);
+        // Re-apply the font so CJK fallbacks are added/removed as needed.
+        applyFontFamily(get().fontFamily, language);
       },
 
       setCustomTheme: (colors) => {
@@ -71,7 +85,7 @@ export const useSettingsStore = create<SettingsStore>()(
       onRehydrateStorage: () => (state) => {
         if (state) {
           applyTheme(state.theme, state.customTheme);
-          applyFontFamily(state.fontFamily);
+          applyFontFamily(state.fontFamily, state.language);
         }
       },
     },
@@ -417,18 +431,31 @@ export function applyTheme(theme: Theme, customColors?: Record<string, string> |
   });
 }
 
-export function applyFontFamily(fontFamily: FontFamily) {
+// CJK fallback fonts appended to the active font stack when a CJK language is
+// selected, so Latin-only fonts (e.g. Inter) don't render missing glyphs.
+const CJK_FALLBACK = '"PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
+
+function fontStackForLanguage(fontFamily: FontFamily, language: Language): string {
+  const base = fontFamilies[fontFamily];
+  if (language === "ja" || language === "zh-CN") {
+    return `${base}, ${CJK_FALLBACK}`;
+  }
+  return base;
+}
+
+export function applyFontFamily(fontFamily: FontFamily, language: Language = "en") {
   const root = document.documentElement;
-  root.style.setProperty("--font-sans", fontFamilies[fontFamily]);
+  const stack = fontStackForLanguage(fontFamily, language);
+  root.style.setProperty("--font-sans", stack);
   if (document.body) {
-    document.body.style.fontFamily = fontFamilies[fontFamily];
+    document.body.style.fontFamily = stack;
   }
 }
 
 export function initSettings() {
   const state = useSettingsStore.getState();
   applyTheme(state.theme, state.customTheme);
-  applyFontFamily(state.fontFamily);
+  applyFontFamily(state.fontFamily, state.language);
 }
 
 /** Get all color variable names for theme editor */

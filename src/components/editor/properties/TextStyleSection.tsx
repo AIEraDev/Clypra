@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Type, AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { normalizeFontFamily } from "@/core/evaluation/evaluator";
@@ -20,6 +21,7 @@ interface TextStyleSectionProps {
 }
 
 export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, presets, newPresetName, setNewPresetName, handleUpdate, handleUpdateMultiple, handleApplyPreset, savePreset, deletePreset }) => {
+  const { t } = useTranslation();
   // Quick switch text effects
   const applyEffectPreset = (effect: TextEffectDefinition) => {
     handleUpdateMultiple({
@@ -57,13 +59,13 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
     <div className="space-y-5">
       {/* Text Editor Box */}
       <div>
-        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">Text Content</label>
+        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">{t("properties.text.content")}</label>
         <textarea value={textClip.text || ""} onChange={(e) => handleUpdate("text", e.target.value)} rows={3} placeholder={effectDefinition?.text || "CLYPRA"} className="w-full bg-surface-raised border border-border/80 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent resize-none selectable" />
       </div>
 
       {/* Style Presets Library */}
       <div>
-        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2 select-none">Style Presets</label>
+        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2 select-none">{t("properties.text.stylePresets")}</label>
 
         <div className="space-y-3 p-3 bg-surface-raised/20 border border-border/40 rounded-xl">
           {/* Horizontal preset selection carousel */}
@@ -97,7 +99,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
           {/* Save Current Style as Preset */}
           <div className="flex items-center gap-2 pt-2 border-t border-border/30">
-            <input type="text" value={newPresetName} onChange={(e) => setNewPresetName(e.target.value)} placeholder="Custom style name..." className="flex-1 min-w-0 bg-surface-raised border border-border/80 rounded px-2 py-1 text-xs text-text-primary outline-none focus:border-accent" />
+            <input type="text" value={newPresetName} onChange={(e) => setNewPresetName(e.target.value)} placeholder={t("properties.text.customStyleNamePlaceholder")} className="flex-1 min-w-0 bg-surface-raised border border-border/80 rounded px-2 py-1 text-xs text-text-primary outline-none focus:border-accent" />
             <Button
               size="sm"
               variant="secondary"
@@ -123,7 +125,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
               }}
             >
               <Save className="w-3.5 h-3.5" />
-              Save
+              {t("properties.text.save")}
             </Button>
           </div>
         </div>
@@ -131,14 +133,14 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
       {/* Typography Options */}
       <div>
-        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2 select-none">Typography</label>
+        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2 select-none">{t("properties.text.typography")}</label>
 
         <div className="space-y-3 p-3 bg-surface-raised/20 border border-border/40 rounded-xl">
           {/* Font Family Select */}
           <div>
-            <label className="text-[10px] text-text-muted block mb-1 select-none">Font Family</label>
+            <label className="text-[10px] text-text-muted block mb-1 select-none">{t("properties.text.fontFamily")}</label>
             <select value={normalizeFontFamily(textClip.fontFamily || "Inter Variable")} onChange={(e) => handleUpdate("fontFamily", e.target.value)} className="w-full bg-surface-raised border border-border rounded px-2.5 py-1.5 text-xs text-text-primary outline-none">
-              <optgroup label="System Fonts">
+              <optgroup label={t("properties.text.fontGroups.system")}>
                 <option value="Arial">Arial</option>
                 <option value="Arial Black">Arial Black</option>
                 <option value="Arial Rounded MT Bold">Arial Rounded MT Bold</option>
@@ -150,7 +152,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                 <option value="Trebuchet MS">Trebuchet MS</option>
                 <option value="Palatino">Palatino</option>
               </optgroup>
-              <optgroup label="Google Web Fonts">
+              <optgroup label={t("properties.text.fontGroups.google")}>
                 <option value="Inter Variable">Inter</option>
                 <option value="Geist Variable">Geist</option>
                 <option value="Outfit Variable">Outfit</option>
@@ -179,7 +181,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
           {/* Font Size slider */}
           <div>
             <div className="flex justify-between items-center text-[10px] text-text-muted mb-1 select-none">
-              <span>Font Size</span>
+              <span>{t("properties.text.fontSize")}</span>
               <span className="font-mono text-text-primary">{textClip.fontSize}px</span>
             </div>
             <div className="flex items-center gap-2">
@@ -192,7 +194,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
           <div className="grid grid-cols-2 gap-3 pt-1">
             {/* Style buttons */}
             <div className="space-y-1">
-              <label className="text-[9px] text-text-muted block select-none">Font Style</label>
+              <label className="text-[9px] text-text-muted block select-none">{t("properties.text.fontStyle")}</label>
               <div className="flex gap-1 bg-surface-raised border border-border/60 p-0.5 rounded">
                 <button onClick={() => handleUpdate("fontWeight", textClip.fontWeight === "bold" ? "normal" : "bold")} className={`flex-1 py-1 rounded text-xs font-bold transition-all ${textClip.fontWeight === "bold" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary"}`}>
                   B
@@ -205,7 +207,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
             {/* Alignment buttons */}
             <div className="space-y-1">
-              <label className="text-[9px] text-text-muted block select-none">Horizontal Align</label>
+              <label className="text-[9px] text-text-muted block select-none">{t("properties.text.horizontalAlign")}</label>
               <div className="flex gap-1 bg-surface-raised border border-border/60 p-0.5 rounded">
                 <button onClick={() => handleUpdate("align", "left")} className={`flex-1 py-1 rounded flex items-center justify-center transition-all ${textClip.align === "left" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary"}`}>
                   <AlignLeft className="w-3.5 h-3.5" />
@@ -224,7 +226,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
           <div className="grid grid-cols-2 gap-3">
             {/* Vertical align */}
             <div className="space-y-1">
-              <label className="text-[9px] text-text-muted block select-none">Vertical Align</label>
+              <label className="text-[9px] text-text-muted block select-none">{t("properties.text.verticalAlign")}</label>
               <div className="flex gap-1 bg-surface-raised border border-border/60 p-0.5 rounded">
                 <button onClick={() => handleUpdate("valign", "top")} className={`flex-1 py-1 rounded flex items-center justify-center transition-all ${textClip.valign === "top" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary"}`}>
                   <AlignStartVertical className="w-3.5 h-3.5" />
@@ -240,7 +242,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
             {/* Letter spacing */}
             <div className="space-y-1">
-              <label className="text-[9px] text-text-muted block select-none">Letter Spacing ({textClip.letterSpacing || 0}px)</label>
+              <label className="text-[9px] text-text-muted block select-none">{t("properties.text.letterSpacing", { n: textClip.letterSpacing || 0 })}</label>
               <input type="number" value={textClip.letterSpacing || 0} onChange={(e) => handleUpdate("letterSpacing", Number(e.target.value))} className="w-full bg-surface-raised border border-border rounded py-1 px-2 text-center text-xs text-text-primary outline-none" />
             </div>
           </div>
@@ -249,13 +251,13 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
       {/* Visual Styling Customizers */}
       <div>
-        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2 select-none">Style Customizers</label>
+        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2 select-none">{t("properties.text.styleCustomizers")}</label>
 
         <div className="space-y-3.5 p-3.5 bg-surface-raised/20 border border-border/40 rounded-xl">
           {/* Solid Text Color */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-text-primary select-none font-medium">Text Color</span>
+              <span className="text-xs text-text-primary select-none font-medium">{t("properties.text.textColor")}</span>
               <div className="flex items-center gap-2">
                 {/* Linear Gradients Quick Selectors */}
                 <select
@@ -267,10 +269,10 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                   }}
                   className="bg-surface-raised border border-border rounded text-[10px] py-1 px-1.5 text-text-muted outline-none"
                 >
-                  <option value="solid">Solid Color</option>
-                  <option value="#ffe066, #b38600">Gold Gradient</option>
-                  <option value="#ff3e00, #ff0077, #aa00ff">Sunset Gradient</option>
-                  <option value="#ff007f, #aa00ff, #00c8ff, #00ff66">Rainbow Gradient</option>
+                  <option value="solid">{t("properties.text.gradients.solid")}</option>
+                  <option value="#ffe066, #b38600">{t("properties.text.gradients.gold")}</option>
+                  <option value="#ff3e00, #ff0077, #aa00ff">{t("properties.text.gradients.sunset")}</option>
+                  <option value="#ff007f, #aa00ff, #00c8ff, #00ff66">{t("properties.text.gradients.rainbow")}</option>
                 </select>
                 <input type="color" value={(textClip.color || "#ffffff").includes(",") ? "#ffffff" : textClip.color || "#ffffff"} onChange={(e) => handleUpdate("color", e.target.value)} className="w-7 h-7 bg-transparent border-0 cursor-pointer rounded overflow-hidden" />
               </div>
@@ -279,26 +281,26 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
             {/* Quick Color Palette circles */}
             <div className="flex flex-wrap gap-1.5 pt-1 justify-start">
               {[
-                { label: "White", value: "#ffffff" },
-                { label: "Black", value: "#1a1a1a" },
-                { label: "Yellow", value: "#ffcc00" },
-                { label: "Red", value: "#ff3b30" },
-                { label: "Pink", value: "#ff2d55" },
-                { label: "Purple", value: "#af52de" },
-                { label: "Blue", value: "#007aff" },
-                { label: "Teal", value: "#00f0ff" },
-                { label: "Green", value: "#34c759" },
-                { label: "Gold", value: "#ffe066, #b38600" },
-                { label: "Sunset", value: "#ff3e00, #ff0077, #aa00ff" },
-                { label: "Ocean", value: "#00c8ff, #00ff66" },
-                { label: "Rainbow", value: "#ff007f, #aa00ff, #00c8ff, #00ff66" },
+                { labelKey: "white", value: "#ffffff" },
+                { labelKey: "black", value: "#1a1a1a" },
+                { labelKey: "yellow", value: "#ffcc00" },
+                { labelKey: "red", value: "#ff3b30" },
+                { labelKey: "pink", value: "#ff2d55" },
+                { labelKey: "purple", value: "#af52de" },
+                { labelKey: "blue", value: "#007aff" },
+                { labelKey: "teal", value: "#00f0ff" },
+                { labelKey: "green", value: "#34c759" },
+                { labelKey: "gold", value: "#ffe066, #b38600" },
+                { labelKey: "sunset", value: "#ff3e00, #ff0077, #aa00ff" },
+                { labelKey: "ocean", value: "#00c8ff, #00ff66" },
+                { labelKey: "rainbow", value: "#ff007f, #aa00ff, #00c8ff, #00ff66" },
               ].map((p, idx) => {
                 const isGrad = p.value.includes(",");
                 const style: React.CSSProperties = isGrad ? { background: `linear-gradient(135deg, ${p.value})` } : { backgroundColor: p.value };
 
                 const isSelected = textClip.color === p.value;
 
-                return <button key={idx} onClick={() => handleUpdate("color", p.value)} className={`w-6 h-6 rounded-full border cursor-pointer hover:scale-110 active:scale-95 transition-all focus:outline-none ${isSelected ? "border-accent ring-2 ring-accent/30 scale-105" : "border-border/60 hover:border-text-primary"}`} style={style} title={p.label} />;
+                return <button key={idx} onClick={() => handleUpdate("color", p.value)} className={`w-6 h-6 rounded-full border cursor-pointer hover:scale-110 active:scale-95 transition-all focus:outline-none ${isSelected ? "border-accent ring-2 ring-accent/30 scale-105" : "border-border/60 hover:border-text-primary"}`} style={style} title={t(`properties.text.colors.${p.labelKey}`)} />;
               })}
             </div>
           </div>
@@ -306,7 +308,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
           {/* Stroke / Outline options */}
           <div className="border-t border-border/40 pt-3 space-y-2">
             <div className="flex items-center justify-between select-none">
-              <span className="text-xs text-text-primary font-medium">Outline / Stroke</span>
+              <span className="text-xs text-text-primary font-medium">{t("properties.text.outlineStroke")}</span>
               <input
                 type="checkbox"
                 checked={!!textClip.stroke}
@@ -324,7 +326,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
             {textClip.stroke && (
               <div className="space-y-2.5 p-2.5 bg-surface-raised/40 border border-border/40 rounded-lg">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-muted">Color</span>
+                  <span className="text-[10px] text-text-muted">{t("properties.text.color")}</span>
                   <div className="flex items-center gap-2">
                     {/* Quick Stroke Colors */}
                     <div className="flex gap-1">
@@ -337,7 +339,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                 </div>
                 <div>
                   <div className="flex justify-between text-[9px] text-text-muted mb-1 select-none">
-                    <span>Thickness</span>
+                    <span>{t("properties.text.thickness")}</span>
                     <span>{textClip.stroke.width}px</span>
                   </div>
                   <input type="range" min="1" max="15" value={textClip.stroke.width} onChange={(e) => handleUpdate("stroke", { ...textClip.stroke, width: Number(e.target.value) })} className="w-full accent-accent" />
@@ -349,7 +351,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
           {/* Outer Glow / Shadow */}
           <div className="border-t border-border/40 pt-3 space-y-2">
             <div className="flex items-center justify-between select-none">
-              <span className="text-xs text-text-primary font-medium">Outer Glow / Shadow</span>
+              <span className="text-xs text-text-primary font-medium">{t("properties.text.outerGlowShadow")}</span>
               <input
                 type="checkbox"
                 checked={!!textClip.shadow}
@@ -367,7 +369,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
             {textClip.shadow && (
               <div className="space-y-2.5 p-2.5 bg-surface-raised/40 border border-border/40 rounded-lg">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-muted">Glow Color</span>
+                  <span className="text-[10px] text-text-muted">{t("properties.text.glowColor")}</span>
                   <div className="flex items-center gap-2">
                     {/* Quick Glow Colors */}
                     <div className="flex gap-1">
@@ -381,7 +383,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
                 <div>
                   <div className="flex justify-between text-[9px] text-text-muted mb-1 select-none">
-                    <span>Blur Radius</span>
+                    <span>{t("properties.text.blurRadius")}</span>
                     <span>{textClip.shadow.blur}px</span>
                   </div>
                   <input type="range" min="1" max="30" value={textClip.shadow.blur} onChange={(e) => handleUpdate("shadow", { ...textClip.shadow, blur: Number(e.target.value) })} className="w-full accent-accent" />
@@ -389,11 +391,11 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-[9px] text-text-muted block mb-0.5 select-none">Offset X</label>
+                    <label className="text-[9px] text-text-muted block mb-0.5 select-none">{t("properties.text.offsetX")}</label>
                     <input type="number" value={textClip.shadow.offsetX} onChange={(e) => handleUpdate("shadow", { ...textClip.shadow, offsetX: Number(e.target.value) })} className="w-full bg-surface-raised border border-border text-center rounded py-0.5 text-xs text-text-primary outline-none" />
                   </div>
                   <div>
-                    <label className="text-[9px] text-text-muted block mb-0.5 select-none">Offset Y</label>
+                    <label className="text-[9px] text-text-muted block mb-0.5 select-none">{t("properties.text.offsetY")}</label>
                     <input type="number" value={textClip.shadow.offsetY} onChange={(e) => handleUpdate("shadow", { ...textClip.shadow, offsetY: Number(e.target.value) })} className="w-full bg-surface-raised border border-border text-center rounded py-0.5 text-xs text-text-primary outline-none" />
                   </div>
                 </div>
@@ -404,7 +406,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
           {/* Background Box Backing */}
           <div className="border-t border-border/40 pt-3 space-y-2">
             <div className="flex items-center justify-between select-none">
-              <span className="text-xs text-text-primary font-medium">Background Box</span>
+              <span className="text-xs text-text-primary font-medium">{t("properties.text.backgroundBox")}</span>
               <input
                 type="checkbox"
                 checked={!!textClip.background}
@@ -422,7 +424,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
             {textClip.background && (
               <div className="space-y-2.5 p-2.5 bg-surface-raised/40 border border-border/40 rounded-lg">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-muted">Box Color</span>
+                  <span className="text-[10px] text-text-muted">{t("properties.text.boxColor")}</span>
                   <div className="flex items-center gap-2">
                     {/* Quick Background Presets */}
                     <div className="flex gap-1">
@@ -436,7 +438,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
                 <div>
                   <div className="flex justify-between text-[9px] text-text-muted mb-1 select-none">
-                    <span>Box Padding</span>
+                    <span>{t("properties.text.boxPadding")}</span>
                     <span>{textClip.background.padding}px</span>
                   </div>
                   <input type="range" min="0" max="30" value={textClip.background.padding} onChange={(e) => handleUpdate("background", { ...textClip.background, padding: Number(e.target.value) })} className="w-full accent-accent" />
@@ -444,7 +446,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
                 <div>
                   <div className="flex justify-between text-[9px] text-text-muted mb-1 select-none">
-                    <span>Border Radius</span>
+                    <span>{t("properties.text.borderRadius")}</span>
                     <span>{textClip.background.borderRadius}px</span>
                   </div>
                   <input type="range" min="0" max="25" value={textClip.background.borderRadius} onChange={(e) => handleUpdate("background", { ...textClip.background, borderRadius: Number(e.target.value) })} className="w-full accent-accent" />
@@ -457,7 +459,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
       {/* Presets Quick Switch */}
       <div>
-        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2 select-none">Quick Presets Switch</label>
+        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2 select-none">{t("properties.text.quickPresetsSwitch")}</label>
         <div className="grid grid-cols-3 gap-2 bg-surface-raised/10 border border-border/40 p-2.5 rounded-xl">
           {allTextEffects.slice(0, 6).map((effect) => (
             <button

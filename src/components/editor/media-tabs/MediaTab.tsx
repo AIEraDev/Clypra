@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { CloudUpload } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -20,6 +21,7 @@ import { SuccessToast } from "@/components/ui/SuccessToast";
 import { MediaCard } from "@/components/ui/MediaCard";
 
 export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
+  const { t } = useTranslation();
   const { mediaAssets, removeMediaAsset, addMediaAsset } = useProjectStore();
   const { importMedia, isLoading, toastMessage, clearToast } = useMediaImport();
   // Note: previewMediaId is used for visual selection state only.
@@ -87,7 +89,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
           }
         } catch (error) {
           console.error(`[MediaTab] Failed to import ${filePath}:`, error);
-          useProjectStore.getState().showToast(`Failed to import ${filePath.split("/").pop() || "file"}`, "error");
+          useProjectStore.getState().showToast(t("media.media.importFailed", { name: filePath.split("/").pop() || filePath.split("\\").pop() || "file" }), "error");
         }
       }
     },
@@ -105,13 +107,13 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
       <div className="p-1 border-b border-border">
         <Button variant="secondary" size="sm" className="w-full border-dashed cursor-pointer" onClick={importMedia} disabled={isLoading}>
           <CloudUpload className="w-4 h-4" />
-          {isLoading ? "Importing..." : "Import Media"}
+          {isLoading ? t("media.media.importing") : t("media.media.import")}
         </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {mediaAssets.length === 0 ? (
-          <EmptyState icon={CloudUpload} title="No media imported" description="Import videos, audio, or images to get started" />
+          <EmptyState icon={CloudUpload} title={t("media.media.emptyTitle")} description={t("media.media.emptyDescription")} />
         ) : (
           <div className="grid grid-cols-2 gap-2 p-3">
             {mediaAssets.map((asset) => (
@@ -137,7 +139,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
           items={[
             usedMediaIds.has(contextMenu.mediaId)
               ? {
-                  label: "Remove from Timeline",
+                  label: t("media.media.removeFromTimeline"),
                   onClick: () => {
                     const { normalizeTrack, removeEmptyNonMainTracks, withBatch } = useTimelineStore.getState();
                     const { execute, beginTransaction, commitTransaction } = useHistoryStore.getState();
@@ -164,13 +166,13 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
                   },
                 }
               : {
-                  label: "Add to Track",
+                  label: t("media.media.addToTrack"),
                   onClick: () => {
                     const asset = mediaAssets.find((a) => a.id === contextMenu.mediaId);
                     if (asset) onAddToTimeline?.(asset, "media");
                   },
                 },
-            { label: "Delete", onClick: () => removeMediaAsset(contextMenu.mediaId), danger: true },
+            { label: t("media.media.delete"), onClick: () => removeMediaAsset(contextMenu.mediaId), danger: true },
           ]}
           position={{ x: contextMenu.x, y: contextMenu.y }}
           onClose={() => setContextMenu(null)}

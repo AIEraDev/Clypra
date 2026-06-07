@@ -1,9 +1,11 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Music, Smile, Wand2, Shuffle, MessageSquare } from "lucide-react";
 import { MediaTab, AudioTab, TextTab, StickersTab, EffectsTab, TransitionsTab, CaptionsTab, type TabType, MediaTabProps } from "../media-tabs";
 import { TextIcon, YouTubeIcon } from "../../ui/icons";
 
 export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab = "media" }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
 
   React.useEffect(() => {
@@ -11,13 +13,13 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, i
   }, [initialTab]);
 
   const tabs = [
-    { id: "media" as const, icon: YouTubeIcon, label: "Media" },
-    { id: "audio" as const, icon: Music, label: "Audio" },
-    { id: "text" as const, icon: TextIcon, label: "Text" },
-    { id: "stickers" as const, icon: Smile, label: "Stickers" },
-    { id: "effects" as const, icon: Wand2, label: "Effects" },
-    { id: "transitions" as const, icon: Shuffle, label: "Transitions" },
-    { id: "captions" as const, icon: MessageSquare, label: "Captions" },
+    { id: "media" as const, icon: YouTubeIcon, label: t("media.tabs.media") },
+    { id: "audio" as const, icon: Music, label: t("media.tabs.audio") },
+    { id: "text" as const, icon: TextIcon, label: t("media.tabs.text") },
+    { id: "stickers" as const, icon: Smile, label: t("media.tabs.stickers") },
+    { id: "effects" as const, icon: Wand2, label: t("media.tabs.effects") },
+    { id: "transitions" as const, icon: Shuffle, label: t("media.tabs.transitions") },
+    { id: "captions" as const, icon: MessageSquare, label: t("media.tabs.captions") },
   ];
 
   return (

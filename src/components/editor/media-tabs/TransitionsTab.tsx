@@ -1,31 +1,33 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Shuffle } from "lucide-react";
 import type { TabProps } from "./types";
 
 export const TransitionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
+  const { t } = useTranslation();
   const transitions = [
-    { id: "trans-1", name: "Fade", duration: 0.5, preview: "fade", description: "Smooth fade" },
+    { id: "trans-1", name: t("media.transitions.fade"), duration: 0.5, preview: "fade", description: "Smooth fade" },
     {
       id: "trans-2",
-      name: "Dissolve",
+      name: t("media.transitions.dissolve"),
       duration: 1.0,
       preview: "dissolve",
       description: "Cross dissolve",
     },
-    { id: "trans-3", name: "Wipe", duration: 0.8, preview: "wipe", description: "Directional wipe" },
-    { id: "trans-4", name: "Slide", duration: 0.6, preview: "slide", description: "Slide motion" },
-    { id: "trans-5", name: "Zoom", duration: 0.7, preview: "zoom", description: "Scale transition" },
-    { id: "trans-6", name: "Spin", duration: 1.0, preview: "spin", description: "Rotate effect" },
+    { id: "trans-3", name: t("media.transitions.wipe"), duration: 0.8, preview: "wipe", description: "Directional wipe" },
+    { id: "trans-4", name: t("media.transitions.slide"), duration: 0.6, preview: "slide", description: "Slide motion" },
+    { id: "trans-5", name: t("media.transitions.zoom"), duration: 0.7, preview: "zoom", description: "Scale transition" },
+    { id: "trans-6", name: t("media.transitions.spin"), duration: 1.0, preview: "spin", description: "Rotate effect" },
     {
       id: "trans-7",
-      name: "Push",
+      name: t("media.transitions.push"),
       duration: 0.8,
       preview: "push",
       description: "Push transition",
     },
     {
       id: "trans-8",
-      name: "Blur",
+      name: t("media.transitions.blur"),
       duration: 0.6,
       preview: "blur",
       description: "Blur transition",

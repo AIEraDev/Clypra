@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Settings, Type, Layout } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -51,6 +52,7 @@ export function buildClipPropertyTransform(
 }
 
 export const PropertiesPanel: React.FC = () => {
+  const { t } = useTranslation();
   const { selectedClipIds } = useUIStore();
   const { clips } = useTimelineStore();
   const { mediaAssets, project } = useProjectStore();
@@ -165,7 +167,7 @@ export const PropertiesPanel: React.FC = () => {
             >
               <span className="flex items-center justify-center gap-1.5">
                 <Type className="w-3.5 h-3.5" />
-                Text Style
+                {t("properties.tabs.textStyle")}
               </span>
             </button>
             <button
@@ -178,14 +180,14 @@ export const PropertiesPanel: React.FC = () => {
             >
               <span className="flex items-center justify-center gap-1.5">
                 <Layout className="w-3.5 h-3.5" />
-                Video (Transform)
+                {t("properties.tabs.transform")}
               </span>
             </button>
           </div>
         ) : (
           <div className="p-4 flex items-center gap-2">
             <Settings className="w-4 h-4 text-accent" />
-            <h3 className="font-semibold text-text-primary text-sm">Clip Properties</h3>
+            <h3 className="font-semibold text-text-primary text-sm">{t("properties.clipProperties")}</h3>
           </div>
         )}
       </div>

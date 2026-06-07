@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive } from "lucide-react";
+import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Languages, Loader2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useTranslation } from "react-i18next";
 import { Modal } from "./Modal";
-import { useSettingsStore, Theme, FontFamily, THEME_META, FONT_META, getThemeColors, getBaseThemeForCustomization, getThemeColorKeys } from "@/store/settingsStore";
+import { useSettingsStore, Theme, FontFamily, Language, FONT_META, getThemeColors, getBaseThemeForCustomization, getThemeColorKeys } from "@/store/settingsStore";
 import { useProjectStore } from "@/store/projectStore";
 import { CacheSettings } from "@/components/settings/CacheSettings";
 
@@ -13,17 +14,24 @@ interface SettingsModalProps {
 
 type Tab = "appearance" | "editor" | "cache" | "about";
 
-const TABS: { id: Tab; label: string; icon: React.FC<{ className?: string }> }[] = [
-  { id: "appearance", label: "Appearance", icon: Palette },
-  { id: "editor", label: "Editor", icon: SlidersHorizontal },
-  { id: "cache", label: "Storage & Cache", icon: HardDrive },
-  { id: "about", label: "About", icon: Info },
+const TABS: { id: Tab; labelKey: string; icon: React.FC<{ className?: string }> }[] = [
+  { id: "appearance", labelKey: "settings.tabs.appearance", icon: Palette },
+  { id: "editor", labelKey: "settings.tabs.editor", icon: SlidersHorizontal },
+  { id: "cache", labelKey: "settings.tabs.cache", icon: HardDrive },
+  { id: "about", labelKey: "settings.tabs.about", icon: Info },
+];
+
+const LANGUAGES: { id: Language; label: string }[] = [
+  { id: "en", label: "English" },
+  { id: "ja", label: "日本語" },
+  { id: "zh-CN", label: "简体中文" },
 ];
 
 // ─── Enhanced theme preview with timeline ────────────────────────────────
 function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: Theme; selected: boolean; onSelect: () => void; customColors?: Record<string, string> | null }) {
+  const { t } = useTranslation();
   const colors = getThemeColors(themeId, customColors);
-  const meta = THEME_META[themeId];
+  const meta = { name: t(`settings.themes.${themeId}.name`), description: t(`settings.themes.${themeId}.description`) };
   const bg = colors["--color-bg"];
   const surface = colors["--color-surface"];
   const surfaceRaised = colors["--color-surface-raised"];
@@ -121,6 +129,7 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: T
 
 // ─── Custom Theme Editor ─────────────────────────────────────────────────
 function CustomThemeEditor() {
+  const { t } = useTranslation();
   const { customTheme, setCustomTheme, resetCustomTheme } = useSettingsStore();
   const [baseTheme, setBaseTheme] = useState<Exclude<Theme, "custom">>("dark");
   const [editingColors, setEditingColors] = useState<Record<string, string>>(customTheme || getBaseThemeForCustomization("dark"));
@@ -138,10 +147,10 @@ function CustomThemeEditor() {
 
   // Group colors by category
   const colorGroups: Record<string, string[]> = {
-    "Base Colors": filteredKeys.filter((k) => k.match(/^--color-(bg|surface|border|text|accent|danger)/)),
-    Timeline: filteredKeys.filter((k) => k.includes("timeline")),
-    Clips: filteredKeys.filter((k) => k.includes("clip") && !k.includes("timeline")),
-    Shadcn: filteredKeys.filter((k) => !k.startsWith("--color-")),
+    [t("settings.customTheme.groups.baseColors")]: filteredKeys.filter((k) => k.match(/^--color-(bg|surface|border|text|accent|danger)/)),
+    [t("settings.customTheme.groups.timeline")]: filteredKeys.filter((k) => k.includes("timeline")),
+    [t("settings.customTheme.groups.clips")]: filteredKeys.filter((k) => k.includes("clip") && !k.includes("timeline")),
+    [t("settings.customTheme.groups.shadcn")]: filteredKeys.filter((k) => !k.startsWith("--color-")),
   };
 
   const handleColorChange = (key: string, value: string) => {
@@ -199,10 +208,10 @@ function CustomThemeEditor() {
         if (data.colors && typeof data.colors === "object") {
           setEditingColors(data.colors);
         } else {
-          alert("Invalid theme file format");
+          alert(t("settings.customTheme.invalidFormat"));
         }
       } catch (error) {
-        alert("Failed to import theme: " + (error as Error).message);
+        alert(t("settings.customTheme.importFailed", { error: (error as Error).message }));
       }
     };
     input.click();
@@ -219,16 +228,16 @@ function CustomThemeEditor() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-white/6">
-        <h3 className="text-[13px] font-semibold text-text-primary">Custom Theme Editor</h3>
+        <h3 className="text-[13px] font-semibold text-text-primary">{t("settings.customTheme.title")}</h3>
         {/* Import/Export buttons in header */}
         <div className="flex items-center gap-2">
-          <button onClick={handleImport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors" title="Import theme from JSON file">
+          <button onClick={handleImport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors" title={t("settings.customTheme.importTitle")}>
             <Upload className="w-3.5 h-3.5" />
-            Import
+            {t("common.import")}
           </button>
-          <button onClick={handleExport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors" title="Export theme to JSON file">
+          <button onClick={handleExport} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-accent hover:border-accent/40 transition-colors" title={t("settings.customTheme.exportTitle")}>
             <Download className="w-3.5 h-3.5" />
-            Export
+            {t("common.export")}
           </button>
         </div>
       </div>
@@ -237,13 +246,13 @@ function CustomThemeEditor() {
       <div className="flex items-center justify-between gap-3">
         {/* Base theme group */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-medium text-text-muted uppercase tracking-wide">Base:</span>
+          <span className="text-[10px] font-medium text-text-muted uppercase tracking-wide">{t("settings.customTheme.base")}</span>
           <div className="relative">
             <select value={baseTheme} onChange={(e) => handleBaseThemeChange(e.target.value as Exclude<Theme, "custom">)} className="appearance-none text-[11px] pl-3 pr-8 py-1.5 rounded-md bg-surface-raised border border-white/6 text-text-primary hover:border-white/12 transition-colors cursor-pointer focus:outline-none focus:border-accent/40">
-              <option value="dark">Dark</option>
-              <option value="midnight">Midnight</option>
-              <option value="ocean">Ocean</option>
-              <option value="forest">Forest</option>
+              <option value="dark">{t("settings.themes.dark.name")}</option>
+              <option value="midnight">{t("settings.themes.midnight.name")}</option>
+              <option value="ocean">{t("settings.themes.ocean.name")}</option>
+              <option value="forest">{t("settings.themes.forest.name")}</option>
             </select>
             <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted">
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -251,21 +260,21 @@ function CustomThemeEditor() {
               </svg>
             </div>
           </div>
-          <button onClick={handleCopyFromBase} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary hover:border-white/12 transition-colors" title="Copy all colors from selected base theme">
+          <button onClick={handleCopyFromBase} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary hover:border-white/12 transition-colors" title={t("settings.customTheme.copyTitle")}>
             <Copy className="w-3.5 h-3.5" />
-            Copy
+            {t("common.copy")}
           </button>
         </div>
 
         {/* Reset button */}
-        <button onClick={handleReset} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-danger hover:border-danger/40 transition-colors" title="Reset to default dark theme">
+        <button onClick={handleReset} className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-md bg-surface-raised border border-white/6 text-text-muted hover:text-danger hover:border-danger/40 transition-colors" title={t("settings.customTheme.resetTitle")}>
           <RotateCcw className="w-3.5 h-3.5" />
-          Reset
+          {t("common.reset")}
         </button>
       </div>
 
       {/* Search */}
-      <input type="text" placeholder="Search colors..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40" />
+      <input type="text" placeholder={t("settings.customTheme.searchPlaceholder")} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40" />
 
       {/* Color groups */}
       <div className="max-h-[400px] overflow-y-auto space-y-4 pr-2 scrollbar-thin">
@@ -293,7 +302,7 @@ function CustomThemeEditor() {
 
       {/* Apply button */}
       <button onClick={handleApply} className="w-full py-2 px-4 text-[12px] font-semibold rounded-lg bg-accent text-white hover:bg-accent-soft transition-colors">
-        Apply Custom Theme
+        {t("settings.customTheme.applyButton")}
       </button>
     </div>
   );
@@ -301,20 +310,32 @@ function CustomThemeEditor() {
 
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 function AppearanceTab() {
-  const { theme, fontFamily, customTheme, setTheme, setFontFamily } = useSettingsStore();
+  const { t } = useTranslation();
+  const { theme, fontFamily, language, customTheme, setTheme, setFontFamily, setLanguage } = useSettingsStore();
   const [showCustomEditor, setShowCustomEditor] = useState(false);
+  const [switchingLang, setSwitchingLang] = useState<Language | null>(null);
   const themeKeys: Theme[] = ["dark", "midnight", "ocean", "forest"];
   const fontKeys: FontFamily[] = ["inter", "montserrat", "geist", "outfit", "roboto", "space-grotesk", "system", "mono"];
+
+  const handleLanguageChange = async (lang: Language) => {
+    if (lang === language || switchingLang) return;
+    setSwitchingLang(lang);
+    try {
+      await setLanguage(lang);
+    } finally {
+      setSwitchingLang(null);
+    }
+  };
 
   return (
     <div className="space-y-7">
       {/* Themes */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Theme</h3>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">{t("settings.appearance.theme")}</h3>
           <button onClick={() => setShowCustomEditor(!showCustomEditor)} className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium rounded-md transition-colors ${showCustomEditor ? "bg-accent/15 text-accent border border-accent/40" : "bg-surface-raised border border-white/6 text-text-muted hover:text-text-primary"}`}>
             <Paintbrush className="w-3 h-3" />
-            {showCustomEditor ? "Hide Editor" : "Custom Theme"}
+            {showCustomEditor ? t("settings.appearance.hideEditor") : t("settings.appearance.customTheme")}
           </button>
         </div>
 
@@ -322,8 +343,8 @@ function AppearanceTab() {
           <CustomThemeEditor />
         ) : (
           <div className="grid grid-cols-2 gap-3">
-            {themeKeys.map((t) => (
-              <ThemeSwatch key={t} themeId={t} selected={theme === t} onSelect={() => setTheme(t)} />
+            {themeKeys.map((tk) => (
+              <ThemeSwatch key={tk} themeId={tk} selected={theme === tk} onSelect={() => setTheme(tk)} />
             ))}
             {customTheme && <ThemeSwatch key="custom" themeId="custom" selected={theme === "custom"} onSelect={() => setTheme("custom")} customColors={customTheme} />}
           </div>
@@ -332,7 +353,7 @@ function AppearanceTab() {
 
       {/* Font Family */}
       <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Font</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.appearance.font")}</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {fontKeys.map((f) => {
             const meta = FONT_META[f];
@@ -348,12 +369,30 @@ function AppearanceTab() {
           })}
         </div>
       </section>
+
+      {/* Language */}
+      <section>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.appearance.language")}</h3>
+        <div className="grid grid-cols-3 gap-2">
+          {LANGUAGES.map((lng) => {
+            const isSel = language === lng.id;
+            const isLoading = switchingLang === lng.id;
+            return (
+              <button key={lng.id} onClick={() => handleLanguageChange(lng.id)} disabled={switchingLang !== null} className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-lg border transition-all ${isSel ? "border-accent bg-accent/8 text-accent" : "border-white/6 hover:border-white/12 text-text-muted hover:text-text-primary"} ${switchingLang !== null && !isLoading ? "opacity-50 cursor-not-allowed" : ""}`}>
+                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Languages className="w-3.5 h-3.5" />}
+                <span className="text-[11px] font-medium">{lng.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
 
 // ─── Editor Tab ──────────────────────────────────────────────────────────
 function EditorTab() {
+  const { t } = useTranslation();
   const { snapToGrid, autoRipple, autoSave, defaultFrameRate, setSnapToGrid, setAutoRipple, setAutoSave, setDefaultFrameRate } = useSettingsStore();
   const { project, updateProject } = useProjectStore();
 
@@ -389,12 +428,12 @@ function EditorTab() {
   return (
     <div className="space-y-6">
       <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Timeline</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.editor.timeline")}</h3>
         <div className="space-y-3">
-          <SettingRow label="Snap to grid" description="Clips snap to ruler ticks when dragging">
+          <SettingRow label={t("settings.editor.snapToGrid")} description={t("settings.editor.snapToGridDesc")}>
             <ToggleSwitch checked={snapToGrid} onChange={setSnapToGrid} />
           </SettingRow>
-          <SettingRow label="Auto-ripple" description="Automatically close gaps when deleting clips">
+          <SettingRow label={t("settings.editor.autoRipple")} description={t("settings.editor.autoRippleDesc")}>
             <ToggleSwitch checked={autoRipple} onChange={setAutoRipple} />
           </SettingRow>
         </div>
@@ -402,9 +441,9 @@ function EditorTab() {
 
       {project && (
         <section>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Sequence Settings</h3>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.editor.sequenceSettings")}</h3>
           <div className="space-y-3">
-            <SettingRow label="Aspect ratio" description="Canvas dimensions for export">
+            <SettingRow label={t("settings.editor.aspectRatio")} description={t("settings.editor.aspectRatioDesc")}>
               <div className="flex flex-col gap-1.5">
                 <div className="flex rounded-lg overflow-hidden border border-white/6">
                   {aspectRatios.map((ar) => (
@@ -418,14 +457,14 @@ function EditorTab() {
                 </div>
               </div>
             </SettingRow>
-            <SettingRow label="Frame rate" description="Frames per second for this project">
+            <SettingRow label={t("settings.editor.frameRate")} description={t("settings.editor.frameRateDesc")}>
               <div className="flex rounded-lg overflow-hidden border border-white/6">
                 {frameRates.map((fr) => (
                   <button key={fr.value} onClick={() => updateProject({ frameRate: fr.value })} className={`px-3 py-1 text-[11px] font-semibold transition-colors ${project.frameRate === fr.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
                     {fr.label}
                   </button>
                 ))}
-                <span className="px-2 py-1 text-[10px] text-text-muted bg-surface-raised flex items-center">fps</span>
+                <span className="px-2 py-1 text-[10px] text-text-muted bg-surface-raised flex items-center">{t("settings.editor.fps")}</span>
               </div>
             </SettingRow>
           </div>
@@ -433,19 +472,19 @@ function EditorTab() {
       )}
 
       <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Defaults</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">{t("settings.editor.defaults")}</h3>
         <div className="space-y-3">
-          <SettingRow label="Auto-save" description="Periodically save project state">
+          <SettingRow label={t("settings.editor.autoSave")} description={t("settings.editor.autoSaveDesc")}>
             <ToggleSwitch checked={autoSave} onChange={setAutoSave} />
           </SettingRow>
-          <SettingRow label="Default frame rate" description="Frame rate for new projects">
+          <SettingRow label={t("settings.editor.defaultFrameRate")} description={t("settings.editor.defaultFrameRateDesc")}>
             <div className="flex rounded-lg overflow-hidden border border-white/6">
               {frameRates.map((fr) => (
                 <button key={fr.value} onClick={() => setDefaultFrameRate(fr.value)} className={`px-3 py-1 text-[11px] font-semibold transition-colors ${defaultFrameRate === fr.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
                   {fr.label}
                 </button>
               ))}
-              <span className="px-2 py-1 text-[10px] text-text-muted bg-surface-raised flex items-center">fps</span>
+              <span className="px-2 py-1 text-[10px] text-text-muted bg-surface-raised flex items-center">{t("settings.editor.fps")}</span>
             </div>
           </SettingRow>
         </div>
@@ -489,6 +528,7 @@ const XIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 // ─── About Tab ───────────────────────────────────────────────────────────
 function AboutTab() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center text-center py-6 gap-4">
       <div className="w-16 h-16 flex items-center justify-center relative">
@@ -497,9 +537,9 @@ function AboutTab() {
       </div>
       <div>
         <h3 className="text-lg font-bold text-text-primary">Clypra</h3>
-        <p className="text-xs text-text-muted mt-1">Version 1.0.1</p>
+        <p className="text-xs text-text-muted mt-1">{t("settings.about.version", { version: "1.0.1" })}</p>
       </div>
-      <p className="text-xs text-text-muted max-w-[280px] leading-relaxed">A modern, native video editor built with Tauri, React, and FFmpeg. Designed for speed and creative freedom.</p>
+      <p className="text-xs text-text-muted max-w-[280px] leading-relaxed">{t("settings.about.tagline")}</p>
       <div className="flex items-center gap-4 mt-2">
         <button onClick={() => openUrl("https://github.com/AIEraDev/clypra")} className="text-xs font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1.5">
           <GithubIcon className="w-3.5 h-3.5" />
@@ -524,10 +564,11 @@ function AboutTab() {
 
 // ─── Main Settings Modal ─────────────────────────────────────────────────
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>("appearance");
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Settings" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={t("settings.title")} size="lg">
       <div className="flex flex-col md:flex-row min-h-[420px]">
         {/* Sidebar */}
         <div className="w-full md:w-[160px] shrink-0 border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto scrollbar-none">
@@ -537,7 +578,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             return (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-1.5 px-2 py-1.5 text-nowrap cursor-pointer rounded-lg text-[13px] font-medium transition-colors ${isActive ? "text-accent bg-white/4" : "text-text-muted hover:text-text-primary hover:bg-white/4"}`}>
                 <Icon className="w-4 h-4 shrink-0" />
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             );
           })}

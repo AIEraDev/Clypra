@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Wand2, Plus, Download, Upload, Trash2, Play, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineStore";
@@ -10,6 +11,7 @@ import type { TabProps } from "./types";
 import type { TextClip } from "@/types";
 
 export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
+  const { t } = useTranslation();
   const { clips, tracks, addClip, removeClip, updateClip, withBatch } = useTimelineStore();
   const { project } = useProjectStore();
   const { seek } = useTransportControls();
@@ -62,7 +64,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       const blocks = parseSubtitles(text);
 
       if (blocks.length === 0) {
-        throw new Error("No subtitle blocks found. Please ensure the file is valid SRT or WebVTT.");
+        throw new Error(t("media.captions.noBlocks"));
       }
 
       const trackId = ensureCaptionTrackId();
@@ -88,7 +90,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         });
       });
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to parse subtitle file.");
+      setErrorMsg(err.message || t("media.captions.parseFailed"));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -130,7 +132,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       trackId,
       startTime: playheadTime,
       duration: 2.0,
-      text: "New Caption Text",
+      text: t("media.captions.newCaptionText"),
       canvasWidth,
       canvasHeight,
       fontSize: 32,
@@ -173,7 +175,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           onClick={handleImportClick}
         >
           <Upload className="w-3.5 h-3.5 text-accent" />
-          Import Subtitles
+          {t("media.captions.importSubtitles")}
         </Button>
         <Button
           variant="secondary"
@@ -183,7 +185,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           disabled={captionClips.length === 0}
         >
           <Download className="w-3.5 h-3.5 text-accent" />
-          Export SRT
+          {t("media.captions.exportSrt")}
         </Button>
       </div>
 
@@ -195,7 +197,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           onClick={handleAddManualCaption}
         >
           <Plus className="w-4 h-4" />
-          Add Manual Caption
+          {t("media.captions.addManualCaption")}
         </Button>
       </div>
 
@@ -210,7 +212,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       <div className="flex-1 flex flex-col min-h-0 pt-2 border-t border-border">
         <div className="flex justify-between items-center mb-2">
           <h4 className="text-xs font-semibold text-text-muted">
-            Caption Timing Editor ({captionClips.length})
+            {t("media.captions.timingEditor", { n: captionClips.length })}
           </h4>
         </div>
 
@@ -218,7 +220,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           {captionClips.length === 0 ? (
             <div className="h-40 flex flex-col items-center justify-center text-center p-4 border border-dashed border-border rounded-xl">
               <p className="text-xs text-text-muted max-w-[200px]">
-                No captions on the timeline. Click Add Manual or Import to begin.
+                {t("media.captions.empty")}
               </p>
             </div>
           ) : (
@@ -236,7 +238,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                     <button
                       onClick={() => seek(clip.startTime)}
                       className="flex items-center gap-1 hover:text-accent font-medium transition-colors"
-                      title="Jump Playhead to Start"
+                      title={t("media.captions.jumpToStart")}
                     >
                       <Play className="w-2.5 h-2.5 fill-current" />
                       {formatSubtitleTime(clip.startTime, "vtt").slice(3)}
@@ -248,7 +250,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   <button
                     onClick={() => removeClip(clip.id)}
                     className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-destructive transition-all duration-200"
-                    title="Delete Caption"
+                    title={t("media.captions.deleteCaption")}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -259,13 +261,13 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   value={clip.text}
                   onChange={(e) => handleTextChange(clip.id, e.target.value)}
                   className="w-full min-h-[50px] p-2 bg-background/50 focus:bg-background border border-border/50 focus:border-accent rounded-lg text-xs text-text-primary resize-none outline-none transition-colors"
-                  placeholder="Enter subtitle text..."
+                  placeholder={t("media.captions.textPlaceholder")}
                 />
 
                 {/* Micro Timing controls */}
                 <div className="grid grid-cols-2 gap-2 text-[10px]">
                   <div className="flex items-center gap-1.5">
-                    <span className="shrink-0 text-text-muted">Start:</span>
+                    <span className="shrink-0 text-text-muted">{t("media.captions.start")}</span>
                     <input
                       type="number"
                       step="0.1"
@@ -277,7 +279,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                     />
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="shrink-0 text-text-muted">Duration:</span>
+                    <span className="shrink-0 text-text-muted">{t("media.captions.duration")}</span>
                     <input
                       type="number"
                       step="0.1"

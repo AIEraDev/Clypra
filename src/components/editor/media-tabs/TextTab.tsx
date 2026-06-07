@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Sparkles, MessageSquare, Loader2, CheckCircle2, AlertCircle, Cloud, CloudOff } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -53,6 +54,7 @@ const generateContextualCaptions = (nameStr: string, pathStr: string, isAudio: b
 const templateCategories = ["All", "Lower Third", "Title Card", "Callout", "Caption", "Outro", "Social", "Broadcast", "Sports", "Countdown", "Cinematic"];
 
 export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<"effects" | "templates" | "yours" | "captions">("effects");
   const [activeCategory, setActiveCategory] = useState<string>("3D");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -258,7 +260,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       // Fallback gracefully with error UI
       setCaptioningState("idle");
       setCaptioningProgress(0);
-      alert(`Local transcription failed: ${err.message || err}. Running in fallback contextual simulator...`);
+      alert(t("media.text.transcriptionFailed", { error: err.message || err }));
     }
   };
 
@@ -463,23 +465,23 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       {/* ── Top Header Control Navigation Row (Overflows X) ────────────── */}
       <div className="flex items-center gap-2.5 p-1 border-b border-border/50 shrink-0 bg-surface/10">
         <Button variant="ghost" size="sm" className="shrink-0 flex items-center justify-center gap-1 h-min px-2 py-0.5 cursor-pointer bg-accent/10 rounded-sm transition-all text-[12px] text-accent-soft hover:bg-accent/20 border border-accent/20" onClick={() => onAddToTimeline?.({ name: "Custom Text", styleId: "premium-sticker" }, "text")}>
-          Add Text
+          {t("media.text.addText")}
         </Button>
 
         <div className="w-px h-5 bg-border/80 shrink-0" />
 
         <div className="grow overflow-x-auto flex items-center gap-2 pb-0.5 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
           <button onClick={() => handleTabChange("effects")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "effects" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Text Effects
+            {t("media.text.tabs.effects")}
           </button>
           <button onClick={() => handleTabChange("templates")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "templates" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Templates
+            {t("media.text.tabs.templates")}
           </button>
           <button onClick={() => handleTabChange("yours")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "yours" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Favorites ({favorites.length})
+            {t("media.text.tabs.favorites", { n: favorites.length })}
           </button>
           <button onClick={() => handleTabChange("captions")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "captions" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Captions
+            {t("media.text.tabs.captions")}
           </button>
         </div>
       </div>
@@ -489,16 +491,16 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         {isLibraryLoading ? (
           <div className="h-40 flex flex-col items-center justify-center gap-2 text-text-muted text-xs">
             <Loader2 className="w-6 h-6 text-accent animate-spin" />
-            <p className="font-semibold text-text-muted/80">Updating effects & templates library...</p>
+            <p className="font-semibold text-text-muted/80">{t("media.text.updatingLibrary")}</p>
           </div>
         ) : (
           <>
             {/* Yours/Favorites Display */}
             {activeTab === "yours" && (
               <div>
-                <h4 className="text-xs font-semibold text-text-muted mb-2.5 uppercase tracking-wide">Favorite Templates ({favoriteTemplatesList.length})</h4>
+                <h4 className="text-xs font-semibold text-text-muted mb-2.5 uppercase tracking-wide">{t("media.text.favoriteTemplates", { n: favoriteTemplatesList.length })}</h4>
                 {favoriteTemplatesList.length === 0 ? (
-                  <p className="text-xs text-text-muted/60 italic py-2 pl-1">No favorite templates saved.</p>
+                  <p className="text-xs text-text-muted/60 italic py-2 pl-1">{t("media.text.noFavorites")}</p>
                 ) : (
                   <div className="grid grid-cols-3 gap-1.5">
                     {favoriteTemplatesList.map((template) => (
@@ -531,8 +533,8 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 {/* Templates grid */}
                 {filteredTemplates.length === 0 ? (
                   <div className="h-40 flex flex-col items-center justify-center text-text-muted gap-1 text-xs">
-                    <p>No matching templates found</p>
-                    <p className="opacity-60">Try searching other categories</p>
+                    <p>{t("media.text.noTemplates")}</p>
+                    <p className="opacity-60">{t("media.text.tryOtherCategories")}</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-3 gap-1.5">
@@ -551,15 +553,15 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="p-4 bg-surface-raised/40 border border-border/50 rounded-xl space-y-4 text-xs">
             <div className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-accent animate-pulse" />
-              <h4 className="font-bold text-text-primary">Auto Caption Generator</h4>
+              <h4 className="font-bold text-text-primary">{t("media.text.autoCaptionGenerator")}</h4>
             </div>
-            <p className="text-text-muted leading-relaxed">Generate highly accurate captions automatically from the audio tracks in your project timeline. Powered by local speech recognition models.</p>
+            <p className="text-text-muted leading-relaxed">{t("media.text.captionDescription")}</p>
 
             {captioningState === "idle" && (
               <>
                 <div className="space-y-3 pt-2">
                   <div>
-                    <label className="text-[10px] font-semibold text-text-muted uppercase block mb-1">Language</label>
+                    <label className="text-[10px] font-semibold text-text-muted uppercase block mb-1">{t("media.text.language")}</label>
                     <select className="w-full bg-surface-raised border border-border rounded-md px-2.5 py-1.5 text-text-primary text-xs outline-none">
                       <option value="en">English (US)</option>
                       <option value="es">Español</option>
@@ -569,11 +571,11 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-text-muted uppercase block mb-1">Filter gaps & silence</label>
+                    <label className="text-[10px] font-semibold text-text-muted uppercase block mb-1">{t("media.text.filterGaps")}</label>
                     <div className="flex items-center gap-2 mt-1">
                       <input type="checkbox" id="filter-silence" defaultChecked className="rounded border-border accent-accent cursor-pointer" />
                       <label htmlFor="filter-silence" className="text-text-muted cursor-pointer">
-                        Automatically skip silent audio blocks
+                        {t("media.text.skipSilence")}
                       </label>
                     </div>
                   </div>
@@ -582,12 +584,12 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 {!hasAudioOrVideoClips ? (
                   <div className="flex items-start gap-2 p-2.5 bg-yellow-500/10 border border-yellow-500/25 rounded-lg text-yellow-200 mt-4 leading-normal">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>No audio or video clips found on the timeline. Drag some media onto the timeline first to transcribe them.</span>
+                    <span>{t("media.text.noClipsWarning")}</span>
                   </div>
                 ) : (
                   <Button className="w-full py-2 bg-accent hover:bg-accent/80 text-white font-semibold flex items-center justify-center gap-1.5 shadow-[0_4px_12px_rgba(108,99,255,0.2)] rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4" onClick={startCaptioning}>
                     <Sparkles className="w-4 h-4" />
-                    Start Captioning
+                    {t("media.text.startCaptioning")}
                   </Button>
                 )}
               </>
@@ -598,12 +600,12 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 <Loader2 className="w-8 h-8 text-accent animate-spin" />
                 <div className="text-center space-y-1.5">
                   <div className="font-semibold text-text-primary">
-                    {captioningState === "analyzing" && "Analyzing Audio Timeline..."}
-                    {captioningState === "transcribing" && "Transcribing Speech (Whisper Offline)..."}
-                    {captioningState === "aligning" && "Aligning Word Timestamps..."}
-                    {captioningState === "stitching" && "Stitching Subtitle Track..."}
+                    {captioningState === "analyzing" && t("media.text.analyzing")}
+                    {captioningState === "transcribing" && t("media.text.transcribing")}
+                    {captioningState === "aligning" && t("media.text.aligning")}
+                    {captioningState === "stitching" && t("media.text.stitching")}
                   </div>
-                  <div className="text-[10px] text-text-muted">Please keep Clypra open. This process runs locally.</div>
+                  <div className="text-[10px] text-text-muted">{t("media.text.keepOpen")}</div>
                 </div>
 
                 {/* Progress bar */}
@@ -618,13 +620,13 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               <div className="space-y-4 pt-3 flex flex-col items-center">
                 <CheckCircle2 className="w-8 h-8 text-green-500 animate-bounce" />
                 <div className="text-center space-y-1">
-                  <div className="font-bold text-text-primary">Captions Generated Successfully!</div>
+                  <div className="font-bold text-text-primary">{t("media.text.captionsSuccess")}</div>
                   <div className="text-[11px] text-text-muted leading-relaxed">
-                    Created <span className="font-semibold text-accent-soft">{captionsCount} styled subtitle segments</span> perfectly aligned with your active timeline.
+                    {t("media.text.created")} <span className="font-semibold text-accent-soft">{t("media.text.segmentsCount", { n: captionsCount })}</span> {t("media.text.segmentsAligned")}
                   </div>
                 </div>
                 <Button className="w-full py-2 bg-surface-raised hover:bg-surface-raised/80 text-text-primary border border-border rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4" onClick={() => setCaptioningState("idle")}>
-                  Caption Again
+                  {t("media.text.captionAgain")}
                 </Button>
               </div>
             )}

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AlertCircle, CheckCircle, Download, Eye, Loader2, Music2, Pause, Play, Plus, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip";
 import { AUDIO_LIBRARY_CATEGORIES, ClypraAudioApi, type AudioLibraryCategory, type AudioLibraryItem } from "@/features/audio-library/api/clypraAudioApi";
@@ -10,6 +11,7 @@ import type { TabProps } from "./types";
 import type { MediaAsset } from "@/types";
 
 export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<AudioLibraryCategory>("music");
   const [items, setItems] = useState<AudioLibraryItem[]>([]);
@@ -26,7 +28,7 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         if (!cancelled) setItems(nextItems);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load audio library");
+        if (!cancelled) setError(err instanceof Error ? err.message : t("media.audio.loadFailed"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -56,7 +58,7 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       <div className="p-1 border-b border-border">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-          <input type="text" placeholder="Search public audio..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-surface-raised border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent" />
+          <input type="text" placeholder={t("media.audio.searchPlaceholder")} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-surface-raised border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent" />
         </div>
       </div>
 
@@ -64,7 +66,7 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         {loading && (
           <div className="flex items-center justify-center gap-2 py-10 text-xs text-text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading audio library
+            {t("media.audio.loading")}
           </div>
         )}
 
@@ -78,8 +80,8 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         {!loading && !error && filteredItems.length === 0 && (
           <div className="rounded-lg border border-border bg-surface-raised/40 p-4 text-center">
             <Music2 className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-            <p className="text-xs font-semibold text-text-primary">No approved audio yet</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Audio published from Clypra Studio will appear here after API cache refresh.</p>
+            <p className="text-xs font-semibold text-text-primary">{t("media.audio.emptyTitle")}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{t("media.audio.emptyDescription")}</p>
           </div>
         )}
 
@@ -102,6 +104,7 @@ interface AudioItemProps {
 }
 
 const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
+  const { t } = useTranslation();
   const [isPlaying, setIsPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -210,7 +213,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
             {isDownloadedFlag && !isDownloading && (
               <span className="flex items-center gap-1 text-[10px] text-green-400/80">
                 <CheckCircle className="w-3 h-3" />
-                Cached
+                {t("media.audio.cached")}
               </span>
             )}
             {isDownloading && (
@@ -222,7 +225,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
             {hasError && (
               <span className="flex items-center gap-1 text-[10px] text-red-400">
                 <AlertCircle className="w-3 h-3" />
-                Failed
+                {t("media.audio.failed")}
               </span>
             )}
           </div>
@@ -238,7 +241,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">
-            <p>{isDownloadedFlag ? "Add to Timeline" : "Download & Add"}</p>
+            <p>{isDownloadedFlag ? t("media.audio.addToTimeline") : t("media.audio.downloadAndAdd")}</p>
           </TooltipContent>
         </Tooltip>
       </div>
