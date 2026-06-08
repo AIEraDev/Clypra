@@ -77,13 +77,22 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
   const sortedClips = activeClips.sort((a, b) => {
     const roleOrder = getRoleOrder(a.role) - getRoleOrder(b.role);
     if (roleOrder !== 0) return roleOrder;
-    // Higher track index renders below lower index (top track in UI = on top)
-    const trackOrder = b.trackIndex - a.trackIndex;
+    // Lower track index (top in UI) renders on top (later in array)
+    // Higher track index (bottom in UI) renders below (earlier in array)
+    const trackOrder = a.trackIndex - b.trackIndex;
     if (trackOrder !== 0) return trackOrder;
     const zOrder = a.zIndex - b.zIndex;
     if (zOrder !== 0) return zOrder;
     return a.evaluationPriority - b.evaluationPriority;
   });
+
+  // Debug: Log the sorting order
+  if (sortedClips.length > 0) {
+    console.log(`[evaluateTimelineScene] Sorted ${sortedClips.length} clips for rendering (last = on top):`);
+    sortedClips.forEach((clip, idx) => {
+      console.log(`  [${idx}] Clip ${clip.id} - trackIndex: ${clip.trackIndex}, role: ${clip.role}, zIndex: ${clip.zIndex}`);
+    });
+  }
 
   // ─── 3. Evaluate Visual Layers ────────────────────────────────────────────
 

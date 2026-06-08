@@ -22,6 +22,9 @@ export function toCompositorClip(clip: Clip, tracks: Track[]): CompositorClip {
   // Get track index (for compositing order)
   const trackIndex = tracks.findIndex((t) => t.id === clip.trackId);
 
+  // Debug: Log track index assignment
+  console.log(`[toCompositorClip] Clip ${clip.id.substring(0, 8)} on track ${track?.type} - trackIndex: ${trackIndex}`);
+
   // Use explicit clip role when available, otherwise infer from track position.
   const role = ((clip as any).role as ClipRole | undefined) ?? inferRoleFromTrackPosition(track, trackIndex, tracks);
 
