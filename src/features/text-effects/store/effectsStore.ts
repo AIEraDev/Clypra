@@ -4,6 +4,7 @@ import type { EffectIndexItem, EffectFullDefinition } from "../types/types";
 import { ClypraApi } from "../api/clypraApi";
 import { builtInPresets } from "@clypra/engine";
 import type { TextEffectConfig } from "@clypra/engine";
+import { getTextEffectCache } from "../cache/persistentCache";
 
 const API_BASE = "https://clypra-worker-api.abdulkabirmusa.com";
 const API_KEY = import.meta.env.VITE_CLYPRA_API_KEY || "";
@@ -35,7 +36,7 @@ const getHeaders = (): HeadersInit => {
 
 function convertConfigToDefinition(preset: any): EffectDefinitionWithBounds {
   const cfg = preset.config;
-  
+
   // Font
   const font = {
     family: cfg.fontFamily || "Poppins",
@@ -51,10 +52,12 @@ function convertConfigToDefinition(preset: any): EffectDefinitionWithBounds {
     fills.push({
       type: cfg.fillType || "solid",
       color: cfg.fillColor || "#FFFFFF",
-      gradient: cfg.fillGradientStops ? {
-        angle: cfg.fillGradientAngle ?? 90,
-        stops: cfg.fillGradientStops,
-      } : undefined,
+      gradient: cfg.fillGradientStops
+        ? {
+            angle: cfg.fillGradientAngle ?? 90,
+            stops: cfg.fillGradientStops,
+          }
+        : undefined,
       patternType: cfg.patternType,
       perCharFillEnabled: cfg.perCharFillEnabled,
       charFillColors: cfg.charFillColors,
@@ -114,14 +117,16 @@ function convertConfigToDefinition(preset: any): EffectDefinitionWithBounds {
   // Glows
   let glows = undefined;
   if (cfg.glowLayers) {
-    glows = cfg.glowLayers.filter((g: any) => g.enabled).map((g: any) => ({
-      color: g.color,
-      blur: g.blur,
-      opacity: g.opacity,
-      type: g.type,
-      strength: g.strength,
-      spread: g.spread,
-    }));
+    glows = cfg.glowLayers
+      .filter((g: any) => g.enabled)
+      .map((g: any) => ({
+        color: g.color,
+        blur: g.blur,
+        opacity: g.opacity,
+        type: g.type,
+        strength: g.strength,
+        spread: g.spread,
+      }));
   }
 
   // Panel
@@ -133,10 +138,12 @@ function convertConfigToDefinition(preset: any): EffectDefinitionWithBounds {
       radius: cfg.panelRadius || 12,
       paddingX: cfg.panelPaddingX || 40,
       paddingY: cfg.panelPaddingY || 20,
-      stroke: cfg.panelStrokeEnabled ? {
-        color: cfg.panelStrokeColor || "#2A2A38",
-        width: cfg.panelStrokeWidth || 2,
-      } : undefined,
+      stroke: cfg.panelStrokeEnabled
+        ? {
+            color: cfg.panelStrokeColor || "#2A2A38",
+            width: cfg.panelStrokeWidth || 2,
+          }
+        : undefined,
     };
   }
 
@@ -304,9 +311,11 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
   },
 
   getDefinitionById: async (id, category) => {
+    // 1. Check memory cache (Zustand state)
     const cached = get().definitions[id];
     if (cached) return cached;
 
+    // 2. Check built-in presets (bundled)
     const localPreset = builtInPresets.find((p) => p.id === id);
     if (localPreset) {
       const def = convertConfigToDefinition(localPreset);
@@ -316,6 +325,18 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
       return def;
     }
 
+    // 3. Check persistent cache (IndexedDB)
+    const persistentCache = getTextEffectCache();
+    const persistedDef = await persistentCache.get(id);
+    if (persistedDef) {
+      // Populate memory cache
+      set((state) => ({
+        definitions: { ...state.definitions, [id]: persistedDef },
+      }));
+      return persistedDef;
+    }
+
+    // 4. Fetch from API (last resort)
     const catKey = category.toLowerCase();
     const res = await fetch(`${API_BASE}/effects/${catKey}/${id}`, {
       cache: "reload",
@@ -324,9 +345,11 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = (await res.json()) as EffectFullDefinition;
 
+    // Store in all cache layers
     set((state) => ({
       definitions: { ...state.definitions, [id]: data },
     }));
+    await persistentCache.set(id, data); // Persist to disk
 
     return data;
   },
@@ -397,9 +420,11 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
 
   clearSelected: () => set({ selectedEffect: null, selectedCategory: null }),
   fetchDefinitionOnlyById: async (id) => {
+    // 1. Check memory cache
     const cached = get().definitions[id];
     if (cached) return cached;
 
+    // 2. Check built-in presets
     const localPreset = builtInPresets.find((p) => p.id === id);
     if (localPreset) {
       const def = convertConfigToDefinition(localPreset);
@@ -409,7 +434,17 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
       return def;
     }
 
-    // 1. Try finding in currently loaded category indexes in store state
+    // 3. Check persistent cache (IndexedDB)
+    const persistentCache = getTextEffectCache();
+    const persistedDef = await persistentCache.get(id);
+    if (persistedDef) {
+      set((state) => ({
+        definitions: { ...state.definitions, [id]: persistedDef },
+      }));
+      return persistedDef;
+    }
+
+    // 4. Try finding in currently loaded category indexes
     const localIndexItem = Object.values(get().index)
       .flat()
       .find((x) => x.id === id);
@@ -418,7 +453,7 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
       return def;
     }
 
-    // 2. Try finding in the global index
+    // 5. Try global index
     let globalIndexItem = null;
     try {
       const globalIndex = await ClypraApi.getEffectsIndex();
@@ -432,14 +467,13 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
       return def;
     }
 
-    // 3. Fallback: Scan known categories sequentially to locate the effect's category
+    // 6. Fallback: Scan known categories
     const ALL_CATEGORIES = ["3d", "neon", "metallic", "glitch", "retro", "gradient", "grunge", "outline", "shadow", "elements", "luxury"];
     for (const cat of ALL_CATEGORIES) {
       try {
         const categoryManifest = await ClypraApi.getEffectsByCategory(cat);
         const found = categoryManifest.find((x) => x.id === id);
         if (found) {
-          // Cache the category index so subsequent searches and UI renderers benefit
           set((state) => ({
             index: { ...state.index, [cat]: categoryManifest },
           }));
@@ -447,7 +481,7 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
           return def;
         }
       } catch (err) {
-        // Continue scanning other categories
+        // Continue scanning
       }
     }
 
