@@ -22,11 +22,11 @@ export function toCompositorClip(clip: Clip, tracks: Track[]): CompositorClip {
   // Get track index (for compositing order)
   const trackIndex = tracks.findIndex((t) => t.id === clip.trackId);
 
-  // Debug: Log track index assignment
-  console.log(`[toCompositorClip] Clip ${clip.id.substring(0, 8)} on track ${track?.type} - trackIndex: ${trackIndex}`);
-
   // Use explicit clip role when available, otherwise infer from track position.
   const role = ((clip as any).role as ClipRole | undefined) ?? inferRoleFromTrackPosition(track, trackIndex, tracks);
+
+  // TRACE: Z-order verification (can be removed after validation)
+  console.log("[TRACE][ADAPTER] trackIndex:", trackIndex, "role:", role, "clipId:", clip.id.substring(0, 8));
 
   // Default z-index and priority
   // TODO: These should eventually come from clip metadata
@@ -72,23 +72,23 @@ function inferRoleFromTrack(track: Track | undefined): ClipRole {
 
 /**
  * Enhance role inference with track position.
- * First video track = primary, subsequent = overlay.
+ *
+ * CRITICAL: All video tracks are assigned "overlay" role.
+ * Z-order between video tracks is determined entirely by trackIndex
+ * in the evaluator sort (descending — lower trackIndex draws last = on top).
+ *
+ * The "primary" role should be reserved for explicit background plates
+ * or generated mattes that must always sit below everything else.
  */
 export function inferRoleFromTrackPosition(track: Track | undefined, trackIndex: number, tracks: Track[]): ClipRole {
-  if (!track) return "primary";
+  if (!track) return "overlay";
 
   if (track.type === "audio") return "audio";
   if (track.type === "text") return "text";
 
-  // For video tracks, first one is primary, rest are overlays
-  const videoTracks = tracks.filter((t) => t.type === "video");
-  const videoTrackIndex = videoTracks.findIndex((t) => t.id === track.id);
-
-  if (videoTrackIndex === 0) {
-    return "primary";
-  } else {
-    return "overlay";
-  }
+  // All video tracks are overlays.
+  // Z-order is handled by trackIndex sorting, not by role distinction.
+  return "overlay";
 }
 
 /**

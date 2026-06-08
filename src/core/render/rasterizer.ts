@@ -147,6 +147,8 @@ export async function rasterizeScene(scene: EvaluatedScene, target: RasterTarget
 
   // Rasterize all visual layers with uniform scaling
   for (const layer of scene.visualLayers) {
+    // TRACE: Z-order verification (can be removed after validation)
+    console.log("[TRACE][RASTERIZER] Drawing:", layer.clipId.substring(0, 8), "role:", layer.role, "zIndex:", layer.zIndex);
     await rasterizeLayer(ctx, layer, scale, scale, target);
   }
 
@@ -248,13 +250,11 @@ async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanv
 
     // 2. Try to use pre-resolved resource
     if (layer.resourceHandle) {
-      console.log(`[Rasterizer] Using resourceHandle ${layer.resourceHandle} for ${layer.mediaType} clip ${layer.clipId}`);
       const resourceCache = getResourceCache();
       const resource = resourceCache.get(layer.resourceHandle);
 
       if (resource && resource.data instanceof ImageBitmap) {
         imageBitmap = resource.data;
-        console.log(`[Rasterizer] Got ImageBitmap ${imageBitmap.width}x${imageBitmap.height} from cache`);
       } else {
         console.warn(`[Rasterizer] Resource handle ${layer.resourceHandle} not found or not ImageBitmap`);
       }

@@ -69,8 +69,13 @@ describe("timeline item compatibility adapters", () => {
   });
 
   it("uses track position fallback for compositor roles", () => {
-    expect(toCompositorClip({ ...clip, trackId: "v1" }, tracks).role).toBe("primary");
+    // After z-order fix: all video tracks default to "overlay" role
+    // Z-order is determined by trackIndex, not role distinction
+    expect(toCompositorClip({ ...clip, trackId: "v1" }, tracks).role).toBe("overlay");
     expect(toCompositorClip(clip, tracks).role).toBe("overlay");
+
+    // Text tracks still get text role
+    expect(toCompositorClip({ ...clip, trackId: "txt" }, tracks).role).toBe("text");
   });
 
   it("resolves source time through the shared resolver", () => {

@@ -73,6 +73,8 @@ function findGapRanges(clips: CompositorClip[], duration: number, sampleRate: nu
 
 /**
  * Find ranges with primary video content.
+ * Note: After z-order fix, inferred video tracks use role="overlay".
+ * This function now detects explicitly-assigned primary layers only.
  */
 function findPrimaryVideoRanges(clips: CompositorClip[], duration: number, sampleRate: number): TimeRange[] {
   return findRangesWhere(duration, sampleRate, (time) => {
@@ -199,14 +201,14 @@ function generateWarnings(clips: CompositorClip[], gapRanges: TimeRange[], prima
     }
   }
 
-  // Warn if no primary video (informational only)
+  // Warn if no video content at all (informational only)
+  // Note: After z-order fix, inferred video tracks use role="overlay", not "primary"
   if (primaryVideoRanges.length === 0) {
     const hasAnyVideo = clips.some((c) => c.role === "primary" || c.role === "overlay" || c.role === "background");
     if (!hasAnyVideo) {
       warnings.push("Timeline has no video content");
-    } else {
-      warnings.push("Timeline has no primary video layer");
     }
+    // Don't warn about missing "primary" role specifically — overlay is now the default for video tracks
   }
 
   // Warn about very short clips (potential issues)

@@ -37,8 +37,6 @@ import { resolveClipSourceTime } from "../timeline/sourceTime";
  * @param project - Project settings
  */
 export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track[], assets: MediaAsset[], project: Project | null, transitions: TransitionTimelineItem[] = []): EvaluatedScene {
-  console.log(`[evaluateTimelineScene] Called at time ${time} with ${clips.length} clips, ${tracks.length} tracks`);
-
   // Convert to compositor clips (adds roles, priorities)
   const compositorClips = toCompositorClips(clips, tracks);
 
@@ -88,16 +86,17 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     return a.evaluationPriority - b.evaluationPriority;
   });
 
-  // Debug: Log the sorting order with z-order visualization
+  // TRACE: Z-order verification (can be removed after validation)
   if (sortedClips.length > 0) {
-    const maxTrackIdx = Math.max(...sortedClips.map((c) => c.trackIndex));
-    console.log(`[evaluateTimelineScene] Sorted ${sortedClips.length} clips (rasterizer draws [0] first, [last] last, last=on top):`);
-    sortedClips.forEach((clip, idx) => {
-      const trackLabel = clip.trackIndex === 0 ? "TOP in UI" : clip.trackIndex === maxTrackIdx ? "BOTTOM in UI" : "middle";
-      const drawLabel = idx === sortedClips.length - 1 ? "draws LAST (on top)" : idx === 0 ? "draws FIRST (bottom)" : `draws at ${idx}`;
-      const asset = clip.mediaId; // Just for reference
-      console.log(`  [${idx}] trackIdx=${clip.trackIndex} (${trackLabel}), role=${clip.role}, ${drawLabel}, clipId=${clip.id.substring(0, 8)}`);
-    });
+    console.log(
+      "[TRACE][EVALUATOR] Sorted order:",
+      sortedClips.map((c, idx) => ({
+        idx,
+        trackIndex: c.trackIndex,
+        role: c.role,
+        clipId: c.id.substring(0, 8),
+      })),
+    );
   }
 
   // ─── 3. Evaluate Visual Layers ────────────────────────────────────────────
@@ -200,14 +199,6 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       blendMode: (clip as any).blendMode || "normal",
     };
 
-    console.log(`[Evaluator DEBUG] Created ${asset.type} layer for clip ${clip.id}:`, {
-      layerId: mediaLayer.layerId,
-      sourcePath: mediaLayer.sourcePath,
-      dimensions: `${evalW}x${evalH}`,
-      position: `${evalX},${evalY}`,
-      opacity: mediaLayer.opacity,
-    });
-
     visualLayers.push(mediaLayer);
   }
 
@@ -218,7 +209,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
   for (const clip of sortedClips) {
     const asset = assetMap.get(clip.mediaId);
     const track = trackMap.get(clip.trackId);
-    const hasAudio = clip.role === "audio" || (asset?.type === "video" && clip.role === "primary");
+    // Audio layer creation:
+    // - Explicit audio role clips always create audio
+    // - Video assets with primary OR overlay role create audio (video tracks have audio)
+    const hasAudio = clip.role === "audio" || (asset?.type === "video" && (clip.role === "primary" || clip.role === "overlay"));
     if (!hasAudio || !asset) continue;
     if (track?.muted ?? false) continue;
 
@@ -336,10 +330,6 @@ function evaluateTransitionState(clip: Clip, transitionWindows: ActiveTransition
 
 // ─── Cached variant ───────────────────────────────────────────────────────────
 
-// Throttle cache hit logging to reduce console spam
-let lastCacheHitLogTime = 0;
-const CACHE_HIT_LOG_INTERVAL = 1000; // Log at most once per second
-
 /**
  * Evaluate the NLE timeline with LRU caching and epoch-based invalidation.
  * This is the recommended entry point for all preview/render paths.
@@ -351,18 +341,11 @@ export function evaluateTimelineSceneCached(time: number, clips: Clip[], tracks:
 
   const cached = cache.get(cacheKey);
   if (cached) {
-    const now = performance.now();
-    if (now - lastCacheHitLogTime > CACHE_HIT_LOG_INTERVAL) {
-      console.log(`[evaluateTimelineSceneCached] CACHE HIT - ${cached.visualLayers.length} layers`);
-      lastCacheHitLogTime = now;
-    }
     return cached;
   }
 
-  console.log(`[evaluateTimelineSceneCached] CACHE MISS - evaluating`);
   const scene = evaluateTimelineScene(time, clips, tracks, assets, project, transitions);
   cache.set(cacheKey, scene);
-  console.log(`[evaluateTimelineSceneCached] Created scene with ${scene.visualLayers.length} visual layers`);
   return scene;
 }
 
