@@ -1,0 +1,51 @@
+# CodeQL static analysis (SAST) for code scanning.
+# Scans both the JavaScript/TypeScript frontend and the Rust backend.
+# Results appear under the repository's Security > Code scanning tab.
+# Docs: https://docs.github.com/code-security/code-scanning
+name: CodeQL
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master, develop]
+  schedule:
+    # Weekly full scan (Mondays 07:00 UTC) to catch newly published query updates.
+    - cron: "0 7 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          # Rust support is in public preview; build-mode "none" needs no
+          # compilation, so the heavy FFmpeg/webkit toolchain is not required.
+          - language: rust
+            build-mode: none
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # "security-extended" adds more security queries than the default suite.
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
