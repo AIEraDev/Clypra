@@ -510,6 +510,36 @@ export const ProgramPreview: React.FC = () => {
     };
   }, [useCanvasPreview, project, displayWidth, displayHeight]);
 
+  // ── Handle page visibility changes ────────────────────────────────────
+  // When tab goes to background, pause playback to prevent audio drift
+  // Browser throttles RAF to ~1fps in background, but audio continues normally
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Page is hidden - pause to prevent drift
+        if (clockState.state === "playing") {
+          transportPause();
+          // Store that we auto-paused due to visibility
+          sessionStorage.setItem("clypra-auto-paused", "true");
+        }
+      } else {
+        // Page is visible again - resume if we auto-paused
+        const wasAutoPaused = sessionStorage.getItem("clypra-auto-paused");
+        if (wasAutoPaused === "true") {
+          sessionStorage.removeItem("clypra-auto-paused");
+          transportPlay();
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      sessionStorage.removeItem("clypra-auto-paused");
+    };
+  }, [clockState.state, transportPause, transportPlay]);
+
   useLayoutEffect(() => {
     const session = activeSession;
     if (!session) return;
