@@ -37,11 +37,13 @@ const LOG_ZOOM_MIN = Math.log2(TIMELINE_ZOOM_MIN);
 const LOG_ZOOM_MAX = Math.log2(TIMELINE_ZOOM_MAX);
 
 export function clampTimelineZoom(zoom: number): number {
-  return Math.min(TIMELINE_ZOOM_MAX, Math.max(TIMELINE_ZOOM_MIN, zoom));
+  const val = typeof zoom === "number" && !isNaN(zoom) ? zoom : TIMELINE_ZOOM_DEFAULT;
+  return Math.min(TIMELINE_ZOOM_MAX, Math.max(TIMELINE_ZOOM_MIN, val));
 }
 
 export function clampTimelinePixelsPerSecond(pps: number): number {
-  return Math.min(TIMELINE_MAX_PPS, Math.max(TIMELINE_MIN_PPS, pps));
+  const val = typeof pps === "number" && !isNaN(pps) ? pps : TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM;
+  return Math.min(TIMELINE_MAX_PPS, Math.max(TIMELINE_MIN_PPS, val));
 }
 
 // Zoom is logarithmic in interaction space, while SRP boundaries remain absolute.

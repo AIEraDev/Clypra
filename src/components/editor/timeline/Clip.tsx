@@ -509,7 +509,9 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
         return "bg-[#ea580c] text-white"; // Orange for titles/effects
       }
     }
-    // Audio, video, and image clips use CSS variable colors (applied via style prop)
+    if (isClipAudio) return "bg-timeline-clip-audio";
+    if (isClipVideo) return "bg-timeline-clip-video";
+    if (isClipImage) return "bg-timeline-clip-image";
     return "";
   };
 

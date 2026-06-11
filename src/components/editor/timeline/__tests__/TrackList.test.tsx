@@ -1,11 +1,11 @@
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { TrackList } from "../TrackList";
+import { TrackLabel } from "../TrackLabel";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 
-describe("TrackList interactions", () => {
+describe("TrackLabel interactions", () => {
   beforeEach(() => {
     useTimelineStore.setState({
       tracks: [
@@ -29,7 +29,13 @@ describe("TrackList interactions", () => {
   });
 
   it("toggles lock, eye, and mute for only the clicked track", () => {
-    render(<TrackList />);
+    const tracks = useTimelineStore.getState().tracks;
+    const { rerender } = render(
+      <>
+        <TrackLabel track={tracks[0]} />
+        <TrackLabel track={tracks[1]} />
+      </>
+    );
 
     fireEvent.click(screen.getAllByLabelText("Lock track")[0]);
     fireEvent.click(screen.getAllByLabelText("Hide track")[0]);
@@ -46,7 +52,13 @@ describe("TrackList interactions", () => {
   });
 
   it("button clicks do not change selected track", () => {
-    render(<TrackList />);
+    const tracks = useTimelineStore.getState().tracks;
+    render(
+      <>
+        <TrackLabel track={tracks[0]} />
+        <TrackLabel track={tracks[1]} />
+      </>
+    );
 
     fireEvent.click(screen.getAllByLabelText("Lock track")[0]);
     fireEvent.click(screen.getAllByLabelText("Hide track")[0]);

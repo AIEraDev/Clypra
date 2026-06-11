@@ -11,7 +11,7 @@ interface PlayheadProps {
   rulerHeight?: number;
 }
 
-export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, containerRef, rulerHeight = 24 }) => {
+export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, containerRef, rulerHeight = 5 }) => {
   const clockState = usePlaybackClock();
   const { seek } = usePlaybackControls();
   const { setScrollLeft } = useTimelineStore();
@@ -243,9 +243,11 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       ref={playheadRef}
       data-playhead="true"
       data-timeline-interactive="true"
-      className="absolute inset-y-0 select-none pointer-events-none"
+      className="absolute select-none pointer-events-none"
       style={{
         left: `${left}px`,
+        top: 0,
+        bottom: 0,
         width: "8px",
         marginLeft: "-3px",
         zIndex: 100,
@@ -261,8 +263,12 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     >
       {/* Visual line */}
       <div
-        className="absolute inset-y-0 left-1/2 -translate-x-1/2 pointer-events-none bg-accent"
+        className="absolute pointer-events-none bg-accent"
         style={{
+          left: "50%",
+          top: rulerHeight, // Start below ruler
+          bottom: 0,
+          transform: "translateX(-50%)",
           width: "2px",
           boxShadow: "0 0 0 1px rgba(0,0,0,0.25)",
           cursor: "default",
@@ -277,7 +283,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         style={{
           left: "50%",
           transform: "translateX(-50%)",
-          top: "2px",
+          top: "10px",
           width: "12px",
           height: "12px",
           boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",

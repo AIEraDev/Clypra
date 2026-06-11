@@ -15,7 +15,7 @@ import { useRenderRuntime } from "@/hooks/useRenderRuntime";
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
-import { TrackList } from "./TrackList";
+import { TrackLabel } from "./TrackLabel";
 import { Track } from "./Track";
 import { Playhead } from "./Playhead";
 import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
@@ -261,6 +261,8 @@ export const Timeline: React.FC = () => {
     (event: React.MouseEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
       if (target.closest('[data-timeline-interactive="true"]')) return;
+      // Don't seek when clicking on track labels (sticky left column)
+      if (target.closest("[data-track-label]")) return;
 
       clearSelection();
 
@@ -279,139 +281,203 @@ export const Timeline: React.FC = () => {
     [duration, pixelsPerSecond, seek, previewMode, exitSourceMode, clearSelection],
   );
 
+  // Simple scroll handler — no cross-container sync needed
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    setScrollLeft(target.scrollLeft);
+    setScrollLeft(e.currentTarget.scrollLeft);
   };
+
+  const hasClips = clips.length > 0;
 
   return (
     <div className="h-60 md:h-80 flex flex-col select-none relative" style={{ backgroundColor: "var(--color-timeline-bg)" }}>
       <TimelineToolbar />
 
-      <div className="flex-1 flex overflow-hidden">
-        {clips.length > 0 && <TrackList />}
-
-        <div ref={containerRef} onScroll={handleScroll} onPointerDownCapture={handleTimelinePointerDownCapture} onClick={seekFromPointer} id="timeline-tracks-container" className={`flex-1 overflow-x-auto overflow-y-auto scrollbar-thin px-1 relative transition-colors ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`} style={{ borderLeft: "1px solid var(--color-timeline-track-border)" }}>
-          {clips.length === 0 && <div className="absolute top-1/2 left-3 text-xl text-white pointer-events-none font-mono">Drop media here • I to import</div>}
+      <div className="flex-1 overflow-hidden">
+        {/* ── Single scroll container with CSS Grid ─────────────────────── */}
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          onPointerDownCapture={handleTimelinePointerDownCapture}
+          onClick={seekFromPointer}
+          id="timeline-tracks-container"
+          className={`h-full overflow-auto scrollbar-thin relative transition-colors ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}
+          style={{
+            display: "grid",
+            gridTemplateColumns: hasClips ? "160px 1fr" : "1fr",
+            scrollbarWidth: "none",
+            rowGap: 0, // ← ADD THIS
+          }}
+        >
+          {/* ── Row 1: Header + Ruler (both sticky top) ──────────────── */}
+          {hasClips && (
+            <div
+              className="panel-head flex items-center px-3 shrink-0"
+              style={{
+                position: "sticky",
+                top: 0,
+                left: 0,
+                zIndex: 30,
+                height: "24px",
+                width: "160px",
+                minWidth: "160px",
+                background: "var(--color-timeline-track-bg)",
+                borderBottom: "1px solid var(--color-timeline-track-border)",
+                borderRight: "1px solid var(--color-timeline-track-border)",
+              }}
+            >
+              <span className="text-[11px] font-semibold tracking-wide text-timeline-track-label uppercase">Track</span>
+            </div>
+          )}
 
           <div
+            className="bg-timeline-bg"
             style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 20,
+              height: "24px",
               width: `${contentWidth}px`,
-              minHeight: "100%",
+              borderBottom: "1px solid var(--color-timeline-track-border)",
             }}
-            className="relative flex flex-col"
           >
             <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} />
+          </div>
 
+          {/* ── Row 2+: Track labels (sticky left) + Track clips ─────── */}
+          {!hasClips ? (
             <div className="relative flex-1 flex flex-col min-h-0">
-              {clips.length === 0 ? (
-                <EmptyTimelineDropZone isDragging={isDraggingMedia} />
-              ) : (
-                <>
-                  {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "above" && (
-                    <div
-                      className="absolute left-0 right-0 pointer-events-none z-50"
-                      style={{
-                        top: 0,
-                        height: "2px",
-                        background: "var(--color-timeline-drop-indicator)",
-                        boxShadow: "0 0 8px var(--color-timeline-drop-indicator)",
-                      }}
+              <div className="absolute top-1/2 left-3 text-xl text-white pointer-events-none font-mono">Drop media here • I to import</div>
+              <EmptyTimelineDropZone isDragging={isDraggingMedia} />
+            </div>
+          ) : (
+            <>
+              {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "above" && (
+                <div
+                  className="pointer-events-none z-50"
+                  style={{
+                    gridColumn: "1 / -1",
+                    height: "2px",
+                    background: "var(--color-timeline-drop-indicator)",
+                    boxShadow: "0 0 8px var(--color-timeline-drop-indicator)",
+                  }}
+                />
+              )}
+
+              {tracks.map((track) => (
+                <React.Fragment key={track.id}>
+                  {/* LEFT: Track label — sticky left, scrolls vertically with clips */}
+                  <TrackLabel track={track} />
+
+                  {/* RIGHT: Track clips — scrolls both directions */}
+                  <div
+                    className="relative mb-0"
+                    style={{
+                      width: `${contentWidth}px`,
+                      height: `${track.height}px`,
+                    }}
+                  >
+                    <Track
+                      track={track}
+                      pixelsPerSecond={pixelsPerSecond}
+                      clips={clips}
+                      onClipDragStart={handleClipDragStart}
+                      onClipDragMove={handleClipDragMove}
+                      onClipDragEnd={handleClipDragEnd}
+                      dragState={
+                        dragState
+                          ? {
+                              draggingClipId: dragState.draggingClipId,
+                              draggedClipIds: dragState.draggedClipIds,
+                              offsetX: dragState.offsetX,
+                              offsetY: dragState.offsetY,
+                              isInvalidPosition: dragState.isInvalidPosition,
+                              targetTrackId: dragState.targetTrackId,
+                              placementPreview: dragState.placementPreview,
+                              draggedBlockDuration: dragState.draggedBlockDuration,
+                            }
+                          : undefined
+                      }
                     />
-                  )}
+                  </div>
 
-                  {tracks.map((track, index) => (
-                    <React.Fragment key={track.id}>
-                      <Track
-                        track={track}
-                        pixelsPerSecond={pixelsPerSecond}
-                        clips={clips}
-                        onClipDragStart={handleClipDragStart}
-                        onClipDragMove={handleClipDragMove}
-                        onClipDragEnd={handleClipDragEnd}
-                        dragState={
-                          dragState
-                            ? {
-                                draggingClipId: dragState.draggingClipId,
-                                draggedClipIds: dragState.draggedClipIds,
-                                offsetX: dragState.offsetX,
-                                offsetY: dragState.offsetY,
-                                isInvalidPosition: dragState.isInvalidPosition,
-                                targetTrackId: dragState.targetTrackId,
-                                placementPreview: dragState.placementPreview,
-                                draggedBlockDuration: dragState.draggedBlockDuration,
-                              }
-                            : undefined
-                        }
-                      />
-
-                      {/* Between-track indicator */}
-                      {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "between" && dragState?.betweenTrackIds?.aboveId === track.id && (
-                        <div
-                          className="relative left-0 right-0 pointer-events-none z-50 flex items-center justify-center"
-                          style={{
-                            height: "4px",
-                            marginTop: "-2px",
-                            marginBottom: "-2px",
-                          }}
-                        >
-                          <div
-                            className="absolute inset-0"
-                            style={{
-                              background: `linear-gradient(90deg, transparent, var(--color-timeline-drop-indicator) 10%, var(--color-timeline-drop-indicator) 90%, transparent)`,
-                              boxShadow: "0 0 12px var(--color-timeline-drop-indicator)",
-                            }}
-                          />
-                          <div
-                            className="relative text-xs font-medium px-3 py-1 rounded-full text-white"
-                            style={{
-                              background: "var(--color-timeline-drop-indicator)",
-                              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
-                            }}
-                          >
-                            Create New Track
-                          </div>
-                        </div>
-                      )}
-                    </React.Fragment>
-                  ))}
-
-                  {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "below" && (
+                  {/* Between-track indicator */}
+                  {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "between" && dragState?.betweenTrackIds?.aboveId === track.id && (
                     <div
-                      className="absolute left-0 right-0 pointer-events-none z-50"
+                      className="relative pointer-events-none z-50 flex items-center justify-center"
                       style={{
-                        bottom: 0,
-                        height: "2px",
-                        background: "var(--color-timeline-drop-indicator)",
-                        boxShadow: "0 0 8px var(--color-timeline-drop-indicator)",
+                        gridColumn: "1 / -1",
+                        height: "4px",
+                        marginTop: "-2px",
+                        marginBottom: "-2px",
                       }}
-                    />
-                  )}
-
-                  <Playhead pixelsPerSecond={pixelsPerSecond} duration={duration} containerRef={containerRef} rulerHeight={24} />
-
-                  {/* Snap Guides - Vertical alignment indicators */}
-                  {snapGuides.map((guide, index) => {
-                    const guideLeft = guide.time * pixelsPerSecond;
-                    const guideColor = guide.type === "playhead" ? "var(--color-timeline-drop-indicator)" : "var(--color-snap-guide-clip)";
-
-                    return (
+                    >
                       <div
-                        key={`snap-guide-${index}-${guide.time}`}
-                        className="absolute top-0 bottom-0 pointer-events-none z-60"
+                        className="absolute inset-0"
                         style={{
-                          left: `${guideLeft}px`,
-                          width: "2px",
-                          background: guideColor,
-                          boxShadow: `0 0 8px ${guideColor}`,
+                          background: `linear-gradient(90deg, transparent, var(--color-timeline-drop-indicator) 10%, var(--color-timeline-drop-indicator) 90%, transparent)`,
+                          boxShadow: "0 0 12px var(--color-timeline-drop-indicator)",
                         }}
                       />
-                    );
-                  })}
-                </>
+                      <div
+                        className="relative text-xs font-medium px-3 py-1 rounded-full text-white"
+                        style={{
+                          background: "var(--color-timeline-drop-indicator)",
+                          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
+                        }}
+                      >
+                        Create New Track
+                      </div>
+                    </div>
+                  )}
+                </React.Fragment>
+              ))}
+
+              {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "below" && (
+                <div
+                  className="pointer-events-none z-50"
+                  style={{
+                    gridColumn: "1 / -1",
+                    height: "2px",
+                    background: "var(--color-timeline-drop-indicator)",
+                    boxShadow: "0 0 8px var(--color-timeline-drop-indicator)",
+                  }}
+                />
               )}
-            </div>
-          </div>
+
+              {/* Playhead spans the visible viewport (clips area only) */}
+              <div
+                className="pointer-events-none absolute"
+                style={{
+                  top: 0,
+                  left: hasClips ? "160px" : "0px",
+                  bottom: 0,
+                  width: `${contentWidth}px`,
+                  zIndex: 100,
+                }}
+              >
+                <Playhead pixelsPerSecond={pixelsPerSecond} duration={duration} containerRef={containerRef} />
+              </div>
+
+              {/* Snap Guides - Vertical alignment indicators */}
+              {snapGuides.map((guide, index) => {
+                const guideLeft = guide.time * pixelsPerSecond + 160; // offset by label column width
+                const guideColor = guide.type === "playhead" ? "var(--color-timeline-drop-indicator)" : "var(--color-snap-guide-clip)";
+
+                return (
+                  <div
+                    key={`snap-guide-${index}-${guide.time}`}
+                    className="absolute top-0 bottom-0 pointer-events-none z-60"
+                    style={{
+                      left: `${guideLeft}px`,
+                      width: "2px",
+                      background: guideColor,
+                      boxShadow: `0 0 8px ${guideColor}`,
+                    }}
+                  />
+                );
+              })}
+            </>
+          )}
         </div>
       </div>
     </div>

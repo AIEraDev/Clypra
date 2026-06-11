@@ -30,7 +30,7 @@ interface TrackProps {
 
 const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, dragState }) => {
   const { selectedClipIds, selectedGapId, selectedTrackId } = useUIStore();
-  const { gaps } = useTimelineStore();
+  const { gaps = [] } = useTimelineStore();
   const { getMediaAsset } = useTimeline();
 
   // Drop handler for media assets from MediaTab
@@ -150,7 +150,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
         drop(node);
       }}
       data-track-id={track.id}
-      className={`relative transition-colors mb-1 bg-surface-raised/40 ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-accent/10" : ""} ${track.locked ? "bg-slate-900/45" : ""}`}
+      className={`relative transition-colors mb-0 bg-surface-raised/40 ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-accent/10" : ""} ${track.locked ? "bg-slate-900/45" : ""}`}
       style={{ height: `${track.height}px` }}
     >
       {/* Clips layer */}

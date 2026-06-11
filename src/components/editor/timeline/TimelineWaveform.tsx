@@ -3,6 +3,7 @@ import { platform } from "@/core/platform";
 import { drawProfessionalWaveform, convertLegacyWaveform, getThemeAccentRgb, hexToRgb } from "@/lib/canvasUtils";
 import type { WaveformBucket } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
+import { normalizePathForTauriInvoke } from "@/lib/tauri";
 
 interface TimelineWaveformProps {
   audioPath: string;
@@ -21,7 +22,8 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, c
 
   // Calculate optimal sample count based on clip width
   // Professional NLE behavior: more zoom = more detail
-  const sampleCount = Math.min(Math.max(Math.floor(clipWidthPx / 1.5), 200), 2000);
+  const validClipWidth = typeof clipWidthPx === "number" && !isNaN(clipWidthPx) ? clipWidthPx : 300;
+  const sampleCount = Math.min(Math.max(Math.floor(validClipWidth / 1.5), 200), 2000);
 
   // Watch for theme changes on document element and trigger redraw
   useEffect(() => {
@@ -58,10 +60,7 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, c
         // Try Rust backend first (professional peak + RMS extraction)
         try {
           // Convert asset:// protocol back to file path for Rust
-          let filePath = audioPath;
-          if (audioPath.startsWith("asset://localhost/")) {
-            filePath = decodeURIComponent(audioPath.replace("asset://localhost/", ""));
-          }
+          const filePath = normalizePathForTauriInvoke(audioPath);
 
           const buckets = await invoke<WaveformBucket[]>("extract_waveform_data", {
             path: filePath,

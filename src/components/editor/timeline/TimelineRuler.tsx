@@ -61,6 +61,10 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
 
   // ── Memoized tick generation ─────────────────────────────────────────────────
   const ticks = useMemo(() => {
+    const validPPS = typeof pixelsPerSecond === "number" && !isNaN(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
+    const validScrollLeft = typeof scrollLeft === "number" && !isNaN(scrollLeft) ? scrollLeft : 0;
+    const validViewportWidth = typeof viewportWidth === "number" && !isNaN(viewportWidth) && viewportWidth > 0 ? viewportWidth : 1200;
+
     // Pick best interval
     let majorInterval = INTERVAL_TABLE[INTERVAL_TABLE.length - 1][0];
     let minorDivisions = INTERVAL_TABLE[INTERVAL_TABLE.length - 1][1];
@@ -69,7 +73,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
     // guarantees ≥ MIN_LABEL_GAP_PX between labels (no overlap).
     for (let i = INTERVAL_TABLE.length - 1; i >= 0; i--) {
       const [interval, divisions] = INTERVAL_TABLE[i];
-      if (interval * pixelsPerSecond >= MIN_LABEL_GAP_PX) {
+      if (interval * validPPS >= MIN_LABEL_GAP_PX) {
         majorInterval = interval;
         minorDivisions = divisions;
         break;
@@ -80,20 +84,24 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
 
     // Visible time range
     const padPx = 60;
-    const startTime = Math.max(0, (scrollLeft - padPx) / pixelsPerSecond);
-    const endTime = (scrollLeft + viewportWidth + padPx) / pixelsPerSecond;
+    const startTime = Math.max(0, (validScrollLeft - padPx) / validPPS);
+    const endTime = (validScrollLeft + validViewportWidth + padPx) / validPPS;
 
     // Generate ticks
     const result: { time: number; isMajor: boolean }[] = [];
     const firstTick = Math.floor(startTime / minorInterval) * minorInterval;
 
-    for (let t = firstTick; t <= endTime; t += minorInterval) {
-      const time = Math.round(t * 10000) / 10000;
-      if (time < 0) continue;
+    if (minorInterval > 0 && !isNaN(minorInterval) && isFinite(startTime) && isFinite(endTime)) {
+      let count = 0;
+      for (let t = firstTick; t <= endTime && count < 2000; t += minorInterval) {
+        const time = Math.round(t * 10000) / 10000;
+        if (time < 0) continue;
 
-      const isMajor = Math.abs(time % majorInterval) < minorInterval * 0.01 || Math.abs((time % majorInterval) - majorInterval) < minorInterval * 0.01;
+        const isMajor = Math.abs(time % majorInterval) < minorInterval * 0.01 || Math.abs((time % majorInterval) - majorInterval) < minorInterval * 0.01;
 
-      result.push({ time, isMajor });
+        result.push({ time, isMajor });
+        count++;
+      }
     }
 
     return result;

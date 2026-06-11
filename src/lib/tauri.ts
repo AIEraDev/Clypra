@@ -11,6 +11,29 @@ const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in 
 export function normalizePathForTauriInvoke(inputPath: string): string {
   const p = inputPath.trim();
 
+  // Handle http://asset.localhost/ or https://asset.localhost/
+  if (
+    p.startsWith("http://asset.localhost/") ||
+    p.startsWith("https://asset.localhost/") ||
+    p.startsWith("http://asset.localhost%2F") ||
+    p.startsWith("https://asset.localhost%2F")
+  ) {
+    try {
+      const url = new URL(p);
+      let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
+      if (pathname.startsWith("//")) {
+        pathname = pathname.replace(/^\/+/, "/");
+      }
+      // Windows: http://asset.localhost/C:/... → /C:/...
+      if (/^\/[A-Za-z]:/.test(pathname)) {
+        pathname = pathname.slice(1);
+      }
+      return pathname;
+    } catch {
+      return p;
+    }
+  }
+
   // Handle asset://localhost/<encoded-path> produced by convertFileSrc on macOS/Linux
   if (p.startsWith("asset://localhost/") || p.startsWith("asset://localhost%2F")) {
     try {

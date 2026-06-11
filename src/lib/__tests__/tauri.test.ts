@@ -70,6 +70,17 @@ describe("normalizePathForTauriInvoke", () => {
     const url = "asset://localhost/%2Ftest%2Fvideo.mp4";
     expect(normalizePathForTauriInvoke(url)).toBe("/test/video.mp4");
   });
+
+  it("handles http://asset.localhost/ and https://asset.localhost/ URLs under Tauri v2", () => {
+    const macUrl = "http://asset.localhost/%2Ftest%2Fvideo.mp4";
+    expect(normalizePathForTauriInvoke(macUrl)).toBe("/test/video.mp4");
+
+    const winUrl = "https://asset.localhost/C%3A%5CUsers%5Ctest%5Cvideo.mp4";
+    expect(normalizePathForTauriInvoke(winUrl)).toBe("C:\\Users\\test\\video.mp4");
+
+    const winUrlForward = "https://asset.localhost/C%3A/Users/test/video.mp4";
+    expect(normalizePathForTauriInvoke(winUrlForward)).toBe("C:/Users/test/video.mp4");
+  });
 });
 
 // ─── decodeFrame ─────────────────────────────────────────────────────────────

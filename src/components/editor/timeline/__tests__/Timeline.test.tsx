@@ -20,20 +20,41 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: vi.fn((value: string) => value),
 }));
 
-vi.mock("@/hooks/usePlayback", () => ({
-  usePlayback: () => ({
-    currentTime: 0,
+vi.mock("@/hooks/usePlaybackClock", () => ({
+  usePlaybackClock: () => ({
+    time: 0,
     duration: 20,
-    seek: seekMock,
-    setDuration: setDurationMock,
-    isPlaying: false,
+    state: "stopped",
+    speed: 1,
     frameRate: 30,
+  }),
+  usePlaybackControls: () => ({
     play: vi.fn(),
     pause: vi.fn(),
     stop: vi.fn(),
-    formatTime: vi.fn(),
+    seek: seekMock,
+    setSpeed: vi.fn(),
+    setDuration: setDurationMock,
+    setFrameRate: vi.fn(),
+  }),
+  useTransport: () => null,
+  useTransportControls: () => ({
+    play: vi.fn(),
+    pause: vi.fn(),
+    stop: vi.fn(),
+    seek: vi.fn(),
+    setSpeed: vi.fn(),
+    setActiveContext: vi.fn(),
+  }),
+  useTransportSnapshot: () => ({
+    time: 0,
+    state: "stopped",
+    duration: 20,
+    speed: 1,
+    contextType: null,
   }),
 }));
+
 
 vi.mock("@/hooks/useRenderRuntime", () => ({
   useRenderRuntime: () => mockRuntimeRef.current,
@@ -47,8 +68,8 @@ vi.mock("../TimelineRuler", () => ({
   TimelineRuler: () => <div data-testid="timeline-ruler">Ruler</div>,
 }));
 
-vi.mock("../TrackList", () => ({
-  TrackList: () => <div>TrackList</div>,
+vi.mock("../TrackLabel", () => ({
+  TrackLabel: (props: any) => <div data-track-label="true">TrackLabel-{props.track.id}</div>,
 }));
 
 vi.mock("../Track", () => ({
@@ -96,7 +117,7 @@ describe("Timeline click behavior", () => {
 
   it("seeks when clicking empty timeline area", () => {
     const { container } = render(<Timeline />);
-    const scroller = container.querySelector(".overflow-x-auto") as HTMLDivElement;
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
     expect(scroller).toBeTruthy();
 
     Object.defineProperty(scroller, "scrollLeft", { value: 50, configurable: true });

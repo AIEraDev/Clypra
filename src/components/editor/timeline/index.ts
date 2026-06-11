@@ -12,6 +12,7 @@ export { TimelineToolbar } from "./TimelineToolbar";
 export { TimelineWaveform } from "./TimelineWaveform";
 export { Track } from "./Track";
 export { TrackList } from "./TrackList";
+export { TrackLabel } from "./TrackLabel";
 export { Clip } from "./Clip";
 export { ClipDragLayer } from "./ClipDragLayer";
 export { ClipFilmstrip } from "./ClipFilmstrip";

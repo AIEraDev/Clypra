@@ -59,6 +59,13 @@ export interface RustMediaAsset {
   posterFrame?: string;
   coverArt?: string;
   size: number;
+  rotation?: number;
+  contentBounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 /**
@@ -94,6 +101,8 @@ export interface RustClip {
   aspectRatioLocked?: boolean;
   sourceAspectRatio?: number;
   style_definition?: any;
+  fitMode?: "contain" | "cover" | "fill" | "stretch" | "original";
+  volume?: number;
 }
 
 // ============================================================================
@@ -144,6 +153,8 @@ export function fromRustMediaAsset(rust: RustMediaAsset): MediaAsset {
     posterFrame: rust.posterFrame,
     coverArt: rust.coverArt,
     size: rust.size,
+    rotation: rust.rotation,
+    contentBounds: rust.contentBounds,
   };
 }
 
@@ -189,6 +200,8 @@ export function fromRustClip(rust: RustClip): Clip {
     rotation: rust.rotation,
     aspectRatioLocked: rust.aspectRatioLocked,
     sourceAspectRatio: rust.sourceAspectRatio,
+    fitMode: rust.fitMode,
+    volume: rust.volume,
   };
 
   // Preserve all additional properties (e.g., TextClip properties)
@@ -257,6 +270,8 @@ export function toRustMediaAsset(frontend: MediaAsset): RustMediaAsset {
     posterFrame: frontend.posterFrame,
     coverArt: frontend.coverArt,
     size: frontend.size,
+    rotation: frontend.rotation,
+    contentBounds: frontend.contentBounds,
   };
 }
 
@@ -302,6 +317,8 @@ export function toRustClip(frontend: Clip): RustClip {
     rotation: frontend.rotation,
     aspectRatioLocked: frontend.aspectRatioLocked,
     sourceAspectRatio: frontend.sourceAspectRatio,
+    fitMode: frontend.fitMode,
+    volume: frontend.volume,
   };
 
   // Preserve all additional properties (e.g., TextClip properties)

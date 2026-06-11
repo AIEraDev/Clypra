@@ -139,7 +139,8 @@ export class PlaybackClock {
    * Set duration.
    */
   setDuration(duration: number): void {
-    this._duration = Math.max(0, duration);
+    const validDuration = typeof duration === "number" && !isNaN(duration) && isFinite(duration) ? duration : 0;
+    this._duration = Math.max(0, validDuration);
     this._notifyListeners();
   }
 
@@ -236,7 +237,8 @@ export class PlaybackClock {
       this.pause();
     }
 
-    this._time = Math.max(0, Math.min(time, this._duration));
+    const validTime = typeof time === "number" && !isNaN(time) && isFinite(time) ? time : 0;
+    this._time = Math.max(0, Math.min(validTime, this._duration));
     this._notifyListeners();
 
     if (wasPlaying) {

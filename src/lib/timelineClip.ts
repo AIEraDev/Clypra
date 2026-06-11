@@ -12,20 +12,27 @@ export const resolveClipDuration = (asset: MediaAsset): number => {
 // Centralized timeline timing helpers
 
 export function getClipVisibleDuration(clip: Pick<Clip, "trimIn" | "trimOut">): number {
-  return Math.max(0, clip.trimOut - clip.trimIn);
+  const trimIn = typeof clip.trimIn === "number" && !isNaN(clip.trimIn) ? clip.trimIn : 0;
+  const trimOut = typeof clip.trimOut === "number" && !isNaN(clip.trimOut) ? clip.trimOut : 0;
+  return Math.max(0, trimOut - trimIn);
 }
 
 export function normalizeClipTiming(clip: Clip, asset?: MediaAsset): Clip {
   const sourceDuration = asset ? resolveClipDuration(asset) : Infinity;
+  const rawTrimIn = typeof clip.trimIn === "number" && !isNaN(clip.trimIn) ? clip.trimIn : 0;
+  const rawTrimOut = typeof clip.trimOut === "number" && !isNaN(clip.trimOut) ? clip.trimOut : (typeof clip.duration === "number" && !isNaN(clip.duration) ? clip.duration : 0);
+  const rawStartTime = typeof clip.startTime === "number" && !isNaN(clip.startTime) ? clip.startTime : 0;
+
   // Ensure trim bounds are within source duration
-  const trimIn = Math.max(0, Math.min(clip.trimIn, sourceDuration));
-  const trimOut = Math.max(trimIn, Math.min(clip.trimOut, sourceDuration));
+  const trimIn = Math.max(0, Math.min(rawTrimIn, sourceDuration));
+  const trimOut = Math.max(trimIn, Math.min(rawTrimOut, sourceDuration));
 
   // Calculate new duration
   const duration = Math.max(0, trimOut - trimIn);
 
   return {
     ...clip,
+    startTime: rawStartTime,
     trimIn,
     trimOut,
     duration,
@@ -33,12 +40,15 @@ export function normalizeClipTiming(clip: Clip, asset?: MediaAsset): Clip {
 }
 
 export function getClipEndTime(clip: Pick<Clip, "startTime" | "trimIn" | "trimOut">): number {
-  return clip.startTime + getClipVisibleDuration(clip);
+  const visibleDuration = getClipVisibleDuration(clip);
+  const startTime = typeof clip.startTime === "number" && !isNaN(clip.startTime) ? clip.startTime : 0;
+  return startTime + visibleDuration;
 }
 
 export function getTimelineContentEnd(clips: Pick<Clip, "startTime" | "trimIn" | "trimOut">[]): number {
   if (!clips || clips.length === 0) return 0;
-  return Math.max(...clips.map(getClipEndTime), 0);
+  const ends = clips.map(getClipEndTime).filter((val) => typeof val === "number" && !isNaN(val));
+  return ends.length > 0 ? Math.max(...ends, 0) : 0;
 }
 
 export function getTimelineViewportEnd(contentEnd: number): number {

@@ -108,6 +108,21 @@ describe("RippleDeleteCommand", () => {
       expect(restoredB).toBeDefined();
       expect(restoredC?.startTime).toBe(8); // Back to original position
     });
+
+    it("restores deleted track when deleting the last clip on a track is undone", () => {
+      const track = { id: "track-1", type: "video" as const, name: "Video 1", muted: false, locked: false, visible: true, height: 68 };
+      const clip = createTestClip({ id: "A", trackId: "track-1" });
+      const command = new RippleDeleteCommand("A");
+      const state = { tracks: [track], clips: [clip], epoch: 0 };
+
+      const newState = command.apply(state);
+      expect(newState.tracks).toHaveLength(0); // Track should be auto-deleted because it is empty
+
+      const undoCommand = command.invert();
+      const restoredState = undoCommand.apply(newState);
+      expect(restoredState.tracks).toHaveLength(1); // Track should be restored
+      expect(restoredState.tracks![0].id).toBe("track-1");
+    });
   });
 
   describe("edge cases", () => {
