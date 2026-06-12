@@ -76,7 +76,7 @@ export interface Project {
   timelineSchemaVersion?: number;
 }
 
-export type TrackType = "video" | "audio" | "text";
+export type TrackType = "video" | "audio" | "text" | "sticker";
 
 export interface Track {
   id: string;

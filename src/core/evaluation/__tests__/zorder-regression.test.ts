@@ -178,6 +178,7 @@ describe("Z-Order Regression — Role Inference Fix", () => {
       const audioClip = { ...createVideoClip("audio", "t1", "a1") };
       const textClip: any = {
         id: "text",
+        kind: "text",
         trackId: "t2",
         mediaId: "",
         startTime: 0,

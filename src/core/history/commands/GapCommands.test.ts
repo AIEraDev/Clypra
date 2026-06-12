@@ -12,7 +12,7 @@ import type { Gap } from "@/types/gap";
 
 // Helper to create test state
 const createTestState = () => {
-  const clips: Clip[] = [
+  const clips: any[] = [
     {
       id: "clip1",
       trackId: "track1",
@@ -45,7 +45,7 @@ const createTestState = () => {
 
   const gaps: Gap[] = [];
 
-  return { clips, gaps };
+  return { clips: clips as Clip[], gaps, epoch: 0 };
 };
 
 describe("InsertGapCommand", () => {
@@ -81,7 +81,7 @@ describe("InsertGapCommand", () => {
     expect(restoredState.gaps).toHaveLength(0);
 
     // Clips should be back to original positions
-    const clip2 = restoredState.clips.find((c) => c.id === "clip2");
+    const clip2 = restoredState.clips.find((c: any) => c.id === "clip2");
     expect(clip2!.startTime).toBe(10);
   });
 
@@ -127,7 +127,7 @@ describe("InsertGapCommand", () => {
       volume: 1,
       speed: 1,
       locked: false,
-    });
+    } as any);
 
     const command = new InsertGapCommand("track1", 7, 3);
     const newState = command.apply(state);
@@ -143,9 +143,9 @@ describe("InsertGapCommand", () => {
 
     const deserialized = InsertGapCommand.fromJSON(json);
 
-    expect(deserialized.trackId).toBe(command.trackId);
-    expect(deserialized.startTime).toBe(command.startTime);
-    expect(deserialized.duration).toBe(command.duration);
+    expect((deserialized as any).trackId).toBe((command as any).trackId);
+    expect((deserialized as any).startTime).toBe((command as any).startTime);
+    expect((deserialized as any).duration).toBe((command as any).duration);
   });
 });
 
@@ -185,7 +185,7 @@ describe("RemoveGapCommand", () => {
     expect(restoredState.gaps[0].duration).toBe(3);
 
     // Clips should be back to shifted positions
-    const clip2 = restoredState.clips.find((c) => c.id === "clip2");
+    const clip2 = restoredState.clips.find((c: any) => c.id === "clip2");
     expect(clip2!.startTime).toBe(13);
   });
 
@@ -203,7 +203,7 @@ describe("RemoveGapCommand", () => {
 
     const deserialized = RemoveGapCommand.fromJSON(json);
 
-    expect(deserialized.gapId).toBe(command.gapId);
+    expect((deserialized as any).gapId).toBe((command as any).gapId);
   });
 });
 
@@ -247,16 +247,15 @@ describe("ResizeGapCommand", () => {
   it("should undo gap resize", () => {
     const command = new ResizeGapCommand(gapId, 5);
     const resizedState = command.apply(stateWithGap);
-
     const undoCommand = command.invert();
     const restoredState = undoCommand.apply(resizedState);
 
     // Gap should be back to original duration
-    const gap = restoredState.gaps.find((g) => g.id === gapId);
+    const gap = restoredState.gaps.find((g: any) => g.id === gapId);
     expect(gap!.duration).toBe(3);
 
     // Clips should be back to original positions
-    const clip2 = restoredState.clips.find((c) => c.id === "clip2");
+    const clip2 = restoredState.clips.find((c: any) => c.id === "clip2");
     expect(clip2!.startTime).toBe(13);
   });
 
@@ -275,8 +274,8 @@ describe("ResizeGapCommand", () => {
 
     const deserialized = ResizeGapCommand.fromJSON(json);
 
-    expect(deserialized.gapId).toBe(command.gapId);
-    expect(deserialized.newDuration).toBe(command.newDuration);
+    expect((deserialized as any).gapId).toBe((command as any).gapId);
+    expect((deserialized as any).newDuration).toBe((command as any).newDuration);
   });
 });
 
@@ -319,7 +318,7 @@ describe("ToggleGapProtectionCommand", () => {
     const restoredState = undoCommand.apply(toggledState);
 
     // Should be back to original protected state
-    const gap = restoredState.gaps.find((g) => g.id === gapId);
+    const gap = restoredState.gaps.find((g: any) => g.id === gapId);
     expect(gap!.protected).toBe(true); // Original was protected
   });
 
@@ -357,7 +356,7 @@ describe("ToggleGapProtectionCommand", () => {
 
     const deserialized = ToggleGapProtectionCommand.fromJSON(json);
 
-    expect(deserialized.gapId).toBe(command.gapId);
+    expect((deserialized as any).gapId).toBe((command as any).gapId);
   });
 });
 
@@ -410,7 +409,7 @@ describe("Command Integration Tests", () => {
       volume: 1,
       speed: 1,
       locked: false,
-    });
+    } as any);
 
     // Insert gap on track1
     const insert1 = new InsertGapCommand("track1", 7, 3);
@@ -468,7 +467,7 @@ describe("Command Integration Tests", () => {
 
 describe("Edge Cases", () => {
   it("should handle inserting gap with zero clips", () => {
-    const state = { clips: [], gaps: [] };
+    const state = { clips: [], gaps: [], epoch: 0 };
     const command = new InsertGapCommand("track1", 0, 2);
 
     const newState = command.apply(state);
@@ -522,15 +521,15 @@ describe("Edge Cases", () => {
   it("should preserve clip properties during gap operations", () => {
     const state = createTestState();
     state.clips[0].volume = 0.5;
-    state.clips[0].speed = 1.5;
-    state.clips[0].transform.scale = 2;
+    (state.clips[0] as any).speed = 1.5;
+    (state.clips[0] as any).transform.scale = 2;
 
     const command = new InsertGapCommand("track1", 0, 2);
     const newState = command.apply(state);
 
     const clip1 = newState.clips.find((c) => c.id === "clip1");
     expect(clip1!.volume).toBe(0.5);
-    expect(clip1!.speed).toBe(1.5);
-    expect(clip1!.transform.scale).toBe(2);
+    expect((clip1 as any).speed).toBe(1.5);
+    expect((clip1 as any).transform.scale).toBe(2);
   });
 });

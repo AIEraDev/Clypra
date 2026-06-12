@@ -98,7 +98,7 @@ describe("RippleDeleteCommand", () => {
       const afterDelete = command.apply(state);
 
       const undoCommand = command.invert();
-      const afterUndo = undoCommand.apply(afterDelete);
+      const afterUndo = undoCommand.apply(afterDelete) as { clips: Clip[] };
 
       expect(afterUndo.clips).toHaveLength(3);
 

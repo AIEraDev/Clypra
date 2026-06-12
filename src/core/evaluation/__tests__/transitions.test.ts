@@ -23,6 +23,7 @@ const tracks: Track[] = [{ id: "t1", type: "text", name: "Text", muted: false, l
 
 const makeTextClip = (id: string, startTime: number, text: string): TextClip => ({
   id,
+  kind: "text",
   trackId: "t1",
   mediaId: "",
   startTime,

@@ -176,6 +176,7 @@ describe("Project Serialization Layer", () => {
   it("handles TextClip specific properties and custom style definitions in serialization round-trip", () => {
     const textClip: TextClip = {
       id: "clip-text",
+      kind: "text",
       trackId: "track-text",
       mediaId: "",
       startTime: 0,
@@ -202,7 +203,7 @@ describe("Project Serialization Layer", () => {
         name: "Custom Style",
         schema: {} as any,
         keyframes: [],
-      },
+      } as any,
     };
 
     const rustClip = toRustClip(textClip);
@@ -212,8 +213,8 @@ describe("Project Serialization Layer", () => {
       schema: {},
       keyframes: [],
     });
-    expect(rustClip.styleDefinition).toBeUndefined();
-    expect(rustClip.text).toBe("Hello World");
+    expect((rustClip as any).styleDefinition).toBeUndefined();
+    expect((rustClip as any).text).toBe("Hello World");
 
     const roundTrippedClip = fromRustClip(rustClip) as TextClip;
     expect(roundTrippedClip.styleDefinition).toEqual({
@@ -222,7 +223,7 @@ describe("Project Serialization Layer", () => {
       schema: {},
       keyframes: [],
     });
-    expect(roundTrippedClip.style_definition).toBeUndefined();
+    expect((roundTrippedClip as any).style_definition).toBeUndefined();
     expect(roundTrippedClip.text).toBe("Hello World");
     expect(roundTrippedClip.fontFamily).toBe("Inter");
   });

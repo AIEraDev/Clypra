@@ -337,8 +337,20 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
       for (const draggedId of ds.draggedClipIds) {
         const draggedClip = clipMapRef.current.get(draggedId) ?? liveClips.find((c) => c.id === draggedId);
         if (!draggedClip) continue;
-        const isTextClip = "text" in draggedClip;
-        if (isTextClip ? targetTrack.type !== "text" : targetTrack.type === "text") {
+        const kind = draggedClip.kind ?? (
+          ("text" in draggedClip || draggedClip.id.startsWith("text-clip-")) ? "text" :
+          draggedClip.mediaId.startsWith("sticker-") ? "sticker" :
+          "video"
+        );
+        if (kind === "text" && targetTrack.type !== "text") {
+          isTrackTypeMismatch = true;
+          break;
+        }
+        if (kind === "sticker" && targetTrack.type !== "sticker") {
+          isTrackTypeMismatch = true;
+          break;
+        }
+        if (kind !== "text" && kind !== "sticker" && (targetTrack.type === "text" || targetTrack.type === "sticker")) {
           isTrackTypeMismatch = true;
           break;
         }
@@ -542,8 +554,9 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
       // Handle new track creation
       if (dragSnapshot.willCreateNewTrack && dragSnapshot.newTrackPosition) {
         const isTextClip = clip.kind === "text";
+        const isStickerClip = clip.kind === "sticker";
         const mediaAsset = useProjectStore.getState().mediaAssets.find((a) => a.id === clip.mediaId);
-        const trackType = isTextClip ? "text" : mediaAsset?.type === "audio" ? "audio" : "video";
+        const trackType = isTextClip ? "text" : isStickerClip ? "sticker" : mediaAsset?.type === "audio" ? "audio" : "video";
 
         const store = useTimelineStore.getState();
         const insertIndex = getInsertIndexForNewTrackSmart(store.tracks, trackType, {

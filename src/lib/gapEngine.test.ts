@@ -24,7 +24,7 @@ const createClip = (id: string, trackId: string, startTime: number, duration: nu
   volume: 1,
   speed: 1,
   locked: false,
-});
+} as any as Clip);
 
 describe("gapEngine", () => {
   describe("detectGaps", () => {

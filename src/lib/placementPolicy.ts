@@ -31,11 +31,12 @@ export function resolveDefaultFitModeForAsset(asset: Pick<MediaAsset, "type">): 
   return DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode;
 }
 
-export function resolveTargetTrackType(asset: Pick<MediaAsset, "type">): "video" | "audio" {
+export function resolveTargetTrackType(asset: { type: MediaAsset["type"]; id?: string }): "video" | "audio" | "sticker" {
+  if (asset.id?.startsWith("sticker-")) return "sticker";
   return asset.type === "audio" ? "audio" : "video";
 }
 
-export function resolvePreferredTrackId(params: { tracks: Track[]; asset: Pick<MediaAsset, "type">; preferTrackId?: string | null }): string | null {
+export function resolvePreferredTrackId(params: { tracks: Track[]; asset: { type: MediaAsset["type"]; id?: string }; preferTrackId?: string | null }): string | null {
   const { tracks, asset, preferTrackId } = params;
   const targetType = resolveTargetTrackType(asset);
 
@@ -65,7 +66,7 @@ export function resolveClipStartTime(params: {
 }
 
 interface ResolveAddPlacementParams {
-  asset: Pick<MediaAsset, "type">;
+  asset: { type: MediaAsset["type"]; id?: string };
   tracks: Track[];
   clips: Clip[];
   playheadTime: number;
@@ -75,7 +76,7 @@ interface ResolveAddPlacementParams {
 
 interface AddPlacementDecision {
   intent: AddPlacementIntent;
-  trackType: "video" | "audio";
+  trackType: "video" | "audio" | "sticker";
   startTime: number;
   targetTrackId: string | null;
   shouldCreateTrack: boolean;

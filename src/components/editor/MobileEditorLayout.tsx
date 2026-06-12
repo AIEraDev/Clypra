@@ -255,8 +255,8 @@ export const MobileEditorLayout: React.FC = () => {
         
         let targetTrackId = placement.targetTrackId;
         if (placement.shouldCreateTrack || !targetTrackId) {
-          const insertIndex = getInsertIndexForNewTrack(useTimelineStore.getState().tracks, "video");
-          targetTrackId = insertTrackAt("video", insertIndex);
+          const insertIndex = getInsertIndexForNewTrack(useTimelineStore.getState().tracks, placement.trackType);
+          targetTrackId = insertTrackAt(placement.trackType, insertIndex);
         }
 
         if (!targetTrackId) return;

@@ -55,6 +55,7 @@ describe("usePreviewMode", () => {
         type: "video" as const,
         path: "/test.mp4",
         duration: 10,
+        size: 0,
       };
 
       act(() => {
@@ -78,6 +79,7 @@ describe("usePreviewMode", () => {
         type: "video" as const,
         path: "/test.mp4",
         duration: 10,
+        size: 0,
       };
 
       act(() => {
@@ -120,6 +122,7 @@ describe("usePreviewMode", () => {
         type: "video" as const,
         path: "/test.mp4",
         duration: 10,
+        size: 0,
       };
 
       act(() => {
@@ -162,6 +165,7 @@ describe("usePreviewMode", () => {
         type: "video" as const,
         path: "/test.mp4",
         duration: 10,
+        size: 0,
       };
 
       // Should not throw

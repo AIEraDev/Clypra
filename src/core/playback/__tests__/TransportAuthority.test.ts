@@ -26,7 +26,8 @@ describe("TransportAuthority", () => {
       setSpeed: vi.fn(),
       getTime: vi.fn(() => 0),
       getDuration: vi.fn(() => 100),
-      getState: vi.fn(() => "paused"),
+      getSpeed: vi.fn(() => 1),
+      getState: vi.fn(() => "paused" as any),
       getSnapshot: vi.fn(() => ({
         time: 0,
         state: "paused" as const,
@@ -63,7 +64,7 @@ describe("TransportAuthority", () => {
       authority.registerContext(mockSourceContext);
 
       // Program is active and "playing"
-      mockProgramContext.getState = vi.fn(() => "playing");
+      mockProgramContext.getState = vi.fn(() => "playing" as any);
 
       // Switch to source
       authority.setActiveContext("source");

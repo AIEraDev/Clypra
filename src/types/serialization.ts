@@ -73,7 +73,7 @@ export interface RustMediaAsset {
  */
 export interface RustTrack {
   id: string;
-  type: "video" | "audio" | "text";
+  type: "video" | "audio" | "text" | "sticker";
   name: string;
   muted: boolean;
   locked: boolean;

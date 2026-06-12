@@ -502,11 +502,17 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     return `00:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}:00`;
   };
 
-  const isSticker = clip.kind === "sticker";
-  const isClipText = clip.kind === "text";
-  const isClipAudio = clip.kind === "audio";
-  const isClipVideo = clip.kind === "video";
-  const isClipImage = clip.kind === "image";
+  const inferredKind = clip.kind ?? (
+    ("text" in clip || clip.id.startsWith("text-clip-")) ? "text" :
+    clip.mediaId.startsWith("sticker-") ? "sticker" :
+    mediaAsset?.type
+  );
+
+  const isSticker = inferredKind === "sticker";
+  const isClipText = inferredKind === "text";
+  const isClipAudio = inferredKind === "audio";
+  const isClipVideo = inferredKind === "video";
+  const isClipImage = inferredKind === "image";
 
   // Check if text clip is a caption or title
   const textClip = isClipText ? (clip as any) : null;

@@ -77,6 +77,7 @@ describe("Z-Order and Track Compositing", () => {
 
   const createTextClip = (id: string, trackId: string, text: string): TextClip => ({
     id,
+    kind: "text",
     trackId,
     mediaId: "",
     startTime: 0,

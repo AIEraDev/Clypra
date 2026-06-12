@@ -368,13 +368,13 @@ describe("Timeline Store - Gap Operations", () => {
         mediaId: "media3",
         startTime: 3,
         duration: 2,
-      });
+      } as any);
       freshStore.addClip({
         trackId: track2Id,
         mediaId: "media4",
         startTime: 8,
         duration: 2,
-      });
+      } as any);
 
       // Detect all gaps
       freshStore = useTimelineStore.getState();
@@ -531,7 +531,7 @@ describe("Timeline Store - Gap Operations", () => {
         mediaId: "media3",
         startTime: 20,
         duration: 5,
-      });
+      } as any);
 
       // 3. Insert another gap
       freshStore = useTimelineStore.getState();
@@ -575,7 +575,7 @@ describe("Timeline Store - Gap Operations", () => {
         mediaId: "media3",
         startTime: 15,
         duration: 3,
-      });
+      } as any);
 
       // Gap should still exist after adding clip
       freshStore = useTimelineStore.getState();
@@ -602,13 +602,13 @@ describe("Timeline Store - Gap Operations", () => {
         mediaId: "media3",
         startTime: 0,
         duration: 3,
-      });
+      } as any);
       freshStore.addClip({
         trackId: track2Id,
         mediaId: "media4",
         startTime: 8,
         duration: 3,
-      });
+      } as any);
 
       // Insert gaps on both tracks
       freshStore = useTimelineStore.getState();

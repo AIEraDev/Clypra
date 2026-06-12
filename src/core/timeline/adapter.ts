@@ -65,6 +65,8 @@ function inferRoleFromTrack(track: Track | undefined): ClipRole {
       return "audio";
     case "text":
       return "text";
+    case "sticker":
+      return "overlay";
     default:
       return "primary";
   }
@@ -85,6 +87,7 @@ export function inferRoleFromTrackPosition(track: Track | undefined, trackIndex:
 
   if (track.type === "audio") return "audio";
   if (track.type === "text") return "text";
+  if (track.type === "sticker") return "overlay";
 
   // All video tracks are overlays.
   // Z-order is handled by trackIndex sorting, not by role distinction.

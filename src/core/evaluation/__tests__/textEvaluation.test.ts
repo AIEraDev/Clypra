@@ -32,6 +32,7 @@ describe("Text Layer Evaluation", () => {
   it("evaluates text clip into EvaluatedTextLayer", () => {
     const textClip: TextClip = {
       id: "text1",
+      kind: "text",
       trackId: "t1",
       mediaId: "",
       startTime: 0,
@@ -82,6 +83,7 @@ describe("Text Layer Evaluation", () => {
   it("filters text clips outside time bounds", () => {
     const textClip: TextClip = {
       id: "text1",
+      kind: "text",
       trackId: "t1",
       mediaId: "",
       startTime: 5,
@@ -134,6 +136,7 @@ describe("Text Layer Evaluation", () => {
 
     const textClip: TextClip = {
       id: "text1",
+      kind: "text",
       trackId: "t1",
       mediaId: "",
       startTime: 0,
@@ -203,6 +206,7 @@ describe("Text Layer Evaluation", () => {
 
     const textClip: TextClip = {
       id: "text1",
+      kind: "text",
       trackId: "t-text",
       mediaId: "",
       startTime: 0,
@@ -258,6 +262,7 @@ describe("Text Layer Evaluation", () => {
   it("applies opacity and transforms to text layers", () => {
     const textClip: TextClip = {
       id: "text1",
+      kind: "text",
       trackId: "t1",
       mediaId: "",
       startTime: 0,
@@ -300,6 +305,7 @@ describe("Text Layer Evaluation", () => {
   it("evaluates custom stroke, shadow, and background styles", () => {
     const textClip: TextClip = {
       id: "text-styled",
+      kind: "text",
       trackId: "t1",
       mediaId: "",
       startTime: 0,
@@ -345,6 +351,7 @@ describe("Text Layer Evaluation", () => {
   it("resolves the clip at the exact end of the timeline (boundary condition)", () => {
     const textClip: TextClip = {
       id: "text-boundary",
+      kind: "text",
       trackId: "t1",
       mediaId: "",
       startTime: 0,

@@ -4,6 +4,7 @@ import type { TextClip } from "@/types";
 
 const baseTextClip: TextClip = {
   id: "text-1",
+  kind: "text",
   trackId: "track-1",
   mediaId: "",
   startTime: 0,

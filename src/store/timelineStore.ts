@@ -22,7 +22,7 @@
  */
 
 import { create } from "zustand";
-import type { Track, Clip, TextClip, TransitionTimelineItem, TransitionType } from "@/types";
+import type { Track, TrackType, Clip, TextClip, TransitionTimelineItem, TransitionType } from "@/types";
 import type { Gap } from "@/types/gap";
 import { generateId, getCounter } from "@/lib/id";
 import { detectGaps, createGap, insertGapWithRipple, removeGapWithRipple, resizeGap, packTrack } from "@/lib/gapEngine";
@@ -70,9 +70,9 @@ interface TimelineStore {
   incrementEpoch: () => void;
   /** Hydrate timeline state from project load (atomic operation) */
   hydrateFromProject: (payload: { tracks?: any[]; clips?: any[]; transitions?: TransitionTimelineItem[] }) => void;
-  addTrack: (type: "video" | "audio" | "text") => void;
+  addTrack: (type: TrackType) => void;
   /** Inserts a track at index (clamped); returns the new track id. */
-  insertTrackAt: (type: "video" | "audio" | "text", index: number) => string;
+  insertTrackAt: (type: TrackType, index: number) => string;
   removeTrack: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
   toggleTrackMute: (trackId: string) => void;
@@ -117,8 +117,8 @@ const trackHeights: Record<string, number> = {
 const MIN_TRIM_DURATION_SEC = 1;
 
 /** Where to insert a new row when dropping off-track: video/text at top; audio under first video (or append if no video). */
-export function getInsertIndexForNewTrack(tracks: Track[], trackType: "video" | "audio" | "text"): number {
-  if (trackType === "video" || trackType === "text") {
+export function getInsertIndexForNewTrack(tracks: Track[], trackType: TrackType): number {
+  if (trackType === "video" || trackType === "text" || trackType === "sticker") {
     return 0;
   }
   const mainIdx = tracks.findIndex((t) => t.type === "video");
@@ -134,7 +134,7 @@ export function getInsertIndexForNewTrack(tracks: Track[], trackType: "video" | 
  */
 export function getInsertIndexForNewTrackSmart(
   tracks: Track[],
-  trackType: "video" | "audio" | "text",
+  trackType: TrackType,
   context?: {
     newTrackPosition?: "above" | "below" | "between" | null;
     betweenTrackIds?: { aboveId: string; belowId: string };
