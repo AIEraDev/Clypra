@@ -261,18 +261,16 @@ export async function rasterizeScene(scene: EvaluatedScene, target: RasterTarget
   ctx.restore();
 
   // Apply track-level filter to the entire composition on CPU (unless skipped for GPU)
-  console.log(`[rasterizeScene] Checking track filter - scene.activeFilter:`, scene.activeFilter, `target.skipFilters:`, target.skipFilters);
   if (scene.activeFilter && !target.skipFilters) {
     const { id, intensity } = scene.activeFilter;
     const ir = resolveFilterToIR(id, intensity);
     const cssFilter = compileFilterIRToCSS(ir);
-    console.log(`[rasterizeScene] Applying CPU Track-level filter - id: "${id}", intensity: ${intensity}, cssFilter: "${cssFilter}"`);
 
     if (cssFilter) {
       // Apply the filter to the entire canvas by drawing it onto a temporary canvas,
       // then drawing it back with the filter applied.
       const tempCanvas = CanvasDevice.acquire(targetWidth, targetHeight);
-      const tempCtx = tempCanvas.getContext("2d");
+      const tempCtx = tempCanvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
       if (tempCtx) {
         // Copy current canvas contents to temp canvas
         tempCtx.clearRect(0, 0, targetWidth, targetHeight);
@@ -567,7 +565,6 @@ function drawMediaWithSourceRotation(ctx: CanvasRenderingContext2D | OffscreenCa
     const { id, intensity } = filter;
     const ir = resolveFilterToIR(id, intensity);
     filterString = compileFilterIRToCSS(ir);
-    console.log(`[drawMediaWithSourceRotation] Layer filter applied - id: "${id}", intensity: ${intensity}, filterString: "${filterString}"`);
   }
 
   // Check for CSS-based effects
@@ -581,7 +578,6 @@ function drawMediaWithSourceRotation(ctx: CanvasRenderingContext2D | OffscreenCa
   }
 
   if (filterString) {
-    console.log(`[drawMediaWithSourceRotation] Setting ctx.filter to: "${filterString}"`);
     ctx.filter = filterString;
   }
 

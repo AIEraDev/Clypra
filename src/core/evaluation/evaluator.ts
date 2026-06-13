@@ -28,6 +28,7 @@ import { getEvaluationCache, computeClipVersion } from "./cache";
 import { evaluateProperty } from "./animation";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
+import { normalizeFilterIntensity } from "../render/filterIR";
 
 /**
  * Evaluate the NLE timeline at a specific time.
@@ -76,7 +77,12 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
   // ─── 2. Compositing Order (Contract §2) ───────────────────────────────────
 
   // Find active timeline filter clip at this time (lowest trackIndex = top in UI)
-  const activeFilterClips = compositorClips.filter((c) => c.kind === "filter" && c.startTime <= evalTime && evalTime < c.startTime + c.duration).sort((a, b) => a.trackIndex - b.trackIndex);
+  const activeFilterClips = compositorClips
+    .filter((c) => {
+      const track = trackMap.get(c.trackId);
+      return c.kind === "filter" && (track?.visible ?? true) && c.startTime <= evalTime && evalTime < c.startTime + c.duration;
+    })
+    .sort((a, b) => a.trackIndex - b.trackIndex);
   const activeFilterClip = activeFilterClips[0] ?? null;
 
   const sortedClips = activeClips.sort((a, b) => {
@@ -300,7 +306,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     ? {
         id: activeFilterClip.mediaId,
         name: activeFilterClip.name || "",
-        intensity: (activeFilterClip as any).intensity ?? 0.8,
+        intensity: normalizeFilterIntensity((activeFilterClip as any).intensity),
       }
     : undefined;
 

@@ -144,6 +144,93 @@ describe("Filter Evaluation", () => {
     });
   });
 
+  it("does not apply filters from hidden filter tracks", () => {
+    const hiddenFilterTracks: Track[] = tracks.map((track) => (track.id === "t-filter" ? { ...track, visible: false } : track));
+    const imageClip: Clip = {
+      id: "clip-image",
+      kind: "image",
+      trackId: "t-video",
+      mediaId: "image-asset",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1.0,
+      rotation: 0,
+    };
+    const filterClip = {
+      id: "clip-filter-1",
+      kind: "filter",
+      trackId: "t-filter",
+      mediaId: "filter-sepia",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1.0,
+      rotation: 0,
+      name: "Sepia Tone",
+      intensity: 0.8,
+    } as any;
+
+    const scene = evaluateTimelineScene(2.5, [imageClip, filterClip], hiddenFilterTracks, assets, project);
+
+    expect(scene.activeFilter).toBeUndefined();
+  });
+
+  it("normalizes active filter intensity before rendering", () => {
+    const imageClip: Clip = {
+      id: "clip-image",
+      kind: "image",
+      trackId: "t-video",
+      mediaId: "image-asset",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1.0,
+      rotation: 0,
+    };
+    const filterClip = {
+      id: "clip-filter-1",
+      kind: "filter",
+      trackId: "t-filter",
+      mediaId: "filter-vivid",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1.0,
+      rotation: 0,
+      name: "Vivid",
+      intensity: 2,
+    } as any;
+
+    const scene = evaluateTimelineScene(2.5, [imageClip, filterClip], tracks, assets, project);
+
+    expect(scene.activeFilter).toEqual({
+      id: "filter-vivid",
+      name: "Vivid",
+      intensity: 1,
+    });
+  });
+
   it("rasterizes filter onto canvas context", async () => {
     // Register mock bitmap in resource cache
     const resourceCache = getResourceCache();

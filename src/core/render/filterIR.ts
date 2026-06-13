@@ -6,45 +6,101 @@ export interface FilterIR {
   hueRotate?: number;    // angle in degrees, e.g. 0 is neutral
 }
 
+export function normalizeFilterIntensity(intensity: number | undefined): number {
+  if (typeof intensity !== "number" || !Number.isFinite(intensity)) {
+    return 0.8;
+  }
+  return Math.min(1, Math.max(0, intensity));
+}
+
 /**
  * Maps standard preset filter IDs and their intensity (0.0 to 1.0) to a FilterIR object.
  */
 export function resolveFilterToIR(filterId: string, intensity: number): FilterIR {
-  console.log(`[resolveFilterToIR] Resolving filterId: "${filterId}", intensity: ${intensity}`);
-  const result = (() => {
+  const amount = normalizeFilterIntensity(intensity);
+  return (() => {
     switch (filterId) {
       case "filter-sepia":
-        return { sepia: intensity };
+        return { sepia: amount };
       case "filter-retro":
         return {
-          sepia: intensity * 0.5,
-          saturate: 1 + intensity * 0.4,
-          contrast: 1 - intensity * 0.15,
+          sepia: amount * 0.5,
+          saturate: 1 + amount * 0.4,
+          contrast: 1 - amount * 0.15,
+        };
+      case "filter-aged":
+        return {
+          sepia: amount * 0.7,
+          saturate: 1 - amount * 0.35,
+          contrast: 1 - amount * 0.12,
+          hueRotate: amount * 8,
+        };
+      case "filter-crisp":
+        return {
+          saturate: 1 + amount * 0.25,
+          contrast: 1 + amount * 0.35,
         };
       case "filter-vivid":
         return {
-          saturate: 1 + intensity * 1.2,
-          contrast: 1 + intensity * 0.25,
+          saturate: 1 + amount * 1.2,
+          contrast: 1 + amount * 0.25,
         };
       case "filter-cool":
         return {
-          hueRotate: -intensity * 25,
-          saturate: 1 - intensity * 0.1,
+          hueRotate: -amount * 25,
+          saturate: 1 - amount * 0.1,
         };
       case "filter-cinematic-teal":
         return {
-          contrast: 1 + intensity * 0.15,
-          saturate: 1 - intensity * 0.1,
-          hueRotate: 5,
+          contrast: 1 + amount * 0.15,
+          saturate: 1 - amount * 0.1,
+          hueRotate: amount * 5,
+        };
+      case "filter-bleach":
+        return {
+          saturate: 1 - amount * 0.55,
+          contrast: 1 + amount * 0.45,
+        };
+      case "filter-moody":
+        return {
+          saturate: 1 - amount * 0.25,
+          contrast: 1 + amount * 0.3,
+          hueRotate: -amount * 8,
         };
       case "filter-bw-classic":
-        return { grayscale: intensity };
+        return { grayscale: amount };
+      case "filter-high-contrast":
+        return {
+          grayscale: amount,
+          contrast: 1 + amount * 0.55,
+        };
+      case "filter-soft-bw":
+        return {
+          grayscale: amount,
+          contrast: 1 - amount * 0.12,
+        };
+      case "filter-warm":
+        return {
+          sepia: amount * 0.22,
+          saturate: 1 + amount * 0.18,
+          hueRotate: amount * 10,
+        };
+      case "filter-cool-blue":
+        return {
+          hueRotate: -amount * 18,
+          saturate: 1 + amount * 0.08,
+          contrast: 1 + amount * 0.08,
+        };
+      case "filter-purple-haze":
+        return {
+          hueRotate: amount * 28,
+          saturate: 1 + amount * 0.25,
+          contrast: 1 - amount * 0.08,
+        };
       default:
         return {};
     }
   })();
-  console.log(`[resolveFilterToIR] Resolved FilterIR:`, result);
-  return result;
 }
 
 /**
@@ -67,9 +123,7 @@ export function compileFilterIRToCSS(ir: FilterIR): string {
   if (ir.hueRotate !== undefined && ir.hueRotate !== 0) {
     parts.push(`hue-rotate(${ir.hueRotate}deg)`);
   }
-  const css = parts.join(" ");
-  console.log(`[compileFilterIRToCSS] Compiled CSS: "${css}" for FilterIR:`, ir);
-  return css;
+  return parts.join(" ");
 }
 
 /**

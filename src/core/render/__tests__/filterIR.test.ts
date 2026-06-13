@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveFilterToIR, compileFilterIRToCSS, compileFilterIRToFFmpeg } from "../filterIR";
+import { resolveFilterToIR, compileFilterIRToCSS, compileFilterIRToFFmpeg, normalizeFilterIntensity } from "../filterIR";
 
 describe("Filter IR & Target Compilers", () => {
   describe("resolveFilterToIR", () => {
@@ -41,6 +41,37 @@ describe("Filter IR & Target Compilers", () => {
     it("returns empty object for unknown filters", () => {
       const ir = resolveFilterToIR("filter-unknown", 0.5);
       expect(ir).toEqual({});
+    });
+
+    it("maps every filter exposed by the filters tab to a non-neutral IR", () => {
+      const filterIds = [
+        "filter-sepia",
+        "filter-retro",
+        "filter-aged",
+        "filter-crisp",
+        "filter-vivid",
+        "filter-cool",
+        "filter-cinematic-teal",
+        "filter-bleach",
+        "filter-moody",
+        "filter-bw-classic",
+        "filter-high-contrast",
+        "filter-soft-bw",
+        "filter-warm",
+        "filter-cool-blue",
+        "filter-purple-haze",
+      ];
+
+      for (const filterId of filterIds) {
+        expect(resolveFilterToIR(filterId, 0.8), filterId).not.toEqual({});
+      }
+    });
+
+    it("normalizes malformed intensity values", () => {
+      expect(normalizeFilterIntensity(undefined)).toBe(0.8);
+      expect(normalizeFilterIntensity(Number.NaN)).toBe(0.8);
+      expect(normalizeFilterIntensity(-1)).toBe(0);
+      expect(normalizeFilterIntensity(2)).toBe(1);
     });
   });
 

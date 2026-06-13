@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { AspectRatio, FilterClip } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
-import { resolveFilterToIR } from "../../../core/render/filterIR";
+import { normalizeFilterIntensity, resolveFilterToIR } from "../../../core/render/filterIR";
 
 import { TelemetryOverlay, type TelemetryStats } from "./TelemetryOverlay";
 import { AspectSelector } from "./AspectSelector";
@@ -434,7 +434,7 @@ export const ProgramPreview: React.FC = () => {
 
       // Get the active track-level filter at the rendering time
       const getActiveFilterIR = (time: number) => {
-        const filterTracks = state.tracks.filter((t: any) => t.type === "filter");
+        const filterTracks = state.tracks.filter((t: any) => t.type === "filter" && (t.visible ?? true));
         const filterTrackIds = new Set(filterTracks.map((t: any) => t.id));
         const activeFilterClips = state.clips
           .filter(
@@ -451,11 +451,8 @@ export const ProgramPreview: React.FC = () => {
           });
 
         const activeClip = activeFilterClips[0] as FilterClip | undefined;
-        console.log(`[ProgramPreview] getActiveFilterIR - time: ${time}, filterTrackIds:`, Array.from(filterTrackIds), `activeFilterClips count: ${activeFilterClips.length}`, `activeClip:`, activeClip ? { id: activeClip.id, name: activeClip.name, mediaId: activeClip.mediaId, intensity: activeClip.intensity } : "none");
         if (activeClip && activeClip.kind === "filter") {
-          const resolvedIR = resolveFilterToIR(activeClip.mediaId, activeClip.intensity ?? 0.8);
-          console.log(`[ProgramPreview] getActiveFilterIR - resolved FilterIR:`, resolvedIR);
-          return resolvedIR;
+          return resolveFilterToIR(activeClip.mediaId, normalizeFilterIntensity(activeClip.intensity));
         }
         return undefined;
       };
