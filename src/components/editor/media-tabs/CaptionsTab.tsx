@@ -288,12 +288,12 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   canvasWidth,
                   canvasHeight,
                   fontSize: 32,
-                  bold: true,
+                  bold: false,
                   position: "bottom",
                   textRole: "caption",
                   words, // Include word-level timestamps
-                  styleId: "neon-crimson",
-                  fontFamily: "Outfit Variable",
+                  styleId: undefined,
+                  fontFamily: "Inter",
                 });
 
                 addClip(textClip);
