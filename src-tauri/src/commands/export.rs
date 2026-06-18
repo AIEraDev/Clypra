@@ -60,6 +60,12 @@ pub struct ExportAudioClip {
     
     /// Volume multiplier
     pub volume: f32,
+
+    /// Fade-in duration in seconds
+    pub fade_in: Option<f64>,
+
+    /// Fade-out duration in seconds
+    pub fade_out: Option<f64>,
 }
 
 /// Export configuration.
@@ -229,11 +235,21 @@ pub async fn start_video_export(
             let delay_ms = (clip.start_time * 1000.0) as i64;
             let end_time = clip.trim_in + clip.duration;
             
-            // Trim the audio, reset PTS, apply delay and volume multiplier
-            filter_complex.push_str(&format!(
-                "[{}:a]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS,adelay={}:all=1,volume={:.3}[a{}];",
-                input_idx, clip.trim_in, end_time, delay_ms, clip.volume, input_idx
-            ));
+            let fade_in = clip.fade_in.unwrap_or(0.0).max(0.0).min(clip.duration);
+            let fade_out = clip.fade_out.unwrap_or(0.0).max(0.0).min(clip.duration);
+            let mut chain = format!(
+                "[{}:a]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS",
+                input_idx, clip.trim_in, end_time
+            );
+            if fade_in > 0.001 {
+                chain.push_str(&format!(",afade=t=in:st=0:d={:.3}", fade_in));
+            }
+            if fade_out > 0.001 {
+                let fade_start = (clip.duration - fade_out).max(0.0);
+                chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", fade_start, fade_out));
+            }
+            chain.push_str(&format!(",adelay={}:all=1,volume={:.3}[a{}];", delay_ms, clip.volume, input_idx));
+            filter_complex.push_str(&chain);
         }
         
         // Map all processed streams into amix

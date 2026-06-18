@@ -11,6 +11,51 @@ interface TextSourcePreviewProps {
   preset: (TextEffectConfig & { presetType?: "effect" | "template" }) | null;
 }
 
+const normalizePreviewFontWeight = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.min(900, Math.max(100, Math.round(value / 100) * 100));
+  }
+
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return normalizePreviewFontWeight(numeric);
+    }
+
+    const normalized = value.trim().toLowerCase().replace(/[\s_-]/g, "");
+    if (normalized === "thin") return 100;
+    if (normalized === "extralight" || normalized === "ultralight") return 200;
+    if (normalized === "light") return 300;
+    if (normalized === "normal" || normalized === "regular") return 400;
+    if (normalized === "medium") return 500;
+    if (normalized === "semibold" || normalized === "demibold") return 600;
+    if (normalized === "bold") return 700;
+    if (normalized === "extrabold" || normalized === "ultrabold") return 800;
+    if (normalized === "black" || normalized === "heavy") return 900;
+  }
+
+  return 700;
+};
+
+export const resolveTextSourcePreviewConfig = (preset: any): TextEffectConfig => {
+  // Built-in presets are nested TextEffectDefinition structures, while API presets can be flat TextEffectConfig structures.
+  // Normalize them into the exact config shape consumed by renderTextEffectCore.
+  const isNested = !!preset?.font;
+  const config = isNested ? _buildConfig(preset, preset.text || "CLYPRA", preset.fontSize || 100, PREVIEW_CANVAS_W, PREVIEW_CANVAS_H) : preset;
+
+  return {
+    ...config,
+    text: config.text || "CLYPRA",
+    effectName: config.effectName || config.name || preset?.name || "Effect",
+    fontFamily: config.fontFamily || preset?.font?.family || preset?.fontFamily || "Inter Variable",
+    fontWeight: normalizePreviewFontWeight(config.fontWeight ?? preset?.font?.weight ?? preset?.fontWeight),
+    fontStyle: config.fontStyle || preset?.font?.style || preset?.fontStyle || "normal",
+    letterSpacing: config.letterSpacing ?? preset?.font?.letterSpacing ?? preset?.letterSpacing ?? 0,
+    lineHeight: config.lineHeight ?? preset?.font?.lineHeight ?? preset?.lineHeight ?? 1.2,
+    glowLayers: config.glowLayers || [],
+  };
+};
+
 export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mountedRef = useRef(true);
@@ -77,20 +122,7 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
     console.log("[TextSourcePreview] Starting render process");
     let aborted = false;
 
-    // Built-in presets are nested TextEffectDefinition structures, while API presets are flat TextEffectConfig structures.
-    // If it's a nested structure (has 'font' object), we must convert it using the engine's _buildConfig first.
-    const isNested = !!(preset as any).font;
-    const config = isNested
-      ? _buildConfig(preset as any, (preset as any).text || "CLYPRA", (preset as any).fontSize || 100, PREVIEW_CANVAS_W, PREVIEW_CANVAS_H)
-      : (preset as any);
-
-    const effectConfig: TextEffectConfig = {
-      ...config,
-      text: config.text || "CLYPRA",
-      effectName: config.effectName || config.name || "Effect",
-      fontFamily: config.fontFamily || "Arial",
-      glowLayers: config.glowLayers || [],
-    };
+    const effectConfig = resolveTextSourcePreviewConfig(preset);
 
     console.log("[TextSourcePreview] 🎨 Rendering preview using config:", effectConfig);
 
@@ -117,16 +149,27 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
       hasEffectName: !!effectConfig.effectName,
       hasGlowLayers: Array.isArray(effectConfig.glowLayers),
       fontFamily: effectConfig.fontFamily,
+      fontWeight: effectConfig.fontWeight,
+      fontStyle: effectConfig.fontStyle,
+      letterSpacing: effectConfig.letterSpacing,
+      lineHeight: effectConfig.lineHeight,
     });
 
     async function start() {
       if (effectConfig.fontFamily) {
         try {
+          const fontFace = `${effectConfig.fontStyle || "normal"} ${effectConfig.fontWeight || 700} 16px "${effectConfig.fontFamily}"`;
           await getFontLoader().ensureFont({
             family: effectConfig.fontFamily,
             weight: effectConfig.fontWeight || 700,
             style: effectConfig.fontStyle || "normal",
           });
+          if (typeof document !== "undefined" && document.fonts) {
+            await document.fonts.load(fontFace);
+            if (!document.fonts.check(fontFace)) {
+              console.warn("[TextSourcePreview] Exact preview font variant is not available:", fontFace);
+            }
+          }
         } catch (error) {
           console.warn("[TextSourcePreview] Font load failed:", error);
         }

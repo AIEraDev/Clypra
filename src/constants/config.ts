@@ -1,5 +1,6 @@
 export const VIDEO_CONFIG = {
-  FPS: 30,
+  /** Default FPS for new projects only. NEVER use for calculations - always use project.frameRate */
+  DEFAULT_PROJECT_FPS: 30,
   DEFAULT_TRIM_DURATION: 8,
   FILMSTRIP: {
     MIN_FRAMES: 18,

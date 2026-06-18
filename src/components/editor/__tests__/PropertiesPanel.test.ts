@@ -32,6 +32,31 @@ const baseTextClip: TextClip = {
   paddingY: 16,
 };
 
+const styledTextClip: TextClip = {
+  ...baseTextClip,
+  styleId: "boxed-title",
+  styleDefinition: {
+    id: "boxed-title",
+    name: "Boxed Title",
+    category: "outline",
+    description: "",
+    tags: [],
+    boundingBox: { mode: "panel", paddingX: 50, paddingY: 25 },
+    font: { family: "Montserrat", weight: 900, style: "normal", letterSpacing: 8, lineHeight: 1.1 },
+    fills: [{ type: "solid", color: "#ffffff" }],
+    strokes: [],
+    shadows: [],
+    panel: {
+      color: "#111111",
+      opacity: 100,
+      radius: 0,
+      paddingX: 48,
+      paddingY: 22,
+      stroke: { color: "#ffffff", width: 2 },
+    },
+  } as any,
+};
+
 describe("buildClipPropertyTransform", () => {
   it("includes recalculated text bounds when font size changes through properties", () => {
     const { oldTransform, newTransform } = buildClipPropertyTransform(baseTextClip, { fontSize: 520 }, 640, 960);
@@ -53,5 +78,35 @@ describe("buildClipPropertyTransform", () => {
 
     expect(newCenterX).toBeCloseTo(oldCenterX);
     expect(newCenterY).toBeCloseTo(oldCenterY);
+  });
+
+  it("keeps duration synchronized when trim points change through properties", () => {
+    const { oldTransform, newTransform } = buildClipPropertyTransform(baseTextClip, { trimIn: 1.25 }, 640, 960);
+
+    expect(oldTransform.trimIn).toBe(0);
+    expect(oldTransform.duration).toBe(5);
+    expect(newTransform.trimIn).toBe(1.25);
+    expect(newTransform.duration).toBe(3.75);
+  });
+
+  it("recalculates bounds from the final update payload when typography edits clear effect style", () => {
+    const { oldTransform, newTransform } = buildClipPropertyTransform(
+      styledTextClip,
+      {
+        fontFamily: "Bebas Neue",
+        styleId: undefined,
+        styleDefinition: undefined,
+      },
+      640,
+      960,
+    );
+
+    expect(oldTransform.styleId).toBe("boxed-title");
+    expect(newTransform.styleId).toBeUndefined();
+    expect(newTransform.styleDefinition).toBeUndefined();
+    expect(newTransform.fontFamily).toBe("Bebas Neue");
+    expect(newTransform.width).toBeGreaterThan(0);
+    expect(newTransform.height).toBeGreaterThan(0);
+    expect(newTransform.width).not.toBe(styledTextClip.width);
   });
 });

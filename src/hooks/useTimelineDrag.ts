@@ -12,6 +12,7 @@ import { locateTrackRegion, type TrackRegion } from "@/lib/timeline/trackRegion"
 import { findSnap, type SnapResult } from "@/lib/timeline/snapTargets";
 import { classifyDropTarget, type DropTarget } from "@/lib/timeline/dropTarget";
 import { buildPlacementPreview, createPreviewKey, type PlacementPreview } from "@/lib/timeline/placementPreview";
+import { TIMELINE_TRACK_LABEL_WIDTH_PX } from "@/lib/timeline/timelineViewport";
 
 const DRAG_RENDER_EPSILON_PX = 0.25;
 const EDGE_HIT_WIDTH_PX = 8; // Screen-space edge detection (stable at any zoom)
@@ -800,7 +801,6 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
     const EDGE_ZONE = 80; // px from viewport edge where scrolling starts
     const MAX_SPEED = 600; // px/s at the very edge
     const MIN_SPEED = 60; // px/s at the zone boundary
-    const LABEL_WIDTH = 160; // track-label column width
 
     const tick = (timestamp: number) => {
       const container = containerRef.current;
@@ -817,7 +817,7 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
       autoScrollTsRef.current = timestamp;
 
       const rect = container.getBoundingClientRect();
-      const clipsLeft = rect.left + LABEL_WIDTH;
+      const clipsLeft = rect.left + TIMELINE_TRACK_LABEL_WIDTH_PX;
 
       let velocity = 0;
 

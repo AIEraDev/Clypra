@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { useEffectsStore } from "../store/effectsStore";
 import { EffectCard } from "@/components/ui/EffectCard";
-import { TextEffectsApi } from "../api/textEffectsApi";
+import { TextEffectsApi, TEXT_EFFECT_CATEGORIES } from "../api/textEffectsApi";
 import type { TextEffectDefinition } from "../types/types";
 import { useFavoritesStore } from "@/store/favoritesStore";
 import { useUIStore } from "@/store/uiStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 
-const CATEGORIES = ["3d", "neon", "metallic", "glitch", "retro", "gradient", "grunge", "outline", "shadow", "elements", "luxury"];
+const CATEGORIES = TEXT_EFFECT_CATEGORIES;
 
 interface EffectGridProps {
   searchQuery?: string;
@@ -34,36 +34,54 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
     toggleFavorite(id);
   };
 
+  const applyEffectToTimeline = (effect: any) => {
+    onAddToTimeline?.(
+      {
+        name: effect.name,
+        text: effect.text || "CLYPRA",
+        presetType: "effect",
+        styleId: effect.id,
+        effectDefinition: effect,
+        fontFamily: effect.font?.family,
+        color: effect.fills?.[0]?.color,
+        fontWeight: effect.font?.weight,
+        fontStyle: effect.font?.style,
+        stroke: effect.strokes?.[0] ? { color: effect.strokes[0].color, width: effect.strokes[0].width } : undefined,
+        shadow: effect.shadows?.[0] ? { color: effect.shadows[0].color, blur: effect.shadows[0].blur, offsetX: effect.shadows[0].offsetX ?? 0, offsetY: effect.shadows[0].offsetY ?? 0 } : undefined,
+        background: effect.panel
+          ? {
+              color: effect.panel.color || "rgba(0,0,0,0.6)",
+              padding: effect.panel.paddingX !== undefined ? effect.panel.paddingX : 12,
+              borderRadius: effect.panel.radius !== undefined ? effect.panel.radius : 6,
+            }
+          : undefined,
+      },
+      "text",
+    );
+  };
+
   const handleDownloadAndApply = async (item: any, e: React.MouseEvent) => {
     e.stopPropagation();
     const itemId = item.id;
     if (downloadingIds.includes(itemId)) return;
 
-    startDownload(itemId);
+    const cachedEffect = useEffectsStore.getState().definitions[itemId];
+    if (downloadedEffects.includes(itemId) && cachedEffect) {
+      applyEffectToTimeline(cachedEffect);
+      return;
+    }
+
+    if (!downloadedEffects.includes(itemId)) {
+      startDownload(itemId);
+    }
 
     // Lazy load the full effect definition
     try {
-      const fullEffect = await TextEffectsApi.getFullEffect(item.category, item.id);
+      const fullEffect = cachedEffect || (await TextEffectsApi.getFullEffect(item.category, item.id));
 
       setTimeout(() => {
         completeDownload(itemId, "effect");
-
-        const targetEffect = fullEffect || item;
-        onAddToTimeline?.(
-          {
-            name: targetEffect.name,
-            text: targetEffect.text || "CLYPRA", // Use default text from full definition
-            presetType: "effect",
-            styleId: targetEffect.id,
-            fontFamily: targetEffect.font?.family,
-            color: targetEffect.fills?.[0]?.color,
-            fontWeight: targetEffect.font?.weight,
-            fontStyle: targetEffect.font?.style,
-            stroke: targetEffect.strokes?.[0] ? { color: targetEffect.strokes[0].color, width: targetEffect.strokes[0].width } : undefined,
-            shadow: targetEffect.shadows?.[0] ? { color: targetEffect.shadows[0].color, blur: targetEffect.shadows[0].blur, offsetX: targetEffect.shadows[0].offsetX ?? 0, offsetY: targetEffect.shadows[0].offsetY ?? 0 } : undefined,
-          },
-          "text",
-        );
+        applyEffectToTimeline(fullEffect || item);
       }, 850);
     } catch (err) {
       console.error("[EffectGrid] Failed to load effect:", err);

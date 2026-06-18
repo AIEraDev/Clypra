@@ -3,9 +3,15 @@ import { PlatformInterface, VideoMetadata, SelectedFile } from "../platform";
 export class CapacitorPlatformAdapter implements PlatformInterface {
   type = "capacitor" as const;
 
-  isTauri() { return false; }
-  isCapacitor() { return true; }
-  isWeb() { return false; }
+  isTauri() {
+    return false;
+  }
+  isCapacitor() {
+    return true;
+  }
+  isWeb() {
+    return false;
+  }
 
   convertFileSrc(path: string): string {
     if (typeof window !== "undefined" && (window as any).Capacitor) {
@@ -27,10 +33,10 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = !!options.multiple;
-      
+
       if (options.filters && options.filters.length > 0) {
-        const exts = options.filters.flatMap(f => f.extensions);
-        input.accept = exts.map(ext => `.${ext}`).join(",");
+        const exts = options.filters.flatMap((f) => f.extensions);
+        input.accept = exts.map((ext) => `.${ext}`).join(",");
       }
 
       input.onchange = () => {
@@ -70,7 +76,7 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
   async getRecentProjects(): Promise<any[]> {
     try {
       const { Filesystem, Directory, Encoding } = await this.getFilesystem();
-      
+
       // Ensure projects directory exists
       try {
         await Filesystem.mkdir({
@@ -135,24 +141,35 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
     }
   }
 
-  async saveProject(projectId: string, payload: string, recentList: string[]): Promise<void> {
+  async saveProject(payload: string): Promise<void> {
     try {
+      const project = JSON.parse(payload);
       const { Filesystem, Directory, Encoding } = await this.getFilesystem();
-      
+
       // Save project payload
       await Filesystem.writeFile({
-        path: `projects/${projectId}.json`,
+        path: `projects/${project.id}.json`,
         directory: Directory.Data,
         data: payload,
         encoding: Encoding.UTF8,
       });
 
-      // Save recent list to helper meta or update the project list cache
-      localStorage.setItem("clypra_recent_projects", JSON.stringify(recentList.map((x) => JSON.parse(x))));
+      // Update recent projects list in localStorage
+      const fallback = localStorage.getItem("clypra_recent_projects");
+      const recentProjects = fallback ? JSON.parse(fallback) : [];
+      const updatedList = recentProjects.filter((p: any) => p.id !== project.id);
+      updatedList.unshift(project);
+      localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
     } catch (err) {
       console.warn("Capacitor Filesystem save failed, saving to localStorage:", err);
-      localStorage.setItem(`clypra_project_${projectId}`, payload);
-      localStorage.setItem("clypra_recent_projects", JSON.stringify(recentList.map((x) => JSON.parse(x))));
+      const project = JSON.parse(payload);
+      localStorage.setItem(`clypra_project_${project.id}`, payload);
+
+      const fallback = localStorage.getItem("clypra_recent_projects");
+      const recentProjects = fallback ? JSON.parse(fallback) : [];
+      const updatedList = recentProjects.filter((p: any) => p.id !== project.id);
+      updatedList.unshift(project);
+      localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
     }
   }
 
@@ -173,14 +190,9 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
     const content = await this.loadProject(`projects/${projectId}.json`);
     const project = JSON.parse(content);
     project.name = newName;
-    project.updatedAt = new Date().toISOString();
-    
-    // Retrieve current recent projects from storage to reconstruct list
-    const fallback = localStorage.getItem("clypra_recent_projects");
-    const recentProjects = fallback ? JSON.parse(fallback) : [];
-    const list = recentProjects.map((p: any) => p.id === projectId ? { ...p, name: newName } : p);
+    project.updatedAt = Date.now();
 
-    await this.saveProject(projectId, JSON.stringify(project), list.map((l: any) => JSON.stringify(l)));
+    await this.saveProject(JSON.stringify(project));
   }
 
   // ─── HTML5 Media Metadata Extractors ──────────────────────────────────────
@@ -215,7 +227,7 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
       video.crossOrigin = "anonymous";
       video.muted = true;
       video.playsInline = true;
-      
+
       // Seek to 5% or 0.5s of the video for the poster
       const seekTime = Math.min(0.5, duration * 0.05);
       video.currentTime = seekTime;

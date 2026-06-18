@@ -80,6 +80,7 @@ pub fn get_recent_projects(app: tauri::AppHandle) -> Result<Vec<String>, String>
 
 const MAX_PROJECT_NAME_LENGTH: usize = 64;
 
+// CRITICAL: Must stay in sync with src/types/index.ts MAX_PROJECT_NAME_LENGTH
 #[tauri::command]
 pub fn rename_project(app: tauri::AppHandle, project_id: String, new_name: String) -> Result<(), String> {
     let trimmed = new_name.trim();

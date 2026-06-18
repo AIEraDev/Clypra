@@ -20,6 +20,7 @@ import { evaluateTimelineSceneCached } from "../evaluation/evaluator";
 import { rasterizeScene } from "../render/rasterizer";
 import { getResourceCache } from "../resources/ResourceCache";
 import { getFontLoader } from "../fonts/FontLoader";
+import { textRenderTrace } from "@/lib/debug/textRenderTrace";
 
 /**
  * Frame job status.
@@ -406,6 +407,30 @@ export class FrameScheduler {
       const evalStartTime = Date.now();
 
       const scene = evaluateTimelineSceneCached(job.request.time, this.clips, this.tracks, this.assets, this.project, this.epoch, this.transitions);
+
+      // ✅ Only construct trace payload if debug is enabled (prevents console spam in production)
+      if (import.meta.env.DEV) {
+        const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+        textRenderTrace("frame-scene", {
+          jobId: job.id,
+          time: job.request.time,
+          epoch: this.epoch,
+          visualLayerCount: scene.visualLayers.length,
+          textLayerCount: textLayers.length,
+          textLayers: textLayers.map((layer) => ({
+            clipId: layer.clipId,
+            layerId: layer.layerId,
+            text: layer.text,
+            styleId: layer.styleId,
+            x: layer.x,
+            y: layer.y,
+            width: layer.width,
+            height: layer.height,
+            opacity: layer.opacity,
+            hasStyleDefinition: !!layer.styleDefinition,
+          })),
+        });
+      }
 
       job.metrics.evaluationTimeMs = Date.now() - evalStartTime;
       this.stats.totalEvaluationTimeMs += job.metrics.evaluationTimeMs;

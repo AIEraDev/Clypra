@@ -173,7 +173,7 @@ class AudioCacheManager {
       // Use relative path for storage (just CACHE_DIR/filename)
       const relativePath = `${CACHE_DIR}/${fileName}`;
 
-      // Download file with progress tracking
+      // Download file with progress tracking (no auth needed for public R2)
       const response = await fetch(item.audioUrl);
 
       if (!response.ok) {

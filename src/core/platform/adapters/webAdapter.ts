@@ -3,9 +3,15 @@ import { PlatformInterface, VideoMetadata, SelectedFile } from "../platform";
 export class WebPlatformAdapter implements PlatformInterface {
   type = "web" as const;
 
-  isTauri() { return false; }
-  isCapacitor() { return false; }
-  isWeb() { return true; }
+  isTauri() {
+    return false;
+  }
+  isCapacitor() {
+    return false;
+  }
+  isWeb() {
+    return true;
+  }
 
   convertFileSrc(path: string): string {
     return path;
@@ -70,9 +76,16 @@ export class WebPlatformAdapter implements PlatformInterface {
     throw new Error(`Project ${projectId} not found in Web storage`);
   }
 
-  async saveProject(projectId: string, payload: string, recentList: string[]): Promise<void> {
-    localStorage.setItem(`clypra_project_${projectId}`, payload);
-    localStorage.setItem("clypra_recent_projects", JSON.stringify(recentList.map((x) => JSON.parse(x))));
+  async saveProject(payload: string): Promise<void> {
+    const project = JSON.parse(payload);
+    localStorage.setItem(`clypra_project_${project.id}`, payload);
+
+    // Update recent projects list
+    const listStr = localStorage.getItem("clypra_recent_projects");
+    const list = listStr ? JSON.parse(listStr) : [];
+    const updatedList = list.filter((p: any) => p.id !== project.id);
+    updatedList.unshift(project);
+    localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
   }
 
   async deleteProject(projectId: string): Promise<void> {
@@ -83,13 +96,9 @@ export class WebPlatformAdapter implements PlatformInterface {
     const content = await this.loadProject(`projects/${projectId}.json`);
     const project = JSON.parse(content);
     project.name = newName;
-    project.updatedAt = new Date().toISOString();
+    project.updatedAt = Date.now();
 
-    const listStr = localStorage.getItem("clypra_recent_projects");
-    const list = listStr ? JSON.parse(listStr) : [];
-    const updatedList = list.map((p: any) => (p.id === projectId ? { ...p, name: newName } : p));
-
-    await this.saveProject(projectId, JSON.stringify(project), updatedList.map((l: any) => JSON.stringify(l)));
+    await this.saveProject(JSON.stringify(project));
   }
 
   // ─── HTML5 Media Metadata Extractors ──────────────────────────────────────

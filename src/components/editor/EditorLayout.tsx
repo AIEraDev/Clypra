@@ -19,6 +19,8 @@ import { useUIStore } from "@/store/uiStore";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
+import { AddClipCommand } from "@/core/history/commands/DeleteClipCommand";
+import { useHistoryStore } from "@/store/historyStore";
 
 export const EditorLayout: React.FC = () => {
   const { width } = useWindowSize();
@@ -41,6 +43,7 @@ export const EditorLayout: React.FC = () => {
   };
   const { mediaAssets, project, updateProject, addMediaAsset } = useProjectStore();
   const { selectedClipIds } = useUIStore();
+  const execute = useHistoryStore((s) => s.execute);
 
   const findAdjacentClipsAtPlayhead = () => {
     const { tracks, clips } = getTimelineState();
@@ -134,6 +137,27 @@ export const EditorLayout: React.FC = () => {
         }
       }
 
+      // If styleId is present but effectDefinition is missing, fetch it before creating the clip
+      let effectDefinition = item.effectDefinition;
+      if (item.styleId && !effectDefinition) {
+        try {
+          const { useEffectsStore } = await import("@/features/text-effects/store/effectsStore");
+          const store = useEffectsStore.getState();
+
+          // Check if already in store cache
+          effectDefinition = store.definitions[item.styleId];
+
+          // If not in cache, fetch it
+          if (!effectDefinition) {
+            await store.fetchDefinitionOnlyById(item.styleId);
+            effectDefinition = useEffectsStore.getState().definitions[item.styleId];
+          }
+        } catch (error) {
+          console.warn("[EditorLayout] Failed to fetch effect definition for", item.styleId, error);
+          // Continue without definition - will use fallback sizing
+        }
+      }
+
       // Create text clip
       const textClip = createTextClip({
         trackId: targetTrackId,
@@ -154,6 +178,7 @@ export const EditorLayout: React.FC = () => {
         shadow: item.shadow,
         background: item.background,
         styleId: item.styleId,
+        effectDefinition: effectDefinition, // ← Now properly fetched if missing
         templateId: item.templateId,
         customization: item.customization,
       });
@@ -184,10 +209,12 @@ export const EditorLayout: React.FC = () => {
           type: "audio",
           duration: cachedFile.metadata.duration || Number(item.duration) || 5,
           size: cachedFile.size,
-          coverArt: item.coverArtUrl,
+          // coverArt removed - will use Clypra logo fallback in preview
         };
 
-        addMediaAsset(mediaAsset);
+        // NOTE: Don't add audio library items to project media assets
+        // They should only exist as timeline clips, not in the media panel
+        // addMediaAsset(mediaAsset);
 
         const latestTracks = useTimelineStore.getState().tracks;
         const latestClips = useTimelineStore.getState().clips;
@@ -214,7 +241,8 @@ export const EditorLayout: React.FC = () => {
             width: project?.canvasWidth || 1920,
             height: project?.canvasHeight || 1080,
             fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-          }),
+            audioPath: absolutePath, // Store path directly for audio library items
+          }) as any,
         );
       })().catch((error) => {
         console.error("[EditorLayout] Failed to add audio to timeline:", error);
@@ -245,6 +273,7 @@ export const EditorLayout: React.FC = () => {
         }
 
         const absolutePath = await join(appCache, relativePath);
+        const absoluteAnimationPath = cachedSticker.localAnimationPath ? await join(appCache, cachedSticker.localAnimationPath) : undefined;
 
         const mediaAsset: MediaAsset = {
           id: `sticker-${item.id}`,
@@ -253,6 +282,9 @@ export const EditorLayout: React.FC = () => {
           type: "image",
           duration: 3.0,
           size: 0,
+          stickerFormat: cachedSticker.format,
+          stickerAnimationPath: absoluteAnimationPath,
+          stickerSourceId: item.id,
         };
 
         addMediaAsset(mediaAsset);
@@ -275,16 +307,15 @@ export const EditorLayout: React.FC = () => {
 
         if (!targetTrackId) return;
 
-        addClip(
-          createClipFromAsset({
-            asset: mediaAsset,
-            trackId: targetTrackId,
-            startTime: placement.startTime,
-            width: project?.canvasWidth || 1920,
-            height: project?.canvasHeight || 1080,
-            fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-          }),
-        );
+        const stickerClip = createClipFromAsset({
+          asset: mediaAsset,
+          trackId: targetTrackId,
+          startTime: placement.startTime,
+          width: project?.canvasWidth || 1920,
+          height: project?.canvasHeight || 1080,
+          fitMode: resolveDefaultFitModeForAsset(mediaAsset),
+        });
+        execute(new AddClipCommand(stickerClip));
       })().catch((error) => {
         console.error("[EditorLayout] Failed to add sticker to timeline:", error);
       });

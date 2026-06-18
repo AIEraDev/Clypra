@@ -1,15 +1,20 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { PlatformInterface, VideoMetadata, SelectedFile } from "../platform";
 
-const isExternalOrDataUrl = (value: string) =>
-  value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("https://");
+const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("https://");
 
 export class TauriPlatformAdapter implements PlatformInterface {
   type = "tauri" as const;
 
-  isTauri() { return true; }
-  isCapacitor() { return false; }
-  isWeb() { return false; }
+  isTauri() {
+    return true;
+  }
+  isCapacitor() {
+    return false;
+  }
+  isWeb() {
+    return false;
+  }
 
   constructor() {}
 
@@ -72,12 +77,12 @@ export class TauriPlatformAdapter implements PlatformInterface {
     return invoke("load_project", { path });
   }
 
-  async saveProject(projectId: string, payload: string, recentList: string[]): Promise<void> {
+  async saveProject(payload: string): Promise<void> {
     const { invoke } = await import("@tauri-apps/api/core");
+    // CRITICAL FIX: Rust command expects project_data parameter, not projectId/payload
+    // See: src-tauri/src/commands/project.rs:22
     await invoke("save_project", {
-      projectId,
-      payload,
-      recentList,
+      projectData: payload,
     });
   }
 
@@ -93,21 +98,31 @@ export class TauriPlatformAdapter implements PlatformInterface {
 
   async getMediaMetadata(path: string): Promise<VideoMetadata> {
     const { invoke } = await import("@tauri-apps/api/core");
-    // Some endpoints use get_media_metadata, others use get_video_metadata. We support fallback.
+    // Try new unified command first, fallback to legacy for backward compatibility
     try {
       return await invoke("get_media_metadata", { path });
-    } catch {
-      return await invoke("get_video_metadata", { path });
+    } catch (error) {
+      console.warn("[TauriAdapter] Falling back to legacy get_video_metadata:", error);
+      try {
+        return await invoke("get_video_metadata", { path });
+      } catch (fallbackError) {
+        throw new Error(`Failed to get media metadata: ${fallbackError}`);
+      }
     }
   }
 
   async extractPosterFrame(path: string, duration: number, dpr: number): Promise<string> {
     const { invoke } = await import("@tauri-apps/api/core");
-    // Support either extract_poster_frame_command or extract_poster_frame
+    // Try new command with proper heuristic, fallback to legacy
     try {
       return await invoke("extract_poster_frame_command", { videoPath: path, duration, dpr });
-    } catch {
-      return await invoke("extract_poster_frame", { path, time: 0.0 });
+    } catch (error) {
+      console.warn("[TauriAdapter] Falling back to legacy extract_poster_frame:", error);
+      try {
+        return await invoke("extract_poster_frame", { path, time: 0.0 });
+      } catch (fallbackError) {
+        throw new Error(`Failed to extract poster frame: ${fallbackError}`);
+      }
     }
   }
 

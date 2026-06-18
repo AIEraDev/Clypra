@@ -3,6 +3,7 @@
 pub mod decoder;
 pub mod atlas;
 pub mod pyramid;
+pub mod geometry;
 
 pub mod types;
 pub mod cache;

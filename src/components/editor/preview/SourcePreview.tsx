@@ -418,7 +418,11 @@ export const SourcePreview: React.FC = () => {
     newClip.trimOut = trimOut;
     newClip.duration = trimOut - trimIn;
 
-    addMediaAsset(mediaAsset);
+    // Only add to media assets if it's NOT from the audio library
+    // Audio library items (id starts with "audio-library-") should only exist as clips
+    if (!mediaAsset.id.startsWith("audio-library-")) {
+      addMediaAsset(mediaAsset);
+    }
     addClip(newClip);
     exitSourceMode(); // Auto-switches transport context
   };

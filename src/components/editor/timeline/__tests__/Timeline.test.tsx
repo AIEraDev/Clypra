@@ -419,6 +419,62 @@ describe("Timeline wheel zoom", () => {
     expect(useTimelineStore.getState().scrollLeft).toBe(scroller.scrollLeft);
   });
 
+  it("Ctrl+wheel anchors to the timeline lane when track labels are visible", async () => {
+    useTimelineStore.setState({
+      clips: [
+        {
+          id: "clip-1",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "asset-1",
+          startTime: 0,
+          duration: 20,
+          trimIn: 0,
+          trimOut: 20,
+          x: 0,
+          y: 0,
+          width: 1920,
+          height: 1080,
+          opacity: 1,
+          rotation: 0,
+        } as any,
+      ],
+      scrollLeft: 200,
+      pixelsPerSecond: 100,
+      zoomLevel: 1,
+    });
+
+    const { container } = render(<Timeline />);
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+
+    Object.defineProperty(scroller, "clientWidth", { value: 800, configurable: true });
+    Object.defineProperty(scroller, "scrollLeft", { value: 200, writable: true, configurable: true });
+    Object.defineProperty(scroller, "scrollWidth", { value: 2160, configurable: true });
+    scroller.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 400, width: 800, height: 400, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+    await act(async () => {});
+
+    await act(async () => {
+      scroller.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 400,
+          clientY: 50,
+          deltaY: -120,
+          deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+          ctrlKey: true,
+        }),
+      );
+    });
+
+    const afterPps = useTimelineStore.getState().pixelsPerSecond;
+    const expected = ((200 + (400 - 160)) / 100) * afterPps - (400 - 160);
+
+    expect(scroller.scrollLeft).toBeCloseTo(expected, 5);
+    expect(useTimelineStore.getState().scrollLeft).toBe(scroller.scrollLeft);
+  });
+
   it("notifies render runtime with normalized zoom scale", async () => {
     const runtime = {
       attach: vi.fn(() => vi.fn()),

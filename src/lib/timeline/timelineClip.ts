@@ -62,6 +62,8 @@ interface CreateClipFromAssetParams {
   width: number;
   height: number;
   fitMode?: ClipFitModeExtended;
+  /** Optional direct audio path for audio library items that bypass mediaAssets */
+  audioPath?: string;
 }
 
 /**
@@ -163,7 +165,7 @@ export function calculateClipDimensions(asset: MediaAsset, canvasWidth: number, 
   return { x, y, width, height };
 }
 
-export const createClipFromAsset = ({ asset, trackId, startTime, width, height, fitMode = DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode }: CreateClipFromAssetParams): Clip => {
+export const createClipFromAsset = ({ asset, trackId, startTime, width, height, fitMode = DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode, audioPath }: CreateClipFromAssetParams): Clip => {
   const duration = resolveClipDuration(asset);
 
   // Calculate dimensions that preserve aspect ratio.
@@ -171,7 +173,7 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height, 
   const { x, y, width: clipWidth, height: clipHeight } = calculateClipDimensions(asset, width, height, fitMode);
 
   // Calculate source aspect ratio for transform constraints
-  const sourceAspectRatio = asset.width && asset.height ? asset.width / asset.height : clipWidth / clipHeight;
+  const sourceAspectRatio = asset.type !== "audio" && asset.width && asset.height ? asset.width / asset.height : clipWidth / clipHeight;
 
   const isSticker = asset.id.startsWith("sticker-");
   const kind = (isSticker ? "sticker" : asset.type) as Clip["kind"];
@@ -194,5 +196,11 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height, 
     aspectRatioLocked: true, // Lock aspect ratio by default for video/images
     sourceAspectRatio,
     fitMode: fitMode as Clip["fitMode"],
-  };
+    ...(asset.type !== "audio" && {
+      stickerFormat: asset.stickerFormat,
+      stickerAnimationPath: asset.stickerAnimationPath,
+      stickerSourceId: asset.stickerSourceId,
+    }),
+    ...(audioPath && asset.type === "audio" && { audioPath }), // Include audioPath for audio clips
+  } as any;
 };

@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Project, Track, Clip, MediaAsset, TextClip } from "../index";
-import {
-  toRustProject,
-  fromRustProject,
-  fromRustTrack,
-  fromRustClip,
-  toRustTrack,
-  toRustClip,
-  toRustMediaAsset,
-  fromRustMediaAsset,
-} from "../serialization";
+import { toRustProject, fromRustProject, fromRustTrack, fromRustClip, toRustTrack, toRustClip, toRustMediaAsset, fromRustMediaAsset } from "../serialization";
 
 describe("Project Serialization Layer", () => {
   it("converts a frontend Project to a RustProject with correct snake_case mapping", () => {

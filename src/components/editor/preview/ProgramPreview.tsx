@@ -122,6 +122,11 @@ export const ProgramPreview: React.FC = () => {
   // 4. REF DECLARATIONS (useRef)
   // =========================================================================
   const containerRef = useRef<HTMLDivElement>(null);
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const previewContainerRef = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node;
+    setContainerEl(node);
+  }, []);
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const canvasRef = useCallback((node: HTMLCanvasElement | null) => {
     setCanvasEl(node);
@@ -293,6 +298,29 @@ export const ProgramPreview: React.FC = () => {
     }
   }, [project, clips, setDuration, setFrameRate]);
 
+  // Auto-seek to first clip if playhead is at 0 and no clips exist at time 0
+  useEffect(() => {
+    if (clips.length === 0 || clockState.state === "playing") return;
+
+    const currentTime = clockState.time;
+
+    // Only auto-seek if we're at time 0 or before the first clip
+    if (currentTime > 0.1) return;
+
+    // Check if there's any content at current time
+    const hasContentAtCurrentTime = clips.some((clip) => clip.startTime <= currentTime && currentTime < clip.startTime + clip.duration);
+
+    if (!hasContentAtCurrentTime) {
+      // Find the earliest clip start time
+      const earliestStartTime = Math.min(...clips.map((clip) => clip.startTime));
+
+      // Only seek if there's a clip that starts after current time
+      if (earliestStartTime > currentTime) {
+        seek(earliestStartTime);
+      }
+    }
+  }, [clips, clockState.time, clockState.state, seek]);
+
   useEffect(() => {
     if (!aspectMenuOpen) return;
     const onMouseDown = (e: MouseEvent) => {
@@ -327,10 +355,11 @@ export const ProgramPreview: React.FC = () => {
   }, [qualityMenuOpen]);
 
   useEffect(() => {
+    if (!containerEl) return;
+
     const updateDimensions = () => {
-      if (!containerRef.current) return;
-      const newWidth = containerRef.current.clientWidth;
-      const newHeight = containerRef.current.clientHeight;
+      const newWidth = containerEl.clientWidth;
+      const newHeight = containerEl.clientHeight;
 
       // Only update if dimensions actually changed (avoid unnecessary re-renders)
       setDimensions((prev) => {
@@ -345,7 +374,8 @@ export const ProgramPreview: React.FC = () => {
       setTimeout(updateDimensions, 100);
       setTimeout(updateDimensions, 300);
     };
-    if (containerRef.current) resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(containerEl);
+    updateDimensions();
     window.addEventListener("resize", updateDimensions);
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
@@ -355,7 +385,7 @@ export const ProgramPreview: React.FC = () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
     };
-  }, []);
+  }, [containerEl]);
 
   useEffect(() => {
     if (!project) return;
@@ -613,7 +643,7 @@ export const ProgramPreview: React.FC = () => {
     return (
       <div className="flex-1 bg-bg flex flex-col min-h-0 rounded-tl-xl border-l border-t border-white/3">
         <div className="flex-1 flex items-center justify-center p-4 md:p-6 overflow-hidden relative bg-[#06080a]">
-          <div ref={containerRef} className="w-full h-full flex items-center justify-center">
+          <div ref={previewContainerRef} className="w-full h-full flex items-center justify-center">
             <div className="text-text-muted">Loading preview...</div>
           </div>
         </div>
@@ -643,7 +673,7 @@ export const ProgramPreview: React.FC = () => {
 
       {/* ── Video Area ─────────────────────────────────────────────── */}
       <div className="flex-1 flex items-center justify-center overflow-hidden bg-[#06080a] relative">
-        <div ref={containerRef} onPointerDownCapture={handlePreviewPointerDownCapture} className={cn("w-full h-full flex items-center justify-center relative z-10 overflow-hidden", isPanning && "cursor-grabbing", spacePressed && !isPanning && "cursor-grab")}>
+        <div ref={previewContainerRef} onPointerDownCapture={handlePreviewPointerDownCapture} className={cn("w-full h-full flex items-center justify-center relative z-10 overflow-hidden", isPanning && "cursor-grabbing", spacePressed && !isPanning && "cursor-grab")}>
           <div data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.36)]" style={{ width: displayWidth, height: displayHeight }}>
             <>
               {/* Canvas-based preview (matches export rendering) */}
@@ -658,8 +688,9 @@ export const ProgramPreview: React.FC = () => {
                 className="bg-black"
               />
 
-              {/* Transform overlay for selected clips - only show when paused */}
-              {!isPlaying && <TransformOverlay canvasWidth={canvasWidth} canvasHeight={canvasHeight} scale={scale} viewport={viewport} displayOffset={{ x: offsetX, y: offsetY }} displayWidth={displayWidth} displayHeight={displayHeight} currentTime={currentTime} />}
+              {/* Transform overlay for selected clips - always mounted but hidden during playback */}
+              {/* Using visibility instead of mount/unmount prevents DOM reconciliation artifacts */}
+              <TransformOverlay canvasWidth={canvasWidth} canvasHeight={canvasHeight} scale={scale} viewport={viewport} displayOffset={{ x: offsetX, y: offsetY }} displayWidth={displayWidth} displayHeight={displayHeight} currentTime={currentTime} visible={!isPlaying} />
 
               {/* Title & Action Safe Areas Overlay */}
               <SafeOverlay visible={showSafeOverlay} displayWidth={displayWidth} displayHeight={displayHeight} displayOffset={{ x: offsetX, y: offsetY }} />

@@ -11,14 +11,19 @@ interface AudioSectionProps {
 
 export const AudioSection: React.FC<AudioSectionProps> = ({ selectedClip, handleUpdate }) => {
   const volume = selectedClip.volume ?? 1.0;
-  const volumePercent = Math.round(volume * 100);
+  const volumePercent = Math.round(Math.max(0, Math.min(1, volume)) * 100);
   const isMuted = volume === 0;
-  const fadeIn = (selectedClip as any).fadeIn ?? 0;
-  const fadeOut = (selectedClip as any).fadeOut ?? 0;
+  const maxFadeSeconds = Math.max(0, Math.min(5, selectedClip.duration));
+  const clampFade = useCallback(
+    (value: number) => Math.max(0, Math.min(maxFadeSeconds, Number.isFinite(value) ? value : 0)),
+    [maxFadeSeconds],
+  );
+  const fadeIn = clampFade((selectedClip as any).fadeIn ?? 0);
+  const fadeOut = clampFade((selectedClip as any).fadeOut ?? 0);
 
   const handleVolumeChange = useCallback(
     (newVolume: number) => {
-      const clampedVolume = Math.max(0, Math.min(2, newVolume));
+      const clampedVolume = Math.max(0, Math.min(1, newVolume));
       handleUpdate("volume", clampedVolume);
     },
     [handleUpdate],
@@ -58,7 +63,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({ selectedClip, handle
                 label="Level"
                 value={volumePercent}
                 min={0}
-                max={200}
+                max={100}
                 step={1}
                 suffix="%"
                 onChange={handleVolumePercentChange}
@@ -73,8 +78,6 @@ export const AudioSection: React.FC<AudioSectionProps> = ({ selectedClip, handle
               { label: "0%", value: 0 },
               { label: "50%", value: 0.5 },
               { label: "100%", value: 1.0 },
-              { label: "150%", value: 1.5 },
-              { label: "200%", value: 2.0 },
             ].map((preset) => (
               <button
                 key={preset.label}
@@ -99,19 +102,19 @@ export const AudioSection: React.FC<AudioSectionProps> = ({ selectedClip, handle
             label="Fade In"
             value={fadeIn}
             min={0}
-            max={5}
+            max={maxFadeSeconds}
             step={0.1}
             suffix="s"
-            onChange={(v) => handleUpdate("fadeIn", v)}
+            onChange={(v) => handleUpdate("fadeIn", clampFade(v))}
           />
           <PropertySlider
             label="Fade Out"
             value={fadeOut}
             min={0}
-            max={5}
+            max={maxFadeSeconds}
             step={0.1}
             suffix="s"
-            onChange={(v) => handleUpdate("fadeOut", v)}
+            onChange={(v) => handleUpdate("fadeOut", clampFade(v))}
           />
         </div>
       </PropertySection>

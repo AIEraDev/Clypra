@@ -1,86 +1,16 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import type { DensityLevel, ThumbnailTile } from "../../types";
+import { toNativePath } from "./pathConversion";
 
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /**
- * Tauri `invoke` / FFmpeg need a native filesystem path. The webview may use
- * `convertFileSrc` URLs (`asset://localhost/...`) or `file://` URLs elsewhere —
- * normalize back to a native FS path before calling Rust.
+ * Tauri `invoke` / FFmpeg need a native filesystem path.
+ * Use centralized path conversion utility.
+ * @deprecated Use toNativePath from pathConversion.ts directly
  */
 export function normalizePathForTauriInvoke(inputPath: string): string {
-  const p = inputPath.trim();
-
-  // Handle http://asset.localhost/ or https://asset.localhost/
-  if (p.startsWith("http://asset.localhost/") || p.startsWith("https://asset.localhost/") || p.startsWith("http://asset.localhost%2F") || p.startsWith("https://asset.localhost%2F")) {
-    try {
-      const url = new URL(p);
-      let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
-      if (pathname.startsWith("//")) {
-        pathname = pathname.replace(/^\/+/, "/");
-      }
-      // Windows: http://asset.localhost/C:/... → /C:/...
-      if (/^\/[A-Za-z]:/.test(pathname)) {
-        pathname = pathname.slice(1);
-      }
-      return pathname;
-    } catch {
-      return p;
-    }
-  }
-
-  // Handle asset://localhost/<encoded-path> produced by convertFileSrc on macOS/Linux
-  if (p.startsWith("asset://localhost/") || p.startsWith("asset://localhost%2F")) {
-    try {
-      const url = new URL(p);
-      let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
-      if (pathname.startsWith("//")) {
-        pathname = pathname.replace(/^\/+/, "/");
-      }
-      // Windows: asset://localhost/C:/... → /C:/...
-      if (/^\/[A-Za-z]:/.test(pathname)) {
-        pathname = pathname.slice(1);
-      }
-      return pathname;
-    } catch {
-      return p;
-    }
-  }
-
-  // Handle asset://<encoded-path> (Windows variant: asset:///C:/...)
-  if (p.startsWith("asset://")) {
-    try {
-      const url = new URL(p);
-      let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
-      if (pathname.startsWith("//")) {
-        pathname = pathname.replace(/^\/+/, "/");
-      }
-      if (/^\/[A-Za-z]:/.test(pathname)) {
-        pathname = pathname.slice(1);
-      }
-      return pathname;
-    } catch {
-      return p;
-    }
-  }
-
-  if (!p.startsWith("file://")) {
-    return p;
-  }
-  try {
-    const url = new URL(p);
-    let pathname = decodeURIComponent(url.pathname.replace(/\+/g, " "));
-    if (pathname.startsWith("//")) {
-      pathname = pathname.replace(/^\/+/, "/");
-    }
-    // Windows: file:///C:/Users/... → pathname often /C:/Users/...
-    if (/^\/[A-Za-z]:/.test(pathname)) {
-      pathname = pathname.slice(1);
-    }
-    return pathname;
-  } catch {
-    return p;
-  }
+  return toNativePath(inputPath);
 }
 
 // ─── Native FFmpeg Decoder Commands ───────────────────────────────────────
@@ -97,7 +27,7 @@ export async function decodeFrame(videoPath: string, timeSecs: number, width: nu
     return "data:image/png;base64,mockedDataURL";
   }
   return invoke<string>("decode_frame", {
-    videoPath: normalizePathForTauriInvoke(videoPath),
+    videoPath: toNativePath(videoPath),
     timeSecs,
     width,
     height,
@@ -116,7 +46,7 @@ export async function decodeFramesStreaming(videoPath: string, timestamps: numbe
   channel.onmessage = onTile;
 
   return invoke("decode_frames_streaming", {
-    videoPath: normalizePathForTauriInvoke(videoPath),
+    videoPath: toNativePath(videoPath),
     timestamps,
     density,
     width,
@@ -135,7 +65,7 @@ export function releaseVideoDecoder(videoPath: string): void {
     return;
   }
   invoke("release_video_decoder", {
-    videoPath: normalizePathForTauriInvoke(videoPath),
+    videoPath: toNativePath(videoPath),
   });
 }
 

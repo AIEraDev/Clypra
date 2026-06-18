@@ -1,4 +1,4 @@
-export type StickerCategory = "trending" | "football" | "classic" | "new" | "animal-meme" | "hits" | "free-fire" | "icons" | "emoji" | "fun" | "emphasis" | "cover-ups" | "wrong" | "love" | "letters" | "mood" | "sale" | "gaming" | "text-sticker" | "vlog" | "collage" | "y2k" | "countdown" | "music-festival" | "journal" | "campus" | "cartoon" | "animal" | "fashion" | "eco-friendly" | "basketball" | "birthday" | "barbie" | "vibes" | "shimmer" | "glitter" | "frame" | "travel" | "winter" | "fall" | "neon-text" | "details" | "techniques" | "lip-illustration" | "handwriting" | "retro-character" | "illustration" | "alphabet" | "pixelated-style" | "bubble" | "weather" | "label" | "plog" | "cyber" | "stylish" | "food" | "shapes";
+export type StickerCategory = "emoji" | "text" | "gaming" | "sports" | "animals" | "love" | "mood" | "food" | "travel" | "birthday" | "frames" | "shapes" | "fashion" | "retro" | "illustration";
 
 export interface StickerItem {
   id: string;
@@ -18,7 +18,7 @@ import { getApiHeaders, getApiBaseUrl } from "@/lib/api";
 
 const BASE = getApiBaseUrl();
 
-export const STICKER_CATEGORIES: StickerCategory[] = ["trending", "football", "classic", "new", "animal-meme", "hits", "free-fire", "icons", "emoji", "fun", "emphasis", "cover-ups", "wrong", "love", "letters", "mood", "sale", "gaming", "text-sticker", "vlog", "collage", "y2k", "countdown", "music-festival", "journal", "campus", "cartoon", "animal", "fashion", "eco-friendly", "basketball", "birthday", "barbie", "vibes", "shimmer", "glitter", "frame", "travel", "winter", "fall", "neon-text", "details", "techniques", "lip-illustration", "handwriting", "retro-character", "illustration", "alphabet", "pixelated-style", "bubble", "weather", "label", "plog", "cyber", "stylish", "food", "shapes"];
+export const STICKER_CATEGORIES: StickerCategory[] = ["emoji", "text", "gaming", "sports", "animals", "love", "mood", "food", "travel", "birthday", "frames", "shapes", "fashion", "retro", "illustration"];
 
 export const StickersApi = {
   async getStickersIndex(): Promise<StickerItem[]> {

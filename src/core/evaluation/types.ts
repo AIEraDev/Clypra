@@ -115,6 +115,9 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
   
   /** Sticker-specific settings */
   readonly stickerSettings?: { speed: number; loop: boolean };
+  readonly stickerFormat?: "static" | "gif" | "lottie";
+  readonly stickerAnimationPath?: string;
+  readonly stickerSourceId?: string;
 
   /** Active color filter on this layer */
   readonly filter?: { id: string; name: string; intensity: number };
@@ -193,6 +196,7 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
 
   /** Style preset ID for text effects */
   readonly styleId?: string;
+  readonly styleDefinition?: import("@clypra/engine").TextEffectDefinition;
 
   /** Template-specific settings */
   readonly templateId?: string;

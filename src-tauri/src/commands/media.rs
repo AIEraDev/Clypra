@@ -118,8 +118,12 @@ async fn get_video_metadata_internal(path: &str) -> Result<MediaMetadata, String
 
 /// Legacy command for backward compatibility.
 /// New code should use get_media_metadata instead.
+/// 
+/// DEPRECATED: Use get_media_metadata for unified media type handling
+#[deprecated(note = "Use get_media_metadata instead")]
 #[tauri::command]
 pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
+    eprintln!("⚠️  DEPRECATED: get_video_metadata called, use get_media_metadata instead");
     get_video_metadata_internal(&path).await
 }
 
@@ -429,15 +433,24 @@ pub struct WaveformBucket {
 pub async fn extract_waveform_data(
     path: String,
     num_buckets: usize,
+    start_time: Option<f64>,
+    duration: Option<f64>,
 ) -> Result<Vec<WaveformBucket>, String> {
     use std::process::Command;
     
     eprintln!("🦀 [extract_waveform_data] Extracting {} buckets from: {}", num_buckets, path);
     
     // Use ffmpeg to decode audio to raw PCM samples (mono, 16kHz for efficiency)
-    let output = Command::new("ffmpeg")
+    let mut cmd = Command::new("ffmpeg");
+    if let Some(start) = start_time.filter(|v| v.is_finite() && *v > 0.0) {
+        cmd.arg("-ss").arg(format!("{:.3}", start));
+    }
+    cmd.arg("-i").arg(&path);
+    if let Some(len) = duration.filter(|v| v.is_finite() && *v > 0.0) {
+        cmd.arg("-t").arg(format!("{:.3}", len));
+    }
+    let output = cmd
         .args([
-            "-i", &path,
             "-f", "f32le",      // 32-bit float PCM
             "-ac", "1",         // Mono (mix to single channel)
             "-ar", "16000",     // 16kHz sample rate (sufficient for visualization)

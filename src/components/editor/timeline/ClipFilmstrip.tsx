@@ -150,7 +150,8 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
       ctx.clearRect(0, 0, w, h);
 
       // Professional NLE: tile count derived from temporal width
-      const TILE_WIDTH = 80;
+      // Match CapCut's compact design with narrow tiles
+      const TILE_WIDTH = 50;
       const tileCount = Math.max(1, Math.ceil(w / TILE_WIDTH));
 
       for (let i = 0; i < tileCount; i++) {

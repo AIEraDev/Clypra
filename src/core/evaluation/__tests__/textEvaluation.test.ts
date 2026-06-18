@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { evaluateTimelineScene as evaluateScene } from "../evaluator";
 import type { TextClip, Track, MediaAsset, Project } from "@/types";
+import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
@@ -28,6 +29,10 @@ describe("Text Layer Evaluation", () => {
   };
 
   const tracks: Track[] = [{ id: "t1", type: "text", name: "Text 1", muted: false, locked: false, visible: true, height: 56 }];
+
+  beforeEach(() => {
+    useEffectsStore.setState({ definitions: {} });
+  });
 
   it("evaluates text clip into EvaluatedTextLayer", () => {
     const textClip: TextClip = {
@@ -77,6 +82,61 @@ describe("Text Layer Evaluation", () => {
       expect(layer.y).toBe(200);
       expect(layer.width).toBe(800);
       expect(layer.height).toBe(100);
+    }
+  });
+
+  it("uses cached text effect font when styled clip has no explicit font family", () => {
+    useEffectsStore.setState({
+      definitions: {
+        "neon-effect": {
+          id: "neon-effect",
+          name: "Neon Effect",
+          category: "neon",
+          description: "",
+          tags: [],
+          font: { family: "Bebas Neue", weight: 700, style: "italic", letterSpacing: 8, lineHeight: 1.35 },
+          fills: [],
+          strokes: [],
+          shadows: [],
+        },
+      },
+    });
+
+    const textClip: TextClip = {
+      id: "text-effect-1",
+      kind: "text",
+      trackId: "t1",
+      mediaId: "",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 100,
+      y: 200,
+      width: 800,
+      height: 100,
+      opacity: 1.0,
+      rotation: 0,
+      text: "NEON",
+      fontSize: 96,
+      color: "#ffffff",
+      align: "center",
+      valign: "middle",
+      paddingX: 16,
+      paddingY: 16,
+      styleId: "neon-effect",
+    } as TextClip;
+
+    const scene = evaluateScene(1, [textClip], tracks, [], project);
+    const layer = scene.visualLayers[0];
+
+    expect(layer.layerType).toBe("text");
+    if (layer.layerType === "text") {
+      expect(layer.fontFamily).toBe("Bebas Neue");
+      expect(layer.fontWeight).toBe(700);
+      expect(layer.fontStyle).toBe("italic");
+      expect(layer.letterSpacing).toBe(8);
+      expect(layer.lineHeight).toBe(1.35);
     }
   });
 

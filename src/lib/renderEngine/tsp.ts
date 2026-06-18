@@ -11,15 +11,7 @@
  *   - VFR normalization included in Frame_Content_Hash (handled by backend)
  */
 
-import {
-  TemporalTier,
-  TEMPORAL_TIER_INTERVALS,
-  HIGH_MOTION_DENSITY_MULTIPLIER,
-  EDIT_BOUNDARY_SAMPLE_INTERVAL,
-  EDIT_BOUNDARY_WINDOW,
-  InteractionState,
-  type CanonicalFrameTimestamp,
-} from './types';
+import { TemporalTier, TEMPORAL_TIER_INTERVALS, HIGH_MOTION_DENSITY_MULTIPLIER, EDIT_BOUNDARY_SAMPLE_INTERVAL, EDIT_BOUNDARY_WINDOW, InteractionState, type CanonicalFrameTimestamp } from "./types";
 
 // ─── TSP Result ───────────────────────────────────────────────────────────────
 
@@ -48,8 +40,8 @@ export interface EditBoundary {
  */
 export function computeTemporalTierFromDensity(viewportDensity: number): TemporalTier {
   // Pixel density thresholds derived from spec R1 interval targets
-  // At L0: one thumbnail per 2–4s → thumb fills ~160–320px at 80px wide
-  if (viewportDensity < 40)  return TemporalTier.L0;
+  // At L0: one thumbnail per 2–4s → thumb fills ~320–640px at 160px wide
+  if (viewportDensity < 40) return TemporalTier.L0;
   if (viewportDensity < 120) return TemporalTier.L1;
   if (viewportDensity < 320) return TemporalTier.L2;
   return TemporalTier.L3;
@@ -80,20 +72,11 @@ function roundMs(t: number): CanonicalFrameTimestamp {
  * @param editBoundaries Known cut points in source time.
  * @param isHighMotion  Whether this region is flagged as high-motion (Phase 1: stub).
  */
-export function generateSamplingGrid(
-  trimIn: number,
-  trimOut: number,
-  tier: TemporalTier,
-  videoDuration: number,
-  editBoundaries: readonly EditBoundary[] = [],
-  isHighMotion = false,
-): readonly CanonicalFrameTimestamp[] {
+export function generateSamplingGrid(trimIn: number, trimOut: number, tier: TemporalTier, videoDuration: number, editBoundaries: readonly EditBoundary[] = [], isHighMotion = false): readonly CanonicalFrameTimestamp[] {
   const [baseInterval] = TEMPORAL_TIER_INTERVALS[tier];
 
   // Motion-aware density (Phase 1: stub — isHighMotion always false from caller)
-  const effectiveInterval = isHighMotion
-    ? baseInterval / HIGH_MOTION_DENSITY_MULTIPLIER
-    : baseInterval;
+  const effectiveInterval = isHighMotion ? baseInterval / HIGH_MOTION_DENSITY_MULTIPLIER : baseInterval;
 
   const gridStart = Math.floor(trimIn / effectiveInterval) * effectiveInterval;
 
@@ -119,7 +102,7 @@ export function generateSamplingGrid(
     if (time < trimIn - EDIT_BOUNDARY_WINDOW || time > trimOut + EDIT_BOUNDARY_WINDOW) continue;
 
     const windowStart = Math.max(trimIn, time - EDIT_BOUNDARY_WINDOW);
-    const windowEnd   = Math.min(trimOut, time + EDIT_BOUNDARY_WINDOW);
+    const windowEnd = Math.min(trimOut, time + EDIT_BOUNDARY_WINDOW);
 
     let bt = Math.floor(windowStart / EDIT_BOUNDARY_SAMPLE_INTERVAL) * EDIT_BOUNDARY_SAMPLE_INTERVAL;
     while (bt <= windowEnd) {
@@ -147,14 +130,7 @@ export function generateSamplingGrid(
  * @param interactionState Current ISM state (affects whether high-precision is forced).
  * @param editBoundaries   Known cut points.
  */
-export function computeTemporalTier(
-  viewportDensity: number,
-  trimIn: number,
-  trimOut: number,
-  videoDuration: number,
-  interactionState: InteractionState = InteractionState.Idle,
-  editBoundaries: readonly EditBoundary[] = [],
-): TspResult {
+export function computeTemporalTier(viewportDensity: number, trimIn: number, trimOut: number, videoDuration: number, interactionState: InteractionState = InteractionState.Idle, editBoundaries: readonly EditBoundary[] = []): TspResult {
   const temporalTier = computeTemporalTierFromDensity(viewportDensity);
   const [baseInterval, nearEditInterval] = TEMPORAL_TIER_INTERVALS[temporalTier];
 
@@ -164,13 +140,7 @@ export function computeTemporalTier(
     ? [{ time: (trimIn + trimOut) / 2 }] // treat entire clip as near-edit
     : editBoundaries;
 
-  const frameTimestamps = generateSamplingGrid(
-    trimIn,
-    trimOut,
-    temporalTier,
-    videoDuration,
-    effectiveEditBoundaries,
-  );
+  const frameTimestamps = generateSamplingGrid(trimIn, trimOut, temporalTier, videoDuration, effectiveEditBoundaries);
 
   return {
     temporalTier,

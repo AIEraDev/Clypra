@@ -1,7 +1,7 @@
 import { useEffect, RefObject } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
-import { getTimelineViewportEnd } from "@/lib/timeline/timelineClip";
 import { TIMELINE_MAX_PPS, TIMELINE_MIN_PPS } from "@/lib/timeline/timelineZoom";
+import { getAnchoredZoomScrollLeft, getTimelineLaneClientX, getTimelineViewportEndForDuration } from "@/lib/timeline/timelineViewport";
 
 const WHEEL_ZOOM_SENSITIVITY = 0.006;
 const WHEEL_ZOOM_SPEED_MULTIPLIER = 2.5;
@@ -38,23 +38,29 @@ export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>) 
       if (Math.abs(nextPps - oldPps) < 0.05) return;
 
       const rect = container.getBoundingClientRect();
-      const localX = pendingClientX - rect.left;
+      const state = useTimelineStore.getState();
+      const hasClips = state.clips.length > 0;
+      const localTimelineX = getTimelineLaneClientX(pendingClientX, rect.left, hasClips);
       const scrollLeftDom = container.scrollLeft;
 
-      const currentDuration = useTimelineStore.getState().getTimelineEndTime();
-      const currentViewportEnd = getTimelineViewportEnd(currentDuration);
-      let anchorTime = (scrollLeftDom + localX) / oldPps;
+      const currentDuration = state.getTimelineEndTime();
+      const currentViewportEnd = getTimelineViewportEndForDuration(currentDuration);
+      let anchorTime = (scrollLeftDom + localTimelineX) / oldPps;
       anchorTime = Math.max(0, Math.min(anchorTime, currentViewportEnd));
 
-      useTimelineStore.getState().setPixelsPerSecond(nextPps);
+      state.setPixelsPerSecond(nextPps);
 
-      const nextContentWidth = Math.round(currentViewportEnd * nextPps);
-      const maxScrollLeft = Math.max(0, nextContentWidth - container.clientWidth);
-      let nextScrollLeft = anchorTime * nextPps - localX;
-      nextScrollLeft = Math.max(0, Math.min(nextScrollLeft, maxScrollLeft));
+      const nextScrollLeft = getAnchoredZoomScrollLeft({
+        anchorTime,
+        localTimelineX,
+        containerWidth: container.clientWidth,
+        viewportEndSeconds: currentViewportEnd,
+        nextPixelsPerSecond: nextPps,
+        hasClips,
+      });
 
       container.scrollLeft = nextScrollLeft;
-      useTimelineStore.getState().setScrollLeft(nextScrollLeft);
+      state.setScrollLeft(nextScrollLeft);
     };
 
     const onWheel = (e: WheelEvent) => {

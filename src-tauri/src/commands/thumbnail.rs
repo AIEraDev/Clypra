@@ -3,34 +3,18 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::path::Path;
 use tokio::sync::broadcast;
 use tauri::Manager;
 
 use crate::thumbnail_engine::decoder::{get_decoder, release_decoder};
 use crate::thumbnail_engine::pyramid::RawRgbaFrame;
+use crate::thumbnail_engine::geometry::fit_preserving_aspect;
 use crate::thumbnail_engine::{
     clear_video_thumbnail_cache, downsample_pyramid, get_cache_stats,
     init_thumbnail_engine, tier_inflight_key, ArtifactSource, DensityLevel, FrameContentHash,
     RenderArtifact, SpatialTier, ThumbnailTile, TierCacheKey, FRAME_CACHE, IN_FLIGHT_TIER,
     TIER_CACHE, ResolutionTier, GLOBAL_CACHE,
 };
-
-/// Calculate fitted dimensions preserving aspect ratio within a max box.
-fn fit_dimensions(src_w: u32, src_h: u32, max_w: u32, max_h: u32) -> (u32, u32) {
-    let src_ratio = src_w as f32 / src_h as f32;
-    let box_ratio = max_w as f32 / max_h as f32;
-
-    if src_ratio > box_ratio {
-        let w = max_w;
-        let h = ((max_w as f32) / src_ratio).round() as u32;
-        (w, h.max(1))
-    } else {
-        let h = max_h;
-        let w = ((max_h as f32) * src_ratio).round() as u32;
-        (w.max(1), h)
-    }
-}
 
 /// In-flight extraction deduplication for fast scrubbing.
 /// Shares results across duplicate requests to reduce workload by 70%+.
@@ -130,7 +114,7 @@ pub async fn extract_poster_frame_command(
         let (display_w, display_h) = decoder.display_dimensions();
 
         // Fit display dimensions to max_size (preserving aspect ratio)
-        let (fit_w, fit_h) = fit_dimensions(display_w, display_h, max_size, max_size);
+        let (fit_w, fit_h) = fit_preserving_aspect(display_w, display_h, max_size, max_size);
 
         eprintln!(
             "[extract_poster] pixels={}×{} SAR={}:{} rot={} display={}×{} target={}×{}",
@@ -160,48 +144,6 @@ pub async fn extract_poster_frame_command(
     // Convert to base64 data URL
     let base64_data = BASE64.encode(&webp_data);
     Ok(format!("data:image/webp;base64,{}", base64_data))
-}
-
-#[allow(dead_code)]
-async fn save_rgba_as_webp(
-    rgba_bytes: &[u8],
-    width: u32,
-    height: u32,
-    cache_path: &Path,
-) -> Result<(), String> {
-    use image::codecs::webp::WebPEncoder;
-    let start = std::time::Instant::now();
-
-    // Encode RGBA to WebP
-    let mut webp_data = Vec::new();
-    let encoder = WebPEncoder::new_lossless(&mut webp_data);
-    encoder
-        .encode(rgba_bytes, width, height, image::ExtendedColorType::Rgba8)
-        .map_err(|e| format!("WebP encoding failed: {}", e))?;
-    let encode_time = start.elapsed();
-
-    // Ensure parent directory exists
-    if let Some(parent) = cache_path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| format!("Failed to create cache directory: {}", e))?;
-    }
-
-    // Write to file
-    tokio::fs::write(cache_path, &webp_data)
-        .await
-        .map_err(|e| format!("Failed to write WebP file: {}", e))?;
-
-    eprintln!(
-        "[save_rgba_as_webp] Encoded {}x{} → {} bytes in {:?} (file: {:?})",
-        width,
-        height,
-        webp_data.len(),
-        encode_time,
-        cache_path.file_name().unwrap_or_default()
-    );
-
-    Ok(())
 }
 
 fn encode_rgba_to_webp_data_url(

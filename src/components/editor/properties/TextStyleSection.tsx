@@ -9,6 +9,7 @@ import { PropertySlider } from "./primitives/PropertySlider";
 import { PropertySection } from "./primitives/PropertySection";
 import { useTemplateStore } from "@/features/text-templates/templateStore";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 
 // Extracted font list for maintainability
 const SYSTEM_FONTS = [
@@ -92,6 +93,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
   const [applyToAll, setApplyToAll] = React.useState(false);
   const { templates } = useTemplateStore();
   const templateDef = templates.find((t) => t.id === textClip.templateId);
+  const effectFont = textClip.styleId ? useEffectsStore.getState().definitions[textClip.styleId]?.font : undefined;
 
   // Styling properties to batch-update across all caption clips on the same track
   const CAPTION_STYLE_KEYS = [
@@ -204,8 +206,20 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
   };
 
   // Resolve current font weight to a numeric value for the slider
-  const currentWeight = typeof textClip.fontWeight === "number" ? textClip.fontWeight : textClip.fontWeight === "bold" ? 700 : 400;
+  const effectiveFontWeight = textClip.fontWeight ?? effectFont?.weight;
+  const currentWeight = typeof effectiveFontWeight === "number" ? effectiveFontWeight : effectiveFontWeight === "bold" ? 700 : 400;
   const weightLabel = FONT_WEIGHTS.find((w) => w.value === currentWeight)?.label || "Regular";
+  const effectiveFontStyle = textClip.fontStyle || effectFont?.style || "normal";
+  const effectiveLetterSpacing = textClip.letterSpacing ?? effectFont?.letterSpacing ?? 0;
+  const effectiveLineHeight = textClip.lineHeight ?? effectFont?.lineHeight ?? 1.2;
+  const handleCustomStyleUpdate = (key: string, value: any) => {
+    const updates: Record<string, any> = { [key]: value };
+    if (textClip.styleId && key !== "styleId") {
+      updates.styleId = undefined;
+      updates.styleDefinition = undefined;
+    }
+    handleUpdateMultiple(updates);
+  };
 
   return (
     <div className="space-y-3">
@@ -349,7 +363,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
           {/* Font Family */}
           <div>
             <label className="text-[10px] font-medium text-text-muted block mb-1 select-none">Font Family</label>
-            <select value={normalizeFontFamily(textClip.fontFamily || "Inter Variable")} onChange={(e) => handleUpdate("fontFamily", e.target.value)} className="w-full bg-surface-raised border border-border/60 rounded-md px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_8px_center] pr-7">
+            <select value={normalizeFontFamily(textClip.fontFamily || effectFont?.family || "Inter Variable")} onChange={(e) => handleCustomStyleUpdate("fontFamily", e.target.value)} className="w-full bg-surface-raised border border-border/60 rounded-md px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_8px_center] pr-7">
               <optgroup label="System Fonts">
                 {SYSTEM_FONTS.map((f) => (
                   <option key={f.value} value={f.value}>
@@ -368,7 +382,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
           </div>
 
           {/* Font Size */}
-          <PropertySlider label="Font Size" value={textClip.fontSize || 48} min={10} max={150} step={1} suffix="px" onChange={(v) => handleUpdate("fontSize", v)} />
+          <PropertySlider label="Font Size" value={textClip.fontSize || 48} min={10} max={150} step={1} suffix="px" onChange={(v) => handleCustomStyleUpdate("fontSize", v)} />
 
           {/* Font Weight (numeric slider instead of just Bold toggle) */}
           <div>
@@ -384,7 +398,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
               max={900}
               step={100}
               value={currentWeight}
-              onChange={(e) => handleUpdate("fontWeight", Number(e.target.value))}
+              onChange={(e) => handleCustomStyleUpdate("fontWeight", Number(e.target.value))}
               className="w-full h-1.5 rounded-full appearance-none outline-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(var(--color-accent-raw),0.35)] [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
               style={{
                 background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${((currentWeight - 100) / 800) * 100}%, var(--color-border) ${((currentWeight - 100) / 800) * 100}%, var(--color-border) 100%)`,
@@ -397,7 +411,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
             {/* Italic toggle */}
             <div className="space-y-1">
               <label className="text-[9px] text-text-muted block select-none">Style</label>
-              <button onClick={() => handleUpdate("fontStyle", textClip.fontStyle === "italic" ? "normal" : "italic")} className={`w-full py-1.5 rounded-md text-xs italic font-medium transition-all cursor-pointer border ${textClip.fontStyle === "italic" ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-white/[0.06]"}`}>
+              <button onClick={() => handleCustomStyleUpdate("fontStyle", effectiveFontStyle === "italic" ? "normal" : "italic")} className={`w-full py-1.5 rounded-md text-xs italic font-medium transition-all cursor-pointer border ${effectiveFontStyle === "italic" ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-white/[0.06]"}`}>
                 Italic
               </button>
             </div>
@@ -442,12 +456,12 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
             <div className="space-y-1">
               <label className="text-[9px] text-text-muted block select-none">Letter Spacing</label>
-              <input type="number" value={textClip.letterSpacing || 0} onChange={(e) => handleUpdate("letterSpacing", Number(e.target.value))} className="w-full bg-surface-raised border border-border/60 rounded-md py-1.5 px-2 text-center text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable" />
+              <input type="number" value={effectiveLetterSpacing} onChange={(e) => handleCustomStyleUpdate("letterSpacing", Number(e.target.value))} className="w-full bg-surface-raised border border-border/60 rounded-md py-1.5 px-2 text-center text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable" />
             </div>
           </div>
 
           {/* Line Height — was missing from UI! */}
-          <PropertySlider label="Line Height" value={textClip.lineHeight ?? 1.2} min={0.5} max={3.0} step={0.1} onChange={(v) => handleUpdate("lineHeight", v)} />
+          <PropertySlider label="Line Height" value={effectiveLineHeight} min={0.5} max={3.0} step={0.1} onChange={(v) => handleCustomStyleUpdate("lineHeight", v)} />
         </div>
       </PropertySection>
 
@@ -463,7 +477,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                   value={(textClip.color || "#ffffff").includes(",") ? textClip.color : "solid"}
                   onChange={(e) => {
                     if (e.target.value !== "solid") {
-                      handleUpdate("color", e.target.value);
+                      handleCustomStyleUpdate("color", e.target.value);
                     }
                   }}
                   className="bg-surface-raised border border-border/60 rounded text-[10px] py-1 px-1.5 text-text-muted outline-none cursor-pointer"
@@ -473,7 +487,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                   <option value="#ff3e00, #ff0077, #aa00ff">Sunset Gradient</option>
                   <option value="#ff007f, #aa00ff, #00c8ff, #00ff66">Rainbow Gradient</option>
                 </select>
-                <input type="color" value={(textClip.color || "#ffffff").includes(",") ? "#ffffff" : textClip.color || "#ffffff"} onChange={(e) => handleUpdate("color", e.target.value)} className="w-7 h-7 bg-transparent border-0 cursor-pointer rounded overflow-hidden" />
+                <input type="color" value={(textClip.color || "#ffffff").includes(",") ? "#ffffff" : textClip.color || "#ffffff"} onChange={(e) => handleCustomStyleUpdate("color", e.target.value)} className="w-7 h-7 bg-transparent border-0 cursor-pointer rounded overflow-hidden" />
               </div>
             </div>
 
@@ -484,7 +498,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                 const style: React.CSSProperties = isGrad ? { background: `linear-gradient(135deg, ${p.value})` } : { backgroundColor: p.value };
                 const isSelected = textClip.color === p.value;
 
-                return <button key={idx} onClick={() => handleUpdate("color", p.value)} className={`w-6 h-6 rounded-full border cursor-pointer hover:scale-110 active:scale-95 transition-all focus:outline-none ${isSelected ? "border-accent ring-2 ring-accent/30 scale-105" : "border-border/60 hover:border-text-primary"}`} style={style} title={p.label} />;
+                return <button key={idx} onClick={() => handleCustomStyleUpdate("color", p.value)} className={`w-6 h-6 rounded-full border cursor-pointer hover:scale-110 active:scale-95 transition-all focus:outline-none ${isSelected ? "border-accent ring-2 ring-accent/30 scale-105" : "border-border/60 hover:border-text-primary"}`} style={style} title={p.label} />;
               })}
             </div>
           </div>
@@ -496,9 +510,9 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
               <button
                 onClick={() => {
                   if (textClip.stroke) {
-                    handleUpdate("stroke", null);
+                    handleCustomStyleUpdate("stroke", null);
                   } else {
-                    handleUpdate("stroke", { color: "#000000", width: 4 });
+                    handleCustomStyleUpdate("stroke", { color: "#000000", width: 4 });
                   }
                 }}
                 className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition-all cursor-pointer ${textClip.stroke ? "bg-accent/15 text-accent border border-accent/30" : "bg-surface-raised text-text-muted border border-border/60 hover:text-text-primary"}`}
@@ -513,12 +527,12 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                   <span className="text-[10px] text-text-muted">Color</span>
                   <div className="flex items-center gap-1.5">
                     {["#000000", "#ffffff", "#ff3b30", "#ffcc00"].map((c, idx) => (
-                      <button key={idx} onClick={() => handleUpdate("stroke", { ...textClip.stroke, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.stroke?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
+                      <button key={idx} onClick={() => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.stroke?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
                     ))}
-                    <input type="color" value={textClip.stroke.color} onChange={(e) => handleUpdate("stroke", { ...textClip.stroke, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
+                    <input type="color" value={textClip.stroke.color} onChange={(e) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
                   </div>
                 </div>
-                <PropertySlider label="Thickness" value={textClip.stroke.width} min={1} max={15} step={1} suffix="px" onChange={(v) => handleUpdate("stroke", { ...textClip.stroke, width: v })} compact />
+                <PropertySlider label="Thickness" value={textClip.stroke.width} min={1} max={15} step={1} suffix="px" onChange={(v) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, width: v })} compact />
               </div>
             )}
           </div>
@@ -530,9 +544,9 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
               <button
                 onClick={() => {
                   if (textClip.shadow) {
-                    handleUpdate("shadow", null);
+                    handleCustomStyleUpdate("shadow", null);
                   } else {
-                    handleUpdate("shadow", { color: "#ff0000", blur: 15, offsetX: 0, offsetY: 0 });
+                    handleCustomStyleUpdate("shadow", { color: "#ff0000", blur: 15, offsetX: 0, offsetY: 0 });
                   }
                 }}
                 className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition-all cursor-pointer ${textClip.shadow ? "bg-accent/15 text-accent border border-accent/30" : "bg-surface-raised text-text-muted border border-border/60 hover:text-text-primary"}`}
@@ -547,20 +561,20 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                   <span className="text-[10px] text-text-muted">Color</span>
                   <div className="flex items-center gap-1.5">
                     {["#ff0000", "#ff007f", "#00f0ff", "#ffe066"].map((c, idx) => (
-                      <button key={idx} onClick={() => handleUpdate("shadow", { ...textClip.shadow, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.shadow?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
+                      <button key={idx} onClick={() => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.shadow?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
                     ))}
-                    <input type="color" value={textClip.shadow.color} onChange={(e) => handleUpdate("shadow", { ...textClip.shadow, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
+                    <input type="color" value={textClip.shadow.color} onChange={(e) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
                   </div>
                 </div>
-                <PropertySlider label="Blur Radius" value={textClip.shadow.blur} min={1} max={30} step={1} suffix="px" onChange={(v) => handleUpdate("shadow", { ...textClip.shadow, blur: v })} compact />
+                <PropertySlider label="Blur Radius" value={textClip.shadow.blur} min={1} max={30} step={1} suffix="px" onChange={(v) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, blur: v })} compact />
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[9px] text-text-muted block mb-0.5 select-none">Offset X</label>
-                    <input type="number" value={textClip.shadow.offsetX} onChange={(e) => handleUpdate("shadow", { ...textClip.shadow, offsetX: Number(e.target.value) })} className="w-full bg-surface-raised border border-border/60 text-center rounded-md py-0.5 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable" />
+                    <input type="number" value={textClip.shadow.offsetX} onChange={(e) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, offsetX: Number(e.target.value) })} className="w-full bg-surface-raised border border-border/60 text-center rounded-md py-0.5 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable" />
                   </div>
                   <div>
                     <label className="text-[9px] text-text-muted block mb-0.5 select-none">Offset Y</label>
-                    <input type="number" value={textClip.shadow.offsetY} onChange={(e) => handleUpdate("shadow", { ...textClip.shadow, offsetY: Number(e.target.value) })} className="w-full bg-surface-raised border border-border/60 text-center rounded-md py-0.5 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable" />
+                    <input type="number" value={textClip.shadow.offsetY} onChange={(e) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, offsetY: Number(e.target.value) })} className="w-full bg-surface-raised border border-border/60 text-center rounded-md py-0.5 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable" />
                   </div>
                 </div>
               </div>
@@ -574,9 +588,9 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
               <button
                 onClick={() => {
                   if (textClip.background) {
-                    handleUpdate("background", null);
+                    handleCustomStyleUpdate("background", null);
                   } else {
-                    handleUpdate("background", { color: "rgba(0,0,0,0.6)", padding: 12, borderRadius: 6 });
+                    handleCustomStyleUpdate("background", { color: "rgba(0,0,0,0.6)", padding: 12, borderRadius: 6 });
                   }
                 }}
                 className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition-all cursor-pointer ${textClip.background ? "bg-accent/15 text-accent border border-accent/30" : "bg-surface-raised text-text-muted border border-border/60 hover:text-text-primary"}`}
@@ -591,13 +605,13 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                   <span className="text-[10px] text-text-muted">Box Color</span>
                   <div className="flex items-center gap-1.5">
                     {["rgba(0,0,0,0.6)", "rgba(255,255,255,0.2)", "rgba(0,122,255,0.3)", "rgba(255,59,48,0.3)"].map((c, idx) => (
-                      <button key={idx} onClick={() => handleUpdate("background", { ...textClip.background, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.background?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
+                      <button key={idx} onClick={() => handleCustomStyleUpdate("background", { ...textClip.background, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.background?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
                     ))}
-                    <input type="color" value={textClip.background.color.startsWith("rgba") ? "#000000" : textClip.background.color} onChange={(e) => handleUpdate("background", { ...textClip.background, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
+                    <input type="color" value={textClip.background.color.startsWith("rgba") ? "#000000" : textClip.background.color} onChange={(e) => handleCustomStyleUpdate("background", { ...textClip.background, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
                   </div>
                 </div>
-                <PropertySlider label="Padding" value={textClip.background.padding} min={0} max={30} step={1} suffix="px" onChange={(v) => handleUpdate("background", { ...textClip.background, padding: v })} compact />
-                <PropertySlider label="Border Radius" value={textClip.background.borderRadius} min={0} max={25} step={1} suffix="px" onChange={(v) => handleUpdate("background", { ...textClip.background, borderRadius: v })} compact />
+                <PropertySlider label="Padding" value={textClip.background.padding} min={0} max={30} step={1} suffix="px" onChange={(v) => handleCustomStyleUpdate("background", { ...textClip.background, padding: v })} compact />
+                <PropertySlider label="Border Radius" value={textClip.background.borderRadius} min={0} max={25} step={1} suffix="px" onChange={(v) => handleCustomStyleUpdate("background", { ...textClip.background, borderRadius: v })} compact />
               </div>
             )}
           </div>

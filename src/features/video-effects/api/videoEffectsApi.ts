@@ -39,6 +39,22 @@ export class VideoEffectsApi {
   }
 
   /**
+   * Fetch the body effects manifest with all available categories and counts
+   */
+  static async getBodyEffectsManifest(): Promise<any> {
+    const res = await fetch(`${BASE}/body-effects/manifest`, {
+      cache: "reload",
+      headers: getApiHeaders(),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to load body effects manifest: ${res.statusText}`);
+    }
+
+    return res.json();
+  }
+
+  /**
    * Fetch all renderer-based video effects
    */
   static async getRendererEffects(): Promise<EffectPreset[]> {

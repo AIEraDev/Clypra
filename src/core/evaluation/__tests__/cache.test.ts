@@ -266,9 +266,13 @@ describe("computeClipVersion", () => {
     const base = [{ id: "c1", trackId: "t1", mediaId: "m1", startTime: 0, duration: 10, trimIn: 0, trimOut: 10, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 }];
     const changedTrim = [{ ...base[0], trimIn: 2, trimOut: 12 }];
     const changedStyle = [{ ...base[0], text: "Hello", styleId: "neon" }];
+    const changedTextColor = [{ ...base[0], text: "Hello", color: "#ff0000" }];
+    const changedTextBackground = [{ ...base[0], text: "Hello", background: { color: "#000000", padding: 24, borderRadius: 4 } }];
 
     expect(computeClipVersion(base)).not.toBe(computeClipVersion(changedTrim));
     expect(computeClipVersion(base)).not.toBe(computeClipVersion(changedStyle));
+    expect(computeClipVersion(changedStyle)).not.toBe(computeClipVersion(changedTextColor));
+    expect(computeClipVersion(changedStyle)).not.toBe(computeClipVersion(changedTextBackground));
   });
 
   it("generates different hash when transition settings change", () => {

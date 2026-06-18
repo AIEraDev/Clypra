@@ -3,6 +3,7 @@ import { usePlaybackClock, usePlaybackControls } from "@/hooks/usePlaybackClock"
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import { traceStart, traceEnd } from "@/lib/debug/performanceTrace";
 
 interface PlayheadProps {
   pixelsPerSecond: number;
@@ -32,6 +33,12 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
   // ✅ Use same pixel mapping as Timeline scroll logic (rounded to avoid subpixel issues)
   const left = Math.max(0, Math.round(currentTime * pixelsPerSecond));
 
+  // ✅ PERFORMANCE OPTIMIZED: Throttled state updates to reduce React render storms
+  const lastScrollUpdateRef = useRef(0);
+  const lastSeekUpdateRef = useRef(0);
+  const SCROLL_THROTTLE = 33; // ~30fps (acceptable for scroll UI sync)
+  const SEEK_THROTTLE = 16; // ~60fps (smooth playhead movement)
+
   // ✅ Continuous loop: scroll FIRST, then derive playhead from pointer
   useEffect(() => {
     if (!isDragging) {
@@ -44,23 +51,37 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     }
 
     const tick = () => {
-      if (!isDragging) return;
+      traceStart("playhead-tick");
+
+      if (!isDragging) {
+        traceEnd("playhead-tick");
+        return;
+      }
 
       const container = containerRef.current;
       if (!container) {
         rafRef.current = requestAnimationFrame(tick);
+        traceEnd("playhead-tick");
         return;
       }
 
-      // ✅ 1. Update scroll FIRST
+      const now = performance.now();
+
+      // ✅ 1. Update scroll FIRST (direct DOM manipulation, throttled state update)
       const velocity = scrollVelocityRef.current;
       if (velocity !== 0) {
         const viewportWidth = container.clientWidth;
         const maxScrollLeft = Math.max(0, container.scrollWidth - viewportWidth);
         const newScrollLeft = Math.max(0, Math.min(container.scrollLeft + velocity, maxScrollLeft));
 
+        // Direct DOM update (always immediate)
         container.scrollLeft = newScrollLeft;
-        setScrollLeft(newScrollLeft);
+
+        // Throttled state update (reduce React re-renders)
+        if (now - lastScrollUpdateRef.current >= SCROLL_THROTTLE) {
+          setScrollLeft(newScrollLeft);
+          lastScrollUpdateRef.current = now;
+        }
       }
 
       // ✅ 2. THEN derive playhead from pointer
@@ -78,8 +99,14 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       const pixelsPerFrame = pixelsPerSecond / frameRate;
       const snappedTime = pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
       const newTime = Math.max(0, Math.min(snappedTime, duration));
-      seek(newTime);
 
+      // Throttled seek calls (reduce clock update frequency)
+      if (now - lastSeekUpdateRef.current >= SEEK_THROTTLE) {
+        seek(newTime);
+        lastSeekUpdateRef.current = now;
+      }
+
+      traceEnd("playhead-tick");
       rafRef.current = requestAnimationFrame(tick);
     };
 

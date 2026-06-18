@@ -33,10 +33,10 @@ export const PropertySection: React.FC<PropertySectionProps> = ({ title, icon, d
       </button>
 
       {/* Collapsible Content */}
-      <div
-        className={`transition-all duration-200 ease-out ${collapsed ? "max-h-0 opacity-0 overflow-hidden" : "max-h-[2000px] opacity-100"}`}
-      >
-        <div className="px-3 pb-3 space-y-3">{children}</div>
+      <div className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}>
+        <div className="min-h-0 overflow-hidden">
+          <div className="px-3 pb-3 space-y-3">{children}</div>
+        </div>
       </div>
     </div>
   );

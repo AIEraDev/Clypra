@@ -12,7 +12,7 @@
  *   relative to the overlay itself is (0, 0).
  */
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
@@ -20,7 +20,9 @@ import { getTransformController } from "@/core/interactions";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import { calculateTransform, getDefaultConstraints, getCursorForHandle } from "@/lib/transform/calculator";
 import { screenToCanvas, canvasToScreen, hitTestClip, type ViewportTransform } from "@/lib/utils/coordinateSystem";
-import type { TransformHandle } from "@/types";
+import { textRenderTrace } from "@/lib/debug/textRenderTrace";
+import { hasTextClipContentTransformDrift, resolveTextClipContentTransform } from "@/lib/text/textClip";
+import type { Clip, TextClip, TransformHandle, TransformState } from "@/types";
 
 const SELECT_TRACE = import.meta.env.DEV;
 const traceSelect = (...args: unknown[]) => {
@@ -30,7 +32,80 @@ const traceSelect = (...args: unknown[]) => {
 // const CENTER_MAGNET_SNAP_PX = 12;
 
 export function shouldScaleTextFontForHandle(handle: TransformHandle): boolean {
-  return handle === "nw" || handle === "ne" || handle === "sw" || handle === "se";
+  return handle !== "move" && handle !== "rotate";
+}
+
+export function calculateTextResizeFontSize(startFontSize: number, handle: TransformHandle, startTransform: { width: number; height: number }, nextTransform: { width?: number; height?: number }): number {
+  const scale = calculateTextResizeScale(handle, startTransform, nextTransform);
+  return Math.max(10, Math.min(300, Math.round(startFontSize * scale)));
+}
+
+export function calculateTextResizeScale(handle: TransformHandle, startTransform: { width: number; height: number }, nextTransform: { width?: number; height?: number }): number {
+  const startWidth = Math.max(1, startTransform.width);
+  const startHeight = Math.max(1, startTransform.height);
+  const nextWidth = nextTransform.width ?? startTransform.width;
+  const nextHeight = nextTransform.height ?? startTransform.height;
+
+  let scale = 1;
+  if (handle === "e" || handle === "w") {
+    scale = nextWidth / startWidth;
+  } else if (handle === "n" || handle === "s") {
+    scale = nextHeight / startHeight;
+  } else if (handle === "nw" || handle === "ne" || handle === "sw" || handle === "se") {
+    const widthScale = nextWidth / startWidth;
+    const heightScale = nextHeight / startHeight;
+    scale = Math.abs(widthScale - 1) >= Math.abs(heightScale - 1) ? widthScale : heightScale;
+  }
+
+  return Math.max(0.01, scale);
+}
+
+export function calculateScaledTextTransform(handle: TransformHandle, startTransform: { x: number; y: number; width: number; height: number }, nextTransform: Partial<Clip>, scale: number): Partial<Clip> {
+  if (!shouldScaleTextFontForHandle(handle)) return nextTransform;
+
+  const centerX = startTransform.x + startTransform.width / 2;
+  const centerY = startTransform.y + startTransform.height / 2;
+  const scaledWidth = startTransform.width * scale;
+  const scaledHeight = startTransform.height * scale;
+
+  if (handle === "e" || handle === "w") {
+    return {
+      ...nextTransform,
+      height: scaledHeight,
+      y: centerY - scaledHeight / 2,
+    };
+  }
+
+  if (handle === "n" || handle === "s") {
+    return {
+      ...nextTransform,
+      width: scaledWidth,
+      x: centerX - scaledWidth / 2,
+    };
+  }
+
+  return {
+    ...nextTransform,
+    x: centerX - scaledWidth / 2,
+    y: centerY - scaledHeight / 2,
+    width: scaledWidth,
+    height: scaledHeight,
+  };
+}
+
+export function isClipActiveAtTime(clip: { startTime: number; duration: number }, time: number): boolean {
+  const end = clip.startTime + clip.duration;
+  return clip.startTime <= time && time < end;
+}
+
+export function buildTransformStartClip(selectedClip: Clip, activeTransform: TransformState): Clip {
+  return {
+    ...selectedClip,
+    ...activeTransform.startTransform,
+    id: activeTransform.clipId,
+    aspectRatioLocked: activeTransform.aspectRatioLocked,
+    sourceAspectRatio: activeTransform.sourceAspectRatio,
+  };
 }
 
 /**
@@ -75,6 +150,8 @@ interface TransformOverlayProps {
   displayHeight: number;
   /** Current playhead time in seconds (program context) */
   currentTime: number;
+  /** Whether the overlay should be visible (use visibility instead of unmounting) */
+  visible?: boolean;
 }
 
 /**
@@ -93,7 +170,7 @@ function mouseToCanvas(clientX: number, clientY: number, overlayRect: DOMRect, v
   return screenToCanvas(localX, localY, viewport, { width: canvasWidth, height: canvasHeight }, scale, { x: 0, y: 0 });
 }
 
-export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth, canvasHeight, scale, viewport, displayOffset, displayWidth, displayHeight, currentTime }) => {
+export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth, canvasHeight, scale, viewport, displayOffset, displayWidth, displayHeight, currentTime, visible = true }) => {
   const { selectedClipIds, selectClip, toggleClipSelection } = useUIStore();
   const { clips, tracks, updateClip } = useTimelineStore();
   const { execute } = useHistoryStore();
@@ -120,6 +197,17 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
+
+  useEffect(() => {
+    if (!selectedClip || isDragging || !isClipActiveAtTime(selectedClip, currentTime) || !("text" in selectedClip)) return;
+
+    const textClip = selectedClip as TextClip;
+    if (!textClip.styleId && !textClip.background) return;
+    if (!hasTextClipContentTransformDrift(textClip, canvasWidth, canvasHeight)) return;
+
+    const nextTransform = resolveTextClipContentTransform(textClip, canvasWidth, canvasHeight, "selection-normalize");
+    updateClip(textClip.id, nextTransform);
+  }, [selectedClip, isDragging, currentTime, canvasWidth, canvasHeight, updateClip]);
 
   // Handle canvas mousedown to select/deselect clips.
   // Using mousedown (instead of click) avoids click-tail races after drag.
@@ -300,23 +388,21 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       // This prevents transform drift / acceleration during drag.
       const constraints = getDefaultConstraints(canvasWidth, canvasHeight, activeTransform.aspectRatioLocked);
 
-      // Build a synthetic "clip" from the start transform to apply delta against.
-      // This ensures delta is always relative to the original position.
-      const startClip = {
-        ...activeTransform.startTransform,
-        opacity: 1,
-        id: activeTransform.clipId,
-        trackId: "",
-        mediaId: "",
-        startTime: 0,
-        duration: 0,
-        trimIn: 0,
-        trimOut: 0,
-        aspectRatioLocked: activeTransform.aspectRatioLocked,
-        sourceAspectRatio: activeTransform.sourceAspectRatio,
-      };
+      // Preserve text/media metadata while applying drag-start geometry so deltas
+      // stay absolute without dropping type-specific resize behavior.
+      if (!selectedClip) return;
+      const startClip = buildTransformStartClip(selectedClip, activeTransform);
 
       const newTransform = calculateTransform(startClip, activeTransform.handle, activeTransform.startMousePos, canvasCoords, constraints, startAngleRef.current);
+
+      // Resize handles scale text size with the edited axis so the rendered text
+      // tracks the visible transform box during drag.
+      if (startFontSizeRef.current !== undefined && shouldScaleTextFontForHandle(activeTransform.handle)) {
+        const newFontSize = calculateTextResizeFontSize(startFontSizeRef.current, activeTransform.handle, activeTransform.startTransform, newTransform);
+        const textScale = newFontSize / Math.max(1, startFontSizeRef.current);
+        Object.assign(newTransform, calculateScaledTextTransform(activeTransform.handle, activeTransform.startTransform, newTransform, textScale), { fontSize: newFontSize });
+      }
+
       // Stateful magnetic center snapping (like CapCut):
       // - Snap-in when calculated center gets close to canvas center.
       // - Locked snap state with escape threshold: the user must drag their mouse past the escape threshold
@@ -373,19 +459,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         }
       }
 
-      // Corner handles scale text proportionally. Side handles reshape the text box
-      // for wrapping and must keep font size stable; otherwise line-count changes
-      // feed back into font scaling and cause visible flicker during resize.
-      if (startFontSizeRef.current !== undefined && shouldScaleTextFontForHandle(activeTransform.handle)) {
-        const startHeight = activeTransform.startTransform.height || 1;
-        const newHeight = newTransform.height ?? activeTransform.startTransform.height;
-        const heightScale = newHeight / startHeight;
-
-        // Dynamic fontSize scaling based on height scale
-        const newFontSize = Math.max(10, Math.min(300, Math.round(startFontSizeRef.current * heightScale)));
-        (newTransform as any).fontSize = newFontSize;
-      }
-
       traceSelect("transform mousemove", { clipId: activeTransform.clipId, handle: activeTransform.handle, x: newTransform.x, y: newTransform.y, width: newTransform.width, height: newTransform.height });
 
       // Optimistic preview: update clip for visual feedback during drag
@@ -393,7 +466,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       // The overlay reads from selectedClip (timeline store) for handle positioning
       updateClip(activeTransform.clipId, { ...newTransform, _skipEpochIncrement: false } as any);
     },
-    [isDragging, activeTransform, scale, viewport, canvasWidth, canvasHeight, updateClip, transformController],
+    [isDragging, activeTransform, selectedClip, scale, viewport, canvasWidth, canvasHeight, updateClip, transformController],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -466,7 +539,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   }, []);
 
   // Convert clip bounds to screen coordinates for handle rendering
-  if (!selectedClip) {
+  if (!selectedClip || !isClipActiveAtTime(selectedClip, currentTime)) {
     return (
       <div
         ref={overlayRef}
@@ -474,6 +547,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         style={{
           width: displayWidth,
           height: displayHeight,
+          visibility: visible ? "visible" : "hidden",
+          pointerEvents: visible ? "auto" : "none",
         }}
       >
         {/* Click capture layer - always active for selection/deselection */}
@@ -511,6 +586,24 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   const showHorizontalCenterGuide = isDragging && snappedY;
   const centerScreen = canvasToScreen(canvasCenterX, canvasCenterY, viewport, { width: canvasWidth, height: canvasHeight }, scale, zeroOffset);
 
+  textRenderTrace("text-overlay-bounds", {
+    clipId: selectedClip.id,
+    kind: selectedClip.kind,
+    styleId: (selectedClip as any).styleId,
+    text: (selectedClip as any).text,
+    fontFamily: (selectedClip as any).fontFamily,
+    fontSize: (selectedClip as any).fontSize,
+    fontWeight: (selectedClip as any).fontWeight,
+    background: (selectedClip as any).background,
+    hasStyleDefinition: !!(selectedClip as any).styleDefinition,
+    canvasBounds: { x: selectedClip.x, y: selectedClip.y, width: selectedClip.width, height: selectedClip.height },
+    screenBounds: { x: handleDisplayX, y: handleDisplayY, width: handleDisplayWidth, height: handleDisplayHeight },
+    scale,
+    viewport,
+    display: { width: displayWidth, height: displayHeight },
+    currentTime,
+  });
+
   return (
     <div
       ref={overlayRef}
@@ -518,6 +611,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       style={{
         width: displayWidth,
         height: displayHeight,
+        visibility: visible ? "visible" : "hidden",
+        pointerEvents: visible ? "auto" : "none",
       }}
     >
       {/* Click capture layer - always active for selection/deselection.
@@ -552,8 +647,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         <div
           className="absolute border inset-0 pointer-events-none transition-all duration-75"
           style={{
-            borderColor: showVerticalCenterGuide || showHorizontalCenterGuide ? "var(--color-guide-center)" : "var(--color-handle)",
-            boxShadow: showVerticalCenterGuide || showHorizontalCenterGuide ? "0 0 8px var(--color-guide-center)" : "0 2px 4px rgba(0, 0, 0, 0.15)",
+            borderColor: "var(--color-handle)",
+            boxShadow: "0 2px 4px rgba(0, 0, 0, 0.15)",
             borderWidth: "1px",
           }}
         />
@@ -593,8 +688,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
             top: 0,
             width: "1px",
             height: `${displayHeight}px`,
-            backgroundColor: "var(--color-guide-center)",
-            boxShadow: "0 0 4px var(--color-guide-center)",
+            backgroundColor: "var(--color-handle)",
+            boxShadow: "0 0 4px var(--color-handle)",
             zIndex: 14,
           }}
         />
@@ -607,8 +702,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
             top: `${centerScreen.y}px`,
             width: `${displayWidth}px`,
             height: "1px",
-            backgroundColor: "var(--color-guide-center)",
-            boxShadow: "0 0 4px var(--color-guide-center)",
+            backgroundColor: "var(--color-handle)",
+            boxShadow: "0 0 4px var(--color-handle)",
             zIndex: 14,
           }}
         />

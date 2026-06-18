@@ -1,13 +1,20 @@
 import { SpatialTier, SPATIAL_TIER_DIMS } from "../renderEngine/types";
 
-export const DEFAULT_FILMSTRIP_TILE_WIDTH_PX = 72;
+/**
+ * Professional timeline filmstrips keep a stable visual tile cadence in screen
+ * pixels. Zoom changes the represented source-time span and decode tier, not
+ * the width of each visible thumbnail slot.
+ *
+ * Set to 50px to match CapCut's compact filmstrip design with high frame density.
+ */
+export const DEFAULT_FILMSTRIP_TILE_WIDTH_PX = 50;
 export const MAX_FILMSTRIP_SLOT_SAMPLES = 240;
 
 export const FILMSTRIP_TILE_WIDTH_BY_TIER: Record<SpatialTier, number> = {
-  [SpatialTier.L0]: 48,
-  [SpatialTier.L1]: 72,
-  [SpatialTier.L2]: 96,
-  [SpatialTier.L3]: 128,
+  [SpatialTier.L0]: DEFAULT_FILMSTRIP_TILE_WIDTH_PX,
+  [SpatialTier.L1]: DEFAULT_FILMSTRIP_TILE_WIDTH_PX,
+  [SpatialTier.L2]: DEFAULT_FILMSTRIP_TILE_WIDTH_PX,
+  [SpatialTier.L3]: DEFAULT_FILMSTRIP_TILE_WIDTH_PX,
 };
 
 export function getFrameAspectRatio(width?: number, height?: number): number | null {

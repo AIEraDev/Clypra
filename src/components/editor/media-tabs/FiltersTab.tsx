@@ -1,22 +1,13 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { Filter, Grid3X3, Plus, Search, SlidersHorizontal, Sparkles, Sun, Palette, Droplets, Camera, AlertCircle, CheckCircle, Download, Loader2, type LucideIcon } from "lucide-react";
+import { Filter, Grid3X3, Plus, Search, SlidersHorizontal, Sparkles, Sun, Palette, Droplets, Camera, AlertCircle, CheckCircle, Download, Loader2, Star, type LucideIcon } from "lucide-react";
 import type { TabProps } from "./types";
 import { useProjectStore } from "@/store/projectStore";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip";
 import { FiltersApi } from "@/features/filters/api/filtersApi";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import type { FilterAsset } from "@/features/filters/types";
+import { useFavoritesStore } from "@/store/favoritesStore";
 
-// Hardcoded filter categories for instant UI rendering
-const FILTER_CATEGORIES = [
-  { id: "vintage", label: "Vintage" },
-  { id: "modern", label: "Modern" },
-  { id: "cinematic", label: "Cinematic" },
-  { id: "bw", label: "B&W" },
-  { id: "color", label: "Color" },
-] as const;
-
-type FilterCategory = (typeof FILTER_CATEGORIES)[number]["id"];
+type FilterCategory = string;
 
 const FILTER_ICONS: Record<string, LucideIcon> = {
   "filter-sepia": Sun,
@@ -38,12 +29,23 @@ const FILTER_ICONS: Record<string, LucideIcon> = {
 
 const DEFAULT_ICON = Filter;
 
+const FILTER_CATEGORIES = [
+  { id: "essentials", name: "Essentials" },
+  { id: "cinematic", name: "Cinematic" },
+  { id: "vintage", name: "Vintage" },
+  { id: "vibrant", name: "Vibrant" },
+  { id: "mono", name: "Mono" },
+  { id: "aesthetic", name: "Aesthetic" },
+];
+
 export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<FilterCategory>("vintage");
+  const [activeCategory, setActiveCategory] = useState<FilterCategory>("essentials");
   const [filters, setFilters] = useState<FilterAsset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { favorites, toggleFavorite } = useFavoritesStore();
 
   // Initialize cache on mount
   useEffect(() => {
@@ -53,6 +55,7 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   // Fetch filters when category changes
   useEffect(() => {
     const fetchFilters = async () => {
+      if (!activeCategory) return;
       setLoading(true);
       setError(null);
 
@@ -90,7 +93,7 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         <div className="grow overflow-x-auto flex items-center gap-2 pb-0.5 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
           {FILTER_CATEGORIES.map((category) => (
             <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer shrink-0 ${activeCategory === category.id ? "bg-accent text-white shadow-sm" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/60"}`}>
-              {category.label}
+              {category.name}
             </button>
           ))}
         </div>
@@ -115,7 +118,9 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         )}
 
         {loading && filteredFilters.length === 0 ? (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
+            <SkeletonCard />
+            <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
@@ -128,9 +133,18 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             <p className="opacity-60">Try another category or search</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5">
             {filteredFilters.map((filter) => (
-              <FilterCard key={filter.id} filter={filter} onAddToTimeline={() => onAddToTimeline?.(filter as any, "filters")} />
+              <FilterCard
+                key={filter.id}
+                filter={filter}
+                isFavorite={favorites.includes(filter.id)}
+                onFavorite={(e) => {
+                  e.stopPropagation();
+                  toggleFavorite(filter.id);
+                }}
+                onAddToTimeline={() => onAddToTimeline?.(filter as any, "filters")}
+              />
             ))}
           </div>
         )}
@@ -140,29 +154,27 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 };
 
 const SkeletonCard = () => (
-  <div className="animate-pulse rounded-lg border border-border/30 bg-surface-raised/40 overflow-hidden flex flex-col justify-between">
-    <div className="h-28 bg-white/5 relative overflow-hidden">
-      <div className="absolute right-2 top-2 h-5 w-12 rounded bg-white/10" />
-    </div>
-    <div className="p-2.5 space-y-2 flex-1 flex flex-col justify-between">
-      <div className="space-y-2">
-        <div className="h-3.5 bg-white/10 rounded w-3/4" />
-        <div className="h-3 bg-white/5 rounded w-full" />
-        <div className="h-3 bg-white/5 rounded w-5/6" />
-      </div>
-      <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/5">
-        <div className="h-2.5 bg-white/5 rounded w-1/3" />
-        <div className="h-2.5 bg-white/5 rounded w-1/4" />
-      </div>
-    </div>
-  </div>
+  <div className="animate-pulse rounded-xl border border-border/30 bg-surface-raised/40 aspect-square" />
 );
 
-const FilterCard: React.FC<{ filter: FilterAsset; onAddToTimeline: () => void }> = ({ filter, onAddToTimeline }) => {
+interface FilterCardProps {
+  filter: FilterAsset;
+  isFavorite: boolean;
+  onFavorite: (e: React.MouseEvent) => void;
+  onAddToTimeline: (e: React.MouseEvent) => void;
+}
+
+const FilterCard: React.FC<FilterCardProps> = ({
+  filter,
+  isFavorite,
+  onFavorite,
+  onAddToTimeline,
+}) => {
   const Icon = FILTER_ICONS[filter.id] || DEFAULT_ICON;
   const isReady = true; // All filters are ready (status field is just for UI labeling)
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloaded, setIsDownloaded] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   // Check if filter is cached on mount
   useEffect(() => {
@@ -174,7 +186,6 @@ const FilterCard: React.FC<{ filter: FilterAsset; onAddToTimeline: () => void }>
 
   // Use filter-specific preview, or fallback to sample image for testing
   const previewSrc = filter.thumbnail || "/filter-previews/sample.jpg";
-  const hasImage = true; // Always try to show image (filter preview or sample)
 
   // Apply CSS filter approximation based on filter ID for preview
   const getCSSFilterStyle = (filterId: string): React.CSSProperties => {
@@ -200,28 +211,10 @@ const FilterCard: React.FC<{ filter: FilterAsset; onAddToTimeline: () => void }>
     return filterValue ? { filter: filterValue } : {};
   };
 
-  // Handle preview (download filter JSON first)
-  const handlePreview = async () => {
-    if (!isReady) return;
-
-    try {
-      // Download filter if not cached
-      await filterCacheManager.ensureDownloaded(filter);
-      setIsDownloaded(true);
-
-      // TODO: Open filter preview modal
-      // For now, just show a toast
-      useProjectStore.getState().showToast(`Preview for ${filter.name} - Full preview coming soon!`);
-    } catch (error) {
-      console.error("[FilterCard] Preview failed:", error);
-      useProjectStore.getState().showToast("Failed to load filter preview", "error");
-    }
-  };
-
   // Handle add to timeline (download first, then add)
   const handleAddToTimeline = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent triggering preview
-    if (!isReady || isDownloading) return;
+    e.stopPropagation(); // Prevent triggering preview/click
+    if (isDownloading) return;
 
     try {
       console.log(`[FilterCard] Adding filter "${filter.name}" to timeline`);
@@ -236,7 +229,7 @@ const FilterCard: React.FC<{ filter: FilterAsset; onAddToTimeline: () => void }>
       setIsDownloaded(true);
 
       // Add to timeline
-      onAddToTimeline();
+      onAddToTimeline(e);
       console.log(`[FilterCard] Filter "${filter.name}" added to timeline`);
 
       // Show success feedback
@@ -250,34 +243,39 @@ const FilterCard: React.FC<{ filter: FilterAsset; onAddToTimeline: () => void }>
   };
 
   return (
-    <div onClick={handlePreview} className={`group text-left rounded-xl border bg-surface-raised/40 transition-all overflow-hidden flex flex-col h-[200px] shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${isReady ? "hover:bg-surface-raised/80 hover:border-accent/40 cursor-pointer" : "opacity-70 cursor-not-allowed"} ${isDownloading ? "border-accent/60" : "border-border/40"}`}>
+    <div
+      onClick={handleAddToTimeline}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-raised/80 border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group cursor-pointer shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+    >
       {/* Downloading Overlay */}
       {isDownloading && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-2">
-            <Loader2 className="w-6 h-6 text-accent animate-spin" />
-            <span className="text-[10px] font-semibold text-accent">Loading...</span>
+            <Loader2 className="w-8 h-8 text-accent animate-spin" />
+            <span className="text-[10px] font-semibold text-accent">Downloading...</span>
           </div>
         </div>
       )}
 
-      {/* Preview Area */}
-      <div className="h-28 w-full relative overflow-hidden bg-surface/60 shrink-0">
-        {/* Cached Indicator */}
-        {isDownloaded && !isDownloading && (
-          <div className="absolute top-2 right-2 z-10">
-            <div className="bg-green-500/90 rounded-full p-0.5 shadow-md">
-              <CheckCircle className="w-3 h-3 text-white" />
-            </div>
-          </div>
-        )}
+      {/* Favorite Star */}
+      <button
+        onClick={onFavorite}
+        className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${
+          isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"
+        }`}
+      >
+        <Star className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`} />
+      </button>
 
-        {hasImage ? (
-          // Show actual preview image with CSS filter applied for preview
+      {/* Preview Area / Image or Fallback Gradient */}
+      <div className="flex-1 flex items-center justify-center w-full select-none relative overflow-hidden rounded-lg bg-surface">
+        {previewSrc ? (
           <img
             src={previewSrc}
             alt={`${filter.name} preview`}
-            className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.05]"
+            className="w-full h-full object-cover rounded-lg"
             style={getCSSFilterStyle(filter.id)}
             loading="lazy"
             onError={(e) => {
@@ -286,44 +284,36 @@ const FilterCard: React.FC<{ filter: FilterAsset; onAddToTimeline: () => void }>
             }}
           />
         ) : (
-          // Fallback to gradient swatch
-          <>
-            <div className={`h-full w-full bg-linear-to-br ${filter.swatch || "from-zinc-500/20 to-zinc-700/20"}`} />
-            <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.42),transparent_38%)]" />
-            <div className="absolute left-2 top-2 h-7 w-7 rounded-md bg-black/30 border border-white/10 flex items-center justify-center backdrop-blur-sm">
-              <Icon className="w-4 h-4 text-white" />
-            </div>
-          </>
+          <div className="flex flex-col items-center justify-center h-full w-full bg-linear-to-br from-accent/10 to-accent/0 text-center rounded-lg p-2">
+            <Icon className="w-6 h-6 text-text-muted group-hover:scale-[1.05] transition-transform duration-300" />
+          </div>
         )}
       </div>
 
-      {/* Content Area */}
-      <div className="p-2 flex-1 flex flex-col justify-between">
-        <div>
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-[13px] font-semibold text-text-primary leading-tight truncate">{filter.name}</p>
-
-            {/* Add to Timeline Button */}
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button onClick={handleAddToTimeline} disabled={isDownloading || !isReady} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${isDownloading ? "bg-accent/20 border border-accent cursor-wait" : isDownloaded ? "bg-accent/20 hover:bg-accent border border-accent text-accent hover:text-white cursor-pointer" : "bg-surface/40 hover:bg-accent/80 border border-border/50 text-text-muted hover:text-white cursor-pointer"}`}>
-                    {isDownloading ? <Download className="w-3.5 h-3.5 animate-pulse" /> : <Plus className="w-3.5 h-3.5" />}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>{isDownloaded ? "Add to Timeline" : "Download & Add"}</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
-          <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-2 truncate">{filter.description}</p>
-        </div>
-
-        <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-1.5">
-          <span className="text-[10px] capitalize text-text-muted group-hover:text-text-primary transition-colors truncate mr-1">{filter.category}</span>
-          {filter.intensity && <span className="text-[10px] text-text-muted shrink-0">{filter.intensity.default}%</span>}
-        </div>
+      {/* Footer Info / Apply Button */}
+      <div className="flex items-center justify-between w-full mt-0.5 z-10 px-0.5">
+        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]" title={filter.name}>
+          {filter.name}
+        </span>
+        <button
+          onClick={handleAddToTimeline}
+          disabled={isDownloading}
+          className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${
+            isDownloaded
+              ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer"
+              : isDownloading
+              ? "bg-accent/20 border border-accent cursor-wait"
+              : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"
+          }`}
+        >
+          {isDownloading ? (
+            <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+          ) : isDownloaded ? (
+            <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" />
+          ) : (
+            <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />
+          )}
+        </button>
       </div>
     </div>
   );

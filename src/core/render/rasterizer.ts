@@ -18,7 +18,7 @@
 import type { EvaluatedEffect, EvaluatedScene, EvaluatedMediaLayer, EvaluatedTextLayer } from "../evaluation/types";
 import { resolveFilterToIR, compileFilterIRToCSS } from "./filterIR";
 import { getResourceCache } from "../resources/ResourceCache";
-import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, TextEffectBuilder } from "@clypra/engine";
+import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, defaultConfig as engineDefaultConfig, _buildConfig } from "@clypra/engine";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
@@ -26,6 +26,7 @@ import { effectBleed } from "../../lib/text/textClip";
 import lottie from "lottie-web";
 import { useStickersStore } from "../../features/stickers/store/stickersStore";
 import { segmentBodyMask } from "../../features/body-effects/segmentation/bodySegmentationWorkerClient";
+import { sampleCanvasAlpha, textRenderTrace, textRenderWarn } from "@/lib/debug/textRenderTrace";
 
 interface LottieAnimationCacheEntry {
   anim: any;
@@ -36,6 +37,42 @@ interface LottieAnimationCacheEntry {
 }
 
 const lottieRenderCache = new Map<string, LottieAnimationCacheEntry>();
+
+function hasVisibleAlpha(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number): boolean | null {
+  try {
+    const sampleWidth = Math.max(1, Math.floor(width));
+    const sampleHeight = Math.max(1, Math.floor(height));
+    const image = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
+    const step = Math.max(4, Math.floor(image.data.length / 4096 / 4) * 4);
+
+    for (let i = 3; i < image.data.length; i += step) {
+      if (image.data[i] > 8) return true;
+    }
+
+    return false;
+  } catch {
+    return null;
+  }
+}
+
+function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, offH: number, fontSize: number, scaleX: number, scaleY: number): TextEffectConfig {
+  const plainConfig = layerToTextEffectConfig(layer);
+  return {
+    ...plainConfig,
+    canvasWidth: offW,
+    canvasHeight: offH,
+    fontSize,
+    fontFamily: layer.fontFamily,
+    letterSpacing: (layer.letterSpacing ?? plainConfig.letterSpacing ?? 0) * scaleX,
+    strokeWidth: layer.stroke ? layer.stroke.width * scaleY : plainConfig.strokeWidth * scaleY,
+    shadowBlur: layer.shadow ? layer.shadow.blur * scaleY : plainConfig.shadowBlur * scaleY,
+    shadowOffsetX: layer.shadow ? layer.shadow.offsetX * scaleX : plainConfig.shadowOffsetX * scaleX,
+    shadowOffsetY: layer.shadow ? layer.shadow.offsetY * scaleY : plainConfig.shadowOffsetY * scaleY,
+    panelRadius: layer.background ? layer.background.borderRadius * scaleY : plainConfig.panelRadius * scaleY,
+    panelPaddingX: layer.background ? layer.background.padding * scaleX : plainConfig.panelPaddingX * scaleX,
+    panelPaddingY: layer.background ? layer.background.padding * scaleY : plainConfig.panelPaddingY * scaleY,
+  } as TextEffectConfig;
+}
 
 /**
  * Raster target configuration.
@@ -363,14 +400,17 @@ const VIDEO_WARN_INTERVAL_MS = 5000;
 async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layer: EvaluatedMediaLayer, width: number, height: number, target: RasterTarget): Promise<void> {
   try {
     if (layer.clipKind === "sticker") {
-      const stickerId = layer.mediaId.replace("sticker-", "");
+      const stickerId = layer.stickerSourceId || layer.mediaId.replace("sticker-", "");
       let cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
       if (!cachedSticker) {
         await useStickersStore.getState().initializeCache();
         cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
       }
 
-      if (cachedSticker && cachedSticker.format === "lottie") {
+      const stickerFormat = cachedSticker?.format ?? layer.stickerFormat;
+      const lottieSourcePath = cachedSticker?.localAnimationPath ?? layer.stickerAnimationPath;
+
+      if (stickerFormat === "lottie" && lottieSourcePath) {
         let cacheEntry = lottieRenderCache.get(layer.clipId);
 
         if (!cacheEntry || cacheEntry.stickerId !== stickerId) {
@@ -381,9 +421,12 @@ async function rasterizeMediaLayer(ctx: CanvasRenderingContext2D | OffscreenCanv
 
           try {
             const { stickerCacheManager } = await import("@/features/stickers/cache/stickerCache");
-            const { appCacheDir, join } = await import("@tauri-apps/api/path");
-            const appCache = await appCacheDir();
-            const absoluteLottiePath = await join(appCache, cachedSticker.localAnimationPath!);
+            let absoluteLottiePath = lottieSourcePath;
+            if (!absoluteLottiePath.startsWith("/") && !absoluteLottiePath.startsWith("file:") && !absoluteLottiePath.startsWith("asset://")) {
+              const { appCacheDir, join } = await import("@tauri-apps/api/path");
+              const appCache = await appCacheDir();
+              absoluteLottiePath = await join(appCache, absoluteLottiePath);
+            }
 
             const lottieData = await stickerCacheManager.readLottieJson(absoluteLottiePath);
 
@@ -1100,9 +1143,14 @@ async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanva
     }
   }
 
-  // fontSize for rendering: scaled to match the layer's on-canvas pixel size.
-  const fontSize = layer.fontSize * scaleY;
-  const effectDef = layer.styleId ? useEffectsStore.getState().definitions[layer.styleId] : undefined;
+  // CRITICAL: For text clips, fontSize is explicitly managed by the transform system
+  // and already reflects the user's resize operations. scaleX/scaleY are preview quality
+  // scales (e.g., 50% vs 100% preview), NOT text resize scales.
+  // DO NOT apply preview scale to fontSize - it causes double-scaling bugs where
+  // text renders at wrong size after resize operations.
+  // We DO apply scale to geometric properties (bleed, stroke, shadow) for quality independence.
+  const fontSize = layer.fontSize; // Use fontSize directly from layer state
+  const effectDef = layer.styleId ? (useEffectsStore.getState().definitions[layer.styleId] ?? layer.styleDefinition) : layer.styleDefinition;
   const declaredBleed = effectBleed({
     styleId: layer.styleId,
     effectDefinition: effectDef,
@@ -1116,29 +1164,80 @@ async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanva
       : undefined,
     background: layer.background,
   });
-  const effectPaddingX = Math.max(fontSize * 0.25, declaredBleed.x * scaleX);
-  const effectPaddingY = Math.max(fontSize * 0.25, declaredBleed.y * scaleY);
+
+  // CRITICAL: Calculate UNSCALED dimensions for _buildConfig()
+  // The effect must be rendered at original canvas resolution, then scaled for preview quality.
+  // Otherwise text appears at wrong size during playback (e.g., 50% quality makes text 2x larger).
+  const unscaledFontSize = layer.fontSize;
+  const unscaledBleed = effectBleed({
+    styleId: layer.styleId,
+    effectDefinition: effectDef,
+    stroke: layer.stroke,
+    shadow: layer.shadow,
+    background: layer.background,
+  });
+  const unscaledPaddingX = Math.max(unscaledFontSize * 0.25, unscaledBleed.x);
+  const unscaledPaddingY = Math.max(unscaledFontSize * 0.25, unscaledBleed.y);
+  const effectPaddingX = unscaledPaddingX * scaleX;
+  const effectPaddingY = unscaledPaddingY * scaleY;
   const offW = Math.max(1, Math.ceil(width + effectPaddingX * 2));
   const offH = Math.max(1, Math.ceil(height + effectPaddingY * 2));
+  // Defensive checks: Ensure dimensions are valid positive numbers to prevent rendering crashes
+  const safeWidth = Number.isFinite(layer.width) && layer.width > 0 ? layer.width : 100;
+  const safeHeight = Number.isFinite(layer.height) && layer.height > 0 ? layer.height : 100;
+  const unscaledOffW = Math.max(1, Math.ceil(safeWidth + unscaledPaddingX * 2));
+  const unscaledOffH = Math.max(1, Math.ceil(safeHeight + unscaledPaddingY * 2));
+
+  textRenderTrace("text-raster-bounds", {
+    clipId: layer.clipId,
+    layerId: layer.layerId,
+    text: layer.text,
+    styleId: layer.styleId,
+    hasLayerStyleDefinition: !!layer.styleDefinition,
+    hasStoreDefinition: !!(layer.styleId && useEffectsStore.getState().definitions[layer.styleId]),
+    resolvedDefinitionId: effectDef?.id,
+    contentBounds: { x: layer.x, y: layer.y, width: layer.width, height: layer.height, opacity: layer.opacity },
+    fontSize,
+    unscaledFontSize,
+    renderBleed: declaredBleed,
+    scaledRenderPadding: { x: effectPaddingX, y: effectPaddingY },
+    renderBounds: { width: offW, height: offH, scaleX, scaleY },
+    unscaledRenderBounds: { width: unscaledOffW, height: unscaledOffH },
+    drawDestination: {
+      x: -width / 2 - effectPaddingX,
+      y: -height / 2 - effectPaddingY,
+      width: offW,
+      height: offH,
+    },
+  });
 
   let engineConfig: TextEffectConfig;
 
   if (layer.styleId) {
     if (effectDef) {
-      // Pass render-resolution fontSize so all derived effect parameters
-      // (stroke width, glow blur, bevel depth, etc.) are computed at the
-      // correct scale for the target framebuffer.
-      const builder = TextEffectBuilder.fromDefinition(effectDef, layer.text, fontSize, offW, offH);
+      // Use _buildConfig (single source of truth) instead of TextEffectBuilder
+      // This properly handles effect native dimensions and scales all effect
+      // parameters (stroke width, glow blur, bevel depth) correctly.
+      // CRITICAL: Pass unscaled dimensions to _buildConfig() so text renders at
+      // correct size regardless of preview quality. _buildConfig calculates layout
+      // based on these dimensions, then we override canvasWidth/canvasHeight for
+      // the actual render resolution.
+      const builtCfg = _buildConfig(effectDef, layer.text, unscaledFontSize, unscaledOffW, unscaledOffH, layer.time, layer.clipStartTime, layer.clipDuration);
 
-      builder.setCanvas({
-        posX: layer.textAlign || "center",
-        posY: layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || "middle",
-      });
-
-      engineConfig = builder.buildConfig();
-      if (layer.time !== undefined) (engineConfig as any).time = layer.time;
-      if (layer.clipStartTime !== undefined) (engineConfig as any).clipStartTime = layer.clipStartTime;
-      if (layer.clipDuration !== undefined) (engineConfig as any).clipDuration = layer.clipDuration;
+      // Override canvas dimensions to match scaled render resolution while preserving
+      // the layout calculated at unscaled dimensions
+      // CRITICAL: Also override fontSize to ensure user's resize operations are respected
+      // _buildConfig may recalculate fontSize based on native effect bounds - we must
+      // override it with the user's explicit fontSize from the transform system
+      engineConfig = {
+        ...engineDefaultConfig,
+        ...builtCfg,
+        fontSize: unscaledFontSize, // Force user's fontSize, don't let _buildConfig override it
+        canvasWidth: unscaledOffW,
+        canvasHeight: unscaledOffH,
+        textPosX: layer.textAlign || "center",
+        textPosY: layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || "middle",
+      } as TextEffectConfig;
     } else {
       // styleId present but definition not yet in cache — trigger fetch in background
       // and fall back to plain text until it resolves and redraws.
@@ -1176,58 +1275,119 @@ async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanva
           });
       }
 
-      const plainConfig = layerToTextEffectConfig(layer);
-      engineConfig = {
-        ...plainConfig,
-        canvasWidth: offW,
-        canvasHeight: offH,
-        fontSize,
-        fontFamily: layer.fontFamily,
-        letterSpacing: (layer.letterSpacing ?? plainConfig.letterSpacing ?? 0) * scaleX,
-        strokeWidth: layer.stroke ? layer.stroke.width * scaleY : plainConfig.strokeWidth * scaleY,
-        shadowBlur: layer.shadow ? layer.shadow.blur * scaleY : plainConfig.shadowBlur * scaleY,
-        shadowOffsetX: layer.shadow ? layer.shadow.offsetX * scaleX : plainConfig.shadowOffsetX * scaleX,
-        shadowOffsetY: layer.shadow ? layer.shadow.offsetY * scaleY : plainConfig.shadowOffsetY * scaleY,
-        panelRadius: layer.background ? layer.background.borderRadius * scaleY : plainConfig.panelRadius * scaleY,
-        panelPaddingX: layer.background ? layer.background.padding * scaleX : plainConfig.panelPaddingX * scaleX,
-        panelPaddingY: layer.background ? layer.background.padding * scaleY : plainConfig.panelPaddingY * scaleY,
-      } as any;
+      engineConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);
     }
   } else {
     // Plain text: build configuration from evaluated layer properties
-    const plainConfig = layerToTextEffectConfig(layer);
-    engineConfig = {
-      ...plainConfig,
-      canvasWidth: offW,
-      canvasHeight: offH,
-      fontSize,
-      fontFamily: layer.fontFamily,
-      letterSpacing: (layer.letterSpacing ?? plainConfig.letterSpacing ?? 0) * scaleX,
-      strokeWidth: layer.stroke ? layer.stroke.width * scaleY : plainConfig.strokeWidth * scaleY,
-      shadowBlur: layer.shadow ? layer.shadow.blur * scaleY : plainConfig.shadowBlur * scaleY,
-      shadowOffsetX: layer.shadow ? layer.shadow.offsetX * scaleX : plainConfig.shadowOffsetX * scaleX,
-      shadowOffsetY: layer.shadow ? layer.shadow.offsetY * scaleY : plainConfig.shadowOffsetY * scaleY,
-      panelRadius: layer.background ? layer.background.borderRadius * scaleY : plainConfig.panelRadius * scaleY,
-      panelPaddingX: layer.background ? layer.background.padding * scaleX : plainConfig.panelPaddingX * scaleX,
-      panelPaddingY: layer.background ? layer.background.padding * scaleY : plainConfig.panelPaddingY * scaleY,
-    } as any;
+    // CRITICAL: Use unscaled dimensions and fontSize (same as styled effect path)
+    // to ensure text renders at correct size regardless of preview quality
+    engineConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);
   }
 
-  console.log("[Rasterizer:Text] 🎬 Rendering timeline text layer using config:", engineConfig);
+  textRenderTrace("rasterize-text-config", {
+    clipId: layer.clipId,
+    styleId: layer.styleId,
+    text: engineConfig.text,
+    fontFamily: engineConfig.fontFamily,
+    fontSize: engineConfig.fontSize,
+    fontWeight: engineConfig.fontWeight,
+    fontStyle: engineConfig.fontStyle,
+    canvasWidth: engineConfig.canvasWidth,
+    canvasHeight: engineConfig.canvasHeight,
+    textPosX: (engineConfig as any).textPosX,
+    textPosY: (engineConfig as any).textPosY,
+    fillType: (engineConfig as any).fillType,
+    strokeEnabled: (engineConfig as any).strokeEnabled,
+    glowLayers: (engineConfig as any).glowLayers,
+    panelEnabled: (engineConfig as any).panelEnabled,
+    panelColor: (engineConfig as any).panelColor,
+    panelOpacity: (engineConfig as any).panelOpacity,
+    panelRadius: (engineConfig as any).panelRadius,
+    panelPaddingX: (engineConfig as any).panelPaddingX,
+    panelPaddingY: (engineConfig as any).panelPaddingY,
+    panelStrokeEnabled: (engineConfig as any).panelStrokeEnabled,
+    panelStrokeWidth: (engineConfig as any).panelStrokeWidth,
+    layerBackground: layer.background,
+  });
   const sceneDoc = textEffectConfigToScene(engineConfig);
 
   // Acquire canvas context from the unified CanvasDevice pool
-  const offscreen = CanvasDevice.acquire(offW, offH);
+  // CRITICAL: Use UNSCALED dimensions for text rendering to ensure consistent layout
+  // regardless of preview quality. The result is then scaled during drawImage.
+  const offscreen = CanvasDevice.acquire(unscaledOffW, unscaledOffH);
   const offCtx = offscreen.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
   if (offCtx) {
-    if (typeof offCtx.setTransform === "function") {
-      offCtx.setTransform(1, 0, 0, 1, 0, 0);
-    }
-    offCtx.clearRect(0, 0, offW, offH);
+    // Always reset transform state (remove conditional guard to prevent accumulated transforms)
+    offCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Force synchronous canvas clear before drawing
+    offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+
     engineEvaluateScene(sceneDoc, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
-    ctx.drawImage(offscreen, 0, 0, offW, offH, -width / 2 - effectPaddingX, -height / 2 - effectPaddingY, offW, offH);
+    const alpha = sampleCanvasAlpha(offCtx, unscaledOffW, unscaledOffH);
+    const alphaLayerBounds = alpha?.bounds
+      ? {
+          x: alpha.bounds.x - unscaledPaddingX,
+          y: alpha.bounds.y - unscaledPaddingY,
+          width: alpha.bounds.width,
+          height: alpha.bounds.height,
+          overflowsContent: alpha.bounds.x < unscaledPaddingX || alpha.bounds.y < unscaledPaddingY || alpha.bounds.x + alpha.bounds.width > unscaledPaddingX + safeWidth || alpha.bounds.y + alpha.bounds.height > unscaledPaddingY + safeHeight,
+        }
+      : null;
+    textRenderTrace("text-raster-bounds", {
+      clipId: layer.clipId,
+      styleId: layer.styleId,
+      contentBounds: { x: layer.x, y: layer.y, width: layer.width, height: layer.height },
+      unscaledRenderBounds: { width: unscaledOffW, height: unscaledOffH },
+      unscaledRenderPadding: { x: unscaledPaddingX, y: unscaledPaddingY },
+      alpha,
+      alphaLayerBounds,
+    });
+    const visibleAlpha = hasVisibleAlpha(offCtx, unscaledOffW, unscaledOffH);
+    if (alpha && alpha.visiblePixels === 0) {
+      textRenderWarn("rasterize-text-blank-offscreen", {
+        clipId: layer.clipId,
+        styleId: layer.styleId,
+        text: layer.text,
+        fontFamily: engineConfig.fontFamily,
+        fontSize: engineConfig.fontSize,
+        offscreen: { width: unscaledOffW, height: unscaledOffH },
+        hasEffectDef: !!effectDef,
+      });
+    }
+    if (layer.styleId && visibleAlpha === false) {
+      const fallbackConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);
+      const fallbackSceneDoc = textEffectConfigToScene(fallbackConfig);
+      offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+      engineEvaluateScene(fallbackSceneDoc, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
+      textRenderWarn("rasterize-text-effect-fallback", {
+        clipId: layer.clipId,
+        styleId: layer.styleId,
+        text: layer.text,
+        reason: "styled effect rendered no visible pixels",
+      });
+    }
+    // Draw the unscaled offscreen canvas scaled down to the preview resolution.
+    // Source rect: full unscaled canvas
+    // Dest rect: scaled position and size for preview quality
+    ctx.drawImage(
+      offscreen,
+      0,
+      0,
+      unscaledOffW,
+      unscaledOffH, // source
+      -width / 2 - effectPaddingX,
+      -height / 2 - effectPaddingY,
+      offW,
+      offH, // destination
+    );
   }
-  CanvasDevice.release(offscreen);
+
+  // Defer canvas release to prevent premature reuse during rapid state transitions
+  // Use microtask to ensure GPU has finished compositing
+  Promise.resolve().then(() => {
+    CanvasDevice.release(offscreen);
+  });
 }
 
 // wrapText helper was removed since wrapping is handled natively inside the engine.

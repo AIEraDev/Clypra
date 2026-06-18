@@ -66,15 +66,15 @@ proptest! {
         let tier = ResolutionTier::from_dpr(dpr);
         let (width, height) = tier.dimensions();
 
-        // Tier1x should be 80x60, Tier2x should be 160x120
+        // Tier1x should be 160x90, Tier2x should be 320x180
         match tier {
             ResolutionTier::Tier1x => {
-                prop_assert_eq!(width, 80);
-                prop_assert_eq!(height, 60);
+                prop_assert_eq!(width, 160);
+                prop_assert_eq!(height, 90);
             }
             ResolutionTier::Tier2x => {
-                prop_assert_eq!(width, 160);
-                prop_assert_eq!(height, 120);
+                prop_assert_eq!(width, 320);
+                prop_assert_eq!(height, 180);
             }
         }
     }

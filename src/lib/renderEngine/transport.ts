@@ -43,8 +43,15 @@ function spatialTierToLabel(tier: SpatialTier): string {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /**
- * Raw artifact arriving from the Rust backend over the Channel.
- * snake_case matches Tauri's serde serialization.
+ * Backend RenderArtifact - raw RGBA data from Rust.
+ *
+ * This is the BACKEND representation received from Tauri commands.
+ * Must be converted to frontend RenderArtifact (with ImageBitmap) before use.
+ *
+ * Conversion: rgbaToImageBitmap() creates ImageBitmap from rgba_data.
+ *
+ * CRITICAL: Field names are snake_case to match Rust serde serialization.
+ * See: src-tauri/src/thumbnail_engine/pyramid.rs RenderArtifact struct
  */
 export interface BackendRenderArtifact {
   frame_id: string;

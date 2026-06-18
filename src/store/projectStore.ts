@@ -28,6 +28,9 @@ import type { Project, MediaAsset, TransitionTimelineItem } from "@/types";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toRustProject } from "@/types/serialization";
 import { generateId } from "@/lib/utils/id";
+import { convertRawConfigToDefinition } from "@/features/text-effects/lib/definitionConversion";
+import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
+import { calculateTextClipSize } from "@/lib/text/textClip";
 import { useSettingsStore } from "./settingsStore";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
@@ -104,7 +107,7 @@ async function preloadTextEffectDefinitionsFromClips(clips: any[] | undefined): 
       useEffectsStore.setState((state) => {
         const definitions = { ...state.definitions };
         for (const definition of embeddedDefinitions) {
-          definitions[definition.id] = definition;
+          definitions[definition.id] = convertRawConfigToDefinition(definition);
         }
         return { definitions };
       });
@@ -122,6 +125,61 @@ async function preloadTextEffectDefinitionsFromClips(clips: any[] | undefined): 
     });
   } catch (err) {
     console.warn("[LoadProject] Text effect definition preload failed:", err);
+  }
+}
+
+function normalizeLoadedTextEffectClipBounds(clips: any[] | undefined, project: Project): any[] {
+  if (!clips?.length) return clips ?? [];
+
+  try {
+    const definitions = useEffectsStore.getState().definitions;
+
+    return clips.map((clip) => {
+      if (clip?.kind !== "text" || !clip.styleId) return clip;
+
+      const effectDefinition = definitions[clip.styleId] ?? clip.styleDefinition;
+      if (!effectDefinition) return clip;
+
+      const nativeDefinition = effectDefinition as any;
+      const nativeWidth = nativeDefinition.canvasWidth ?? nativeDefinition.width;
+      const nativeHeight = nativeDefinition.canvasHeight ?? nativeDefinition.height;
+      const nativeFontSize = nativeDefinition.fontSize;
+      if (!nativeWidth || !nativeHeight || !nativeFontSize || !clip.fontSize) return clip;
+
+      const nativeScale = clip.fontSize / nativeFontSize;
+      const oldNativeWidth = nativeWidth * nativeScale;
+      const oldNativeHeight = nativeHeight * nativeScale;
+      const widthMatchesOldNative = Math.abs((clip.width ?? 0) - oldNativeWidth) <= Math.max(2, oldNativeWidth * 0.02);
+      const heightMatchesOldNative = Math.abs((clip.height ?? 0) - oldNativeHeight) <= Math.max(2, oldNativeHeight * 0.02);
+      if (!widthMatchesOldNative && !heightMatchesOldNative) return clip;
+
+      const sizing = calculateTextClipSize({
+        text: clip.text ?? "Text",
+        fontFamily: clip.fontFamily ?? effectDefinition.font?.family ?? "Inter, system-ui, sans-serif",
+        fontSize: clip.fontSize,
+        fontWeight: clip.fontWeight ?? effectDefinition.font?.weight,
+        letterSpacing: clip.letterSpacing ?? effectDefinition.font?.letterSpacing,
+        lineHeight: clip.lineHeight ?? effectDefinition.font?.lineHeight,
+        styleId: clip.styleId,
+        effectDefinition,
+        stroke: clip.stroke,
+        shadow: clip.shadow,
+        background: clip.background,
+        canvasWidth: project.canvasWidth,
+      });
+
+      const centerX = (clip.x ?? 0) + (clip.width ?? sizing.width) / 2;
+      const centerY = (clip.y ?? 0) + (clip.height ?? sizing.height) / 2;
+      return {
+        ...clip,
+        x: centerX - sizing.width / 2,
+        y: centerY - sizing.height / 2,
+        width: sizing.width,
+        height: sizing.height,
+      };
+    });
+  } catch {
+    return clips;
   }
 }
 
@@ -194,9 +252,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // Let timelineStore hydrate its own state (respects ownership boundary)
     try {
       const { useTimelineStore } = await import("./timelineStore");
+      const normalizedClips = normalizeLoadedTextEffectClipBounds(payload?.clips ?? [], project);
       useTimelineStore.getState().hydrateFromProject({
         tracks: payload?.tracks ?? [],
-        clips: payload?.clips ?? [],
+        clips: normalizedClips,
         transitions: payload?.transitions ?? [],
         gaps: (payload as any)?.gaps ?? [], // Load gaps from project
       });

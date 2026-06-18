@@ -52,7 +52,7 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, i
         {activeTab === "audio" && <AudioTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "text" && <TextTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "stickers" && <StickersTab onAddToTimeline={onAddToTimeline} />}
-        {activeTab === "effects" && <EffectsPanel />}
+        {activeTab === "effects" && <EffectsPanel onAddToTimeline={onAddToTimeline} />}
         {activeTab === "filters" && <FiltersTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "transitions" && <TransitionsTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "captions" && <CaptionsTab onAddToTimeline={onAddToTimeline} />}

@@ -43,7 +43,8 @@ export interface TemplateDefinition {
   lottieData?: any; // The imported JSON payload for the animation
 }
 
-export type TemplateCategory = "lower-third" | "title-card" | "callout" | "caption" | "outro" | "social" | "broadcast" | "sports" | "countdown" | "cinematic";
+export const TEMPLATE_CATEGORIES = ["title", "lower-third", "caption", "callout", "social", "outro"] as const;
+export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
 
 export interface RenderedFrameSequence {
   frames: Blob[]; // PNG blobs, one per frame

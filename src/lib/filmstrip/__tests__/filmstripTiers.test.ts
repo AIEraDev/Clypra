@@ -5,15 +5,15 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { SpatialTier } from "../../renderEngine/types";
+import { SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier } from "../../renderEngine/types";
 import { FILMSTRIP_DENSITY_TIERS, generateViewportTileAddresses, findNearestTileAddress, getTileKey } from "../filmstripTiers";
 
 describe("FILMSTRIP_DENSITY_TIERS", () => {
   it("has fixed intervals per spatial tier", () => {
-    expect(FILMSTRIP_DENSITY_TIERS[SpatialTier.L0].thumbnailIntervalSeconds).toBe(30.0);
-    expect(FILMSTRIP_DENSITY_TIERS[SpatialTier.L1].thumbnailIntervalSeconds).toBe(5.0);
-    expect(FILMSTRIP_DENSITY_TIERS[SpatialTier.L2].thumbnailIntervalSeconds).toBe(1.0);
-    expect(FILMSTRIP_DENSITY_TIERS[SpatialTier.L3].thumbnailIntervalSeconds).toBe(0.25);
+    expect(FILMSTRIP_DENSITY_TIERS[SpatialTier.L0].thumbnailIntervalSeconds).toBe(TEMPORAL_TIER_INTERVALS[TemporalTier.L0][0]);
+    expect(FILMSTRIP_DENSITY_TIERS[SpatialTier.L1].thumbnailIntervalSeconds).toBe(TEMPORAL_TIER_INTERVALS[TemporalTier.L1][0]);
+    expect(FILMSTRIP_DENSITY_TIERS[SpatialTier.L2].thumbnailIntervalSeconds).toBe(TEMPORAL_TIER_INTERVALS[TemporalTier.L2][0]);
+    expect(FILMSTRIP_DENSITY_TIERS[SpatialTier.L3].thumbnailIntervalSeconds).toBe(TEMPORAL_TIER_INTERVALS[TemporalTier.L3][0]);
   });
 });
 
@@ -39,7 +39,7 @@ describe("generateViewportTileAddresses", () => {
     const addresses = generateViewportTileAddresses({
       clipId: "clip-1",
       videoPath: "/test.mp4",
-      zoomTier: SpatialTier.L1, // 5s interval
+      zoomTier: SpatialTier.L1, // 1s interval
       trimIn: 0,
       trimOut: 60,
       clipStartTime: 0,
@@ -50,7 +50,7 @@ describe("generateViewportTileAddresses", () => {
       overscanFactor: 1.0, // No overscan for predictability
     });
 
-    // Visible range: 0s to 1920/50 = 38.4s → tiles at 0, 5, 10, 15, 20, 25, 30, 35
+    // Visible range: 0s to 1920/50 = 38.4s → tiles at 1s intervals.
     expect(addresses.length).toBeGreaterThan(0);
     expect(addresses[0].clipId).toBe("clip-1");
     expect(addresses[0].zoomTier).toBe(SpatialTier.L1);
@@ -58,7 +58,7 @@ describe("generateViewportTileAddresses", () => {
     // Check fixed intervals
     for (let i = 1; i < addresses.length; i++) {
       const delta = addresses[i].timestamp - addresses[i - 1].timestamp;
-      expect(delta).toBe(5.0);
+      expect(delta).toBe(1.0);
     }
   });
 
@@ -145,7 +145,7 @@ describe("generateViewportTileAddresses", () => {
       overscanFactor: 1.0,
     });
 
-    // L2 has finer grid (1s) so more tiles
+    // L2 has finer grid (500ms) so more tiles
     expect(l2.length).toBeGreaterThan(l1.length);
 
     // But tiles at L1 timestamps should also exist in L2 (subset)
@@ -157,11 +157,11 @@ describe("generateViewportTileAddresses", () => {
   });
 
   it("clamps timestamps to video duration when provided", () => {
-    // Test short video (3 seconds) with L0 tier (30s interval)
+    // Test short video (3 seconds) with the overview tier.
     const addresses = generateViewportTileAddresses({
       clipId: "clip-1",
       videoPath: "/short.mp4",
-      zoomTier: SpatialTier.L0, // 30s interval
+      zoomTier: SpatialTier.L0, // 2s interval
       trimIn: 0,
       trimOut: 60, // Trim allows up to 60s
       clipStartTime: 0,
@@ -187,7 +187,7 @@ describe("generateViewportTileAddresses", () => {
     const addresses = generateViewportTileAddresses({
       clipId: "clip-1",
       videoPath: "/medium.mp4",
-      zoomTier: SpatialTier.L1, // 5s interval
+      zoomTier: SpatialTier.L1, // 1s interval
       trimIn: 0,
       trimOut: 100, // Trim says 100s
       clipStartTime: 0,
@@ -204,7 +204,7 @@ describe("generateViewportTileAddresses", () => {
       expect(addr.timestamp).toBeLessThanOrEqual(15.0);
     }
 
-    // Should have tiles at 0, 5, 10, 15 (or subset depending on viewport)
+    // Should have tiles in the 0s to 15s range at the L1 cadence.
     const timestamps = addresses.map((a) => a.timestamp);
     expect(timestamps).toContain(0);
     expect(timestamps.some((t) => t > 15.0)).toBe(false);

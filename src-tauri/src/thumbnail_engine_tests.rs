@@ -174,8 +174,8 @@ fn test_resolution_tier_from_dpr() {
 #[test]
 fn test_resolution_tier_dimensions() {
     // Test that each tier returns correct dimensions
-    assert_eq!(ResolutionTier::Tier1x.dimensions(), (80, 60));
-    assert_eq!(ResolutionTier::Tier2x.dimensions(), (160, 120));
+    assert_eq!(ResolutionTier::Tier1x.dimensions(), (160, 90));
+    assert_eq!(ResolutionTier::Tier2x.dimensions(), (320, 180));
 }
 
 #[test]

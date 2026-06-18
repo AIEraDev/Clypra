@@ -1,6 +1,7 @@
 import { TextEffectDefinition } from "../types/types";
 import { TemplateDefinition } from "@/features/text-templates/types";
 import { getApiHeaders, getApiBaseUrl } from "@/lib/api";
+import { convertRawConfigToDefinition } from "../lib/definitionConversion";
 
 export interface TextEffectSummary {
   id: string;
@@ -12,6 +13,15 @@ export interface TextEffectSummary {
 }
 
 const BASE = getApiBaseUrl();
+
+export const TEXT_EFFECT_CATEGORIES = [
+  "3d", // second most requested, used in thumbnails + titles
+  "neon", // highest demand on CapCut, defines "creator aesthetic"
+  "essentials", // plain bold/clean text — every editor's starting point
+  "glitch", // VHS/retro digital — consistent top performer
+  "gradient", // versatile, works across all content types
+  "outline", // clean, readable, popular for captions + lower thirds
+] as const;
 
 export const TextEffectsApi = {
   // In-memory cache map to avoid duplicate network calls when users toggle effects
@@ -65,8 +75,8 @@ export const TextEffectsApi = {
       });
       if (!res.ok) throw new Error(`Failed to load heavy configuration for effect: ${id}`);
 
-      data = await res.json();
-      this._effectsCache.set(cacheKey, data); // store in cache
+      data = convertRawConfigToDefinition(await res.json()) as TextEffectDefinition;
+      this._effectsCache.set(cacheKey, data); // store normalized definition in cache
     }
 
     // Sync to store cache to prevent duplicate fetches & loading errors

@@ -26,7 +26,7 @@ import type { Track, TrackType, Clip, TextClip, TransitionTimelineItem, Transiti
 import type { Gap } from "@/types/gap";
 import { generateId, getCounter } from "@/lib/utils/id";
 import { detectGaps, createGap, insertGapWithRipple, removeGapWithRipple, resizeGap, packTrack, mergeAdjacentGaps, validateGap } from "@/lib/timeline/gapEngine";
-import { recalculateTextClipBounds } from "@/lib/text/textClip";
+import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import { useUIStore } from "./uiStore";
 import { useProjectStore } from "./projectStore";
 import { clampTimelinePixelsPerSecond, clampTimelineZoom, TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "../lib/timeline/timelineZoom";
@@ -571,20 +571,14 @@ export const useTimelineStore = create<TimelineStore>(
           clips: state.clips.map((c) => {
             if (c.id !== clipId) return c;
 
-            // Auto-recalculate bounds for text clips when text/style changes
             const isTextClip = "text" in c;
-            const hasManualBounds = "x" in updates || "y" in updates || "width" in updates || "height" in updates;
-            const TEXT_STYLE_KEYS: (keyof TextClip)[] = ["text", "fontSize", "fontFamily", "fontWeight", "fontStyle", "styleId", "stroke", "shadow", "background", "letterSpacing"];
-            const hasStyleChange = TEXT_STYLE_KEYS.some((k) => k in updates);
-
-            if (isTextClip && hasStyleChange && !hasManualBounds) {
+            if (isTextClip) {
               try {
                 const project = useProjectStore.getState().project;
                 const canvasWidth = project?.canvasWidth ?? 1920;
                 const canvasHeight = project?.canvasHeight ?? 1080;
-                return recalculateTextClipBounds(c as TextClip, updates as Partial<TextClip>, canvasWidth, canvasHeight);
+                return { ...c, ...resolveTextClipStyleUpdate(c as TextClip, updates as Partial<TextClip>, canvasWidth, canvasHeight) };
               } catch (e) {
-                // Fallback: apply updates without recalculation
                 console.warn("[updateClip] Bounds recalculation failed, applying raw updates", e);
                 return { ...c, ...updates };
               }

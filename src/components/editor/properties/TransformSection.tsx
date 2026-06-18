@@ -10,6 +10,7 @@ interface TransformSectionProps {
   selectedClip: Clip;
   isVisualClip: boolean;
   handleUpdate: (key: string, value: any) => void;
+  handleUpdateMultiple: (fields: Record<string, any>) => void;
   handleApplyFit: (fitMode: ClipFitModeExtended) => void;
   canvasWidth?: number;
   canvasHeight?: number;
@@ -23,40 +24,58 @@ const FIT_OPTIONS = [
   { value: "original", label: "Original" },
 ];
 
-export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip, isVisualClip, handleUpdate, handleApplyFit, canvasWidth = 1920, canvasHeight = 1080 }) => {
+function getOpacityPercent(opacity: number): number {
+  const value = Number.isFinite(opacity) ? opacity : 1;
+  const normalized = value > 1 ? value / 100 : value;
+  return Math.round(Math.max(0, Math.min(1, normalized)) * 100);
+}
+
+export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip, isVisualClip, handleUpdate, handleUpdateMultiple, handleApplyFit, canvasWidth = 1920, canvasHeight = 1080 }) => {
   const isAspectLocked = selectedClip.aspectRatioLocked ?? true;
   const aspectRatio = selectedClip.sourceAspectRatio ?? (selectedClip.width && selectedClip.height ? Math.abs(selectedClip.width) / Math.abs(selectedClip.height) : 16 / 9);
   const isFlippedH = selectedClip.width < 0;
   const isFlippedV = selectedClip.height < 0;
+  const opacityPercent = getOpacityPercent(selectedClip.opacity);
 
   const handleCenterOnCanvas = useCallback(() => {
     const w = Math.abs(selectedClip.width);
     const h = Math.abs(selectedClip.height);
-    handleUpdate("x", Math.round((canvasWidth - w) / 2));
-    // Use setTimeout to batch the second update in the next tick
-    setTimeout(() => handleUpdate("y", Math.round((canvasHeight - h) / 2)), 0);
-  }, [selectedClip.width, selectedClip.height, canvasWidth, canvasHeight, handleUpdate]);
+    handleUpdateMultiple({
+      x: Math.round((canvasWidth - w) / 2),
+      y: Math.round((canvasHeight - h) / 2),
+    });
+  }, [selectedClip.width, selectedClip.height, canvasWidth, canvasHeight, handleUpdateMultiple]);
 
   const handleWidthChange = useCallback(
     (newWidth: number) => {
-      handleUpdate("width", isFlippedH ? -Math.abs(newWidth) : Math.abs(newWidth));
+      const width = isFlippedH ? -Math.abs(newWidth) : Math.abs(newWidth);
       if (isAspectLocked && aspectRatio) {
         const newHeight = Math.round(Math.abs(newWidth) / aspectRatio);
-        setTimeout(() => handleUpdate("height", isFlippedV ? -newHeight : newHeight), 0);
+        handleUpdateMultiple({
+          width,
+          height: isFlippedV ? -newHeight : newHeight,
+        });
+        return;
       }
+      handleUpdate("width", width);
     },
-    [handleUpdate, isAspectLocked, aspectRatio, isFlippedH, isFlippedV],
+    [handleUpdate, handleUpdateMultiple, isAspectLocked, aspectRatio, isFlippedH, isFlippedV],
   );
 
   const handleHeightChange = useCallback(
     (newHeight: number) => {
-      handleUpdate("height", isFlippedV ? -Math.abs(newHeight) : Math.abs(newHeight));
+      const height = isFlippedV ? -Math.abs(newHeight) : Math.abs(newHeight);
       if (isAspectLocked && aspectRatio) {
         const newWidth = Math.round(Math.abs(newHeight) * aspectRatio);
-        setTimeout(() => handleUpdate("width", isFlippedH ? -newWidth : newWidth), 0);
+        handleUpdateMultiple({
+          height,
+          width: isFlippedH ? -newWidth : newWidth,
+        });
+        return;
       }
+      handleUpdate("height", height);
     },
-    [handleUpdate, isAspectLocked, aspectRatio, isFlippedH, isFlippedV],
+    [handleUpdate, handleUpdateMultiple, isAspectLocked, aspectRatio, isFlippedH, isFlippedV],
   );
 
   return (
@@ -131,7 +150,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip
           </div>
 
           {/* Opacity */}
-          <PropertySlider label="Opacity" value={Math.round(selectedClip.opacity * 100)} min={0} max={100} step={1} suffix="%" onChange={(v) => handleUpdate("opacity", v / 100)} />
+          <PropertySlider label="Opacity" value={opacityPercent} min={0} max={100} step={1} suffix="%" onChange={(v) => handleUpdate("opacity", v / 100)} />
 
           {/* Flip buttons */}
           <div>

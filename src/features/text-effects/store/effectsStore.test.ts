@@ -2,6 +2,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffectsStore } from "./effectsStore";
 import { TextEffectsApi } from "../api/textEffectsApi";
+import { getTextEffectCache } from "../cache/persistentCache";
 
 // Mock the persistent cache
 vi.mock("../cache/persistentCache", () => ({
@@ -59,6 +60,33 @@ describe("useEffectsStore", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  test("getDefinitionById - normalizes flat definitions loaded from persistent cache", async () => {
+    const rawCachedDef = {
+      id: "cached-neon",
+      name: "Cached Neon",
+      category: "neon",
+      fontFamily: "Bebas Neue",
+      fontWeight: 700,
+      fillType: "none",
+      strokeEnabled: true,
+      strokeColor: "#ffffff",
+      strokeWidth: 8,
+      glowLayers: [{ enabled: true, color: "#ff1744", blur: 24, opacity: 80, type: "outer" }],
+    };
+    vi.mocked(getTextEffectCache).mockReturnValueOnce({
+      get: vi.fn().mockResolvedValue(rawCachedDef),
+      set: vi.fn().mockResolvedValue(undefined),
+    } as any);
+
+    const def = await useEffectsStore.getState().getDefinitionById("cached-neon", "neon");
+
+    expect(def.font.family).toBe("Bebas Neue");
+    expect(def.fills).toEqual([]);
+    expect(def.strokes[0]).toMatchObject({ color: "#ffffff", width: 8 });
+    expect(def.glows?.[0]).toMatchObject({ color: "#ff1744", blur: 24 });
+    expect(useEffectsStore.getState().definitions["cached-neon"]).toBe(def);
   });
 
   test("loadCategory - success and state mapping", async () => {
@@ -384,5 +412,36 @@ describe("useEffectsStore", () => {
     const cachedStoreDef = useEffectsStore.getState().definitions["arctic-monolith"];
     expect(cachedStoreDef).toBeDefined();
     expect(cachedStoreDef.name).toBe("Arctic Monolith");
+  });
+
+  test("TextEffectsApi.getFullEffect - normalizes flat API payload before caching", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const rawDef = {
+      id: "neon-crimson",
+      name: "Neon Crimson",
+      category: "neon",
+      fontFamily: "Bebas Neue",
+      fontWeight: 700,
+      fillType: "none",
+      strokeEnabled: true,
+      strokeColor: "#ffffff",
+      strokeWidth: 10,
+      glowLayers: [{ enabled: true, color: "#ff1744", blur: 32, opacity: 85, type: "outer" }],
+    };
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => rawDef,
+    } as any);
+
+    const data = await TextEffectsApi.getFullEffect("neon", "neon-crimson");
+    const cachedStoreDef = useEffectsStore.getState().definitions["neon-crimson"];
+
+    expect(data.font.family).toBe("Bebas Neue");
+    expect(data.fills).toEqual([]);
+    expect(data.strokes[0]).toMatchObject({ color: "#ffffff", width: 10 });
+    expect(data.glows?.[0]).toMatchObject({ color: "#ff1744", blur: 32 });
+    expect(cachedStoreDef).toBe(data);
+    expect(cachedStoreDef.font.family).toBe("Bebas Neue");
   });
 });

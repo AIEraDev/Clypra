@@ -18,22 +18,25 @@
  * Heights target 16:9; the "align to mult of 4" constraint applies to
  * textureSize after DPR multiplication, not to the base tier dims.
  *
+ * CRITICAL: These dimensions MUST match src-tauri/src/thumbnail_engine/pyramid.rs SpatialTier::dims()
+ * Any mismatch will cause thumbnail blur/stretching bugs.
+ *
  * SRP zoom → tier mapping (default, configurable via SRP_CONFIG):
  *   L0: 0.25–0.5×  |  L1: 0.5–1×  |  L2: 1–2×  |  L3: 2–4×
  */
 export enum SpatialTier {
-  L0 = 0, // 80×45   — lowest resolution, widest zoom-out
-  L1 = 1, // 120×67
-  L2 = 2, // 160×90
-  L3 = 3, // 240×135 — highest resolution, closest zoom-in
+  L0 = 0, // 160×90   — lowest resolution, widest zoom-out
+  L1 = 1, // 240×135
+  L2 = 2, // 320×180
+  L3 = 3, // 480×270  — highest resolution, closest zoom-in
 }
 
 /** Base pixel dimensions [width, height] for each spatial tier. */
 export const SPATIAL_TIER_DIMS: Record<SpatialTier, readonly [number, number]> = {
-  [SpatialTier.L0]: [80, 45],
-  [SpatialTier.L1]: [120, 67],
-  [SpatialTier.L2]: [160, 90],
-  [SpatialTier.L3]: [240, 135],
+  [SpatialTier.L0]: [160, 90],
+  [SpatialTier.L1]: [240, 135],
+  [SpatialTier.L2]: [320, 180],
+  [SpatialTier.L3]: [480, 270],
 } as const;
 
 // ─── Temporal Tier ────────────────────────────────────────────────────────────
@@ -43,20 +46,26 @@ export const SPATIAL_TIER_DIMS: Record<SpatialTier, readonly [number, number]> =
  * Intervals are [base, near-edit] seconds.
  *
  * TSP viewport-density → tier mapping mirrors SpatialTier levels.
+ *
+ * CRITICAL: These values MUST match Rust DensityLevel::time_interval()
+ * See: src-tauri/src/thumbnail_engine/types.rs:187-196
  */
 export enum TemporalTier {
-  L0 = 0, // 2–4s base (1s near edits)
-  L1 = 1, // 1s  (0.5s near edits)
-  L2 = 2, // 0.5s (0.25s near edits)
-  L3 = 3, // 0.25s (0.12s near edits)
+  L0 = 0, // 5.0s base (2.5s near edits) - matches Rust DensityLevel::Low
+  L1 = 1, // 1.0s (0.5s near edits) - matches Rust DensityLevel::Medium
+  L2 = 2, // 0.2s (0.1s near edits) - matches Rust DensityLevel::High
+  L3 = 3, // 0.02s (0.01s near edits) - matches Rust DensityLevel::Ultra
 }
 
-/** [baseInterval, nearEditInterval] in seconds per temporal tier. */
+/**
+ * [baseInterval, nearEditInterval] in seconds per temporal tier.
+ * MUST stay in sync with Rust DensityLevel::time_interval()
+ */
 export const TEMPORAL_TIER_INTERVALS: Record<TemporalTier, readonly [number, number]> = {
-  [TemporalTier.L0]: [2.0, 1.0],
-  [TemporalTier.L1]: [1.0, 0.5],
-  [TemporalTier.L2]: [0.5, 0.25],
-  [TemporalTier.L3]: [0.25, 0.12],
+  [TemporalTier.L0]: [5.0, 2.5], // Matches Rust Low: 5.0
+  [TemporalTier.L1]: [1.0, 0.5], // Matches Rust Medium: 1.0
+  [TemporalTier.L2]: [0.2, 0.1], // Matches Rust High: 0.2
+  [TemporalTier.L3]: [0.02, 0.01], // Matches Rust Ultra: 0.02
 } as const;
 
 /** High-motion region density multiplier (R1). */
@@ -197,8 +206,12 @@ export type ArtifactSource = "backend-frame-cache" | "backend-tier-cache" | "fro
 export type ArtifactResidency = "gpu" | "cpu" | "disk";
 
 /**
- * Canonical backend→frontend transfer object (R6).
- * All backend→frontend communication uses this shape.
+ * Frontend RenderArtifact - contains ImageBitmap ready for rendering.
+ *
+ * This is the FRONTEND representation after conversion from BackendRenderArtifact.
+ * The conversion layer (transport.ts) handles RGBA bytes → ImageBitmap conversion.
+ *
+ * See: src/lib/renderEngine/transport.ts BackendRenderArtifact for the backend shape
  */
 export interface RenderArtifact {
   readonly frameId: string;
@@ -278,9 +291,13 @@ export interface TierBoundary {
 
 export type SrpConfig = Record<SpatialTier, TierBoundary>;
 
-/** Default SRP tier boundaries per spec R1. */
+/** Default SRP tier boundaries per spec R1.
+ *
+ * Extended L0 minimum to 0.1× to handle deep zoom-out without blurriness.
+ * L0 (160×90) thumbnails are now used from 0.1× to 0.5× zoom levels.
+ */
 export const DEFAULT_SRP_CONFIG: SrpConfig = {
-  [SpatialTier.L0]: { min: 0.25, max: 0.5 },
+  [SpatialTier.L0]: { min: 0.1, max: 0.5 }, // Extended from 0.25 to 0.1 for deep zoom-out
   [SpatialTier.L1]: { min: 0.5, max: 1.0 },
   [SpatialTier.L2]: { min: 1.0, max: 2.0 },
   [SpatialTier.L3]: { min: 2.0, max: 4.0 },

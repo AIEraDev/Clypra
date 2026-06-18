@@ -62,6 +62,10 @@ export interface RustMediaAsset {
   coverArt?: string;
   size: number;
   rotation?: number;
+  has_alpha?: boolean;
+  stickerFormat?: "static" | "gif" | "lottie";
+  stickerAnimationPath?: string;
+  stickerSourceId?: string;
   contentBounds?: {
     x: number;
     y: number;
@@ -176,7 +180,11 @@ export function fromRustMediaAsset(rust: RustMediaAsset): MediaAsset {
     coverArt: rust.coverArt,
     size: rust.size,
     rotation: rust.rotation,
+    has_alpha: rust.has_alpha,
     contentBounds: rust.contentBounds,
+    stickerFormat: rust.stickerFormat,
+    stickerAnimationPath: rust.stickerAnimationPath,
+    stickerSourceId: rust.stickerSourceId,
   };
 }
 
@@ -201,25 +209,35 @@ export function fromRustTrack(rust: RustTrack): Track {
 /**
  * Convert Rust Clip to Frontend Clip
  *
+ * MIGRATION STRATEGY:
+ * - For old projects without 'kind' field, infer from ID patterns and mediaId
+ * - For new projects, 'kind' is always present from Rust
+ * - This ensures backward compatibility while working toward required 'kind'
+ *
  * @param rust - Clip data from Rust backend (snake_case)
  * @returns Frontend Clip (camelCase)
  */
 export function fromRustClip(rust: RustClip): Clip {
+  // Migrate old clips: infer kind from ID patterns if missing
   let kind: Clip["kind"] = rust.kind as any;
   if (!kind) {
+    // Legacy migration: infer kind from patterns
     if ("text" in rust || rust.id.startsWith("text-clip-")) {
       kind = "text";
     } else if (rust.mediaId.startsWith("sticker-")) {
       kind = "sticker";
     } else if (rust.id.startsWith("filter-clip-") || rust.kind === "filter") {
       kind = "filter";
+    } else {
+      // Default to video for unknown legacy clips
+      kind = "video";
     }
   }
 
   // Base clip properties
   const baseClip: Clip = {
     id: rust.id,
-    kind,
+    kind, // Now always present after migration
     trackId: rust.trackId,
     mediaId: rust.mediaId,
     startTime: rust.startTime,
@@ -293,13 +311,16 @@ export function toRustProject(
     mediaAssets?: MediaAsset[];
     transitions?: TransitionTimelineItem[];
     gaps?: Gap[];
+    /** Update modification timestamp to current time (default: true, set false for round-trip serialization) */
+    updateModifiedTime?: boolean;
   },
 ): RustProject {
   return {
     id: frontend.id,
     name: frontend.name,
     created_at: frontend.createdAt,
-    modified_at: Date.now(), // Always update modification time on save
+    // Only update modified_at when actually saving, not during round-trip serialization
+    modified_at: options?.updateModifiedTime !== false ? Date.now() : frontend.updatedAt,
     aspect_ratio: frontend.aspectRatio,
     canvas_width: frontend.canvasWidth,
     canvas_height: frontend.canvasHeight,
@@ -333,7 +354,11 @@ export function toRustMediaAsset(frontend: MediaAsset): RustMediaAsset {
     coverArt: frontend.coverArt,
     size: frontend.size,
     rotation: frontend.rotation,
+    has_alpha: frontend.has_alpha,
     contentBounds: frontend.contentBounds,
+    stickerFormat: frontend.stickerFormat,
+    stickerAnimationPath: frontend.stickerAnimationPath,
+    stickerSourceId: frontend.stickerSourceId,
   };
 }
 

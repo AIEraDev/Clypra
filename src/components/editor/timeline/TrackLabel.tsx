@@ -3,6 +3,7 @@ import { Volume2, VolumeX, Lock, Unlock, Eye, EyeOff, Minimize2 } from "lucide-r
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
+import { TIMELINE_TRACK_LABEL_WIDTH_PX } from "@/lib/timeline/timelineViewport";
 import type { Track } from "@/types";
 
 interface TrackLabelProps {
@@ -30,9 +31,9 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
         height: `${track.height}px`,
         position: "sticky",
         left: 0,
-        zIndex: 120,
-        width: "160px",
-        minWidth: "160px",
+        zIndex: 150,
+        width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
+        minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
         flexShrink: 0,
         borderRight: "1px solid var(--color-timeline-track-border)",
       }}

@@ -105,11 +105,12 @@ describe("EffectCard Component", () => {
     expect(screen.getByText("Downloading...")).toBeInTheDocument();
   });
 
-  it("displays accent checked style when isDownloaded is true", () => {
-    const { container } = render(<EffectCard {...defaultProps} isDownloaded={true} />);
+  it("shows an add-to-timeline button when isDownloaded is true", () => {
+    render(<EffectCard {...defaultProps} isDownloaded={true} />);
     
-    const buttons = screen.getAllByRole("button");
-    const applyButton = buttons[1];
+    const applyButton = screen.getByRole("button", { name: "Add text effect to timeline" });
     expect(applyButton.className).toContain("bg-accent");
+    fireEvent.click(applyButton);
+    expect(defaultProps.onApply).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { Download, Star, Check } from "lucide-react";
+import { Download, Star, Plus } from "lucide-react";
 import { renderTextEffect } from "@/features/text-effects/renderer";
 import type { TextEffectDefinition } from "@/features/text-effects/types/types";
 
@@ -80,9 +80,11 @@ export const EffectCard: React.FC<EffectCardProps> = ({ effect, isFavorite, isDo
             onApply(e);
           }}
           disabled={isDownloading}
-          className={`w-4 h-4 cursor-pointer rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent/20 border border-accent text-accent cursor-default" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}
+          title={isDownloaded ? "Add text to timeline" : "Download and add text to timeline"}
+          aria-label={isDownloaded ? "Add text effect to timeline" : "Download and add text effect to timeline"}
+          className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}
         >
-          {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloaded ? <Check className="w-3 h-3" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
+          {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloaded ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
         </button>
       </div>
     </div>

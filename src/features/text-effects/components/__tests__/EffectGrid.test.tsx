@@ -143,9 +143,10 @@ describe("EffectGrid Component", () => {
 
     const startDownloadSpy = vi.spyOn(useFavoritesStore.getState(), "startDownload");
     const completeDownloadSpy = vi.spyOn(useFavoritesStore.getState(), "completeDownload");
+    const onAddToTimeline = vi.fn();
 
     vi.useFakeTimers();
-    render(<EffectGrid />);
+    render(<EffectGrid onAddToTimeline={onAddToTimeline} />);
 
     // Get the card container and query buttons inside it
     const card = screen.getByText("Classic 3D").closest(".group");
@@ -167,6 +168,10 @@ describe("EffectGrid Component", () => {
     });
 
     expect(completeDownloadSpy).toHaveBeenCalledWith("classic-3d", "effect");
+    expect(onAddToTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      styleId: "classic-3d",
+      effectDefinition: fullEffectMock,
+    }), "text");
     vi.useRealTimers();
   });
 

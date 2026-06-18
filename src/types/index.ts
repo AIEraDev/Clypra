@@ -1,5 +1,9 @@
 export type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5";
 
+/**
+ * Maximum project name length.
+ * CRITICAL: Must match src-tauri/src/commands/project.rs:83 MAX_PROJECT_NAME_LENGTH
+ */
 export const MAX_PROJECT_NAME_LENGTH = 64;
 
 export const PREVIEW_ASPECT_LABEL: Record<AspectRatio, string> = {
@@ -16,6 +20,12 @@ export enum DensityLevel {
   High = "high",
   Ultra = "ultra",
 }
+
+/**
+ * CRITICAL: DensityLevel serialization format must match Rust.
+ * See: src-tauri/src/thumbnail_engine/types.rs:178-184
+ * Serialized as lowercase strings matching the enum values above.
+ */
 
 export interface DensityConfig {
   level: DensityLevel;
@@ -59,6 +69,10 @@ export interface VideoMetadata {
   height: number;
   fps: number;
   size: number;
+  /** Source media rotation from container metadata (0, 90, 180, 270) */
+  rotation?: number;
+  /** Image alpha channel detection */
+  has_alpha?: boolean;
 }
 
 export interface Project {
@@ -96,6 +110,16 @@ export interface WaveformBucket {
   rms: number;
 }
 
+/**
+ * MediaAsset interface with optional fields for different media types.
+ *
+ * Type-specific fields:
+ * - width/height: Present for video and image, undefined for audio
+ * - posterFrame: Present for video and image
+ * - coverArt: Present for audio
+ *
+ * Use type guards from this module to safely access type-specific properties.
+ */
 export interface MediaAsset {
   id: string;
   name: string;
@@ -105,7 +129,7 @@ export interface MediaAsset {
   width?: number;
   height?: number;
   posterFrame?: string;
-  coverArt?: string; // Album artwork for audio files
+  coverArt?: string;
   /** Optional non-destructive visual content bounds inside the raster source. */
   contentBounds?: {
     x: number;
@@ -116,6 +140,19 @@ export interface MediaAsset {
   size: number;
   /** Source media rotation from container metadata (0, 90, 180, 270) */
   rotation?: number;
+  /** Whether image has alpha channel */
+  has_alpha?: boolean;
+  /** Sticker source format when this media asset represents a sticker. */
+  stickerFormat?: "static" | "gif" | "lottie";
+  /** Local cached animation source path for animated stickers. */
+  stickerAnimationPath?: string;
+  /** Stable sticker library id used to recover cached metadata. */
+  stickerSourceId?: string;
+}
+
+/** Type guard to check if asset has visual dimensions */
+export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { width: number; height: number } {
+  return (asset.type === "video" || asset.type === "image") && asset.width !== undefined && asset.height !== undefined;
 }
 
 export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay";
@@ -153,6 +190,9 @@ export interface Clip {
     name: string;
     intensity: number; // 0.0 to 1.0
   };
+  stickerFormat?: "static" | "gif" | "lottie";
+  stickerAnimationPath?: string;
+  stickerSourceId?: string;
 }
 
 /** Video overlay applied to a clip (actual video file) */
@@ -210,6 +250,8 @@ export interface VideoClip extends Clip {
 
 export interface AudioClip extends Clip {
   kind: "audio";
+  /** Direct audio file path (used for audio library items that bypass mediaAssets) */
+  audioPath?: string;
 }
 
 export interface ImageClip extends Clip {

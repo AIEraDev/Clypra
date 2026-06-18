@@ -9,30 +9,16 @@
  */
 
 import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
-import { normalizePathForTauriInvoke } from "../platform/tauri";
+import { toNativePath } from "../platform/pathConversion";
 import { getFrameScheduler } from "../../core/scheduler/FrameScheduler";
 import { VideoElementPool } from "../../core/resources/VideoElementPool";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
+import type { ExportAudioClip, ExportProgress } from "../../types/export";
 
 /**
- * Export progress callback.
+ * Video export progress - Re-exported from types/export
  */
-export interface VideoExportProgress {
-  /** Current frame number */
-  currentFrame: number;
-
-  /** Total frames to export */
-  totalFrames: number;
-
-  /** Progress (0.0 - 1.0) */
-  progress: number;
-
-  /** Estimated time remaining in seconds */
-  etaSeconds: number;
-
-  /** Current FPS (frames per second) */
-  fps: number;
-}
+export type VideoExportProgress = ExportProgress;
 
 /**
  * Video export configuration.
@@ -123,11 +109,15 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
   const startTimeMs = Date.now();
 
-  // Calculate frame times deterministically without floating-point accumulation
+  // Calculate frame times using integer frame arithmetic (no float accumulation)
+  // This prevents temporal drift in long exports
   const totalFrames = Math.round((endTime - startTime) * frameRate);
   const frameTimes: number[] = [];
+  const startFrameIndex = Math.round(startTime * frameRate);
+
   for (let i = 0; i < totalFrames; i++) {
-    frameTimes.push(startTime + i / frameRate);
+    const frameIndex = startFrameIndex + i;
+    frameTimes.push(frameIndex / frameRate); // Single division per frame
   }
 
   if (totalFrames === 0) {
@@ -154,7 +144,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
   // Collect audio/video clips with audio streams for export mixing
   const activeTracks = new Set(tracks.filter((t) => !t.muted).map((t) => t.id));
-  const audioClips = clips
+  const audioClips: ExportAudioClip[] = clips
     .filter((clip) => {
       if (!activeTracks.has(clip.trackId)) return false;
       const asset = assets.find((a) => a.id === clip.mediaId);
@@ -174,11 +164,13 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       const relativeTrimIn = (clip.trimIn || 0) + (overlapStart - clipStart);
       return {
         // Normalize to native FS path — asset.path may be an asset:// or file:// URL
-        path: normalizePathForTauriInvoke(asset.path),
+        path: toNativePath(asset.path),
         startTime: relativeStartTime,
         duration: relativeDuration,
         trimIn: relativeTrimIn,
-        volume: clip.volume ?? 1.0,
+        volume: Math.max(0, Math.min(1, clip.volume ?? 1.0)),
+        fadeIn: Math.max(0, Math.min(relativeDuration, (clip as any).fadeIn ?? 0)),
+        fadeOut: Math.max(0, Math.min(relativeDuration, (clip as any).fadeOut ?? 0)),
       };
     });
 

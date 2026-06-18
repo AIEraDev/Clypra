@@ -7,6 +7,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { EditingActions } from "@/core/interactions";
 import { generateId } from "@/lib/utils/id";
+import { useAnchoredTimelineZoom } from "./useAnchoredTimelineZoom";
 
 let copiedClipsClipboard: Array<{
   trackId: string;
@@ -29,10 +30,11 @@ let copiedClipsClipboard: Array<{
 export const useKeyboardShortcuts = () => {
   const { play, pause, seek, setActiveContext } = useTransportControls();
   const { state: transportState, time: transportTime, speed } = useTransportSnapshot();
-  const { zoomLevel, setZoom, swapClips, rippleEditEnabled, toggleRippleEdit } = useTimelineStore();
+  const { swapClips, rippleEditEnabled, toggleRippleEdit } = useTimelineStore();
   const { selectedClipIds, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
   const { project } = useProjectStore();
   const { undo, redo } = useHistoryStore();
+  const { zoomByStep } = useAnchoredTimelineZoom();
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
 
   const isPlaying = transportState === "playing";
@@ -209,10 +211,10 @@ export const useKeyboardShortcuts = () => {
         selectTrack(null);
       } else if (isMeta && e.key === "=") {
         e.preventDefault();
-        setZoom(Math.min(5, zoomLevel + 0.1));
+        zoomByStep(1);
       } else if (isMeta && e.key === "-") {
         e.preventDefault();
-        setZoom(Math.max(0.5, zoomLevel - 0.1));
+        zoomByStep(-1);
       } else if (e.key === "r" && !isMeta) {
         e.preventDefault();
         toggleRippleEdit();
@@ -478,7 +480,7 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, transportTime, frameRate, zoomLevel, selectedClipIds, previewMode, rippleEditEnabled, play, pause, seek, setActiveContext, setZoom, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips, toggleRippleEdit, undo, redo]);
+  }, [isPlaying, transportTime, frameRate, selectedClipIds, previewMode, rippleEditEnabled, play, pause, seek, setActiveContext, zoomByStep, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips, toggleRippleEdit, undo, redo]);
 
   return { toastMessage };
 };

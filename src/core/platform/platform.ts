@@ -18,20 +18,20 @@ export interface PlatformInterface {
   isTauri(): boolean;
   isCapacitor(): boolean;
   isWeb(): boolean;
-  
+
   convertFileSrc(path: string): string;
-  
+
   // File System & Paths
   appDataDir(): Promise<string>;
   joinPaths(...paths: string[]): Promise<string>;
-  
+
   // Dialogs
   openFileDialog(options: { multiple?: boolean; directory?: boolean; filters?: { name: string; extensions: string[] }[] }): Promise<SelectedFile[] | null>;
-  
+
   // Project Storage
   getRecentProjects(): Promise<any[]>;
   loadProject(path: string): Promise<string>;
-  saveProject(projectId: string, payload: string, recentList: string[]): Promise<void>;
+  saveProject(payload: string): Promise<void>;
   deleteProject(projectId: string): Promise<void>;
   renameProject(projectId: string, newName: string): Promise<void>;
 

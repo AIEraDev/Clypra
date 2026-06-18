@@ -3,7 +3,7 @@ import { Sparkles, MessageSquare, Loader2, CheckCircle2, AlertCircle, Cloud, Clo
 
 import { Button } from "@/components/ui/Button";
 import { invoke } from "@tauri-apps/api/core";
-import { TemplateDefinition, TemplateCustomization } from "@/features/text-templates/types";
+import { TemplateDefinition, TemplateCustomization, TEMPLATE_CATEGORIES } from "@/features/text-templates/types";
 import type { TabProps } from "./types";
 import { TemplateCard } from "@/components/ui/TemplateCard";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
@@ -49,8 +49,14 @@ const generateContextualCaptions = (nameStr: string, pathStr: string, isAudio: b
   return ["Welcome back everyone! In this segment, we're going to explore some really interesting concepts.", "As you can see on the screen, this is exactly how it works in real-world environments.", "I've been working on this design for a few weeks now and the results are absolutely amazing.", "Let's go step-by-step through the layout so we can understand each component clearly.", "If you have any questions about this process, make sure to drop a comment below.", "Now, let's transition to the next phase of the implementation."];
 };
 
-// Categories list - mapped to EffectCategory type
-const templateCategories = ["All", "Lower Third", "Title Card", "Callout", "Caption", "Outro", "Social", "Broadcast", "Sports", "Countdown", "Cinematic"];
+// Categories list - derived from TEMPLATE_CATEGORIES
+const templateCategories = TEMPLATE_CATEGORIES.map((cat) =>
+  cat
+    .replace("-", " ")
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+);
 
 export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [activeTab, setActiveTab] = useState<"effects" | "templates" | "yours" | "captions">("effects");
@@ -339,7 +345,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     if (tab === "effects") {
       setActiveCategory("3D");
     } else if (tab === "templates") {
-      setActiveCategory("All");
+      setActiveCategory("Title");
     } else if (tab === "yours") {
       setActiveCategory("Favorites");
     } else {
@@ -381,6 +387,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             text: targetEffect.text || "CLYPRA", // Use default text from full definition
             presetType: "effect",
             styleId: targetEffect.id,
+            effectDefinition: targetEffect, // ← Pass the full effect definition for proper dimensions
             fontFamily: targetEffect.font?.family,
             color: targetEffect.fills?.[0]?.color,
             fontWeight: targetEffect.font?.weight,
@@ -435,6 +442,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         text: text || "CLYPRA",
         presetType: "effect",
         styleId: effect.id,
+        effectDefinition: effect, // ← Pass the full effect definition
         fontFamily: effect.font?.family,
         color: effect.fills?.[0]?.color,
         fontWeight: effect.font?.weight,
@@ -461,7 +469,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     );
   }
   // Filter items - templates only (effects are handled by EffectGrid)
-  const filteredTemplates = templates.filter((template) => (activeCategory === "All" || template.category.toLowerCase().replace("-", " ") === activeCategory.toLowerCase()) && template.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredTemplates = templates.filter((template) => template.category.toLowerCase().replace("-", " ") === activeCategory.toLowerCase() && template.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const favoriteTemplatesList = templates.filter((t) => favorites.includes(t.id));
 

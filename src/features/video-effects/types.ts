@@ -61,7 +61,7 @@ export interface EffectPreset {
   id: string;
   name: string;
   type: "video-effect" | "body-effect";
-  category: string; // "camera", "distortion", "color", "time", etc.
+  category: string; // "essentials", "glitch", "retro", "light", "motion", "color", "body" etc.
   description: string;
   thumbnail: string;
 

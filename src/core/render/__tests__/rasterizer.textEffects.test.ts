@@ -6,6 +6,8 @@ const { evaluateSceneSpy } = vi.hoisted(() => ({
   evaluateSceneSpy: vi.fn(),
 }));
 
+let mockCanvasAlpha = 255;
+
 vi.mock("@clypra/engine", async () => {
   const actual = await vi.importActual<typeof import("@clypra/engine")>("@clypra/engine");
   return {
@@ -36,7 +38,11 @@ class MockOffscreenCanvas {
       rotate: vi.fn(),
       drawImage: vi.fn(),
       clearRect: vi.fn(),
-      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(width * height * 4), width, height })),
+      getImageData: vi.fn(() => {
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let i = 3; i < data.length; i += 4) data[i] = mockCanvasAlpha;
+        return { data, width, height };
+      }),
     };
   }
 
@@ -50,6 +56,7 @@ globalThis.OffscreenCanvas = MockOffscreenCanvas as any;
 describe("rasterizeScene styled text effects", () => {
   beforeEach(() => {
     evaluateSceneSpy.mockReset();
+    mockCanvasAlpha = 255;
     useEffectsStore.setState({
       definitions: {
         "hatch-drift": {
@@ -144,5 +151,107 @@ describe("rasterizeScene styled text effects", () => {
     expect(fillLayer.params.fillType).toBe("pattern");
     expect(fillLayer.params.patternType).toBe("stripes");
     expect(strokeLayer.params.strokeType).toBe("double");
+  });
+
+  it("derives render offscreen bounds from content bounds plus effect bleed", async () => {
+    const { rasterizeScene } = await import("../rasterizer");
+    const layer: EvaluatedTextLayer = {
+      layerId: "layer-bleed",
+      clipId: "clip-bleed",
+      role: "text",
+      zIndex: 0,
+      layerType: "text",
+      x: 100,
+      y: 100,
+      width: 220,
+      height: 80,
+      rotation: 0,
+      opacity: 1,
+      inTransition: false,
+      blendMode: "normal",
+      text: "CLYPRA",
+      fontFamily: "Bebas Neue",
+      fontSize: 96,
+      color: "#ffffff",
+      fontWeight: 600,
+      fontStyle: "normal",
+      textAlign: "center",
+      verticalAlign: "middle",
+      lineHeight: 1.2,
+      letterSpacing: 5,
+      styleId: "hatch-drift",
+    };
+    const scene: EvaluatedScene = {
+      visualLayers: [layer],
+      audioLayers: [],
+      transitions: [],
+      metadata: {
+        time: 0,
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        frameRate: 30,
+        isGap: false,
+      },
+    };
+
+    await rasterizeScene(scene, { width: 1920, height: 1080 });
+
+    const doc = evaluateSceneSpy.mock.calls[0][0];
+    expect(layer.width).toBe(220);
+    expect(layer.height).toBe(80);
+    expect(doc.canvas.width).toBeGreaterThan(layer.width);
+    expect(doc.canvas.height).toBeGreaterThan(layer.height);
+  });
+
+  it("falls back to plain text when a styled effect renders no visible pixels", async () => {
+    const { rasterizeScene } = await import("../rasterizer");
+    mockCanvasAlpha = 0;
+    const layer: EvaluatedTextLayer = {
+      layerId: "layer-1",
+      clipId: "clip-1",
+      role: "primary",
+      zIndex: 0,
+      layerType: "text",
+      x: 960,
+      y: 540,
+      width: 700,
+      height: 180,
+      rotation: 0,
+      opacity: 1,
+      inTransition: false,
+      blendMode: "normal",
+      text: "CLYPRA",
+      fontFamily: "Inter",
+      fontSize: 96,
+      color: "#ffffff",
+      fontWeight: "normal",
+      fontStyle: "normal",
+      textAlign: "center",
+      verticalAlign: "middle",
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      styleId: "hatch-drift",
+    };
+    const scene: EvaluatedScene = {
+      visualLayers: [layer],
+      audioLayers: [],
+      transitions: [],
+      metadata: {
+        time: 0,
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        frameRate: 30,
+        isGap: false,
+      },
+    };
+
+    await rasterizeScene(scene, { width: 1920, height: 1080 });
+
+    expect(evaluateSceneSpy).toHaveBeenCalledTimes(2);
+    const styledDoc = evaluateSceneSpy.mock.calls[0][0];
+    const fallbackDoc = evaluateSceneSpy.mock.calls[1][0];
+
+    expect(styledDoc.text.fontFamily).toBe("Bebas Neue");
+    expect(fallbackDoc.text.fontFamily).toBe("Inter");
   });
 });

@@ -12,7 +12,7 @@
  *   - Scales to 2hr videos (bounded by viewport, not duration)
  */
 
-import { SpatialTier } from "../renderEngine/types";
+import { SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier } from "../renderEngine/types";
 
 export interface FilmstripDensityTier {
   /** Thumbnail interval in seconds */
@@ -25,16 +25,16 @@ export interface FilmstripDensityTier {
  */
 export const FILMSTRIP_DENSITY_TIERS: Record<SpatialTier, FilmstripDensityTier> = {
   [SpatialTier.L0]: {
-    thumbnailIntervalSeconds: 30.0, // 1 every 30s (widest zoom-out)
+    thumbnailIntervalSeconds: TEMPORAL_TIER_INTERVALS[TemporalTier.L0][0],
   },
   [SpatialTier.L1]: {
-    thumbnailIntervalSeconds: 5.0, // 1 every 5s
+    thumbnailIntervalSeconds: TEMPORAL_TIER_INTERVALS[TemporalTier.L1][0],
   },
   [SpatialTier.L2]: {
-    thumbnailIntervalSeconds: 1.0, // 1 every 1s
+    thumbnailIntervalSeconds: TEMPORAL_TIER_INTERVALS[TemporalTier.L2][0],
   },
   [SpatialTier.L3]: {
-    thumbnailIntervalSeconds: 0.25, // 1 every 250ms (closest zoom-in)
+    thumbnailIntervalSeconds: TEMPORAL_TIER_INTERVALS[TemporalTier.L3][0],
   },
 };
 

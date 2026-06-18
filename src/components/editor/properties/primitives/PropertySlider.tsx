@@ -53,8 +53,9 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
     [onChange, min, max],
   );
 
-  // Calculate fill percentage for the slider track
-  const fillPercent = ((value - min) / (max - min)) * 100;
+  // Calculate fill percentage defensively; collapsed trim ranges can make min/max equal.
+  const range = max - min;
+  const fillPercent = range > 0 ? Math.min(100, Math.max(0, ((value - min) / range) * 100)) : 0;
 
   if (compact) {
     return (

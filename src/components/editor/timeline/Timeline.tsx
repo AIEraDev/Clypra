@@ -12,6 +12,7 @@ import { useTimelineDrag } from "@/hooks/useTimelineDrag";
 import { useTimelineTauriDrop } from "@/hooks/useTimelineTauriDrop";
 import { useTimelineZoom } from "@/hooks/useTimelineZoom";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
+import { TIMELINE_TRACK_LABEL_WIDTH_PX, getTimelineLabelColumnWidth, getTimelineLaneWidth } from "@/lib/timeline/timelineViewport";
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -50,7 +51,7 @@ export const Timeline: React.FC = () => {
     const el = containerRef.current;
     if (!el) return;
     const measure = () => {
-      setViewportWidth(el.clientWidth || 1200);
+      setViewportWidth(getTimelineLaneWidth(el.clientWidth || 1200, hasClips));
     };
     measure();
     if (typeof ResizeObserver !== "undefined") {
@@ -58,7 +59,7 @@ export const Timeline: React.FC = () => {
       ro.observe(el);
       return () => ro.disconnect();
     }
-  }, [setViewportWidth]);
+  }, [hasClips, setViewportWidth]);
 
   // Attach scroll/pointer listeners to the timeline scroll container
   useEffect(() => {
@@ -86,71 +87,104 @@ export const Timeline: React.FC = () => {
     }
   }, [duration, currentTime, seek]);
 
+  // ✅ PERFORMANCE OPTIMIZED: RAF-based auto-scroll with throttled state updates
+  const autoScrollRafRef = useRef<number | null>(null);
+  const lastScrollStateUpdateRef = useRef(0);
+  const SCROLL_STATE_THROTTLE = 100; // Update React state only every 100ms during playback
+
   // Auto-scroll during playback: viewport tracking
   useEffect(() => {
     const container = containerRef.current;
+
+    // Cleanup previous RAF loop
+    if (autoScrollRafRef.current !== null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+
     if (!container || !isPlaying) {
       wasPlayingRef.current = isPlaying;
       return;
     }
 
-    const labelColumnWidth = hasClips ? 160 : 0;
-    const viewportWidth = container.clientWidth;
-    const effectiveViewportWidth = viewportWidth - labelColumnWidth;
-    const contentWidthActual = container.scrollWidth;
-    const maxScrollLeft = Math.max(0, contentWidthActual - viewportWidth);
-
-    const playheadX = Math.round(currentTime * pixelsPerSecond);
-    let newScrollLeft = container.scrollLeft;
+    const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
+    const effectiveViewportWidth = container.clientWidth - labelColumnWidth;
 
     // Bug 1 fix: On play-start transition, if playhead is outside viewport, snap to it
     const justStartedPlaying = !wasPlayingRef.current && isPlaying;
     wasPlayingRef.current = isPlaying;
 
     if (justStartedPlaying) {
+      const playheadX = Math.round(currentTime * pixelsPerSecond);
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
+      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
 
       if (playheadX < leftEdge || playheadX > rightEdge) {
         // Place playhead at 15% from left edge ("look-ahead" position)
         const centered = Math.max(0, playheadX - effectiveViewportWidth * 0.15);
-        newScrollLeft = Math.min(centered, maxScrollLeft);
+        const newScrollLeft = Math.min(centered, maxScrollLeft);
         container.scrollLeft = newScrollLeft;
         setScrollLeft(newScrollLeft);
-        return;
       }
     }
 
-    const isAtAbsoluteEnd = currentTime >= duration - 0.01;
+    // ✅ RAF loop for smooth auto-scroll (no state updates every frame)
+    const autoScroll = () => {
+      if (!isPlaying || !container) return;
 
-    if (isAtAbsoluteEnd) {
-      newScrollLeft = maxScrollLeft;
-    } else {
-      // Bug 4 fix: Use effective viewport width (minus label column)
-      const bufferPx = effectiveViewportWidth * 0.1;
-      const rightEdge = newScrollLeft + effectiveViewportWidth;
+      const now = performance.now();
+      const playheadX = Math.round(currentTime * pixelsPerSecond);
+      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+      let newScrollLeft = container.scrollLeft;
 
-      if (playheadX >= rightEdge - bufferPx) {
-        newScrollLeft = playheadX;
+      const isAtAbsoluteEnd = currentTime >= duration - 0.01;
+
+      if (isAtAbsoluteEnd) {
+        newScrollLeft = maxScrollLeft;
+      } else {
+        const bufferPx = effectiveViewportWidth * 0.1;
+        const rightEdge = newScrollLeft + effectiveViewportWidth;
+
+        if (playheadX >= rightEdge - bufferPx) {
+          newScrollLeft = playheadX;
+        }
+
+        const currentRightEdge = newScrollLeft + effectiveViewportWidth;
+        if (playheadX > currentRightEdge) {
+          newScrollLeft = Math.min(playheadX, maxScrollLeft);
+        }
       }
 
-      const currentRightEdge = newScrollLeft + effectiveViewportWidth;
-      if (playheadX > currentRightEdge) {
-        newScrollLeft = Math.min(playheadX, maxScrollLeft);
+      newScrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
+
+      const epsilon = 2; // px
+      if (maxScrollLeft - newScrollLeft < epsilon) {
+        newScrollLeft = maxScrollLeft;
       }
-    }
 
-    newScrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
+      // Always update DOM directly (smooth visual scroll)
+      if (Math.abs(container.scrollLeft - newScrollLeft) > 0.5) {
+        container.scrollLeft = newScrollLeft;
 
-    const epsilon = 2; // px
-    if (maxScrollLeft - newScrollLeft < epsilon) {
-      newScrollLeft = maxScrollLeft;
-    }
+        // Throttled React state update (reduce re-renders)
+        if (now - lastScrollStateUpdateRef.current >= SCROLL_STATE_THROTTLE) {
+          setScrollLeft(newScrollLeft);
+          lastScrollStateUpdateRef.current = now;
+        }
+      }
 
-    if (Math.abs(container.scrollLeft - newScrollLeft) > 0.5) {
-      container.scrollLeft = newScrollLeft;
-      setScrollLeft(newScrollLeft);
-    }
+      autoScrollRafRef.current = requestAnimationFrame(autoScroll);
+    };
+
+    autoScrollRafRef.current = requestAnimationFrame(autoScroll);
+
+    return () => {
+      if (autoScrollRafRef.current !== null) {
+        cancelAnimationFrame(autoScrollRafRef.current);
+        autoScrollRafRef.current = null;
+      }
+    };
   }, [currentTime, pixelsPerSecond, isPlaying, duration, setScrollLeft, hasClips]);
 
   // Handle keyboard shortcuts for timeline operations
@@ -300,8 +334,7 @@ export const Timeline: React.FC = () => {
       if (!container) return;
 
       const rect = container.getBoundingClientRect();
-      // Account for the 160px track label column when clips exist
-      const labelColumnWidth = hasClips ? 160 : 0;
+      const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
       const x = event.clientX - rect.left - labelColumnWidth + container.scrollLeft;
       const time = Math.max(0, Math.min(x / pixelsPerSecond, duration));
       seek(time);
@@ -318,6 +351,8 @@ export const Timeline: React.FC = () => {
     <div className="h-60 md:h-80 flex flex-col select-none relative" style={{ backgroundColor: "var(--color-timeline-bg)" }}>
       <TimelineToolbar />
 
+      {hasClips && <div className="absolute top-[40px] left-0 right-0 bottom-0 bg-(--color-timeline-ruler-bg)" style={{ zIndex: 120, width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`, minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px` }}></div>}
+
       <div className="flex-1 overflow-hidden">
         {/* ── Single scroll container with CSS Grid ─────────────────────── */}
         <div
@@ -329,7 +364,7 @@ export const Timeline: React.FC = () => {
           className={`h-full overflow-auto scrollbar-thin relative transition-colors ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}
           style={{
             display: "grid",
-            gridTemplateColumns: hasClips ? "160px 1fr" : "1fr",
+            gridTemplateColumns: hasClips ? `${TIMELINE_TRACK_LABEL_WIDTH_PX}px 1fr` : "1fr",
             gridTemplateRows: hasClips ? "auto 1fr" : undefined,
             alignContent: "start",
             scrollbarWidth: "none",
@@ -344,10 +379,10 @@ export const Timeline: React.FC = () => {
                 position: "sticky",
                 top: 0,
                 left: 0,
-                zIndex: 120,
+                zIndex: 150,
                 height: "24px",
-                width: "160px",
-                minWidth: "160px",
+                width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
+                minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
                 background: "var(--color-timeline-track-bg)",
                 borderBottom: "1px solid var(--color-timeline-track-border)",
                 borderRight: "1px solid var(--color-timeline-track-border)",
@@ -384,7 +419,7 @@ export const Timeline: React.FC = () => {
                 style={{
                   gridColumn: "1 / -1",
                   display: "grid",
-                  gridTemplateColumns: "160px 1fr",
+                  gridTemplateColumns: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px 1fr`,
                   alignContent: "center",
                   rowGap: 0,
                 }}
@@ -488,7 +523,7 @@ export const Timeline: React.FC = () => {
                 className="pointer-events-none absolute"
                 style={{
                   top: 0,
-                  left: hasClips ? "160px" : "0px",
+                  left: hasClips ? `${TIMELINE_TRACK_LABEL_WIDTH_PX}px` : "0px",
                   bottom: 0,
                   width: `${contentWidth}px`,
                   zIndex: 100,
@@ -499,7 +534,7 @@ export const Timeline: React.FC = () => {
 
               {/* Snap Guides - Vertical alignment indicators */}
               {snapGuides.map((guide, index) => {
-                const guideLeft = guide.time * pixelsPerSecond + (hasClips ? 160 : 0); // offset by label column width
+                const guideLeft = guide.time * pixelsPerSecond + getTimelineLabelColumnWidth(hasClips);
                 const guideColor = guide.type === "playhead" ? "var(--color-timeline-drop-indicator)" : "var(--color-snap-guide-clip)";
 
                 return (

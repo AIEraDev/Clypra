@@ -3,11 +3,11 @@ import { DEFAULT_FILMSTRIP_TILE_WIDTH_PX, computeFilmstripTileCount, generateFil
 import { SpatialTier } from "../renderEngine/types";
 
 describe("filmstripLayout", () => {
-  it("uses fixed readability tile widths per spatial tier", () => {
-    expect(getFilmstripTileWidthForTier(SpatialTier.L0)).toBe(48);
-    expect(getFilmstripTileWidthForTier(SpatialTier.L1)).toBe(72);
-    expect(getFilmstripTileWidthForTier(SpatialTier.L2)).toBe(96);
-    expect(getFilmstripTileWidthForTier(SpatialTier.L3)).toBe(128);
+  it("keeps visual tile width stable across spatial tiers", () => {
+    expect(getFilmstripTileWidthForTier(SpatialTier.L0)).toBe(DEFAULT_FILMSTRIP_TILE_WIDTH_PX);
+    expect(getFilmstripTileWidthForTier(SpatialTier.L1)).toBe(DEFAULT_FILMSTRIP_TILE_WIDTH_PX);
+    expect(getFilmstripTileWidthForTier(SpatialTier.L2)).toBe(DEFAULT_FILMSTRIP_TILE_WIDTH_PX);
+    expect(getFilmstripTileWidthForTier(SpatialTier.L3)).toBe(DEFAULT_FILMSTRIP_TILE_WIDTH_PX);
   });
 
   it("changes tile count, not tile width, when clip width changes", () => {

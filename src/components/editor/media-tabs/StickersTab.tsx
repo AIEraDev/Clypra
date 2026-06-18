@@ -10,7 +10,7 @@ import { STICKER_CATEGORIES, StickersApi, type StickerCategory, type StickerItem
 
 export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<StickerCategory>("trending");
+  const [activeCategory, setActiveCategory] = useState<StickerCategory>("emoji");
   const [stickers, setStickers] = useState<StickerItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

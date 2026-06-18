@@ -4,31 +4,38 @@
  * Browse and apply renderer-based effects from @clypra/engine
  */
 
-import React, { useState, useEffect } from "react";
-import { Download, Play, Plus, Info } from "lucide-react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { Download, Play, Plus, Search, Loader2, AlertCircle, Smile, Star } from "lucide-react";
 import { VideoEffectsApi } from "../api/videoEffectsApi";
-import { applyRendererEffectToClip } from "../utils/applyRendererEffect";
-import { getEffectMetadata, type EffectMetadata } from "@clypra/engine";
+import { type EffectMetadata } from "@clypra/engine";
 import type { EffectRenderer as EffectRendererType } from "@clypra/engine";
+import type { TabType } from "@/components/editor/media-tabs/types";
+import { useFavoritesStore } from "@/store/favoritesStore";
 
 interface RendererEffectsBrowserProps {
   onEffectSelect?: (effectId: EffectRendererType) => void;
-  selectedClipId?: string;
+  onAddToTimeline?: (item: any, type: TabType) => void;
   showApplyButton?: boolean;
 }
 
-export function RendererEffectsBrowser({ onEffectSelect, selectedClipId, showApplyButton = true }: RendererEffectsBrowserProps) {
-  const [selectedCategory, setSelectedCategory] = useState<string>("light");
+const VIDEO_EFFECT_CATEGORIES = [
+  { id: "essentials", name: "Essentials" },
+  { id: "glitch", name: "Glitch" },
+  { id: "retro", name: "Retro" },
+  { id: "light", name: "Light" },
+  { id: "motion", name: "Motion" },
+  { id: "color", name: "Color" },
+];
+
+export function RendererEffectsBrowser({ onEffectSelect, onAddToTimeline, showApplyButton = true }: RendererEffectsBrowserProps) {
+  const [selectedCategory, setSelectedCategory] = useState<string>("essentials");
   const [effects, setEffects] = useState<EffectMetadata[]>([]);
-  const [categories, setCategories] = useState<Array<{ id: string; name: string; icon: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const [downloadingPreviews, setDownloadingPreviews] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Load available categories from API
-  useEffect(() => {
-    loadCategories();
-  }, []);
+  const { favorites, downloadedEffects, downloadingIds, toggleFavorite, startDownload, completeDownload } = useFavoritesStore();
 
   // Load effects when category changes
   useEffect(() => {
@@ -36,41 +43,6 @@ export function RendererEffectsBrowser({ onEffectSelect, selectedClipId, showApp
       loadEffects();
     }
   }, [selectedCategory]);
-
-  const loadCategories = async () => {
-    try {
-      const manifest = await VideoEffectsApi.getVideoEffectsManifest();
-
-      // Map categories from manifest
-      const categoryIcons: Record<string, string> = {
-        camera: "🎥",
-        light: "💡",
-        blur: "🌫️",
-        style: "🎨",
-        distortion: "🌀",
-        time: "⏱️",
-        body: "🧍",
-      };
-
-      const availableCategories = manifest.categories.map((cat: any) => ({
-        id: cat.id,
-        name: cat.name,
-        icon: categoryIcons[cat.id] || "✨",
-      }));
-
-      setCategories(availableCategories);
-
-      // Set first category as selected if not already set
-      if (availableCategories.length > 0 && !selectedCategory) {
-        setSelectedCategory(availableCategories[0].id);
-      }
-    } catch (error) {
-      console.error("Failed to load categories:", error);
-      // Fallback to default light category
-      setCategories([{ id: "light", name: "Light", icon: "💡" }]);
-      setSelectedCategory("light");
-    }
-  };
 
   const loadEffects = async () => {
     setLoading(true);
@@ -128,9 +100,17 @@ export function RendererEffectsBrowser({ onEffectSelect, selectedClipId, showApp
   };
 
   const handleApplyEffect = (effectId: EffectRendererType) => {
-    if (selectedClipId) {
-      const metadata = getEffectMetadata(effectId as any);
-      applyRendererEffectToClip(selectedClipId, effectId, metadata?.defaultParams || {}, 0.8);
+    const effect = effects.find((e) => e.id === effectId);
+    if (onAddToTimeline && effect) {
+      onAddToTimeline(
+        {
+          id: effect.id,
+          name: effect.name,
+          renderer: effect.id,
+          params: effect.defaultParams || {},
+        },
+        "video-effects"
+      );
     }
 
     if (onEffectSelect) {
@@ -138,34 +118,86 @@ export function RendererEffectsBrowser({ onEffectSelect, selectedClipId, showApp
     }
   };
 
-  return (
-    <div className="flex flex-col h-full bg-zinc-950">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-zinc-800">
-        <h2 className="text-lg font-semibold text-white">Renderer Effects</h2>
-        <p className="text-xs text-zinc-400 mt-1">High-performance effects from @clypra/engine</p>
-      </div>
+  const handleDownloadAndApply = async (effect: any) => {
+    const itemId = effect.id;
+    if (downloadingIds.includes(itemId)) return;
 
-      {/* Category Tabs */}
-      <div className="flex gap-2 px-4 py-3 border-b border-zinc-800 overflow-x-auto">
-        {categories.map((cat) => (
-          <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${selectedCategory === cat.id ? "bg-purple-600 text-white" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`}>
-            <span className="mr-1">{cat.icon}</span>
-            {cat.name}
+    if (downloadedEffects.includes(itemId)) {
+      handleApplyEffect(itemId as EffectRendererType);
+      return;
+    }
+
+    startDownload(itemId);
+    setTimeout(() => {
+      completeDownload(itemId, "effect");
+      handleApplyEffect(itemId as EffectRendererType);
+    }, 650);
+  };
+
+  const filteredEffects = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return effects;
+    return effects.filter(
+      (effect) =>
+        effect.name.toLowerCase().includes(query) ||
+        (effect.description && effect.description.toLowerCase().includes(query)) ||
+        (effect.tags && effect.tags.some((tag) => tag.toLowerCase().includes(query)))
+    );
+  }, [effects, searchQuery]);
+
+  return (
+    <div className="flex flex-col h-full bg-transparent">
+      {/* Category Pills */}
+      <div className="flex gap-1 overflow-x-auto scrollbar-none border-b border-border p-1 shrink-0" style={{ scrollbarWidth: "none" }}>
+        {VIDEO_EFFECT_CATEGORIES.map((cat) => (
+          <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`shrink-0 cursor-pointer rounded px-2 py-1 text-[11px] font-semibold transition-colors flex items-center ${selectedCategory === cat.id ? "bg-accent text-white" : "text-text-muted hover:bg-surface-raised hover:text-text-primary"}`}>
+            <span>{cat.name}</span>
           </button>
         ))}
       </div>
 
+      {/* Search Bar */}
+      <div className="p-1 border-b border-border shrink-0">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <input type="text" placeholder="Search video effects..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-surface-raised border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent" />
+        </div>
+      </div>
+
       {/* Effects Grid */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-1.5 scrollbar-thin">
         {loading ? (
-          <div className="text-center text-zinc-400 py-8">Loading effects...</div>
-        ) : effects.length === 0 ? (
-          <div className="text-center text-zinc-400 py-8">No effects in this category yet</div>
+          <div className="flex items-center justify-center gap-2 py-10 text-xs text-text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading effects...
+          </div>
+        ) : filteredEffects.length === 0 ? (
+          <div className="rounded-lg border border-border bg-surface-raised/40 p-4 text-center">
+            <Smile className="mx-auto mb-2 h-5 w-5 text-text-muted" />
+            <p className="text-xs font-semibold text-text-primary">No effects found</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Try a different search or category</p>
+          </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {effects.map((effect) => (
-              <EffectCard key={effect.id} effect={effect} previewUrl={previewUrls[effect.id]} isDownloading={downloadingPreviews.has(effect.id)} onDownloadPreview={() => handleDownloadPreview(effect.id)} onApply={() => handleApplyEffect(effect.id as EffectRendererType)} showApplyButton={showApplyButton} />
+          <div className="grid grid-cols-3 gap-1.5">
+            {filteredEffects.map((effect) => (
+              <EffectCard
+                key={effect.id}
+                effect={effect}
+                previewUrl={previewUrls[effect.id]}
+                isFavorite={favorites.includes(effect.id)}
+                isDownloaded={downloadedEffects.includes(effect.id)}
+                isDownloading={downloadingIds.includes(effect.id)}
+                onFavorite={(e) => {
+                  e.stopPropagation();
+                  toggleFavorite(effect.id);
+                }}
+                onDownloadPreview={() => handleDownloadPreview(effect.id)}
+                onApply={(e) => {
+                  e.stopPropagation();
+                  handleDownloadAndApply(effect);
+                }}
+                showApplyButton={showApplyButton}
+              />
             ))}
           </div>
         )}
@@ -177,70 +209,126 @@ export function RendererEffectsBrowser({ onEffectSelect, selectedClipId, showApp
 interface EffectCardProps {
   effect: EffectMetadata;
   previewUrl?: string;
+  isFavorite: boolean;
+  isDownloaded: boolean;
   isDownloading: boolean;
+  onFavorite: (e: React.MouseEvent) => void;
   onDownloadPreview: () => void;
-  onApply: () => void;
+  onApply: (e: React.MouseEvent) => void;
   showApplyButton: boolean;
 }
 
-function EffectCard({ effect, previewUrl, isDownloading, onDownloadPreview, onApply, showApplyButton }: EffectCardProps) {
-  const [isPlaying, setIsPlaying] = useState(false);
+function EffectCard({
+  effect,
+  previewUrl,
+  isFavorite,
+  isDownloaded,
+  isDownloading,
+  onFavorite,
+  onDownloadPreview,
+  onApply,
+  showApplyButton,
+}: EffectCardProps) {
+  const [isHovered, setIsHovered] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      if (isHovered && previewUrl) {
+        videoRef.current.play().catch(() => {});
+      } else {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+      }
+    }
+  }, [isHovered, previewUrl]);
 
   return (
-    <div className="bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 hover:border-zinc-700 transition-colors">
-      {/* Preview */}
-      <div className="relative aspect-video bg-zinc-800">
+    <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-raised/80 border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group cursor-pointer shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+    >
+      {/* Downloading Overlay */}
+      {isDownloading && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-8 h-8 rounded-full border-3 border-accent border-t-transparent animate-spin" />
+            <span className="text-[10px] font-semibold text-accent">Downloading...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Favorite Star (hover show or active) */}
+      <button
+        onClick={onFavorite}
+        className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${
+          isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"
+        }`}
+      >
+        <Star className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`} />
+      </button>
+
+      {/* Preview Content: Video on hover, or Category Emoji */}
+      <div className="flex-1 flex items-center justify-center w-full select-none relative overflow-hidden rounded-lg">
         {previewUrl ? (
-          <video src={previewUrl} loop muted playsInline className="w-full h-full object-cover" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} />
+          <video
+            ref={videoRef}
+            src={previewUrl}
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover rounded-lg"
+          />
         ) : (
-          <div className="flex items-center justify-center h-full text-zinc-600">
-            <span className="text-4xl">{getCategoryIcon(effect.category)}</span>
+          <div className="flex flex-col items-center justify-center h-full w-full bg-linear-to-br from-accent/10 to-accent/0 text-center rounded-lg p-2">
+            <span className="text-4xl filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.3)] group-hover:scale-[1.05] transition-transform duration-300">
+              {getCategoryIcon(effect.category)}
+            </span>
           </div>
         )}
 
-        {/* Overlay Controls */}
-        <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 hover:opacity-100 transition-opacity bg-black/50">
-          {previewUrl ? (
+        {/* Hover overlay if not downloaded yet */}
+        {!previewUrl && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
             <button
-              onClick={() => {
-                const video = document.querySelector(`video[src="${previewUrl}"]`) as HTMLVideoElement;
-                if (video) {
-                  isPlaying ? video.pause() : video.play();
-                }
+              onClick={(e) => {
+                e.stopPropagation();
+                onDownloadPreview();
               }}
-              className="p-2 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-colors"
+              className="p-1.5 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 text-white transition-colors"
+              title="Download animated preview"
             >
-              <Play size={16} className="text-white" />
+              <Download size={12} />
             </button>
-          ) : (
-            <button onClick={onDownloadPreview} disabled={isDownloading} className="p-2 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-colors disabled:opacity-50">
-              {isDownloading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Download size={16} className="text-white" />}
-            </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Info */}
-      <div className="p-3">
-        <h3 className="font-medium text-white text-sm">{effect.name}</h3>
-        <p className="text-xs text-zinc-400 mt-1 line-clamp-2">{effect.description}</p>
-
-        {/* Tags */}
-        {effect.tags && effect.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
-            {effect.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="px-1.5 py-0.5 bg-zinc-800 text-zinc-400 text-xs rounded">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Apply Button */}
+      {/* Footer Info / Apply Button */}
+      <div className="flex items-center justify-between w-full mt-0.5 z-10 px-0.5">
+        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]" title={effect.name}>
+          {effect.name}
+        </span>
         {showApplyButton && (
-          <button onClick={onApply} className="w-full mt-3 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
-            <Plus size={14} />
-            Apply Effect
+          <button
+            onClick={onApply}
+            disabled={isDownloading}
+            className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${
+              isDownloaded
+                ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer"
+                : isDownloading
+                ? "bg-accent/20 border border-accent cursor-wait"
+                : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"
+            }`}
+          >
+            {isDownloading ? (
+              <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            ) : isDownloaded ? (
+              <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" />
+            ) : (
+              <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />
+            )}
           </button>
         )}
       </div>
@@ -257,6 +345,12 @@ function getCategoryIcon(category: string): string {
     distortion: "🌀",
     time: "⏱️",
     body: "🧍",
+    essentials: "✨",
+    glitch: "📺",
+    retro: "📼",
+    motion: "🌀",
+    color: "🎨",
   };
-  return icons[category] || "✨";
+  return icons[category.toLowerCase()] || icons[category] || "✨";
 }
+

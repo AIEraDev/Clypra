@@ -1,4 +1,11 @@
-export type AudioLibraryCategory = "music" | "lo-fi" | "chill" | "cinematic" | "epic" | "upbeat" | "corporate" | "hip-hop" | "trap" | "electronic" | "synth" | "acoustic" | "indie" | "jazz" | "soul" | "ambient" | "background" | "sfx" | "transition" | "impact" | "ui" | "notifications" | "voice";
+export type AudioLibraryCategory =
+  | "music" // catch-all browsable music library — the primary tab
+  | "cinematic" // YouTube creators, vlogs, montages — highest demand
+  | "upbeat" // social content, reels, highlights — second highest demand
+  | "lo-fi" // study/productivity content — massive creator niche
+  | "hip-hop" // most requested genre globally on CapCut
+  | "ambient" // background for talking-head/interview content
+  | "sfx"; // sound effects — non-negotiable, every editor needs this
 
 export interface AudioLibraryItem {
   id: string;
@@ -29,7 +36,7 @@ import { getApiHeaders, getApiBaseUrl } from "@/lib/api";
 
 const BASE = getApiBaseUrl();
 
-export const AUDIO_LIBRARY_CATEGORIES: AudioLibraryCategory[] = ["music", "lo-fi", "chill", "cinematic", "epic", "upbeat", "corporate", "hip-hop", "trap", "electronic", "synth", "acoustic", "indie", "jazz", "soul", "ambient", "background", "sfx", "transition", "impact", "ui", "notifications", "voice"];
+export const AUDIO_LIBRARY_CATEGORIES: AudioLibraryCategory[] = ["music", "cinematic", "upbeat", "lo-fi", "hip-hop", "ambient", "sfx"];
 
 export const AudioLibraryApi = {
   async getAudioIndex(): Promise<AudioLibraryItem[]> {

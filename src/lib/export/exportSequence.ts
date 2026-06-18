@@ -98,14 +98,16 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
 
   const startTimeMs = Date.now();
 
-  // Calculate frame times
-  const frameDuration = 1 / frameRate;
+  // Calculate frame times using integer frame arithmetic (prevents float accumulation)
+  // This matches the approach in videoExport.ts for consistency
+  const totalFrames = Math.round((endTime - startTime) * frameRate);
   const frameTimes: number[] = [];
-  for (let time = startTime; time < endTime; time += frameDuration) {
-    frameTimes.push(time);
-  }
+  const startFrameIndex = Math.round(startTime * frameRate);
 
-  const totalFrames = frameTimes.length;
+  for (let i = 0; i < totalFrames; i++) {
+    const frameIndex = startFrameIndex + i;
+    frameTimes.push(frameIndex / frameRate);
+  }
 
   if (totalFrames === 0) {
     return {
