@@ -36,7 +36,7 @@
   "dependencies": {
     "@capacitor/core": "^8.4.0",
     "@capacitor/filesystem": "^8.1.2",
-    "@clypra/engine": "^1.15.1",
+    "@clypra/engine": "1.17.0",
     "@fontsource-variable/dancing-script": "^5.2.8",
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/inter": "^5.2.8",
