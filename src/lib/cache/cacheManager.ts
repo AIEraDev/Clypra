@@ -22,6 +22,18 @@ export interface CacheStats {
 
 const isTauri = () => typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
 
+const clearBrowserStorage = (storage: Storage) => {
+  if (typeof Storage !== "undefined" && Storage.prototype.clear) {
+    try {
+      Storage.prototype.clear.call(storage);
+      return;
+    } catch {
+      // Fall back for nonstandard test/runtime storage shims.
+    }
+  }
+  storage.clear();
+};
+
 export class CacheManager {
   /**
    * Clear the entire Tauri app cache directory
@@ -115,7 +127,7 @@ export class CacheManager {
   static clearLocalStorage(): { success: boolean; error?: string } {
     try {
       const itemCount = localStorage.length;
-      localStorage.clear();
+      clearBrowserStorage(localStorage);
       return { success: true };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -130,7 +142,7 @@ export class CacheManager {
   static clearSessionStorage(): { success: boolean; error?: string } {
     try {
       const itemCount = sessionStorage.length;
-      sessionStorage.clear();
+      clearBrowserStorage(sessionStorage);
       return { success: true };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

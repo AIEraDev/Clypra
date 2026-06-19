@@ -1,5 +1,5 @@
 // Deprecated methods used across the system
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { LaunchScreen } from "@/components/screens/LaunchScreen";
 import { EditorScreen } from "@/components/screens/EditorScreen";
 import { TooltipProvider } from "@/components/ui/Tooltip";
@@ -13,7 +13,7 @@ import { SettingsModal } from "./components/ui/SettingsModal";
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
 const App = () => {
-  const { project, createProject, loadProject, setRecentProjects } = useProjectStore();
+  const { project, createProject, loadProject, recentProjects, setRecentProjects } = useProjectStore();
   const [isLoading, setIsLoading] = useState(true);
   const { showSettingsModal, toggleSettingsModal } = useUIStore();
 
@@ -66,7 +66,7 @@ const App = () => {
     createProject(name, aspectRatio, frameRate);
   };
 
-  const handleOpenProject = async (proj: Project) => {
+  const handleOpenProject = useCallback(async (proj: Project) => {
     try {
       useUIStore.getState().exitSourceMode();
 
@@ -112,7 +112,28 @@ const App = () => {
       console.error("[OpenProject] Failed to open project:", error);
       useProjectStore.getState().showToast("Failed to open project", "error");
     }
-  };
+  }, [loadProject]);
+
+  useEffect(() => {
+    if (isLoading || project) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get("openProject") || sessionStorage.getItem("clypra_open_project_after_seed");
+    if (!projectId) return;
+
+    const targetProject = recentProjects.find((recentProject) => recentProject.id === projectId);
+    if (!targetProject) return;
+
+    sessionStorage.removeItem("clypra_open_project_after_seed");
+
+    if (params.has("openProject")) {
+      params.delete("openProject");
+      const nextQuery = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`);
+    }
+
+    void handleOpenProject(targetProject);
+  }, [handleOpenProject, isLoading, project, recentProjects]);
 
   if (isLoading) {
     return (

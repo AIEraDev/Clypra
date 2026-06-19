@@ -1,7 +1,8 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { PlatformInterface, VideoMetadata, SelectedFile } from "../platform";
 
-const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("https://");
+const isExternalOrDataUrl = (value: string) =>
+  value.startsWith("data:") || value.startsWith("http://") || value.startsWith("https://") || value.startsWith("asset://");
 
 export class TauriPlatformAdapter implements PlatformInterface {
   type = "tauri" as const;

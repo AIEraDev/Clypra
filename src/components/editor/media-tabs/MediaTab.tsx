@@ -1,7 +1,5 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { CloudUpload } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
-import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -15,11 +13,12 @@ import { useHistoryStore } from "@/store/historyStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { RippleDeleteCommand } from "@/core/history/commands/RippleDeleteCommand";
 import { DeleteClipCommand } from "@/core/history/commands/DeleteClipCommand";
-import type { VideoMetadata } from "@/types";
+import type { VideoMetadata } from "@/core/platform";
 import type { MediaTabProps } from "./types";
 import { generateId } from "@/lib/utils/id";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { MediaCard } from "@/components/ui/MediaCard";
+import { platform } from "@/core/platform";
 
 export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
   const { mediaAssets, removeMediaAsset, addMediaAsset } = useProjectStore();
@@ -57,9 +56,9 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
 
           // Import new asset
           if (type === "video" || type === "audio") {
-            const metadata: VideoMetadata = await invoke("get_video_metadata", { path: filePath });
+            const metadata: VideoMetadata = await platform.getMediaMetadata(filePath);
             // Use extract_poster_frame_command which extracts at 10% of duration (avoids black frames at 0s)
-            const posterFrame: string | undefined = type === "video" ? ((await invoke("extract_poster_frame_command", { videoPath: filePath, duration: metadata.duration, dpr: window.devicePixelRatio || 1.0 }).catch(() => undefined)) as string | undefined) : undefined;
+            const posterFrame: string | undefined = type === "video" ? await platform.extractPosterFrame(filePath, metadata.duration, window.devicePixelRatio || 1.0).catch(() => undefined) : undefined;
 
             const asset = {
               id: generateId("asset"),
@@ -70,7 +69,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
               width: metadata.width,
               height: metadata.height,
               posterFrame,
-              size: metadata.size,
+              size: (metadata as any).size ?? 0,
             };
 
             addMediaAsset(asset);
@@ -82,7 +81,7 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
               type: "image" as const,
               duration: 0,
               size: 0,
-              posterFrame: convertFileSrc(filePath),
+              posterFrame: platform.convertFileSrc(filePath),
             };
 
             addMediaAsset(asset);

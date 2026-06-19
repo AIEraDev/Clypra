@@ -16,7 +16,10 @@
  */
 
 import type { Clip, MediaAsset } from "@/types";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { platform } from "@/core/platform";
+
+const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http://") || value.startsWith("https://") || value.startsWith("asset://") || value.startsWith("blob:");
+const toMediaElementSrc = (value: string) => (isExternalOrDataUrl(value) ? value : platform.convertFileSrc(value));
 
 export interface PreviewSyncState {
   /** Current playback time (seconds) */
@@ -171,7 +174,7 @@ export class PreviewMediaPool {
       if (track?.visible === false) continue;
 
       const key = `${clip.id}-${clip.mediaId}`;
-      const sourcePath = asset.path.startsWith("asset://") ? asset.path : convertFileSrc(asset.path);
+      const sourcePath = toMediaElementSrc(asset.path);
 
       let managed = this.videos.get(key);
       if (!managed) {
@@ -201,7 +204,7 @@ export class PreviewMediaPool {
 
       const rawPath = asset ? asset.path : directAudioPath!;
       const key = `${clip.id}-${clip.mediaId}`;
-      const sourcePath = rawPath.startsWith("asset://") ? rawPath : convertFileSrc(rawPath);
+      const sourcePath = toMediaElementSrc(rawPath);
 
       let managed = this.audios.get(key);
       if (!managed) {

@@ -29,6 +29,10 @@ export const EditorLayout: React.FC = () => {
     return <MobileEditorLayout />;
   }
 
+  return <DesktopEditorLayout />;
+};
+
+const DesktopEditorLayout: React.FC = () => {
   // Only subscribe to actions, not state - prevents re-renders when clips/tracks change
   const addClip = useTimelineStore((s) => s.addClip);
   const updateClip = useTimelineStore((s) => s.updateClip);

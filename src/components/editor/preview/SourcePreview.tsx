@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, X, RotateCcw, Play, Loader2 } from "lucide-react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { platform } from "@/core/platform";
 import { useUIStore } from "@/store/uiStore";
 import { usePreviewMode } from "@/hooks/usePreviewMode";
 import { getInsertIndexForNewTrack, useTimelineStore } from "@/store/timelineStore";
@@ -21,7 +21,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { TemplatePreviewPlayer, type TemplatePreviewPlayerHandle } from "@/features/text-templates";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 
-const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
+const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http://") || value.startsWith("https://") || value.startsWith("asset://") || value.startsWith("blob:");
 
 // GPU preview for scrubbing only (precise frame-accurate seeking)
 // Use HTML5 video for playback (hardware decode, buffering, smooth playback)
@@ -441,7 +441,7 @@ export const SourcePreview: React.FC = () => {
   const hasMarks = sourceInPoint !== null || sourceOutPoint !== null;
   const hasCompleteMarks = sourceInPoint !== null && sourceOutPoint !== null;
 
-  const sourcePath = sourceAsset.path ? (isExternalOrDataUrl(sourceAsset.path) ? sourceAsset.path : convertFileSrc(sourceAsset.path)) : "";
+  const sourcePath = sourceAsset.path ? (isExternalOrDataUrl(sourceAsset.path) ? sourceAsset.path : platform.convertFileSrc(sourceAsset.path)) : "";
   const mediaLabel = sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
 
   return (

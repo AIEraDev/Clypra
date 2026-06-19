@@ -75,6 +75,7 @@ pub fn run() {
             list_downloaded_models,
             cancel_whisper_download,
             verify_whisper_model_exists,
+            analyze_viral_cuts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
