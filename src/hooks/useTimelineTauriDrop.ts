@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback, useRef, RefObject } from "react";
 import { useDragLayer } from "react-dnd";
 import { listen } from "@tauri-apps/api/event";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { generateId } from "@/lib/utils/id";
-import type { VideoMetadata } from "@/types";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
 import { autoAdaptSequenceForFirstVisualClip } from "@/lib/sequence/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime, resolvePreferredTrackId, resolveTargetTrackType } from "@/lib/timeline/placementPolicy";
+import { platform, type VideoMetadata } from "@/core/platform";
 
 const getMediaType = (path: string): "video" | "audio" | "image" => {
   const lower = path.toLowerCase();
@@ -52,8 +51,8 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
           if (!asset) {
             // Import new asset
             if (type === "video" || type === "audio") {
-              const metadata: VideoMetadata = await invoke("get_video_metadata", { path: filePath });
-              const posterFrame: string | undefined = type === "video" ? ((await invoke("extract_poster_frame", { path: filePath, time: 0.0 }).catch(() => undefined)) as string | undefined) : undefined;
+              const metadata: VideoMetadata = await platform.getMediaMetadata(filePath);
+              const posterFrame: string | undefined = type === "video" ? await platform.extractPosterFrame(filePath, metadata.duration, window.devicePixelRatio || 1.0).catch(() => undefined) : undefined;
 
               asset = {
                 id: generateId("asset"),
@@ -64,7 +63,7 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
                 width: metadata.width,
                 height: metadata.height,
                 posterFrame,
-                size: metadata.size,
+                size: (metadata as any).size ?? 0,
               };
             } else {
               asset = {
@@ -74,7 +73,7 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
                 type: "image" as const,
                 duration: 0,
                 size: 0,
-                posterFrame: convertFileSrc(filePath),
+                posterFrame: platform.convertFileSrc(filePath),
               };
             }
 
@@ -131,6 +130,8 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
 
   // Listen for drag events and handle file drops
   useEffect(() => {
+    if (!platform.isTauri()) return;
+
     let unlistenHover: (() => void) | undefined;
     let unlistenDrop: (() => void) | undefined;
     let unlistenCancel: (() => void) | undefined;

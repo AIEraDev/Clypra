@@ -16,6 +16,11 @@ import { SpatialTier, SPATIAL_TIER_DIMS } from "./types";
 import type { RenderEpochId } from "./types";
 import { generateId } from "@/lib/utils/id";
 
+const canUseNativeTransport = () => {
+  if (import.meta.env.MODE === "test") return true;
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+};
+
 // ─── SAB Detection ────────────────────────────────────────────────────────────
 
 /**
@@ -159,6 +164,11 @@ export interface RequestRenderArtifactsOptions {
 export function requestRenderArtifacts(opts: RequestRenderArtifactsOptions): () => void {
   const { videoPath, timestampMs, spatialTiers, epochId, clipId, onArtifact, onComplete, onError } = opts;
 
+  if (!canUseNativeTransport()) {
+    onComplete?.();
+    return () => {};
+  }
+
   let cancelled = false;
   const cancel = () => {
     cancelled = true;
@@ -228,6 +238,11 @@ export interface RequestBatchArtifactsOptions {
  */
 export function requestBatchArtifacts(opts: RequestBatchArtifactsOptions): () => void {
   const { videoPath, timestampsMs, spatialTiers, epochId, clipId, onArtifact, onComplete, onError, concurrency = 4 } = opts;
+
+  if (!canUseNativeTransport()) {
+    onComplete?.();
+    return () => {};
+  }
 
   if (timestampsMs.length === 0) {
     onComplete?.();
@@ -309,6 +324,11 @@ export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOpt
   const { videoPath, timestampsMs, spatialTiers, epochId, clipId, onArtifact, onComplete, onError, requestId } = opts;
 
   const reqId = requestId || generateId("req");
+
+  if (!canUseNativeTransport()) {
+    onComplete?.();
+    return () => {};
+  }
 
   if (timestampsMs.length === 0) {
     onComplete?.();

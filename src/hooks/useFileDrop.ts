@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { platform } from "@/core/platform";
 
 interface UseFileDropOptions {
   onDrop: (paths: string[]) => Promise<void>;
@@ -17,7 +17,7 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
   const isProcessingRef = useRef(false);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !platform.isTauri()) return;
 
     let unlisten: (() => void) | undefined;
     let isMounted = true;

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Music, Smile, Wand2, MessageSquare, Filter, Shuffle } from "lucide-react";
-import { MediaTab, AudioTab, TextTab, StickersTab, FiltersTab, TransitionsTab, CaptionsTab, type TabType, MediaTabProps } from "../media-tabs";
+import { Music, Smile, Wand2, MessageSquare, Filter, Shuffle, Scissors } from "lucide-react";
+import { MediaTab, ViralCutsTab, AudioTab, TextTab, StickersTab, FiltersTab, TransitionsTab, CaptionsTab, type TabType, MediaTabProps } from "../media-tabs";
 import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
 import { TextIcon, YouTubeIcon } from "../../ui/icons";
 
@@ -13,6 +13,7 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, i
 
   const tabs = [
     { id: "media" as const, icon: YouTubeIcon, label: "Media" },
+    { id: "cuts" as const, icon: Scissors, label: "Cuts" },
     { id: "audio" as const, icon: Music, label: "Audio" },
     { id: "text" as const, icon: TextIcon, label: "Text" },
     { id: "stickers" as const, icon: Smile, label: "Stickers" },
@@ -49,6 +50,7 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, i
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden flex flex-col">
         {activeTab === "media" && <MediaTab onAddToTimeline={onAddToTimeline} />}
+        {activeTab === "cuts" && <ViralCutsTab />}
         {activeTab === "audio" && <AudioTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "text" && <TextTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "stickers" && <StickersTab onAddToTimeline={onAddToTimeline} />}

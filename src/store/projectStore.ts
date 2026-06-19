@@ -32,6 +32,7 @@ import { convertRawConfigToDefinition } from "@/features/text-effects/lib/defini
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { calculateTextClipSize } from "@/lib/text/textClip";
 import { useSettingsStore } from "./settingsStore";
+import { platform } from "@/core/platform";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
 interface ProjectStore {
@@ -315,8 +316,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   renameProject: async (projectId, newName) => {
     const sanitizedName = sanitizeProjectName(newName);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("rename_project", { projectId, newName: sanitizedName });
+      await platform.renameProject(projectId, sanitizedName);
 
       // Update in recent projects list
       set((state) => ({
@@ -340,8 +340,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   deleteProject: async (projectId) => {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("delete_project", { projectId });
+      await platform.deleteProject(projectId);
 
       // Remove from recent projects list
       set((state) => ({
@@ -374,10 +373,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           // Convert camelCase to snake_case using centralized serialization
           const rustProject = toRustProject(project, { tracks, clips, transitions, gaps, mediaAssets });
 
-          const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("save_project", {
-            projectData: JSON.stringify(rustProject),
-          });
+          await platform.saveProject(JSON.stringify(rustProject));
 
           get().showToast("Project saved");
         } catch (error) {
@@ -428,10 +424,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // Convert camelCase to snake_case using centralized serialization
         const rustProject = toRustProject(project, { tracks, clips, transitions, gaps, mediaAssets });
 
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("save_project", {
-          projectData: JSON.stringify(rustProject),
-        });
+        await platform.saveProject(JSON.stringify(rustProject));
         get().showToast("Project saved");
       } catch (error) {
         console.error("[AutoSave] Failed to save project:", error);

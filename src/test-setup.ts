@@ -15,6 +15,51 @@ afterEach(() => {
   cleanup();
 });
 
+const createMemoryStorage = (): Storage => {
+  const store = new Map<string, string>();
+  return {
+    get length() {
+      return store.size;
+    },
+    clear: () => store.clear(),
+    getItem: (key: string) => store.get(key) ?? null,
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+  };
+};
+
+const ensureStorage = (key: "localStorage" | "sessionStorage") => {
+  if (typeof window.Storage !== "undefined") {
+    Object.defineProperty(globalThis, "Storage", {
+      configurable: true,
+      value: window.Storage,
+    });
+  }
+
+  try {
+    window[key].setItem("__storage_test__", "1");
+    window[key].removeItem("__storage_test__");
+  } catch {
+    Object.defineProperty(window, key, {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
+  }
+
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    value: window[key],
+  });
+};
+
+ensureStorage("localStorage");
+ensureStorage("sessionStorage");
+
 // Mock AudioContext for tests
 class MockAudioContext {
   currentTime = 0;
