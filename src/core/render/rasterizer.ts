@@ -1112,20 +1112,53 @@ async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanva
       for (const tLayer of template.layers) {
         if (tLayer.kind === "text") {
           const changes: any = {};
-          if (tLayer.role === "primary") {
+          
+          // 1. Text content override or role-based default
+          if (customization.layerTexts && customization.layerTexts[tLayer.id] !== undefined) {
+            changes.content = customization.layerTexts[tLayer.id];
+          } else if (tLayer.role === "primary") {
             changes.content = customization.primaryText;
-            if (customization.primaryColor) changes.color = customization.primaryColor;
           } else if (tLayer.role === "secondary") {
             changes.content = customization.secondaryText ?? "";
-            if (customization.secondaryColor) changes.color = customization.secondaryColor;
           } else if (tLayer.role === "accent") {
             changes.content = customization.accentText ?? "";
           }
+
+          // 2. Color override or role-based default
+          if (customization.layerColors && customization.layerColors[tLayer.id] !== undefined) {
+            changes.color = customization.layerColors[tLayer.id];
+          } else if (tLayer.role === "primary" && customization.primaryColor) {
+            changes.color = customization.primaryColor;
+          } else if (tLayer.role === "secondary" && customization.secondaryColor) {
+            changes.color = customization.secondaryColor;
+          }
+
+          // 3. Font Size override
+          if (customization.layerFontSizes && customization.layerFontSizes[tLayer.id] !== undefined) {
+            changes.fontSize = customization.layerFontSizes[tLayer.id];
+          }
+
+          // 4. Font Weight override
+          if (customization.layerFontWeights && customization.layerFontWeights[tLayer.id] !== undefined) {
+            changes.fontWeight = customization.layerFontWeights[tLayer.id];
+          }
+
           renderer.updateLayer(tLayer.id, changes);
         } else if (tLayer.kind === "shape") {
-          const colorOverride = tLayer.id === "primary-fill-layer" ? customization.primaryColor : tLayer.id === "secondary-fill-layer" ? customization.secondaryColor : undefined;
-          if (colorOverride) {
-            renderer.updateLayer(tLayer.id, { fill: colorOverride });
+          const changes: any = {};
+          
+          // Color override or role-based default
+          if (customization.layerColors && customization.layerColors[tLayer.id] !== undefined) {
+            changes.fill = customization.layerColors[tLayer.id];
+          } else {
+            const colorOverride = tLayer.id === "primary-fill-layer" ? customization.primaryColor : tLayer.id === "secondary-fill-layer" ? customization.secondaryColor : undefined;
+            if (colorOverride) {
+              changes.fill = colorOverride;
+            }
+          }
+          
+          if (Object.keys(changes).length > 0) {
+            renderer.updateLayer(tLayer.id, changes);
           }
         }
       }

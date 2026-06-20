@@ -11,6 +11,10 @@ export { TransformSection } from "./TransformSection";
 export { AudioSection } from "./AudioSection";
 export { TextAnimationControls } from "./TextAnimationControls";
 export { EffectsFiltersSection } from "./EffectsFiltersSection";
+export { TextModeSelector } from "./TextModeSelector";
+export { EffectStylePanel } from "./EffectStylePanel";
+export { TemplateLayerEditor } from "./TemplateLayerEditor";
+
 
 // Shared primitives
 export { PropertySlider } from "./primitives/PropertySlider";
