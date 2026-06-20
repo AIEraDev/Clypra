@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Search, Smile, Download, Loader2, Sparkles, AlertCircle, CheckCircle, Plus } from "lucide-react";
+import { Smile, Loader2, Sparkles, AlertCircle, Plus, Download } from "lucide-react";
 import { NetworkError } from "@/components/ui/NetworkError";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { useUIStore } from "@/store/uiStore";
 import type { MediaAsset } from "@/types";
@@ -101,14 +100,6 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         ))}
       </div>
 
-      {/* Search Bar - Same as AudioTab */}
-      {/* <div className="p-1 border-b border-border">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-          <input type="text" placeholder="Search stickers..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-surface-raised border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent" />
-        </div>
-      </div> */}
-
       {/* Content Area - Same pattern as AudioTab */}
       <div className="flex-1 overflow-y-auto scrollbar-thin p-1 space-y-2">
         {loading && (
@@ -147,34 +138,48 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   );
 };
 
-// StickerCard Component - Following AudioItem pattern with animation support
+// StickerCard Component - Lottie-only with .webm preview on hover
 const StickerCard: React.FC<{ sticker: StickerItem; onAddToTimeline?: (item: any, type: any) => void }> = ({ sticker, onAddToTimeline }) => {
   const [imageError, setImageError] = useState(false);
-  const [showAnimation, setShowAnimation] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [lottieData, setLottieData] = useState<any>(null);
 
-  const { getDownloadState, startDownload, isDownloaded } = useStickersStore();
+  const { getDownloadState, startDownload, isDownloaded, getCachedSticker } = useStickersStore();
   const { previewAsset } = useUIStore();
 
   const downloadState = getDownloadState(sticker.id);
   const isDownloadedFlag = isDownloaded(sticker.id);
+  const cachedSticker = getCachedSticker(sticker.id);
 
   const isDownloading = downloadState?.status === "downloading";
 
-  // Use animated version on hover if available
-  const displayUrl = showAnimation && sticker.animatedUrl ? sticker.animatedUrl : sticker.thumbnailUrl;
+  // Load Lottie JSON data if sticker is cached
+  useEffect(() => {
+    if (cachedSticker && cachedSticker.lottieData) {
+      setLottieData(cachedSticker.lottieData);
+    }
+  }, [cachedSticker]);
 
   const handlePreview = async () => {
+    // Download full Lottie JSON if not already cached
+    if (!isDownloadedFlag) {
+      try {
+        await startDownload(sticker);
+      } catch (error) {
+        console.error("[StickerCard] Download failed during preview:", error);
+        return;
+      }
+    }
+
+    // Now show preview with the cached file
     try {
-      const cachedFile = await startDownload(sticker);
-      const appCache = await import("@tauri-apps/api/path").then((m) => m.appCacheDir());
-
-      const targetPath = cachedFile.format === "lottie" ? cachedFile.localAnimationPath : cachedFile.format === "gif" ? cachedFile.localAnimationPath : cachedFile.localImagePath;
-
-      if (!targetPath) {
-        throw new Error("Missing cached file path");
+      const cached = getCachedSticker(sticker.id);
+      if (!cached) {
+        throw new Error("Cached sticker not found after download");
       }
 
-      const absolutePath = await import("@tauri-apps/api/path").then((m) => m.join(appCache, targetPath));
+      const appCache = await import("@tauri-apps/api/path").then((m) => m.appCacheDir());
+      const absolutePath = await import("@tauri-apps/api/path").then((m) => m.join(appCache, cached.localAnimationPath));
 
       const mediaAsset: MediaAsset = {
         id: `sticker-${sticker.id}`,
@@ -193,61 +198,63 @@ const StickerCard: React.FC<{ sticker: StickerItem; onAddToTimeline?: (item: any
 
   const handleAddToTimeline = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    try {
-      await startDownload(sticker);
-      onAddToTimeline?.(sticker, "stickers");
-    } catch (error) {
-      console.error("[StickerCard] Add to timeline failed:", error);
+
+    // Ensure sticker is downloaded before adding to timeline
+    if (!isDownloadedFlag) {
+      try {
+        await startDownload(sticker);
+      } catch (error) {
+        console.error("[StickerCard] Add to timeline failed:", error);
+        return;
+      }
     }
+
+    // Now add to timeline with cached data
+    onAddToTimeline?.(sticker, "stickers");
   };
 
   return (
-    <div className="group relative aspect-square bg-surface-raised hover:bg-surface-raised/60 rounded-lg overflow-hidden transition-all border border-border hover:border-accent/30 cursor-pointer" onClick={handlePreview} onMouseEnter={() => setShowAnimation(true)} onMouseLeave={() => setShowAnimation(false)}>
-      {/* Premium Badge */}
-      {sticker.isPremium && (
-        <div className="absolute top-2 left-2 z-10">
-          <div className="bg-linear-to-r from-purple-500 to-pink-500 rounded-full p-1">
-            <Sparkles className="w-3 h-3 text-white" />
-          </div>
-        </div>
-      )}
-
-      {/* Cached Indicator */}
-      {isDownloadedFlag && !isDownloading && (
-        <div className="absolute top-2 right-2 z-10">
-          <div className="bg-green-500 rounded-full p-0.5 shadow-md">
-            <CheckCircle className="w-3 h-3 text-white" />
-          </div>
-        </div>
-      )}
-
-      {/* Downloading Overlay */}
+    <div onClick={handlePreview} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} className="w-full aspect-square bg-surface-raised/40 hover:bg-surface-raised/80 border border-border/40 hover:border-accent/40 rounded-xl relative overflow-hidden flex flex-col justify-between p-1 transition-all duration-300 group cursor-pointer shadow-[0_4px_16px_rgba(0,0,0,0.3)]">
+      {/* Downloading Overlay - Same as TemplateCard */}
       {isDownloading && (
-        <div className="absolute inset-0 bg-black/60 z-10 flex flex-col items-center justify-center gap-1">
-          <Loader2 className="w-5 h-5 text-accent animate-spin" />
-          <span className="text-[10px] text-accent font-semibold">{downloadState?.progress || 0}%</span>
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-8 h-8 rounded-full border-3 border-accent border-t-transparent animate-spin" />
+            <span className="text-[10px] font-semibold text-accent">{downloadState?.progress || 0}%</span>
+          </div>
         </div>
       )}
 
-      {/* Image or Fallback */}
-      {displayUrl && !imageError ? <img src={displayUrl} alt={sticker.name} className="w-full h-full object-contain p-3" onError={() => setImageError(true)} /> : <div className="w-full h-full flex items-center justify-center text-5xl">{sticker.name.includes("Heart") ? "❤️" : sticker.name.includes("Star") ? "⭐" : sticker.name.includes("Circle") ? "⭕" : "🎨"}</div>}
+      {/* Premium Badge - top-left, appears on hover like favorite star */}
+      {sticker.isPremium && (
+        <button className={`absolute top-1 left-1 p-1 rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 transition-all duration-200 z-10 ${isHovered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
+          <Sparkles className="w-3 h-3 text-purple-400" />
+        </button>
+      )}
 
-      {/* Add to Timeline Button on Hover */}
-      <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={handleAddToTimeline} disabled={isDownloading} className="bg-accent hover:bg-accent/80 cursor-pointer rounded-full p-1.5 shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              <Plus className="w-4 h-4 text-white" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{isDownloadedFlag ? "Add to Timeline" : "Download & Add"}</p>
-          </TooltipContent>
-        </Tooltip>
+      {/* Preview area - with hover scale animation like TemplateCard */}
+      <div className="flex-1 flex items-center justify-center w-full select-none relative overflow-hidden transition-transform duration-500 ease-out group-hover:scale-[1.05]">
+        {/* Video Preview (shown on hover) - plays .webm without downloading Lottie JSON */}
+        <video src={sticker.preview} autoPlay={isHovered} loop muted playsInline className={`max-w-full max-h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] select-none pointer-events-none transition-opacity duration-300 absolute inset-0 m-auto ${isHovered ? "opacity-100 z-10" : "opacity-0 z-0"}`} />
+
+        {/* Static Thumbnail */}
+        {!imageError ? (
+          <img src={sticker.thumbnailUrl} alt={sticker.name} className={`max-w-full max-h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] select-none pointer-events-none transition-opacity duration-300 absolute inset-0 m-auto ${isHovered ? "opacity-0 z-0" : "opacity-100 z-10"}`} onError={() => setImageError(true)} />
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-1 text-text-muted">
+            <span className="text-2xl">🎨</span>
+            <span className="text-[9px] font-medium">{sticker.name}</span>
+          </div>
+        )}
       </div>
 
-      {/* Hover Overlay */}
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors pointer-events-none" />
+      {/* Footer - name + apply button, always visible like TemplateCard */}
+      <div className="flex items-center justify-between w-full mt-0.5 z-10">
+        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]">{sticker.name}</span>
+        <button onClick={handleAddToTimeline} disabled={isDownloading} title={isDownloadedFlag ? "Add sticker to timeline" : "Download sticker"} aria-label={isDownloadedFlag ? "Add sticker to timeline" : "Download sticker"} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloadedFlag ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
+          {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloadedFlag ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
+        </button>
+      </div>
     </div>
   );
 };

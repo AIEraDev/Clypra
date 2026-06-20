@@ -9,9 +9,9 @@ import type { StickerItem } from "@/features/stickers/api/stickersApi";
 
 export interface CachedSticker {
   id: string;
-  format: "static" | "gif" | "lottie";
-  localImagePath?: string; // Local path for static imageUrl
-  localAnimationPath?: string; // Local path for animatedUrl (GIF) or lottieUrl (JSON)
+  localImagePath: string; // Local path for static thumbnail
+  localAnimationPath: string; // Local path for Lottie JSON
+  lottieData?: any; // Parsed Lottie JSON data (loaded lazily)
   downloadedAt: number;
 }
 
@@ -151,39 +151,27 @@ class StickerCacheManager {
 
     try {
       const sanitizedName = sanitizeFileName(item.name);
+
+      // 1. Download static thumbnail
+      onProgress?.(10);
+      const imgExt = getFileExtension(item.thumbnailUrl, "png");
+      const imgFileName = `${item.id}_${sanitizedName}.${imgExt}`;
+      const relativeImgPath = `${CACHE_DIR}/${imgFileName}`;
+      await this.downloadFile(item.thumbnailUrl, relativeImgPath);
+      onProgress?.(50);
+
+      // 2. Download Lottie JSON
+      const lottieFileName = `${item.id}_${sanitizedName}.json`;
+      const relativeLottiePath = `${CACHE_DIR}/${lottieFileName}`;
+      await this.downloadFile(item.lottieUrl, relativeLottiePath);
+      onProgress?.(100);
+
       const cachedEntry: CachedSticker = {
         id: item.id,
-        format: item.format,
+        localImagePath: relativeImgPath,
+        localAnimationPath: relativeLottiePath,
         downloadedAt: Date.now(),
       };
-
-      // 1. All stickers download their static image (fallback/thumbnail/timeline visual)
-      if (item.imageUrl) {
-        onProgress?.(10);
-        const imgExt = getFileExtension(item.imageUrl, "png");
-        const imgFileName = `${item.id}_${sanitizedName}.${imgExt}`;
-        const relativeImgPath = `${CACHE_DIR}/${imgFileName}`;
-        await this.downloadFile(item.imageUrl, relativeImgPath);
-        cachedEntry.localImagePath = relativeImgPath;
-        onProgress?.(50);
-      }
-
-      // 2. Download the animation source if animated
-      if (item.format === "lottie" && item.lottieUrl) {
-        const lottieFileName = `${item.id}_${sanitizedName}.json`;
-        const relativeLottiePath = `${CACHE_DIR}/${lottieFileName}`;
-        await this.downloadFile(item.lottieUrl, relativeLottiePath);
-        cachedEntry.localAnimationPath = relativeLottiePath;
-        onProgress?.(100);
-      } else if (item.format === "gif" && item.animatedUrl) {
-        const gifFileName = `${item.id}_${sanitizedName}.gif`;
-        const relativeGifPath = `${CACHE_DIR}/${gifFileName}`;
-        await this.downloadFile(item.animatedUrl, relativeGifPath);
-        cachedEntry.localAnimationPath = relativeGifPath;
-        onProgress?.(100);
-      } else {
-        onProgress?.(100);
-      }
 
       this.cacheIndex.set(item.id, cachedEntry);
       await this.saveIndex();

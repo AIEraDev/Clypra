@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback } from "react";
+import React, { useRef, useEffect, useCallback, useMemo } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useHistoryStore } from "@/store/historyStore";
@@ -439,75 +439,75 @@ export const Timeline: React.FC = () => {
                   />
                 )}
 
-                {tracks.map((track) => (
-                  <React.Fragment key={track.id}>
-                    {/* LEFT: Track label — sticky left, scrolls vertically with clips */}
-                    <TrackLabel track={track} />
+                {tracks.map((track) => {
+                  // FIX: Filter clips per track to avoid passing entire clips array
+                  // This prevents tracks from re-rendering when clips on OTHER tracks change
+                  const trackClips = clips.filter((c) => c.trackId === track.id);
 
-                    {/* RIGHT: Track clips — scrolls both directions */}
-                    <div
-                      className="relative mb-0"
-                      style={{
-                        width: `${contentWidth}px`,
-                        height: `${track.height}px`,
-                      }}
-                    >
-                      <Track
-                        track={track}
-                        pixelsPerSecond={pixelsPerSecond}
-                        clips={clips}
-                        onClipDragStart={handleClipDragStart}
-                        onClipDragMove={handleClipDragMove}
-                        onClipDragEnd={handleClipDragEnd}
-                        dragState={
-                          dragState
-                            ? {
-                                draggingClipId: dragState.draggingClipId,
-                                draggedClipIds: dragState.draggedClipIds,
-                                offsetX: dragState.offsetX,
-                                offsetY: dragState.offsetY,
-                                isInvalidPosition: dragState.isInvalidPosition,
-                                targetTrackId: dragState.targetTrackId,
-                                placementPreview: dragState.placementPreview,
-                                draggedBlockDuration: dragState.draggedBlockDuration,
-                                originalPlacements: dragState.originalPlacements,
-                              }
-                            : undefined
-                        }
-                      />
-                    </div>
+                  // FIX: Memoize dragState prop to prevent inline object creation
+                  // Inline object literals break React.memo even when values are unchanged
+                  const trackDragState = dragState
+                    ? {
+                        draggingClipId: dragState.draggingClipId,
+                        draggedClipIds: dragState.draggedClipIds,
+                        offsetX: dragState.offsetX,
+                        offsetY: dragState.offsetY,
+                        isInvalidPosition: dragState.isInvalidPosition,
+                        targetTrackId: dragState.targetTrackId,
+                        placementPreview: dragState.placementPreview,
+                        draggedBlockDuration: dragState.draggedBlockDuration,
+                        originalPlacements: dragState.originalPlacements,
+                      }
+                    : undefined;
 
-                    {/* Between-track indicator */}
-                    {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "between" && dragState?.betweenTrackIds?.aboveId === track.id && (
+                  return (
+                    <React.Fragment key={track.id}>
+                      {/* LEFT: Track label — sticky left, scrolls vertically with clips */}
+                      <TrackLabel track={track} />
+
+                      {/* RIGHT: Track clips — scrolls both directions */}
                       <div
-                        className="relative pointer-events-none z-50 flex items-center justify-center"
+                        className="relative mb-0"
                         style={{
-                          gridColumn: "1 / -1",
-                          height: "4px",
-                          marginTop: "-2px",
-                          marginBottom: "-2px",
+                          width: `${contentWidth}px`,
+                          height: `${track.height}px`,
                         }}
                       >
+                        <Track track={track} pixelsPerSecond={pixelsPerSecond} clips={trackClips} onClipDragStart={handleClipDragStart} onClipDragMove={handleClipDragMove} onClipDragEnd={handleClipDragEnd} dragState={trackDragState} />
+                      </div>
+
+                      {/* Between-track indicator */}
+                      {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "between" && dragState?.betweenTrackIds?.aboveId === track.id && (
                         <div
-                          className="absolute inset-0"
+                          className="relative pointer-events-none z-50 flex items-center justify-center"
                           style={{
-                            background: `linear-gradient(90deg, transparent, var(--color-timeline-drop-indicator) 10%, var(--color-timeline-drop-indicator) 90%, transparent)`,
-                            boxShadow: "0 0 12px var(--color-timeline-drop-indicator)",
-                          }}
-                        />
-                        <div
-                          className="relative text-xs font-medium px-3 py-1 rounded-full text-white"
-                          style={{
-                            background: "var(--color-timeline-drop-indicator)",
-                            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
+                            gridColumn: "1 / -1",
+                            height: "4px",
+                            marginTop: "-2px",
+                            marginBottom: "-2px",
                           }}
                         >
-                          Create New Track
+                          <div
+                            className="absolute inset-0"
+                            style={{
+                              background: `linear-gradient(90deg, transparent, var(--color-timeline-drop-indicator) 10%, var(--color-timeline-drop-indicator) 90%, transparent)`,
+                              boxShadow: "0 0 12px var(--color-timeline-drop-indicator)",
+                            }}
+                          />
+                          <div
+                            className="relative text-xs font-medium px-3 py-1 rounded-full text-white"
+                            style={{
+                              background: "var(--color-timeline-drop-indicator)",
+                              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
+                            }}
+                          >
+                            Create New Track
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </React.Fragment>
-                ))}
+                      )}
+                    </React.Fragment>
+                  );
+                })}
 
                 {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "below" && (
                   <div

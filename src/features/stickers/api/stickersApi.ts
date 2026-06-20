@@ -5,11 +5,8 @@ export interface StickerItem {
   name: string;
   category: StickerCategory | string;
   thumbnailUrl: string;
-  imageUrl: string;
-  animatedUrl?: string;
-  lottieUrl?: string;
-  format: "static" | "gif" | "lottie";
-  isAnimated: boolean;
+  lottieUrl: string; // Required - Lottie JSON URL
+  preview: string; // Required - .webm preview video URL
   isPremium?: boolean;
   tags?: string[];
 }

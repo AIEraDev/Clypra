@@ -148,6 +148,32 @@ export const useStickersStore = create<StickersStore>((set, get) => ({
 
   _setDownloadCompleted: (itemId: string, cachedSticker: CachedSticker) => {
     const { downloads } = get();
+
+    // Load Lottie JSON if available
+    let lottieData: any = null;
+    if (cachedSticker.format === "lottie" && cachedSticker.localAnimationPath) {
+      stickerCacheManager
+        .readLottieJson(cachedSticker.localAnimationPath)
+        .then((data) => {
+          // Update the cached sticker with Lottie data
+          const updated = { ...cachedSticker, lottieData: data };
+          set({
+            downloads: {
+              ...get().downloads,
+              [itemId]: {
+                itemId,
+                status: "completed",
+                progress: 100,
+                cachedSticker: updated,
+              },
+            },
+          });
+        })
+        .catch((error) => {
+          console.error("[StickersStore] Failed to load Lottie JSON:", error);
+        });
+    }
+
     set({
       downloads: {
         ...downloads,

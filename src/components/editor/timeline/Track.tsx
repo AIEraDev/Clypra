@@ -52,8 +52,9 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
     [track.id, track.locked, track.type],
   );
 
-  // Get all clips for this track (stable array ref when clips + track.id unchanged)
-  const trackClips = useMemo(() => clips.filter((c) => c.trackId === track.id), [clips, track.id]);
+  // FIX: clips are now pre-filtered by Timeline, so trackClips === clips
+  // No need to filter again - this was causing unnecessary re-computation
+  const trackClips = clips;
 
   // Chronological order
   const sortedTrackClips = useMemo(() => [...trackClips].sort((a, b) => a.startTime - b.startTime), [trackClips]);
@@ -70,9 +71,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
       return { displayPositions: null, gapIndicator: null };
     }
 
-    const isDraggedFromThisTrack = dragState.draggedClipIds.some((clipId) =>
-      sortedTrackClips.some((c) => c.id === clipId)
-    );
+    const isDraggedFromThisTrack = dragState.draggedClipIds.some((clipId) => sortedTrackClips.some((c) => c.id === clipId));
 
     const isTargetTrack = dragState.targetTrackId === track.id;
 
@@ -226,21 +225,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
         })}
 
       {/* Gaps layer - render permanent gaps */}
-      {track.visible &&
-        !(
-          dragState &&
-          (dragState.targetTrackId === track.id ||
-            dragState.draggedClipIds?.some((id) => sortedTrackClips.some((c) => c.id === id)))
-        ) &&
-        trackGaps.map((gap) => (
-          <GapIndicator
-            key={gap.id}
-            gap={gap}
-            pixelsPerSecond={pixelsPerSecond}
-            selected={selectedGapId === gap.id}
-            locked={track.locked}
-          />
-        ))}
+      {track.visible && !(dragState && (dragState.targetTrackId === track.id || dragState.draggedClipIds?.some((id) => sortedTrackClips.some((c) => c.id === id)))) && trackGaps.map((gap) => <GapIndicator key={gap.id} gap={gap} pixelsPerSecond={pixelsPerSecond} selected={selectedGapId === gap.id} locked={track.locked} />)}
 
       {/* Gap indicator (blue dashed background) - temporary drag preview */}
       {gapIndicator && (
