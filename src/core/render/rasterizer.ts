@@ -179,9 +179,17 @@ export async function rasterizeScene(scene: EvaluatedScene, target: RasterTarget
     ctx.scale(pixelRatio, pixelRatio);
   }
 
+  // Detect if scene contains text template layers which require transparent background
+  const hasTextTemplate = scene.visualLayers.some((layer) => layer.layerType === "text" && (layer as any).templateId);
+
   // Clear with background
-  ctx.fillStyle = backgroundColor;
-  ctx.fillRect(0, 0, width, height);
+  // Text templates always render with transparent background
+  if (hasTextTemplate) {
+    ctx.clearRect(0, 0, width, height);
+  } else {
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, width, height);
+  }
 
   // Calculate scale factors (target size / scene size)
   // Use uniform scaling to preserve aspect ratio
@@ -1080,7 +1088,7 @@ async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanva
         const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
         const lottieData = await TextEffectsApi.getLottieTemplate(rawTemplate.category, rawTemplate.id);
         useTemplateStore.setState((state) => ({
-          templates: state.templates.map((t) => t.id === rawTemplate.id ? { ...t, lottieData } : t)
+          templates: state.templates.map((t) => (t.id === rawTemplate.id ? { ...t, lottieData } : t)),
         }));
         template = lottieData;
       } catch (err) {
@@ -1115,11 +1123,7 @@ async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanva
           }
           renderer.updateLayer(tLayer.id, changes);
         } else if (tLayer.kind === "shape") {
-          const colorOverride = tLayer.id === "primary-fill-layer" 
-            ? customization.primaryColor 
-            : tLayer.id === "secondary-fill-layer" 
-              ? customization.secondaryColor 
-              : undefined;
+          const colorOverride = tLayer.id === "primary-fill-layer" ? customization.primaryColor : tLayer.id === "secondary-fill-layer" ? customization.secondaryColor : undefined;
           if (colorOverride) {
             renderer.updateLayer(tLayer.id, { fill: colorOverride });
           }
@@ -1127,12 +1131,12 @@ async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanva
       }
 
       const localTime = layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0;
-      
+
       ctx.save();
       const sX = width / template.canvasWidth;
       const sY = height / template.canvasHeight;
       ctx.scale(sX, sY);
-      
+
       renderer.drawFrame(ctx as CanvasRenderingContext2D, localTime);
       ctx.restore();
       return;

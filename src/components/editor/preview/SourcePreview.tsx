@@ -494,7 +494,7 @@ export const SourcePreview: React.FC = () => {
       )}
 
       {/* ── Video Area ─────────────────────────────────────────────── */}
-      <div className="flex-1 flex items-center justify-center overflow-hidden bg-[#06080a] relative">
+      <div className="flex-1 flex items-center justify-center overflow-hidden checkerboard relative">
         <div className="w-full h-full flex items-center justify-center relative z-10">
           {sourceAsset.type === "video" ? (
             useGPU && !gpuFailed ? (
