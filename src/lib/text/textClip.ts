@@ -586,6 +586,17 @@ export function calculateTextTemplateClipSize(options: { canvasWidth: number; ca
 export function createTextClip(options: CreateTextClipOptions): TextClip {
   const { trackId, startTime, duration = 5.0, text = "Text", canvasWidth, canvasHeight, color = "#ffffff", bold = false, italic = false, position = "center", textRole, words, styleId, templateId, customization, stroke, shadow, background, effectDefinition, templateDefinition } = options;
 
+  textRenderTrace("text-clip-create-start", {
+    trackId,
+    text,
+    templateId,
+    hasTemplateDefinition: !!templateDefinition,
+    styleId,
+    canvasWidth,
+    canvasHeight,
+    textRole,
+  });
+
   // For templates, calculate dimensions based on template's native aspect ratio
   // instead of text measurements to ensure professional full-canvas rendering
   let x: number, y: number, width: number, height: number, sizing: any;
