@@ -867,20 +867,35 @@ function calculateTextClipContentTransform(clip: TextClip, updates: Partial<Text
   const oldCenterX = clip.x + clip.width / 2;
   const oldCenterY = clip.y + clip.height / 2;
 
-  // Templates maintain their current dimensions - don't recalculate
+  // Templates maintain their current dimensions - don't recalculate automatically
+  // However, allow manual transforms (drag/resize) to update position/size
   if (merged.templateId) {
+    const hasManualTransform = updates.x !== undefined || updates.y !== undefined || updates.width !== undefined || updates.height !== undefined;
+
+    console.log("[TEMPLATE TRANSFORM]", {
+      clipId: clip.id,
+      templateId: merged.templateId,
+      hasManualTransform,
+      updatesKeys: Object.keys(updates),
+      updates: { x: updates.x, y: updates.y, width: updates.width, height: updates.height },
+      clipValues: { x: clip.x, y: clip.y, width: clip.width, height: clip.height },
+      mergedValues: { x: merged.x, y: merged.y, width: merged.width, height: merged.height },
+    });
+
     return {
       merged,
       sizing: {
-        width: clip.width,
-        height: clip.height,
+        width: merged.width,
+        height: merged.height,
         bounds: null,
       },
       transform: {
-        x: clip.x,
-        y: clip.y,
-        width: clip.width,
-        height: clip.height,
+        // If manual transform is happening, use merged values (which include updates)
+        // Otherwise, return original clip values to prevent automatic recalculation
+        x: hasManualTransform ? merged.x : clip.x,
+        y: hasManualTransform ? merged.y : clip.y,
+        width: hasManualTransform ? merged.width : clip.width,
+        height: hasManualTransform ? merged.height : clip.height,
         sourceAspectRatio: clip.sourceAspectRatio ?? clip.width / Math.max(1, clip.height),
       },
     };
