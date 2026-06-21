@@ -429,6 +429,43 @@ export function measureTextTemplateContentSize(options: { templateId?: string; t
 
 export function calculateTextTemplateClipSize(options: { canvasWidth: number; canvasHeight: number; templateId?: string; templateDefinition?: TextTemplate; text?: string; customization?: any }): { width: number; height: number; content: TextTemplateContentSize | null } {
   const content = measureTextTemplateContentSize(options);
+
+  // If we successfully measured content bounds, use them
+  if (content?.source === "template" && content.bounds && content.bounds.width > 0 && content.bounds.height > 0) {
+    const contentWidth = content.bounds.width;
+    const contentHeight = content.bounds.height;
+    const contentAspect = contentWidth / contentHeight;
+
+    // Scale content bounds to fit within a reasonable portion of the canvas
+    // Use a max of 80% canvas width and 50% canvas height for flexibility
+    const maxWidth = options.canvasWidth * 0.8;
+    const maxHeight = options.canvasHeight * 0.5;
+
+    let width: number;
+    let height: number;
+
+    // Determine if we're width-constrained or height-constrained
+    if (contentWidth > maxWidth || contentHeight > maxHeight) {
+      // Content is larger than max, scale it down proportionally
+      if (maxWidth / maxHeight > contentAspect) {
+        // Height-constrained
+        height = maxHeight;
+        width = height * contentAspect;
+      } else {
+        // Width-constrained
+        width = maxWidth;
+        height = width / contentAspect;
+      }
+    } else {
+      // Content fits within max bounds, use actual size
+      width = contentWidth;
+      height = contentHeight;
+    }
+
+    return { width, height, content };
+  }
+
+  // Fallback to aspect-based sizing if measurement failed or returned fallback
   const templateAspect = content?.aspectRatio && Number.isFinite(content.aspectRatio) && content.aspectRatio > 0 ? content.aspectRatio : 16 / 9;
   const maxWidth = options.canvasWidth * 0.5;
   const maxHeight = options.canvasHeight * 0.25;

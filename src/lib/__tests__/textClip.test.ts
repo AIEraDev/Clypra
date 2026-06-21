@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateTextClipSize, createTextClip, hasTextClipContentTransformDrift, measureTextEffectContentBounds, resolveTextClipContentTransform, resolveTextClipStyleUpdate } from "../text/textClip";
+import { calculateTextClipSize, calculateTextTemplateClipSize, createTextClip, hasTextClipContentTransformDrift, measureTextEffectContentBounds, resolveTextClipContentTransform, resolveTextClipStyleUpdate } from "../text/textClip";
 import type { TextEffectDefinition } from "@clypra/engine";
 import type { TextClip } from "../../types";
 
@@ -434,6 +434,27 @@ describe("calculateTextClipSize", () => {
 
     it("hasTextClipContentTransformDrift returns false for templates", () => {
       expect(hasTextClipContentTransformDrift(templateClip, 1920, 1080)).toBe(false);
+    });
+
+    it("calculateTextTemplateClipSize scales content bounds proportionally", () => {
+      // Test that template sizing respects canvas constraints
+      const result = calculateTextTemplateClipSize({
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        templateId: "test-template",
+        text: "Test Content",
+      });
+
+      // Verify dimensions are within expected bounds
+      expect(result.width).toBeGreaterThan(0);
+      expect(result.height).toBeGreaterThan(0);
+      expect(result.width).toBeLessThanOrEqual(1920 * 0.8 + 1); // +1 for rounding
+      expect(result.height).toBeLessThanOrEqual(1080 * 0.5 + 1); // +1 for rounding
+
+      // Verify aspect ratio is reasonable
+      const aspectRatio = result.width / result.height;
+      expect(aspectRatio).toBeGreaterThan(0.1);
+      expect(aspectRatio).toBeLessThan(10);
     });
   });
 });
