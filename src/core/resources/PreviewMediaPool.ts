@@ -61,6 +61,8 @@ interface ManagedVideo {
   playAttempts: number;
   lastPlayAttemptMs: number;
   playPromiseInFlight: boolean;
+  /** Flag to cancel pending play promise (for rapid play/pause) */
+  playCancelRequested: boolean;
   lastPlayFailure: { error: string; timestamp: number } | null;
   autoplayBlocked: boolean;
   createdAt: number;
@@ -662,6 +664,7 @@ export class PreviewMediaPool {
       playAttempts: 0,
       lastPlayAttemptMs: 0,
       playPromiseInFlight: false,
+      playCancelRequested: false,
       lastPlayFailure: null,
       autoplayBlocked: false,
       createdAt: performance.now(),
@@ -854,8 +857,13 @@ export class PreviewMediaPool {
     if (syncState.state === "playing") {
       this.requestPlayback(managed, clip, syncState, tracks, isPrimaryAudibleVideo);
     } else {
+      // Not playing - pause and cancel any pending play promises
       if (!video.paused) {
         video.pause();
+      }
+      // FINDING-016 FIX: Cancel any pending play() promise
+      if (managed.playPromiseInFlight) {
+        managed.playCancelRequested = true;
       }
       if (managed.rvfcHandle !== null) {
         try {
@@ -928,6 +936,8 @@ export class PreviewMediaPool {
     managed.playAttempts++;
     managed.lastPlayAttemptMs = now;
     managed.playPromiseInFlight = true;
+    // FINDING-016 FIX: Clear cancel flag when starting new play attempt
+    managed.playCancelRequested = false;
 
     const elementAge = now - managed.createdAt;
 
@@ -936,6 +946,13 @@ export class PreviewMediaPool {
       promise
         .then(() => {
           managed.playPromiseInFlight = false;
+
+          // FINDING-016 FIX: Check if play was cancelled while promise was pending
+          if (managed.playCancelRequested) {
+            managed.playCancelRequested = false;
+            return; // Don't register RVFC or update state
+          }
+
           managed.lastPlayFailure = null;
 
           // Register RVFC on successful play

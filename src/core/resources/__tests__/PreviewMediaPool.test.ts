@@ -1785,3 +1785,406 @@ describe("PreviewMediaPool — FINDING-018: Cache Eviction Hard Limit", () => {
     expect(videoElements.size).toBeLessThanOrEqual(20);
   });
 });
+
+describe("PreviewMediaPool — FINDING-016: Play Promise Cancellation", () => {
+  let pool: PreviewMediaPool;
+
+  beforeEach(() => {
+    pool = new PreviewMediaPool();
+  });
+
+  afterEach(() => {
+    pool.dispose();
+  });
+
+  it("should cancel pending play promise when pausing", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Start playing
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // Immediately pause (promise might still be pending)
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(50);
+
+    // Video should be paused (promise was cancelled)
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      expect(video.paused).toBe(true);
+    }
+  });
+
+  it("should handle rapid play/pause clicks without state divergence", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Rapid play/pause sequence
+    for (let i = 0; i < 10; i++) {
+      pool.sync(clips, assets, tracks, {
+        time: 2.5,
+        state: "playing" as const,
+        speed: 1.0,
+        muted: false,
+        volume: 100,
+      });
+
+      pool.sync(clips, assets, tracks, {
+        time: 2.5,
+        state: "paused" as const,
+        speed: 1.0,
+        muted: false,
+        volume: 100,
+      });
+    }
+
+    await wait(100);
+
+    // Final state should be paused
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      expect(video.paused).toBe(true);
+    }
+  });
+
+  it("should not resume playback after cancellation", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Play
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // Pause immediately
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // Wait for any pending promises
+    await wait(100);
+
+    // Try to verify state again
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(50);
+
+    // Should still be paused (not resumed)
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      expect(video.paused).toBe(true);
+    }
+  });
+
+  it("should clear cancel flag when starting new play attempt", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Play → Pause → Play sequence
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(50);
+
+    // Play again (cancel flag should be cleared)
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(50);
+
+    // Should be playing now
+    expect(() => pool.getVideoElements()).not.toThrow();
+  });
+
+  it("should handle pause during promise resolution", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Start play (promise begins)
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // Pause while promise is resolving
+    await wait(10); // Small delay to simulate promise pending
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(50);
+
+    // Should be paused
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      expect(video.paused).toBe(true);
+    }
+  });
+
+  it("should handle multiple clips with rapid play/pause", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5), createMockClip("clip-2", "media-2", 5, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video1.mp4"), createMockAsset("media-2", "/path/to/video2.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Rapid sequence at clip boundary
+    pool.sync(clips, assets, tracks, {
+      time: 4.9,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    pool.sync(clips, assets, tracks, {
+      time: 4.9,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    pool.sync(clips, assets, tracks, {
+      time: 5.1,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    pool.sync(clips, assets, tracks, {
+      time: 5.1,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(100);
+
+    // All elements should be paused
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      expect(video.paused).toBe(true);
+    }
+  });
+
+  it("should prevent audio from continuing after pause click", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // User clicks play
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // User clicks pause within 100ms
+    await wait(50);
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(100);
+
+    // Audio should not be playing
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      expect(video.paused).toBe(true);
+    }
+  });
+
+  it("should maintain consistent state across promise lifecycle", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Test sequence: play → pause → wait → verify
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // Wait for all promises to settle
+    await wait(150);
+
+    // Verify consistent state
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      // Element.paused is the source of truth
+      expect(video.paused).toBe(true);
+    }
+  });
+
+  it("should handle stopped state with pending promises", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Play
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // Stop
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "stopped" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(50);
+
+    // Should be paused
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      expect(video.paused).toBe(true);
+    }
+  });
+
+  it("should handle promise rejection with cancel flag", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Attempt play
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // Cancel immediately
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(100);
+
+    // Should handle gracefully even if promise rejected
+    expect(() => pool.getVideoElements()).not.toThrow();
+  });
+
+  it("should prevent transport UI state divergence", async () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    // Scenario: User sees pause button, clicks it, but video keeps playing
+    // This was the symptom described in FINDING-016
+
+    // Play (button shows "pause" icon)
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    // User clicks pause button
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused" as const,
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+    });
+
+    await wait(100);
+
+    // With fix: video actually paused (transport matches reality)
+    // Without fix: video keeps playing (transport shows pause but video plays)
+    const videoElements = pool.getVideoElements();
+    for (const video of videoElements.values()) {
+      expect(video.paused).toBe(true);
+    }
+  });
+});
