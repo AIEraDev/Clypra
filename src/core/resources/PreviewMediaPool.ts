@@ -799,7 +799,6 @@ export class PreviewMediaPool {
       // Clip not active at current time
       if (!video.paused) {
         video.pause();
-        managed.playbackState = "paused";
       }
       return;
     }
