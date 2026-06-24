@@ -104,18 +104,11 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
 
   if (opts.resetPlayback) {
     try {
-      const clock = getPlaybackClock();
-
-      // Stop playback (pause + reset to beginning)
-      if (clock.state === "playing") {
-        clock.pause();
-      }
-
-      // Reset time to 0 (CRITICAL: prevents wrong time on next project)
-      clock.seek(0);
+      const { resetPlaybackClock } = await import("../playback/PlaybackClock");
+      resetPlaybackClock();
 
       resetSubsystems.push("PlaybackClock");
-      console.log("  ✅ PlaybackClock reset (stopped and seeked to 0)");
+      console.log("  ✅ PlaybackClock reset (fully recreated)");
     } catch (error) {
       errors.push({ subsystem: "PlaybackClock", error: error as Error });
       console.error("  ❌ PlaybackClock reset failed:", error);
@@ -124,17 +117,11 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
 
   if (opts.resetScheduler) {
     try {
-      const scheduler = getFrameScheduler();
-
-      // Cancel all pending render jobs
-      scheduler.cancelAll();
-
-      // Clear timeline cache (forces fresh render on next project)
-      // Note: FrameScheduler doesn't have clearTimelineCache() method yet,
-      // but cancelAll() already clears pending jobs
+      const { resetFrameScheduler } = await import("../scheduler/FrameScheduler");
+      resetFrameScheduler();
 
       resetSubsystems.push("FrameScheduler");
-      console.log("  ✅ FrameScheduler reset (all jobs cancelled)");
+      console.log("  ✅ FrameScheduler reset (fully recreated)");
     } catch (error) {
       errors.push({ subsystem: "FrameScheduler", error: error as Error });
       console.error("  ❌ FrameScheduler reset failed:", error);
@@ -162,14 +149,11 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
 
   if (opts.resetTransform) {
     try {
-      const { getTransformController } = await import("@/core/interactions");
-      const transformController = getTransformController();
-
-      // Cancel any active transform operation by calling endTransform()
-      transformController.endTransform();
+      const { resetTransformController } = await import("@/core/interactions");
+      resetTransformController();
 
       resetSubsystems.push("TransformController");
-      console.log("  ✅ TransformController reset");
+      console.log("  ✅ TransformController reset (fully recreated)");
     } catch (error) {
       errors.push({ subsystem: "TransformController", error: error as Error });
       console.error("  ❌ TransformController reset failed:", error);
@@ -210,14 +194,11 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
 
   if (opts.resetViewport) {
     try {
-      const { getViewportController } = await import("@/core/interactions");
-      const viewportController = getViewportController();
-
-      // Reset viewport zoom/pan to defaults
-      viewportController.reset();
+      const { resetViewportController } = await import("@/core/interactions");
+      resetViewportController();
 
       resetSubsystems.push("ViewportController");
-      console.log("  ✅ ViewportController reset");
+      console.log("  ✅ ViewportController reset (fully recreated)");
     } catch (error) {
       errors.push({ subsystem: "ViewportController", error: error as Error });
       console.error("  ❌ ViewportController reset failed:", error);

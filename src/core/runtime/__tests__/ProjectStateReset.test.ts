@@ -40,6 +40,8 @@ vi.mock("@/core/interactions", () => ({
   getViewportController: () => ({
     reset: vi.fn(),
   }),
+  resetViewportController: vi.fn(),
+  resetTransformController: vi.fn(),
 }));
 
 vi.mock("@/core/playback/PlaybackClock", () => ({
@@ -49,6 +51,7 @@ vi.mock("@/core/playback/PlaybackClock", () => ({
     pause: vi.fn(),
     seek: vi.fn(),
   }),
+  resetPlaybackClock: vi.fn(),
 }));
 
 vi.mock("@/core/scheduler/FrameScheduler", () => ({
@@ -56,6 +59,7 @@ vi.mock("@/core/scheduler/FrameScheduler", () => ({
     cancelAll: vi.fn(),
     getStats: () => ({ active: 0 }),
   }),
+  resetFrameScheduler: vi.fn(),
 }));
 
 vi.mock("@/lib/monitoring/PerformanceMonitor", () => ({

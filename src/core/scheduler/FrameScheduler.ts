@@ -185,22 +185,22 @@ export class FrameScheduler {
    * @returns Job ID
    */
   schedule(request: FrameRequest): string {
-    // ✅ FIX-004: Capture project ID from active session to validate job belongs to current project
-    // We'll get it from the global if available, otherwise use "unknown"
+    // ✅ FIX-004: Capture current project ID synchronously via globalThis
+    // SessionRegistry already sets __activeProjectSession on globalThis
     let projectId = "unknown";
     try {
-      // Access via global window object to avoid import issues
-      const activeSession = (globalThis as any).__activeProjectSession;
-      if (activeSession?.projectId) {
-        projectId = activeSession.projectId;
+      const session = (globalThis as any).__activeProjectSession;
+      if (session?.projectId) {
+        projectId = session.projectId;
       }
     } catch {
-      // If we can't get session, use "unknown" - job will be rejected on completion
+      // If we can't get session, use "unknown"
+      // Validation in wait() will handle this gracefully
     }
 
     const job: FrameJob = {
       id: `job-${this.nextJobId++}`,
-      projectId, // ✅ FIX-004: Store project ID with job
+      projectId, // ✅ FIX-004: Store project ID with job for validation
       request,
       status: "pending",
       progress: 0,
@@ -280,24 +280,18 @@ export class FrameScheduler {
         if (job.status === "complete" && job.result) {
           // ✅ FIX-004: Validate job belongs to current project before resolving
           // This prevents stale frames from previous project being displayed
-          import("../runtime/ProjectSession")
-            .then(({ getActiveSessionOrNull }) => {
-              const session = getActiveSessionOrNull();
-              const currentProjectId = session?.projectId ?? "unknown";
-              
-              if (currentProjectId !== job.projectId) {
-                // Project switched - discard stale result
-                if (this.config.debug) {
-                  console.log(`[Scheduler] Discarding stale job ${jobId} from project ${job.projectId} (current: ${currentProjectId})`);
-                }
-                reject(new Error("Job result discarded - project switched"));
-                return;
-              }
-              resolve(job.result!);
-            })
-            .catch((error) => {
-              reject(error);
-            });
+          const session = (globalThis as any).__activeProjectSession;
+          const currentProjectId = session?.projectId ?? "unknown";
+
+          if (currentProjectId !== job.projectId) {
+            // Project switched - discard stale result
+            if (this.config.debug) {
+              console.log(`[Scheduler] Discarding stale job ${jobId} from project ${job.projectId} (current: ${currentProjectId})`);
+            }
+            reject(new Error("Job result discarded - project switched"));
+            return;
+          }
+          resolve(job.result!);
         } else if (job.status === "cancelled") {
           if (timerId !== null) clearTimeout(timerId);
           reject(new Error("Job cancelled"));

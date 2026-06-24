@@ -44,6 +44,12 @@ vi.mock("../../resources/ResourceManager", () => ({
   })),
 }));
 
+// Mock global session for FIX-004 projectId validation
+(globalThis as any).__activeProjectSession = {
+  projectId: "test-project",
+  state: "active",
+};
+
 class MockOffscreenCanvas {
   width: number;
   height: number;
