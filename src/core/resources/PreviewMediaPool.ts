@@ -269,7 +269,10 @@ export class PreviewMediaPool {
       // Skip expensive reconciliation if nothing meaningful changed
       // Round time to 0.1s precision to avoid rehashing every frame during playback
       const quickHash = `${syncState.time.toFixed(1)}-${syncState.state}-${clips.length}`;
-      if (quickHash === this._lastQuickHash) {
+      // CRITICAL: Only use fast path if we have video elements already created.
+      // This prevents skipping the first sync after project load when elements need creation.
+      const hasVideoElements = this.videoCache.size > 0;
+      if (hasVideoElements && quickHash === this._lastQuickHash) {
         // Nothing changed - skip reconciliation (saves 0.5-2ms per frame)
         performanceMonitor.increment("preview_pool.sync_skipped");
         return;
@@ -761,8 +764,6 @@ export class PreviewMediaPool {
   // ─── Private: Video lifecycle ─────────────────────────────────────────────
 
   private createVideo(key: string, clipId: string, mediaId: string, sourcePath: string): ManagedVideo {
-    console.log(`[PreviewMediaPool] Creating NEW video element for clip ${clipId} (cache key: ${key.substring(0, 50)}...)`);
-
     const video = document.createElement("video");
     video.preload = "auto";
     video.muted = true; // Always muted — audio is handled separately or not at all
@@ -803,11 +804,9 @@ export class PreviewMediaPool {
     video.addEventListener(
       "loadedmetadata",
       () => {
-        console.log(`📹 [PREVIEW MEDIA POOL] Video metadata loaded for ${key.substring(0, 50)}..., marking ready=true`);
         managed.ready = true;
         import("../../store/timelineStore")
           .then(({ useTimelineStore }) => {
-            console.log(`📹 [PREVIEW MEDIA POOL] Incrementing epoch after video metadata loaded`);
             useTimelineStore.getState().incrementEpoch();
           })
           .catch((err) => {
@@ -846,7 +845,6 @@ export class PreviewMediaPool {
     video.addEventListener(
       "seeked",
       () => {
-        console.log(`📹 [PREVIEW MEDIA POOL] Video seeked for ${key.substring(0, 50)}...`);
         if (video.paused) {
           import("../../store/timelineStore")
             .then(({ useTimelineStore }) => {
@@ -860,11 +858,9 @@ export class PreviewMediaPool {
       { once: true }, // Auto-remove listener after first seek to prevent leak
     );
 
-    console.log(`📹 [PREVIEW MEDIA POOL] Setting video.src = ${sourcePath.substring(0, 100)}...`);
     video.src = sourcePath;
 
     // Explicitly trigger video load
-    console.log(`📹 [PREVIEW MEDIA POOL] Calling video.load() to trigger metadata loading`);
     video.load();
 
     this.container.appendChild(video);

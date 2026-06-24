@@ -556,7 +556,7 @@ export const ProgramPreview: React.FC = () => {
 
               if (element) {
                 hasAnyVideoElement = true;
-                console.log(`📹 [PREVIEW RENDER] Found video element for ${clip.id}, readyState=${element.readyState}, networkState=${element.networkState}, src=${element.src ? "SET" : "NOT SET"}`);
+                // console.log(`📹 [PREVIEW RENDER] Found video element for ${clip.id}, readyState=${element.readyState}, networkState=${element.networkState}, src=${element.src ? "SET" : "NOT SET"}`);
 
                 // readyState >= HAVE_METADATA (1) means width, height, duration are available
                 // This is the minimum state needed for reliable frame extraction
@@ -565,7 +565,7 @@ export const ProgramPreview: React.FC = () => {
                   break; // Optimistic: Stop at first ready element
                 }
               } else {
-                console.log(`📹 [PREVIEW RENDER] No video element found for ${clip.id} (key: ${key})`);
+                // console.log(`📹 [PREVIEW RENDER] No video element found for ${clip.id} (key: ${key})`);
               }
             }
 
@@ -576,9 +576,9 @@ export const ProgramPreview: React.FC = () => {
             waitingForVideoReady = hasAnyVideoElement && !hasReadyVideo;
 
             if (waitingForVideoReady) {
-              console.log(`⏳ [PREVIEW RENDER LOOP] Waiting for video elements to load metadata (readyState check)...`);
+              // console.log(`⏳ [PREVIEW RENDER LOOP] Waiting for video elements to load metadata (readyState check)...`);
             } else if (!hasAnyVideoElement) {
-              console.log(`📹 [PREVIEW RENDER] No video elements created yet, will proceed to create them in sync`);
+              // console.log(`📹 [PREVIEW RENDER] No video elements created yet, will proceed to create them in sync`);
             }
           }
         }
@@ -588,18 +588,18 @@ export const ProgramPreview: React.FC = () => {
       const needsRender = (isPlaying || timeChanged || epochChanged || isFirstFrame) && !waitingForVideoReady;
 
       // LOG: Detailed render decision tracking
-      if (epochChanged || isFirstFrame || timeChanged) {
-        console.log(`🎥 [PREVIEW RENDER LOOP] Render decision:`, {
-          timeToRender: timeToRenderRounded,
-          isPlaying,
-          timeChanged,
-          epochChanged: epochChanged ? `${lastRenderedEpoch} → ${state.epoch}` : false,
-          isFirstFrame,
-          waitingForVideoReady,
-          needsRender,
-          lastRenderedTime,
-        });
-      }
+      // if (epochChanged || isFirstFrame || timeChanged) {
+      //   console.log(`🎥 [PREVIEW RENDER LOOP] Render decision:`, {
+      //     timeToRender: timeToRenderRounded,
+      //     isPlaying,
+      //     timeChanged,
+      //     epochChanged: epochChanged ? `${lastRenderedEpoch} → ${state.epoch}` : false,
+      //     isFirstFrame,
+      //     waitingForVideoReady,
+      //     needsRender,
+      //     lastRenderedTime,
+      //   });
+      // }
 
       if (forceRenderNeeded) {
         forceRenderNeeded = false;
@@ -657,14 +657,14 @@ export const ProgramPreview: React.FC = () => {
 
       // Sync media elements ONLY when lifecycle changes (not every frame)
       if (needsSync) {
-        console.log(`🔄 [PREVIEW SYNC] Syncing media elements:`, {
-          timeToRender: timeToRenderRounded,
-          playbackState,
-          epochChanged,
-          playbackStateChanged,
-          isFirstFrame,
-          clipsToSync: getPreviewMediaSyncClips(state.clips, timeToRenderRounded).length,
-        });
+        // console.log(`🔄 [PREVIEW SYNC] Syncing media elements:`, {
+        //   timeToRender: timeToRenderRounded,
+        //   playbackState,
+        //   epochChanged,
+        //   playbackStateChanged,
+        //   isFirstFrame,
+        //   clipsToSync: getPreviewMediaSyncClips(state.clips, timeToRenderRounded).length,
+        // });
         if (session && session.state === "active") {
           try {
             session.syncPreviewMedia(getPreviewMediaSyncClips(state.clips, timeToRenderRounded), state.mediaAssets, state.tracks, {
@@ -729,7 +729,7 @@ export const ProgramPreview: React.FC = () => {
             latestState.clock.completeSeek();
           }
 
-          console.log(`✅ [PREVIEW RENDER] Frame rendered successfully at time=${timeToRenderRounded}, epoch=${latestState.epoch}`);
+          // console.log(`✅ [PREVIEW RENDER] Frame rendered successfully at time=${timeToRenderRounded}, epoch=${latestState.epoch}`);
 
           if (result.data instanceof ImageBitmap) {
             if (gpuCache) {

@@ -14,7 +14,7 @@ interface LaunchScreenProps {
   onProjectOpen: (project: Project) => void;
 }
 
-const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
+// const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
 const toPreviewSrc = (value?: string) => {
   if (!value) return undefined;
@@ -286,7 +286,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                       {/* Accent glow on hover */}
                       <div className="absolute inset-0 bg-accent/3 opacity-0 group-hover:opacity-100 transition-opacity" />
                       {/* Aspect ratio badge */}
-                      <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/75 backdrop-blur-sm text-text-muted border border-white/6">{project.aspectRatio}</span>
+                      <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/75 backdrop-blur-sm text-text-muted border border-white/6">{project.aspectRatio}</span>
                     </div>
 
                     {/* Info */}
@@ -299,7 +299,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                     </div>
 
                     {/* More options button */}
-                    <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <div onClick={(e) => handleToggleMenu(e, project.id)} className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors" title="More options">
                         <MoreHorizontal className="w-3.5 h-3.5 text-text-muted" />
                       </div>

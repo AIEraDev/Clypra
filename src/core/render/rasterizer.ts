@@ -673,7 +673,13 @@ async function renderMediaFrame(source: HTMLVideoElement | ImageBitmap | HTMLCan
 
   const cssFilter = buildMediaFilter(filter, effects);
   if (cssFilter) frameCtx.filter = cssFilter;
-  frameCtx.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+  try {
+    frameCtx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  } catch (error) {
+    console.error(`[Rasterizer] Error drawing video to canvas:`, error);
+  }
+
   frameCtx.filter = "none";
 
   const bodyMasks = await prepareBodyMasks(canvas, effects, canvas.width, canvas.height);

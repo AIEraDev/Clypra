@@ -247,7 +247,7 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     incrementEpoch: () => {
-      console.log("📊 [TIMELINE] incrementEpoch called");
+      // console.log("📊 [TIMELINE] incrementEpoch called");
       set((state) => {
         if (state._batchDepth > 0) {
           return { _pendingEpochIncrement: true };
@@ -381,7 +381,7 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     addClip: (clip) => {
-      console.log(`🎬 [TIMELINE] Adding clip: ${clip.id}, kind: ${clip.kind}, mediaId: ${clip.mediaId}, trackId: ${clip.trackId}`);
+      // console.log(`🎬 [TIMELINE] Adding clip: ${clip.id}, kind: ${clip.kind}, mediaId: ${clip.mediaId}, trackId: ${clip.trackId}`);
       timelineStart("addClip", { clipId: clip.id, trackId: clip.trackId });
       performanceMonitor.startMeasure("timeline-addClip", { clipId: clip.id, trackId: clip.trackId });
 
@@ -422,11 +422,11 @@ export const useTimelineStore = create<TimelineStore>(
 
         // If timeline was empty, switch to program preview and seek to first clip's start time
         if (wasEmpty) {
-          console.log(`🎯 [TIMELINE] First clip added to empty timeline! Current clock time before seek:`, {
-            clipStartTime: safeClip.startTime,
-            clipDuration: clip.duration,
-            clipId: clip.id,
-          });
+          // console.log(`🎯 [TIMELINE] First clip added to empty timeline! Current clock time before seek:`, {
+          //   clipStartTime: safeClip.startTime,
+          //   clipDuration: clip.duration,
+          //   clipId: clip.id,
+          // });
           // 1) Update UI first so preview panel closes before transport switch
           try {
             useUIStore.getState().exitSourceMode();
@@ -442,7 +442,7 @@ export const useTimelineStore = create<TimelineStore>(
                 session.transportAuthority.setActiveContext("program");
                 // Seek to the new clip's start time for immediate visual feedback
                 const firstClipStartTime = safeClip.startTime;
-                console.log(`⏩ [TIMELINE] Seeking playhead to first clip start: ${firstClipStartTime}`);
+                // console.log(`⏩ [TIMELINE] Seeking playhead to first clip start: ${firstClipStartTime}`);
                 session.transportAuthority.seek(firstClipStartTime);
               }
             })
@@ -455,7 +455,7 @@ export const useTimelineStore = create<TimelineStore>(
         };
       });
 
-      console.log(`✅ [TIMELINE] Clip added successfully, epoch incremented to: ${get().epoch}`);
+      // console.log(`✅ [TIMELINE] Clip added successfully, epoch incremented to: ${get().epoch}`);
 
       performanceMonitor.endMeasure("timeline-addClip");
       timelineEnd("addClip");

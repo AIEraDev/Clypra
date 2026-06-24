@@ -249,6 +249,10 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
       // Reset performance monitor (clears aggregated stats)
       performanceMonitor.reset();
 
+      // Clear preview media sync clip filter cache (prevents stale cache across projects)
+      const { clearClipFilterCache } = await import("@/components/editor/preview/previewMediaSync");
+      clearClipFilterCache();
+
       resetSubsystems.push("PerformanceMonitor");
       console.log("  ✅ PerformanceMonitor reset");
     } catch (error) {
