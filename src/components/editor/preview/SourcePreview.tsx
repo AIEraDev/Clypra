@@ -335,8 +335,16 @@ export const SourcePreview: React.FC = () => {
       // This ensures the rasterizer will find the cached definition when rendering the clip.
       const styleId = preset.presetType === "effect" ? preset.id : undefined;
 
+      // FIX (FINDING-016): Verify effect definition is loaded before creating clip
       // Get the effect definition for accurate bounding box calculation
       const effectDefinition = styleId ? useEffectsStore.getState().definitions[styleId] : undefined;
+
+      // If styleId is present but definition is missing, show error
+      if (styleId && !effectDefinition) {
+        console.error("[SourcePreview] Text effect definition not loaded:", styleId);
+        useProjectStore.getState().showToast("Failed to load text effect. Please try again.", "error");
+        return;
+      }
 
       // When adding a text effect, we should NOT override individual properties
       // because the rasterizer uses TextEffectBuilder.fromDefinition() which
@@ -524,18 +532,11 @@ export const SourcePreview: React.FC = () => {
               }}
             />
           ) : sourceAsset.type === "image" ? (
-            (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json")) ? (
+            sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json") ? (
               lottieError ? (
                 <div className="text-red-400 text-xs">{lottieError}</div>
               ) : lottieData ? (
-                <StickerSourcePreview
-                  ref={lottiePlayerRef}
-                  lottieData={lottieData}
-                  isPlaying={isPlaying}
-                  loop={true}
-                  speed={1}
-                  className="max-w-full max-h-full"
-                />
+                <StickerSourcePreview ref={lottiePlayerRef} lottieData={lottieData} isPlaying={isPlaying} loop={true} speed={1} className="max-w-full max-h-full" />
               ) : (
                 <div className="text-text-muted text-xs flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -548,13 +549,7 @@ export const SourcePreview: React.FC = () => {
           ) : sourceAsset.type === "text" ? (
             <TextSourcePreview preset={sourceTextPreset} />
           ) : (
-            <AudioSourcePreview
-              audioRef={audioRef}
-              src={sourcePath}
-              isPlaying={isPlaying}
-              coverImage={sourceAsset.coverArt}
-              audioName={sourceAsset.name}
-            />
+            <AudioSourcePreview audioRef={audioRef} src={sourcePath} isPlaying={isPlaying} coverImage={sourceAsset.coverArt} audioName={sourceAsset.name} />
           )}
         </div>
       </div>
