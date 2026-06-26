@@ -284,6 +284,9 @@ export const useTimelineStore = create<TimelineStore>(
         clipCount: normalizedClips.length,
       });
 
+      // BUG-002 fix: Reset mainVideoTrackId and re-derive from loaded tracks
+      const newMainVideoTrackId = finalTracks.find((t) => t.type === "video")?.id ?? null;
+
       // Atomic state update - all or nothing
       set({
         tracks: finalTracks,
@@ -294,6 +297,7 @@ export const useTimelineStore = create<TimelineStore>(
         zoomLevel: TIMELINE_ZOOM_DEFAULT,
         pixelsPerSecond: TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM,
         epoch: 0, // Reset epoch on project load
+        mainVideoTrackId: newMainVideoTrackId,
       });
 
       performanceMonitor.endMeasure("timeline-hydrate");
