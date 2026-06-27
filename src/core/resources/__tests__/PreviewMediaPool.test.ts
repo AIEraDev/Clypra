@@ -3477,8 +3477,8 @@ describe("PreviewMediaPool — FINDING-013: Cache Key Precision", () => {
     pool.sync([clip], [asset], tracks, syncState);
     const cacheKeys = Array.from((pool as any).videoCache.keys());
 
-    // Should produce normalized cache key
-    expect(cacheKeys[0]).toBe("asset-1-/path/test.mp4-trim5.123");
+    // Should produce normalized cache key (now simply clipId)
+    expect(cacheKeys[0]).toBe("clip-1");
   });
 
   it("should create different cache keys for genuinely different trimIn values", () => {
@@ -3541,8 +3541,8 @@ describe("PreviewMediaPool — FINDING-013: Cache Key Precision", () => {
     const cacheKeys = new Set(Array.from((pool as any).videoCache.keys()));
 
     expect(cacheKeys.size).toBe(2);
-    expect(cacheKeys.has("asset-1-/path/test.mp4-trim5.000")).toBe(true);
-    expect(cacheKeys.has("asset-1-/path/test.mp4-trim5.010")).toBe(true);
+    expect(cacheKeys.has("clip-1")).toBe(true);
+    expect(cacheKeys.has("clip-2")).toBe(true);
   });
 
   it("should handle 29.97fps frame calculations correctly", () => {
@@ -3593,7 +3593,7 @@ describe("PreviewMediaPool — FINDING-013: Cache Key Precision", () => {
     const cacheKeys = Array.from((pool as any).videoCache.keys());
 
     // Should normalize to consistent value
-    expect(cacheKeys[0]).toBe("asset-1-/path/test.mp4-trim5.172");
+    expect(cacheKeys[0]).toBe("clip-1");
   });
 });
 
