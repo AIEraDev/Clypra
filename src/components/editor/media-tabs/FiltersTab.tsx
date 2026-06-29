@@ -29,18 +29,23 @@ const FILTER_ICONS: Record<string, LucideIcon> = {
 
 const DEFAULT_ICON = Filter;
 
-const FILTER_CATEGORIES = [
+const DEFAULT_FILTER_CATEGORIES = [
   { id: "essentials", name: "Essentials" },
+  { id: "portrait", name: "Portrait" },
+  { id: "landscape", name: "Landscape" },
   { id: "cinematic", name: "Cinematic" },
+  { id: "movies", name: "Movies" },
   { id: "vintage", name: "Vintage" },
   { id: "vibrant", name: "Vibrant" },
   { id: "mono", name: "Mono" },
   { id: "aesthetic", name: "Aesthetic" },
+  { id: "life", name: "Life" },
 ];
 
 export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<FilterCategory>("essentials");
+  const [categories, setCategories] = useState(DEFAULT_FILTER_CATEGORIES);
   const [filters, setFilters] = useState<FilterAsset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +55,19 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   // Initialize cache on mount
   useEffect(() => {
     filterCacheManager.initialize();
+  }, []);
+
+  // Load categories from API (falls back to defaults)
+  useEffect(() => {
+    void FiltersApi.getCategories()
+      .then((data) => {
+        if (data.length > 0) {
+          setCategories(data.map((c) => ({ id: c.id, name: c.name })));
+        }
+      })
+      .catch(() => {
+        /* use DEFAULT_FILTER_CATEGORIES */
+      });
   }, []);
 
   // Fetch filters when category changes
@@ -86,7 +104,7 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-surface/5 select-none">
       <div className="flex items-center gap-2.5 p-1 border-b border-border/50 shrink-0 bg-surface/10">
         <div className="grow overflow-x-auto flex items-center gap-0.5 pb-0.5 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
-          {FILTER_CATEGORIES.map((category) => (
+          {categories.map((category) => (
             <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-2 py-1 rounded text-xs font-semibold transition-all cursor-pointer shrink-0 text-[11px] hover:bg-accent/10 hover:text-accent ${activeCategory === category.id ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
               {category.name}
             </button>
@@ -239,6 +257,12 @@ const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite,
       <button onClick={onFavorite} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
         <Star className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`} />
       </button>
+
+      {filter.pipeline === "v2" && (
+        <span className="absolute top-1 left-1 px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide bg-violet-600/80 text-white z-10">
+          V2
+        </span>
+      )}
 
       {/* Preview Area / Image or Fallback Gradient */}
       <div className="flex-1 flex items-center justify-center w-full select-none relative overflow-hidden rounded-lg bg-surface">

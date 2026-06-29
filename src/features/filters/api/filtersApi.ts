@@ -10,6 +10,19 @@ const API_BASE_URL = getApiBaseUrl();
 
 export class FiltersApi {
   /**
+   * Get filters manifest with category counts
+   */
+  static async getManifest(): Promise<{ categories: Array<{ id: string; name: string; count: number }>; totalFilters: number }> {
+    const response = await fetch(`${API_BASE_URL}/filters/manifest`, {
+      headers: getApiHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch filters manifest: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  /**
    * Get all filter categories
    */
   static async getCategories(): Promise<FilterCategory[]> {

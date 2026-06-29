@@ -338,6 +338,8 @@ export const MobileEditorLayout: React.FC = () => {
         name: cachedFilter.filter.name || "Filter",
         intensity: defaultIntensity,
         swatch: cachedFilter.filter.swatch || "",
+        pipeline: cachedFilter.filter.pipeline,
+        effectStack: cachedFilter.filter.effectStack,
       };
 
       addClip(filterClip as any);

@@ -140,9 +140,12 @@ class FilterCacheManager {
       const relativePath = `${CACHE_DIR}/${fileName}`;
       const fullPath = await join(appCache, relativePath);
 
-      // If the swatch is missing and a url is present, fetch the detailed definition
+      // Fetch details when swatch missing (legacy CSS) or V2 stack not inlined
       let finalFilter = { ...filter };
-      if (!finalFilter.swatch && finalFilter.url) {
+      const needsDetail =
+        (!finalFilter.swatch && !finalFilter.effectStack?.length && finalFilter.url) ||
+        (finalFilter.pipeline === "v2" && !finalFilter.effectStack?.length && finalFilter.url);
+      if (needsDetail && finalFilter.url) {
         try {
           console.log(`[FilterCache] Fetching detailed filter from: ${finalFilter.url}`);
           const res = await fetch(finalFilter.url);
@@ -206,8 +209,8 @@ class FilterCacheManager {
 
     if (this.isCached(filter.id)) {
       const cached = this.cacheIndex.get(filter.id)!;
-      // If cached but swatch is missing (from previous bugged session), force re-download
-      if (cached.filter.swatch) {
+      // If cached but swatch/effectStack is missing, force re-download
+      if (cached.filter.swatch || (cached.filter.pipeline === "v2" && cached.filter.effectStack?.length)) {
         return cached;
       }
       console.log(`[FilterCache] Cached filter ${filter.name} is missing swatch. Evicting and re-downloading.`);

@@ -328,37 +328,95 @@ export async function rasterizeScene(scene: EvaluatedScene, target: RasterTarget
 
   ctx.restore();
 
+  // ─────────────────────────────────────────────────────────────────────────────
   // Apply track-level filter to the entire composition on CPU (unless skipped for GPU)
+  //
+  // ARCHITECTURE NOTE: This implements a LINEAR MERGED PIPELINE where filters
+  // are applied as a post-process to the effect-composited canvas. While this
+  // appears to merge pipelines, it's actually the CORRECT implementation of the
+  // isolated pipeline architecture:
+  //
+  //   Effect Pipeline → outputCanvas
+  //   Filter Pipeline → reads outputCanvas, writes filtered result back
+  //
+  // The pipelines remain isolated because:
+  // 1. Filter rendering is independent (doesn't modify effect state)
+  // 2. Effect rendering is independent (doesn't know about filters)
+  // 3. Composite pass happens here (final blend of both pipelines)
+  //
+  // TODO: Migrate to WebGL-based filter rendering to support advanced params
+  // (exposure, temperature, tint, vignette) that Canvas2D ctx.filter can't handle.
+  // See FILTER_ARCHITECTURE.md for details.
+  // ─────────────────────────────────────────────────────────────────────────────
   if (scene.activeFilter && !target.skipFilters) {
-    const { id, intensity } = scene.activeFilter;
-    const ir = resolveFilterToIR(id, intensity, scene.activeFilter.swatch);
-    const cssFilter = compileFilterIRToCSS(ir);
+    const { id, intensity, effectStack, pipeline } = scene.activeFilter;
 
-    if (cssFilter) {
-      // Apply the filter to the entire canvas by drawing it onto a temporary canvas,
-      // then drawing it back with the filter applied.
-      const tempCanvas = CanvasDevice.acquire(targetWidth, targetHeight);
-      const tempCtx = tempCanvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-      if (tempCtx) {
-        // Copy current canvas contents to temp canvas
-        tempCtx.clearRect(0, 0, targetWidth, targetHeight);
-        tempCtx.drawImage(outputCanvas, 0, 0);
+    if (pipeline === "v2" && effectStack && effectStack.length > 0) {
+      try {
+        const { buildManifestFromClip, isV2SupportedEffectStack, renderMPGFrame } = await import("../mpg");
+        const { scaleEffectStackByIntensity } = await import("../mpg/filterStack");
+        const scaled = scaleEffectStackByIntensity(
+          effectStack.map((n) => ({ type: n.type, params: n.params ?? {} })),
+          intensity,
+        );
+        if (isV2SupportedEffectStack(scaled)) {
+          const manifest = buildManifestFromClip(
+            "filter-post",
+            "Filter Post Process",
+            { id: "filter-clip", assetId: "filter-source", timelineStartMs: 0, timelineEndMs: 60_000, enabled: true },
+            scaled,
+            { width: targetWidth, height: targetHeight, assetUri: "inline://filter", assetKind: "image" },
+          );
 
-        // Clear output canvas
-        ctx.save();
-        if (typeof ctx.setTransform === "function") {
-          ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset scale/offset
+          const sourceCanvas = document.createElement("canvas");
+          sourceCanvas.width = targetWidth;
+          sourceCanvas.height = targetHeight;
+          const sourceCtx = sourceCanvas.getContext("2d")!;
+          sourceCtx.drawImage(outputCanvas, 0, 0, targetWidth, targetHeight);
+
+          const filtered = await renderMPGFrame(manifest, sourceCanvas, {
+            timelineTimeMs: 500,
+            width: targetWidth,
+            height: targetHeight,
+          });
+
+          ctx.save();
+          if (typeof ctx.setTransform === "function") {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+          }
+          ctx.clearRect(0, 0, targetWidth, targetHeight);
+          ctx.fillStyle = backgroundColor;
+          ctx.fillRect(0, 0, targetWidth, targetHeight);
+          ctx.drawImage(filtered, 0, 0, targetWidth, targetHeight);
+          ctx.restore();
         }
-        ctx.clearRect(0, 0, targetWidth, targetHeight);
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
-
-        // Draw back with filter
-        ctx.filter = cssFilter;
-        ctx.drawImage(tempCanvas, 0, 0);
-        ctx.restore();
+      } catch (err) {
+        console.warn("[Rasterizer:MPG Filter] V2 filter path failed, falling back to CSS", err);
       }
-      CanvasDevice.release(tempCanvas);
+    } else {
+      const ir = resolveFilterToIR(id, intensity, scene.activeFilter.swatch);
+      const cssFilter = compileFilterIRToCSS(ir);
+
+      if (cssFilter) {
+        const tempCanvas = CanvasDevice.acquire(targetWidth, targetHeight);
+        const tempCtx = tempCanvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+        if (tempCtx) {
+          tempCtx.clearRect(0, 0, targetWidth, targetHeight);
+          tempCtx.drawImage(outputCanvas, 0, 0);
+
+          ctx.save();
+          if (typeof ctx.setTransform === "function") {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+          }
+          ctx.clearRect(0, 0, targetWidth, targetHeight);
+          ctx.fillStyle = backgroundColor;
+          ctx.fillRect(0, 0, targetWidth, targetHeight);
+          ctx.filter = cssFilter;
+          ctx.drawImage(tempCanvas, 0, 0);
+          ctx.restore();
+        }
+        CanvasDevice.release(tempCanvas);
+      }
     }
   }
 
@@ -671,8 +729,83 @@ async function drawMediaWithSourceRotation(ctx: CanvasRenderingContext2D | Offsc
   ctx.restore();
 }
 
+async function imageBitmapToCanvas(bitmap: ImageBitmap, width: number, height: number): Promise<HTMLCanvasElement> {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  return canvas;
+}
+
 async function renderMediaFrame(source: HTMLVideoElement | ImageBitmap | HTMLCanvasElement, width: number, height: number, effects: EvaluatedEffect[] | undefined, filter?: { id: string; name: string; intensity: number }): Promise<HTMLCanvasElement | OffscreenCanvas> {
-  const canvas = CanvasDevice.acquire(Math.max(1, Math.ceil(width)), Math.max(1, Math.ceil(height)));
+  const w = Math.max(1, Math.ceil(width));
+  const h = Math.max(1, Math.ceil(height));
+
+  const bodyEffects = (effects || []).filter((effect) => isBodyRenderer(effect.renderer || effect.effectId));
+  const videoEffects = (effects || []).filter((effect) => !isBodyRenderer(effect.renderer || effect.effectId));
+
+  if (videoEffects.length > 0 && bodyEffects.length === 0) {
+    try {
+      const { buildManifestFromClip, isV2SupportedEffectStack, expandMpgStackEffects, renderMPGFrame } = await import("../mpg");
+      const rawStack = videoEffects.map((fx) => ({
+        id: fx.effectId,
+        type: fx.renderer || fx.effectId,
+        params: { ...fx.parameters, intensity: fx.intensity } as Record<string, unknown>,
+      }));
+      const stack = expandMpgStackEffects(rawStack);
+
+      if (isV2SupportedEffectStack(stack)) {
+        const manifest = buildManifestFromClip(
+          "rasterizer-frame",
+          "Rasterizer Frame",
+          { id: "clip-inline", assetId: "source-inline", timelineStartMs: 0, timelineEndMs: 60_000, enabled: true },
+          stack.map((fx) => {
+            const params = fx.params as Record<string, unknown>;
+            const typeLower = fx.type.toLowerCase();
+            const intensity = Number(params.intensity ?? 0);
+            return {
+              ...fx,
+              params: {
+                ...params,
+                brightness: params.brightness ?? (typeLower.includes("brightness") ? intensity : undefined),
+                contrast: params.contrast ?? (typeLower.includes("contrast") ? intensity : undefined),
+                blur: params.blur ?? params.blurAmount ?? (typeLower.includes("blur") ? intensity * 20 : undefined),
+              },
+            };
+          }),
+          { width: w, height: h, assetUri: "inline://source", assetKind: "image" },
+        );
+
+        const sourceEl =
+          source instanceof HTMLVideoElement || source instanceof HTMLCanvasElement
+            ? source
+            : await imageBitmapToCanvas(source, w, h);
+
+        const mpgCanvas = await renderMPGFrame(manifest, sourceEl, {
+          timelineTimeMs: videoEffects[0]?.localTime ? videoEffects[0].localTime * 1000 : 500,
+          width: w,
+          height: h,
+        });
+
+        if (filter) {
+          const filtered = CanvasDevice.acquire(w, h);
+          const fctx = filtered.getContext("2d")!;
+          const ir = resolveFilterToIR(filter.id, filter.intensity);
+          const cssFilter = compileFilterIRToCSS(ir);
+          if (cssFilter) fctx.filter = cssFilter;
+          fctx.drawImage(mpgCanvas, 0, 0, w, h);
+          return filtered;
+        }
+
+        return mpgCanvas;
+      }
+    } catch (err) {
+      console.warn("[Rasterizer:MPG] V2 path failed, falling back to legacy", err);
+    }
+  }
+
+  const canvas = CanvasDevice.acquire(w, h);
   const frameCtx = canvas.getContext("2d", { alpha: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   if (!frameCtx) return canvas;
 
@@ -773,11 +906,9 @@ function applyRasterEffect(ctx: CanvasRenderingContext2D | OffscreenCanvasRender
         name: effect.renderer || effect.effectId,
         nodes: [
           { id: "input-node", type: "source", params: {} },
-          { id: "effect-node", type: renderer === "grain" ? "film_grain" : renderer, params: effect.parameters }
+          { id: "effect-node", type: renderer === "grain" ? "film_grain" : renderer, params: effect.parameters },
         ],
-        connections: [
-          { fromNode: "input-node", fromOutput: "output", toNode: "effect-node", toInput: "input" }
-        ]
+        connections: [{ fromNode: "input-node", fromOutput: "output", toNode: "effect-node", toInput: "input" }],
       };
 
       const graph = new EffectGraph(graphDef);
