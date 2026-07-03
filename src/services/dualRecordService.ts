@@ -392,7 +392,7 @@ export class DualRecordService {
     const selectedMime = mimePreference.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
 
     try {
-      // 1. Screen stream & recorder
+      // 1. Screen stream capture
       if (options.screen && !this.screenStream) {
         const videoConstraints: any = {
           width: { ideal: 1920 },
@@ -407,13 +407,10 @@ export class DualRecordService {
 
         this.screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: videoConstraints,
-          audio: false,
+          audio: false, // Mic audio is added from webcamStream below
         });
 
         // Listen for the OS "Stop Sharing" event on the screen video track.
-        // When the user clicks "Stop Sharing" in the system UI, the track fires
-        // `ended` but our MediaRecorder keeps running — producing empty frames.
-        // We catch this and auto-stop the entire recording session.
         const screenVideoTrack = this.screenStream.getVideoTracks()[0];
         if (screenVideoTrack) {
           screenVideoTrack.addEventListener("ended", () => {
@@ -425,24 +422,8 @@ export class DualRecordService {
         }
       }
 
-      if (this.screenStream && options.screen) {
-        this.screenRecorder = new MediaRecorder(
-          this.screenStream,
-          selectedMime ? { mimeType: selectedMime } : undefined
-        );
-        this.screenRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) this.screenChunks.push(e.data);
-        };
-        this.screenRecorder.onerror = (e) => {
-          console.error("[DualRecordService] Screen MediaRecorder error:", e);
-          if (this.isRecordingActive) {
-            this.onRecordingStopped?.("recorder_error", "Screen recorder encountered an error");
-          }
-        };
-        this.screenRecorder.start(250);
-      }
-
-      // 2. Webcam + mic stream & recorder
+      // 2. Webcam + mic stream — acquire BEFORE building screen recorder so we
+      //    can inject the mic audio track into the screen recording as well.
       if ((options.webcam || options.audio) && !this.webcamStream) {
         if (options.webcam) {
           try {
@@ -489,6 +470,39 @@ export class DualRecordService {
         }
       }
 
+      // 3. Screen recorder — combine screen video + mic audio so the screen
+      //    recording file has sound even when webcam is also recording.
+      if (this.screenStream && options.screen) {
+        // Build a combined stream: screen video track(s) + mic audio track (if available)
+        const combinedTracks: MediaStreamTrack[] = [
+          ...this.screenStream.getVideoTracks(),
+        ];
+        if (options.audio && this.webcamStream) {
+          const micAudioTracks = this.webcamStream.getAudioTracks();
+          if (micAudioTracks.length > 0) {
+            combinedTracks.push(micAudioTracks[0]);
+            console.log("[DualRecordService] Injecting mic audio track into screen recorder.");
+          }
+        }
+        const screenRecordStream = new MediaStream(combinedTracks);
+
+        this.screenRecorder = new MediaRecorder(
+          screenRecordStream,
+          selectedMime ? { mimeType: selectedMime } : undefined
+        );
+        this.screenRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) this.screenChunks.push(e.data);
+        };
+        this.screenRecorder.onerror = (e) => {
+          console.error("[DualRecordService] Screen MediaRecorder error:", e);
+          if (this.isRecordingActive) {
+            this.onRecordingStopped?.("recorder_error", "Screen recorder encountered an error");
+          }
+        };
+        this.screenRecorder.start(250);
+      }
+
+      // 4. Webcam recorder
       if (this.webcamStream && (options.webcam || options.audio)) {
         this.webcamRecorder = new MediaRecorder(
           this.webcamStream,
