@@ -7,6 +7,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { isTauri as isTauriRuntime } from "@/core/platform/platform";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { getTransformController } from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
@@ -414,7 +415,10 @@ export const PixiProgramPreview: React.FC = () => {
         }
       }
 
-      const needsRender = (isPlaying || timeChanged || epochChanged || isFirstFrame || forceRenderNeeded) && !waitingForVideoReady;
+      const transformController = getTransformController();
+      const hasActiveTransform = transformController.getActiveTransform() !== null;
+
+      const needsRender = (isPlaying || timeChanged || epochChanged || isFirstFrame || forceRenderNeeded || hasActiveTransform) && !waitingForVideoReady;
       if (needsRender && forceRenderNeeded) forceRenderNeeded = false;
 
       if (needsRender && compositorRef.current) {
