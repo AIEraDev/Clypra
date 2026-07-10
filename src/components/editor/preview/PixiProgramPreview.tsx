@@ -5,7 +5,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { getActiveSessionOrNull, subscribeToSessionChanges } from "@/core/runtime/ProjectSession";
 import { getTransformController } from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
@@ -309,15 +309,23 @@ export const PixiProgramPreview: React.FC = () => {
   // ── Initialize PixiSceneCompositor ──────────────────────────────
   // Check session readiness and trigger compositor init
   useEffect(() => {
-    const session = getActiveSessionOrNull();
-    const mediaPool = session?.getPreviewMediaPool();
-    const isReady = !!(session && session.state === "active" && mediaPool);
-
-    if (isReady !== sessionReady) {
+    const checkReadiness = () => {
+      const session = getActiveSessionOrNull();
+      const mediaPool = session?.getPreviewMediaPool();
+      const isReady = !!(session && session.state === "active" && mediaPool);
       setSessionReady(isReady);
-      console.info("[PreviewLifecycle] session-ready changed", { isReady });
-    }
-  }, [project, sessionReady]);
+    };
+
+    checkReadiness();
+
+    const unsubscribe = subscribeToSessionChanges(() => {
+      checkReadiness();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   // Compositor initialization (canvas/project identity changes only)
   useEffect(() => {
