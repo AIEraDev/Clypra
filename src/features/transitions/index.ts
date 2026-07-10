@@ -5,4 +5,6 @@
 
 export { TransitionRenderer } from "./TransitionRenderer";
 export { TransitionsApi } from "./api/transitionsApi";
-export type { TransitionType, TransitionRendererType, TransitionAsset, TransitionCategory, AppliedTransition } from "./types";
+export { transitionCacheManager } from "./cache/transitionCache";
+export type { TransitionType, TransitionAsset, TransitionCategory, AppliedTransition } from "./types";
+export type { CachedTransition, TransitionDownloadProgress } from "./cache/transitionCache";

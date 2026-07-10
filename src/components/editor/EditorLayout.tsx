@@ -428,7 +428,6 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         kind: "filter" as const,
         name: cachedFilter.filter.name || "Filter",
         intensity: defaultIntensity,
-        swatch: cachedFilter.filter.swatch || "",
         pipeline: cachedFilter.filter.pipeline,
         effectStack: cachedFilter.filter.effectStack,
       };

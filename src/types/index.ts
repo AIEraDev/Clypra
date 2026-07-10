@@ -271,7 +271,6 @@ export interface FilterClip extends Clip {
   kind: "filter";
   name: string;
   intensity: number; // 0.0 to 1.0
-  swatch?: string;
   /** V2 MPG stack from Filter Lab — rendered via MPG pipeline when present */
   pipeline?: "v2";
   effectStack?: Array<{ type: string; params?: Record<string, unknown> }>;

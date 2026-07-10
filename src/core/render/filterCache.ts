@@ -92,8 +92,6 @@ export function getOrUpdateFilters(mediaLayer: EvaluatedMediaLayer, width: numbe
       let hasBlur = false;
       if (asset?.gradingParams?.blur && asset.gradingParams.blur > 0.001) {
         hasBlur = true;
-      } else if (asset?.swatch && asset.swatch.includes("blur")) {
-        hasBlur = true;
       }
 
       if (hasBlur) {
@@ -163,26 +161,17 @@ function applyLiveParams(entry: FilterCacheEntry, mediaLayer: EvaluatedMediaLaye
 
       if (asset?.gradingParams) {
         const gp = asset.gradingParams;
-        params.exposure = (gp.exposure ?? 0.0) * mediaLayer.filter.intensity;
-        params.brightness = (gp.brightness ?? 0.0) * mediaLayer.filter.intensity;
-        params.contrast = (gp.contrast ?? 0.0) * mediaLayer.filter.intensity;
-        params.saturation = (gp.saturation ?? 0.0) * mediaLayer.filter.intensity;
+        params.exposure    = (gp.exposure    ?? 0.0) * mediaLayer.filter.intensity;
+        params.brightness  = (gp.brightness  ?? 0.0) * mediaLayer.filter.intensity;
+        params.contrast    = (gp.contrast    ?? 0.0) * mediaLayer.filter.intensity;
+        params.saturation  = (gp.saturation  ?? 0.0) * mediaLayer.filter.intensity;
         params.temperature = (gp.temperature ?? 0.0) * mediaLayer.filter.intensity;
-        params.tint = (gp.tint ?? 0.0) * mediaLayer.filter.intensity;
-        params.sepia = (gp.sepia ?? 0.0) * mediaLayer.filter.intensity;
-        params.grayscale = (gp.grayscale ?? 0.0) * mediaLayer.filter.intensity;
-        params.hueRotate = (gp.hueRotate ?? 0.0) * mediaLayer.filter.intensity;
-        params.invert = (gp.invert ?? 0.0) * mediaLayer.filter.intensity;
-        params.vignette = (gp.vignette ?? 0.0) * mediaLayer.filter.intensity;
-      } else {
-        const swatch = asset?.swatch;
-        const ir = resolveFilterToIR(mediaLayer.filter.id, mediaLayer.filter.intensity, swatch);
-        
-        if (ir.sepia !== undefined) params.sepia = ir.sepia;
-        if (ir.grayscale !== undefined) params.grayscale = ir.grayscale;
-        if (ir.saturate !== undefined) params.saturation = ir.saturate - 1.0;
-        if (ir.contrast !== undefined) params.contrast = ir.contrast - 1.0;
-        if (ir.hueRotate !== undefined) params.hueRotate = (ir.hueRotate * Math.PI) / 180;
+        params.tint        = (gp.tint        ?? 0.0) * mediaLayer.filter.intensity;
+        params.sepia       = (gp.sepia       ?? 0.0) * mediaLayer.filter.intensity;
+        params.grayscale   = (gp.grayscale   ?? 0.0) * mediaLayer.filter.intensity;
+        params.hueRotate   = (gp.hueRotate   ?? 0.0) * mediaLayer.filter.intensity;
+        params.invert      = (gp.invert      ?? 0.0) * mediaLayer.filter.intensity;
+        params.vignette    = (gp.vignette    ?? 0.0) * mediaLayer.filter.intensity;
       }
 
       ColorAdjustmentsEffect.filterSpec!.updateUniforms!(filter, params, 0);
@@ -192,15 +181,7 @@ function applyLiveParams(entry: FilterCacheEntry, mediaLayer: EvaluatedMediaLaye
     if (blurFilter) {
       const cached = filterCacheManager.getCached(mediaLayer.filter.id);
       const asset = cached?.filter;
-      let blurAmount = 0;
-      if (asset?.gradingParams?.blur) {
-        blurAmount = asset.gradingParams.blur;
-      } else if (asset?.swatch) {
-        const blurMatch = asset.swatch.match(/blur\(([^)]+)\)/);
-        if (blurMatch) {
-          blurAmount = parseFloat(blurMatch[1]);
-        }
-      }
+      const blurAmount = asset?.gradingParams?.blur ?? 0;
       blurFilter.strength = blurAmount * mediaLayer.filter.intensity;
     }
   }

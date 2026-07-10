@@ -362,7 +362,6 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         id: activeFilterClip.mediaId,
         name: activeFilterClip.name || "",
         intensity: normalizeFilterIntensity((activeFilterClip as any).intensity),
-        swatch: (activeFilterClip as any).swatch || "",
         pipeline: (activeFilterClip as any).pipeline as "v2" | undefined,
         effectStack: (activeFilterClip as any).effectStack as Array<{ type: string; params?: Record<string, unknown> }> | undefined,
       }

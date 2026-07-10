@@ -140,11 +140,13 @@ class FilterCacheManager {
       const relativePath = `${CACHE_DIR}/${fileName}`;
       const fullPath = await join(appCache, relativePath);
 
-      // Fetch details when swatch missing (legacy CSS) or V2 stack not inlined
+      // Fetch full detail when none of the render paths are inlined.
+      // Priority: gradingParams (GPU) > effectStack (V2 MPG)
       let finalFilter = { ...filter };
-      const needsDetail =
-        (!finalFilter.swatch && !finalFilter.effectStack?.length && finalFilter.url) ||
-        (finalFilter.pipeline === "v2" && !finalFilter.effectStack?.length && finalFilter.url);
+      const hasRenderData =
+        (!!finalFilter.gradingParams && Object.keys(finalFilter.gradingParams).length > 0) ||
+        (finalFilter.pipeline === "v2" && !!finalFilter.effectStack?.length);
+      const needsDetail = !hasRenderData && !!finalFilter.url;
       if (needsDetail && finalFilter.url) {
         try {
           console.log(`[FilterCache] Fetching detailed filter from: ${finalFilter.url}`);
@@ -154,11 +156,11 @@ class FilterCacheManager {
             finalFilter = {
               ...finalFilter,
               ...remoteFilter,
-              id: finalFilter.id, // Preserve listing attributes
+              id: finalFilter.id, // Preserve listing id/name/category
               name: finalFilter.name,
               category: finalFilter.category,
             };
-            console.log(`[FilterCache] Successfully retrieved details for ${finalFilter.name} with swatch: ${finalFilter.swatch}`);
+            console.log(`[FilterCache] Retrieved detail for ${finalFilter.name} (GPU params: ${!!finalFilter.gradingParams})`);
           } else {
             console.warn(`[FilterCache] Failed to fetch filter details: ${res.statusText}`);
           }
@@ -209,11 +211,12 @@ class FilterCacheManager {
 
     if (this.isCached(filter.id)) {
       const cached = this.cacheIndex.get(filter.id)!;
-      // If cached but swatch/effectStack is missing, force re-download
-      if (cached.filter.swatch || (cached.filter.pipeline === "v2" && cached.filter.effectStack?.length)) {
-        return cached;
-      }
-      console.log(`[FilterCache] Cached filter ${filter.name} is missing swatch. Evicting and re-downloading.`);
+      // Accept cached entry if any render path is present
+      const hasRenderData =
+        (!!cached.filter.gradingParams && Object.keys(cached.filter.gradingParams).length > 0) ||
+        (cached.filter.pipeline === "v2" && !!cached.filter.effectStack?.length);
+      if (hasRenderData) return cached;
+      console.log(`[FilterCache] Cached filter ${filter.name} has no render data. Evicting and re-downloading.`);
       this.cacheIndex.delete(filter.id);
     }
 

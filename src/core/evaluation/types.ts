@@ -368,7 +368,6 @@ export interface EvaluatedScene {
     id: string;
     name: string;
     intensity: number;
-    swatch?: string;
     pipeline?: "v2";
     effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
   };
