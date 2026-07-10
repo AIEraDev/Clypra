@@ -1,9 +1,9 @@
 export interface FilterIR {
-  sepia?: number;        // 0.0 to 1.0
-  saturate?: number;     // multiplier, e.g. 1.0 is neutral
-  contrast?: number;     // multiplier, e.g. 1.0 is neutral
-  grayscale?: number;    // 0.0 to 1.0
-  hueRotate?: number;    // angle in degrees, e.g. 0 is neutral
+  sepia?: number; // 0.0 to 1.0
+  saturate?: number; // multiplier, e.g. 1.0 is neutral
+  contrast?: number; // multiplier, e.g. 1.0 is neutral
+  grayscale?: number; // 0.0 to 1.0
+  hueRotate?: number; // angle in degrees, e.g. 0 is neutral
 }
 
 export function normalizeFilterIntensity(intensity: number | undefined): number {
@@ -71,7 +71,8 @@ export function parseCSSFilterToIR(cssFilter: string): FilterIR {
 }
 
 /**
- * Maps standard preset filter IDs or a custom swatch CSS string and their intensity (0.0 to 1.0) to a FilterIR object.
+ * Maps standard preset filter IDs to a FilterIR object.
+ * Legacy swatch CSS parameter is deprecated - filters now use GPU rendering exclusively.
  */
 export function resolveFilterToIR(filterId: string, intensity: number, swatch?: string): FilterIR {
   const amount = normalizeFilterIntensity(intensity);

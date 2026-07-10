@@ -86,9 +86,7 @@ describe("Filter Evaluation", () => {
     { id: "t-filter", type: "filter", name: "Filter", muted: false, locked: false, visible: true, height: 30 },
   ];
 
-  const assets: MediaAsset[] = [
-    { id: "image-asset", name: "Image.jpg", path: "/path/to/image.jpg", type: "image", duration: 10, width: 1920, height: 1080, size: 1000000 },
-  ];
+  const assets: MediaAsset[] = [{ id: "image-asset", name: "Image.jpg", path: "/path/to/image.jpg", type: "image", duration: 10, width: 1920, height: 1080, size: 1000000 }];
 
   it("applies filter to active visual layers", () => {
     const imageClip: Clip = {
@@ -128,9 +126,9 @@ describe("Filter Evaluation", () => {
     } as any;
 
     const scene = evaluateTimelineScene(2.5, [imageClip, filterClip], tracks, assets, project);
-    
+
     // Check if the visual layer for image has no clip filter (since filter track filter is track-level)
-    const imageLayer = scene.visualLayers.find(l => l.clipId === "clip-image");
+    const imageLayer = scene.visualLayers.find((l) => l.clipId === "clip-image");
     expect(imageLayer).toBeDefined();
     expect(imageLayer?.layerType).toBe("media");
     expect((imageLayer as any).filter).toBeUndefined();
@@ -140,7 +138,6 @@ describe("Filter Evaluation", () => {
       id: "filter-sepia",
       name: "Sepia Tone",
       intensity: 0.8,
-      swatch: "",
     });
   });
 
@@ -228,7 +225,6 @@ describe("Filter Evaluation", () => {
       id: "filter-vivid",
       name: "Vivid",
       intensity: 1,
-      swatch: "",
     });
   });
 });
