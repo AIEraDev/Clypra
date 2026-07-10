@@ -127,11 +127,16 @@ describe("Filter Evaluation", () => {
 
     const scene = evaluateTimelineScene(2.5, [imageClip, filterClip], tracks, assets, project);
 
-    // Check if the visual layer for image has no clip filter (since filter track filter is track-level)
+    // Check if the visual layer for image has the filter applied from the filter track
     const imageLayer = scene.visualLayers.find((l) => l.clipId === "clip-image");
     expect(imageLayer).toBeDefined();
     expect(imageLayer?.layerType).toBe("media");
-    expect((imageLayer as any).filter).toBeUndefined();
+    // Filter from filter track is now applied to each media layer
+    expect((imageLayer as any).filter).toEqual({
+      id: "filter-sepia",
+      name: "Sepia Tone",
+      intensity: 0.8,
+    });
 
     // Verify the track-level filter is correctly attached at the scene level
     expect(scene.activeFilter).toEqual({
