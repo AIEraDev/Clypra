@@ -346,6 +346,7 @@ pub async fn start_video_export(
         }
         "h265" => {
             cmd.arg("-c:v").arg("libx265");
+            cmd.arg("-tag:v").arg("hvc1"); // Enable compatibility with Apple (macOS Quick Look, Safari, iOS)
             cmd.arg("-preset").arg(&config.preset);
             cmd.arg("-crf").arg(config.crf.to_string());
             cmd.arg("-pix_fmt").arg(&config.pixel_format);

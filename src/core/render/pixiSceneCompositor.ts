@@ -54,12 +54,8 @@ export class PixiSceneCompositor {
     return this.renderer?.isReady || false;
   }
 
-  async waitForReady(timeoutMs = 10_000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
+  async waitForReady(): Promise<void> {
     while (!this.renderer?.isReady) {
-      if (Date.now() >= deadline) {
-        throw new Error(`[PixiSceneCompositor] Timed out after ${timeoutMs}ms waiting for WebGL renderer to initialize. ` + `The GPU context may be unavailable or the browser has denied WebGL access.`);
-      }
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }

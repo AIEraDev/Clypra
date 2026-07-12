@@ -146,6 +146,11 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   // All 21 GPU transitions render correctly on this path.
   const pixiHandle = createPixiExportCompositor(width, height);
 
+  // Wait for the WebGL/Pixi context to be fully initialized and ready.
+  // Without this, the export loop starts composing frames before Pixi is ready,
+  // resulting in completely blank/black frames being written.
+  await pixiHandle.compositor.waitForReady();
+
   // Create progress channel
   const progressChannel = new Channel<VideoExportProgress>();
   progressChannel.onmessage = (progress) => {

@@ -161,7 +161,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       const finalHeight = evalH * animationState.scale;
 
       const textLayer: EvaluatedTextLayer = {
-        layerId: `${clip.id}-${evalTime}`,
+        layerId: clip.id,
         clipId: clip.id,
         role: clip.role,
         clipKind: clip.kind,
@@ -232,7 +232,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     const transitionState = evaluateTransitionState(clip, transitionWindows);
 
     const mediaLayer: EvaluatedMediaLayer = {
-      layerId: `${clip.id}-${evalTime}`,
+      layerId: clip.id,
       clipId: clip.id,
       role: clip.role,
       clipKind: clip.kind,
@@ -316,7 +316,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     if (!sourcePath) continue;
 
     audioLayers.push({
-      layerId: `${clip.id}-audio-${evalTime}`,
+      layerId: `${clip.id}-audio`,
       clipId: clip.id,
       mediaId: clip.mediaId,
       sourcePath,

@@ -63,10 +63,10 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
 
       // Find asset
       const asset = assets.find((a) => a.id === clip.mediaId);
-      if (!asset) return false;
+      const directAudioPath = (clip as any).audioPath as string | undefined;
+      const isAudioClip = asset?.type === "audio" || asset?.type === "video" || (clip.kind === "audio" && !!directAudioPath);
 
-      // Only include audio and video clips (video may have audio track)
-      if (asset.type !== "audio" && asset.type !== "video") return false;
+      if (!isAudioClip) return false;
 
       // Check if clip overlaps with export time range
       const clipStart = clip.startTime;
@@ -74,7 +74,9 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       return clipStart < endTime && clipEnd > startTime;
     })
     .map((clip) => {
-      const asset = assets.find((a) => a.id === clip.mediaId)!;
+      const asset = assets.find((a) => a.id === clip.mediaId);
+      const directAudioPath = (clip as any).audioPath as string | undefined;
+      const rawPath = asset ? asset.path : directAudioPath!;
 
       // Calculate overlap with export time range
       const clipStart = clip.startTime;
@@ -97,8 +99,8 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       const volume = Math.max(0, Math.min(1, clip.volume ?? 1.0));
 
       return {
-        // Normalize to native FS path — asset.path may be an asset:// or file:// URL
-        path: toNativePath(asset.path),
+        // Normalize to native FS path — asset.path or directAudioPath may be an asset:// or file:// URL
+        path: toNativePath(rawPath),
         startTime: relativeStartTime,
         duration: relativeDuration,
         trimIn: relativeTrimIn,
