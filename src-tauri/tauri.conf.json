@@ -48,10 +48,8 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": [
-        "https://github.com/AIEraDev/clypra/releases/latest/download/updater.json"
-      ],
-      "pubkey": "dW51c2VkX3B1YmxpY19rZXlfZm9yX3VwZGF0ZXJfZGVtbw=="
+      "endpoints": ["https://github.com/AIEraDev/clypra/releases/latest/download/updater.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdCOUZCOEM1RDBDN0NBOUI\nKUldTYnlzZlF4YmlmZXpMSUI4ZGJveW1xVFRIeDMza25NMlg0R2xmdFJNaTVLTHBmdVlYejFFc2oK"
     }
   }
 }
