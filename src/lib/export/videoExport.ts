@@ -19,6 +19,8 @@ import { getActiveAudioClips } from "../../core/timeline/audioClips";
 import { PRESET_CONFIGS } from "./exportPresets";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
 import type { ExportAudioClip, ExportProgress } from "../../types/export";
+import { ALL_TRANSITIONS } from "@clypra-studio/engine";
+import { resolveTransitionDefinition, mergeTransitionParams } from "../../core/render/utils/transitionResolver";
 
 /**
  * Video export progress - Re-exported from types/export
@@ -150,6 +152,27 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   // Without this, the export loop starts composing frames before Pixi is ready,
   // resulting in completely blank/black frames being written.
   await pixiHandle.compositor.waitForReady();
+
+  // Pre-warm transition shaders before the render loop starts.
+  // This avoids compile-time hiccups/stalls during video export.
+  if (transitions && transitions.length > 0) {
+    for (const transition of transitions) {
+      const resolved = resolveTransitionDefinition(
+        transition.type,
+        ALL_TRANSITIONS,
+        transition.renderer
+      );
+      if (resolved) {
+        const { definition, params } = resolved;
+        const runtimeParams = {
+          easing: transition.easing,
+          ...(transition.metadata?.params as Record<string, any> || {}),
+        };
+        const mergedParams = mergeTransitionParams(definition.params, params, runtimeParams);
+        pixiHandle.compositor.prewarmTransitionShader(definition, mergedParams);
+      }
+    }
+  }
 
   // Create progress channel
   const progressChannel = new Channel<VideoExportProgress>();
