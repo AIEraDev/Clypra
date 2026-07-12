@@ -10,9 +10,10 @@
  */
 
 import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
-import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
+import { evaluateTimelineSceneCached, clearEvaluationCache } from "../../core/evaluation/evaluator";
 import { createPixiExportCompositor, destroyPixiExportCompositor, renderFrameWithPixi } from "./pixiExportRenderer";
 import { VideoElementPool } from "../../core/resources/VideoElementPool";
+import { getResourceCache } from "../../core/resources/ResourceCache";
 import { resolveClipSourceTime } from "../../core/timeline/sourceTime";
 import { getActiveAudioClips } from "../../core/timeline/audioClips";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
@@ -299,6 +300,14 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     // Always clean up video pool and Pixi compositor
     videoPool.clear();
     destroyPixiExportCompositor(pixiHandle);
+
+    // Release global image bitmaps and evaluated frames to free up memory
+    try {
+      getResourceCache().clear();
+      clearEvaluationCache();
+    } catch (e) {
+      console.warn("[videoExport] Failed to clear post-export caches:", e);
+    }
   }
 
   const totalTimeMs = Date.now() - startTimeMs;
