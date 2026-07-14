@@ -246,6 +246,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       sourceTime,
       sourceRotation: asset.rotation,
       conform: (clip as any).conform,
+      adjustments: clip.adjustments,
       x: evalX,
       y: evalY,
       width: evalW,
