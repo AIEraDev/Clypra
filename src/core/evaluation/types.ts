@@ -133,6 +133,7 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
 
   /** Professional conform settings */
   readonly conform?: import("@clypra-studio/engine").ClipConform;
+  readonly adjustments?: import("@clypra-studio/engine").ColorAdjustments;
 
   /** Dimensions of the original source media file */
   readonly sourceWidth?: number;
