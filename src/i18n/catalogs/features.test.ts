@@ -240,6 +240,37 @@ describe("media and audio localization", () => {
 });
 
 describe("text and caption localization", () => {
+  test("translates text effect categories and panel controls", () => {
+    expect([
+      ...["3d", "neon", "essentials", "glitch", "gradient", "outline"].map((id) =>
+        translate(`features.textEffects.category.${id}`),
+      ),
+      translate("features.textEffects.loadFailed"),
+      translate("features.textEffects.retry"),
+      translate("features.textEffects.emptyTitle"),
+      translate("features.textEffects.emptyDescription"),
+      translate("features.textEffects.preview.label"),
+      translate("features.textEffects.preview.placeholder"),
+      translate("features.textEffects.preview.cancel"),
+      translate("features.textEffects.preview.apply"),
+    ]).toEqual([
+      "立体",
+      "霓虹",
+      "基础",
+      "故障",
+      "渐变",
+      "描边",
+      "加载文字效果失败",
+      "重试",
+      "未找到匹配的文字效果",
+      "请尝试搜索其他样式",
+      "自定义文字",
+      "请输入文字…",
+      "取消",
+      "应用",
+    ]);
+  });
+
   test("keeps template category IDs stable while resolving separate Chinese labels", () => {
     const categoryLabelKeys = (
       textTemplateTypes as typeof textTemplateTypes & {

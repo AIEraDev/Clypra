@@ -78,12 +78,15 @@ describe("EffectGrid Component", () => {
     });
   });
 
-  it("renders category tabs and maps default category correctly", () => {
+  it("renders localized category labels while keeping the default category ID", () => {
     render(<EffectGrid />);
 
-    // Check if category button exists
-    expect(screen.getByText("3d")).toBeInTheDocument();
-    expect(screen.getByText("neon")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "立体" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "霓虹" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "基础" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "故障" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "渐变" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "描边" })).toBeInTheDocument();
 
     // Classic 3D belongs to '3d' category which is active by default
     expect(screen.getByText("Classic 3D")).toBeInTheDocument();
@@ -94,13 +97,56 @@ describe("EffectGrid Component", () => {
 
     render(<EffectGrid />);
 
-    // Click on neon category
-    const neonTab = screen.getByText("neon");
+    // Click the localized label; the store still receives the stable category ID.
+    const neonTab = screen.getByRole("button", { name: "霓虹" });
     fireEvent.click(neonTab);
 
     expect(loadCategorySpy).toHaveBeenCalledWith("neon");
     expect(screen.getByText("Neon Glow")).toBeInTheDocument();
     expect(screen.queryByText("Classic 3D")).not.toBeInTheDocument();
+  });
+
+  it("shows localized failure controls without exposing the raw store error", () => {
+    useEffectsStore.setState({ indexError: "REMOTE_ERR_RAW" });
+    const loadCategorySpy = vi.spyOn(useEffectsStore.getState(), "loadCategory");
+
+    render(<EffectGrid />);
+    loadCategorySpy.mockClear();
+
+    expect(screen.getByText("加载文字效果失败")).toBeInTheDocument();
+    expect(screen.queryByText("REMOTE_ERR_RAW")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(loadCategorySpy).toHaveBeenCalledWith("3d");
+  });
+
+  it("shows the localized two-line empty state", () => {
+    useEffectsStore.setState({ index: { "3d": [] } });
+
+    render(<EffectGrid />);
+
+    expect(screen.getByText("未找到匹配的文字效果")).toBeInTheDocument();
+    expect(screen.getByText("请尝试搜索其他样式")).toBeInTheDocument();
+  });
+
+  it("keeps remote effect names unchanged", () => {
+    useEffectsStore.setState({
+      index: {
+        "3d": [
+          {
+            id: "remote-effect_RAW_01",
+            name: "REMOTE Effect / 原始名_RAW",
+            category: "3d",
+            description: "REMOTE description 原样",
+            tags: ["REMOTE_TAG", "原始标签"],
+            thumbnail: "https://cdn.example/REMOTE_RAW.png",
+          },
+        ],
+      },
+    });
+
+    render(<EffectGrid />);
+
+    expect(screen.getByText("REMOTE Effect / 原始名_RAW")).toBeInTheDocument();
   });
 
   it("filters items by name based on searchQuery prop", () => {
@@ -274,7 +320,7 @@ describe("EffectGrid Component", () => {
 
     // 2. Click card B (neon-glow in neon category)
     // First switch to neon category
-    fireEvent.click(screen.getByText("neon"));
+    fireEvent.click(screen.getByRole("button", { name: "霓虹" }));
     fireEvent.click(screen.getByText("Neon Glow"));
     expect(useUIStore.getState().previewMediaId).toBe("neon-glow");
 

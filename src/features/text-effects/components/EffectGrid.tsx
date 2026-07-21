@@ -6,8 +6,17 @@ import type { TextEffectDefinition } from "../types/types";
 import { useFavoritesStore } from "@/store/favoritesStore";
 import { useUIStore } from "@/store/uiStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { t } from "@/i18n";
 
 const CATEGORIES = TEXT_EFFECT_CATEGORIES;
+const CATEGORY_LABEL_KEYS = {
+  "3d": "features.textEffects.category.3d",
+  neon: "features.textEffects.category.neon",
+  essentials: "features.textEffects.category.essentials",
+  glitch: "features.textEffects.category.glitch",
+  gradient: "features.textEffects.category.gradient",
+  outline: "features.textEffects.category.outline",
+} as const;
 
 interface EffectGridProps {
   searchQuery?: string;
@@ -181,7 +190,7 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
         <div className="flex overflow-x-auto gap-0.5 p-1 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
           {CATEGORIES.map((cat) => (
             <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-2 py-1 capitalize text-[11px] font-medium rounded transition-colors cursor-pointer hover:bg-accent/10 hover:text-accent ${activeCategory === cat ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
-              {cat}
+              {t(CATEGORY_LABEL_KEYS[cat])}
             </button>
           ))}
         </div>
@@ -194,17 +203,17 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
 
         {indexError && (
           <div className="flex flex-col items-center justify-center h-40 gap-2">
-            <p className="text-sm text-text-muted">{indexError}</p>
+            <p className="text-sm text-text-muted">{t("features.textEffects.loadFailed")}</p>
             <button onClick={() => loadCategory(activeCategory)} className="text-xs text-accent underline cursor-pointer hover:text-accent-soft">
-              Retry
+              {t("features.textEffects.retry")}
             </button>
           </div>
         )}
 
         {!indexLoading && !indexError && filteredItems.length === 0 && (
           <div className="flex flex-col items-center justify-center h-40 gap-1 text-xs text-text-muted">
-            <p>No matching effects found</p>
-            <p className="opacity-60">Try searching for other styles</p>
+            <p>{t("features.textEffects.emptyTitle")}</p>
+            <p className="opacity-60">{t("features.textEffects.emptyDescription")}</p>
           </div>
         )}
 
