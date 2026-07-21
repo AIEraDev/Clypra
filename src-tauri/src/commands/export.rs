@@ -210,10 +210,13 @@ pub async fn start_video_export(
 ) -> Result<String, String> {
     // Validate frame dimensions before starting export
     if config.width == 0 || config.height == 0 {
-        return Err(format!("Invalid export dimensions: {}x{}", config.width, config.height));
+        return Err(format!("导出尺寸无效：{}x{}", config.width, config.height));
     }
     if config.width > 7680 || config.height > 4320 {
-        return Err(format!("Export dimensions too large: {}x{} (max 7680x4320)", config.width, config.height));
+        return Err(format!(
+            "导出尺寸过大：{}x{}（最大 7680x4320）",
+            config.width, config.height
+        ));
     }
     
     // Generate session ID
@@ -378,7 +381,7 @@ pub async fn start_video_export(
             // ProRes is all-intra (every frame is a keyframe), no GOP setting needed
         }
         _ => {
-            return Err(format!("Unsupported codec: {}", config.codec));
+            return Err(format!("不支持的编码格式：{}", config.codec));
         }
     }
     
@@ -397,12 +400,12 @@ pub async fn start_video_export(
     
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?;
+        .map_err(|e| format!("启动 FFmpeg 失败：{}", e))?;
     
     let stdin = child
         .stdin
         .take()
-        .ok_or_else(|| "Failed to open stdin".to_string())?;
+        .ok_or_else(|| "打开 FFmpeg 标准输入失败".to_string())?;
     
     // Create session
     let session = ExportSession {
@@ -442,19 +445,19 @@ pub async fn write_export_frame(
     let session_id = headers
         .get("session-id")
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| "Missing session-id header".to_string())?
+        .ok_or_else(|| "缺少 session-id 请求头".to_string())?
         .to_string();
 
     // Extract raw payload
     let InvokeBody::Raw(frame_data) = request.body() else {
-        return Err("Expected raw binary payload".to_string());
+        return Err("应为原始二进制数据".to_string());
     };
 
     let mut sessions = EXPORT_SESSIONS.lock().await;
     
     let session = sessions
         .get_mut(&session_id)
-        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+        .ok_or_else(|| format!("未找到导出会话：{}", session_id))?;
     
     // Validate frame buffer size matches expected dimensions
     // RGBA format = 4 bytes per pixel
@@ -463,7 +466,7 @@ pub async fn write_export_frame(
     
     if actual_size != expected_size {
         return Err(format!(
-            "Frame buffer size mismatch: expected {} bytes ({}x{}x4), got {} bytes",
+            "帧缓冲区大小不匹配：应为 {} 字节（{}x{}x4），实际为 {} 字节",
             expected_size, session.width, session.height, actual_size
         ));
     }
@@ -476,7 +479,7 @@ pub async fn write_export_frame(
         .stdin
         .write_all(frame_data)
         .await
-        .map_err(|e| format!("Failed to write frame: {}", e))?;
+        .map_err(|e| format!("写入帧失败：{}", e))?;
     
     // Flush stdin buffer after each frame to ensure FFmpeg processes it immediately
     // This prevents PTS discontinuities from buffering delays
@@ -484,7 +487,7 @@ pub async fn write_export_frame(
         .stdin
         .flush()
         .await
-        .map_err(|e| format!("Failed to flush frame: {}", e))?;
+        .map_err(|e| format!("刷新帧缓冲区失败：{}", e))?;
     
     // MONITORING: Record write time
     let write_duration = write_start.elapsed().as_secs_f64() * 1000.0; // ms
@@ -591,29 +594,29 @@ pub async fn write_export_frames_batch(
     let session_id = headers
         .get("session-id")
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| "Missing session-id header".to_string())?
+        .ok_or_else(|| "缺少 session-id 请求头".to_string())?
         .to_string();
     
     let frame_count = headers
         .get("frame-count")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u32>().ok())
-        .ok_or_else(|| "Missing or invalid frame-count header".to_string())?;
+        .ok_or_else(|| "缺少 frame-count 请求头，或其值无效".to_string())?;
     
     if frame_count == 0 {
-        return Err("frame-count must be > 0".to_string());
+        return Err("frame-count 必须大于 0".to_string());
     }
 
     // Extract raw payload
     let InvokeBody::Raw(batch_data) = request.body() else {
-        return Err("Expected raw binary payload".to_string());
+        return Err("应为原始二进制数据".to_string());
     };
 
     let mut sessions = EXPORT_SESSIONS.lock().await;
     
     let session = sessions
         .get_mut(&session_id)
-        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+        .ok_or_else(|| format!("未找到导出会话：{}", session_id))?;
     
     // Validate total batch size
     let frame_size = (session.width * session.height * 4) as usize;
@@ -622,7 +625,7 @@ pub async fn write_export_frames_batch(
     
     if actual_batch_size != expected_batch_size {
         return Err(format!(
-            "Batch size mismatch: expected {} bytes ({} frames × {} bytes), got {} bytes",
+            "批次大小不匹配：应为 {} 字节（{} 帧 × {} 字节），实际为 {} 字节",
             expected_batch_size, frame_count, frame_size, actual_batch_size
         ));
     }
@@ -634,14 +637,14 @@ pub async fn write_export_frames_batch(
         .stdin
         .write_all(batch_data)
         .await
-        .map_err(|e| format!("Failed to write batch: {}", e))?;
+        .map_err(|e| format!("写入帧批次失败：{}", e))?;
     
     // Flush after batch (not per frame - reduces syscalls)
     session
         .stdin
         .flush()
         .await
-        .map_err(|e| format!("Failed to flush batch: {}", e))?;
+        .map_err(|e| format!("刷新帧批次失败：{}", e))?;
     
     let write_duration = write_start.elapsed().as_secs_f64() * 1000.0; // ms
     let per_frame_ms = write_duration / frame_count as f64;
@@ -708,7 +711,7 @@ pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
     
     let session = sessions
         .remove(&session_id)
-        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+        .ok_or_else(|| format!("未找到导出会话：{}", session_id))?;
     
     // Close stdin to signal end of input
     drop(session.stdin);
@@ -718,7 +721,7 @@ pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
         .process
         .wait_with_output()
         .await
-        .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
+        .map_err(|e| format!("等待 FFmpeg 完成失败：{}", e))?;
     
     let elapsed = session.start_time.elapsed();
     
@@ -736,7 +739,7 @@ pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
             "[finalize_video_export] Session {} failed:\n{}",
             session_id, stderr
         );
-        Err(format!("FFmpeg failed: {}", stderr))
+        Err(format!("FFmpeg 执行失败：{}", stderr))
     }
 }
 
@@ -751,7 +754,7 @@ pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
     
     let mut session = sessions
         .remove(&session_id)
-        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+        .ok_or_else(|| format!("未找到导出会话：{}", session_id))?;
     
     // Capture output path before killing the process
     let output_path = session.output_path.clone();
@@ -812,13 +815,106 @@ pub async fn get_ffmpeg_version() -> Result<String, String> {
         .arg("-version")
         .output()
         .await
-        .map_err(|e| format!("Failed to run FFmpeg: {}", e))?;
+        .map_err(|e| format!("运行 FFmpeg 失败：{}", e))?;
     
     if output.status.success() {
         let version = String::from_utf8_lossy(&output.stdout);
-        let first_line = version.lines().next().unwrap_or("Unknown");
+        let first_line = version.lines().next().unwrap_or("未知");
         Ok(first_line.to_string())
     } else {
-        Err("FFmpeg not available".to_string())
+        Err("FFmpeg 不可用".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn export_config(width: u32, height: u32, codec: &str) -> ExportConfig {
+        ExportConfig {
+            output_path: "/tmp/clypra-export-test.mp4".to_string(),
+            width,
+            height,
+            frame_rate: 30.0,
+            total_frames: 1,
+            codec: codec.to_string(),
+            preset: "medium".to_string(),
+            crf: 23,
+            pixel_format: "yuv420p".to_string(),
+            audio_clips: None,
+        }
+    }
+
+    fn progress_channel() -> Channel<ExportProgress> {
+        Channel::new(|_| Ok(()))
+    }
+
+    #[tokio::test]
+    async fn invalid_dimensions_are_localized() {
+        let error = start_video_export(export_config(0, 1080, "h264"), progress_channel())
+            .await
+            .expect_err("zero width should be rejected");
+
+        assert_eq!(error, "导出尺寸无效：0x1080");
+    }
+
+    #[tokio::test]
+    async fn oversized_dimensions_are_localized() {
+        let error = start_video_export(export_config(7681, 4321, "h264"), progress_channel())
+            .await
+            .expect_err("oversized dimensions should be rejected");
+
+        assert_eq!(error, "导出尺寸过大：7681x4321（最大 7680x4320）");
+    }
+
+    #[tokio::test]
+    async fn unsupported_codec_is_localized_without_changing_codec() {
+        let codec = "av1.experimental";
+        let error = start_video_export(export_config(1920, 1080, codec), progress_channel())
+            .await
+            .expect_err("unsupported codec should be rejected");
+
+        assert_eq!(error, format!("不支持的编码格式：{codec}"));
+    }
+
+    #[tokio::test]
+    async fn ffmpeg_stderr_is_preserved_verbatim() {
+        let stderr = "encoder exploded: codec=h264\n";
+        let mut process = Command::new("sh");
+        process
+            .args([
+                "-c",
+                "cat >/dev/null; printf 'encoder exploded: codec=h264\\n' >&2; exit 1",
+            ])
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut process = process.spawn().expect("test process should spawn");
+        let stdin = process
+            .stdin
+            .take()
+            .expect("test process stdin should open");
+        let session_id = uuid::Uuid::new_v4().to_string();
+        EXPORT_SESSIONS.lock().await.insert(
+            session_id.clone(),
+            ExportSession {
+                process,
+                stdin,
+                current_frame: 0,
+                total_frames: 1,
+                start_time: std::time::Instant::now(),
+                on_progress: progress_channel(),
+                width: 1,
+                height: 1,
+                output_path: None,
+                frame_write_times: VecDeque::new(),
+                last_perf_log_time: std::time::Instant::now(),
+            },
+        );
+
+        let error = finalize_video_export(session_id)
+            .await
+            .expect_err("non-zero FFmpeg exit should fail");
+
+        assert_eq!(error, format!("FFmpeg 执行失败：{stderr}"));
     }
 }

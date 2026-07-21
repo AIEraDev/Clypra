@@ -38,7 +38,7 @@ enum DownloadError {
 impl std::fmt::Display for DownloadError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Cancelled => formatter.write_str("Download cancelled"),
+            Self::Cancelled => formatter.write_str("下载已取消"),
             Self::Failed(message) => formatter.write_str(message),
         }
     }
@@ -89,9 +89,7 @@ fn register_download_task(state: &DownloadState, size: &str) -> Result<Arc<Downl
     let mut tasks = lock_download_tasks(state);
 
     match tasks.entry(size.to_string()) {
-        std::collections::hash_map::Entry::Occupied(_) => {
-            Err(format!("Download already active for model: {}", size))
-        }
+        std::collections::hash_map::Entry::Occupied(_) => Err(format!("该模型正在下载：{}", size)),
         std::collections::hash_map::Entry::Vacant(entry) => {
             let active = Arc::new(DownloadTask::new());
             entry.insert(active.clone());
@@ -124,7 +122,7 @@ async fn cancel_download_task(state: &DownloadState, size: &str) -> Result<(), S
         let tasks = lock_download_tasks(state);
         tasks.get(size).cloned()
     }
-    .ok_or_else(|| format!("No active download found for: {}", size))?;
+    .ok_or_else(|| format!("未找到进行中的下载任务：{}", size))?;
 
     let mut completion = active.completion.subscribe();
     active.cancel.cancel();
@@ -133,22 +131,17 @@ async fn cancel_download_task(state: &DownloadState, size: &str) -> Result<(), S
         if let Some(outcome) = completion.borrow().clone() {
             return match outcome {
                 DownloadCompletion::Cancelled => Ok(()),
-                DownloadCompletion::Completed => {
-                    Err(format!("Download completed before cancellation: {}", size))
+                DownloadCompletion::Completed => Err(format!("取消前下载已完成：{}", size)),
+                DownloadCompletion::Failed(message) => {
+                    Err(format!("模型 {} 在取消完成前下载失败：{}", size, message))
                 }
-                DownloadCompletion::Failed(message) => Err(format!(
-                    "Download failed before cancellation completed for {}: {}",
-                    size, message
-                )),
             };
         }
 
-        completion.changed().await.map_err(|_| {
-            format!(
-                "Download completion channel closed unexpectedly for: {}",
-                size
-            )
-        })?;
+        completion
+            .changed()
+            .await
+            .map_err(|_| format!("下载完成通知通道意外关闭：{}", size))?;
     }
 }
 
@@ -163,7 +156,7 @@ async fn remove_partial_file(path: &Path) -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(format!(
-            "Failed to remove partial download {}: {}",
+            "删除未完成的下载文件失败：{}：{}",
             path.display(),
             error
         )),
@@ -175,7 +168,7 @@ fn remove_partial_file_blocking(path: &Path) -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(format!(
-            "Failed to remove partial download {}: {}",
+            "删除未完成的下载文件失败：{}：{}",
             path.display(),
             error
         )),
@@ -242,12 +235,9 @@ impl Drop for DownloadTaskGuard {
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
                 let completion = match remove_partial_file(&partial_path).await {
-                    Ok(()) => DownloadCompletion::Failed(format!(
-                        "Download task aborted for model: {}",
-                        size
-                    )),
+                    Ok(()) => DownloadCompletion::Failed(format!("模型下载任务已中止：{}", size)),
                     Err(cleanup_error) => DownloadCompletion::Failed(format!(
-                        "Download task aborted for model: {}; {}",
+                        "模型下载任务已中止：{}; {}",
                         size, cleanup_error
                     )),
                 };
@@ -255,11 +245,9 @@ impl Drop for DownloadTaskGuard {
             });
         } else {
             let completion = match remove_partial_file_blocking(&partial_path) {
-                Ok(()) => {
-                    DownloadCompletion::Failed(format!("Download task aborted for model: {}", size))
-                }
+                Ok(()) => DownloadCompletion::Failed(format!("模型下载任务已中止：{}", size)),
                 Err(cleanup_error) => DownloadCompletion::Failed(format!(
-                    "Download task aborted for model: {}; {}",
+                    "模型下载任务已中止：{}; {}",
                     size, cleanup_error
                 )),
             };
@@ -277,7 +265,7 @@ fn get_model_url(size: &str) -> Result<String, String> {
         "small" => "https://openaipublic.azureedge.net/main/whisper/models/9ecf779972d90ba49c06d968637d720dd632c55bbf19d441fb42bf17a411e794/small.pt",
         "medium" => "https://openaipublic.azureedge.net/main/whisper/models/345ae4da62f9b3d59415adc60127b97c714f32e89e936602e85993674d08dcb1/medium.pt",
         "large-v3" => "https://openaipublic.azureedge.net/main/whisper/models/e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb/large-v3.pt",
-        _ => return Err(format!("Unknown model size: {}", size)),
+        _ => return Err(format!("未知模型规格：{}", size)),
     };
     Ok(url.to_string())
 }
@@ -294,12 +282,12 @@ pub async fn download_whisper_model(app: tauri::AppHandle, size: String) -> Resu
     let app_data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+        .map_err(|e| format!("获取应用数据目录失败：{}", e))?;
     let models_dir = app_data_dir.join("models").join("whisper");
 
     tokio::fs::create_dir_all(&models_dir)
         .await
-        .map_err(|e| format!("Failed to create models directory: {}", e))?;
+        .map_err(|e| format!("创建模型目录失败：{}", e))?;
 
     let final_path = models_dir.join(format!("{}.pt", size));
     let partial_path = partial_path_for(&final_path);
@@ -336,9 +324,7 @@ fn build_download_client() -> Result<reqwest::Client, DownloadError> {
         .connect_timeout(DOWNLOAD_CONNECT_TIMEOUT)
         .timeout(DOWNLOAD_TOTAL_TIMEOUT)
         .build()
-        .map_err(|error| {
-            DownloadError::Failed(format!("Failed to create download client: {}", error))
-        })
+        .map_err(|error| DownloadError::Failed(format!("创建下载客户端失败：{}", error)))
 }
 
 async fn start_download_request(
@@ -351,7 +337,7 @@ async fn start_download_request(
         biased;
         _ = cancel_token.cancelled() => return Err(DownloadError::Cancelled),
         response = request => response.map_err(|error| {
-            DownloadError::Failed(format!("Failed to start download: {}", error))
+            DownloadError::Failed(format!("启动下载失败：{}", error))
         })?,
     };
 
@@ -361,7 +347,7 @@ async fn start_download_request(
 
     if !response.status().is_success() {
         return Err(DownloadError::Failed(format!(
-            "Download failed with status: {}",
+            "下载失败，HTTP 状态：{}",
             response.status()
         )));
     }
@@ -392,11 +378,7 @@ where
     }
 
     commit().map_err(|error| {
-        DownloadError::Failed(format!(
-            "Failed to finalize download {}: {}",
-            final_path.display(),
-            error
-        ))
+        DownloadError::Failed(format!("完成下载失败：{}：{}", final_path.display(), error))
     })
 }
 
@@ -435,7 +417,7 @@ async fn perform_download(
         _ = cancel_token.cancelled() => return Err(DownloadError::Cancelled),
         file = tokio::fs::File::create(&partial_path) => file.map_err(|error| {
             DownloadError::Failed(format!(
-                "Failed to create partial download {}: {}",
+                "创建临时下载文件失败：{}：{}",
                 partial_path.display(),
                 error
             ))
@@ -459,7 +441,7 @@ async fn perform_download(
                     biased;
                     _ = cancel_token.cancelled() => return Err(DownloadError::Cancelled),
                     result = file.write_all(&chunk) => result.map_err(|error| {
-                        DownloadError::Failed(format!("Failed to write partial download: {}", error))
+                        DownloadError::Failed(format!("写入临时下载文件失败：{}", error))
                     })?,
                 }
 
@@ -499,10 +481,7 @@ async fn perform_download(
                 }
             }
             Some(Err(error)) => {
-                return Err(DownloadError::Failed(format!(
-                    "Download stream error: {}",
-                    error
-                )));
+                return Err(DownloadError::Failed(format!("下载数据流错误：{}", error)));
             }
             None => break,
         }
@@ -516,7 +495,7 @@ async fn perform_download(
         biased;
         _ = cancel_token.cancelled() => return Err(DownloadError::Cancelled),
         result = file.flush() => result.map_err(|error| {
-            DownloadError::Failed(format!("Failed to flush partial download: {}", error))
+            DownloadError::Failed(format!("刷新临时下载文件失败：{}", error))
         })?,
     }
     drop(file);
@@ -547,7 +526,7 @@ pub async fn delete_whisper_model(app: tauri::AppHandle, size: String) -> Result
     let app_data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+        .map_err(|e| format!("获取应用数据目录失败：{}", e))?;
 
     let model_path = app_data_dir
         .join("models")
@@ -557,7 +536,7 @@ pub async fn delete_whisper_model(app: tauri::AppHandle, size: String) -> Result
     if model_path.exists() {
         tokio::fs::remove_file(&model_path)
             .await
-            .map_err(|e| format!("Failed to delete model file: {}", e))?;
+            .map_err(|e| format!("删除模型文件失败：{}", e))?;
         eprintln!("🦀 [delete_whisper_model] Deleted model: {:?}", model_path);
     } else {
         eprintln!(
@@ -575,7 +554,7 @@ pub async fn list_downloaded_models(app: tauri::AppHandle) -> Result<Vec<String>
     let app_data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+        .map_err(|e| format!("获取应用数据目录失败：{}", e))?;
 
     let models_dir = app_data_dir.join("models").join("whisper");
 
@@ -587,12 +566,12 @@ pub async fn list_downloaded_models(app: tauri::AppHandle) -> Result<Vec<String>
 
     let mut entries = tokio::fs::read_dir(&models_dir)
         .await
-        .map_err(|e| format!("Failed to read models directory: {}", e))?;
+        .map_err(|e| format!("读取模型目录失败：{}", e))?;
 
     while let Some(entry) = entries
         .next_entry()
         .await
-        .map_err(|e| format!("Failed to read entry: {}", e))?
+        .map_err(|e| format!("读取目录项失败：{}", e))?
     {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("pt") {
@@ -630,7 +609,7 @@ pub async fn verify_whisper_model_exists(
     let app_data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+        .map_err(|e| format!("获取应用数据目录失败：{}", e))?;
 
     let model_path = app_data_dir
         .join("models")
@@ -733,7 +712,7 @@ mod tests {
                 .iter()
                 .filter_map(|result| result.as_ref().err())
                 .collect::<Vec<_>>(),
-            vec![&"Download already active for model: tiny".to_string()]
+            vec![&"该模型正在下载：tiny".to_string()]
         );
         assert_eq!(task_count(&state), 1);
     }
@@ -744,7 +723,7 @@ mod tests {
 
         assert_eq!(
             cancel_download_task(&state, "tiny").await,
-            Err("No active download found for: tiny".to_string())
+            Err("未找到进行中的下载任务：tiny".to_string())
         );
     }
 
@@ -797,7 +776,7 @@ mod tests {
 
         assert_eq!(
             cancellation.await,
-            Err("Download completed before cancellation: tiny".to_string())
+            Err("取消前下载已完成：tiny".to_string())
         );
     }
 
@@ -818,7 +797,7 @@ mod tests {
 
         assert_eq!(
             cancellation.await,
-            Err("Download failed before cancellation completed for tiny: HTTP 503".to_string())
+            Err("模型 tiny 在取消完成前下载失败：HTTP 503".to_string())
         );
     }
 
@@ -982,8 +961,8 @@ mod tests {
 
         match error {
             DownloadError::Failed(message) => {
-                assert!(message.contains("Download cancelled"));
-                assert!(message.contains("Failed to remove partial download"));
+                assert!(message.contains("下载已取消"));
+                assert!(message.contains("删除未完成的下载文件失败"));
             }
             other => panic!("cleanup failure should replace cancellation, got {other:?}"),
         }
@@ -1018,7 +997,7 @@ mod tests {
             .await
             .expect("cancellation should not hang")
             .expect_err("aborted task must not report successful cancellation");
-        assert!(error.contains("Download task aborted"));
+        assert!(error.contains("模型下载任务已中止"));
         assert!(!partial_path.exists());
         assert!(!has_task(&state, "tiny"));
     }

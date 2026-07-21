@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>NSCameraUsageDescription</key>
-  <string>Clypra requires camera access for dual screen + webcam recording.</string>
+  <string>Clypra 需要访问摄像头，以便同时录制屏幕和摄像头画面。</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Clypra requires microphone access for audio recording during screen capture.</string>
+  <string>Clypra 需要访问麦克风，以便在录制屏幕时录制音频。</string>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>Clypra requires screen recording access to capture your screen content.</string>
+  <string>Clypra 需要屏幕录制权限，以捕获屏幕内容。</string>
 </dict>
 </plist>
