@@ -9,6 +9,7 @@ import type { VideoExportConfig, VideoExportResult } from "./videoExport";
 import { MobileExportEncoder } from "./mobileExportEncoder";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
 import { resolveTransitionDefinition, mergeTransitionParams } from "../../core/render/utils/transitionResolver";
+import { t } from "@/i18n";
 
 export async function exportVideoMobile(config: VideoExportConfig): Promise<VideoExportResult> {
   const { clips, tracks, transitions = [], assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, onProgress, onSessionReady } = config;
@@ -18,7 +19,7 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
   const duration = endTime - startTime;
 
   if (totalFrames === 0) {
-    throw new Error("No frames to export");
+    throw new Error(t("system.export.noFrames"));
   }
 
   const audioClips = getActiveAudioClips(clips, tracks, assets, startTime, endTime);
@@ -28,7 +29,7 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
   let mixedAudioBuffer: AudioBuffer | null = null;
   if (hasAudio) {
     if (onProgress) {
-      onProgress({ progress: 0, status: "Mixing audio..." });
+      onProgress({ progress: 0, status: t("system.export.mobile.mixingAudio") });
     }
     
     try {
@@ -169,7 +170,7 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
             for (const vid of frameVideoElements) {
               videoPool.releaseElement(vid);
             }
-            throw new Error(`Failed to acquire video for clip at time ${time}s: ${error}`);
+            throw new Error(t("system.export.videoAcquireFailed", { time, error: String(error) }));
           }
         }
 
@@ -184,7 +185,10 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
           const progressPercent = Math.round((completedFrames / totalFrames) * 85); // 85% is video encoding, remaining is audio/sharing
           onProgress({
             progress: progressPercent,
-            status: `Encoding video frame ${completedFrames}/${totalFrames}...`,
+            status: t("system.export.mobile.encodingVideoFrame", {
+              current: completedFrames,
+              total: totalFrames,
+            }),
           });
         }
       } finally {
@@ -198,22 +202,22 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
       // ─── Phase 2: Encode Audio ───
       if (mixedAudioBuffer) {
         if (onProgress) {
-          onProgress({ progress: 90, status: "Encoding audio track..." });
+          onProgress({ progress: 90, status: t("system.export.mobile.encodingAudio") });
         }
         await encoder.encodeAudioBuffer(mixedAudioBuffer);
       }
 
       // ─── Phase 3: Finalize MP4 Muxing ───
       if (onProgress) {
-        onProgress({ progress: 95, status: "Finalizing MP4 file..." });
+        onProgress({ progress: 95, status: t("system.export.mobile.finalizingMP4") });
       }
       const outputBlob = await encoder.finalize();
 
       // ─── Phase 4: Share / Save to Native Device ───
       if (onProgress) {
-        onProgress({ progress: 98, status: "Sharing video file..." });
+        onProgress({ progress: 98, status: t("system.export.mobile.sharingVideo") });
       }
-      const filename = `${project?.name || "video-export"}-${Date.now()}.mp4`;
+      const filename = `${project?.name || t("system.export.defaultMobileName")}-${Date.now()}.mp4`;
       const sharedPath = await platform.saveAndShareVideo(outputBlob, filename);
 
       return {

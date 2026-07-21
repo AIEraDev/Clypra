@@ -1,16 +1,17 @@
 import React from "react";
 import { Zap, Sparkles, Gem } from "lucide-react";
+import { t, type MessageKey } from "@/i18n";
 
 export type ExportPreset = "1080p-fast" | "1080p-quality" | "720p-fast" | "4k-quality" | "prores-422hq";
 
 export interface PresetConfig {
-  label: string;
+  labelKey: MessageKey;
   shortLabel: string;
   resolution: string;
   codec: string;
   codecLabel: string;
   tier: "fast" | "quality" | "pro";
-  tierLabel: string;
+  tierLabelKey: MessageKey;
   width: number;
   height: number;
   codecValue: "h264" | "h265" | "prores";
@@ -51,6 +52,7 @@ export const ExportPresetCard: React.FC<ExportPresetCardProps> = ({ config, sele
       onClick={onSelect}
       disabled={disabled}
       aria-pressed={selected}
+      aria-label={t(config.labelKey)}
       className={`
         group relative w-full md:w-full min-w-[150px] shrink-0 text-left rounded-xl p-3 transition-all duration-200 outline-none
         ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}
@@ -69,7 +71,7 @@ export const ExportPresetCard: React.FC<ExportPresetCardProps> = ({ config, sele
       {/* Tier label */}
       <div className="flex items-center gap-1.5">
         <TierIcon tier={config.tier} className={`w-3 h-3 ${tierColors[config.tier]}`} />
-        <span className={`text-[11px] font-medium ${tierColors[config.tier]}`}>{config.tierLabel}</span>
+        <span className={`text-[11px] font-medium ${tierColors[config.tier]}`}>{t(config.tierLabelKey)}</span>
         <span className="text-[10px] text-text-muted ml-auto">{config.resolution}</span>
       </div>
     </button>

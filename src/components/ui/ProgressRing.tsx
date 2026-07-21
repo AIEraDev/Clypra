@@ -1,4 +1,5 @@
 import React from "react";
+import { t } from "@/i18n";
 
 interface ProgressRingProps {
   progress: number;
@@ -38,7 +39,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({ progress, size = 160
       {/* Center content */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-3xl font-bold text-text-primary tabular-nums tracking-tight">{percentage}</span>
-        <span className="text-[11px] text-text-muted font-medium -mt-0.5">percent</span>
+        <span className="text-[11px] text-text-muted font-medium -mt-0.5">{t("system.export.progress.percent")}</span>
       </div>
     </div>
   );

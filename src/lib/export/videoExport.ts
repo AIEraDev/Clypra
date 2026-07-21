@@ -21,6 +21,7 @@ import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from ".
 import type { ExportAudioClip, ExportProgress } from "../../types/export";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
 import { resolveTransitionDefinition, mergeTransitionParams } from "../../core/render/utils/transitionResolver";
+import { t } from "@/i18n";
 
 /**
  * Video export progress - Re-exported from types/export
@@ -145,7 +146,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   }
 
   if (totalFrames === 0) {
-    throw new Error("No frames to export");
+    throw new Error(t("system.export.noFrames"));
   }
 
   // Create headless video element pool for export
@@ -311,7 +312,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
             for (const vid of frameVideoElements) {
               videoPool.releaseElement(vid);
             }
-            throw new Error(`Failed to acquire video for clip at time ${time}s: ${error}. Export aborted to prevent corrupted output.`);
+            throw new Error(t("system.export.videoAcquireFailed", { time, error: String(error) }));
           }
         }
 
