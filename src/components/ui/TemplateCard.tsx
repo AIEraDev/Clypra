@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from "react";
 import { TemplateDefinition } from "@/features/text-templates/types";
 import { Star, Download, Plus } from "lucide-react";
 import { TemplatePreviewPlayer, type TemplatePreviewPlayerHandle } from "@/features/text-templates";
+import { t } from "@/i18n";
 
 interface TemplateCardProps {
   template: TemplateDefinition;
@@ -65,7 +66,7 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-2">
             <div className="w-8 h-8 rounded-full border-3 border-accent border-t-transparent animate-spin" />
-            <span className="text-[10px] font-semibold text-accent">Downloading...</span>
+            <span className="text-[10px] font-semibold text-accent">{t("features.templates.downloading")}</span>
           </div>
         </div>
       )}
@@ -73,6 +74,7 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
       {/* Favorite Star — top-right, appears on hover */}
       <button
         onClick={onFavorite}
+        aria-label={t(isFavorite ? "features.templates.unfavorite" : "features.templates.favorite", { name: template.name || template.label })}
         className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${
           isFavorite
             ? "opacity-100 text-yellow-400!"
@@ -132,8 +134,8 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
             onApply(e);
           }}
           disabled={isDownloading}
-          title={isDownloaded ? "Add template to timeline" : "Download template"}
-          aria-label={isDownloaded ? "Add template to timeline" : "Download template"}
+          title={t(isDownloaded ? "features.templates.addToTimeline" : "features.templates.download")}
+          aria-label={t(isDownloaded ? "features.templates.addToTimeline" : "features.templates.download")}
           className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${
             isDownloaded
               ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer"

@@ -114,11 +114,17 @@ describe("TemplateCard Component", () => {
   it("calls onFavorite when favorite star is clicked", () => {
     render(<TemplateCard {...defaultProps} />);
 
-    const buttons = screen.getAllByRole("button");
-    const starBtn = buttons[0];
+    const starBtn = screen.getByRole("button", { name: "收藏 Minimal Lower Third" });
     fireEvent.click(starBtn);
 
     expect(defaultProps.onFavorite).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels an active favorite without changing the remote template name", () => {
+    render(<TemplateCard {...defaultProps} isFavorite={true} />);
+
+    expect(screen.getByRole("button", { name: "取消收藏 Minimal Lower Third" })).toBeInTheDocument();
+    expect(screen.getByText("Minimal Lower Third")).toBeInTheDocument();
   });
 
   it("calls onApply when the apply/download button is clicked", () => {
@@ -133,6 +139,17 @@ describe("TemplateCard Component", () => {
 
   it("renders download overlay when isDownloading is true", () => {
     render(<TemplateCard {...defaultProps} isDownloading={true} />);
-    expect(screen.getByText("Downloading...")).toBeInTheDocument();
+    expect(screen.getByText("正在下载…")).toBeInTheDocument();
+  });
+
+  it("localizes download and add-to-timeline button labels", () => {
+    const { rerender } = render(<TemplateCard {...defaultProps} />);
+
+    const downloadButton = screen.getByRole("button", { name: "下载模板" });
+    expect(downloadButton).toHaveAttribute("title", "下载模板");
+
+    rerender(<TemplateCard {...defaultProps} isDownloaded={true} />);
+    const addButton = screen.getByRole("button", { name: "添加模板到时间线" });
+    expect(addButton).toHaveAttribute("title", "添加模板到时间线");
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { EffectCard } from "../EffectCard";
+import { renderTextEffect } from "@/features/text-effects/renderer";
 import type { TextEffectDefinition } from "@/features/text-effects/types/types";
 
 // Mock the canvas renderTextEffect function
@@ -80,12 +81,18 @@ describe("EffectCard Component", () => {
 
   it("calls onFavorite when the favorite star button is clicked", () => {
     render(<EffectCard {...defaultProps} />);
-    
-    const buttons = screen.getAllByRole("button");
-    const starBtn = buttons[0];
+
+    const starBtn = screen.getByRole("button", { name: "收藏 Classic 3D" });
     fireEvent.click(starBtn);
-    
+
     expect(defaultProps.onFavorite).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels an active favorite without changing the remote effect name", () => {
+    render(<EffectCard {...defaultProps} isFavorite={true} />);
+
+    expect(screen.getByRole("button", { name: "取消收藏 Classic 3D" })).toBeInTheDocument();
+    expect(screen.getByText("Classic 3D")).toBeInTheDocument();
   });
 
   it("calls onApply when the download button is clicked", () => {
@@ -101,16 +108,37 @@ describe("EffectCard Component", () => {
 
   it("displays downloading overlay when isDownloading is true", () => {
     render(<EffectCard {...defaultProps} isDownloading={true} />);
-    
-    expect(screen.getByText("Downloading...")).toBeInTheDocument();
+
+    expect(screen.getByText("正在下载…")).toBeInTheDocument();
   });
 
   it("shows an add-to-timeline button when isDownloaded is true", () => {
     render(<EffectCard {...defaultProps} isDownloaded={true} />);
-    
-    const applyButton = screen.getByRole("button", { name: "Add text effect to timeline" });
+
+    const applyButton = screen.getByRole("button", { name: "添加文字效果到时间线" });
+    expect(applyButton).toHaveAttribute("title", "添加文字到时间线");
     expect(applyButton.className).toContain("bg-accent");
     fireEvent.click(applyButton);
     expect(defaultProps.onApply).toHaveBeenCalledTimes(1);
+  });
+
+  it("localizes the download button title and accessible label", () => {
+    render(<EffectCard {...defaultProps} />);
+
+    expect(screen.getByRole("button", { name: "下载并添加文字效果到时间线" })).toHaveAttribute(
+      "title",
+      "下载并添加文字到时间线",
+    );
+  });
+
+  it("keeps the CLYPRA fallback preview text unchanged", () => {
+    render(
+      <EffectCard
+        {...defaultProps}
+        effect={{ ...mockEffect, text: "", thumbnail: "", thumbnailUrl: "" }}
+      />,
+    );
+
+    expect(renderTextEffect).toHaveBeenCalledWith(expect.any(HTMLCanvasElement), "CLYPRA", expect.any(Object), 34);
   });
 });

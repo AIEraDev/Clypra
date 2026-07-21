@@ -288,6 +288,34 @@ describe("text and caption localization", () => {
     expect(translate("features.captions.processingError", { error })).toBe(`生成字幕时出错：${error}`);
     expect(translate("features.captions.modelNeeded", { model })).toBe(`生成字幕前需下载“${model}”模型。`);
   });
+
+  test("translates template and effect card controls while preserving remote names", () => {
+    const name = "REMOTE 名称 / RAW_01";
+
+    expect([
+      translate("features.templates.downloading"),
+      translate("features.templates.addToTimeline"),
+      translate("features.templates.download"),
+      translate("features.effects.downloading"),
+      translate("features.effects.addTextToTimeline"),
+      translate("features.effects.addEffectToTimeline"),
+      translate("features.effects.downloadAndAddText"),
+      translate("features.effects.downloadAndAddEffect"),
+    ]).toEqual([
+      "正在下载…",
+      "添加模板到时间线",
+      "下载模板",
+      "正在下载…",
+      "添加文字到时间线",
+      "添加文字效果到时间线",
+      "下载并添加文字到时间线",
+      "下载并添加文字效果到时间线",
+    ]);
+    expect(translate("features.templates.favorite", { name })).toBe(`收藏 ${name}`);
+    expect(translate("features.templates.unfavorite", { name })).toBe(`取消收藏 ${name}`);
+    expect(translate("features.effects.favorite", { name })).toBe(`收藏 ${name}`);
+    expect(translate("features.effects.unfavorite", { name })).toBe(`取消收藏 ${name}`);
+  });
 });
 
 describe("sticker, filter, and transition localization", () => {

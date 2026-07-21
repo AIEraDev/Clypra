@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { Download, Star, Plus } from "lucide-react";
 import { renderTextEffect } from "@/features/text-effects/renderer";
 import type { TextEffectDefinition } from "@/features/text-effects/types/types";
+import { t } from "@/i18n";
 
 interface EffectCardProps {
   effect: TextEffectDefinition;
@@ -44,13 +45,13 @@ export const EffectCard: React.FC<EffectCardProps> = ({ effect, isFavorite, isDo
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-2">
             <div className="w-8 h-8 rounded-full border-3 border-accent border-t-transparent animate-spin" />
-            <span className="text-[10px] font-semibold text-accent">Downloading...</span>
+            <span className="text-[10px] font-semibold text-accent">{t("features.effects.downloading")}</span>
           </div>
         </div>
       )}
 
       {/* Favorite Star (hover show or active) */}
-      <button onClick={onFavorite} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
+      <button onClick={onFavorite} aria-label={t(isFavorite ? "features.effects.unfavorite" : "features.effects.favorite", { name: effect.name })} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
         <Star className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`} />
       </button>
 
@@ -80,8 +81,8 @@ export const EffectCard: React.FC<EffectCardProps> = ({ effect, isFavorite, isDo
             onApply(e);
           }}
           disabled={isDownloading}
-          title={isDownloaded ? "Add text to timeline" : "Download and add text to timeline"}
-          aria-label={isDownloaded ? "Add text effect to timeline" : "Download and add text effect to timeline"}
+          title={t(isDownloaded ? "features.effects.addTextToTimeline" : "features.effects.downloadAndAddText")}
+          aria-label={t(isDownloaded ? "features.effects.addEffectToTimeline" : "features.effects.downloadAndAddEffect")}
           className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}
         >
           {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloaded ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
