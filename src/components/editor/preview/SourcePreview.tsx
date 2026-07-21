@@ -22,6 +22,7 @@ import { VideoSourcePreview } from "./VideoSourcePreview";
 import { AudioSourcePreview } from "./AudioSourcePreview";
 import { ImageSourcePreview } from "./ImageSourcePreview";
 import { StickerSourcePreview, type StickerSourcePreviewHandle } from "./StickerSourcePreview";
+import { t } from "@/i18n";
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -136,7 +137,7 @@ export const SourcePreview: React.FC = () => {
       .catch((err) => {
         if (active) {
           console.error("[SourcePreview] Failed to load Lottie JSON:", err);
-          setLottieError("Failed to load Lottie preview");
+          setLottieError(t("editor.preview.source.lottieLoadFailed"));
         }
       });
 
@@ -342,7 +343,7 @@ export const SourcePreview: React.FC = () => {
       // If styleId is present but definition is missing, show error
       if (styleId && !effectDefinition) {
         console.error("[SourcePreview] Text effect definition not loaded:", styleId);
-        useProjectStore.getState().showToast("Failed to load text effect. Please try again.", "error");
+        useProjectStore.getState().showToast(t("editor.preview.source.textEffectLoadFailed"), "error");
         return;
       }
 
@@ -461,22 +462,29 @@ export const SourcePreview: React.FC = () => {
   const hasCompleteMarks = sourceInPoint !== null && sourceOutPoint !== null;
 
   const sourcePath = sourceAsset.path ? (isExternalOrDataUrl(sourceAsset.path) ? sourceAsset.path : platform.convertFileSrc(sourceAsset.path)) : "";
-  const mediaLabel = sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
+  const mediaLabel =
+    sourceAsset.type === "video"
+      ? t("editor.preview.source.media.video")
+      : sourceAsset.type === "audio"
+        ? t("editor.preview.source.media.audio")
+        : sourceAsset.type === "text"
+          ? t("editor.preview.source.media.text")
+          : t("editor.preview.source.media.image");
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-bg">
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 h-10 shrink-0 border-b border-border/50">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-semibold text-text-primary tracking-tight">Previewing</span>
-          <span className="text-[13px] text-text-muted">— {mediaLabel}</span>
+        <div className="text-[13px] font-semibold text-text-primary tracking-tight">
+          {t("editor.preview.source.previewing", { mediaType: mediaLabel })}
         </div>
         <button
           onClick={() => {
             exitSourceMode(); // Auto-switches transport context
           }}
           className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/6 transition-colors text-text-muted hover:text-text-primary"
-          title="Close (Esc)"
+          title={t("editor.preview.source.close")}
+          aria-label={t("editor.preview.source.close")}
         >
           <X className="w-4 h-4" />
         </button>
@@ -488,26 +496,28 @@ export const SourcePreview: React.FC = () => {
           <div className="flex items-center gap-4">
             {sourceInPoint !== null && (
               <div className="flex items-center gap-1.5">
-                <span className="text-text-muted">In:</span>
+                <span className="text-text-muted">{t("editor.preview.source.inPoint")}：</span>
                 <span className="font-mono text-accent">{formatTC(sourceInPoint)}</span>
               </div>
             )}
             {sourceOutPoint !== null && (
               <div className="flex items-center gap-1.5">
-                <span className="text-text-muted">Out:</span>
+                <span className="text-text-muted">{t("editor.preview.source.outPoint")}：</span>
                 <span className="font-mono text-accent">{formatTC(sourceOutPoint)}</span>
               </div>
             )}
             {hasCompleteMarks && markedDuration !== null && (
               <div className="flex items-center gap-1.5">
-                <span className="text-text-muted">Duration:</span>
-                <span className="font-mono text-text-primary font-semibold">{markedDuration.toFixed(2)}s</span>
+                <span className="text-text-muted">{t("editor.preview.source.duration")}：</span>
+                <span className="font-mono text-text-primary font-semibold">
+                  {t("editor.preview.source.durationSeconds", { duration: markedDuration.toFixed(2) })}
+                </span>
               </div>
             )}
           </div>
-          <button onClick={handleClearMarks} className="flex items-center gap-1 px-2 h-5 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors" title="Clear marks">
+          <button onClick={handleClearMarks} className="flex items-center gap-1 px-2 h-5 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors" title={t("editor.preview.source.clearMarks")} aria-label={t("editor.preview.source.clearMarks")}>
             <RotateCcw className="w-3 h-3" />
-            Clear
+            {t("editor.preview.source.clear")}
           </button>
         </div>
       )}
@@ -542,7 +552,7 @@ export const SourcePreview: React.FC = () => {
               ) : (
                 <div className="text-text-muted text-xs flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading preview...
+                  {t("editor.preview.loading")}
                 </div>
               )
             ) : (
@@ -558,10 +568,10 @@ export const SourcePreview: React.FC = () => {
 
       {sourceAsset.type === "text" ? (
         <div className="flex items-center justify-between h-10 px-4 shrink-0 border-t border-border/30 bg-surface/30">
-          <span className="text-[11px] text-text-muted font-medium select-none">Procedural Style Preview</span>
-          <button onClick={handleAddToTimeline} className="flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-semibold bg-accent hover:bg-accent-soft active:scale-95 text-white cursor-pointer transition-all duration-150 shadow-sm" title="Add text to timeline">
+          <span className="text-[11px] text-text-muted font-medium select-none">{t("editor.preview.source.proceduralStyle")}</span>
+          <button onClick={handleAddToTimeline} className="flex items-center gap-1.5 px-3 h-7 rounded text-[11px] font-semibold bg-accent hover:bg-accent-soft active:scale-95 text-white cursor-pointer transition-all duration-150 shadow-sm" title={t("editor.preview.source.addTextToTimeline")} aria-label={t("editor.preview.source.addTextToTimeline")}>
             <Plus className="w-3.5 h-3.5" />
-            Add to Timeline
+            {t("editor.preview.source.addToTimeline")}
           </button>
         </div>
       ) : (
@@ -576,25 +586,30 @@ export const SourcePreview: React.FC = () => {
           outPoint={sourceOutPoint}
           rightActions={
             <>
-              <button onClick={handleMarkIn} className={`px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title="Mark In (I)">
+              <button onClick={handleMarkIn} className={`px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title={t("editor.preview.source.markIn")} aria-label={t("editor.preview.source.markIn")}>
                 IN
               </button>
-              <button onClick={handleMarkOut} className={`px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title="Mark Out (O)">
+              <button onClick={handleMarkOut} className={`px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title={t("editor.preview.source.markOut")} aria-label={t("editor.preview.source.markOut")}>
                 OUT
               </button>
               {hasCompleteMarks && (
-                <button onClick={handlePlayMarkedRegion} className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer" title="Play marked region">
+                <button onClick={handlePlayMarkedRegion} className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer" title={t("editor.preview.source.playMarkedRegion")} aria-label={t("editor.preview.source.playMarkedRegion")}>
                   <Play className="w-3 h-3" />
-                  Play
+                  {t("editor.preview.source.play")}
                 </button>
               )}
               <div className="w-px h-4 bg-white/10 mx-1" />
               {(() => {
                 const isAddEnabled = sourceAsset.type === "image" || hasCompleteMarks;
+                const addLabel = isAddEnabled
+                  ? sourceAsset.type === "image"
+                    ? t("editor.preview.source.addToTimeline")
+                    : t("editor.preview.source.addDurationToTimeline", { duration: markedDuration?.toFixed(2) ?? "0.00" })
+                  : t("editor.preview.source.addToTrack");
                 return (
-                  <button onClick={handleAddToTimeline} disabled={!isAddEnabled} className={`flex items-center gap-1 px-2.5 h-6 rounded text-[10px] font-semibold transition-all ${isAddEnabled ? "bg-accent hover:bg-accent-soft text-white cursor-pointer" : "bg-text-muted/70 hover:bg-text-muted/90 text-white cursor-not-allowed"}`} title={isAddEnabled ? (sourceAsset.type === "image" ? "Add to Timeline" : `Add ${markedDuration?.toFixed(2)}s to Timeline`) : "Add to Track"}>
+                  <button onClick={handleAddToTimeline} disabled={!isAddEnabled} className={`flex items-center gap-1 px-2.5 h-6 rounded text-[10px] font-semibold transition-all ${isAddEnabled ? "bg-accent hover:bg-accent-soft text-white cursor-pointer" : "bg-text-muted/70 hover:bg-text-muted/90 text-white cursor-not-allowed"}`} title={addLabel} aria-label={addLabel}>
                     <Plus className="w-3 h-3" />
-                    Add
+                    {t("editor.preview.source.add")}
                   </button>
                 );
               })()}

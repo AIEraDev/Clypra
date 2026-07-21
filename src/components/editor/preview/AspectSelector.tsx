@@ -1,7 +1,8 @@
 import React from "react";
 import { ChevronDown } from "lucide-react";
-import { AspectRatio, PREVIEW_ASPECT_LABEL } from "@/types";
+import { AspectRatio, PREVIEW_ASPECT_MESSAGE_KEY } from "@/types";
 import { AspectMenuRow } from "../../ui/AspectRatio";
+import { t } from "@/i18n";
 
 const PREVIEW_ASPECT_RATIO: Record<AspectRatio, number | null> = {
   original: null,
@@ -54,11 +55,12 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
       <button
         onClick={() => setAspectMenuOpen(!aspectMenuOpen)}
         className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer"
-        title="Preview aspect ratio"
+        title={t("editor.preview.aspect.label")}
+        aria-label={t("editor.preview.aspect.label")}
         aria-expanded={aspectMenuOpen}
       >
         <span className="max-w-18 truncate">
-          {PREVIEW_ASPECT_LABEL[previewAspectPreset]}
+          {t(PREVIEW_ASPECT_MESSAGE_KEY[previewAspectPreset])}
         </span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
       </button>

@@ -1,4 +1,5 @@
 import React from "react";
+import { t } from "@/i18n";
 
 interface SafeOverlayProps {
   visible: boolean;
@@ -46,7 +47,7 @@ export const SafeOverlay: React.FC<SafeOverlayProps> = ({
         }}
       >
         <span className="absolute -top-4 left-1 text-[8px] font-bold font-mono text-cyan-400/50 uppercase tracking-wider select-none">
-          Action Safe (90%)
+          {t("editor.preview.safe.action")}
         </span>
       </div>
 
@@ -61,7 +62,7 @@ export const SafeOverlay: React.FC<SafeOverlayProps> = ({
         }}
       >
         <span className="absolute -top-4 left-1 text-[8px] font-bold font-mono text-indigo-400/50 uppercase tracking-wider select-none">
-          Title Safe (80%)
+          {t("editor.preview.safe.title")}
         </span>
       </div>
 

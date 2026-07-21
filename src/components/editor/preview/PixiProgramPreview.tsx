@@ -28,6 +28,7 @@ import { VolumeControl } from "./VolumeControl";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
+import { t } from "@/i18n";
 
 const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: number; height: number }> = {
   "16:9": { width: 1920, height: 1080 },
@@ -550,7 +551,7 @@ export const PixiProgramPreview: React.FC = () => {
       <div className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
         <div className="flex-1 flex items-center justify-center p-4 md:p-6 overflow-hidden relative bg-[#06080a]">
           <div ref={previewContainerCallback} className="w-full h-full flex items-center justify-center">
-            <div className="text-text-muted">Loading preview...</div>
+            <div className="text-text-muted">{t("editor.preview.loading")}</div>
           </div>
         </div>
       </div>
@@ -563,14 +564,15 @@ export const PixiProgramPreview: React.FC = () => {
   const playbackSpeed = clockState.speed;
   const frameRate = clockState.frameRate;
   const step = 1 / Math.max(1, frameRate);
+  const scaleModeLabel = t(previewScaleMode === "fit" ? "editor.preview.program.fill" : "editor.preview.program.fit");
 
   return (
     <div className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
       <div className="flex items-center px-4 h-10 shrink-0 gap-2">
-        <span className="text-[13px] font-semibold text-text-primary tracking-tight">Program Preview (PixiJS)</span>
-        <span className="text-[13px] text-text-muted">— WebGL Pipeline</span>
-        <button onClick={() => setShowSafeOverlay((s) => !s)} className={cn("ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer", showSafeOverlay ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text-primary hover:bg-white/6")}>
-          Safe Zones
+        <span className="text-[13px] font-semibold text-text-primary tracking-tight">{t("editor.preview.program.title")}</span>
+        <span className="text-[13px] text-text-muted">— {t("editor.preview.program.webglPipeline")}</span>
+        <button onClick={() => setShowSafeOverlay((s) => !s)} className={cn("ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer", showSafeOverlay ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text-primary hover:bg-white/6")} title={t("editor.preview.program.safeZones")} aria-label={t("editor.preview.program.safeZones")}>
+          {t("editor.preview.program.safeZones")}
         </button>
       </div>
 
@@ -598,10 +600,14 @@ export const PixiProgramPreview: React.FC = () => {
         {clips.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none mx-auto" style={{ width: displayWidth, height: displayHeight }}>
             <div className="text-center space-y-3">
-              <div className="text-sm font-medium text-text-muted">No clips in sequence</div>
+              <div className="text-sm font-medium text-text-muted">{t("editor.preview.program.noClips")}</div>
               <div className="text-xs text-text-muted/80 space-y-1 font-mono">
                 <div>
-                  {canvasWidth}×{canvasHeight} • {frameRate}fps
+                  {t("editor.preview.program.dimensionsFps", {
+                    width: canvasWidth,
+                    height: canvasHeight,
+                    fps: frameRate,
+                  })}
                 </div>
                 <div className="text-text-muted/60">Rec.709</div>
               </div>
@@ -649,7 +655,7 @@ export const PixiProgramPreview: React.FC = () => {
             <div className="relative shrink-0" ref={aspectMenuRef}>
               <AspectSelector aspectMenuOpen={aspectMenuOpen} setAspectMenuOpen={setAspectMenuOpen} previewAspectPreset={previewAspectPreset} selectAspectPreset={selectAspectPreset} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
             </div>
-            <button onClick={() => setPreviewScaleMode((m) => (m === "fit" ? "fill" : "fit"))} className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer">
+            <button onClick={() => setPreviewScaleMode((m) => (m === "fit" ? "fill" : "fit"))} className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer" title={scaleModeLabel} aria-label={scaleModeLabel}>
               {previewScaleMode === "fit" ? <Expand className="w-3.5 h-3.5" /> : <Shrink className="w-3.5 h-3.5" />}
             </button>
             <div className="w-px h-4 bg-white/10 mx-1" />

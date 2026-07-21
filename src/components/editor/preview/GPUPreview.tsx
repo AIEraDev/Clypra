@@ -26,6 +26,7 @@ import { globalGPUCache } from "@/lib/cache/globalGPUCache";
 import { performanceMetrics } from "@/lib/utils/performanceMetrics";
 import { generateId } from "@/lib/utils/id";
 import { normalizePathForTauriInvoke } from "@/lib/platform/tauri";
+import { t } from "@/i18n";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -301,8 +302,8 @@ export function GPUPreview({ videoPath, currentTime, isPlaying, width, height, d
       {!useGPUCache && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white text-sm">
           <div className="text-center">
-            <div>GPU Preview Initializing...</div>
-            <div className="text-xs mt-2 opacity-60">Check console (F12) for details</div>
+            <div>{t("editor.preview.gpu.initializing")}</div>
+            <div className="text-xs mt-2 opacity-60">{t("editor.preview.gpu.consoleDetails")}</div>
           </div>
         </div>
       )}

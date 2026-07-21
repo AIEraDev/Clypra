@@ -1,6 +1,7 @@
 import React from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 interface PlaybackSpeedSelectorProps {
   playbackSpeed: number;
@@ -15,12 +16,15 @@ export const PlaybackSpeedSelector: React.FC<PlaybackSpeedSelectorProps> = ({
   setSpeedMenuOpen,
   setSpeed,
 }) => {
+  const currentSpeedLabel = t("editor.preview.speed.current", { speed: playbackSpeed });
+
   return (
     <div className="relative">
       <button
         onClick={() => setSpeedMenuOpen(!speedMenuOpen)}
         className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer"
-        title="Playback speed"
+        title={currentSpeedLabel}
+        aria-label={currentSpeedLabel}
         aria-expanded={speedMenuOpen}
       >
         <span className="max-w-18 truncate">{playbackSpeed}x</span>
@@ -30,6 +34,7 @@ export const PlaybackSpeedSelector: React.FC<PlaybackSpeedSelectorProps> = ({
         <div
           className="absolute bottom-full right-0 z-50 mb-1 w-[140px] overflow-hidden rounded-lg border border-border bg-surface py-1 text-text-primary shadow-xl"
           role="listbox"
+          aria-label={t("editor.preview.speed.label")}
         >
           <div className="px-1">
             {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (

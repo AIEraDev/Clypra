@@ -6,8 +6,12 @@ import mobileEditorLayoutSource from "../../components/editor/MobileEditorLayout
 import propertiesPanelSource from "../../components/editor/PropertiesPanel.tsx?raw";
 import enhancedMediaPanelSource from "../../components/editor/media-panel/EnhancedMediaPanel.tsx?raw";
 import audioWaveformSource from "../../components/editor/media-panel/AudioWaveform.tsx?raw";
+import gpuPreviewSource from "../../components/editor/preview/GPUPreview.tsx?raw";
+import pixiProgramPreviewSource from "../../components/editor/preview/PixiProgramPreview.tsx?raw";
+import sourcePreviewSource from "../../components/editor/preview/SourcePreview.tsx?raw";
 import { t } from "@/i18n";
 import * as editorCatalog from "@/i18n/catalogs/editor";
+import * as appTypes from "@/types";
 
 const translate = t as (key: string, params?: Record<string, string | number>) => string;
 
@@ -173,5 +177,197 @@ describe("editor shell localization", () => {
     expect(audioWaveformSource).toContain('t("editor.audio.coverAlt", { name: audioName })');
     expect(audioWaveformSource).toContain('alt=""');
     expect(audioWaveformSource).toContain('t("editor.audio.playing")');
+  });
+
+  test("translates source and program preview copy while preserving technical tokens", () => {
+    expect([
+      translate("editor.preview.source.lottieLoadFailed"),
+      translate("editor.preview.source.textEffectLoadFailed"),
+      translate("editor.preview.source.media.video"),
+      translate("editor.preview.source.media.audio"),
+      translate("editor.preview.source.media.text"),
+      translate("editor.preview.source.media.image"),
+      translate("editor.preview.source.close"),
+      translate("editor.preview.source.inPoint"),
+      translate("editor.preview.source.outPoint"),
+      translate("editor.preview.source.duration"),
+      translate("editor.preview.source.clearMarks"),
+      translate("editor.preview.source.clear"),
+      translate("editor.preview.loading"),
+      translate("editor.preview.source.proceduralStyle"),
+      translate("editor.preview.source.addTextToTimeline"),
+      translate("editor.preview.source.addToTimeline"),
+      translate("editor.preview.source.markIn"),
+      translate("editor.preview.source.markOut"),
+      translate("editor.preview.source.playMarkedRegion"),
+      translate("editor.preview.source.play"),
+      translate("editor.preview.source.addToTrack"),
+      translate("editor.preview.source.add"),
+      translate("editor.preview.program.title"),
+      translate("editor.preview.program.webglPipeline"),
+      translate("editor.preview.program.safeZones"),
+      translate("editor.preview.program.noClips"),
+      translate("editor.preview.program.fill"),
+      translate("editor.preview.program.fit"),
+      translate("editor.preview.gpu.initializing"),
+      translate("editor.preview.gpu.consoleDetails"),
+      translate("editor.preview.webgl.unavailable"),
+      translate("editor.preview.webgl.requirement"),
+    ]).toEqual([
+      "Lottie 预览加载失败",
+      "文字效果加载失败，请重试。",
+      "视频",
+      "音频",
+      "文本",
+      "图片",
+      "关闭 (Esc)",
+      "入点",
+      "出点",
+      "时长",
+      "清除标记",
+      "清除",
+      "加载预览",
+      "程序化样式预览",
+      "将文本添加到时间线",
+      "添加到时间线",
+      "标记入点 (I)",
+      "标记出点 (O)",
+      "播放标记区域",
+      "播放",
+      "添加到轨道",
+      "添加",
+      "节目预览 (PixiJS)",
+      "WebGL 管线",
+      "安全区",
+      "序列无片段",
+      "填满预览",
+      "适应预览",
+      "GPU 预览正在初始化…",
+      "详情请查看控制台 (F12)",
+      "WebGL 不可用",
+      "Clypra 需要 WebGL 才能渲染预览。请更新显卡驱动，或尝试其他浏览器。",
+    ]);
+
+    expect(translate("editor.preview.source.previewing", { mediaType: "Remote H.265" })).toBe(
+      "正在预览 — Remote H.265",
+    );
+    expect(translate("editor.preview.source.durationSeconds", { duration: "3.70" })).toBe("3.70 秒");
+    expect(translate("editor.preview.source.addDurationToTimeline", { duration: "3.70" })).toBe(
+      "将 3.70 秒添加到时间线",
+    );
+    expect(translate("editor.preview.program.dimensionsFps", { width: 1920, height: 1080, fps: 29.97 })).toBe(
+      "1920×1080 • 29.97 FPS",
+    );
+  });
+
+  test("translates transport, quality, aspect, volume, telemetry, and safe-area labels", () => {
+    expect([
+      translate("editor.preview.transport.emptyTimeline"),
+      translate("editor.preview.transport.previousFrame"),
+      translate("editor.preview.transport.play"),
+      translate("editor.preview.transport.pause"),
+      translate("editor.preview.transport.nextFrame"),
+      translate("editor.preview.speed.label"),
+      translate("editor.preview.quality.label"),
+      translate("editor.preview.quality.full"),
+      translate("editor.preview.quality.high"),
+      translate("editor.preview.quality.medium"),
+      translate("editor.preview.quality.low"),
+      translate("editor.preview.quality.fullDescription"),
+      translate("editor.preview.quality.highDescription"),
+      translate("editor.preview.quality.mediumDescription"),
+      translate("editor.preview.quality.lowDescription"),
+      translate("editor.preview.aspect.label"),
+      translate("editor.preview.aspect.original"),
+      translate("editor.preview.aspect.youtube"),
+      translate("editor.preview.aspect.vertical"),
+      translate("editor.preview.aspect.square"),
+      translate("editor.preview.aspect.portrait"),
+      translate("editor.preview.volume.mute"),
+      translate("editor.preview.volume.unmute"),
+      translate("editor.preview.volume.muteAudio"),
+      translate("editor.preview.volume.unmuteAudio"),
+      translate("editor.preview.volume.label"),
+      translate("editor.preview.telemetry.title"),
+      translate("editor.preview.telemetry.evaluation"),
+      translate("editor.preview.telemetry.raster"),
+      translate("editor.preview.telemetry.total"),
+      translate("editor.preview.telemetry.cacheHitRate"),
+      translate("editor.preview.telemetry.active"),
+      translate("editor.preview.telemetry.droppedFrames"),
+      translate("editor.preview.telemetry.maxDrift"),
+      translate("editor.preview.safe.action"),
+      translate("editor.preview.safe.title"),
+    ]).toEqual([
+      "时间线上无片段",
+      "上一帧",
+      "播放",
+      "暂停",
+      "下一帧",
+      "播放速度",
+      "播放质量",
+      "完整质量",
+      "高质量",
+      "中等质量",
+      "低质量",
+      "原始视频分辨率",
+      "流畅播放，不影响导出视频",
+      "更流畅播放，不影响导出视频",
+      "最流畅播放，不影响导出视频",
+      "预览宽高比",
+      "原始",
+      "16:9（YouTube）",
+      "9:16（Reels/Shorts）",
+      "1:1（Instagram）",
+      "4:5（Instagram）",
+      "静音",
+      "取消静音",
+      "将音频静音",
+      "取消音频静音",
+      "音量",
+      "渲染遥测",
+      "评估",
+      "栅格化",
+      "总计",
+      "缓存命中率",
+      "活动数",
+      "丢帧",
+      "最大漂移",
+      "动作安全区 (90%)",
+      "标题安全区 (80%)",
+    ]);
+    expect(translate("editor.preview.speed.current", { speed: 1.25 })).toBe("播放速度：1.25x");
+  });
+
+  test("keeps aspect preset IDs stable and stores only message keys in shared types", () => {
+    const labels = (
+      appTypes as typeof appTypes & {
+        PREVIEW_ASPECT_MESSAGE_KEY?: Record<string, string>;
+      }
+    ).PREVIEW_ASPECT_MESSAGE_KEY;
+
+    expect(labels).toEqual({
+      original: "editor.preview.aspect.original",
+      "16:9": "editor.preview.aspect.youtube",
+      "9:16": "editor.preview.aspect.vertical",
+      "1:1": "editor.preview.aspect.square",
+      "4:5": "editor.preview.aspect.portrait",
+    });
+  });
+
+  test("wires heavy preview surfaces to complete localized messages", () => {
+    expect(sourcePreviewSource).toContain('t("editor.preview.source.previewing", { mediaType:');
+    expect(sourcePreviewSource).toContain('t("editor.preview.source.textEffectLoadFailed")');
+    expect(sourcePreviewSource).toContain('title={t("editor.preview.source.close")}');
+    expect(sourcePreviewSource).toContain('aria-label={t("editor.preview.source.close")}');
+    expect(sourcePreviewSource).not.toContain("Loading preview...");
+
+    expect(pixiProgramPreviewSource).toContain('t("editor.preview.program.dimensionsFps", {');
+    expect(pixiProgramPreviewSource).toContain('title={scaleModeLabel}');
+    expect(pixiProgramPreviewSource).toContain('aria-label={scaleModeLabel}');
+    expect(pixiProgramPreviewSource).not.toContain("No clips in sequence");
+
+    expect(gpuPreviewSource).toContain('t("editor.preview.gpu.initializing")');
+    expect(gpuPreviewSource).toContain('t("editor.preview.gpu.consoleDetails")');
   });
 });

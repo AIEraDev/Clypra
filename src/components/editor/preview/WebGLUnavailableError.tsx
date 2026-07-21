@@ -1,4 +1,5 @@
 import React from "react";
+import { t } from "@/i18n";
 
 /**
  * Shown when the PreviewErrorBoundary catches a WebGL / Pixi initialization error.
@@ -37,11 +38,10 @@ export const WebGLUnavailableError: React.FC = () => {
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
       <p style={{ fontSize: "15px", fontWeight: 600, margin: 0, color: "#fafafa" }}>
-        WebGL is unavailable
+        {t("editor.preview.webgl.unavailable")}
       </p>
       <p style={{ fontSize: "13px", margin: 0, color: "#9ca3af", maxWidth: "320px", lineHeight: 1.5 }}>
-        Clypra requires WebGL to render the preview. Please update your graphics drivers
-        or try a different browser.
+        {t("editor.preview.webgl.requirement")}
       </p>
     </div>
   );
