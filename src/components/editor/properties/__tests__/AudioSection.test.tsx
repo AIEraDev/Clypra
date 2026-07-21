@@ -22,21 +22,29 @@ const baseAudioClip: Clip = {
 };
 
 describe("AudioSection", () => {
-  it("displays fades clamped to clip duration", () => {
+  it("renders localized audio labels while preserving percent and second units", () => {
     render(<AudioSection selectedClip={{ ...baseAudioClip, fadeIn: 4, fadeOut: 3 } as Clip} handleUpdate={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /fade/i }));
+    expect(screen.getByRole("button", { name: "音量" })).toBeInTheDocument();
+    expect(screen.getByTitle("静音")).toBeInTheDocument();
+    expect(screen.getByText("50%")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "淡入淡出" }));
 
     const fadeInputs = screen.getAllByRole("spinbutton").slice(1);
     expect((fadeInputs[0] as HTMLInputElement).value).toBe("2.0");
     expect((fadeInputs[1] as HTMLInputElement).value).toBe("2.0");
+    expect(screen.getAllByText("2.0s")).toHaveLength(2);
   });
 
-  it("writes fade values clamped to clip duration", () => {
+  it("keeps audio update values unchanged", () => {
     const handleUpdate = vi.fn();
     render(<AudioSection selectedClip={baseAudioClip} handleUpdate={handleUpdate} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /fade/i }));
+    fireEvent.click(screen.getByRole("button", { name: "50%" }));
+    expect(handleUpdate).toHaveBeenCalledWith("volume", 0.5);
+
+    fireEvent.click(screen.getByRole("button", { name: "淡入淡出" }));
     const fadeInInput = screen.getAllByRole("spinbutton")[1];
     fireEvent.change(fadeInInput, { target: { value: "4" } });
 

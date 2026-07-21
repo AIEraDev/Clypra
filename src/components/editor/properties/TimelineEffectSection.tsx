@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Filter, Sparkles } from "lucide-react";
 import type { Clip } from "@/types";
+import { t } from "@/i18n";
 import { PropertySection } from "./primitives/PropertySection";
 import { PropertySlider } from "./primitives/PropertySlider";
 
@@ -18,8 +19,14 @@ export function getEffectIntensityPercent(intensity: unknown, fallback = 0.8): n
 export const TimelineEffectSection: React.FC<TimelineEffectSectionProps> = ({ selectedClip, handleUpdate }) => {
   const kind = selectedClip.kind;
   const isFilterClip = kind === "filter";
-  const title = isFilterClip ? "Filter Settings" : "Effect Settings";
-  const subtitle = isFilterClip ? "Timeline Filter" : kind === "body-effect" ? "Body Effect" : "Video Effect";
+  const title = t(isFilterClip ? "properties.timelineEffect.filterSettings" : "properties.timelineEffect.effectSettings");
+  const subtitle = t(
+    isFilterClip
+      ? "properties.timelineEffect.timelineFilter"
+      : kind === "body-effect"
+        ? "properties.timelineEffect.bodyEffect"
+        : "properties.timelineEffect.videoEffect",
+  );
   const Icon = isFilterClip ? Filter : Sparkles;
   const intensityPercent = useMemo(() => getEffectIntensityPercent((selectedClip as any).intensity), [selectedClip]);
 
@@ -34,7 +41,7 @@ export const TimelineEffectSection: React.FC<TimelineEffectSectionProps> = ({ se
         </div>
 
         <PropertySlider
-          label="Intensity"
+          label={t("properties.timelineEffect.intensity")}
           value={intensityPercent}
           min={0}
           max={100}

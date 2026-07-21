@@ -1,6 +1,7 @@
 import React, { useCallback } from "react";
 import { Shuffle, Trash2, Sliders } from "lucide-react";
 import type { TransitionTimelineItem, TransitionType, TransitionEasing } from "@/types";
+import { t } from "@/i18n";
 import { PropertySection } from "./primitives/PropertySection";
 import { PropertySlider } from "./primitives/PropertySlider";
 import { PropertySelect } from "./primitives/PropertySelect";
@@ -13,13 +14,13 @@ interface TransitionSectionProps {
 }
 
 const TRANSITION_TYPE_OPTIONS = [
-  { value: "fade", label: "Fade" },
-  { value: "dissolve", label: "Dissolve" },
+  { value: "fade", label: t("properties.transition.type.fade") },
+  { value: "dissolve", label: t("properties.transition.type.dissolve") },
 ];
 
 const EASING_OPTIONS = [
-  { value: "linear", label: "Linear" },
-  { value: "easeInOut", label: "Ease In / Out" },
+  { value: "linear", label: t("properties.transition.easing.linear") },
+  { value: "easeInOut", label: t("properties.transition.easing.easeInOut") },
 ];
 
 export const TransitionSection: React.FC<TransitionSectionProps> = ({
@@ -69,11 +70,11 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
 
   return (
     <div className="space-y-3">
-      <PropertySection title="Transition Settings" icon={<Shuffle className="w-3.5 h-3.5" />}>
+      <PropertySection title={t("properties.transition.settings")} icon={<Shuffle className="w-3.5 h-3.5" />}>
         <div className="space-y-3">
           {/* Transition Type */}
           <PropertySelect
-            label="Type"
+            label={t("properties.transition.type")}
             value={selectedTransition.type}
             options={TRANSITION_TYPE_OPTIONS}
             onChange={handleTypeChange}
@@ -81,7 +82,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
 
           {/* Easing */}
           <PropertySelect
-            label="Easing"
+            label={t("properties.transition.easing")}
             value={selectedTransition.easing}
             options={EASING_OPTIONS}
             onChange={handleEasingChange}
@@ -89,7 +90,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
 
           {/* Duration */}
           <PropertySlider
-            label="Duration"
+            label={t("properties.transition.duration")}
             value={selectedTransition.placement.duration}
             min={0.1}
             max={2.0}
@@ -107,7 +108,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
           className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/30 text-red-400 rounded-lg transition-all active:scale-[0.98] cursor-pointer"
         >
           <Trash2 className="w-3.5 h-3.5" />
-          Remove Transition
+          {t("properties.transition.remove")}
         </button>
       </div>
     </div>

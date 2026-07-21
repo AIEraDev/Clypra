@@ -1,6 +1,7 @@
 import React, { useCallback } from "react";
 import { Gauge, RefreshCw } from "lucide-react";
 import type { Clip } from "@/types";
+import { t } from "@/i18n";
 import { PropertySlider } from "./primitives/PropertySlider";
 import { PropertySection } from "./primitives/PropertySection";
 
@@ -33,11 +34,11 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({ 
 
   return (
     <div className="space-y-3">
-      <PropertySection title="Sticker Animation" icon={<Gauge className="w-3.5 h-3.5" />}>
+      <PropertySection title={t("properties.sticker.animation")} icon={<Gauge className="w-3.5 h-3.5" />}>
         <div className="space-y-3">
           {/* Speed slider */}
           <PropertySlider
-            label="Speed"
+            label={t("properties.sticker.speed")}
             value={speed}
             min={0.1}
             max={5.0}
@@ -74,7 +75,7 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({ 
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-medium text-text-muted select-none flex items-center gap-1.5">
               <RefreshCw className={`w-3.5 h-3.5 ${loop ? "animate-spin-slow text-accent" : ""}`} />
-              Loop Animation
+              {t("properties.sticker.loopAnimation")}
             </span>
             <button
               onClick={toggleLoop}
@@ -84,7 +85,7 @@ export const StickerSettingsSection: React.FC<StickerSettingsSectionProps> = ({ 
                   : "bg-surface-raised border border-border/60 text-text-muted hover:text-text-primary hover:bg-white/[0.04]"
               }`}
             >
-              {loop ? "Enabled" : "Disabled"}
+              {t(loop ? "properties.sticker.enabled" : "properties.sticker.disabled")}
             </button>
           </div>
         </div>
