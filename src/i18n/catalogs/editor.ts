@@ -154,6 +154,7 @@ export const editorMessages = defineMessages({
   "editor.preview.speed.current": { en: "Playback speed: {{speed}}x", zhCN: "播放速度：{{speed}}x" },
 
   "editor.preview.quality.label": { en: "Playback quality", zhCN: "播放质量" },
+  "editor.preview.quality.current": { en: "Playback quality: {{quality}}", zhCN: "播放质量：{{quality}}" },
   "editor.preview.quality.full": { en: "Full quality", zhCN: "完整质量" },
   "editor.preview.quality.high": { en: "High quality", zhCN: "高质量" },
   "editor.preview.quality.medium": { en: "Medium quality", zhCN: "中等质量" },
@@ -164,6 +165,7 @@ export const editorMessages = defineMessages({
   "editor.preview.quality.lowDescription": { en: "Smoothest playback, no impact on exported video", zhCN: "最流畅播放，不影响导出视频" },
 
   "editor.preview.aspect.label": { en: "Preview aspect ratio", zhCN: "预览宽高比" },
+  "editor.preview.aspect.current": { en: "Preview aspect ratio: {{aspect}}", zhCN: "预览宽高比：{{aspect}}" },
   "editor.preview.aspect.original": { en: "Original", zhCN: "原始" },
   "editor.preview.aspect.youtube": { en: "16:9 (YouTube)", zhCN: "16:9（YouTube）" },
   "editor.preview.aspect.vertical": { en: "9:16 (Reels/Shorts)", zhCN: "9:16（Reels/Shorts）" },

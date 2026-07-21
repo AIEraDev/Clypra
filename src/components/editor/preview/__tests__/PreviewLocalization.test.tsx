@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const previewMocks = vi.hoisted(() => {
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -28,6 +28,7 @@ const previewMocks = vi.hoisted(() => {
   };
 
   return {
+    gpuShouldFail: false,
     uiState: {
       sourceAsset: {
         id: "image-1",
@@ -206,8 +207,15 @@ vi.mock("@/lib/timeline/timelineClip", () => ({ createClipFromAsset: vi.fn() }))
 vi.mock("@/lib/cache/gpuTextureCache", () => ({
   GPUTextureCache: class {
     constructor() {
-      throw new Error("GPU unavailable in test");
+      if (previewMocks.gpuShouldFail) {
+        throw new Error("GPU unavailable in test");
+      }
     }
+    hasTexture() { return true; }
+    clear() {}
+    renderTexture() {}
+    uploadTexture() {}
+    dispose() {}
   },
 }));
 
@@ -244,6 +252,9 @@ import { WebGLUnavailableError } from "../WebGLUnavailableError";
 import { SafeOverlay } from "../../viewport/SafeOverlay";
 
 beforeEach(() => {
+  previewMocks.gpuShouldFail = false;
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   Object.defineProperty(HTMLElement.prototype, "clientWidth", {
     configurable: true,
     value: 800,
@@ -257,6 +268,10 @@ beforeEach(() => {
     disconnect() {}
     unobserve() {}
   } as typeof ResizeObserver;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("preview localization", () => {
@@ -285,8 +300,8 @@ describe("preview localization", () => {
     expect(screen.getByRole("button", { name: "填满预览" })).toHaveAttribute("title", "填满预览");
   });
 
-  test("renders localized GPU initialization guidance", () => {
-    render(
+  test("hides GPU initialization guidance after the cache initializes", async () => {
+    const { container } = render(
       <GPUPreview
         videoPath="/tmp/Remote Clip.mp4"
         currentTime={0}
@@ -297,8 +312,29 @@ describe("preview localization", () => {
       />,
     );
 
-    expect(screen.getByText("GPU 预览正在初始化…")).toBeInTheDocument();
-    expect(screen.getByText("详情请查看控制台 (F12)")).toBeInTheDocument();
+    expect(container.querySelector("canvas")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("GPU 预览正在初始化…")).not.toBeInTheDocument();
+    });
+  });
+
+  test("falls back to HTML5 video when GPU cache initialization fails", async () => {
+    previewMocks.gpuShouldFail = true;
+    const { container } = render(
+      <GPUPreview
+        videoPath="/tmp/Remote Clip.mp4"
+        currentTime={0}
+        isPlaying={false}
+        width={1920}
+        height={1080}
+        duration={5}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector("video")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("GPU 预览正在初始化…")).not.toBeInTheDocument();
   });
 
   test("exposes Chinese transport actions and the disabled timeline reason", () => {
@@ -371,7 +407,7 @@ describe("preview localization", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: "播放质量" });
+    const trigger = screen.getByRole("button", { name: "播放质量：中等质量" });
     expect(trigger).toHaveAttribute("title", "播放质量");
     expect(trigger).toHaveTextContent("中等质量");
     expect(screen.queryByText("medium")).not.toBeInTheDocument();
@@ -397,7 +433,7 @@ describe("preview localization", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: "预览宽高比" });
+    const trigger = screen.getByRole("button", { name: "预览宽高比：原始" });
     expect(trigger).toHaveAttribute("title", "预览宽高比");
     expect(trigger).toHaveTextContent("原始");
     expect(screen.getByRole("option", { name: "16:9（YouTube）" })).toHaveAttribute("title", "16:9（YouTube）");

@@ -113,6 +113,7 @@ export function GPUPreview({ videoPath, currentTime, isPlaying, width, height, d
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gpuCacheRef = useRef<GPUTextureCache | null>(null);
   const [useGPUCache, setUseGPUCache] = useState(false);
+  const [gpuFailed, setGpuFailed] = useState(false);
   const playbackTimerRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
   const componentId = useRef(generateId("gpu-preview")).current;
@@ -148,6 +149,7 @@ export function GPUPreview({ videoPath, currentTime, isPlaying, width, height, d
       setUseGPUCache(true);
     } catch (err) {
       setUseGPUCache(false);
+      setGpuFailed(true);
     }
 
     return () => {
@@ -282,6 +284,10 @@ export function GPUPreview({ videoPath, currentTime, isPlaying, width, height, d
       }
     };
   }, [isPlaying, currentTime, duration, useGPUCache, onTimeUpdate]);
+
+  if (gpuFailed) {
+    return <HTML5VideoFallback videoPath={videoPath} currentTime={currentTime} isPlaying={isPlaying} width={width} height={height} onTimeUpdate={onTimeUpdate} className={className} />;
+  }
 
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-black">

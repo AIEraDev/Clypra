@@ -337,6 +337,8 @@ describe("editor shell localization", () => {
       "标题安全区 (80%)",
     ]);
     expect(translate("editor.preview.speed.current", { speed: 1.25 })).toBe("播放速度：1.25x");
+    expect(translate("editor.preview.quality.current", { quality: "中等质量" })).toBe("播放质量：中等质量");
+    expect(translate("editor.preview.aspect.current", { aspect: "原始" })).toBe("预览宽高比：原始");
   });
 
   test("keeps aspect preset IDs stable and stores only message keys in shared types", () => {

@@ -29,16 +29,18 @@ export const PlaybackQualitySelector: React.FC<PlaybackQualitySelectorProps> = (
   setQualityMenuOpen,
   setPreviewQuality,
 }) => {
+  const selectedQuality = t(QUALITY_OPTIONS.find((option) => option.value === previewQuality)!.labelKey);
+
   return (
     <div className="relative">
       <button
         onClick={() => setQualityMenuOpen(!qualityMenuOpen)}
         className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer"
         title={t("editor.preview.quality.label")}
-        aria-label={t("editor.preview.quality.label")}
+        aria-label={t("editor.preview.quality.current", { quality: selectedQuality })}
         aria-expanded={qualityMenuOpen}
       >
-        <span className="max-w-18 truncate">{t(QUALITY_OPTIONS.find((option) => option.value === previewQuality)!.labelKey)}</span>
+        <span className="max-w-18 truncate">{selectedQuality}</span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
       </button>
       {qualityMenuOpen && (

@@ -50,18 +50,18 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
   canvasWidth,
   canvasHeight,
 }) => {
+  const selectedAspect = t(PREVIEW_ASPECT_MESSAGE_KEY[previewAspectPreset]);
+
   return (
     <div className="relative shrink-0">
       <button
         onClick={() => setAspectMenuOpen(!aspectMenuOpen)}
         className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer"
         title={t("editor.preview.aspect.label")}
-        aria-label={t("editor.preview.aspect.label")}
+        aria-label={t("editor.preview.aspect.current", { aspect: selectedAspect })}
         aria-expanded={aspectMenuOpen}
       >
-        <span className="max-w-18 truncate">
-          {t(PREVIEW_ASPECT_MESSAGE_KEY[previewAspectPreset])}
-        </span>
+        <span className="max-w-18 truncate">{selectedAspect}</span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
       </button>
       {aspectMenuOpen && (
