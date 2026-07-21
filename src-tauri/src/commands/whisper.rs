@@ -369,31 +369,29 @@ async fn start_download_request(
     Ok(response)
 }
 
-async fn finalize_download(
+fn finalize_download(
     partial_path: &Path,
     final_path: &Path,
     cancel_token: &CancellationToken,
 ) -> Result<(), DownloadError> {
     finalize_download_at_commit_point(final_path, cancel_token, || {
-        tokio::fs::rename(partial_path, final_path)
+        std::fs::rename(partial_path, final_path)
     })
-    .await
 }
 
-async fn finalize_download_at_commit_point<Commit, CommitFuture>(
+fn finalize_download_at_commit_point<Commit>(
     final_path: &Path,
     cancel_token: &CancellationToken,
     commit: Commit,
 ) -> Result<(), DownloadError>
 where
-    Commit: FnOnce() -> CommitFuture,
-    CommitFuture: std::future::Future<Output = std::io::Result<()>>,
+    Commit: FnOnce() -> std::io::Result<()>,
 {
     if cancel_token.is_cancelled() {
         return Err(DownloadError::Cancelled);
     }
 
-    commit().await.map_err(|error| {
+    commit().map_err(|error| {
         DownloadError::Failed(format!(
             "Failed to finalize download {}: {}",
             final_path.display(),
@@ -523,7 +521,7 @@ async fn perform_download(
     }
     drop(file);
 
-    finalize_download(&partial_path, &final_path, &cancel_token).await?;
+    finalize_download(&partial_path, &final_path, &cancel_token)?;
 
     eprintln!(
         "🦀 [download_whisper_model] Download completed: {} MB",
@@ -835,7 +833,6 @@ mod tests {
 
         cancel.cancel();
         let error = finalize_download(&partial_path, &final_path, &cancel)
-            .await
             .expect_err("cancellation must win before rename");
         let error = cleanup_failed_download(&partial_path, error).await;
 
@@ -852,40 +849,91 @@ mod tests {
             .await
             .expect("partial file should be created");
         let cancel = CancellationToken::new();
-        let task_cancel = cancel.clone();
+        let task_partial_path = partial_path.clone();
+        let task_final_path = final_path.clone();
+        let error_path = final_path.clone();
+        let commit_cancel = cancel.clone();
+        let result = finalize_download_at_commit_point(&error_path, &cancel, || {
+            commit_cancel.cancel();
+            std::fs::rename(task_partial_path, task_final_path)
+        });
+        let completion = completion_for_download_result(&result);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(completion, DownloadCompletion::Completed);
+        assert!(!partial_path.exists());
+        assert_eq!(
+            tokio::fs::read(&final_path)
+                .await
+                .expect("committed final file should exist"),
+            b"complete model bytes"
+        );
+        tokio::fs::remove_file(&final_path)
+            .await
+            .expect("test final file should be removed");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn abort_at_real_commit_publishes_completed_and_keeps_final_file() {
+        let state = init_download_state();
+        let active =
+            register_download_task(&state, "tiny").expect("initial registration should succeed");
+        let mut completion = active.completion.subscribe();
+        let final_path = temporary_model_path("commit-point-abort");
+        let partial_path = partial_path_for(&final_path);
+        tokio::fs::write(&partial_path, b"complete model bytes")
+            .await
+            .expect("partial file should be created");
+        let task_state = state.clone();
+        let task_active = active.clone();
         let task_partial_path = partial_path.clone();
         let task_final_path = final_path.clone();
         let error_path = final_path.clone();
         let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
-        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
 
         let finalization = tokio::spawn(async move {
+            let guard = DownloadTaskGuard::new(
+                task_state,
+                "tiny".to_string(),
+                task_active,
+                task_partial_path.clone(),
+            );
             let result =
-                finalize_download_at_commit_point(&error_path, &task_cancel, || async move {
+                finalize_download_at_commit_point(&error_path, &CancellationToken::new(), || {
                     let _ = entered_tx.send(());
                     release_rx
-                        .await
+                        .recv()
                         .map_err(|_| std::io::Error::other("test commit release channel closed"))?;
-                    tokio::fs::rename(task_partial_path, task_final_path).await
-                })
-                .await;
-            let completion = completion_for_download_result(&result);
-            (result, completion)
+                    std::fs::rename(task_partial_path, task_final_path)
+                });
+            guard.finish(completion_for_download_result(&result));
+            result
         });
 
         entered_rx
             .await
-            .expect("finalization should enter the commit point");
-        cancel.cancel();
+            .expect("finalization should enter the real commit");
+        finalization.abort();
         release_tx
             .send(())
-            .expect("finalization should still await the commit");
-        let (result, completion) = finalization
+            .expect("real commit should finish in the current poll");
+        assert_eq!(
+            finalization
+                .await
+                .expect("abort must not interrupt the commit-point poll"),
+            Ok(())
+        );
+        completion
+            .changed()
             .await
-            .expect("finalization task should not panic");
+            .expect("completion should be published");
 
-        assert_eq!(result, Ok(()));
-        assert_eq!(completion, DownloadCompletion::Completed);
+        assert_eq!(
+            completion.borrow().clone(),
+            Some(DownloadCompletion::Completed)
+        );
+        assert!(!has_task(&state, "tiny"));
         assert!(!partial_path.exists());
         assert_eq!(
             tokio::fs::read(&final_path)
@@ -908,7 +956,6 @@ mod tests {
             .expect("partial file should be created");
 
         finalize_download(&partial_path, &final_path, &cancel)
-            .await
             .expect("finalization should succeed");
 
         assert!(!partial_path.exists());
