@@ -4,6 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { t } from "@/i18n";
 import { AudioTab } from "@/components/editor/media-tabs/AudioTab";
 import * as audioLibraryApi from "@/features/audio-library/api/audioLibraryApi";
+import * as textTemplateTypes from "@/features/text-templates/types";
 
 vi.mock("@/features/audio-library/store/audioLibraryStore", () => ({
   useAudioLibraryStore: () => ({
@@ -235,5 +236,56 @@ describe("media and audio localization", () => {
 
     expect(await screen.findByText("加载音频库失败：Invalid audio library response: item 0 violates AudioLibraryItem contract")).toBeInTheDocument();
     expect(screen.queryByText("无网络连接")).not.toBeInTheDocument();
+  });
+});
+
+describe("text and caption localization", () => {
+  test("keeps template category IDs stable while resolving separate Chinese labels", () => {
+    const categoryLabelKeys = (
+      textTemplateTypes as typeof textTemplateTypes & {
+        TEMPLATE_CATEGORY_LABEL_KEYS?: Record<string, string>;
+      }
+    ).TEMPLATE_CATEGORY_LABEL_KEYS;
+
+    expect(textTemplateTypes.TEMPLATE_CATEGORIES).toEqual([
+      "lower-third",
+      "title-card",
+      "caption",
+      "callout",
+      "social",
+      "countdown",
+    ]);
+    expect(categoryLabelKeys).toEqual({
+      "lower-third": "features.text.category.lowerThird",
+      "title-card": "features.text.category.titleCard",
+      caption: "features.text.category.caption",
+      callout: "features.text.category.callout",
+      social: "features.text.category.social",
+      countdown: "features.text.category.countdown",
+    });
+    expect(textTemplateTypes.TEMPLATE_CATEGORIES.map((id) => translate(categoryLabelKeys![id]))).toEqual([
+      "下三分之一字幕",
+      "标题卡",
+      "字幕",
+      "标注",
+      "社交",
+      "倒计时",
+    ]);
+  });
+
+  test("translates complete dynamic caption messages without changing model or error details", () => {
+    const model = "large-v3_REMOTE";
+    const error = "ENOENT /models/Whisper_RAW.bin?source=https://cdn.example/raw";
+
+    expect(translate("features.text.favorites", { count: 7 })).toBe("收藏（7）");
+    expect(translate("features.text.favoriteTemplates", { count: 3 })).toBe("收藏的模板（3）");
+    expect(translate("features.text.auto.successDescription", { count: 26 })).toBe("已生成 26 个带样式的字幕片段，并与当前时间线精准对齐。");
+    expect(translate("features.text.auto.localFailure", { error })).toBe(`本地转录失败：${error}。将改用上下文模拟模式…`);
+    expect(translate("features.captions.modelNotDownloaded", { model })).toBe(`Whisper 模型“${model}”尚未下载。请先前往“设置”→“字幕”下载该模型。`);
+    expect(translate("features.captions.modelFilesMissing", { model })).toBe(`未在磁盘上找到模型“${model}”的文件。模型可能已被删除或损坏，请前往“设置”→“字幕”重新下载。`);
+    expect(translate("features.captions.modelVerificationFailed", { error })).toBe(`验证模型文件失败：${error}。请检查“设置”→“字幕”。`);
+    expect(translate("features.captions.transcriptionError", { error })).toBe(`转录错误：${error}`);
+    expect(translate("features.captions.processingError", { error })).toBe(`生成字幕时出错：${error}`);
+    expect(translate("features.captions.modelNeeded", { model })).toBe(`生成字幕前需下载“${model}”模型。`);
   });
 });

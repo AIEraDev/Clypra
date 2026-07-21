@@ -12,6 +12,29 @@ import { invoke } from "@tauri-apps/api/core";
 import { platform } from "@/core/platform";
 import type { TabProps } from "./types";
 import type { TextClip } from "@/types";
+import { t } from "@/i18n";
+
+export type CaptionErrorKind = "parse" | "model-required" | "model-files-missing" | "model-verification" | "no-media" | "desktop-only" | "transcription" | "generation";
+
+export interface CaptionErrorState {
+  kind: CaptionErrorKind;
+  message: string;
+}
+
+export function isCaptionTrackName(name: string): boolean {
+  const normalized = name.trim().toLocaleLowerCase();
+  return normalized.includes("caption") || normalized.includes("subtitle") || normalized.includes("字幕");
+}
+
+export function captionErrorNeedsSettings(error: CaptionErrorState | null): boolean {
+  return error?.kind === "model-required" || error?.kind === "model-files-missing" || error?.kind === "model-verification";
+}
+
+function getErrorDetail(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+  return fallback;
+}
 
 export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const { clips, tracks, addClip, removeClip, updateClip, withBatch } = useTimelineStore();
@@ -20,7 +43,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const { captionSettings } = useCaptionStore();
   const { toggleSettingsModal } = useUIStore();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [captionError, setCaptionError] = useState<CaptionErrorState | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
   const mediaAssets = project?.mediaAssets || [];
@@ -30,7 +53,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const isModelDownloaded = captionSettings.models[selectedModel]?.status === "downloaded";
 
   // Find the text track designated for captions
-  const captionTrack = tracks.find((t) => t.type === "text" && (t.name.toLowerCase().includes("caption") || t.name.toLowerCase().includes("subtitle"))) || tracks.find((t) => t.type === "text");
+  const captionTrack = tracks.find((track) => track.type === "text" && isCaptionTrackName(track.name)) || tracks.find((track) => track.type === "text");
 
   // Get all text clips belonging to the caption track
   const captionClips = captionTrack ? (clips.filter((c) => c.trackId === captionTrack.id) as TextClip[]).sort((a, b) => a.startTime - b.startTime) : [];
@@ -45,7 +68,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
     // Rename to standard Auto Captions track name
     useTimelineStore.setState((state) => ({
-      tracks: state.tracks.map((t) => (t.id === targetTrackId ? { ...t, name: "Auto Captions" } : t)),
+      tracks: state.tracks.map((track) => (track.id === targetTrackId ? { ...track, name: t("features.captions.trackName") } : track)),
     }));
 
     return targetTrackId;
@@ -61,13 +84,13 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setErrorMsg(null);
+    setCaptionError(null);
     try {
       const text = await file.text();
       const blocks = parseSubtitles(text);
 
       if (blocks.length === 0) {
-        throw new Error("No subtitle blocks found. Please ensure the file is valid SRT or WebVTT.");
+        throw new Error(t("features.captions.noSubtitleBlocks"));
       }
 
       const trackId = ensureCaptionTrackId();
@@ -93,8 +116,13 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           addClip(textClip);
         });
       });
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to parse subtitle file.");
+    } catch (error) {
+      setCaptionError({
+        kind: "parse",
+        message: t("features.captions.parseError", {
+          error: getErrorDetail(error, t("features.captions.parseFailed")),
+        }),
+      });
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -136,7 +164,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       trackId,
       startTime: playheadTime,
       duration: 2.0,
-      text: "New Caption Text",
+      text: t("features.captions.newText"),
       canvasWidth,
       canvasHeight,
       fontSize: 32,
@@ -162,7 +190,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     const modelState = captionSettings.models[model];
     if (modelState.status !== "downloaded") {
       console.error(`[CaptionsTab] Model "${model}" status is: ${modelState.status}`);
-      setErrorMsg(`Whisper model "${model}" is not downloaded yet. Please go to Settings → Captions to download the model first.`);
+      setCaptionError({ kind: "model-required", message: t("features.captions.modelNotDownloaded", { model }) });
       // Open settings modal to help user
       toggleSettingsModal();
       return;
@@ -176,13 +204,18 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
       if (!exists) {
         console.error(`[CaptionsTab] Model "${model}" marked as downloaded but files not found on disk`);
-        setErrorMsg(`Model files for "${model}" not found on disk. The model may have been deleted or corrupted. Please re-download the model from Settings → Captions.`);
+        setCaptionError({ kind: "model-files-missing", message: t("features.captions.modelFilesMissing", { model }) });
         toggleSettingsModal();
         return;
       }
     } catch (error) {
       console.error(`[CaptionsTab] Failed to verify model:`, error);
-      setErrorMsg(`Failed to verify model files: ${error}. Please check Settings → Captions.`);
+      setCaptionError({
+        kind: "model-verification",
+        message: t("features.captions.modelVerificationFailed", {
+          error: getErrorDetail(error, String(error)),
+        }),
+      });
       toggleSettingsModal();
       return;
     }
@@ -195,18 +228,18 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
     if (mediaClips.length === 0) {
       console.warn(`[CaptionsTab] No media clips found on timeline`);
-      setErrorMsg("No video or audio clips found on the timeline. Add media first.");
+      setCaptionError({ kind: "no-media", message: t("features.captions.noMedia") });
       return;
     }
 
     console.log(`[CaptionsTab] Found ${mediaClips.length} media clips to process`);
 
     if (platform.isCapacitor()) {
-      setErrorMsg("Local auto-captions are only supported on Clypra Desktop.");
+      setCaptionError({ kind: "desktop-only", message: t("features.captions.desktopOnly") });
       return;
     }
 
-    setErrorMsg(null);
+    setCaptionError(null);
     setIsGenerating(true);
 
     try {
@@ -258,7 +291,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
           if (result.error) {
             console.error(`Failed to transcribe ${mediaClip.id}:`, result.error);
-            setErrorMsg(`Transcription error: ${result.error}`);
+            setCaptionError({ kind: "transcription", message: t("features.captions.transcriptionError", { error: String(result.error) }) });
             continue;
           }
 
@@ -311,19 +344,29 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         } catch (clipError: any) {
           console.error(`[CaptionsTab] Error processing clip ${mediaClip.id}:`, clipError);
           console.error(`[CaptionsTab] Error stack:`, clipError.stack);
-          setErrorMsg(`Error: ${clipError.message || clipError}`);
+          setCaptionError({
+            kind: "generation",
+            message: t("features.captions.processingError", {
+              error: getErrorDetail(clipError, String(clipError)),
+            }),
+          });
         }
       }
 
       if (totalCaptions > 0) {
-        setErrorMsg(null);
+        setCaptionError(null);
       } else {
-        setErrorMsg("No captions were generated. Please check your audio contains speech.");
+        setCaptionError({ kind: "generation", message: t("features.captions.noGenerated") });
       }
     } catch (error: any) {
       console.error(`[CaptionsTab] Top-level error:`, error);
       console.error(`[CaptionsTab] Error stack:`, error.stack);
-      setErrorMsg(error.message || "Failed to generate captions.");
+      setCaptionError({
+        kind: "generation",
+        message: t("features.captions.processingError", {
+          error: getErrorDetail(error, t("features.captions.generationFailed")),
+        }),
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -348,11 +391,11 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       <div className="grid grid-cols-2 gap-2">
         <Button variant="secondary" size="sm" className="w-full flex items-center justify-center gap-1.5" onClick={handleImportClick}>
           <Upload className="w-3.5 h-3.5 text-accent" />
-          Import Subtitles
+          {t("features.captions.import")}
         </Button>
         <Button variant="secondary" size="sm" className="w-full flex items-center justify-center gap-1.5" onClick={() => handleExport("srt")} disabled={captionClips.length === 0}>
           <Download className="w-3.5 h-3.5 text-accent" />
-          Export SRT
+          {t("features.captions.exportSrt")}
         </Button>
       </div>
 
@@ -362,10 +405,10 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="p-2.5 bg-yellow-500/10 border border-yellow-500/25 rounded-lg text-yellow-200 text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="font-semibold">Whisper Model Required</p>
-              <p className="mt-1 opacity-90">The "{selectedModel}" model needs to be downloaded before generating captions.</p>
+              <p className="font-semibold">{t("features.captions.modelRequiredTitle")}</p>
+              <p className="mt-1 opacity-90">{t("features.captions.modelNeeded", { model: selectedModel })}</p>
               <button onClick={toggleSettingsModal} className="mt-2 px-2 py-1 bg-yellow-500/20 hover:bg-yellow-500/30 rounded text-xs font-semibold transition-colors">
-                Download Model in Settings
+                {t("features.captions.downloadModelInSettings")}
               </button>
             </div>
           </div>
@@ -374,11 +417,11 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         <div className="relative">
           <Button variant="default" size="sm" className="w-full bg-accent hover:bg-accent/80 text-white flex items-center justify-center gap-1.5" onClick={handleAutoGenerate} disabled={isGenerating}>
             <Sparkles className="w-4 h-4" />
-            {isGenerating ? "Generating..." : "Auto-Generate Captions"}
+            {isGenerating ? t("features.captions.generating") : t("features.captions.autoGenerate")}
           </Button>
 
           {/* Settings gear — subtle, non-blocking */}
-          <button onClick={toggleSettingsModal} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 opacity-40 hover:opacity-100 transition-opacity" title="Caption settings">
+          <button onClick={toggleSettingsModal} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 opacity-40 hover:opacity-100 transition-opacity" title={t("features.captions.settings")}>
             <Settings className="w-3.5 h-3.5 text-white" />
           </button>
         </div>
@@ -386,18 +429,18 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
       <Button variant="secondary" size="sm" className="w-full flex items-center justify-center gap-1.5" onClick={handleAddManualCaption}>
         <Plus className="w-4 h-4" />
-        Add Manual Caption
+        {t("features.captions.addManual")}
       </Button>
 
-      {errorMsg && (
+      {captionError && (
         <div className="p-2.5 bg-destructive/10 border border-destructive/20 text-destructive rounded-lg text-xs">
           <div className="flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p>{errorMsg}</p>
-              {errorMsg.includes("not downloaded") && (
+              <p>{captionError.message}</p>
+              {captionErrorNeedsSettings(captionError) && (
                 <button onClick={toggleSettingsModal} className="mt-2 px-2 py-1 bg-accent/20 hover:bg-accent/30 text-accent rounded text-xs font-semibold transition-colors">
-                  Open Settings to Download Model
+                  {t("features.captions.openSettings")}
                 </button>
               )}
             </div>
@@ -408,13 +451,13 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       {/* Subtitles timing editor */}
       <div className="flex-1 flex flex-col min-h-0 pt-2 border-t border-border">
         <div className="flex justify-between items-center mb-2">
-          <h4 className="text-xs font-semibold text-text-muted">Caption Timing Editor ({captionClips.length})</h4>
+          <h4 className="text-xs font-semibold text-text-muted">{t("features.captions.timingEditor", { count: captionClips.length })}</h4>
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 pr-1">
           {captionClips.length === 0 ? (
             <div className="h-40 flex flex-col items-center justify-center text-center p-4 border border-dashed border-border rounded-xl">
-              <p className="text-xs text-text-muted max-w-[200px]">No captions on the timeline. Click Add Manual or Import to begin.</p>
+              <p className="text-xs text-text-muted max-w-[200px]">{t("features.captions.empty")}</p>
             </div>
           ) : (
             captionClips.map((clip, index) => (
@@ -423,7 +466,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 <div className="flex items-center justify-between text-[10px] text-text-muted">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">#{index + 1}</span>
-                    <button onClick={() => seek(clip.startTime)} className="flex items-center gap-1 hover:text-accent font-medium transition-colors" title="Jump Playhead to Start">
+                    <button onClick={() => seek(clip.startTime)} className="flex items-center gap-1 hover:text-accent font-medium transition-colors" title={t("features.captions.jumpToStart")}>
                       <Play className="w-2.5 h-2.5 fill-current" />
                       {formatSubtitleTime(clip.startTime, "vtt").slice(3)}
                     </button>
@@ -431,22 +474,22 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                     <span>{formatSubtitleTime(clip.startTime + clip.duration, "vtt").slice(3)}</span>
                   </div>
 
-                  <button onClick={() => removeClip(clip.id)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-destructive transition-all duration-200" title="Delete Caption">
+                  <button onClick={() => removeClip(clip.id)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-destructive transition-all duration-200" title={t("features.captions.delete")}>
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
                 {/* Subtitle textarea */}
-                <textarea value={clip.text} onChange={(e) => handleTextChange(clip.id, e.target.value)} className="w-full min-h-[50px] p-2 bg-background/50 focus:bg-background border border-border/50 focus:border-accent rounded-lg text-xs text-text-primary resize-none outline-none transition-colors" placeholder="Enter subtitle text..." />
+                <textarea value={clip.text} onChange={(e) => handleTextChange(clip.id, e.target.value)} className="w-full min-h-[50px] p-2 bg-background/50 focus:bg-background border border-border/50 focus:border-accent rounded-lg text-xs text-text-primary resize-none outline-none transition-colors" placeholder={t("features.captions.placeholder")} />
 
                 {/* Micro Timing controls */}
                 <div className="grid grid-cols-2 gap-2 text-[10px]">
                   <div className="flex items-center gap-1.5">
-                    <span className="shrink-0 text-text-muted">Start:</span>
+                    <span className="shrink-0 text-text-muted">{t("features.captions.start")}</span>
                     <input type="number" step="0.1" value={Number(clip.startTime.toFixed(2))} onChange={(e) => handleTimingChange(clip.id, "startTime", parseFloat(e.target.value) || 0)} className="w-full px-1.5 py-1 bg-background/30 border border-border/30 rounded text-center outline-none focus:border-accent text-text-primary" />
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="shrink-0 text-text-muted">Duration:</span>
+                    <span className="shrink-0 text-text-muted">{t("features.captions.duration")}</span>
                     <input type="number" step="0.1" min="0.1" value={Number(clip.duration.toFixed(2))} onChange={(e) => handleTimingChange(clip.id, "duration", parseFloat(e.target.value) || 0.1)} className="w-full px-1.5 py-1 bg-background/30 border border-border/30 rounded text-center outline-none focus:border-accent text-text-primary" />
                   </div>
                 </div>

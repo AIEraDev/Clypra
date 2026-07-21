@@ -2,8 +2,9 @@ import React, { useState, useEffect } from "react";
 import { Sparkles, MessageSquare, Loader2, CheckCircle2, AlertCircle, Cloud, CloudOff } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { TemplateDefinition, TemplateCustomization, TEMPLATE_CATEGORIES } from "@/features/text-templates/types";
+import { TemplateDefinition, TemplateCustomization, TEMPLATE_CATEGORIES, TEMPLATE_CATEGORY_LABEL_KEYS, type TemplateCategory } from "@/features/text-templates/types";
 import type { TabProps } from "./types";
+import { isCaptionTrackName } from "./CaptionsTab";
 import { TemplateCard } from "@/components/ui/TemplateCard";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useUIStore } from "@/store/uiStore";
@@ -16,6 +17,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { EffectGrid as NewEffectGrid } from "@/features/text-effects/components/EffectGrid";
 import { EffectPreview as NewEffectPreview } from "@/features/text-effects/components/EffectPreview";
 import { useFavoritesStore } from "@/store/favoritesStore";
+import { t } from "@/i18n";
 
 /**
  * Generates highly realistic, context-aware subtitle lines based on the active clip filename and path.
@@ -25,41 +27,34 @@ const generateContextualCaptions = (nameStr: string, pathStr: string, isAudio: b
 
   // Ambient / Music / Audio tracks
   if (isAudio || combined.includes("beat") || combined.includes("music") || combined.includes("song") || combined.includes("audio") || combined.includes("sound") || combined.includes("mp3") || combined.includes("wav")) {
-    return ["🎶 [Upbeat melodic intro music]", "🔊 [Bass drop and rhythm shifts]", "🎵 [Vibrant electronic chords swell]", "🎹 [Ambient synth textures sustain]"];
+    return ["🎶 [欢快的旋律前奏响起]", "🔊 [低音落下，节奏转换]", "🎵 [明亮的电子和弦渐强]", "🎹 [氛围合成器音色持续]"];
   }
 
   // Topic: Authentication / Access & Refresh Tokens (Matches user's exact video file!)
   if (combined.includes("token") || combined.includes("refresh") || combined.includes("auth") || combined.includes("oauth") || combined.includes("web") || combined.includes("mobile") || combined.includes("secure") || combined.includes("login") || combined.includes("jwt")) {
-    return ["Today we're talking about access and refresh tokens.", "Why do web and mobile platforms handle them so differently?", "On web, we use secure httpOnly cookies to prevent XSS attacks.", "While mobile apps store them securely in the Keychain or Keystore.", "Let's look at the architectural flow of token refreshing.", "We want to ensure a seamless and secure user experience."];
+    return ["今天我们来聊聊访问令牌和刷新令牌。", "为什么 Web 和移动端平台处理它们的方式如此不同？", "在 Web 端，我们使用安全的 HttpOnly Cookie 来防范 XSS 攻击。", "而移动应用会将它们安全地存储在 Keychain 或 Keystore 中。", "下面看看令牌刷新的架构流程。", "我们的目标是确保用户体验流畅且安全。"];
   }
 
   // Topic: Travel / Vlog / Intro
   if (combined.includes("vlog") || combined.includes("travel") || combined.includes("intro") || combined.includes("trip") || combined.includes("explore") || combined.includes("journey") || combined.includes("scenery")) {
-    return ["Hey guys! Welcome back to another vlog.", "Today I want to share this incredible journey with you.", "Look at this breathtaking scenery all around us.", "Make sure to hit that subscribe button for more updates!", "Let's explore the next location together."];
+    return ["大家好，欢迎回到新一期 Vlog！", "今天想和大家分享这段精彩旅程。", "看看我们周围令人惊叹的景色。", "别忘了点击订阅，获取更多更新！", "接下来一起探索下一个地点吧。"];
   }
 
   // Topic: Tutorial / Programming / Coding
   if (combined.includes("code") || combined.includes("tutorial") || combined.includes("develop") || combined.includes("program") || combined.includes("learn") || combined.includes("tech") || combined.includes("build") || combined.includes("react") || combined.includes("rust")) {
-    return ["In this step-by-step tutorial, we will write some clean code.", "Let's initialize our development environment first.", "We will implement this function to resolve the issue.", "Verify the output in the console log to ensure correctness.", "This pattern makes our architecture highly scaleable."];
+    return ["本教程将逐步编写整洁的代码。", "先初始化开发环境。", "接着实现这个函数来解决问题。", "请检查控制台日志中的输出，确认结果正确。", "此模式能让架构更易于扩展。"];
   }
 
   // High-fidelity production-grade spoken dialogue fallback!
   // Perfectly mirrors a professional content creator's voiceover for any general unmatched segment.
-  return ["Welcome back everyone! In this segment, we're going to explore some really interesting concepts.", "As you can see on the screen, this is exactly how it works in real-world environments.", "I've been working on this design for a few weeks now and the results are absolutely amazing.", "Let's go step-by-step through the layout so we can understand each component clearly.", "If you have any questions about this process, make sure to drop a comment below.", "Now, let's transition to the next phase of the implementation."];
+  return ["欢迎回来！这一节将探索一些很有意思的概念。", "正如屏幕所示，这就是它在实际环境中的运行方式。", "这个设计已经打磨了数周，最终效果非常出色。", "下面逐步梳理布局，清楚了解每个组件。", "如果对这个过程有任何疑问，欢迎在下方留言。", "现在进入实现的下一个阶段。"];
 };
 
-// Categories list - derived from TEMPLATE_CATEGORIES
-const templateCategories = TEMPLATE_CATEGORIES.map((cat) =>
-  cat
-    .replace("-", " ")
-    .split(" ")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" "),
-);
+const templateCategories = TEMPLATE_CATEGORIES.map((id) => ({ id, labelKey: TEMPLATE_CATEGORY_LABEL_KEYS[id] }));
 
 export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [activeTab, setActiveTab] = useState<"effects" | "templates" | "yours" | "captions">("effects");
-  const [activeCategory, setActiveCategory] = useState<string>("Lower Third");
+  const [activeCategory, setActiveCategory] = useState<TemplateCategory>("lower-third");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Consume global favorites and downloads store
@@ -106,7 +101,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
     try {
       // Find or insert text track
-      let textTrack = timeline.tracks.find((t) => t.type === "text" && t.name.toLowerCase().includes("caption"));
+      let textTrack = timeline.tracks.find((track) => track.type === "text" && isCaptionTrackName(track.name));
       if (!textTrack) {
         textTrack = timeline.tracks.find((t) => t.type === "text");
       }
@@ -117,7 +112,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         targetTrackId = timeline.insertTrackAt("text", insertIndex);
         // Rename target track
         useTimelineStore.setState((state) => ({
-          tracks: state.tracks.map((t) => (t.id === targetTrackId ? { ...t, name: "Auto Captions" } : t)),
+          tracks: state.tracks.map((track) => (track.id === targetTrackId ? { ...track, name: t("features.text.autoTrackName") } : track)),
         }));
       }
 
@@ -263,7 +258,8 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       // Fallback gracefully with error UI
       setCaptioningState("idle");
       setCaptioningProgress(0);
-      alert(`Local transcription failed: ${err.message || err}. Running in fallback contextual simulator...`);
+      const error = err instanceof Error ? err.message : String(err);
+      alert(t("features.text.auto.localFailure", { error }));
     }
   };
 
@@ -330,14 +326,8 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   // Sync category when tab changes to avoid blank grids
   const handleTabChange = (tab: "effects" | "templates" | "yours" | "captions") => {
     setActiveTab(tab);
-    if (tab === "effects") {
-      setActiveCategory("3D");
-    } else if (tab === "templates") {
-      setActiveCategory("Lower Third");
-    } else if (tab === "yours") {
-      setActiveCategory("Favorites");
-    } else {
-      setActiveCategory("Auto");
+    if (tab === "templates") {
+      setActiveCategory("lower-third");
     }
   };
 
@@ -472,7 +462,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     );
   }
   // Filter items - templates only (effects are handled by EffectGrid)
-  const filteredTemplates = templates.filter((template) => template.category.toLowerCase().replace("-", " ") === activeCategory.toLowerCase() && (template.name || template.label).toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredTemplates = templates.filter((template) => template.category === activeCategory && (template.name || template.label).toLowerCase().includes(searchQuery.toLowerCase()));
 
   const favoriteTemplatesList = templates.filter((t) => favorites.includes(t.id));
 
@@ -484,24 +474,24 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-surface/5 select-none">
       {/* ── Top Header Control Navigation Row (Overflows X) ────────────── */}
       <div className="flex items-center gap-2.5 p-1 border-b border-border/50 shrink-0 bg-surface/10">
-        <Button variant="ghost" size="sm" className="shrink-0 flex items-center justify-center gap-1 h-min px-2 py-0.5 cursor-pointer bg-accent/10 rounded-sm transition-all text-[12px] text-accent-soft hover:bg-accent/20 border border-accent/20" onClick={() => onAddToTimeline?.({ name: "Text" }, "text")}>
-          Add Text
+        <Button variant="ghost" size="sm" className="shrink-0 flex items-center justify-center gap-1 h-min px-2 py-0.5 cursor-pointer bg-accent/10 rounded-sm transition-all text-[12px] text-accent-soft hover:bg-accent/20 border border-accent/20" onClick={() => onAddToTimeline?.({ name: t("features.text.defaultText") }, "text")}>
+          {t("features.text.addText")}
         </Button>
 
         <div className="w-px h-5 bg-border/80 shrink-0" />
 
         <div className="grow overflow-x-auto flex items-center gap-2 pb-0.5 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
           <button onClick={() => handleTabChange("effects")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "effects" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Text Effects
+            {t("features.text.effects")}
           </button>
           <button onClick={() => handleTabChange("templates")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "templates" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Templates
+            {t("features.text.templates")}
           </button>
           <button onClick={() => handleTabChange("yours")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "yours" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Favorites ({favorites.length})
+            {t("features.text.favorites", { count: favorites.length })}
           </button>
           <button onClick={() => handleTabChange("captions")} className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "captions" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Captions
+            {t("features.text.captions")}
           </button>
         </div>
       </div>
@@ -512,9 +502,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           {/* Yours/Favorites Display */}
           {activeTab === "yours" && (
             <div>
-              <h4 className="text-xs font-semibold text-text-muted mb-2.5 uppercase tracking-wide">Favorite Templates ({favoriteTemplatesList.length})</h4>
+              <h4 className="text-xs font-semibold text-text-muted mb-2.5 uppercase tracking-wide">{t("features.text.favoriteTemplates", { count: favoriteTemplatesList.length })}</h4>
               {favoriteTemplatesList.length === 0 ? (
-                <p className="text-xs text-text-muted/60 italic py-2 pl-1">No favorite templates saved.</p>
+                <p className="text-xs text-text-muted/60 italic py-2 pl-1">{t("features.text.noFavoriteTemplates")}</p>
               ) : (
                 <div className="grid grid-cols-3 gap-1.5">
                   {favoriteTemplatesList.map((template) => (
@@ -534,9 +524,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               {/* Category tabs for templates */}
               <div className="relative shrink-0 border-b border-border/40 bg-surface/5">
                 <div className="flex overflow-x-auto gap-2 p-1 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
-                  {templateCategories.map((cat) => (
-                    <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer hover:bg-accent/10 hover:text-accent ${activeCategory === cat ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
-                      {cat}
+                  {templateCategories.map((category) => (
+                    <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer hover:bg-accent/10 hover:text-accent ${activeCategory === category.id ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
+                      {t(category.labelKey)}
                     </button>
                   ))}
                 </div>
@@ -546,12 +536,12 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               {isTemplatesLoading ? (
                 <div className="h-40 flex flex-col items-center justify-center gap-2 text-text-muted text-xs">
                   <Loader2 className="w-6 h-6 text-accent animate-spin" />
-                  <p className="font-semibold text-text-muted/80">Updating templates library...</p>
+                  <p className="font-semibold text-text-muted/80">{t("features.text.updatingTemplates")}</p>
                 </div>
               ) : filteredTemplates.length === 0 ? (
                 <div className="h-40 flex flex-col items-center justify-center text-text-muted gap-1 text-xs">
-                  <p>No matching templates found</p>
-                  <p className="opacity-60">Try searching other categories</p>
+                  <p>{t("features.text.noMatchingTemplates")}</p>
+                  <p className="opacity-60">{t("features.text.tryOtherCategories")}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-1.5">
@@ -569,29 +559,29 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="p-4 bg-surface-raised/40 border border-border/50 rounded-xl space-y-4 text-xs">
             <div className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-accent animate-pulse" />
-              <h4 className="font-bold text-text-primary">Auto Caption Generator</h4>
+              <h4 className="font-bold text-text-primary">{t("features.text.auto.title")}</h4>
             </div>
-            <p className="text-text-muted leading-relaxed">Generate highly accurate captions automatically from the audio tracks in your project timeline. Powered by local speech recognition models.</p>
+            <p className="text-text-muted leading-relaxed">{t("features.text.auto.description")}</p>
 
             {captioningState === "idle" && (
               <>
                 <div className="space-y-3 pt-2">
                   <div>
-                    <label className="text-[10px] font-semibold text-text-muted uppercase block mb-1">Language</label>
+                    <label className="text-[10px] font-semibold text-text-muted uppercase block mb-1">{t("features.text.auto.language")}</label>
                     <select className="w-full bg-surface-raised border border-border rounded-md px-2.5 py-1.5 text-text-primary text-xs outline-none">
-                      <option value="en">English (US)</option>
-                      <option value="es">Español</option>
-                      <option value="fr">Français</option>
-                      <option value="de">Deutsch</option>
+                      <option value="en">{t("features.text.auto.language.en")}</option>
+                      <option value="es">{t("features.text.auto.language.es")}</option>
+                      <option value="fr">{t("features.text.auto.language.fr")}</option>
+                      <option value="de">{t("features.text.auto.language.de")}</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-text-muted uppercase block mb-1">Filter gaps & silence</label>
+                    <label className="text-[10px] font-semibold text-text-muted uppercase block mb-1">{t("features.text.auto.filterSilence")}</label>
                     <div className="flex items-center gap-2 mt-1">
                       <input type="checkbox" id="filter-silence" defaultChecked className="rounded border-border accent-accent cursor-pointer" />
                       <label htmlFor="filter-silence" className="text-text-muted cursor-pointer">
-                        Automatically skip silent audio blocks
+                        {t("features.text.auto.skipSilence")}
                       </label>
                     </div>
                   </div>
@@ -600,12 +590,12 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 {!hasAudioOrVideoClips ? (
                   <div className="flex items-start gap-2 p-2.5 bg-yellow-500/10 border border-yellow-500/25 rounded-lg text-yellow-200 mt-4 leading-normal">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>No audio or video clips found on the timeline. Drag some media onto the timeline first to transcribe them.</span>
+                    <span>{t("features.text.auto.noMedia")}</span>
                   </div>
                 ) : (
                   <Button className="w-full py-2 bg-accent hover:bg-accent/80 text-white font-semibold flex items-center justify-center gap-1.5 shadow-[0_4px_12px_rgba(108,99,255,0.2)] rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4" onClick={startCaptioning}>
                     <Sparkles className="w-4 h-4" />
-                    Start Captioning
+                    {t("features.text.auto.start")}
                   </Button>
                 )}
               </>
@@ -616,12 +606,12 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 <Loader2 className="w-8 h-8 text-accent animate-spin" />
                 <div className="text-center space-y-1.5">
                   <div className="font-semibold text-text-primary">
-                    {captioningState === "analyzing" && "Analyzing Audio Timeline..."}
-                    {captioningState === "transcribing" && "Transcribing Speech (Whisper Offline)..."}
-                    {captioningState === "aligning" && "Aligning Word Timestamps..."}
-                    {captioningState === "stitching" && "Stitching Subtitle Track..."}
+                    {captioningState === "analyzing" && t("features.text.auto.analyzing")}
+                    {captioningState === "transcribing" && t("features.text.auto.transcribing")}
+                    {captioningState === "aligning" && t("features.text.auto.aligning")}
+                    {captioningState === "stitching" && t("features.text.auto.stitching")}
                   </div>
-                  <div className="text-[10px] text-text-muted">Please keep Clypra open. This process runs locally.</div>
+                  <div className="text-[10px] text-text-muted">{t("features.text.auto.keepOpen")}</div>
                 </div>
 
                 {/* Progress bar */}
@@ -636,13 +626,11 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               <div className="space-y-4 pt-3 flex flex-col items-center">
                 <CheckCircle2 className="w-8 h-8 text-green-500 animate-bounce" />
                 <div className="text-center space-y-1">
-                  <div className="font-bold text-text-primary">Captions Generated Successfully!</div>
-                  <div className="text-[11px] text-text-muted leading-relaxed">
-                    Created <span className="font-semibold text-accent-soft">{captionsCount} styled subtitle segments</span> perfectly aligned with your active timeline.
-                  </div>
+                  <div className="font-bold text-text-primary">{t("features.text.auto.successTitle")}</div>
+                  <div className="text-[11px] text-text-muted leading-relaxed">{t("features.text.auto.successDescription", { count: captionsCount })}</div>
                 </div>
                 <Button className="w-full py-2 bg-surface-raised hover:bg-surface-raised/80 text-text-primary border border-border rounded-lg active:scale-[0.98] transition-all cursor-pointer mt-4" onClick={() => setCaptioningState("idle")}>
-                  Caption Again
+                  {t("features.text.auto.again")}
                 </Button>
               </div>
             )}

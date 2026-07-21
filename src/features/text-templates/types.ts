@@ -1,3 +1,5 @@
+import type { MessageKey } from "@/i18n";
+
 export type TemplateCategory =
   | "lower-third"    // name + title bars — most used in creator content
   | "title-card"     // full-screen openers
@@ -14,6 +16,15 @@ export const TEMPLATE_CATEGORIES = [
   "social",
   "countdown"
 ] as const;
+
+export const TEMPLATE_CATEGORY_LABEL_KEYS = {
+  "lower-third": "features.text.category.lowerThird",
+  "title-card": "features.text.category.titleCard",
+  caption: "features.text.category.caption",
+  callout: "features.text.category.callout",
+  social: "features.text.category.social",
+  countdown: "features.text.category.countdown",
+} as const satisfies Record<TemplateCategory, MessageKey>;
 
 export type AnimationPreset =
   | "fade"
