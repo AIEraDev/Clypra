@@ -1,17 +1,306 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+
+const previewMocks = vi.hoisted(() => {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", {
+    configurable: true,
+    value: {},
+  });
+
+  const project = {
+    id: "preview-project",
+    name: "Preview Project",
+    createdAt: 0,
+    updatedAt: 0,
+    aspectRatio: "16:9" as const,
+    canvasWidth: 1920,
+    canvasHeight: 1080,
+    frameRate: 30,
+    duration: 10,
+  };
+  const clockState = {
+    time: 0,
+    duration: 10,
+    state: "paused",
+    speed: 1,
+    frameRate: 30,
+  };
+
+  return {
+    uiState: {
+      sourceAsset: {
+        id: "image-1",
+        name: "Remote Poster.png",
+        path: "https://cdn.example/Remote%20Poster.png",
+        type: "image",
+        duration: 3,
+        width: 1920,
+        height: 1080,
+        size: 1024,
+      },
+      sourceTextPreset: {},
+      sourceInPoint: 1,
+      sourceOutPoint: 2,
+      markSourceIn: vi.fn(),
+      markSourceOut: vi.fn(),
+      clearSelection: vi.fn(),
+    },
+    projectState: {
+      project,
+      mediaAssets: [],
+      updateProject: vi.fn(),
+      addMediaAsset: vi.fn(),
+      showToast: vi.fn(),
+    },
+    timelineState: {
+      tracks: [],
+      clips: [],
+      transitions: [],
+      epoch: 0,
+      addClip: vi.fn(),
+      addTrack: vi.fn(),
+      insertTrackAt: vi.fn(),
+      getTimelineEndTime: vi.fn(() => 0),
+    },
+    settingsState: {
+      previewQuality: "medium" as const,
+      setPreviewQuality: vi.fn(),
+    },
+    clockState,
+    clock: {
+      ...clockState,
+      isSeeking: false,
+      subscribe: vi.fn(() => () => {}),
+      completeSeek: vi.fn(),
+      getState: vi.fn(() => "paused"),
+      getTime: vi.fn(() => 0),
+      play: vi.fn(),
+      pause: vi.fn(),
+      seek: vi.fn(),
+    },
+    playbackControls: {
+      seek: vi.fn(),
+      setSpeed: vi.fn(),
+      setDuration: vi.fn(),
+      setFrameRate: vi.fn(),
+    },
+    transportControls: {
+      play: vi.fn(),
+      pause: vi.fn(),
+      setActiveContext: vi.fn(),
+    },
+  };
+});
+
+vi.mock("@/store/uiStore", () => ({
+  useUIStore: (selector?: (state: typeof previewMocks.uiState) => unknown) =>
+    selector ? selector(previewMocks.uiState) : previewMocks.uiState,
+}));
+
+vi.mock("@/store/projectStore", () => {
+  const useProjectStore = (selector?: (state: typeof previewMocks.projectState) => unknown) =>
+    selector ? selector(previewMocks.projectState) : previewMocks.projectState;
+  useProjectStore.getState = () => previewMocks.projectState;
+  return { useProjectStore };
+});
+
+vi.mock("@/store/timelineStore", () => {
+  const useTimelineStore = (selector?: (state: typeof previewMocks.timelineState) => unknown) =>
+    selector ? selector(previewMocks.timelineState) : previewMocks.timelineState;
+  useTimelineStore.getState = () => previewMocks.timelineState;
+  return {
+    getInsertIndexForNewTrack: vi.fn(() => 0),
+    useTimelineStore,
+  };
+});
+
+vi.mock("@/store/settingsStore", () => ({
+  useSettingsStore: (selector: (state: typeof previewMocks.settingsState) => unknown) =>
+    selector(previewMocks.settingsState),
+}));
+
+vi.mock("@/hooks/usePreviewMode", () => ({
+  usePreviewMode: () => ({ exitSourceMode: vi.fn() }),
+}));
+
+vi.mock("@/hooks/usePlaybackClock", () => ({
+  getPlaybackClock: () => previewMocks.clock,
+  usePlaybackClock: () => previewMocks.clockState,
+  usePlaybackControls: () => previewMocks.playbackControls,
+  useTransportControls: () => previewMocks.transportControls,
+}));
+
+vi.mock("@/core/runtime/ProjectSession", () => ({
+  getActiveSessionOrNull: () => null,
+  subscribeToSessionChanges: () => () => {},
+}));
+
+vi.mock("@/core/platform", () => ({
+  platform: {
+    convertFileSrc: (value: string) => value,
+    appCacheDir: vi.fn(),
+    joinPaths: vi.fn(),
+  },
+}));
+
+vi.mock("@/hooks/useViewportController", () => ({
+  useViewportState: () => ({ zoom: 1, panX: 0, panY: 0 }),
+}));
+
+vi.mock("../../viewport/ViewportControls", () => ({
+  useViewportKeyboardShortcuts: vi.fn(),
+  useViewportWheelZoom: vi.fn(),
+  useViewportPan: () => ({ isPanning: false, spacePressed: false }),
+}));
+
+vi.mock("@/lib/utils/coordinateSystem", () => ({
+  calculateDisplayTransform: () => ({
+    scale: 1,
+    offsetX: 0,
+    offsetY: 0,
+    displayWidth: 640,
+    displayHeight: 360,
+  }),
+}));
+
+vi.mock("@/lib/preview/PreviewQualityManager", () => ({
+  PreviewQualityTier: {},
+  PreviewQualityManager: class {
+    updateViewport() {}
+  },
+}));
+
+vi.mock("@/core/interactions", () => ({
+  getTransformController: () => ({ getState: () => ({}) }),
+}));
+
+vi.mock("@/core/render/pixiSceneCompositor", () => ({
+  PixiSceneCompositor: class {},
+}));
+
+vi.mock("@/core/evaluation/evaluator", () => ({
+  evaluateTimelineSceneCached: vi.fn(),
+}));
+
+vi.mock("../../transform/TransformOverlay", () => ({
+  TransformOverlayMemoized: () => null,
+}));
+
+vi.mock("@/features/text-effects/store/effectsStore", () => ({
+  useEffectsStore: { getState: () => ({ definitions: {} }) },
+}));
+
+vi.mock("@/features/stickers/store/stickersStore", () => ({
+  useStickersStore: { getState: () => ({ getCachedSticker: vi.fn() }) },
+}));
+
+vi.mock("../VideoSourcePreview", () => ({ VideoSourcePreview: () => null }));
+vi.mock("../AudioSourcePreview", () => ({ AudioSourcePreview: () => null }));
+vi.mock("../ImageSourcePreview", () => ({ ImageSourcePreview: () => null }));
+vi.mock("../TextSourcePreview", () => ({ TextSourcePreview: () => null }));
+vi.mock("../StickerSourcePreview", () => ({ StickerSourcePreview: () => null }));
+vi.mock("@/lib/text/textClip", () => ({ createTextClip: vi.fn() }));
+vi.mock("@/lib/timeline/timelineClip", () => ({ createClipFromAsset: vi.fn() }));
+
+vi.mock("@/lib/cache/gpuTextureCache", () => ({
+  GPUTextureCache: class {
+    constructor() {
+      throw new Error("GPU unavailable in test");
+    }
+  },
+}));
+
+vi.mock("@/lib/cache/globalGPUCache", () => ({
+  globalGPUCache: {
+    isInitialized: () => false,
+    getCache: () => null,
+    registerViewport: vi.fn(),
+    unregisterViewport: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/utils/performanceMetrics", () => ({
+  performanceMetrics: {
+    trackTextureRender: vi.fn(),
+    trackTextureUpload: vi.fn(),
+    trackScrubLatency: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/utils/id", () => ({ generateId: () => "gpu-preview-test" }));
+vi.mock("@/lib/platform/tauri", () => ({ normalizePathForTauriInvoke: (value: string) => value }));
 
 import { AspectSelector } from "../AspectSelector";
+import { GPUPreview } from "../GPUPreview";
+import { PixiProgramPreview } from "../PixiProgramPreview";
 import { PlaybackQualitySelector } from "../PlaybackQualitySelector";
 import { PlaybackSpeedSelector } from "../PlaybackSpeedSelector";
 import { PreviewTransport } from "../PreviewTransport";
+import { SourcePreview } from "../SourcePreview";
 import { TelemetryOverlay } from "../TelemetryOverlay";
 import { VolumeControl } from "../VolumeControl";
 import { WebGLUnavailableError } from "../WebGLUnavailableError";
 import { SafeOverlay } from "../../viewport/SafeOverlay";
 
+beforeEach(() => {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    value: 800,
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    value: 450,
+  });
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+    unobserve() {}
+  } as typeof ResizeObserver;
+});
+
 describe("preview localization", () => {
+  test("renders Chinese source mark controls while preserving shortcut keys", () => {
+    render(<SourcePreview />);
+
+    const markIn = screen.getByRole("button", { name: "标记入点 (I)" });
+    expect(markIn).toHaveAttribute("title", "标记入点 (I)");
+    expect(markIn).toHaveTextContent("入点");
+    expect(markIn).not.toHaveTextContent("IN");
+
+    const markOut = screen.getByRole("button", { name: "标记出点 (O)" });
+    expect(markOut).toHaveAttribute("title", "标记出点 (O)");
+    expect(markOut).toHaveTextContent("出点");
+    expect(markOut).not.toHaveTextContent("OUT");
+  });
+
+  test("renders the localized Pixi program preview empty state", async () => {
+    render(<PixiProgramPreview />);
+
+    const title = await screen.findByText("节目预览 (PixiJS)");
+    expect(title).toBeInTheDocument();
+    expect(title.nextElementSibling).toHaveTextContent("WebGL 管线");
+    expect(screen.getByText("序列无片段")).toBeInTheDocument();
+    expect(screen.getByText("1920×1080 • 30 FPS")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "填满预览" })).toHaveAttribute("title", "填满预览");
+  });
+
+  test("renders localized GPU initialization guidance", () => {
+    render(
+      <GPUPreview
+        videoPath="/tmp/Remote Clip.mp4"
+        currentTime={0}
+        isPlaying={false}
+        width={1920}
+        height={1080}
+        duration={5}
+      />,
+    );
+
+    expect(screen.getByText("GPU 预览正在初始化…")).toBeInTheDocument();
+    expect(screen.getByText("详情请查看控制台 (F12)")).toBeInTheDocument();
+  });
+
   test("exposes Chinese transport actions and the disabled timeline reason", () => {
     const onPlayPause = vi.fn();
     const { rerender } = render(

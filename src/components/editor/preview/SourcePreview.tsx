@@ -587,10 +587,10 @@ export const SourcePreview: React.FC = () => {
           rightActions={
             <>
               <button onClick={handleMarkIn} className={`px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title={t("editor.preview.source.markIn")} aria-label={t("editor.preview.source.markIn")}>
-                IN
+                {t("editor.preview.source.inPoint")}
               </button>
               <button onClick={handleMarkOut} className={`px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title={t("editor.preview.source.markOut")} aria-label={t("editor.preview.source.markOut")}>
-                OUT
+                {t("editor.preview.source.outPoint")}
               </button>
               {hasCompleteMarks && (
                 <button onClick={handlePlayMarkedRegion} className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer" title={t("editor.preview.source.playMarkedRegion")} aria-label={t("editor.preview.source.playMarkedRegion")}>
