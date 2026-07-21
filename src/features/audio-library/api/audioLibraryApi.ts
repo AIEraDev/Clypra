@@ -36,6 +36,23 @@ import { getApiHeaders, getApiBaseUrl } from "@/lib/api";
 
 const BASE = getApiBaseUrl();
 
+export class AudioLibraryNetworkError extends Error {
+  constructor(error: unknown) {
+    super(error instanceof Error ? error.message : String(error));
+    this.name = "AudioLibraryNetworkError";
+  }
+}
+
+export const isAudioLibraryNetworkError = (error: unknown): error is AudioLibraryNetworkError => error instanceof AudioLibraryNetworkError;
+
+const fetchAudioLibrary = async (...args: Parameters<typeof fetch>): Promise<Response> => {
+  try {
+    return await fetch(...args);
+  } catch (error) {
+    throw new AudioLibraryNetworkError(error);
+  }
+};
+
 export const AUDIO_LIBRARY_CATEGORIES: AudioLibraryCategory[] = ["music", "cinematic", "upbeat", "lo-fi", "hip-hop", "ambient", "sfx"];
 
 export const AUDIO_LIBRARY_CATEGORY_LABEL_KEYS = {
@@ -51,7 +68,7 @@ export const AUDIO_LIBRARY_CATEGORY_LABEL_KEYS = {
 export const AudioLibraryApi = {
   async getAudioByCategory(category: AudioLibraryCategory): Promise<AudioLibraryItem[]> {
     try {
-      const res = await fetch(`${BASE}/audio/${category}`, {
+      const res = await fetchAudioLibrary(`${BASE}/audio/${category}`, {
         headers: getApiHeaders(),
       });
 
@@ -66,6 +83,9 @@ export const AudioLibraryApi = {
       }
 
       const data = await res.json();
+      if (!Array.isArray(data)) {
+        throw new Error("Invalid audio library response: expected an array");
+      }
       console.log(`[AudioLibraryApi] Successfully loaded ${data.length} audio items for category: ${category}`);
       return data;
     } catch (error) {
@@ -73,13 +93,13 @@ export const AudioLibraryApi = {
       if (error instanceof Error) {
         throw error;
       }
-      throw new Error(`Network error: ${String(error)}`);
+      throw new Error(String(error));
     }
   },
 
   async getAudioAsset(category: string, id: string): Promise<AudioLibraryItem> {
     try {
-      const res = await fetch(`${BASE}/audio/${category}/${id}`, {
+      const res = await fetchAudioLibrary(`${BASE}/audio/${category}/${id}`, {
         headers: getApiHeaders(),
       });
 
@@ -99,7 +119,7 @@ export const AudioLibraryApi = {
       if (error instanceof Error) {
         throw error;
       }
-      throw new Error(`Network error: ${String(error)}`);
+      throw new Error(String(error));
     }
   },
 };

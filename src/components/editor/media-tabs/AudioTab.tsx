@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle, Download, Loader2, Music2, Pause, Play, Plus } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip";
 import { NetworkError } from "@/components/ui/NetworkError";
-import { AUDIO_LIBRARY_CATEGORIES, AUDIO_LIBRARY_CATEGORY_LABEL_KEYS, AudioLibraryApi, type AudioLibraryCategory, type AudioLibraryItem } from "@/features/audio-library/api/audioLibraryApi";
+import { AUDIO_LIBRARY_CATEGORIES, AUDIO_LIBRARY_CATEGORY_LABEL_KEYS, AudioLibraryApi, isAudioLibraryNetworkError, type AudioLibraryCategory, type AudioLibraryItem } from "@/features/audio-library/api/audioLibraryApi";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
 import { useUIStore } from "@/store/uiStore";
 import type { TabProps } from "./types";
@@ -32,7 +32,7 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         if (!cancelled) {
           const errorMessage = err instanceof Error ? err.message : String(err);
           setError(errorMessage);
-          setIsNetworkError(err instanceof TypeError);
+          setIsNetworkError(isAudioLibraryNetworkError(err));
         }
       })
       .finally(() => {

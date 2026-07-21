@@ -116,6 +116,29 @@ describe("media and audio localization", () => {
     await expect(audioLibraryApi.AudioLibraryApi.getAudioByCategory("lo-fi")).resolves.toEqual([remoteItem]);
   });
 
+  test("marks a real fetch rejection as the dedicated network error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("socket RAW_E42")));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(audioLibraryApi.AudioLibraryApi.getAudioByCategory("music")).rejects.toMatchObject({
+      name: "AudioLibraryNetworkError",
+      message: "socket RAW_E42",
+    });
+  });
+
+  test.each([null, {}])("rejects a malformed successful response without treating it as network data: %j", async (body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(body),
+      }),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(audioLibraryApi.AudioLibraryApi.getAudioByCategory("music")).rejects.toThrow("Invalid audio library response: expected an array");
+  });
+
   test("renders localized AudioTab loading and empty states", async () => {
     let resolveRequest!: (items: audioLibraryApi.AudioLibraryItem[]) => void;
     vi.spyOn(audioLibraryApi.AudioLibraryApi, "getAudioByCategory").mockReturnValue(
@@ -135,17 +158,34 @@ describe("media and audio localization", () => {
     expect(screen.getByText("Clypra Studio 发布的音频将在 API 缓存刷新后显示于此。")).toBeInTheDocument();
   });
 
-  test("uses the network message by error type and preserves non-network error details", async () => {
-    const request = vi.spyOn(audioLibraryApi.AudioLibraryApi, "getAudioByCategory").mockRejectedValueOnce(new TypeError("opaque E42"));
+  test("uses the network message only for fetch rejection and preserves other TypeError details", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("socket RAW_E42")));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { unmount } = render(React.createElement(AudioTab, {}));
 
     expect(await screen.findByText("无网络连接")).toBeInTheDocument();
-    expect(screen.queryByText(/opaque E42/)).not.toBeInTheDocument();
 
     unmount();
-    request.mockRejectedValueOnce(new Error("HTTP 503: upstream/RAW_ERR"));
+    vi.spyOn(audioLibraryApi.AudioLibraryApi, "getAudioByCategory").mockRejectedValueOnce(new TypeError("opaque E42"));
     render(React.createElement(AudioTab, {}));
 
-    await waitFor(() => expect(screen.getByText("加载音频库失败：HTTP 503: upstream/RAW_ERR")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("加载音频库失败：opaque E42")).toBeInTheDocument());
+    expect(screen.queryByText("无网络连接")).not.toBeInTheDocument();
+  });
+
+  test("renders a malformed successful response with the localized error prefix", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(null),
+      }),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(React.createElement(AudioTab, {}));
+
+    expect(await screen.findByText("加载音频库失败：Invalid audio library response: expected an array")).toBeInTheDocument();
+    expect(screen.queryByText("无网络连接")).not.toBeInTheDocument();
   });
 });
