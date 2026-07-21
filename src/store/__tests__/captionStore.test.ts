@@ -86,6 +86,12 @@ describe("captionStore persistence", () => {
   });
 
   test("ignores malformed persisted caption settings without breaking rehydration", async () => {
+    useCaptionStore.getState().updateModelDownloadState("tiny", {
+      status: "downloading",
+      progressBytes: 100,
+      totalBytes: 200,
+      speedBytesPerSec: 10,
+    });
     localStorage.setItem(
       "clypra-caption-settings",
       JSON.stringify({

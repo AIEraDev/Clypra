@@ -66,8 +66,11 @@ function mergePersistedModelState(
   persistedModel: unknown,
   currentModel: ModelDownloadState,
 ): ModelDownloadState {
-  if (!isRecord(persistedModel) || !isModelDownloadStatus(persistedModel.status)) {
+  if (persistedModel === undefined) {
     return currentModel;
+  }
+  if (!isRecord(persistedModel) || !isModelDownloadStatus(persistedModel.status)) {
+    return { ...DEFAULT_MODEL_STATE };
   }
   if (persistedModel.status === "downloading") {
     return { ...DEFAULT_MODEL_STATE };
@@ -79,7 +82,7 @@ function mergePersistedModelState(
     (persistedModel.errorMessage !== undefined &&
       typeof persistedModel.errorMessage !== "string")
   ) {
-    return currentModel;
+    return { ...DEFAULT_MODEL_STATE };
   }
 
   return {
