@@ -289,4 +289,132 @@ export const settingsMessages = defineMessages({
     en: "Your settings and preferences will be preserved",
     zhCN: "你的设置和偏好将保留",
   },
+
+  "settings.shortcuts.instructions": {
+    en: "Click any binding to rebind it. Press Esc to cancel.",
+    zhCN: "点击任意按键组合可重新绑定。按 Esc 取消。",
+  },
+  "settings.shortcuts.searchPlaceholder": {
+    en: "Search shortcuts...",
+    zhCN: "搜索快捷键…",
+  },
+  "settings.shortcuts.searchLabel": {
+    en: "Search keyboard shortcuts",
+    zhCN: "搜索键盘快捷键",
+  },
+  "settings.shortcuts.pressKey": {
+    en: "Press a key...",
+    zhCN: "请按下按键…",
+  },
+  "settings.shortcuts.captureLabel": {
+    en: "Set a shortcut for {{action}}",
+    zhCN: "为“{{action}}”设置快捷键",
+  },
+  "settings.shortcuts.conflictWith": {
+    en: "Conflicts with {{action}}",
+    zhCN: "与“{{action}}”冲突",
+  },
+  "settings.shortcuts.clickToRebind": {
+    en: "Click to rebind {{action}}",
+    zhCN: "点击重新绑定“{{action}}”",
+  },
+  "settings.shortcuts.rebindLabel": {
+    en: "Rebind {{action}}",
+    zhCN: "重新绑定“{{action}}”",
+  },
+  "settings.shortcuts.edit": { en: "Edit", zhCN: "编辑" },
+  "settings.shortcuts.resetLabel": {
+    en: "Reset {{action}} to the default shortcut",
+    zhCN: "将“{{action}}”重置为默认快捷键",
+  },
+  "settings.shortcuts.resetAll": { en: "Reset All", zhCN: "重置全部" },
+  "settings.shortcuts.resetAllQuestion": {
+    en: "Reset all shortcuts to their defaults?",
+    zhCN: "要将所有快捷键重置为默认值吗？",
+  },
+  "settings.shortcuts.confirm": { en: "Confirm", zhCN: "确认" },
+  "settings.shortcuts.cancel": { en: "Cancel", zhCN: "取消" },
+  "settings.shortcuts.noMatches": {
+    en: "No shortcuts match \"{{query}}\"",
+    zhCN: "没有与“{{query}}”匹配的快捷键",
+  },
+
+  "settings.shortcuts.category.transport": { en: "Transport", zhCN: "播放控制" },
+  "settings.shortcuts.category.sourceMode": { en: "Source Mode", zhCN: "源模式" },
+  "settings.shortcuts.category.edit": { en: "Edit", zhCN: "编辑" },
+  "settings.shortcuts.category.nudge": { en: "Nudge", zhCN: "微调" },
+  "settings.shortcuts.category.navigation": { en: "Navigation", zhCN: "导航" },
+  "settings.shortcuts.category.timeline": { en: "Timeline", zhCN: "时间线" },
+  "settings.shortcuts.category.track": { en: "Track", zhCN: "轨道" },
+
+  "settings.shortcuts.action.playPause": { en: "Play / Pause", zhCN: "播放 / 暂停" },
+  "settings.shortcuts.action.pause": { en: "Pause", zhCN: "暂停" },
+  "settings.shortcuts.action.seekBackFrame": { en: "Step Back One Frame", zhCN: "后退一帧" },
+  "settings.shortcuts.action.seekForwardFrame": { en: "Step Forward One Frame", zhCN: "前进一帧" },
+  "settings.shortcuts.action.markSourceIn": { en: "Mark In Point (Source)", zhCN: "标记源入点" },
+  "settings.shortcuts.action.markSourceOut": { en: "Mark Out Point (Source)", zhCN: "标记源出点" },
+  "settings.shortcuts.action.exitSourceMode": { en: "Exit Source Mode", zhCN: "退出源模式" },
+  "settings.shortcuts.action.undo": { en: "Undo", zhCN: "撤销" },
+  "settings.shortcuts.action.redo": { en: "Redo", zhCN: "重做" },
+  "settings.shortcuts.action.redoAlt": { en: "Redo (Alt)", zhCN: "重做（备用）" },
+  "settings.shortcuts.action.splitAtPlayhead": { en: "Split at Playhead", zhCN: "在播放头处分割" },
+  "settings.shortcuts.action.splitSelectedAtPlayhead": {
+    en: "Split Selected at Playhead",
+    zhCN: "在播放头处分割所选片段",
+  },
+  "settings.shortcuts.action.splitAllAtPlayhead": {
+    en: "Split All at Playhead",
+    zhCN: "在播放头处分割所有片段",
+  },
+  "settings.shortcuts.action.deleteLeftAtPlayhead": {
+    en: "Delete Left of Playhead",
+    zhCN: "删除播放头左侧内容",
+  },
+  "settings.shortcuts.action.deleteRightAtPlayhead": {
+    en: "Delete Right of Playhead",
+    zhCN: "删除播放头右侧内容",
+  },
+  "settings.shortcuts.action.duplicateClips": {
+    en: "Duplicate Selected Clips",
+    zhCN: "创建所选片段副本",
+  },
+  "settings.shortcuts.action.copyClips": { en: "Copy Selected Clips", zhCN: "复制所选片段" },
+  "settings.shortcuts.action.pasteClips": { en: "Paste Clips", zhCN: "粘贴片段" },
+  "settings.shortcuts.action.swapClips": { en: "Swap Clips", zhCN: "交换片段" },
+  "settings.shortcuts.action.selectAll": { en: "Select All Clips", zhCN: "选择所有片段" },
+  "settings.shortcuts.action.deselectAll": { en: "Deselect All Clips", zhCN: "取消选择所有片段" },
+  "settings.shortcuts.action.clearSelection": { en: "Clear Selection", zhCN: "清除选择" },
+  "settings.shortcuts.action.nudgeRight": { en: "Nudge Right 1 Frame", zhCN: "向右微调 1 帧" },
+  "settings.shortcuts.action.nudgeLeft": { en: "Nudge Left 1 Frame", zhCN: "向左微调 1 帧" },
+  "settings.shortcuts.action.nudgeRight10": {
+    en: "Nudge Right 10 Frames",
+    zhCN: "向右微调 10 帧",
+  },
+  "settings.shortcuts.action.nudgeLeft10": {
+    en: "Nudge Left 10 Frames",
+    zhCN: "向左微调 10 帧",
+  },
+  "settings.shortcuts.action.selectClipAbove": {
+    en: "Select Clip on Track Above",
+    zhCN: "选择上方轨道的片段",
+  },
+  "settings.shortcuts.action.selectClipBelow": {
+    en: "Select Clip on Track Below",
+    zhCN: "选择下方轨道的片段",
+  },
+  "settings.shortcuts.action.zoomIn": { en: "Zoom In Timeline", zhCN: "放大时间线" },
+  "settings.shortcuts.action.zoomOut": { en: "Zoom Out Timeline", zhCN: "缩小时间线" },
+  "settings.shortcuts.action.toggleRippleEdit": { en: "Toggle Ripple Edit", zhCN: "切换波纹编辑" },
+  "settings.shortcuts.action.addMarker": { en: "Add Timeline Marker", zhCN: "添加时间线标记" },
+  "settings.shortcuts.action.toggleTrackLock": { en: "Toggle Track Lock", zhCN: "切换轨道锁定" },
+  "settings.shortcuts.action.toggleTrackVisibility": {
+    en: "Toggle Track Visibility",
+    zhCN: "切换轨道可见性",
+  },
+  "settings.shortcuts.action.toggleTrackMute": { en: "Toggle Track Mute", zhCN: "切换轨道静音" },
+  "settings.shortcuts.action.packTrack": {
+    en: "Pack Track (Remove Gaps)",
+    zhCN: "整理轨道（移除空隙）",
+  },
+  "settings.shortcuts.action.addTrack": { en: "Add New Track", zhCN: "添加新轨道" },
 });

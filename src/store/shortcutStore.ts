@@ -12,6 +12,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { MessageKey } from "@/i18n";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,57 @@ export interface ShortcutAction {
 }
 
 // ─── Default Shortcut Registry ────────────────────────────────────────────────
+
+export const SHORTCUT_CATEGORY_MESSAGE_KEYS = {
+  Transport: "settings.shortcuts.category.transport",
+  "Source Mode": "settings.shortcuts.category.sourceMode",
+  Edit: "settings.shortcuts.category.edit",
+  Nudge: "settings.shortcuts.category.nudge",
+  Navigation: "settings.shortcuts.category.navigation",
+  Timeline: "settings.shortcuts.category.timeline",
+  Track: "settings.shortcuts.category.track",
+} as const satisfies Record<string, MessageKey>;
+
+export const SHORTCUT_ACTION_MESSAGE_KEYS = {
+  "play-pause": "settings.shortcuts.action.playPause",
+  pause: "settings.shortcuts.action.pause",
+  "seek-back-frame": "settings.shortcuts.action.seekBackFrame",
+  "seek-forward-frame": "settings.shortcuts.action.seekForwardFrame",
+  "mark-source-in": "settings.shortcuts.action.markSourceIn",
+  "mark-source-out": "settings.shortcuts.action.markSourceOut",
+  "exit-source-mode": "settings.shortcuts.action.exitSourceMode",
+  undo: "settings.shortcuts.action.undo",
+  redo: "settings.shortcuts.action.redo",
+  "redo-alt": "settings.shortcuts.action.redoAlt",
+  "split-at-playhead": "settings.shortcuts.action.splitAtPlayhead",
+  "split-selected-at-playhead":
+    "settings.shortcuts.action.splitSelectedAtPlayhead",
+  "split-all-at-playhead": "settings.shortcuts.action.splitAllAtPlayhead",
+  "delete-left-at-playhead": "settings.shortcuts.action.deleteLeftAtPlayhead",
+  "delete-right-at-playhead": "settings.shortcuts.action.deleteRightAtPlayhead",
+  "duplicate-clips": "settings.shortcuts.action.duplicateClips",
+  "copy-clips": "settings.shortcuts.action.copyClips",
+  "paste-clips": "settings.shortcuts.action.pasteClips",
+  "swap-clips": "settings.shortcuts.action.swapClips",
+  "select-all": "settings.shortcuts.action.selectAll",
+  "deselect-all": "settings.shortcuts.action.deselectAll",
+  "clear-selection": "settings.shortcuts.action.clearSelection",
+  "nudge-right": "settings.shortcuts.action.nudgeRight",
+  "nudge-left": "settings.shortcuts.action.nudgeLeft",
+  "nudge-right-10": "settings.shortcuts.action.nudgeRight10",
+  "nudge-left-10": "settings.shortcuts.action.nudgeLeft10",
+  "select-clip-above": "settings.shortcuts.action.selectClipAbove",
+  "select-clip-below": "settings.shortcuts.action.selectClipBelow",
+  "zoom-in": "settings.shortcuts.action.zoomIn",
+  "zoom-out": "settings.shortcuts.action.zoomOut",
+  "toggle-ripple-edit": "settings.shortcuts.action.toggleRippleEdit",
+  "add-marker": "settings.shortcuts.action.addMarker",
+  "toggle-track-lock": "settings.shortcuts.action.toggleTrackLock",
+  "toggle-track-visibility": "settings.shortcuts.action.toggleTrackVisibility",
+  "toggle-track-mute": "settings.shortcuts.action.toggleTrackMute",
+  "pack-track": "settings.shortcuts.action.packTrack",
+  "add-track": "settings.shortcuts.action.addTrack",
+} as const satisfies Record<string, MessageKey>;
 
 const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
   // Transport
