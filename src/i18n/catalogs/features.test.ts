@@ -20,6 +20,28 @@ vi.mock("@/lib/api", () => ({
 
 const translate = t as (key: string, params?: Record<string, string | number>) => string;
 
+const remoteItem: audioLibraryApi.AudioLibraryItem = {
+  id: "remote-track_01",
+  name: "夜雨 / Night Rain RAW",
+  category: "lo-fi",
+  description: "Keep THIS description 原样",
+  tags: ["Lo-Fi", "雨声_RAW"],
+  author: "DJ 原作者",
+  duration: 73,
+  license: {
+    type: "cc-by",
+    url: "https://license.example/raw?lang=en",
+    attributionRequired: true,
+  },
+  source: {
+    provider: "RemoteProvider_RAW",
+    url: "https://source.example/audio/remote-track_01",
+  },
+  audioUrl: "https://cdn.example/夜雨 RAW.wav",
+  waveformUrl: "https://cdn.example/waveform_RAW.json",
+  coverArtUrl: "https://cdn.example/cover_RAW.jpg",
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -83,37 +105,17 @@ describe("media and audio localization", () => {
   });
 
   test("returns remote audio metadata without translating any API field", async () => {
-    const remoteItem: audioLibraryApi.AudioLibraryItem = {
-      id: "remote-track_01",
-      name: "夜雨 / Night Rain RAW",
-      category: "lo-fi",
-      description: "Keep THIS description 原样",
-      tags: ["Lo-Fi", "雨声_RAW"],
-      author: "DJ 原作者",
-      duration: 73,
-      license: {
-        type: "cc-by",
-        url: "https://license.example/raw?lang=en",
-        attributionRequired: true,
-      },
-      source: {
-        provider: "RemoteProvider_RAW",
-        url: "https://source.example/audio/remote-track_01",
-      },
-      audioUrl: "https://cdn.example/夜雨 RAW.wav",
-      waveformUrl: "https://cdn.example/waveform_RAW.json",
-      coverArtUrl: "https://cdn.example/cover_RAW.jpg",
-    };
+    const response = [remoteItem];
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue([remoteItem]),
+        json: vi.fn().mockResolvedValue(response),
       }),
     );
     vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    await expect(audioLibraryApi.AudioLibraryApi.getAudioByCategory("lo-fi")).resolves.toEqual([remoteItem]);
+    await expect(audioLibraryApi.AudioLibraryApi.getAudioByCategory("lo-fi")).resolves.toBe(response);
   });
 
   test("marks a real fetch rejection as the dedicated network error", async () => {
@@ -137,6 +139,27 @@ describe("media and audio localization", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     await expect(audioLibraryApi.AudioLibraryApi.getAudioByCategory("music")).rejects.toThrow("Invalid audio library response: expected an array");
+  });
+
+  test.each([
+    ["null item", null],
+    ["empty object", {}],
+    ["required scalar", { ...remoteItem, id: 42 }],
+    ["nested license", { ...remoteItem, license: { ...remoteItem.license, attributionRequired: "yes" } }],
+    ["nested source", { ...remoteItem, source: { ...remoteItem.source, url: 42 } }],
+    ["optional string array", { ...remoteItem, tags: ["Lo-Fi", 42] }],
+    ["optional scalar", { ...remoteItem, coverArtUrl: 42 }],
+  ])("rejects malformed AudioLibraryItem contract at its array index: %s", async (_case, malformedItem) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue([remoteItem, malformedItem]),
+      }),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(audioLibraryApi.AudioLibraryApi.getAudioByCategory("music")).rejects.toThrow("Invalid audio library response: item 1 violates AudioLibraryItem contract");
   });
 
   test("renders localized AudioTab loading and empty states", async () => {
@@ -173,19 +196,19 @@ describe("media and audio localization", () => {
     expect(screen.queryByText("无网络连接")).not.toBeInTheDocument();
   });
 
-  test("renders a malformed successful response with the localized error prefix", async () => {
+  test("renders a malformed item with the localized error prefix and raw contract detail", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue(null),
+        json: vi.fn().mockResolvedValue([null]),
       }),
     );
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     render(React.createElement(AudioTab, {}));
 
-    expect(await screen.findByText("加载音频库失败：Invalid audio library response: expected an array")).toBeInTheDocument();
+    expect(await screen.findByText("加载音频库失败：Invalid audio library response: item 0 violates AudioLibraryItem contract")).toBeInTheDocument();
     expect(screen.queryByText("无网络连接")).not.toBeInTheDocument();
   });
 });

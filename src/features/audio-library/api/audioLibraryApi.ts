@@ -53,6 +53,34 @@ const fetchAudioLibrary = async (...args: Parameters<typeof fetch>): Promise<Res
   }
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
+
+const isAudioLibraryItem = (value: unknown): value is AudioLibraryItem => {
+  if (!isRecord(value) || !isRecord(value.license) || !isRecord(value.source)) return false;
+
+  return (
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.category === "string" &&
+    typeof value.author === "string" &&
+    typeof value.duration === "number" &&
+    typeof value.audioUrl === "string" &&
+    isOptionalString(value.description) &&
+    (value.tags === undefined || (Array.isArray(value.tags) && value.tags.every((tag) => typeof tag === "string"))) &&
+    (value.bpm === undefined || typeof value.bpm === "number") &&
+    (value.loopable === undefined || typeof value.loopable === "boolean") &&
+    (value.isPremium === undefined || typeof value.isPremium === "boolean") &&
+    isOptionalString(value.waveformUrl) &&
+    isOptionalString(value.coverArtUrl) &&
+    (value.license.type === "cc0" || value.license.type === "cc-by" || value.license.type === "royalty-free" || value.license.type === "public-domain") &&
+    isOptionalString(value.license.url) &&
+    typeof value.license.attributionRequired === "boolean" &&
+    typeof value.source.provider === "string" &&
+    typeof value.source.url === "string"
+  );
+};
+
 export const AUDIO_LIBRARY_CATEGORIES: AudioLibraryCategory[] = ["music", "cinematic", "upbeat", "lo-fi", "hip-hop", "ambient", "sfx"];
 
 export const AUDIO_LIBRARY_CATEGORY_LABEL_KEYS = {
@@ -85,6 +113,10 @@ export const AudioLibraryApi = {
       const data = await res.json();
       if (!Array.isArray(data)) {
         throw new Error("Invalid audio library response: expected an array");
+      }
+      const invalidItemIndex = data.findIndex((item) => !isAudioLibraryItem(item));
+      if (invalidItemIndex !== -1) {
+        throw new Error(`Invalid audio library response: item ${invalidItemIndex} violates AudioLibraryItem contract`);
       }
       console.log(`[AudioLibraryApi] Successfully loaded ${data.length} audio items for category: ${category}`);
       return data;
