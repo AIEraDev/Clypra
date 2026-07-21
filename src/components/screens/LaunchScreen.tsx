@@ -557,9 +557,15 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
                     {/* More options button */}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <div onClick={(e) => handleToggleMenu(e, project.id)} className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors" title={t("launch.moreOptions")}>
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleMenu(e, project.id)}
+                        aria-label={t("launch.moreOptions")}
+                        className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors"
+                        title={t("launch.moreOptions")}
+                      >
                         <MoreHorizontal className="w-3.5 h-3.5 text-text-muted" />
-                      </div>
+                      </button>
 
                       {/* Dropdown menu */}
                       {menuOpen === project.id && (
