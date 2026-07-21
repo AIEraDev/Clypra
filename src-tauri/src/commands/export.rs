@@ -812,6 +812,10 @@ pub async fn check_ffmpeg_available() -> Result<bool, String> {
 }
 
 /// Get FFmpeg version information.
+fn ffmpeg_version_first_line(output: &str) -> &str {
+    output.lines().next().unwrap_or("Unknown")
+}
+
 #[tauri::command]
 pub async fn get_ffmpeg_version() -> Result<String, String> {
     let output = Command::new("ffmpeg")
@@ -823,8 +827,7 @@ pub async fn get_ffmpeg_version() -> Result<String, String> {
     
     if output.status.success() {
         let version = String::from_utf8_lossy(&output.stdout);
-        let first_line = version.lines().next().unwrap_or("未知");
-        Ok(first_line.to_string())
+        Ok(ffmpeg_version_first_line(&version).to_string())
     } else {
         Err("FFmpeg 不可用".to_string())
     }
@@ -889,5 +892,18 @@ mod tests {
             format_ffmpeg_failure(stderr),
             format!("FFmpeg 执行失败：{stderr}")
         );
+    }
+
+    #[test]
+    fn ffmpeg_version_first_line_is_preserved_verbatim() {
+        assert_eq!(
+            ffmpeg_version_first_line("ffmpeg version 7.1-custom\nbuilt with Apple clang"),
+            "ffmpeg version 7.1-custom"
+        );
+    }
+
+    #[test]
+    fn empty_ffmpeg_version_output_uses_english_fallback() {
+        assert_eq!(ffmpeg_version_first_line(""), "Unknown");
     }
 }
