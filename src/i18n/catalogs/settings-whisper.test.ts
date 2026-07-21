@@ -623,6 +623,149 @@ describe("Whisper settings localization", () => {
     );
   });
 
+  test("subscribes to whisper_model_progress and applies matching progress payloads", async () => {
+    type ProgressListener = (event: {
+      payload: {
+        size: string;
+        downloadedBytes: number;
+        totalBytes: number;
+        speedBytesPerSec: number;
+      };
+    }) => void;
+    const progressListeners: ProgressListener[] = [];
+    listenMock.mockImplementation((eventName, listener: ProgressListener) => {
+      progressListeners.push(listener);
+      return Promise.resolve(() => undefined);
+    });
+
+    render(React.createElement(WhisperSettings));
+
+    await waitFor(() => {
+      expect(listenMock).toHaveBeenCalledTimes(5);
+    });
+    expect(listenMock.mock.calls.map(([eventName]) => eventName)).toEqual(
+      Array(5).fill("whisper_model_progress"),
+    );
+
+    act(() => {
+      for (const listener of progressListeners) {
+        listener({
+          payload: {
+            size: "base",
+            downloadedBytes: 3 * 1024 * 1024,
+            totalBytes: 12 * 1024 * 1024,
+            speedBytesPerSec: 768 * 1024,
+          },
+        });
+      }
+    });
+
+    expect(useCaptionStore.getState().captionSettings.models.base).toMatchObject({
+      progressBytes: 3 * 1024 * 1024,
+      totalBytes: 12 * 1024 * 1024,
+      speedBytesPerSec: 768 * 1024,
+    });
+    expect(useCaptionStore.getState().captionSettings.models.tiny.progressBytes).toBe(0);
+  });
+
+  test("moves a failed download into the localized error state with raw detail", async () => {
+    invokeMock.mockImplementation((command) =>
+      command === "download_whisper_model"
+        ? Promise.reject(new Error("HTTP 503: upstream unavailable"))
+        : Promise.resolve(true),
+    );
+    render(React.createElement(WhisperSettings));
+
+    const tinyCard = screen.getByRole("article", { name: "tiny 模型" });
+    fireEvent.click(within(tinyCard).getByRole("button", { name: "下载" }));
+
+    expect(
+      await within(tinyCard).findByText(
+        "下载失败：Error: HTTP 503: upstream unavailable",
+      ),
+    ).toBeInTheDocument();
+    expect(useCaptionStore.getState().captionSettings.models.tiny).toMatchObject({
+      status: "error",
+      errorMessage: "Error: HTTP 503: upstream unavailable",
+    });
+  });
+
+  test("retries the same model and returns it to downloaded state", async () => {
+    setCaptionState({
+      models: {
+        tiny: {
+          status: "error",
+          errorMessage: "HTTP 503: upstream unavailable",
+        },
+      },
+    });
+    render(React.createElement(WhisperSettings));
+
+    const tinyCard = screen.getByRole("article", { name: "tiny 模型" });
+    fireEvent.click(within(tinyCard).getByRole("button", { name: "重试" }));
+
+    await waitFor(() => {
+      expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
+        "downloaded",
+      );
+    });
+    expect(invokeMock).toHaveBeenCalledWith("download_whisper_model", {
+      size: "tiny",
+    });
+  });
+
+  test("cancels an in-flight download without a late rejection restoring the error state", async () => {
+    let rejectDownload: (reason?: unknown) => void = () => undefined;
+    invokeMock.mockImplementation((command) => {
+      if (command === "download_whisper_model") {
+        return new Promise((_, reject) => {
+          rejectDownload = reject;
+        });
+      }
+      return Promise.resolve(true);
+    });
+    render(React.createElement(WhisperSettings));
+
+    const tinyCard = screen.getByRole("article", { name: "tiny 模型" });
+    fireEvent.click(within(tinyCard).getByRole("button", { name: "下载" }));
+    fireEvent.click(await within(tinyCard).findByRole("button", { name: "取消" }));
+
+    expect(invokeMock).toHaveBeenCalledWith("cancel_whisper_download", {
+      size: "tiny",
+    });
+    expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
+      "idle",
+    );
+
+    await act(async () => {
+      rejectDownload(new Error("Download cancelled"));
+    });
+
+    expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
+      "idle",
+    );
+  });
+
+  test("deletes the exact active model and clears its downloaded state", async () => {
+    setCaptionState({
+      activeModel: "base",
+      models: { base: { status: "downloaded" } },
+    });
+    render(React.createElement(WhisperSettings));
+
+    fireEvent.click(screen.getByRole("button", { name: "删除 base 模型" }));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("delete_whisper_model", {
+        size: "base",
+      });
+      expect(useCaptionStore.getState().captionSettings.models.base.status).toBe(
+        "idle",
+      );
+      expect(useCaptionStore.getState().captionSettings.activeModel).toBeNull();
+    });
+  });
+
   test("maps only stable app-authored errors and preserves unknown detail verbatim", () => {
     const localizeError = whisperExports.localizeWhisperError;
     expect(localizeError).toBeDefined();

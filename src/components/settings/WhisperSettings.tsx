@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Search, Check, Download, Trash2, AlertCircle, Sparkles, RefreshCw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -307,6 +307,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
   const isActive = captionSettings.activeModel === model.size;
   const [isDownloading, setIsDownloading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const downloadAttemptRef = useRef(0);
 
   // Verify model exists on disk when component mounts (if marked as downloaded)
   useEffect(() => {
@@ -354,6 +355,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
   }, [model.size, updateModelDownloadState]);
 
   const handleDownload = async () => {
+    const downloadAttempt = ++downloadAttemptRef.current;
     try {
       setIsDownloading(true);
       updateModelDownloadState(model.size, {
@@ -366,16 +368,20 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
       await invoke("download_whisper_model", { size: model.size });
 
+      if (downloadAttempt !== downloadAttemptRef.current) return;
       updateModelDownloadState(model.size, {
         status: "downloaded",
       });
     } catch (error) {
+      if (downloadAttempt !== downloadAttemptRef.current) return;
       updateModelDownloadState(model.size, {
         status: "error",
         errorMessage: String(error),
       });
     } finally {
-      setIsDownloading(false);
+      if (downloadAttempt === downloadAttemptRef.current) {
+        setIsDownloading(false);
+      }
     }
   };
 
@@ -396,6 +402,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
   };
 
   const handleCancel = () => {
+    downloadAttemptRef.current += 1;
     invoke("cancel_whisper_download", { size: model.size }).catch(console.error);
     resetModelState(model.size);
     setIsDownloading(false);
