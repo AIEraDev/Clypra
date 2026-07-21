@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { MessageKey } from "@/i18n";
 
 export type Theme = "dark" | "midnight" | "ocean" | "forest" | "midnight-carbon" | "ember-studio" | "forest-console" | "slate-noir" | "rose-cut" | "custom";
 export type FontFamily = "inter" | "montserrat" | "geist" | "outfit" | "roboto" | "space-grotesk" | "system" | "mono";
@@ -739,17 +740,32 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
 };
 
 /** Human-readable metadata for each theme (used by SettingsModal) */
-export const THEME_META: Record<Theme, { name: string; description: string }> = {
-  dark: { name: "Dark", description: "Classic dark" },
-  midnight: { name: "Midnight", description: "Deep blue tones" },
-  ocean: { name: "Ocean", description: "Cool cyan accents" },
-  forest: { name: "Forest", description: "Natural green hues" },
-  "midnight-carbon": { name: "Midnight Carbon", description: "Professional broadcast-grade cold precision" },
-  "ember-studio": { name: "Ember Studio", description: "Warm creative workspace" },
-  "forest-console": { name: "Forest Console", description: "Low eye strain terminal aesthetic" },
-  "slate-noir": { name: "Slate Noir", description: "Maximum neutrality broadcast interface" },
-  "rose-cut": { name: "Rose Cut", description: "Modern approachable aesthetic" },
-  custom: { name: "Custom", description: "Your custom theme" },
+export const THEME_META: Record<Theme, { nameKey: MessageKey; descriptionKey: MessageKey }> = {
+  dark: { nameKey: "settings.theme.dark.name", descriptionKey: "settings.theme.dark.description" },
+  midnight: { nameKey: "settings.theme.midnight.name", descriptionKey: "settings.theme.midnight.description" },
+  ocean: { nameKey: "settings.theme.ocean.name", descriptionKey: "settings.theme.ocean.description" },
+  forest: { nameKey: "settings.theme.forest.name", descriptionKey: "settings.theme.forest.description" },
+  "midnight-carbon": {
+    nameKey: "settings.theme.midnightCarbon.name",
+    descriptionKey: "settings.theme.midnightCarbon.description",
+  },
+  "ember-studio": {
+    nameKey: "settings.theme.emberStudio.name",
+    descriptionKey: "settings.theme.emberStudio.description",
+  },
+  "forest-console": {
+    nameKey: "settings.theme.forestConsole.name",
+    descriptionKey: "settings.theme.forestConsole.description",
+  },
+  "slate-noir": {
+    nameKey: "settings.theme.slateNoir.name",
+    descriptionKey: "settings.theme.slateNoir.description",
+  },
+  "rose-cut": {
+    nameKey: "settings.theme.roseCut.name",
+    descriptionKey: "settings.theme.roseCut.description",
+  },
+  custom: { nameKey: "settings.theme.custom.name", descriptionKey: "settings.theme.custom.description" },
 };
 
 /** Returns the raw theme color tokens for a given theme (for live previews) */

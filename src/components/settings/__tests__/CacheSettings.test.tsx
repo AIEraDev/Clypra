@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CacheSettings } from "../CacheSettings";
 import { useCacheManager } from "@/hooks/useCacheManager";
+import { t } from "@/i18n";
 
 vi.mock("@/hooks/useCacheManager", () => ({
   useCacheManager: vi.fn(),
@@ -37,22 +38,22 @@ describe("CacheSettings component", () => {
   it("renders cache title, description, and status correctly", () => {
     render(<CacheSettings />);
 
-    expect(screen.getByText("Cache Management")).toBeInTheDocument();
-    expect(screen.getByText("Cache Status")).toBeInTheDocument();
-    expect(screen.getByText("localStorage Items")).toBeInTheDocument();
-    expect(screen.getByText("10")).toBeInTheDocument();
-    expect(screen.getByText("sessionStorage Items")).toBeInTheDocument();
-    expect(screen.getByText("5")).toBeInTheDocument();
-    expect(screen.getByText("GPU Textures")).toBeInTheDocument();
-    expect(screen.getByText("20")).toBeInTheDocument();
-    expect(screen.getByText("GPU Memory")).toBeInTheDocument();
-    expect(screen.getByText("45 MB")).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.management.title"))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.status"))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.localStorageItems"))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.itemCount", { count: 10 }))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.sessionStorageItems"))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.itemCount", { count: 5 }))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.gpuTextures"))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.textureCount", { count: 20 }))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.gpuMemory"))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.sizeMB", { size: "45" }))).toBeInTheDocument();
   });
 
   it("calls clearAllCaches with localStorage: false on Clear All click", () => {
     render(<CacheSettings />);
 
-    const clearAllButton = screen.getByRole("button", { name: /Clear All Caches/i });
+    const clearAllButton = screen.getByRole("button", { name: new RegExp(t("settings.cache.clearAll")) });
     fireEvent.click(clearAllButton);
 
     expect(mockClearAllCaches).toHaveBeenCalledWith({ localStorage: false });
@@ -61,7 +62,7 @@ describe("CacheSettings component", () => {
   it("calls clearAppCache on App Cache button click", () => {
     render(<CacheSettings />);
 
-    const appCacheButton = screen.getByRole("button", { name: /^App Cache$/i });
+    const appCacheButton = screen.getByRole("button", { name: t("settings.cache.appCache") });
     fireEvent.click(appCacheButton);
 
     expect(mockClearAppCache).toHaveBeenCalled();
@@ -79,7 +80,7 @@ describe("CacheSettings component", () => {
   it("calls clearGPUCache on GPU Cache button click", () => {
     render(<CacheSettings />);
 
-    const gpuCacheButton = screen.getByRole("button", { name: /^GPU Cache$/i });
+    const gpuCacheButton = screen.getByRole("button", { name: t("settings.cache.gpuCache") });
     fireEvent.click(gpuCacheButton);
 
     expect(mockClearGPUCache).toHaveBeenCalled();
@@ -90,13 +91,13 @@ describe("CacheSettings component", () => {
       ...defaultMockValues,
       lastResult: {
         success: true,
-        message: "Caches cleared successfully!",
+        message: "All caches cleared successfully!",
       },
     });
 
     render(<CacheSettings />);
 
-    expect(screen.getByText("Caches cleared successfully!")).toBeInTheDocument();
+    expect(screen.getByText(t("settings.cache.allCleared"))).toBeInTheDocument();
   });
 
   it("displays error message and stats errors when lastResult fails", () => {
@@ -116,8 +117,16 @@ describe("CacheSettings component", () => {
 
     render(<CacheSettings />);
 
-    expect(screen.getByText("Clear failed!")).toBeInTheDocument();
-    expect(screen.getByText("• WebView is locked by another process")).toBeInTheDocument();
+    expect(
+      screen.getByText(t("settings.cache.operationFailed", { error: "Clear failed!" })),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `• ${t("settings.cache.operationFailed", {
+          error: "WebView is locked by another process",
+        })}`,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("disables buttons and shows a spinner when isClearing is true", () => {
@@ -128,12 +137,12 @@ describe("CacheSettings component", () => {
 
     render(<CacheSettings />);
 
-    const clearAllButton = screen.getByRole("button", { name: /Clear All Caches/i });
+    const clearAllButton = screen.getByRole("button", { name: new RegExp(t("settings.cache.clearAll")) });
     expect(clearAllButton).toBeDisabled();
 
     // Check individual buttons are also disabled
-    expect(screen.getByRole("button", { name: /^App Cache$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: t("settings.cache.appCache") })).toBeDisabled();
     expect(screen.getByRole("button", { name: /^WebView$/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^GPU Cache$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: t("settings.cache.gpuCache") })).toBeDisabled();
   });
 });
