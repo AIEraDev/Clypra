@@ -496,6 +496,7 @@ export const settingsMessages = defineMessages({
     zhCN: "正在下载 {{model}}：{{percent}}%",
   },
   "settings.whisper.download.cancel": { en: "Cancel", zhCN: "取消" },
+  "settings.whisper.download.cancelling": { en: "Cancelling...", zhCN: "正在取消…" },
   "settings.whisper.download.retry": { en: "Retry", zhCN: "重试" },
   "settings.whisper.model.use": { en: "Use this model", zhCN: "使用此模型" },
   "settings.whisper.model.verifying": { en: "Verifying...", zhCN: "正在验证…" },
@@ -508,6 +509,10 @@ export const settingsMessages = defineMessages({
   "settings.whisper.error.downloadDetail": {
     en: "Download failed: {{error}}",
     zhCN: "下载失败：{{error}}",
+  },
+  "settings.whisper.error.cancelDetail": {
+    en: "Failed to cancel download: {{error}}",
+    zhCN: "取消下载失败：{{error}}",
   },
   "settings.whisper.error.filesMissing": {
     en: "Model files not found on disk. Please re-download.",

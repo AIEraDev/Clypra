@@ -306,6 +306,8 @@ function ModelCard({ model }: { model: ModelInfo }) {
   const modelState = captionSettings.models[model.size];
   const isActive = captionSettings.activeModel === model.size;
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string>();
   const [isVerifying, setIsVerifying] = useState(false);
   const downloadAttemptRef = useRef(0);
 
@@ -358,6 +360,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
     const downloadAttempt = ++downloadAttemptRef.current;
     try {
       setIsDownloading(true);
+      setCancelError(undefined);
       updateModelDownloadState(model.size, {
         status: "downloading",
         progressBytes: 0,
@@ -401,11 +404,22 @@ function ModelCard({ model }: { model: ModelInfo }) {
     handleDownload();
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    if (isCancelling) return;
+
     downloadAttemptRef.current += 1;
-    invoke("cancel_whisper_download", { size: model.size }).catch(console.error);
-    resetModelState(model.size);
-    setIsDownloading(false);
+    setIsCancelling(true);
+    setCancelError(undefined);
+
+    try {
+      await invoke("cancel_whisper_download", { size: model.size });
+      resetModelState(model.size);
+      setIsDownloading(false);
+    } catch (error) {
+      setCancelError(String(error));
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   const handleSetActive = async () => {
@@ -501,10 +515,26 @@ function ModelCard({ model }: { model: ModelInfo }) {
                     total: formatWhisperBytes(modelState.totalBytes),
                   })}
             </span>
-            <button onClick={handleCancel} className="text-danger hover:underline">
-              {t("settings.whisper.download.cancel")}
+            <button
+              onClick={handleCancel}
+              disabled={isCancelling}
+              className="text-danger hover:underline disabled:opacity-50 disabled:no-underline"
+            >
+              {t(
+                isCancelling
+                  ? "settings.whisper.download.cancelling"
+                  : "settings.whisper.download.cancel",
+              )}
             </button>
           </div>
+          {cancelError && (
+            <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-red-400 flex-1">
+                {t("settings.whisper.error.cancelDetail", { error: cancelError })}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

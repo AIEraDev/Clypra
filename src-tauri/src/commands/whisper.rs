@@ -17,8 +17,61 @@ pub struct DownloadProgressPayload {
     pub speed_bytes_per_sec: u64,
 }
 
-/// Active download tasks with cancellation tokens
-type DownloadTasks = Arc<Mutex<HashMap<String, CancellationToken>>>;
+struct DownloadTask {
+    cancel: CancellationToken,
+    finished: CancellationToken,
+}
+
+/// Active download tasks with cancellation and completion signals
+type DownloadTasks = Arc<Mutex<HashMap<String, Arc<DownloadTask>>>>;
+
+async fn register_download_task(
+    tasks: &DownloadTasks,
+    size: &str,
+) -> Result<Arc<DownloadTask>, String> {
+    let mut tasks = tasks.lock().await;
+
+    match tasks.entry(size.to_string()) {
+        std::collections::hash_map::Entry::Occupied(_) => {
+            Err(format!("Download already active for model: {}", size))
+        }
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            let active = Arc::new(DownloadTask {
+                cancel: CancellationToken::new(),
+                finished: CancellationToken::new(),
+            });
+            entry.insert(active.clone());
+            Ok(active)
+        }
+    }
+}
+
+async fn finish_download_task(tasks: &DownloadTasks, size: &str, active: &Arc<DownloadTask>) {
+    {
+        let mut tasks = tasks.lock().await;
+        let is_current = tasks
+            .get(size)
+            .is_some_and(|current| Arc::ptr_eq(current, active));
+
+        if is_current {
+            tasks.remove(size);
+        }
+    }
+
+    active.finished.cancel();
+}
+
+async fn cancel_download_task(tasks: &DownloadTasks, size: &str) -> Result<(), String> {
+    let active = {
+        let tasks = tasks.lock().await;
+        tasks.get(size).cloned()
+    }
+    .ok_or_else(|| format!("No active download found for: {}", size))?;
+
+    active.cancel.cancel();
+    active.finished.cancelled().await;
+    Ok(())
+}
 
 /// Get the download URL for a Whisper model
 /// URLs from: https://github.com/openai/whisper/blob/main/whisper/__init__.py
@@ -63,15 +116,9 @@ pub async fn download_whisper_model(
     eprintln!("🦀 [download_whisper_model] Downloading from: {}", url);
     eprintln!("🦀 [download_whisper_model] Saving to: {:?}", file_path);
     
-    // Create cancellation token
-    let cancel_token = CancellationToken::new();
-    
-    // Store the token in the app state
+    // Register the active download before starting network work
     let tasks: DownloadTasks = app.state::<DownloadTasks>().inner().clone();
-    {
-        let mut tasks = tasks.lock().await;
-        tasks.insert(size.clone(), cancel_token.clone());
-    }
+    let active = register_download_task(&tasks, &size).await?;
     
     // Start the download
     let result = perform_download(
@@ -79,14 +126,10 @@ pub async fn download_whisper_model(
         size.clone(),
         url,
         file_path,
-        cancel_token.clone(),
+        active.cancel.clone(),
     ).await;
-    
-    // Remove the token from state
-    {
-        let mut tasks = tasks.lock().await;
-        tasks.remove(&size);
-    }
+
+    finish_download_task(&tasks, &size, &active).await;
     
     result
 }
@@ -287,15 +330,9 @@ pub async fn cancel_whisper_download(
     size: String,
 ) -> Result<(), String> {
     let tasks: DownloadTasks = app.state::<DownloadTasks>().inner().clone();
-    let tasks = tasks.lock().await;
-    
-    if let Some(token) = tasks.get(&size) {
-        token.cancel();
-        eprintln!("🦀 [cancel_whisper_download] Cancelled download for: {}", size);
-    } else {
-        eprintln!("🦀 [cancel_whisper_download] No active download found for: {}", size);
-    }
-    
+    cancel_download_task(&tasks, &size).await?;
+    eprintln!("🦀 [cancel_whisper_download] Cancelled download for: {}", size);
+
     Ok(())
 }
 
@@ -344,4 +381,85 @@ pub async fn verify_whisper_model_exists(
 /// Initialize download tasks state
 pub fn init_download_state() -> DownloadTasks {
     Arc::new(Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::poll;
+    use std::task::Poll;
+    use tokio::sync::Barrier;
+
+    #[tokio::test]
+    async fn duplicate_registration_is_rejected_atomically() {
+        let tasks = init_download_state();
+        let barrier = Arc::new(Barrier::new(3));
+        let mut attempts = Vec::new();
+
+        for _ in 0..2 {
+            let tasks = tasks.clone();
+            let barrier = barrier.clone();
+            attempts.push(tokio::spawn(async move {
+                barrier.wait().await;
+                register_download_task(&tasks, "tiny").await
+            }));
+        }
+
+        barrier.wait().await;
+        let first = attempts.remove(0).await.expect("registration task panicked");
+        let second = attempts.remove(0).await.expect("registration task panicked");
+        let outcomes = [first, second];
+
+        assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter_map(|result| result.as_ref().err())
+                .collect::<Vec<_>>(),
+            vec![&"Download already active for model: tiny".to_string()]
+        );
+        assert_eq!(tasks.lock().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_missing_download_returns_an_explicit_error() {
+        let tasks = init_download_state();
+
+        assert_eq!(
+            cancel_download_task(&tasks, "tiny").await,
+            Err("No active download found for: tiny".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_waits_for_partial_cleanup_and_task_removal() {
+        let tasks = init_download_state();
+        let active = register_download_task(&tasks, "tiny")
+            .await
+            .expect("initial registration should succeed");
+        let partial_path = std::env::temp_dir().join(format!(
+            "clypra-whisper-cancel-{}.part",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::write(&partial_path, b"partial model")
+            .await
+            .expect("partial file should be created");
+
+        let mut cancellation = Box::pin(cancel_download_task(&tasks, "tiny"));
+        assert!(matches!(poll!(&mut cancellation), Poll::Pending));
+        assert!(active.cancel.is_cancelled());
+        assert!(partial_path.exists());
+        assert!(tasks.lock().await.contains_key("tiny"));
+
+        tokio::fs::remove_file(&partial_path)
+            .await
+            .expect("partial file cleanup should finish");
+        finish_download_task(&tasks, "tiny", &active).await;
+        cancellation
+            .await
+            .expect("cancellation should complete after cleanup");
+
+        assert!(!partial_path.exists());
+        assert!(!tasks.lock().await.contains_key("tiny"));
+    }
 }

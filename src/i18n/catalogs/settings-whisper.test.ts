@@ -248,6 +248,7 @@ const EXPECTED_UI_MESSAGES = {
     "正在下载 {{model}}：{{percent}}%",
   ],
   "settings.whisper.download.cancel": ["Cancel", "取消"],
+  "settings.whisper.download.cancelling": ["Cancelling...", "正在取消…"],
   "settings.whisper.download.retry": ["Retry", "重试"],
   "settings.whisper.model.use": ["Use this model", "使用此模型"],
   "settings.whisper.model.verifying": ["Verifying...", "正在验证…"],
@@ -260,6 +261,10 @@ const EXPECTED_UI_MESSAGES = {
   "settings.whisper.error.downloadDetail": [
     "Download failed: {{error}}",
     "下载失败：{{error}}",
+  ],
+  "settings.whisper.error.cancelDetail": [
+    "Failed to cancel download: {{error}}",
+    "取消下载失败：{{error}}",
   ],
   "settings.whisper.error.filesMissing": [
     "Model files not found on disk. Please re-download.",
@@ -298,6 +303,17 @@ const DEFAULT_MODEL_STATE: ModelDownloadState = {
   totalBytes: 0,
   speedBytesPerSec: 0,
 };
+
+function createDeferred() {
+  let resolve: () => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = () => resolvePromise();
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
 
 function translate(key: string, params: MessageParams = {}) {
   return resolveMessage(
@@ -437,6 +453,9 @@ describe("Whisper settings localization", () => {
     ).toBe(`没有与“${raw}”匹配的语言`);
     expect(translate("settings.whisper.error.downloadDetail", { error: raw })).toBe(
       `下载失败：${raw}`,
+    );
+    expect(translate("settings.whisper.error.cancelDetail", { error: raw })).toBe(
+      `取消下载失败：${raw}`,
     );
   });
 
@@ -714,13 +733,15 @@ describe("Whisper settings localization", () => {
     });
   });
 
-  test("cancels an in-flight download without a late rejection restoring the error state", async () => {
-    let rejectDownload: (reason?: unknown) => void = () => undefined;
+  test("shows one disabled cancelling action and hides download or retry while cancellation is pending", async () => {
+    const download = createDeferred();
+    const cancellation = createDeferred();
     invokeMock.mockImplementation((command) => {
       if (command === "download_whisper_model") {
-        return new Promise((_, reject) => {
-          rejectDownload = reject;
-        });
+        return download.promise;
+      }
+      if (command === "cancel_whisper_download") {
+        return cancellation.promise;
       }
       return Promise.resolve(true);
     });
@@ -730,19 +751,110 @@ describe("Whisper settings localization", () => {
     fireEvent.click(within(tinyCard).getByRole("button", { name: "下载" }));
     fireEvent.click(await within(tinyCard).findByRole("button", { name: "取消" }));
 
-    expect(invokeMock).toHaveBeenCalledWith("cancel_whisper_download", {
-      size: "tiny",
+    const cancellingButton = await within(tinyCard).findByRole("button", {
+      name: "正在取消…",
     });
-    expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
+    expect(cancellingButton).toBeDisabled();
+    expect(within(tinyCard).queryByRole("button", { name: "取消" })).toBeNull();
+    expect(within(tinyCard).queryByRole("button", { name: "下载" })).toBeNull();
+    expect(within(tinyCard).queryByRole("button", { name: "重试" })).toBeNull();
+    expect(useCaptionStore.getState().captionSettings.models.tiny.status).not.toBe(
       "idle",
     );
 
+    fireEvent.click(cancellingButton);
+    expect(
+      invokeMock.mock.calls.filter(
+        ([command]) => command === "cancel_whisper_download",
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("resets to idle only after the backend confirms cancellation cleanup", async () => {
+    const download = createDeferred();
+    const cancellation = createDeferred();
+    invokeMock.mockImplementation((command) => {
+      if (command === "download_whisper_model") return download.promise;
+      if (command === "cancel_whisper_download") return cancellation.promise;
+      return Promise.resolve(true);
+    });
+    render(React.createElement(WhisperSettings));
+
+    const tinyCard = screen.getByRole("article", { name: "tiny 模型" });
+    fireEvent.click(within(tinyCard).getByRole("button", { name: "下载" }));
+    fireEvent.click(await within(tinyCard).findByRole("button", { name: "取消" }));
+
     await act(async () => {
-      rejectDownload(new Error("Download cancelled"));
+      download.reject(new Error("Download cancelled"));
     });
 
-    expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
+    expect(useCaptionStore.getState().captionSettings.models.tiny.status).not.toBe(
       "idle",
+    );
+    expect(
+      within(tinyCard).getByRole("button", { name: "正在取消…" }),
+    ).toBeDisabled();
+
+    await act(async () => {
+      cancellation.resolve();
+    });
+
+    await waitFor(() => {
+      expect(useCaptionStore.getState().captionSettings.models.tiny).toEqual(
+        DEFAULT_MODEL_STATE,
+      );
+    });
+    expect(within(tinyCard).getByRole("button", { name: "下载" })).toBeEnabled();
+  });
+
+  test("keeps the current state and shows raw detail when cancellation fails", async () => {
+    const download = createDeferred();
+    invokeMock.mockImplementation((command) => {
+      if (command === "download_whisper_model") return download.promise;
+      if (command === "cancel_whisper_download") {
+        return Promise.reject(new Error("IPC unavailable"));
+      }
+      return Promise.resolve(true);
+    });
+    render(React.createElement(WhisperSettings));
+
+    const tinyCard = screen.getByRole("article", { name: "tiny 模型" });
+    fireEvent.click(within(tinyCard).getByRole("button", { name: "下载" }));
+    fireEvent.click(await within(tinyCard).findByRole("button", { name: "取消" }));
+
+    expect(
+      await within(tinyCard).findByText(
+        "取消下载失败：Error: IPC unavailable",
+      ),
+    ).toBeInTheDocument();
+    expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
+      "downloading",
+    );
+    expect(within(tinyCard).getByRole("button", { name: "取消" })).toBeEnabled();
+  });
+
+  test("preserves the backend no-active-task detail without silently resetting", async () => {
+    const download = createDeferred();
+    invokeMock.mockImplementation((command) => {
+      if (command === "download_whisper_model") return download.promise;
+      if (command === "cancel_whisper_download") {
+        return Promise.reject("No active download found for: tiny");
+      }
+      return Promise.resolve(true);
+    });
+    render(React.createElement(WhisperSettings));
+
+    const tinyCard = screen.getByRole("article", { name: "tiny 模型" });
+    fireEvent.click(within(tinyCard).getByRole("button", { name: "下载" }));
+    fireEvent.click(await within(tinyCard).findByRole("button", { name: "取消" }));
+
+    expect(
+      await within(tinyCard).findByText(
+        "取消下载失败：No active download found for: tiny",
+      ),
+    ).toBeInTheDocument();
+    expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
+      "downloading",
     );
   });
 
