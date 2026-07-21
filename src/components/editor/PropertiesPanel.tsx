@@ -9,6 +9,7 @@ import { calculateClipDimensions, type ClipFitModeExtended } from "@/lib/timelin
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import type { Clip, TextClip } from "@/types";
 import { usePresetStore } from "@/store/presetStore";
+import { t } from "@/i18n";
 
 import { EmptyPropertiesState } from "./properties/EmptyPropertiesState";
 import { TextStyleSection } from "./properties/TextStyleSection";
@@ -46,30 +47,30 @@ export function buildClipPropertyTransform(clip: Clip, updates: Record<string, u
 
 /** Clip type display info */
 function getClipTypeInfo(assetType: string | undefined, clipKind: Clip["kind"] | undefined, isText: boolean, isSticker?: boolean) {
-  if (isText) return { icon: FileText, label: "Text", color: "text-purple-400" };
-  if (isSticker) return { icon: Smile, label: "Sticker", color: "text-pink-400" };
-  if (clipKind === "filter") return { icon: Sparkles, label: "Filter", color: "text-violet-400" };
-  if (clipKind === "video-effect") return { icon: Sparkles, label: "Video Effect", color: "text-violet-400" };
-  if (clipKind === "body-effect") return { icon: Sparkles, label: "Body Effect", color: "text-violet-400" };
-  if (clipKind === "animated-overlay") return { icon: Sparkles, label: "Animated Overlay", color: "text-violet-400" };
+  if (isText) return { icon: FileText, label: t("editor.properties.clipType.text"), color: "text-purple-400" };
+  if (isSticker) return { icon: Smile, label: t("editor.properties.clipType.sticker"), color: "text-pink-400" };
+  if (clipKind === "filter") return { icon: Sparkles, label: t("editor.properties.clipType.filter"), color: "text-violet-400" };
+  if (clipKind === "video-effect") return { icon: Sparkles, label: t("editor.properties.clipType.videoEffect"), color: "text-violet-400" };
+  if (clipKind === "body-effect") return { icon: Sparkles, label: t("editor.properties.clipType.bodyEffect"), color: "text-violet-400" };
+  if (clipKind === "animated-overlay") return { icon: Sparkles, label: t("editor.properties.clipType.animatedOverlay"), color: "text-violet-400" };
   switch (assetType) {
     case "video":
-      return { icon: Film, label: "Video", color: "text-blue-400" };
+      return { icon: Film, label: t("editor.properties.clipType.video"), color: "text-blue-400" };
     case "audio":
-      return { icon: Music, label: "Audio", color: "text-green-400" };
+      return { icon: Music, label: t("editor.properties.clipType.audio"), color: "text-green-400" };
     case "image":
-      return { icon: Image, label: "Image", color: "text-amber-400" };
+      return { icon: Image, label: t("editor.properties.clipType.image"), color: "text-amber-400" };
     default:
-      return { icon: Film, label: "Clip", color: "text-text-muted" };
+      return { icon: Film, label: t("editor.properties.clipType.clip"), color: "text-text-muted" };
   }
 }
 
 type TextPropertyTab = "text" | "animation" | "transform";
 
-const TEXT_TABS: { id: TextPropertyTab; label: string; icon: React.FC<{ className?: string }> }[] = [
-  { id: "text", label: "Text Style", icon: Type },
-  { id: "animation", label: "Animation", icon: Sparkles },
-  { id: "transform", label: "Transform", icon: Layout },
+const TEXT_TABS: { id: TextPropertyTab; labelKey: "editor.properties.tabs.textStyle" | "editor.properties.tabs.animation" | "editor.properties.tabs.transform"; icon: React.FC<{ className?: string }> }[] = [
+  { id: "text", labelKey: "editor.properties.tabs.textStyle", icon: Type },
+  { id: "animation", labelKey: "editor.properties.tabs.animation", icon: Sparkles },
+  { id: "transform", labelKey: "editor.properties.tabs.transform", icon: Layout },
 ];
 
 export const PropertiesPanel: React.FC = () => {
@@ -94,10 +95,10 @@ export const PropertiesPanel: React.FC = () => {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-text-primary truncate">
-                {selectedTransition.type === "dissolve" ? "Dissolve" : "Fade"} Transition
+                {t(selectedTransition.type === "dissolve" ? "editor.properties.transition.dissolve" : "editor.properties.transition.fade")}
               </p>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[9px] font-medium text-accent">Transition</span>
+                <span className="text-[9px] font-medium text-accent">{t("editor.properties.clipType.transition")}</span>
               </div>
             </div>
           </div>
@@ -120,7 +121,7 @@ export const PropertiesPanel: React.FC = () => {
   if (!selectedAsset && selectedClip && (selectedClip.kind === "sticker" || selectedClip.mediaId.startsWith("sticker-"))) {
     selectedAsset = {
       id: selectedClip.mediaId,
-      name: selectedClip.name || "Sticker",
+      name: selectedClip.name || t("editor.fallback.sticker"),
       path: (selectedClip as any).stickerImagePath || selectedClip.stickerAnimationPath || "",
       type: "image",
       duration: selectedClip.duration,
@@ -208,7 +209,7 @@ export const PropertiesPanel: React.FC = () => {
   const effectiveAssetType = selectedAsset?.type ?? (selectedClip.kind === "audio" ? "audio" : undefined);
   const typeInfo = getClipTypeInfo(effectiveAssetType, selectedClip.kind, !!isTextClip, isSticker);
   const TypeIcon = typeInfo.icon;
-  const clipName = isTextClip ? (textClip.text || "Text").slice(0, 24) : isTimelineEffectClip ? (selectedClip.name || typeInfo.label) : selectedAsset?.name || (selectedClip as any)?.audioPath?.split("/").pop() || "Clip";
+  const clipName = isTextClip ? (textClip.text || t("editor.fallback.text")).slice(0, 24) : isTimelineEffectClip ? (selectedClip.name || typeInfo.label) : selectedAsset?.name || (selectedClip as any)?.audioPath?.split("/").pop() || t("editor.properties.clipType.clip");
   const clipDuration = selectedClip.duration.toFixed(1);
 
   return (
@@ -226,7 +227,7 @@ export const PropertiesPanel: React.FC = () => {
               <span className="text-[9px] text-text-muted/40">•</span>
               <span className="text-[9px] text-text-muted tabular-nums flex items-center gap-0.5">
                 <Clock className="w-2.5 h-2.5" />
-                {clipDuration}s
+                {t("editor.properties.durationSeconds", { duration: clipDuration })}
               </span>
             </div>
           </div>
@@ -242,7 +243,7 @@ export const PropertiesPanel: React.FC = () => {
                 <button key={tab.id} onClick={() => setActivePropertyTab(tab.id)} className={`flex-1 py-2 text-[10px] font-semibold tracking-wide text-center transition-all cursor-pointer border-b-2 ${isActive ? "text-accent border-accent bg-accent/[0.04]" : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.02]"}`}>
                   <span className="flex items-center justify-center gap-1.5">
                     <TabIcon className="w-3 h-3" />
-                    {tab.label}
+                    {t(tab.labelKey)}
                   </span>
                 </button>
               );

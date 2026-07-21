@@ -3,6 +3,7 @@ import { Music, Smile, Wand2, MessageSquare, Filter, Shuffle } from "lucide-reac
 import { MediaTab, AudioTab, TextTab, StickersTab, FiltersTab, TransitionsTab, CaptionsTab, type TabType, MediaTabProps } from "../media-tabs";
 import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
 import { TextIcon, YouTubeIcon } from "../../ui/icons";
+import { t } from "@/i18n";
 
 export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab = "media" }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
@@ -12,14 +13,14 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, i
   }, [initialTab]);
 
   const tabs = [
-    { id: "media" as const, icon: YouTubeIcon, label: "Media" },
-    { id: "audio" as const, icon: Music, label: "Audio" },
-    { id: "text" as const, icon: TextIcon, label: "Text" },
-    { id: "stickers" as const, icon: Smile, label: "Stickers" },
-    { id: "effects" as const, icon: Wand2, label: "Effects" },
-    { id: "filters" as const, icon: Filter, label: "Filters" },
-    { id: "transitions" as const, icon: Shuffle, label: "Transitions" },
-    { id: "captions" as const, icon: MessageSquare, label: "Captions" },
+    { id: "media" as const, icon: YouTubeIcon, labelKey: "editor.media.nav.media" as const },
+    { id: "audio" as const, icon: Music, labelKey: "editor.media.nav.audio" as const },
+    { id: "text" as const, icon: TextIcon, labelKey: "editor.media.nav.text" as const },
+    { id: "stickers" as const, icon: Smile, labelKey: "editor.media.nav.stickers" as const },
+    { id: "effects" as const, icon: Wand2, labelKey: "editor.media.nav.effects" as const },
+    { id: "filters" as const, icon: Filter, labelKey: "editor.media.nav.filters" as const },
+    { id: "transitions" as const, icon: Shuffle, labelKey: "editor.media.nav.transitions" as const },
+    { id: "captions" as const, icon: MessageSquare, labelKey: "editor.media.nav.captions" as const },
   ];
 
   return (
@@ -37,9 +38,9 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, i
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center flex-col gap-0.5 px-2 py-1 text-[10px] font-medium transition-colors whitespace-nowrap cursor-pointer hover:text-accent ${activeTab === tab.id ? "text-accent" : "text-text-muted"}`}>
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} title={t(tab.labelKey)} aria-label={t(tab.labelKey)} className={`flex items-center flex-col gap-0.5 px-2 py-1 text-[10px] font-medium transition-colors whitespace-nowrap cursor-pointer hover:text-accent ${activeTab === tab.id ? "text-accent" : "text-text-muted"}`}>
                 <Icon size={14} />
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             );
           })}

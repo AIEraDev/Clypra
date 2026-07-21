@@ -24,6 +24,8 @@ import { platform } from "@/core/platform";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import { AddClipCommand } from "@/core/history/commands/DeleteClipCommand";
+import { t } from "@/i18n";
+import { editorTransitionErrorKeys } from "@/i18n/catalogs/editor";
 
 export const MobileEditorLayout: React.FC = () => {
   const { tracks, clips, addClip, addTrack, insertTrackAt, getTimelineEndTime, createTransitionBetweenClips } = useTimelineStore();
@@ -130,7 +132,7 @@ export const MobileEditorLayout: React.FC = () => {
         trackId: targetTrackId,
         startTime: placement.startTime,
         duration: 5.0,
-        text: item.text || item.name || "Text",
+        text: item.text || item.name || t("editor.fallback.text"),
         canvasWidth: project?.canvasWidth || 1920,
         canvasHeight: project?.canvasHeight || 1080,
         ...presetConfig,
@@ -167,7 +169,7 @@ export const MobileEditorLayout: React.FC = () => {
         // Use local cached file path
         const mediaAsset: MediaAsset = {
           id: `audio-library-${item.id}`,
-          name: item.name || "Library Audio",
+          name: item.name || t("editor.fallback.libraryAudio"),
           path: absolutePath, // Use absolute path for media playback
           type: "audio",
           duration: cachedFile.metadata.duration || Number(item.duration) || 5,
@@ -231,7 +233,7 @@ export const MobileEditorLayout: React.FC = () => {
 
         const mediaAsset: MediaAsset = {
           id: `sticker-${item.id}`,
-          name: item.name || "Sticker",
+          name: item.name || t("editor.fallback.sticker"),
           path: absolutePath,
           type: "image",
           duration: 3.0,
@@ -277,15 +279,16 @@ export const MobileEditorLayout: React.FC = () => {
       const selectedPair = selectedClipIds.length === 2 ? ([selectedClipIds[0], selectedClipIds[1]] as const) : null;
       const pair = selectedPair ?? findAdjacentClipsAtPlayhead();
       if (!pair) {
-        useProjectStore.getState().showToast("Select two adjacent clips or place the playhead at a cut", "warning");
+        useProjectStore.getState().showToast(t("editor.toast.selectAdjacentClipsOrCut"), "warning");
         return;
       }
       const transitionType = item?.preview === "dissolve" || item?.name?.toLowerCase?.() === "dissolve" ? "dissolve" : "fade";
       const result = createTransitionBetweenClips(pair[0], pair[1], transitionType, Number(item?.duration) || 0.5);
       if (result.error) {
-        useProjectStore.getState().showToast(result.error, "warning");
+        const errorKey = editorTransitionErrorKeys[result.error];
+        useProjectStore.getState().showToast(errorKey ? t(errorKey) : result.error, "warning");
       } else {
-        useProjectStore.getState().showToast(`${item?.name || "Transition"} added`);
+        useProjectStore.getState().showToast(t("editor.toast.transitionAddedBetweenClips", { name: item?.name || t("editor.properties.clipType.transition") }));
       }
     } else if (type === "filters") {
       // Filter must be downloaded first
@@ -293,7 +296,7 @@ export const MobileEditorLayout: React.FC = () => {
 
       if (!cachedFilter) {
         console.error("[MobileEditorLayout] Filter not downloaded yet:", item.id);
-        useProjectStore.getState().showToast("Filter not downloaded yet", "warning");
+        useProjectStore.getState().showToast(t("editor.toast.filterNotDownloaded"), "warning");
         return;
       }
 
@@ -334,14 +337,14 @@ export const MobileEditorLayout: React.FC = () => {
         opacity: 1.0,
         rotation: 0,
         kind: "filter" as const,
-        name: cachedFilter.filter.name || "Filter",
+        name: cachedFilter.filter.name || t("editor.fallback.filter"),
         intensity: defaultIntensity,
         pipeline: cachedFilter.filter.pipeline,
         effectStack: cachedFilter.filter.effectStack,
       };
 
       addClip(filterClip as any);
-      useProjectStore.getState().showToast(`Added ${cachedFilter.filter.name} filter to timeline`);
+      useProjectStore.getState().showToast(t("editor.toast.filterAddedToTimeline", { name: cachedFilter.filter.name || t("editor.fallback.filter") }));
     }
   };
 
@@ -365,34 +368,34 @@ export const MobileEditorLayout: React.FC = () => {
         {/* Middle Section: Touch Action Toolbar */}
         <div className="h-10 shrink-0 panel-shell flex items-center justify-between px-[3px] bg-surface/50 backdrop-blur-sm select-none gap-0.5 w-full" style={{ boxShadow: "none" }}>
           {/* Action Tabs */}
-          <button onClick={importMedia} disabled={isImporting} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Import Files">
+          <button onClick={importMedia} disabled={isImporting} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title={t("editor.mobile.importFiles")} aria-label={t("editor.mobile.importFiles")}>
             <Plus className="w-4 h-4 text-accent-soft" />
-            <span className="text-[9px] font-medium mt-0.5">Import</span>
+            <span className="text-[9px] font-medium mt-0.5">{t("common.import")}</span>
           </button>
 
-          <button onClick={() => openLibraryWithTab("media")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Media Assets">
+          <button onClick={() => openLibraryWithTab("media")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title={t("editor.mobile.mediaAssets")} aria-label={t("editor.mobile.mediaAssets")}>
             <LibraryIcon className="w-4 h-4" />
-            <span className="text-[9px] font-medium mt-0.5">Media</span>
+            <span className="text-[9px] font-medium mt-0.5">{t("editor.media.nav.media")}</span>
           </button>
 
-          <button onClick={() => openLibraryWithTab("text")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Add Text">
+          <button onClick={() => openLibraryWithTab("text")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title={t("editor.mobile.addText")} aria-label={t("editor.mobile.addText")}>
             <Type className="w-4 h-4" />
-            <span className="text-[9px] font-medium mt-0.5">Text</span>
+            <span className="text-[9px] font-medium mt-0.5">{t("editor.media.nav.text")}</span>
           </button>
 
-          <button onClick={() => openLibraryWithTab("audio")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Add Audio">
+          <button onClick={() => openLibraryWithTab("audio")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title={t("editor.mobile.addAudio")} aria-label={t("editor.mobile.addAudio")}>
             <Music className="w-4 h-4" />
-            <span className="text-[9px] font-medium mt-0.5">Audio</span>
+            <span className="text-[9px] font-medium mt-0.5">{t("editor.media.nav.audio")}</span>
           </button>
 
-          <button onClick={() => openLibraryWithTab("transitions")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title="Transitions">
+          <button onClick={() => openLibraryWithTab("transitions")} className="flex flex-col flex-1 items-center justify-center rounded-sm bg-white/6 text-text-primary active:bg-white/10 transition-colors cursor-pointer shrink-0" title={t("editor.media.nav.transitions")} aria-label={t("editor.media.nav.transitions")}>
             <Shuffle className="w-4 h-4" />
-            <span className="text-[9px] font-medium mt-0.5">Transitions</span>
+            <span className="text-[9px] font-medium mt-0.5">{t("editor.media.nav.transitions")}</span>
           </button>
 
-          <button onClick={() => setPropertiesSheetOpen(true)} disabled={!hasSelectedClip} className={`flex flex-col flex-1 items-center justify-center rounded-sm transition-colors cursor-pointer shrink-0 bg-white/6 active:bg-white/10 ${hasSelectedClip ? "text-text-primary" : "text-text-muted cursor-not-allowed"}`} title="Clip Properties">
+          <button onClick={() => setPropertiesSheetOpen(true)} disabled={!hasSelectedClip} className={`flex flex-col flex-1 items-center justify-center rounded-sm transition-colors cursor-pointer shrink-0 bg-white/6 active:bg-white/10 ${hasSelectedClip ? "text-text-primary" : "text-text-muted cursor-not-allowed"}`} title={t("editor.mobile.clipProperties")} aria-label={t("editor.mobile.clipProperties")}>
             <Sliders className={`w-4 h-4 ${hasSelectedClip ? "text-accent-soft" : ""}`} />
-            <span className="text-[9px] font-medium mt-0.5">Adjust</span>
+            <span className="text-[9px] font-medium mt-0.5">{t("editor.mobile.adjust")}</span>
           </button>
         </div>
 
@@ -403,14 +406,14 @@ export const MobileEditorLayout: React.FC = () => {
       </div>
 
       {/* Library Bottom Sheet Drawer */}
-      <BottomSheet title="Asset Library" isOpen={mediaSheetOpen} onClose={() => setMediaSheetOpen(false)}>
+      <BottomSheet title={t("editor.mobile.assetLibrary")} isOpen={mediaSheetOpen} onClose={() => setMediaSheetOpen(false)}>
         <div className="p-3 h-[50vh] flex flex-col">
           <EnhancedMediaPanel onAddToTimeline={handleAddToTimeline} initialTab={activeMediaTab} />
         </div>
       </BottomSheet>
 
       {/* Properties/Adjust Bottom Sheet Drawer */}
-      <BottomSheet title="Clip Adjustments" isOpen={propertiesSheetOpen} onClose={() => setPropertiesSheetOpen(false)}>
+      <BottomSheet title={t("editor.mobile.clipAdjustments")} isOpen={propertiesSheetOpen} onClose={() => setPropertiesSheetOpen(false)}>
         <div className="p-3 h-[50vh] flex flex-col">
           <PropertiesPanel />
         </div>

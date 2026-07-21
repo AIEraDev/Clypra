@@ -22,6 +22,8 @@ import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import { AddClipCommand } from "@/core/history/commands/DeleteClipCommand";
 import { useHistoryStore } from "@/store/historyStore";
+import { t } from "@/i18n";
+import { editorTransitionErrorKeys } from "@/i18n/catalogs/editor";
 
 interface EditorLayoutProps {
   onRequestClose?: () => void;
@@ -167,7 +169,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         trackId: targetTrackId,
         startTime: placement.startTime,
         duration: 5.0,
-        text: item.text || item.name || "Text", // Use effect's default text first, then name as fallback
+        text: item.text || item.name || t("editor.fallback.text"), // Use effect's default text first, then name as fallback
         canvasWidth: project?.canvasWidth || 1920,
         canvasHeight: project?.canvasHeight || 1080,
         textRole: "title", // Text effects and templates are titles, not captions
@@ -205,7 +207,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         // Use local cached file path
         const mediaAsset: MediaAsset = {
           id: `audio-library-${item.id}`,
-          name: item.name || "Library Audio",
+          name: item.name || t("editor.fallback.libraryAudio"),
           path: absolutePath, // Use absolute path for media playback
           type: "audio",
           duration: cachedFile.metadata.duration || Number(item.duration) || 5,
@@ -268,7 +270,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
 
         const mediaAsset: MediaAsset = {
           id: `sticker-${item.id}`,
-          name: item.name || "Sticker",
+          name: item.name || t("editor.fallback.sticker"),
           path: absolutePath,
           type: "image",
           duration: 3.0,
@@ -314,7 +316,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
       const selectedPair = selectedClipIds.length === 2 ? ([selectedClipIds[0], selectedClipIds[1]] as const) : null;
       const pair = selectedPair ?? findAdjacentClipsAtPlayhead();
       if (!pair) {
-        useProjectStore.getState().showToast("Select two adjacent clips or place the playhead at a cut", "warning");
+        useProjectStore.getState().showToast(t("editor.toast.selectAdjacentClipsOrCut"), "warning");
         return;
       }
 
@@ -325,9 +327,10 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
 
       const result = createTransitionBetweenClips(pair[0], pair[1], transitionType, transitionDuration, renderer);
       if (result.error) {
-        useProjectStore.getState().showToast(result.error, "warning");
+        const errorKey = editorTransitionErrorKeys[result.error];
+        useProjectStore.getState().showToast(errorKey ? t(errorKey) : result.error, "warning");
       } else {
-        useProjectStore.getState().showToast(`${item?.name || "Transition"} added between clips`);
+        useProjectStore.getState().showToast(t("editor.toast.transitionAddedBetweenClips", { name: item?.name || t("editor.properties.clipType.transition") }));
       }
     } else if (type === "effects") {
       const selectedClipId = selectedClipIds[0] ?? null;
@@ -344,13 +347,13 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
       }
 
       if (!targetClip) {
-        useProjectStore.getState().showToast("Select a video or image clip to apply this effect", "warning");
+        useProjectStore.getState().showToast(t("editor.toast.selectVisualClipForEffect"), "warning");
         return;
       }
 
       const asset = mediaAssets.find((a) => a.id === targetClip.mediaId);
       if (asset?.type !== "video" && asset?.type !== "image") {
-        useProjectStore.getState().showToast("Effects can only be applied to video or image clips", "warning");
+        useProjectStore.getState().showToast(t("editor.toast.effectVisualClipsOnly"), "warning");
         return;
       }
 
@@ -358,7 +361,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
       const effectExists = currentEffects.some((fx) => fx.id === item.id);
 
       if (effectExists) {
-        useProjectStore.getState().showToast(`Effect "${item.name}" is already applied`, "warning");
+        useProjectStore.getState().showToast(t("editor.toast.effectAlreadyApplied", { name: item.name || t("editor.fallback.effect") }), "warning");
         return;
       }
 
@@ -378,13 +381,13 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
       ];
 
       updateClip(targetClip.id, { effects: updatedEffects });
-      useProjectStore.getState().showToast(`Applied ${item.name} effect`);
+      useProjectStore.getState().showToast(t("editor.toast.effectApplied", { name: item.name || t("editor.fallback.effect") }));
     } else if (type === "filters") {
       // Filter must be downloaded first
       const cachedFilter = filterCacheManager.getCached(item.id);
 
       if (!cachedFilter) {
-        useProjectStore.getState().showToast("Filter not downloaded yet", "warning");
+        useProjectStore.getState().showToast(t("editor.toast.filterNotDownloaded"), "warning");
         return;
       }
 
@@ -425,7 +428,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         opacity: 1.0,
         rotation: 0,
         kind: "filter" as const,
-        name: cachedFilter.filter.name || "Filter",
+        name: cachedFilter.filter.name || t("editor.fallback.filter"),
         intensity: defaultIntensity,
         // Store complete filter metadata for data integrity
         category: cachedFilter.filter.category,
@@ -436,7 +439,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
       };
 
       addClip(filterClip as any);
-      useProjectStore.getState().showToast(`Added ${cachedFilter.filter.name} filter`);
+      useProjectStore.getState().showToast(t("editor.toast.filterAdded", { name: cachedFilter.filter.name || t("editor.fallback.filter") }));
     } else if (type === "video-effects" || type === "body-effects") {
       // Effects are now created directly on timeline without downloading
       // The effect data comes from the engine's effectsRegistry
@@ -481,7 +484,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         opacity: 1.0,
         rotation: 0,
         kind: type === "body-effects" ? ("body-effect" as const) : ("video-effect" as const),
-        name: item.name || "Effect",
+        name: item.name || t("editor.fallback.effect"),
         intensity: defaultIntensity,
         renderer: item.renderer || item.id,
         params: item.params || {},
@@ -489,7 +492,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
       };
 
       addClip(effectClip as any);
-      useProjectStore.getState().showToast(`Added ${item.name} effect`);
+      useProjectStore.getState().showToast(t("editor.toast.effectAdded", { name: item.name || t("editor.fallback.effect") }));
     }
   };
 

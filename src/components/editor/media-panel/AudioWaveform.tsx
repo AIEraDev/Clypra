@@ -1,5 +1,6 @@
 import React from "react";
 import { Music } from "lucide-react";
+import { t } from "@/i18n";
 
 interface AudioWaveformProps {
   audioElement?: HTMLAudioElement | null;
@@ -33,7 +34,7 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isPlaying, coverIm
         {/* Top: Album artwork or music icon */}
         <div className="shrink-0">
           {coverImage ? (
-            <img src={coverImage} alt={audioName || "Album artwork"} className="w-52 h-52 rounded-md shadow-(--elev-shadow) ring-1 ring-border object-cover" />
+            <img src={coverImage} alt={audioName ? t("editor.audio.coverAlt", { name: audioName }) : t("editor.audio.albumArtwork")} className="w-52 h-52 rounded-md shadow-(--elev-shadow) ring-1 ring-border object-cover" />
           ) : (
             <div className="w-80 h-80 rounded-3xl bg-card/50 backdrop-blur-sm flex items-center justify-center ring-1 ring-border">
               <Music className="w-32 h-32 text-muted-foreground" strokeWidth={1.5} />
@@ -47,7 +48,7 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({ isPlaying, coverIm
         <div className="absolute top-2 right-2 z-20">
           <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-accent/20 backdrop-blur-sm ring-1 ring-accent/30  animate-pulse">
             <div className="w-2 h-2 rounded-full bg-accent" />
-            <span className="text-[10px] font-medium text-accent">Playing</span>
+            <span className="text-[10px] font-medium text-accent">{t("editor.audio.playing")}</span>
           </div>
         </div>
       )}
