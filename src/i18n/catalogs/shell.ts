@@ -100,6 +100,7 @@ export const shellMessages = defineMessages({
   "launch.today": { en: "Today", zhCN: "今天" },
   "launch.yesterday": { en: "Yesterday", zhCN: "昨天" },
   "launch.daysAgo": { en: "{{count}} days ago", zhCN: "{{count}} 天前" },
+  "launch.unknownDate": { en: "Unknown date", zhCN: "日期未知" },
   "launch.diagnostics.performanceMonitoring": {
     en: "Performance Monitoring",
     zhCN: "性能监控",

@@ -395,9 +395,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   const formatDate = (dateStr: string | number) => {
     const date = new Date(dateStr);
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return t("launch.today");
+    if (!Number.isFinite(date.getTime())) return t("launch.unknownDate");
+
+    const toLocalCalendarDay = (value: Date) =>
+      Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) /
+      (1000 * 60 * 60 * 24);
+    const diffDays = toLocalCalendarDay(now) - toLocalCalendarDay(date);
+
+    if (diffDays <= 0) return t("launch.today");
     if (diffDays === 1) return t("launch.yesterday");
     if (diffDays < 7) return t("launch.daysAgo", { count: diffDays });
     return new Intl.DateTimeFormat("zh-CN", {
@@ -516,52 +521,53 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 return (
                   <div
                     key={project.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onProjectOpen(project)}
-                    onKeyDown={(e) => {
-                      if (e.target !== e.currentTarget) return;
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        onProjectOpen(project);
-                      }
-                    }}
-                    className="group relative text-left rounded-xl border border-white/4 bg-surface hover:bg-surface-raised transition-all duration-200 hover:-translate-y-0.5 hover:border-white/8 hover:shadow-lg hover:shadow-black/20 overflow-hidden cursor-pointer"
+                    className="group relative text-left rounded-xl border border-white/4 bg-surface hover:bg-surface-raised transition-all duration-200 hover:-translate-y-0.5 hover:border-white/8 hover:shadow-lg hover:shadow-black/20 cursor-pointer"
                   >
-                    {/* Thumbnail area */}
-                    <div className="h-[170px] bg-bg flex items-center justify-center relative overflow-hidden">
-                      {thumbnail ? (
-                        <>
-                          <img src={thumbnail} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-25 blur-xl transition-transform duration-300 group-hover:scale-[1.14]" draggable={false} />
-                          <div className="absolute inset-3 flex items-center justify-center overflow-hidden rounded-lg">
-                            <img src={thumbnail} alt="" className="max-h-full max-w-full object-contain opacity-95 shadow-[0_12px_28px_rgba(0,0,0,0.28)] transition-transform duration-300 group-hover:scale-[1.02]" draggable={false} />
-                          </div>
-                        </>
-                      ) : (
-                        <ImageIcon className="w-7 h-7 text-text-muted/25 group-hover:text-accent/40 transition-colors" />
-                      )}
-                      <div className="absolute inset-0 bg-linear-to-t from-bg/55 via-transparent to-bg/10" />
-                      {/* Accent glow on hover */}
-                      <div className="absolute inset-0 bg-accent/3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      {/* Aspect ratio badge */}
-                      <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/75 backdrop-blur-sm text-text-muted border border-white/6">{project.aspectRatio}</span>
-                    </div>
-
-                    {/* Info */}
-                    <div className="px-3.5 py-4">
-                      <h4 className="text-sm font-semibold text-text-primary truncate group-hover:text-accent-soft transition-colors">{project.name}</h4>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-xs text-text-muted">{formatDate(project.createdAt)}</span>
-                        <ChevronRight className="w-3.5 h-3.5 text-text-muted/30 group-hover:text-accent/60 transition-colors" />
+                    <button
+                      type="button"
+                      onClick={() => onProjectOpen(project)}
+                      className="block w-full text-left rounded-xl overflow-hidden cursor-pointer"
+                    >
+                      {/* Thumbnail area */}
+                      <div className="h-[170px] bg-bg flex items-center justify-center relative overflow-hidden">
+                        {thumbnail ? (
+                          <>
+                            <img src={thumbnail} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-25 blur-xl transition-transform duration-300 group-hover:scale-[1.14]" draggable={false} />
+                            <div className="absolute inset-3 flex items-center justify-center overflow-hidden rounded-lg">
+                              <img src={thumbnail} alt="" className="max-h-full max-w-full object-contain opacity-95 shadow-[0_12px_28px_rgba(0,0,0,0.28)] transition-transform duration-300 group-hover:scale-[1.02]" draggable={false} />
+                            </div>
+                          </>
+                        ) : (
+                          <ImageIcon className="w-7 h-7 text-text-muted/25 group-hover:text-accent/40 transition-colors" />
+                        )}
+                        <div className="absolute inset-0 bg-linear-to-t from-bg/55 via-transparent to-bg/10" />
+                        {/* Accent glow on hover */}
+                        <div className="absolute inset-0 bg-accent/3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        {/* Aspect ratio badge */}
+                        <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-bg/75 backdrop-blur-sm text-text-muted border border-white/6">{project.aspectRatio}</span>
                       </div>
-                    </div>
+
+                      {/* Info */}
+                      <div className="px-3.5 py-4">
+                        <h4 className="text-sm font-semibold text-text-primary truncate group-hover:text-accent-soft transition-colors">{project.name}</h4>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-xs text-text-muted">{formatDate(project.createdAt)}</span>
+                          <ChevronRight className="w-3.5 h-3.5 text-text-muted/30 group-hover:text-accent/60 transition-colors" />
+                        </div>
+                      </div>
+                    </button>
 
                     {/* More options button */}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div
+                      ref={menuOpen === project.id ? menuRef : undefined}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                    >
                       <button
                         type="button"
                         onClick={(e) => handleToggleMenu(e, project.id)}
                         aria-label={t("launch.moreOptions")}
+                        aria-expanded={menuOpen === project.id}
+                        aria-haspopup="menu"
                         className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors"
                         title={t("launch.moreOptions")}
                       >
@@ -570,12 +576,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
                       {/* Dropdown menu */}
                       {menuOpen === project.id && (
-                        <div ref={menuRef} className="absolute top-full right-0 mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-surface py-1 shadow-xl overflow-hidden">
-                          <button onClick={(e) => handleRenameClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-text-primary hover:bg-surface-raised transition-colors cursor-pointer">
+                        <div role="menu" className="absolute top-full right-0 mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-surface py-1 shadow-xl overflow-hidden">
+                          <button type="button" role="menuitem" onClick={(e) => handleRenameClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-text-primary hover:bg-surface-raised transition-colors cursor-pointer">
                             <Pencil className="w-3.5 h-3.5" />
                             {t("launch.rename")}
                           </button>
-                          <button onClick={(e) => handleDeleteClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-danger hover:bg-surface-raised transition-colors cursor-pointer">
+                          <button type="button" role="menuitem" onClick={(e) => handleDeleteClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-danger hover:bg-surface-raised transition-colors cursor-pointer">
                             <Trash2 className="w-3.5 h-3.5" />
                             {t("common.delete")}
                           </button>
