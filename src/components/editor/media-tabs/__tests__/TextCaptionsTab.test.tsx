@@ -145,6 +145,19 @@ describe("CaptionsTab critical localized state", () => {
     expect(["Caption", "subtitle-main", "字幕", "自动字幕", "普通文字"].map((name) => isCaptionTrackName?.(name))).toEqual([true, true, true, true, false]);
   });
 
+  test("recognizes uppercase legacy track names under a Turkish locale", () => {
+    const originalToLocaleLowerCase = String.prototype.toLocaleLowerCase;
+    const localeSpy = vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
+      return originalToLocaleLowerCase.call(this, "tr-TR");
+    });
+
+    try {
+      expect(["CAPTION", "SUBTITLE"].map(captionsTabModule.isCaptionTrackName)).toEqual([true, true]);
+    } finally {
+      localeSpy.mockRestore();
+    }
+  });
+
   test("model settings action depends on error kind rather than English copy", () => {
     const needsSettings = (
       captionsTabModule as typeof captionsTabModule & {

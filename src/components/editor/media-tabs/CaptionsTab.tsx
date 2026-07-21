@@ -22,7 +22,7 @@ export interface CaptionErrorState {
 }
 
 export function isCaptionTrackName(name: string): boolean {
-  const normalized = name.trim().toLocaleLowerCase();
+  const normalized = name.trim().toLowerCase();
   return normalized.includes("caption") || normalized.includes("subtitle") || normalized.includes("字幕");
 }
 
