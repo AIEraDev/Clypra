@@ -9,24 +9,25 @@ import { RendererEffectsBrowser } from "./RendererEffectsBrowser";
 import type { EffectPreset } from "../types";
 import type { EffectRenderer as EffectRendererType } from "@clypra-studio/engine";
 import type { TabType } from "@/components/editor/media-tabs/types";
+import { t } from "@/i18n";
 
 const VIDEO_EFFECT_CATEGORIES = [
-  { id: "essentials", name: "Essentials" },
-  { id: "glitch", name: "Glitch" },
-  { id: "retro", name: "Retro" },
-  { id: "light", name: "Light" },
-  { id: "motion", name: "Motion" },
-  { id: "color", name: "Color" },
-];
+  { id: "essentials", messageKey: "features.videoEffects.video.category.essentials" },
+  { id: "glitch", messageKey: "features.videoEffects.video.category.glitch" },
+  { id: "retro", messageKey: "features.videoEffects.video.category.retro" },
+  { id: "light", messageKey: "features.videoEffects.video.category.light" },
+  { id: "motion", messageKey: "features.videoEffects.video.category.motion" },
+  { id: "color", messageKey: "features.videoEffects.video.category.color" },
+] as const;
 
 const BODY_EFFECT_CATEGORIES = [
-  { id: "trending", name: "Trending" },
-  { id: "motion", name: "Motion" },
-  { id: "aura", name: "Aura" },
-  { id: "wings", name: "Wings" },
-  { id: "energy", name: "Energy" },
-  { id: "fun", name: "Fun" },
-];
+  { id: "trending", messageKey: "features.videoEffects.body.category.trending" },
+  { id: "motion", messageKey: "features.videoEffects.body.category.motion" },
+  { id: "aura", messageKey: "features.videoEffects.body.category.aura" },
+  { id: "wings", messageKey: "features.videoEffects.body.category.wings" },
+  { id: "energy", messageKey: "features.videoEffects.body.category.energy" },
+  { id: "fun", messageKey: "features.videoEffects.body.category.fun" },
+] as const;
 
 type EffectTab = "video" | "body";
 
@@ -65,10 +66,10 @@ export function EffectsPanel({ onAddToTimeline }: EffectsPanelProps) {
         {/* Video/Body Tabs */}
         <div className="flex items-center gap-2 shrink-0">
           <button onClick={() => handleTabChange("video")} className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all cursor-pointer ${activeTab === "video" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Video
+            {t("features.videoEffects.tab.video")}
           </button>
           <button onClick={() => handleTabChange("body")} className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all cursor-pointer ${activeTab === "body" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-raised/40"}`}>
-            Body
+            {t("features.videoEffects.tab.body")}
           </button>
         </div>
 
@@ -79,13 +80,13 @@ export function EffectsPanel({ onAddToTimeline }: EffectsPanelProps) {
           {activeTab === "video" &&
             VIDEO_EFFECT_CATEGORIES.map((cat) => (
               <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`shrink-0 cursor-pointer rounded px-2 py-0.5 text-[11px] font-semibold transition-colors flex items-center hover:bg-accent/10 hover:text-accent ${selectedCategory === cat.id ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
-                <span>{cat.name}</span>
+                <span>{t(cat.messageKey)}</span>
               </button>
             ))}
           {activeTab === "body" &&
             BODY_EFFECT_CATEGORIES.map((cat) => (
               <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`shrink-0 cursor-pointer rounded px-2 py-0.5 text-[11px] font-semibold transition-colors flex items-center hover:bg-accent/10 hover:text-accent ${selectedCategory === cat.id ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
-                <span>{cat.name}</span>
+                <span>{t(cat.messageKey)}</span>
               </button>
             ))}
         </div>
@@ -94,7 +95,7 @@ export function EffectsPanel({ onAddToTimeline }: EffectsPanelProps) {
       {/* Tab Content */}
       <div className="grow overflow-y-auto scrollbar-thin">
         {activeTab === "video" && <RendererEffectsBrowser onEffectSelect={handleRendererEffectSelect} onAddToTimeline={onAddToTimeline} showApplyButton={true} selectedCategory={selectedCategory} />}
-        {activeTab === "body" && <EffectPicker onSelect={handleEffectSelect} />}
+        {activeTab === "body" && <EffectPicker onSelect={handleEffectSelect} selectedCategory={selectedCategory} />}
       </div>
     </div>
   );

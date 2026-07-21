@@ -345,3 +345,58 @@ describe("sticker, filter, and transition localization", () => {
     expect(translate("features.transitions.added", { name })).toBe(`已添加 ${name} 转场`);
   });
 });
+
+describe("video effect browser localization", () => {
+  test("translates tabs, stable category labels, browser states, and controls", () => {
+    expect([
+      translate("features.videoEffects.tab.video"),
+      translate("features.videoEffects.tab.body"),
+      ...["essentials", "glitch", "retro", "light", "motion", "color"].map((id) =>
+        translate(`features.videoEffects.video.category.${id}`),
+      ),
+      ...["trending", "motion", "aura", "wings", "energy", "fun"].map((id) =>
+        translate(`features.videoEffects.body.category.${id}`),
+      ),
+      translate("features.videoEffects.body.searchPlaceholder"),
+      translate("features.videoEffects.body.loadFailed"),
+      translate("features.videoEffects.loading"),
+      translate("features.videoEffects.emptyTitle"),
+      translate("features.videoEffects.emptyDescription"),
+      translate("features.videoEffects.downloading"),
+      translate("features.videoEffects.downloadPreview"),
+      translate("features.videoEffects.addToTimeline"),
+      translate("features.videoEffects.downloadAndAdd"),
+    ]).toEqual([
+      "视频",
+      "身体",
+      "基础",
+      "故障",
+      "复古",
+      "光效",
+      "动态",
+      "色彩",
+      "热门",
+      "动态",
+      "光环",
+      "翅膀",
+      "能量",
+      "趣味",
+      "搜索身体效果…",
+      "加载身体效果失败",
+      "正在加载效果…",
+      "未找到效果",
+      "请尝试其他搜索词或分类",
+      "正在下载…",
+      "下载动画预览",
+      "添加效果到时间线",
+      "下载并添加效果",
+    ]);
+  });
+
+  test("preserves remote names in favorite control labels", () => {
+    const name = "REMOTE Effect / 原始名_RAW";
+
+    expect(translate("features.videoEffects.favorite", { name })).toBe(`收藏 ${name}`);
+    expect(translate("features.videoEffects.unfavorite", { name })).toBe(`取消收藏 ${name}`);
+  });
+});

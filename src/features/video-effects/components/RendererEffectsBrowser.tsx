@@ -11,6 +11,7 @@ import { type EffectMetadata } from "@clypra-studio/engine";
 import type { EffectRenderer as EffectRendererType } from "@clypra-studio/engine";
 import type { TabType } from "@/components/editor/media-tabs/types";
 import { useFavoritesStore } from "@/store/favoritesStore";
+import { t } from "@/i18n";
 
 interface RendererEffectsBrowserProps {
   onEffectSelect?: (effectId: EffectRendererType) => void;
@@ -136,13 +137,13 @@ export function RendererEffectsBrowser({ onEffectSelect, onAddToTimeline, showAp
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-10 text-xs text-text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading effects...
+            {t("features.videoEffects.loading")}
           </div>
         ) : filteredEffects.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface-raised/40 p-4 text-center">
             <Smile className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-            <p className="text-xs font-semibold text-text-primary">No effects found</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Try a different search or category</p>
+            <p className="text-xs font-semibold text-text-primary">{t("features.videoEffects.emptyTitle")}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{t("features.videoEffects.emptyDescription")}</p>
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-1.5">
@@ -207,13 +208,13 @@ function EffectCard({ effect, previewUrl, isFavorite, isDownloaded, isDownloadin
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-2">
             <div className="w-8 h-8 rounded-full border-3 border-accent border-t-transparent animate-spin" />
-            <span className="text-[10px] font-semibold text-accent">Downloading...</span>
+            <span className="text-[10px] font-semibold text-accent">{t("features.videoEffects.downloading")}</span>
           </div>
         </div>
       )}
 
       {/* Favorite Star (hover show or active) */}
-      <button onClick={onFavorite} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
+      <button onClick={onFavorite} aria-label={t(isFavorite ? "features.videoEffects.unfavorite" : "features.videoEffects.favorite", { name: effect.name })} title={t(isFavorite ? "features.videoEffects.unfavorite" : "features.videoEffects.favorite", { name: effect.name })} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
         <Star className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`} />
       </button>
 
@@ -236,7 +237,8 @@ function EffectCard({ effect, previewUrl, isFavorite, isDownloaded, isDownloadin
                 onDownloadPreview();
               }}
               className="p-1.5 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 text-white transition-colors"
-              title="Download animated preview"
+              aria-label={t("features.videoEffects.downloadPreview")}
+              title={t("features.videoEffects.downloadPreview")}
             >
               <Download size={12} />
             </button>
@@ -250,7 +252,7 @@ function EffectCard({ effect, previewUrl, isFavorite, isDownloaded, isDownloadin
           {effect.name}
         </span>
         {showApplyButton && (
-          <button onClick={onApply} disabled={isDownloading} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
+          <button onClick={onApply} disabled={isDownloading} aria-label={t(isDownloaded ? "features.videoEffects.addToTimeline" : "features.videoEffects.downloadAndAdd")} title={t(isDownloaded ? "features.videoEffects.addToTimeline" : "features.videoEffects.downloadAndAdd")} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
             {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloaded ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
           </button>
         )}

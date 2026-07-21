@@ -3,17 +3,18 @@ import { Search, Sparkles, AlertCircle, Star, Download, Plus } from "lucide-reac
 import type { EffectPreset } from "../types";
 import { VideoEffectsApi } from "../api/videoEffectsApi";
 import { useFavoritesStore } from "@/store/favoritesStore";
+import { t } from "@/i18n";
 
 interface EffectPickerProps {
   onSelect: (effect: EffectPreset) => void;
+  selectedCategory?: string;
 }
 
-export function EffectPicker({ onSelect }: EffectPickerProps) {
-  const [selectedCategory, setSelectedCategory] = useState<string>("trending"); // Default to "autrendingra" since that's where the default effects are
+export function EffectPicker({ onSelect, selectedCategory = "trending" }: EffectPickerProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [effects, setEffects] = useState<EffectPreset[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
 
   const { favorites, downloadedEffects, downloadingIds, toggleFavorite, startDownload, completeDownload } = useFavoritesStore();
 
@@ -23,13 +24,12 @@ export function EffectPicker({ onSelect }: EffectPickerProps) {
 
   const loadBodyEffects = async () => {
     setLoading(true);
-    setError(null);
+    setError(false);
     try {
       const bodyEffects = await VideoEffectsApi.getBodyEffects();
       setEffects(bodyEffects);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load body effects";
-      setError(message);
+      setError(true);
       console.error("Failed to load body effects:", err);
     } finally {
       setLoading(false);
@@ -80,7 +80,7 @@ export function EffectPicker({ onSelect }: EffectPickerProps) {
       <div className="p-1 border-b border-border shrink-0">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search body effects..." className="w-full bg-surface-raised border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent" />
+          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t("features.videoEffects.body.searchPlaceholder")} className="w-full bg-surface-raised border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent" />
         </div>
       </div>
 
@@ -95,14 +95,14 @@ export function EffectPicker({ onSelect }: EffectPickerProps) {
         {error && (
           <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
             <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
+            <span>{t("features.videoEffects.body.loadFailed")}</span>
           </div>
         )}
 
         {!loading && !error && filteredEffects.length === 0 && (
           <div className="flex flex-col items-center justify-center h-40 gap-1 text-xs text-text-muted">
-            <p>No matching effects found</p>
-            <p className="opacity-60">Try another search or category</p>
+            <p>{t("features.videoEffects.emptyTitle")}</p>
+            <p className="opacity-60">{t("features.videoEffects.emptyDescription")}</p>
           </div>
         )}
 
@@ -151,7 +151,7 @@ function EffectCard({ effect, isFavorite, isDownloaded, isDownloading, onFavorit
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-2">
             <div className="w-8 h-8 rounded-full border-3 border-accent border-t-transparent animate-spin" />
-            <span className="text-[10px] font-semibold text-accent">Downloading...</span>
+            <span className="text-[10px] font-semibold text-accent">{t("features.videoEffects.downloading")}</span>
           </div>
         </div>
       )}
@@ -166,7 +166,7 @@ function EffectCard({ effect, isFavorite, isDownloaded, isDownloading, onFavorit
       )}
 
       {/* Favorite Star */}
-      <button onClick={onFavorite} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
+      <button onClick={onFavorite} aria-label={t(isFavorite ? "features.videoEffects.unfavorite" : "features.videoEffects.favorite", { name: effect.name })} title={t(isFavorite ? "features.videoEffects.unfavorite" : "features.videoEffects.favorite", { name: effect.name })} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
         <Star className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`} />
       </button>
 
@@ -186,7 +186,7 @@ function EffectCard({ effect, isFavorite, isDownloaded, isDownloading, onFavorit
         <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]" title={effect.name}>
           {effect.name}
         </span>
-        <button onClick={onApply} disabled={isDownloading} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
+        <button onClick={onApply} disabled={isDownloading} aria-label={t(isDownloaded ? "features.videoEffects.addToTimeline" : "features.videoEffects.downloadAndAdd")} title={t(isDownloaded ? "features.videoEffects.addToTimeline" : "features.videoEffects.downloadAndAdd")} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
           {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloaded ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
         </button>
       </div>
