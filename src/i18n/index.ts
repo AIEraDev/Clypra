@@ -15,8 +15,10 @@ export function resolveMessage(
       : key;
 
   return message.replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (placeholder, name) => {
-    if (Object.prototype.hasOwnProperty.call(params, name)) {
-      return String(params[name]);
+    const value = params[name];
+
+    if (value !== undefined && value !== null) {
+      return String(value);
     }
 
     if (import.meta.env.DEV) {
