@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { EffectGrid } from "../EffectGrid";
 import { useEffectsStore } from "../../store/effectsStore";
@@ -39,7 +39,16 @@ describe("EffectGrid Component", () => {
   ];
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+
+    useUIStore.setState({
+      previewMediaId: null,
+      previewMode: "program",
+      sourceAsset: null,
+      sourceTextPreset: null,
+      sourceInPoint: null,
+      sourceOutPoint: null,
+    });
 
     // Reset stores
     useEffectsStore.setState({
@@ -75,6 +84,19 @@ describe("EffectGrid Component", () => {
       downloadedEffects: [],
       downloadedTemplates: [],
       downloadingIds: [],
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    useUIStore.setState({
+      previewMediaId: null,
+      previewMode: "program",
+      sourceAsset: null,
+      sourceTextPreset: null,
+      sourceInPoint: null,
+      sourceOutPoint: null,
     });
   });
 
@@ -226,7 +248,6 @@ describe("EffectGrid Component", () => {
       styleId: "classic-3d",
       effectDefinition: fullEffectMock,
     }), "text");
-    vi.useRealTimers();
   });
 
   it("shows download spinner immediately on card click for preview, and projects preview only on completion", async () => {
@@ -269,6 +290,11 @@ describe("EffectGrid Component", () => {
   });
 
   it("handles race downloading of multiple cards and projects using latest-intent-wins", async () => {
+    expect.soft(useUIStore.getState().previewMediaId).toBeNull();
+    expect.soft(useUIStore.getState().sourceTextPreset).toBeNull();
+    expect.soft(vi.isFakeTimers()).toBe(false);
+    expect.soft(vi.isMockFunction(useEffectsStore.getState().selectEffect)).toBe(false);
+
     let resolveA: (value: TextEffectDefinition) => void = () => {};
     let resolveB: (value: TextEffectDefinition) => void = () => {};
 
