@@ -118,6 +118,19 @@ describe("localized sticker, filter, and transition tabs", () => {
     await waitFor(() => expect(request).toHaveBeenLastCalledWith("remote-category_RAW"));
   });
 
+  test.each([
+    ["constructor", "Remote Constructor RAW"],
+    ["toString", "Remote ToString RAW"],
+    ["__proto__", "Remote Proto RAW"],
+  ])("passes prototype-like unknown filter category ID %s through as its remote name", async (id, remoteName) => {
+    vi.spyOn(FiltersApi, "getCategories").mockResolvedValue([{ id, name: remoteName, description: "RAW" }]);
+    const request = vi.spyOn(FiltersApi, "getByCategory").mockResolvedValue([]);
+    render(<FiltersTab />);
+
+    fireEvent.click(await screen.findByRole("button", { name: remoteName }));
+    await waitFor(() => expect(request).toHaveBeenLastCalledWith(id));
+  });
+
   test("keeps filter data and dynamic names raw while localizing preview and download ARIA", async () => {
     vi.spyOn(FiltersApi, "getCategories").mockResolvedValue([]);
     vi.spyOn(FiltersApi, "getByCategory").mockResolvedValue([filter]);

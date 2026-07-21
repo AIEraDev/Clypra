@@ -43,21 +43,21 @@ const DEFAULT_FILTER_CATEGORIES = [
   { id: "life", name: "Life" },
 ];
 
-const FILTER_CATEGORY_LABEL_KEYS = {
-  essentials: "features.filters.category.essentials",
-  portrait: "features.filters.category.portrait",
-  landscape: "features.filters.category.landscape",
-  cinematic: "features.filters.category.cinematic",
-  movies: "features.filters.category.movies",
-  vintage: "features.filters.category.vintage",
-  vibrant: "features.filters.category.vibrant",
-  mono: "features.filters.category.mono",
-  aesthetic: "features.filters.category.aesthetic",
-  life: "features.filters.category.life",
-} as const;
+const FILTER_CATEGORY_LABEL_KEYS = new Map<string, Parameters<typeof t>[0]>([
+  ["essentials", "features.filters.category.essentials"],
+  ["portrait", "features.filters.category.portrait"],
+  ["landscape", "features.filters.category.landscape"],
+  ["cinematic", "features.filters.category.cinematic"],
+  ["movies", "features.filters.category.movies"],
+  ["vintage", "features.filters.category.vintage"],
+  ["vibrant", "features.filters.category.vibrant"],
+  ["mono", "features.filters.category.mono"],
+  ["aesthetic", "features.filters.category.aesthetic"],
+  ["life", "features.filters.category.life"],
+]);
 
 const getCategoryLabel = (id: string, remoteName: string) => {
-  const key = FILTER_CATEGORY_LABEL_KEYS[id as keyof typeof FILTER_CATEGORY_LABEL_KEYS];
+  const key = FILTER_CATEGORY_LABEL_KEYS.get(id);
   return key ? t(key) : remoteName;
 };
 
