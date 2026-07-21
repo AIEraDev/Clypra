@@ -322,7 +322,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
             console.warn(`[WhisperSettings] Model "${model.size}" marked as downloaded but files not found. Resetting state.`);
             resetModelState(model.size);
             if (isActive) {
-              setActiveModel(null as any);
+              setActiveModel(null);
             }
           }
         } catch (error) {
@@ -401,7 +401,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
       await invoke("delete_whisper_model", { size: model.size });
       resetModelState(model.size);
       if (isActive) {
-        setActiveModel(null as any);
+        setActiveModel(null);
       }
     } catch (error) {
       console.error("Failed to delete model:", error);

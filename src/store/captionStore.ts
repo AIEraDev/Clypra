@@ -22,7 +22,7 @@ export interface CaptionSettings {
 interface CaptionStore {
   captionSettings: CaptionSettings;
   setLanguage: (lang: string | "auto") => void;
-  setActiveModel: (size: WhisperModelSize) => void;
+  setActiveModel: (size: WhisperModelSize | null) => void;
   setLanguageHints: (hints: string[]) => void;
   updateModelDownloadState: (size: WhisperModelSize, state: Partial<ModelDownloadState>) => void;
   resetModelState: (size: WhisperModelSize) => void;
@@ -62,15 +62,20 @@ function isDownloadMetric(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
+function sanitizeCurrentModel(model: ModelDownloadState): ModelDownloadState {
+  return model.status === "downloading" ? { ...DEFAULT_MODEL_STATE } : model;
+}
+
 function mergePersistedModelState(
   persistedModel: unknown,
   currentModel: ModelDownloadState,
 ): ModelDownloadState {
+  const fallbackModel = sanitizeCurrentModel(currentModel);
   if (persistedModel === undefined) {
-    return currentModel;
+    return fallbackModel;
   }
   if (!isRecord(persistedModel) || !isModelDownloadStatus(persistedModel.status)) {
-    return { ...DEFAULT_MODEL_STATE };
+    return fallbackModel;
   }
   if (persistedModel.status === "downloading") {
     return { ...DEFAULT_MODEL_STATE };
@@ -82,7 +87,7 @@ function mergePersistedModelState(
     (persistedModel.errorMessage !== undefined &&
       typeof persistedModel.errorMessage !== "string")
   ) {
-    return { ...DEFAULT_MODEL_STATE };
+    return fallbackModel;
   }
 
   return {
@@ -100,8 +105,22 @@ function mergePersistedCaptionStore(
   persistedState: unknown,
   currentState: CaptionStore,
 ): CaptionStore {
+  const currentSettings = currentState.captionSettings;
+  const fallbackState: CaptionStore = {
+    ...currentState,
+    captionSettings: {
+      ...currentSettings,
+      models: {
+        tiny: sanitizeCurrentModel(currentSettings.models.tiny),
+        base: sanitizeCurrentModel(currentSettings.models.base),
+        small: sanitizeCurrentModel(currentSettings.models.small),
+        medium: sanitizeCurrentModel(currentSettings.models.medium),
+        "large-v3": sanitizeCurrentModel(currentSettings.models["large-v3"]),
+      },
+    },
+  };
   if (!isRecord(persistedState) || !isRecord(persistedState.captionSettings)) {
-    return currentState;
+    return fallbackState;
   }
 
   const persistedSettings = persistedState.captionSettings;
@@ -110,42 +129,42 @@ function mergePersistedCaptionStore(
     : {};
 
   return {
-    ...currentState,
+    ...fallbackState,
     captionSettings: {
       language:
         typeof persistedSettings.language === "string"
           ? persistedSettings.language
-          : currentState.captionSettings.language,
+          : currentSettings.language,
       activeModel:
         persistedSettings.activeModel === null ||
         isWhisperModelSize(persistedSettings.activeModel)
           ? persistedSettings.activeModel
-          : currentState.captionSettings.activeModel,
+          : currentSettings.activeModel,
       languageHints: Array.isArray(persistedSettings.languageHints)
         ? persistedSettings.languageHints.filter(
             (hint): hint is string => typeof hint === "string",
           )
-        : currentState.captionSettings.languageHints,
+        : currentSettings.languageHints,
       models: {
         tiny: mergePersistedModelState(
           persistedModels.tiny,
-          currentState.captionSettings.models.tiny,
+          currentSettings.models.tiny,
         ),
         base: mergePersistedModelState(
           persistedModels.base,
-          currentState.captionSettings.models.base,
+          currentSettings.models.base,
         ),
         small: mergePersistedModelState(
           persistedModels.small,
-          currentState.captionSettings.models.small,
+          currentSettings.models.small,
         ),
         medium: mergePersistedModelState(
           persistedModels.medium,
-          currentState.captionSettings.models.medium,
+          currentSettings.models.medium,
         ),
         "large-v3": mergePersistedModelState(
           persistedModels["large-v3"],
-          currentState.captionSettings.models["large-v3"],
+          currentSettings.models["large-v3"],
         ),
       },
     },

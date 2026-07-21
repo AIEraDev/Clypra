@@ -147,4 +147,63 @@ describe("captionStore persistence", () => {
     });
     expect(state.setLanguage).toBeTypeOf("function");
   });
+
+  test("resets a current download when its persisted model is missing", async () => {
+    useCaptionStore.getState().updateModelDownloadState("tiny", {
+      status: "downloading",
+      progressBytes: 100,
+      totalBytes: 200,
+      speedBytesPerSec: 10,
+    });
+    localStorage.setItem(
+      "clypra-caption-settings",
+      JSON.stringify({
+        state: {
+          captionSettings: {
+            language: "auto",
+            activeModel: null,
+            languageHints: [],
+            models: {},
+          },
+        },
+        version: 0,
+      }),
+    );
+
+    await useCaptionStore.persist.rehydrate();
+
+    expect(useCaptionStore.getState().captionSettings.models.tiny).toEqual(
+      IDLE_MODEL,
+    );
+  });
+
+  test("resets current downloads when persisted settings are invalid", async () => {
+    for (const persistedState of [null, { captionSettings: null }]) {
+      useCaptionStore.setState({ captionSettings: defaultCaptionSettings() });
+      useCaptionStore.getState().updateModelDownloadState("tiny", {
+        status: "downloading",
+        progressBytes: 100,
+        totalBytes: 200,
+        speedBytesPerSec: 10,
+      });
+      localStorage.setItem(
+        "clypra-caption-settings",
+        JSON.stringify({ state: persistedState, version: 0 }),
+      );
+
+      await useCaptionStore.persist.rehydrate();
+
+      expect(useCaptionStore.getState().captionSettings.models.tiny).toEqual(
+        IDLE_MODEL,
+      );
+    }
+  });
+
+  test("allows clearing the active model", () => {
+    const { setActiveModel } = useCaptionStore.getState();
+    setActiveModel("base");
+    setActiveModel(null);
+
+    expect(useCaptionStore.getState().captionSettings.activeModel).toBeNull();
+  });
 });
