@@ -1,6 +1,6 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { createElement } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/features/audio-library/store/audioLibraryStore", () => ({
   useAudioLibraryStore: () => ({
@@ -32,11 +32,17 @@ import {
 import { SettingsModal } from "@/components/ui/SettingsModal";
 import { t } from "@/i18n";
 import { settingsMessages } from "@/i18n/catalogs/settings";
+import * as settingsStoreModule from "@/store/settingsStore";
 import {
   FONT_META,
   THEME_META,
   getThemeColors,
+  useSettingsStore,
 } from "@/store/settingsStore";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("general settings localization", () => {
   test("translates settings tabs and general editor labels", () => {
@@ -115,6 +121,172 @@ describe("general settings localization", () => {
 
     expect(screen.getByText("焦点环")).toBeInTheDocument();
     expect(screen.queryByText("主文本")).not.toBeInTheDocument();
+  });
+
+  test("rejects unknown, array, non-string, and invalid theme colors", () => {
+    const sanitizeThemeColors = (
+      settingsStoreModule as typeof settingsStoreModule & {
+        sanitizeThemeColors?: (value: unknown) => Record<string, string> | null;
+      }
+    ).sanitizeThemeColors;
+
+    expect(sanitizeThemeColors?.({ display: "none" })).toBeNull();
+    expect(sanitizeThemeColors?.(["#ffffff"])).toBeNull();
+    expect(sanitizeThemeColors?.({ "--color-bg": 42 })).toBeNull();
+    expect(sanitizeThemeColors?.({ "--color-bg": "display:none" })).toBeNull();
+  });
+
+  test("preserves valid colors for known editable theme tokens", () => {
+    const sanitizeThemeColors = (
+      settingsStoreModule as typeof settingsStoreModule & {
+        sanitizeThemeColors?: (value: unknown) => Record<string, string> | null;
+      }
+    ).sanitizeThemeColors;
+    const validColors = {
+      "--color-bg": "#123456",
+      "--color-accent": "rgba(12, 34, 56, 0.5)",
+      "--ring": "rebeccapurple",
+    };
+
+    expect(sanitizeThemeColors?.(validColors)).toEqual(validColors);
+  });
+
+  test("fills omitted custom theme tokens from a deterministic dark base", () => {
+    const customColors = getThemeColors("custom", {
+      "--color-bg": "#123456",
+    });
+
+    expect(customColors["--color-bg"]).toBe("#123456");
+    expect(customColors["--color-surface"]).toBe(
+      getThemeColors("dark")["--color-surface"],
+    );
+  });
+
+  test("sanitizes corrupted persisted settings through the configured merge", () => {
+    const mergePersistedSettings = (
+      settingsStoreModule as typeof settingsStoreModule & {
+        mergePersistedSettings?: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useSettingsStore.getState>,
+        ) => ReturnType<typeof useSettingsStore.getState>;
+      }
+    ).mergePersistedSettings;
+    const currentState = useSettingsStore.getState();
+
+    expect(typeof mergePersistedSettings).toBe("function");
+    expect(useSettingsStore.persist.getOptions().merge).toBe(
+      mergePersistedSettings,
+    );
+
+    const merged = mergePersistedSettings?.(
+      {
+        theme: "display:none",
+        fontFamily: "url(javascript:alert(1))",
+        customTheme: {
+          "--color-bg": "#123456",
+          display: "none",
+        },
+      },
+      currentState,
+    );
+
+    expect(merged).toMatchObject({
+      theme: "dark",
+      fontFamily: "inter",
+      customTheme: null,
+    });
+  });
+
+  test("keeps a valid custom theme during persisted-state merge", () => {
+    const mergePersistedSettings = (
+      settingsStoreModule as typeof settingsStoreModule & {
+        mergePersistedSettings?: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useSettingsStore.getState>,
+        ) => ReturnType<typeof useSettingsStore.getState>;
+      }
+    ).mergePersistedSettings;
+    const validColors = { "--color-bg": "#123456" };
+
+    const merged = mergePersistedSettings?.(
+      {
+        theme: "custom",
+        fontFamily: "space-grotesk",
+        customTheme: validColors,
+      },
+      useSettingsStore.getState(),
+    );
+
+    expect(merged).toMatchObject({
+      theme: "custom",
+      fontFamily: "space-grotesk",
+      customTheme: validColors,
+    });
+  });
+
+  test("rejects a malformed imported theme without mutating editor or store state", async () => {
+    useSettingsStore.setState({ theme: "dark", customTheme: null });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      Object.defineProperty(this, "files", {
+        configurable: true,
+        value: [
+          {
+            text: async () =>
+              JSON.stringify({ colors: { display: "none" } }),
+          },
+        ],
+      });
+      this.dispatchEvent(new Event("change"));
+    });
+
+    render(createElement(SettingsModal, { isOpen: true, onClose: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: "自定义主题" }));
+    fireEvent.click(screen.getByRole("button", { name: "导入" }));
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith("主题文件格式无效");
+    });
+    expect(screen.queryByText("display")).not.toBeInTheDocument();
+    expect(useSettingsStore.getState()).toMatchObject({
+      theme: "dark",
+      customTheme: null,
+    });
+  });
+
+  test("gives every theme color control a unique translated accessible name", () => {
+    const { container } = render(
+      createElement(SettingsModal, { isOpen: true, onClose: vi.fn() }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "自定义主题" }));
+
+    const ringPicker = screen.getByLabelText(
+      "焦点环（--ring）颜色选择器",
+    );
+    const ringValue = screen.getByLabelText("焦点环（--ring）颜色值");
+    const visibleRingLabel = screen.getByText("焦点环");
+    const colorControls = Array.from(
+      container.querySelectorAll<HTMLInputElement>(
+        'input[type="color"][id], input[type="text"][id]',
+      ),
+    );
+
+    expect(ringPicker.id).not.toBe("");
+    expect(ringValue.id).not.toBe("");
+    expect(visibleRingLabel).toHaveAttribute("for", ringValue.id);
+    expect(colorControls.length).toBeGreaterThan(0);
+    expect(new Set(colorControls.map((input) => input.id)).size).toBe(
+      colorControls.length,
+    );
+    const accessibleNames = colorControls.map((input) =>
+      input.getAttribute("aria-label"),
+    );
+    expect(new Set(accessibleNames).size).toBe(colorControls.length);
+    for (const input of colorControls) {
+      expect(input).toHaveAccessibleName();
+    }
   });
 
   test("keeps persisted and technical values unchanged", () => {

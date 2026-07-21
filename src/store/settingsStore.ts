@@ -27,54 +27,6 @@ interface SettingsStore {
   setPreviewQuality: (v: PreviewQuality) => void;
 }
 
-export const useSettingsStore = create<SettingsStore>()(
-  persist(
-    (set, get) => ({
-      theme: "dark",
-      fontFamily: "inter",
-      customTheme: null,
-      snapToGrid: true,
-      autoSave: true,
-      defaultFrameRate: 30,
-      previewQuality: "high",
-
-      setTheme: (theme) => {
-        set({ theme });
-        applyTheme(theme, get().customTheme);
-      },
-
-      setFontFamily: (fontFamily) => {
-        set({ fontFamily });
-        applyFontFamily(fontFamily);
-      },
-
-      setCustomTheme: (colors) => {
-        set({ customTheme: colors, theme: "custom" });
-        applyTheme("custom", colors);
-      },
-
-      resetCustomTheme: () => {
-        set({ customTheme: null, theme: "dark" });
-        applyTheme("dark", null);
-      },
-
-      setSnapToGrid: (snapToGrid) => set({ snapToGrid }),
-      setAutoSave: (autoSave) => set({ autoSave }),
-      setDefaultFrameRate: (defaultFrameRate) => set({ defaultFrameRate }),
-      setPreviewQuality: (previewQuality) => set({ previewQuality }),
-    }),
-    {
-      name: "clypra-settings",
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          applyTheme(state.theme, state.customTheme);
-          applyFontFamily(state.fontFamily);
-        }
-      },
-    },
-  ),
-);
-
 // ─── Theme definitions ──────────────────────────────────────────────────────
 // Each theme provides a complete set of CSS custom properties so that the
 // entire editor UI updates consistently when switching.
@@ -768,15 +720,112 @@ export const THEME_META: Record<Theme, { nameKey: MessageKey; descriptionKey: Me
   custom: { nameKey: "settings.theme.custom.name", descriptionKey: "settings.theme.custom.description" },
 };
 
+function isTheme(value: unknown): value is Theme {
+  return (
+    value === "custom" ||
+    (typeof value === "string" && Object.prototype.hasOwnProperty.call(themes, value))
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const SAFE_COLOR_KEYWORDS = new Set([
+  "aqua",
+  "black",
+  "blue",
+  "currentcolor",
+  "fuchsia",
+  "gray",
+  "green",
+  "lime",
+  "maroon",
+  "navy",
+  "olive",
+  "orange",
+  "purple",
+  "rebeccapurple",
+  "red",
+  "silver",
+  "teal",
+  "transparent",
+  "white",
+  "yellow",
+]);
+
+function isValidCssColor(value: string): boolean {
+  if (
+    /[;{}]/.test(value) ||
+    /^(?:inherit|initial|revert|revert-layer|unset)$/i.test(value) ||
+    /(?:url|var|env)\s*\(/i.test(value)
+  ) {
+    return false;
+  }
+
+  if (typeof CSS !== "undefined" && typeof CSS.supports === "function") {
+    return CSS.supports("color", value);
+  }
+
+  if (typeof document !== "undefined") {
+    const style = document.createElement("span").style;
+    style.color = "";
+    style.color = value;
+    return style.color !== "";
+  }
+
+  if (/^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(value)) {
+    return true;
+  }
+
+  if (
+    /^(?:rgba?|hsla?)\(\s*[-+\d.%]+\s*(?:,\s*[-+\d.%]+\s*){2}(?:,\s*[-+\d.%]+\s*)?\)$/i.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+
+  return SAFE_COLOR_KEYWORDS.has(value.toLowerCase());
+}
+
+export function sanitizeThemeColors(value: unknown): Record<string, string> | null {
+  if (!isRecord(value)) return null;
+
+  const entries = Object.entries(value);
+  if (entries.length === 0) return null;
+
+  const allowedKeys = new Set(Object.keys(themes.dark));
+  const sanitized: Record<string, string> = {};
+
+  for (const [key, color] of entries) {
+    if (!allowedKeys.has(key) || typeof color !== "string") return null;
+
+    const normalizedColor = color.trim();
+    if (!normalizedColor || !isValidCssColor(normalizedColor)) return null;
+    sanitized[key] = normalizedColor;
+  }
+
+  return sanitized;
+}
+
+function normalizeCustomTheme(value: unknown): Record<string, string> | null {
+  const sanitizedColors = sanitizeThemeColors(value);
+  return sanitizedColors ? { ...themes.dark, ...sanitizedColors } : null;
+}
+
 /** Returns the raw theme color tokens for a given theme (for live previews) */
 export function getThemeColors(t: Theme, customColors?: Record<string, string> | null): Record<string, string> {
-  if (t === "custom" && customColors) {
-    return customColors;
+  const safeTheme = isTheme(t) ? t : "dark";
+  const safeCustomColors = normalizeCustomTheme(customColors);
+
+  if (safeTheme === "custom" && safeCustomColors) {
+    return safeCustomColors;
   }
-  if (t === "custom") {
+  if (safeTheme === "custom") {
     return themes.dark;
   }
-  return themes[t] || themes.dark;
+  return themes[safeTheme];
 }
 
 // Font family definitions
@@ -791,6 +840,10 @@ const fontFamilies: Record<FontFamily, string> = {
   mono: '"JetBrains Mono", "Fira Code", Consolas, monospace',
 };
 
+function isFontFamily(value: unknown): value is FontFamily {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(fontFamilies, value);
+}
+
 export const FONT_META: Record<FontFamily, { name: string; stack: string }> = {
   inter: { name: "Inter", stack: fontFamilies.inter },
   montserrat: { name: "Montserrat", stack: fontFamilies.montserrat },
@@ -803,15 +856,19 @@ export const FONT_META: Record<FontFamily, { name: string; stack: string }> = {
 };
 
 export function applyTheme(theme: Theme, customColors?: Record<string, string> | null) {
+  if (typeof document === "undefined") return;
+
   const root = document.documentElement;
+  const safeTheme = isTheme(theme) ? theme : "dark";
+  const safeCustomColors = normalizeCustomTheme(customColors);
   let themeColors: Record<string, string>;
 
-  if (theme === "custom" && customColors) {
-    themeColors = customColors;
-  } else if (theme === "custom") {
+  if (safeTheme === "custom" && safeCustomColors) {
+    themeColors = safeCustomColors;
+  } else if (safeTheme === "custom") {
     themeColors = themes.dark;
   } else {
-    themeColors = themes[theme] || themes.dark;
+    themeColors = themes[safeTheme];
   }
 
   Object.entries(themeColors).forEach(([property, value]) => {
@@ -820,12 +877,122 @@ export function applyTheme(theme: Theme, customColors?: Record<string, string> |
 }
 
 export function applyFontFamily(fontFamily: FontFamily) {
+  if (typeof document === "undefined") return;
+
+  const safeFontFamily = isFontFamily(fontFamily) ? fontFamily : "inter";
   const root = document.documentElement;
-  root.style.setProperty("--font-sans", fontFamilies[fontFamily]);
+  root.style.setProperty("--font-sans", fontFamilies[safeFontFamily]);
   if (document.body) {
-    document.body.style.fontFamily = fontFamilies[fontFamily];
+    document.body.style.fontFamily = fontFamilies[safeFontFamily];
   }
 }
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+export function mergePersistedSettings(
+  persistedState: unknown,
+  currentState: SettingsStore,
+): SettingsStore {
+  if (!isRecord(persistedState)) return currentState;
+
+  const customTheme = hasOwn(persistedState, "customTheme")
+    ? normalizeCustomTheme(persistedState.customTheme)
+    : normalizeCustomTheme(currentState.customTheme);
+  const persistedTheme = hasOwn(persistedState, "theme")
+    ? isTheme(persistedState.theme)
+      ? persistedState.theme
+      : "dark"
+    : currentState.theme;
+  const theme = persistedTheme === "custom" && !customTheme ? "dark" : persistedTheme;
+  const fontFamily = hasOwn(persistedState, "fontFamily")
+    ? isFontFamily(persistedState.fontFamily)
+      ? persistedState.fontFamily
+      : "inter"
+    : currentState.fontFamily;
+  const defaultFrameRate = [24, 30, 60].includes(persistedState.defaultFrameRate as number)
+    ? (persistedState.defaultFrameRate as FrameRate)
+    : currentState.defaultFrameRate;
+  const previewQuality = ["full", "high", "medium", "low"].includes(
+    persistedState.previewQuality as string,
+  )
+    ? (persistedState.previewQuality as PreviewQuality)
+    : currentState.previewQuality;
+
+  return {
+    ...currentState,
+    theme,
+    fontFamily,
+    customTheme,
+    snapToGrid:
+      typeof persistedState.snapToGrid === "boolean"
+        ? persistedState.snapToGrid
+        : currentState.snapToGrid,
+    autoSave:
+      typeof persistedState.autoSave === "boolean"
+        ? persistedState.autoSave
+        : currentState.autoSave,
+    defaultFrameRate,
+    previewQuality,
+  };
+}
+
+export const useSettingsStore = create<SettingsStore>()(
+  persist(
+    (set, get) => ({
+      theme: "dark",
+      fontFamily: "inter",
+      customTheme: null,
+      snapToGrid: true,
+      autoSave: true,
+      defaultFrameRate: 30,
+      previewQuality: "high",
+
+      setTheme: (theme) => {
+        const safeTheme = isTheme(theme) ? theme : "dark";
+        const customTheme = normalizeCustomTheme(get().customTheme);
+        const nextTheme = safeTheme === "custom" && !customTheme ? "dark" : safeTheme;
+        set({ theme: nextTheme, customTheme });
+        applyTheme(nextTheme, customTheme);
+      },
+
+      setFontFamily: (fontFamily) => {
+        const safeFontFamily = isFontFamily(fontFamily) ? fontFamily : "inter";
+        set({ fontFamily: safeFontFamily });
+        applyFontFamily(safeFontFamily);
+      },
+
+      setCustomTheme: (colors) => {
+        const sanitizedColors = normalizeCustomTheme(colors);
+        if (!sanitizedColors) return;
+
+        set({ customTheme: sanitizedColors, theme: "custom" });
+        applyTheme("custom", sanitizedColors);
+      },
+
+      resetCustomTheme: () => {
+        set({ customTheme: null, theme: "dark" });
+        applyTheme("dark", null);
+      },
+
+      setSnapToGrid: (snapToGrid) => set({ snapToGrid }),
+      setAutoSave: (autoSave) => set({ autoSave }),
+      setDefaultFrameRate: (defaultFrameRate) => set({ defaultFrameRate }),
+      setPreviewQuality: (previewQuality) => set({ previewQuality }),
+    }),
+    {
+      name: "clypra-settings",
+      merge: mergePersistedSettings,
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          applyTheme(state.theme, state.customTheme);
+          applyFontFamily(state.fontFamily);
+        }
+      },
+    },
+  ),
+);
 
 export function initSettings() {
   const state = useSettingsStore.getState();

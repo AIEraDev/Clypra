@@ -65,6 +65,14 @@ export const settingsMessages = defineMessages({
   "settings.theme.editor.group.other": { en: "Other Colors", zhCN: "其他颜色" },
   "settings.theme.editor.group.shadcn": { en: "Shadcn", zhCN: "Shadcn" },
   "settings.theme.editor.apply": { en: "Apply Custom Theme", zhCN: "应用自定义主题" },
+  "settings.theme.editor.colorPickerLabel": {
+    en: "{{color}} ({{key}}) color picker",
+    zhCN: "{{color}}（{{key}}）颜色选择器",
+  },
+  "settings.theme.editor.colorValueLabel": {
+    en: "{{color}} ({{key}}) color value",
+    zhCN: "{{color}}（{{key}}）颜色值",
+  },
   "settings.theme.editor.invalidFile": { en: "Invalid theme file format", zhCN: "主题文件格式无效" },
   "settings.theme.editor.importFailed": { en: "Failed to import theme: {{error}}", zhCN: "导入主题失败：{{error}}" },
 

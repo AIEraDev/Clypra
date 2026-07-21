@@ -196,7 +196,11 @@ export const CacheSettings: React.FC = () => {
 
       {/* Clear Result Message */}
       {lastResult && (
-        <div className={`flex items-center gap-3 p-2 rounded-lg border text-xs ${lastResult.success ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
+        <div
+          role={lastResult.success ? "status" : "alert"}
+          aria-live={lastResult.success ? "polite" : "assertive"}
+          className={`flex items-center gap-3 p-2 rounded-lg border text-xs ${lastResult.success ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}
+        >
           {lastResult.success ? <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
           <div className="flex-1">
             <p className="font-medium">{localizeCacheResultMessage(lastResult.message)}</p>
@@ -279,7 +283,11 @@ export const CacheSettings: React.FC = () => {
         )}
 
         {apiCacheStatus && (
-          <div className={`flex items-center gap-3 p-2 rounded-lg border text-xs ${apiCacheStatus.type === "success" ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
+          <div
+            role={apiCacheStatus.type === "success" ? "status" : "alert"}
+            aria-live={apiCacheStatus.type === "success" ? "polite" : "assertive"}
+            className={`flex items-center gap-3 p-2 rounded-lg border text-xs ${apiCacheStatus.type === "success" ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}
+          >
             {apiCacheStatus.type === "success" ? <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
             <p className="font-medium flex-1">{apiCacheStatus.message}</p>
           </div>

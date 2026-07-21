@@ -97,7 +97,9 @@ describe("CacheSettings component", () => {
 
     render(<CacheSettings />);
 
-    expect(screen.getByText(t("settings.cache.allCleared"))).toBeInTheDocument();
+    const status = screen.getByRole("status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveTextContent(t("settings.cache.allCleared"));
   });
 
   it("displays error message and stats errors when lastResult fails", () => {
@@ -117,6 +119,8 @@ describe("CacheSettings component", () => {
 
     render(<CacheSettings />);
 
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveAttribute("aria-live", "assertive");
     expect(
       screen.getByText(t("settings.cache.operationFailed", { error: "Clear failed!" })),
     ).toBeInTheDocument();

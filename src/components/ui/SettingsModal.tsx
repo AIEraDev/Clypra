@@ -1,10 +1,10 @@
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Captions, RefreshCw, Keyboard } from "lucide-react";
 import packageJson from "../../../package.json";
 import { platform } from "@/core/platform";
 import { t, type MessageKey } from "@/i18n";
 import { Modal } from "./Modal";
-import { useSettingsStore, Theme, FontFamily, THEME_META, FONT_META, getThemeColors, getBaseThemeForCustomization, getThemeColorKeys } from "@/store/settingsStore";
+import { useSettingsStore, Theme, FontFamily, THEME_META, FONT_META, getThemeColors, getBaseThemeForCustomization, getThemeColorKeys, sanitizeThemeColors } from "@/store/settingsStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { CacheSettings } from "@/components/settings/CacheSettings";
@@ -219,6 +219,7 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: T
 // ─── Custom Theme Editor ─────────────────────────────────────────────────
 function CustomThemeEditor() {
   const { customTheme, setCustomTheme, resetCustomTheme } = useSettingsStore();
+  const colorControlIdPrefix = useId();
   const [baseTheme, setBaseTheme] = useState<Exclude<Theme, "custom">>("dark");
   const [editingColors, setEditingColors] = useState<Record<string, string>>(customTheme || getBaseThemeForCustomization("dark"));
   const [searchQuery, setSearchQuery] = useState("");
@@ -244,7 +245,11 @@ function CustomThemeEditor() {
   const colorGroups: Array<{ labelKey: MessageKey; keys: string[] }> = [
     {
       labelKey: "settings.theme.editor.group.baseColors",
-      keys: filteredKeys.filter((key) => key.match(/^--color-(bg|surface|border|text|accent|danger)/)),
+      keys: filteredKeys.filter(
+        (key) =>
+          key.match(/^--color-(bg|surface|border|text|accent|danger)/) &&
+          !key.includes("clip"),
+      ),
     },
     {
       labelKey: "settings.theme.editor.group.timeline",
@@ -282,7 +287,14 @@ function CustomThemeEditor() {
   };
 
   const handleApply = () => {
-    setCustomTheme(editingColors);
+    const sanitizedColors = sanitizeThemeColors(editingColors);
+    if (!sanitizedColors) {
+      alert(t("settings.theme.editor.invalidFile"));
+      return;
+    }
+
+    setEditingColors(sanitizedColors);
+    setCustomTheme(sanitizedColors);
   };
 
   const handleReset = () => {
@@ -325,11 +337,16 @@ function CustomThemeEditor() {
 
       try {
         const text = await file.text();
-        const data = JSON.parse(text);
+        const data: unknown = JSON.parse(text);
+        const colors = sanitizeThemeColors(
+          data && typeof data === "object" && "colors" in data
+            ? (data as { colors?: unknown }).colors
+            : undefined,
+        );
 
         // Validate the theme data
-        if (data.colors && typeof data.colors === "object") {
-          setEditingColors(data.colors);
+        if (colors) {
+          setEditingColors(colors);
         } else {
           alert(t("settings.theme.editor.invalidFile"));
         }
@@ -395,22 +412,44 @@ function CustomThemeEditor() {
 
       {/* Color groups */}
       <div className="max-h-[400px] overflow-y-auto space-y-4 pr-2 scrollbar-thin">
-        {colorGroups.map(({ labelKey, keys }) => {
+        {colorGroups.map(({ labelKey, keys }, groupIndex) => {
           if (keys.length === 0) return null;
           return (
             <div key={labelKey}>
               <h4 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t(labelKey)}</h4>
               <div className="space-y-2">
-                {keys.map((key) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <input type="color" value={editingColors[key] || "#000000"} onChange={(e) => handleColorChange(key, e.target.value)} className="w-8 h-8 rounded cursor-pointer border border-white/6" />
-                    <div className="flex-1">
-                      <div className="text-[11px] text-text-primary">{getColorLabel(key)}</div>
-                      <div className="text-[9px] text-text-muted font-mono">{editingColors[key]}</div>
+                {keys.map((key) => {
+                  const colorLabel = getColorLabel(key);
+                  const pickerId = `${colorControlIdPrefix}-${groupIndex}-${key}-picker`;
+                  const valueId = `${colorControlIdPrefix}-${groupIndex}-${key}-value`;
+
+                  return (
+                    <div key={key} className="flex items-center gap-2">
+                      <input
+                        id={pickerId}
+                        type="color"
+                        value={editingColors[key] || "#000000"}
+                        onChange={(e) => handleColorChange(key, e.target.value)}
+                        aria-label={t("settings.theme.editor.colorPickerLabel", { color: colorLabel, key })}
+                        className="w-8 h-8 rounded cursor-pointer border border-white/6"
+                      />
+                      <div className="flex-1">
+                        <label htmlFor={valueId} className="text-[11px] text-text-primary">
+                          {colorLabel}
+                        </label>
+                        <div className="text-[9px] text-text-muted font-mono">{editingColors[key]}</div>
+                      </div>
+                      <input
+                        id={valueId}
+                        type="text"
+                        value={editingColors[key] || ""}
+                        onChange={(e) => handleColorChange(key, e.target.value)}
+                        aria-label={t("settings.theme.editor.colorValueLabel", { color: colorLabel, key })}
+                        className="w-24 px-2 py-1 text-[10px] font-mono rounded bg-surface-raised border border-white/6 text-text-primary"
+                      />
                     </div>
-                    <input type="text" value={editingColors[key] || ""} onChange={(e) => handleColorChange(key, e.target.value)} className="w-24 px-2 py-1 text-[10px] font-mono rounded bg-surface-raised border border-white/6 text-text-primary" />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
