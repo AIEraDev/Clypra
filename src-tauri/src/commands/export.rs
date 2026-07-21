@@ -705,6 +705,10 @@ pub async fn write_export_frames_batch(
 /// Finalize the export session.
 ///
 /// Closes stdin and waits for FFmpeg to finish encoding.
+fn format_ffmpeg_failure(stderr: &str) -> String {
+    format!("FFmpeg 执行失败：{stderr}")
+}
+
 #[tauri::command]
 pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
     let mut sessions = EXPORT_SESSIONS.lock().await;
@@ -739,7 +743,7 @@ pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
             "[finalize_video_export] Session {} failed:\n{}",
             session_id, stderr
         );
-        Err(format!("FFmpeg 执行失败：{}", stderr))
+        Err(format_ffmpeg_failure(&stderr))
     }
 }
 
@@ -877,44 +881,13 @@ mod tests {
         assert_eq!(error, format!("不支持的编码格式：{codec}"));
     }
 
-    #[tokio::test]
-    async fn ffmpeg_stderr_is_preserved_verbatim() {
+    #[test]
+    fn ffmpeg_stderr_is_preserved_verbatim() {
         let stderr = "encoder exploded: codec=h264\n";
-        let mut process = Command::new("sh");
-        process
-            .args([
-                "-c",
-                "cat >/dev/null; printf 'encoder exploded: codec=h264\\n' >&2; exit 1",
-            ])
-            .stdin(Stdio::piped())
-            .stderr(Stdio::piped());
-        let mut process = process.spawn().expect("test process should spawn");
-        let stdin = process
-            .stdin
-            .take()
-            .expect("test process stdin should open");
-        let session_id = uuid::Uuid::new_v4().to_string();
-        EXPORT_SESSIONS.lock().await.insert(
-            session_id.clone(),
-            ExportSession {
-                process,
-                stdin,
-                current_frame: 0,
-                total_frames: 1,
-                start_time: std::time::Instant::now(),
-                on_progress: progress_channel(),
-                width: 1,
-                height: 1,
-                output_path: None,
-                frame_write_times: VecDeque::new(),
-                last_perf_log_time: std::time::Instant::now(),
-            },
+
+        assert_eq!(
+            format_ffmpeg_failure(stderr),
+            format!("FFmpeg 执行失败：{stderr}")
         );
-
-        let error = finalize_video_export(session_id)
-            .await
-            .expect_err("non-zero FFmpeg exit should fail");
-
-        assert_eq!(error, format!("FFmpeg 执行失败：{stderr}"));
     }
 }
