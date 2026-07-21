@@ -89,4 +89,29 @@ describe("LaunchScreen", () => {
     expect(screen.getByRole("button", { name: "重命名" })).toBeInTheDocument();
     expect(onProjectOpen).not.toHaveBeenCalled();
   });
+
+  test.each([
+    ["Enter", "{Enter}"],
+    ["Space", " "],
+  ])(
+    "opens project options with %s without opening the project",
+    async (_keyName, key) => {
+      const user = userEvent.setup();
+      const onProjectOpen = vi.fn();
+
+      render(
+        <LaunchScreen
+          onProjectCreate={vi.fn()}
+          onProjectOpen={onProjectOpen}
+        />,
+      );
+
+      const optionsButton = screen.getByRole("button", { name: "更多选项" });
+      optionsButton.focus();
+      await user.keyboard(key);
+
+      expect(screen.getByRole("button", { name: "重命名" })).toBeInTheDocument();
+      expect(onProjectOpen).not.toHaveBeenCalled();
+    },
+  );
 });
