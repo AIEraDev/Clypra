@@ -1,4 +1,5 @@
 import { PlatformInterface, VideoMetadata, SelectedFile } from "../platform";
+import { t } from "@/i18n";
 
 export class CapacitorPlatformAdapter implements PlatformInterface {
   type = "capacitor" as const;
@@ -43,7 +44,7 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
 
     await Share.share({
       url: writeResult.uri,
-      title: "Export Video",
+      title: t("system.export.title"),
     });
 
     return writeResult.uri;

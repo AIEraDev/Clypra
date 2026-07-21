@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CapacitorPlatformAdapter } from "../adapters/capacitorAdapter";
 import { Filesystem } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 
 // Mock @capacitor/filesystem
 vi.mock("@capacitor/filesystem", () => {
@@ -12,7 +13,7 @@ vi.mock("@capacitor/filesystem", () => {
     readFile: vi.fn().mockResolvedValue({
       data: JSON.stringify({ id: "project-1", name: "Mock Project", updatedAt: new Date().toISOString() }),
     }),
-    writeFile: vi.fn().mockResolvedValue({}),
+    writeFile: vi.fn().mockResolvedValue({ uri: "file:///cache/Client H.265 final.mp4" }),
     deleteFile: vi.fn().mockResolvedValue({}),
   };
   return {
@@ -20,12 +21,19 @@ vi.mock("@capacitor/filesystem", () => {
     Directory: {
       Data: "DATA",
       Documents: "DOCUMENTS",
+      Cache: "CACHE",
     },
     Encoding: {
       UTF8: "utf8",
     },
   };
 });
+
+vi.mock("@capacitor/share", () => ({
+  Share: {
+    share: vi.fn().mockResolvedValue({}),
+  },
+}));
 
 describe("CapacitorPlatformAdapter", () => {
   let adapter: CapacitorPlatformAdapter;
@@ -39,6 +47,22 @@ describe("CapacitorPlatformAdapter", () => {
   it("should report platform flags correctly", () => {
     expect(adapter.isCapacitor()).toBe(true);
     expect(adapter.isTauri()).toBe(false);
+  });
+
+  it("should localize the share title while preserving the filename and URL", async () => {
+    const filename = "Client H.265 final.mp4";
+    const uri = "file:///cache/Client H.265 final.mp4";
+
+    await expect(adapter.saveAndShareVideo(new Blob(["video"]), filename)).resolves.toBe(uri);
+    expect(Filesystem.writeFile).toHaveBeenCalledWith({
+      path: filename,
+      data: expect.any(String),
+      directory: "CACHE",
+    });
+    expect(Share.share).toHaveBeenCalledWith({
+      url: uri,
+      title: "导出视频",
+    });
   });
 
   it("should convert file paths using window.Capacitor if available", () => {
