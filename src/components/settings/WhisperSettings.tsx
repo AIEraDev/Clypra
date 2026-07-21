@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Search, Check, Download, Trash2, X, AlertCircle, Sparkles, RefreshCw } from "lucide-react";
+import { Search, Check, Download, Trash2, AlertCircle, Sparkles, RefreshCw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useCaptionStore, WhisperModelSize, ModelDownloadStatus } from "@/store/captionStore";
+import { t, type MessageKey } from "@/i18n";
+import { useCaptionStore, WhisperModelSize } from "@/store/captionStore";
 
-// Complete list of 99 Whisper-supported languages
+// Whisper language options used by Clypra.
 // Source: https://github.com/openai/whisper/blob/main/whisper/tokenizer.py
-const WHISPER_LANGUAGES: { code: string; name: string }[] = [
+const WHISPER_LANGUAGE_BASE = [
   { code: "auto", name: "Auto-detect" },
   { code: "en", name: "English" },
   { code: "zh", name: "Chinese" },
@@ -105,55 +106,88 @@ const WHISPER_LANGUAGES: { code: string; name: string }[] = [
   { code: "ba", name: "Bashkir" },
   { code: "jw", name: "Javanese" },
   { code: "su", name: "Sundanese" },
-];
+] as const;
+
+export const WHISPER_LANGUAGES = WHISPER_LANGUAGE_BASE.map((language) => ({
+  ...language,
+  messageKey: `settings.whisper.language.${language.code}` as MessageKey,
+}));
 
 interface ModelInfo {
   size: WhisperModelSize;
   params: string;
   vram: string;
-  speed: string;
-  quality: string;
+  speedMessageKey: MessageKey;
+  qualityMessageKey: MessageKey;
   recommended?: boolean;
 }
 
-const MODEL_INFO: ModelInfo[] = [
+export const MODEL_INFO: ModelInfo[] = [
   {
     size: "tiny",
     params: "39M",
     vram: "~1 GB",
-    speed: "32× faster than large",
-    quality: "Fast, lower accuracy. Good for drafts.",
+    speedMessageKey: "settings.whisper.model.speed.tiny",
+    qualityMessageKey: "settings.whisper.model.quality.tiny",
   },
   {
     size: "base",
     params: "74M",
     vram: "~1 GB",
-    speed: "16× faster than large",
-    quality: "Balanced for everyday use.",
+    speedMessageKey: "settings.whisper.model.speed.base",
+    qualityMessageKey: "settings.whisper.model.quality.base",
   },
   {
     size: "small",
     params: "244M",
     vram: "~2 GB",
-    speed: "6× faster than large",
-    quality: "Good quality. Recommended for most users.",
+    speedMessageKey: "settings.whisper.model.speed.small",
+    qualityMessageKey: "settings.whisper.model.quality.small",
     recommended: true,
   },
   {
     size: "medium",
     params: "769M",
     vram: "~5 GB",
-    speed: "2× faster than large",
-    quality: "High accuracy. Better for accents.",
+    speedMessageKey: "settings.whisper.model.speed.medium",
+    qualityMessageKey: "settings.whisper.model.quality.medium",
   },
   {
     size: "large-v3",
     params: "1550M",
     vram: "~10 GB",
-    speed: "1× (baseline)",
-    quality: "Best quality. Ideal for Nigerian/African accents and multilingual content.",
+    speedMessageKey: "settings.whisper.model.speed.largeV3",
+    qualityMessageKey: "settings.whisper.model.quality.largeV3",
   },
 ];
+
+const MODEL_FILES_MISSING_ERROR = "Model files not found on disk. Please re-download.";
+const MODEL_VERIFY_FAILED_ERROR = "Failed to verify model files.";
+const MODEL_VERIFY_FAILED_PREFIX = "Failed to verify model files: ";
+
+export function formatWhisperBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const index = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, index)).toFixed(1)} ${sizes[index]}`;
+}
+
+export function localizeWhisperError(error?: string): string {
+  if (!error) return t("settings.whisper.error.downloadFailed");
+  if (error === MODEL_FILES_MISSING_ERROR) {
+    return t("settings.whisper.error.filesMissing");
+  }
+  if (error === MODEL_VERIFY_FAILED_ERROR) {
+    return t("settings.whisper.error.verifyFailed");
+  }
+  if (error.startsWith(MODEL_VERIFY_FAILED_PREFIX)) {
+    return t("settings.whisper.error.verifyDetail", {
+      error: error.slice(MODEL_VERIFY_FAILED_PREFIX.length),
+    });
+  }
+  return t("settings.whisper.error.downloadDetail", { error });
+}
 
 function LanguageSelector() {
   const { captionSettings, setLanguage } = useCaptionStore();
@@ -162,57 +196,107 @@ function LanguageSelector() {
 
   const filteredLanguages = useMemo(() => {
     if (!searchQuery) return WHISPER_LANGUAGES;
-    const query = searchQuery.toLowerCase();
-    return WHISPER_LANGUAGES.filter((lang) => lang.name.toLowerCase().includes(query) || lang.code.toLowerCase().includes(query));
+    const query = searchQuery.trim().toLocaleLowerCase();
+    return WHISPER_LANGUAGES.filter((language) => {
+      const displayName = t(language.messageKey).toLocaleLowerCase();
+      return (
+        displayName.includes(query) ||
+        language.name.toLocaleLowerCase().includes(query) ||
+        language.code.toLocaleLowerCase().includes(query)
+      );
+    });
   }, [searchQuery]);
 
   const selectedLanguage = WHISPER_LANGUAGES.find((lang) => lang.code === captionSettings.language);
+  const selectedLanguageName = selectedLanguage
+    ? t(selectedLanguage.messageKey)
+    : t("settings.whisper.language.select");
+  const listboxId = "whisper-language-listbox";
 
   return (
     <div className="space-y-2">
-      <label className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677)">Transcription Language</label>
+      <label className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677)">{t("settings.whisper.language.label")}</label>
 
       <div className="relative">
-        <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between px-3 py-2 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg text-sm text-text-primary hover:border-(--clypra-violet,#7C6FFF) transition-colors">
+        <button
+          type="button"
+          role="combobox"
+          aria-controls={listboxId}
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+          aria-label={t("settings.whisper.language.currentLabel", {
+            language: selectedLanguageName,
+          })}
+          onClick={() => setIsOpen(!isOpen)}
+          className="w-full flex items-center justify-between px-3 py-2 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg text-sm text-text-primary hover:border-(--clypra-violet,#7C6FFF) transition-colors"
+        >
           <span className="flex items-center gap-2">
             {selectedLanguage?.code === "auto" && <Sparkles className="w-4 h-4 text-(--clypra-violet,#7C6FFF)" />}
-            {selectedLanguage?.name || "Select language"}
+            {selectedLanguageName}
           </span>
           <Search className="w-4 h-4 text-(--clypra-muted,#666677)" />
         </button>
 
         {isOpen && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+            <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setIsOpen(false)} />
             <div className="absolute top-full left-0 right-0 mt-1 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg shadow-lg z-50 overflow-hidden">
               <div className="p-2 border-b border-(--clypra-border,#2A2A38)">
-                <input type="text" placeholder="Search languages..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-1.5 bg-(--clypra-ink,#0E0E12) border border-(--clypra-border,#2A2A38) rounded text-sm text-text-primary placeholder:text-(--clypra-muted,#666677) focus:outline-none focus:border-(--clypra-violet,#7C6FFF)" autoFocus />
+                <input
+                  type="search"
+                  aria-label={t("settings.whisper.language.searchLabel")}
+                  placeholder={t("settings.whisper.language.searchPlaceholder")}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-(--clypra-ink,#0E0E12) border border-(--clypra-border,#2A2A38) rounded text-sm text-text-primary placeholder:text-(--clypra-muted,#666677) focus:outline-none focus:border-(--clypra-violet,#7C6FFF)"
+                  autoFocus
+                />
               </div>
-              <div className="max-h-[240px] overflow-y-auto scrollbar-thin">
-                {filteredLanguages.map((lang) => (
-                  <button
-                    key={lang.code}
-                    onClick={() => {
-                      setLanguage(lang.code);
-                      setIsOpen(false);
-                      setSearchQuery("");
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${lang.code === captionSettings.language ? "bg-(--clypra-violet,#7C6FFF)/15 text-(--clypra-violet,#7C6FFF)" : "text-text-primary hover:bg-(--clypra-surface,#1E1E26)"}`}
-                  >
-                    <span className="flex items-center gap-2">
-                      {lang.code === "auto" && <Sparkles className="w-3.5 h-3.5" />}
-                      {lang.name}
-                    </span>
-                    {lang.code === captionSettings.language && <Check className="w-4 h-4" />}
-                  </button>
-                ))}
+              <div
+                id={listboxId}
+                role="listbox"
+                aria-label={t("settings.whisper.language.listLabel")}
+                className="max-h-[240px] overflow-y-auto scrollbar-thin"
+              >
+                {filteredLanguages.length > 0 ? (
+                  filteredLanguages.map((language) => {
+                    const displayName = t(language.messageKey);
+                    const isSelected = language.code === captionSettings.language;
+
+                    return (
+                      <button
+                        key={language.code}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        data-language-code={language.code}
+                        onClick={() => {
+                          setLanguage(language.code);
+                          setIsOpen(false);
+                          setSearchQuery("");
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${isSelected ? "bg-(--clypra-violet,#7C6FFF)/15 text-(--clypra-violet,#7C6FFF)" : "text-text-primary hover:bg-(--clypra-surface,#1E1E26)"}`}
+                      >
+                        <span className="flex items-center gap-2">
+                          {language.code === "auto" && <Sparkles className="w-3.5 h-3.5" />}
+                          {displayName}
+                        </span>
+                        {isSelected && <Check className="w-4 h-4" />}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p role="status" className="px-3 py-4 text-center text-xs text-(--clypra-muted,#666677)">
+                    {t("settings.whisper.language.noMatches", { query: searchQuery })}
+                  </p>
+                )}
               </div>
             </div>
           </>
         )}
       </div>
 
-      <p className="text-[11px] text-(--clypra-muted,#666677) leading-relaxed">Auto-detect works well for most content. Set a language explicitly to improve accuracy for accented speech or mixed-language content.</p>
+      <p className="text-[11px] text-(--clypra-muted,#666677) leading-relaxed">{t("settings.whisper.language.autoHint")}</p>
     </div>
   );
 }
@@ -222,6 +306,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
   const modelState = captionSettings.models[model.size];
   const isActive = captionSettings.activeModel === model.size;
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   // Verify model exists on disk when component mounts (if marked as downloaded)
   useEffect(() => {
@@ -319,12 +404,13 @@ function ModelCard({ model }: { model: ModelInfo }) {
   const handleSetActive = async () => {
     if (modelState.status === "downloaded") {
       // Verify the model actually exists on disk before setting as active
+      setIsVerifying(true);
       try {
         const exists = await invoke<boolean>("verify_whisper_model_exists", { size: model.size });
         if (!exists) {
           updateModelDownloadState(model.size, {
             status: "error",
-            errorMessage: "Model files not found on disk. Please re-download.",
+            errorMessage: MODEL_FILES_MISSING_ERROR,
           });
           return;
         }
@@ -333,62 +419,83 @@ function ModelCard({ model }: { model: ModelInfo }) {
         console.error("Failed to verify model:", error);
         updateModelDownloadState(model.size, {
           status: "error",
-          errorMessage: "Failed to verify model files.",
+          errorMessage: `${MODEL_VERIFY_FAILED_PREFIX}${String(error)}`,
         });
+      } finally {
+        setIsVerifying(false);
       }
     }
   };
 
   const progressPercent = modelState.totalBytes > 0 ? (modelState.progressBytes / modelState.totalBytes) * 100 : 0;
-
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-  };
+  const roundedProgressPercent = Math.round(progressPercent);
+  const deleteModelLabel = t("settings.whisper.model.deleteTitle", {
+    model: model.size,
+  });
 
   return (
-    <div className={`bg-(--clypra-surface,#1E1E26) border rounded-xl p-4 transition-all ${isActive ? "border-(--clypra-violet,#7C6FFF) shadow-lg shadow-(--clypra-violet,#7C6FFF)/20" : "border-(--clypra-border,#2A2A38) hover:border-(--clypra-border,#2A2A38)"}`}>
+    <article
+      aria-label={t("settings.whisper.model.cardLabel", { model: model.size })}
+      className={`bg-(--clypra-surface,#1E1E26) border rounded-xl p-4 transition-all ${isActive ? "border-(--clypra-violet,#7C6FFF) shadow-lg shadow-(--clypra-violet,#7C6FFF)/20" : "border-(--clypra-border,#2A2A38) hover:border-(--clypra-border,#2A2A38)"}`}
+    >
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <h4 className="text-sm font-medium text-text-primary">{model.size}</h4>
-            {model.recommended && <span className="px-2 py-0.5 text-[10px] font-medium bg-(--clypra-violet,#7C6FFF)/15 text-(--clypra-violet,#7C6FFF) rounded-full">Recommended</span>}
-            {isActive && <span className="px-2 py-0.5 text-[10px] font-medium bg-green-500/15 text-green-400 rounded-full">Active</span>}
+            {model.recommended && <span className="px-2 py-0.5 text-[10px] font-medium bg-(--clypra-violet,#7C6FFF)/15 text-(--clypra-violet,#7C6FFF) rounded-full">{t("settings.whisper.model.recommended")}</span>}
+            {modelState.status === "downloaded" && !isActive && <span className="px-2 py-0.5 text-[10px] font-medium bg-blue-500/15 text-blue-300 rounded-full">{t("settings.whisper.model.installed")}</span>}
+            {isActive && <span className="px-2 py-0.5 text-[10px] font-medium bg-green-500/15 text-green-400 rounded-full">{t("settings.whisper.model.activeBadge")}</span>}
           </div>
           <div className="flex items-center gap-3 text-[11px] font-mono text-(--clypra-muted,#666677)">
-            <span>{model.params} params</span>
+            <span>{t("settings.whisper.model.params", { params: model.params })}</span>
             <span>•</span>
             <span>{model.vram}</span>
           </div>
         </div>
-        <div className="px-2 py-1 text-[10px] font-mono bg-(--clypra-violet,#7C6FFF)/10 text-(--clypra-violet,#7C6FFF) rounded">{model.speed}</div>
+        <div className="px-2 py-1 text-[10px] font-mono bg-(--clypra-violet,#7C6FFF)/10 text-(--clypra-violet,#7C6FFF) rounded">{t(model.speedMessageKey)}</div>
       </div>
 
-      <p className="text-[13px] text-(--clypra-muted,#666677) mb-3">{model.quality}</p>
+      <p className="text-[13px] text-(--clypra-muted,#666677) mb-3">{t(model.qualityMessageKey)}</p>
 
       {/* Download state UI */}
       {modelState.status === "idle" && (
         <button onClick={handleDownload} disabled={isDownloading} className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--clypra-violet,#7C6FFF) text-(--clypra-violet,#7C6FFF) rounded-lg text-sm font-medium hover:bg-(--clypra-violet,#7C6FFF)/10 transition-colors disabled:opacity-50 cursor-pointer">
           <Download className="w-4 h-4" />
-          Download
+          {t("settings.whisper.download.button")}
         </button>
       )}
 
       {modelState.status === "downloading" && (
         <div className="space-y-2">
-          <div className="w-full bg-(--clypra-ink,#0E0E12) rounded-full h-2 overflow-hidden">
+          <p className="text-[11px] text-(--clypra-muted,#666677)">{t("settings.whisper.download.downloading")}</p>
+          <div
+            role="progressbar"
+            aria-label={t("settings.whisper.download.progressLabel", {
+              model: model.size,
+              percent: roundedProgressPercent,
+            })}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={roundedProgressPercent}
+            className="w-full bg-(--clypra-ink,#0E0E12) rounded-full h-2 overflow-hidden"
+          >
             <div className="h-full bg-(--clypra-violet,#7C6FFF) transition-all duration-300" style={{ width: `${progressPercent}%` }} />
           </div>
           <div className="flex items-center justify-between text-[11px] font-mono text-(--clypra-muted,#666677)">
             <span>
-              {formatBytes(modelState.progressBytes)} / {formatBytes(modelState.totalBytes)}
-              {modelState.speedBytesPerSec > 0 && ` · ${formatBytes(modelState.speedBytesPerSec)}/s`}
+              {modelState.speedBytesPerSec > 0
+                ? t("settings.whisper.download.progressWithSpeed", {
+                    downloaded: formatWhisperBytes(modelState.progressBytes),
+                    total: formatWhisperBytes(modelState.totalBytes),
+                    speed: formatWhisperBytes(modelState.speedBytesPerSec),
+                  })
+                : t("settings.whisper.download.progress", {
+                    downloaded: formatWhisperBytes(modelState.progressBytes),
+                    total: formatWhisperBytes(modelState.totalBytes),
+                  })}
             </span>
             <button onClick={handleCancel} className="text-danger hover:underline">
-              Cancel
+              {t("settings.whisper.download.cancel")}
             </button>
           </div>
         </div>
@@ -396,11 +503,11 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
       {modelState.status === "downloaded" && !isActive && (
         <div className="flex items-center gap-2">
-          <button onClick={handleSetActive} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-(--clypra-violet,#7C6FFF) text-white rounded-lg text-sm font-medium hover:bg-(--clypra-deep-violet,#5B4EE8) transition-colors">
+          <button onClick={handleSetActive} disabled={isVerifying} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-(--clypra-violet,#7C6FFF) text-white rounded-lg text-sm font-medium hover:bg-(--clypra-deep-violet,#5B4EE8) transition-colors disabled:opacity-60">
             <Check className="w-4 h-4" />
-            Use this model
+            {isVerifying ? t("settings.whisper.model.verifying") : t("settings.whisper.model.use")}
           </button>
-          <button onClick={handleDelete} className="px-3 py-2 border border-(--clypra-border,#2A2A38) text-(--clypra-muted,#666677) rounded-lg hover:border-red-500/50 hover:text-red-400 transition-colors" title="Delete model">
+          <button onClick={handleDelete} className="px-3 py-2 border border-(--clypra-border,#2A2A38) text-(--clypra-muted,#666677) rounded-lg hover:border-red-500/50 hover:text-red-400 transition-colors" title={deleteModelLabel} aria-label={deleteModelLabel}>
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -409,8 +516,8 @@ function ModelCard({ model }: { model: ModelInfo }) {
       {modelState.status === "downloaded" && isActive && (
         <div className="flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/30 rounded-lg text-sm text-green-400">
           <Check className="w-4 h-4" />
-          <span className="flex-1">Model active</span>
-          <button onClick={handleDelete} className="text-(--clypra-muted,#666677) hover:text-red-400 transition-colors" title="Delete model">
+          <span className="flex-1">{t("settings.whisper.model.activeStatus")}</span>
+          <button onClick={handleDelete} className="text-(--clypra-muted,#666677) hover:text-red-400 transition-colors" title={deleteModelLabel} aria-label={deleteModelLabel}>
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -420,15 +527,15 @@ function ModelCard({ model }: { model: ModelInfo }) {
         <div className="space-y-2">
           <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-red-400 flex-1">{modelState.errorMessage || "Download failed"}</p>
+            <p className="text-[11px] text-red-400 flex-1">{localizeWhisperError(modelState.errorMessage)}</p>
           </div>
           <button onClick={handleRetry} className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--clypra-violet,#7C6FFF) text-(--clypra-violet,#7C6FFF) rounded-lg text-sm font-medium hover:bg-(--clypra-violet,#7C6FFF)/10 transition-colors">
             <RefreshCw className="w-4 h-4" />
-            Retry
+            {t("settings.whisper.download.retry")}
           </button>
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -441,7 +548,7 @@ function ActiveModelIndicator() {
     return (
       <div className="flex items-start gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
         <AlertCircle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
-        <p className="text-[13px] text-yellow-200/90">No model downloaded yet — download one above to enable auto-captions.</p>
+        <p className="text-[13px] text-yellow-200/90">{t("settings.whisper.status.noneDownloaded")}</p>
       </div>
     );
   }
@@ -450,7 +557,7 @@ function ActiveModelIndicator() {
     return (
       <div className="flex items-start gap-3 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
         <AlertCircle className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
-        <p className="text-[13px] text-blue-200/90">No active model selected. Click "Use this model" on a downloaded model to enable auto-captions.</p>
+        <p className="text-[13px] text-blue-200/90">{t("settings.whisper.status.noneActive")}</p>
       </div>
     );
   }
@@ -459,10 +566,7 @@ function ActiveModelIndicator() {
     <div className="flex items-center gap-3 p-4 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg">
       <Check className="w-5 h-5 text-green-400" />
       <div className="flex-1">
-        <p className="text-[13px] text-text-primary">
-          <span className="text-(--clypra-muted,#666677)">Active model: </span>
-          <span className="font-medium">{activeModel}</span>
-        </p>
+        <p className="text-[13px] text-text-primary">{t("settings.whisper.status.activeModel", { model: activeModel })}</p>
       </div>
     </div>
   );
@@ -472,8 +576,8 @@ export const WhisperSettings: React.FC = () => {
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677) mb-2">Auto-Captions Configuration</h3>
-        <p className="text-[11px] text-(--clypra-muted,#666677)">Configure Whisper speech recognition for automatic caption generation.</p>
+        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677) mb-2">{t("settings.whisper.title")}</h3>
+        <p className="text-[11px] text-(--clypra-muted,#666677)">{t("settings.whisper.description")}</p>
       </div>
 
       {/* Language Selection */}
@@ -481,7 +585,7 @@ export const WhisperSettings: React.FC = () => {
 
       {/* Model Download Manager */}
       <div className="space-y-3">
-        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677)">Whisper Models</h3>
+        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677)">{t("settings.whisper.models.title")}</h3>
         <div className="grid grid-cols-1 gap-3">
           {MODEL_INFO.map((model) => (
             <ModelCard key={model.size} model={model} />
@@ -496,8 +600,8 @@ export const WhisperSettings: React.FC = () => {
       <div className="flex items-start gap-3 p-4 bg-(--clypra-violet,#7C6FFF)/10 border border-(--clypra-violet,#7C6FFF)/30 rounded-lg">
         <Sparkles className="w-5 h-5 text-(--clypra-violet,#7C6FFF) shrink-0 mt-0.5" />
         <div className="text-[11px] text-text-primary/90">
-          <p className="font-semibold mb-1">Local-First Privacy</p>
-          <p className="text-(--clypra-muted,#666677)">All models run locally on your device. Your audio never leaves your computer, ensuring complete privacy and offline functionality.</p>
+          <p className="font-semibold mb-1">{t("settings.whisper.privacy.title")}</p>
+          <p className="text-(--clypra-muted,#666677)">{t("settings.whisper.privacy.description")}</p>
         </div>
       </div>
     </div>
