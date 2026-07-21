@@ -289,3 +289,31 @@ describe("text and caption localization", () => {
     expect(translate("features.captions.modelNeeded", { model })).toBe(`生成字幕前需下载“${model}”模型。`);
   });
 });
+
+describe("sticker, filter, and transition localization", () => {
+  test("resolves stable category IDs to Simplified Chinese labels", () => {
+    expect([
+      "emoji", "text", "gaming", "sports", "animals", "love", "mood", "food", "travel", "birthday", "frames", "shapes", "fashion", "retro", "illustration",
+    ].map((id) => translate(`features.stickers.category.${id}`))).toEqual([
+      "表情", "文字", "游戏", "体育", "动物", "爱心", "情绪", "美食", "旅行", "生日", "边框", "形状", "时尚", "复古", "插画",
+    ]);
+    expect([
+      "essentials", "portrait", "landscape", "cinematic", "movies", "vintage", "vibrant", "mono", "aesthetic", "life",
+    ].map((id) => translate(`features.filters.category.${id}`))).toEqual([
+      "基础", "人像", "风景", "电影感", "电影", "复古", "鲜艳", "黑白", "美学", "生活",
+    ]);
+    expect([
+      "geometric", "opticalDistortion", "temporal", "particleDissolve", "lightBased", "depthBased", "physicsSimulated",
+    ].map((id) => translate(`features.transitions.category.${id}`))).toEqual([
+      "几何", "光学畸变", "时间", "粒子溶解", "光效", "景深", "物理模拟",
+    ]);
+  });
+
+  test("preserves remote names inside complete localized messages", () => {
+    const name = "REMOTE 名称 / RAW_01";
+    expect(translate("features.stickers.preview", { name })).toBe(`${name} 预览`);
+    expect(translate("features.filters.preview", { name })).toBe(`${name} 预览`);
+    expect(translate("features.filters.added", { name })).toBe(`已添加 ${name} 滤镜`);
+    expect(translate("features.transitions.added", { name })).toBe(`已添加 ${name} 转场`);
+  });
+});

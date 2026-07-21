@@ -13,17 +13,18 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip
 import { TransitionsApi } from "@/features/transitions/api/transitionsApi";
 import type { TransitionAsset } from "@/features/transitions/types";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
+import { t } from "@/i18n";
 
 // Hardcoded transition categories for instant UI rendering
 // Matches GPU transition categories from Transition Lab Console
 const TRANSITION_CATEGORIES = [
-  { id: "geometric", label: "Geometric" },
-  { id: "optical-distortion", label: "Optical Distortion" },
-  { id: "temporal", label: "Temporal" },
-  { id: "particle-dissolve", label: "Particle Dissolve" },
-  { id: "light-based", label: "Light Based" },
-  { id: "depth-based", label: "Depth Based" },
-  { id: "physics-simulated", label: "Physics Simulated" },
+  { id: "geometric", labelKey: "features.transitions.category.geometric" },
+  { id: "optical-distortion", labelKey: "features.transitions.category.opticalDistortion" },
+  { id: "temporal", labelKey: "features.transitions.category.temporal" },
+  { id: "particle-dissolve", labelKey: "features.transitions.category.particleDissolve" },
+  { id: "light-based", labelKey: "features.transitions.category.lightBased" },
+  { id: "depth-based", labelKey: "features.transitions.category.depthBased" },
+  { id: "physics-simulated", labelKey: "features.transitions.category.physicsSimulated" },
 ] as const;
 
 type TransitionCategory = (typeof TRANSITION_CATEGORIES)[number]["id"];
@@ -96,7 +97,7 @@ export const TransitionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         <div className="grow overflow-x-auto flex items-center gap-2 pb-0.5 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
           {TRANSITION_CATEGORIES.map((category) => (
             <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-2 py-1 rounded text-xs font-semibold transition-all cursor-pointer shrink-0 hover:bg-accent/10 hover:text-accent ${activeCategory === category.id ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
-              {category.label}
+              {t(category.labelKey)}
             </button>
           ))}
         </div>
@@ -108,14 +109,14 @@ export const TransitionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="mb-3 p-3 rounded-lg border border-red-500/20 bg-red-500/5 text-red-200 flex items-start gap-2.5 text-xs">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">Failed to load transitions</p>
-              <p className="opacity-80 mt-0.5">{error}</p>
+              <p className="font-semibold">{t("features.transitions.loadFailed", { error })}</p>
             </div>
           </div>
         )}
 
         {loading && filteredTransitions.length === 0 ? (
           <div className="grid grid-cols-3 gap-1.5">
+            <p className="col-span-3 py-2 text-center text-xs text-text-muted">{t("features.transitions.loading")}</p>
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
@@ -126,8 +127,8 @@ export const TransitionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         ) : filteredTransitions.length === 0 ? (
           <div className="h-40 flex flex-col items-center justify-center text-text-muted gap-1 text-xs">
             <Wand2 className="w-5 h-5" />
-            <p>No matching transitions found</p>
-            <p className="opacity-60">Try another category or search</p>
+            <p>{t("features.transitions.emptyTitle")}</p>
+            <p className="opacity-60">{t("features.transitions.emptyDescription")}</p>
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-1.5">
@@ -183,7 +184,7 @@ const TransitionCard: React.FC<{ transition: TransitionAsset; onAddToTimeline: (
     e.stopPropagation();
     if (disabled) return;
     onAddToTimeline();
-    useProjectStore.getState().showToast(`Added ${transition.name} transition`);
+    useProjectStore.getState().showToast(t("features.transitions.added", { name: transition.name }));
   };
 
   const cardContent = (
@@ -214,7 +215,7 @@ const TransitionCard: React.FC<{ transition: TransitionAsset; onAddToTimeline: (
       {/* Footer - name + apply button, always visible */}
       <div className="flex items-center justify-between w-full mt-0.5 z-10">
         <span className={`text-[9px] font-medium truncate max-w-[65px] ${disabled ? "text-text-muted" : "text-text-muted group-hover:text-text-primary"} transition-colors`}>{transition.name}</span>
-        <button onClick={handleAddToTimeline} title={disabled ? "Select two clips or place playhead at a cut" : "Add transition to timeline"} aria-label="Add transition to timeline" disabled={disabled} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all border ${disabled ? "bg-surface/40 border-border/30 text-text-muted cursor-not-allowed" : "bg-accent hover:bg-accent/85 border-accent text-white cursor-pointer"}`}>
+        <button onClick={handleAddToTimeline} title={disabled ? t("features.transitions.selectCut") : t("features.transitions.addToTimeline")} aria-label={disabled ? t("features.transitions.selectCut") : t("features.transitions.addToTimeline")} disabled={disabled} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all border ${disabled ? "bg-surface/40 border-border/30 text-text-muted cursor-not-allowed" : "bg-accent hover:bg-accent/85 border-accent text-white cursor-pointer"}`}>
           <Plus className={`w-3 h-3 ${!disabled && "group-hover:scale-110"} transition-transform`} />
         </button>
       </div>
@@ -227,7 +228,7 @@ const TransitionCard: React.FC<{ transition: TransitionAsset; onAddToTimeline: (
       <Tooltip>
         <TooltipTrigger asChild>{cardContent}</TooltipTrigger>
         <TooltipContent side="top" className="text-xs">
-          Select two adjacent clips or place playhead at a cut
+          {t("features.transitions.selectCut")}
         </TooltipContent>
       </Tooltip>
     );

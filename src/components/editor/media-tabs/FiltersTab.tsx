@@ -1,11 +1,12 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { Filter, Grid3X3, Plus, Search, SlidersHorizontal, Sparkles, Sun, Palette, Droplets, Camera, AlertCircle, Download, Loader2, Star, type LucideIcon } from "lucide-react";
+import { Filter, Grid3X3, Plus, SlidersHorizontal, Sparkles, Sun, Palette, Droplets, Camera, AlertCircle, Download, Loader2, Star, type LucideIcon } from "lucide-react";
 import type { TabProps } from "./types";
 import { useProjectStore } from "@/store/projectStore";
 import { FiltersApi } from "@/features/filters/api/filtersApi";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import type { FilterAsset } from "@/features/filters/types";
 import { useFavoritesStore } from "@/store/favoritesStore";
+import { t } from "@/i18n";
 
 type FilterCategory = string;
 
@@ -41,6 +42,24 @@ const DEFAULT_FILTER_CATEGORIES = [
   { id: "aesthetic", name: "Aesthetic" },
   { id: "life", name: "Life" },
 ];
+
+const FILTER_CATEGORY_LABEL_KEYS = {
+  essentials: "features.filters.category.essentials",
+  portrait: "features.filters.category.portrait",
+  landscape: "features.filters.category.landscape",
+  cinematic: "features.filters.category.cinematic",
+  movies: "features.filters.category.movies",
+  vintage: "features.filters.category.vintage",
+  vibrant: "features.filters.category.vibrant",
+  mono: "features.filters.category.mono",
+  aesthetic: "features.filters.category.aesthetic",
+  life: "features.filters.category.life",
+} as const;
+
+const getCategoryLabel = (id: string, remoteName: string) => {
+  const key = FILTER_CATEGORY_LABEL_KEYS[id as keyof typeof FILTER_CATEGORY_LABEL_KEYS];
+  return key ? t(key) : remoteName;
+};
 
 export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -106,7 +125,7 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         <div className="grow overflow-x-auto flex items-center gap-0.5 pb-0.5 whitespace-nowrap" style={{ scrollbarWidth: "none" }}>
           {categories.map((category) => (
             <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-2 py-1 rounded text-xs font-semibold transition-all cursor-pointer shrink-0 text-[11px] hover:bg-accent/10 hover:text-accent ${activeCategory === category.id ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
-              {category.name}
+              {getCategoryLabel(category.id, category.name)}
             </button>
           ))}
         </div>
@@ -117,14 +136,14 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="mb-3 p-3 rounded-lg border border-red-500/20 bg-red-500/5 text-red-200 flex items-start gap-2.5 text-xs">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">Failed to load filters</p>
-              <p className="opacity-80 mt-0.5">{error}</p>
+              <p className="font-semibold">{t("features.filters.loadFailed", { error })}</p>
             </div>
           </div>
         )}
 
         {loading && filteredFilters.length === 0 ? (
           <div className="grid grid-cols-3 gap-1.5">
+            <p className="col-span-3 py-2 text-center text-xs text-text-muted">{t("features.filters.loading")}</p>
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
@@ -135,8 +154,8 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         ) : filteredFilters.length === 0 ? (
           <div className="h-40 flex flex-col items-center justify-center text-text-muted gap-1 text-xs">
             <Filter className="w-5 h-5" />
-            <p>No matching filters found</p>
-            <p className="opacity-60">Try another category or search</p>
+            <p>{t("features.filters.emptyTitle")}</p>
+            <p className="opacity-60">{t("features.filters.emptyDescription")}</p>
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-1.5">
@@ -170,7 +189,6 @@ interface FilterCardProps {
 
 const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite, onAddToTimeline }) => {
   const Icon = FILTER_ICONS[filter.id] || DEFAULT_ICON;
-  const isReady = true; // All filters are ready (status field is just for UI labeling)
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -222,17 +240,17 @@ const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite,
       const downloadPromise = filterCacheManager.ensureDownloaded(filter);
       const delayPromise = new Promise((resolve) => setTimeout(resolve, 300));
 
-      const [cachedFilter] = await Promise.all([downloadPromise, delayPromise]);
+      await Promise.all([downloadPromise, delayPromise]);
       setIsDownloaded(true);
 
       // Add to timeline
       onAddToTimeline(e);
 
       // Show success feedback
-      useProjectStore.getState().showToast(`Added ${filter.name} filter`);
+      useProjectStore.getState().showToast(t("features.filters.added", { name: filter.name }));
     } catch (error) {
       console.error("[FilterCard] Add to timeline failed:", error);
-      useProjectStore.getState().showToast("Failed to add filter", "error");
+      useProjectStore.getState().showToast(t("features.filters.addFailed"), "error");
     } finally {
       setIsDownloading(false);
     }
@@ -245,13 +263,13 @@ const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite,
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex flex-col items-center gap-2">
             <Loader2 className="w-8 h-8 text-accent animate-spin" />
-            <span className="text-[10px] font-semibold text-accent">Downloading...</span>
+            <span className="text-[10px] font-semibold text-accent">{t("features.filters.downloading")}</span>
           </div>
         </div>
       )}
 
       {/* Favorite Star */}
-      <button onClick={onFavorite} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
+      <button onClick={onFavorite} aria-label={t(isFavorite ? "features.filters.unfavorite" : "features.filters.favorite", { name: filter.name })} className={`absolute top-1 right-1 p-1 cursor-pointer rounded-full bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary transition-all duration-200 z-10 ${isFavorite ? "opacity-100 text-yellow-400!" : "opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2"}`}>
         <Star className={`w-3 h-3 ${isFavorite ? "fill-yellow-400 text-yellow-400!" : ""}`} />
       </button>
 
@@ -262,7 +280,7 @@ const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite,
         {previewSrc ? (
           <img
             src={previewSrc}
-            alt={`${filter.name} preview`}
+            alt={t("features.filters.preview", { name: filter.name })}
             className="w-full h-full object-cover rounded-lg"
             style={getCSSFilterStyle(filter.id)}
             loading="lazy"
@@ -283,7 +301,7 @@ const FilterCard: React.FC<FilterCardProps> = ({ filter, isFavorite, onFavorite,
         <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]" title={filter.name}>
           {filter.name}
         </span>
-        <button onClick={handleAddToTimeline} disabled={isDownloading} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
+        <button onClick={handleAddToTimeline} disabled={isDownloading} title={isDownloaded ? t("features.filters.addToTimeline") : t("features.filters.download")} aria-label={isDownloaded ? t("features.filters.addToTimeline") : t("features.filters.download")} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloaded ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
           {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloaded ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
         </button>
       </div>

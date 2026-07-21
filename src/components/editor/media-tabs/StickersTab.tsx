@@ -5,8 +5,9 @@ import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { useUIStore } from "@/store/uiStore";
 import type { MediaAsset } from "@/types";
 import type { TabProps } from "./types";
-import { STICKER_CATEGORIES, StickersApi, type StickerCategory, type StickerItem } from "@/features/stickers/api/stickersApi";
+import { STICKER_CATEGORIES, STICKER_CATEGORY_LABEL_KEYS, StickersApi, type StickerCategory, type StickerItem } from "@/features/stickers/api/stickersApi";
 import { platform } from "@/core/platform";
+import { t } from "@/i18n";
 
 export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -34,7 +35,7 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          const errorMessage = err instanceof Error ? err.message : "Failed to load stickers";
+          const errorMessage = err instanceof Error ? err.message : t("features.stickers.unknownError");
           setError(errorMessage);
           // Detect network errors
           const isNetwork = errorMessage.toLowerCase().includes("network") || errorMessage.toLowerCase().includes("fetch") || errorMessage.toLowerCase().includes("connection") || errorMessage.toLowerCase().includes("offline");
@@ -67,36 +68,13 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     return filtered;
   }, [stickers, searchQuery, activeCategory]);
 
-  // Format category name for display
-  const formatCategoryName = (category: string) => {
-    // Special formatting for specific categories
-    const specialFormats: Record<string, string> = {
-      y2k: "Y2K",
-      "free-fire": "Free Fire 🔥",
-      football: "Football⚽",
-      new: "NEW",
-      letters: "LETTERS",
-      sfx: "SFX",
-      ui: "UI",
-    };
-
-    if (specialFormats[category]) {
-      return specialFormats[category];
-    }
-
-    return category
-      .split("-")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
-  };
-
   return (
     <>
       {/* Category Pills - Same as AudioTab */}
       <div className="flex gap-1 overflow-x-auto scrollbar-none border-b border-border p-1" style={{ scrollbarWidth: "none" }}>
         {STICKER_CATEGORIES.map((category) => (
           <button key={category} onClick={() => setActiveCategory(category)} className={`shrink-0 cursor-pointer rounded px-2 py-1 text-[11px] font-semibold transition-colors hover:bg-accent/10 hover:text-accent ${activeCategory === category ? "bg-accent/10 text-accent" : "text-text-muted"}`}>
-            {formatCategoryName(category)}
+            {t(STICKER_CATEGORY_LABEL_KEYS[category])}
           </button>
         ))}
       </div>
@@ -106,24 +84,24 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         {loading && (
           <div className="flex items-center justify-center gap-2 py-10 text-xs text-text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading stickers...
+            {t("features.stickers.loading")}
           </div>
         )}
 
-        {!loading && error && isNetworkError && <NetworkError message="No internet connection." onRetry={fetchStickers} />}
+        {!loading && error && isNetworkError && <NetworkError onRetry={fetchStickers} />}
 
         {!loading && error && !isNetworkError && (
           <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
+            <span>{t("features.stickers.loadFailed", { error })}</span>
           </div>
         )}
 
         {!loading && !error && filteredStickers.length === 0 && (
           <div className="rounded-lg border border-border bg-surface-raised/40 p-4 text-center">
             <Smile className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-            <p className="text-xs font-semibold text-text-primary">No stickers found</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Try a different search or category</p>
+            <p className="text-xs font-semibold text-text-primary">{t("features.stickers.emptyTitle")}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{t("features.stickers.emptyDescription")}</p>
           </div>
         )}
 
@@ -151,6 +129,7 @@ const StickerCard: React.FC<{ sticker: StickerItem; onAddToTimeline?: (item: any
   const downloadState = getDownloadState(sticker.id);
   const isDownloadedFlag = isDownloaded(sticker.id);
   const cachedSticker = getCachedSticker(sticker.id);
+  const displayName = sticker.name || t("features.stickers.fallbackName");
 
   const isDownloading = downloadState?.status === "downloading";
 
@@ -185,7 +164,7 @@ const StickerCard: React.FC<{ sticker: StickerItem; onAddToTimeline?: (item: any
 
       const mediaAsset: MediaAsset = {
         id: `sticker-${sticker.id}`,
-        name: sticker.name || "Sticker",
+        name: displayName,
         path: absoluteImagePath,
         type: "image",
         duration: 3.0,
@@ -240,23 +219,23 @@ const StickerCard: React.FC<{ sticker: StickerItem; onAddToTimeline?: (item: any
       {/* Preview area - with hover scale animation like TemplateCard */}
       <div className="flex-1 flex items-center justify-center w-full select-none relative overflow-hidden transition-transform duration-500 ease-out group-hover:scale-[1.05]">
         {/* GIF Preview (shown on hover) */}
-        <img src={sticker.preview} alt={`${sticker.name} Preview`} className={`max-w-full max-h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] select-none pointer-events-none transition-opacity duration-300 absolute inset-0 m-auto ${isHovered ? "opacity-100 z-10" : "opacity-0 z-0"}`} />
+        <img src={sticker.preview} alt={t("features.stickers.preview", { name: displayName })} className={`max-w-full max-h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] select-none pointer-events-none transition-opacity duration-300 absolute inset-0 m-auto ${isHovered ? "opacity-100 z-10" : "opacity-0 z-0"}`} />
 
         {/* Static Thumbnail */}
         {!imageError ? (
-          <img src={sticker.thumbnailUrl} alt={sticker.name} className={`max-w-full max-h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] select-none pointer-events-none transition-opacity duration-300 absolute inset-0 m-auto ${isHovered ? "opacity-0 z-0" : "opacity-100 z-10"}`} onError={() => setImageError(true)} />
+          <img src={sticker.thumbnailUrl} alt={displayName} className={`max-w-full max-h-full object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] select-none pointer-events-none transition-opacity duration-300 absolute inset-0 m-auto ${isHovered ? "opacity-0 z-0" : "opacity-100 z-10"}`} onError={() => setImageError(true)} />
         ) : (
           <div className="flex flex-col items-center justify-center gap-1 text-text-muted">
             <span className="text-2xl">🎨</span>
-            <span className="text-[9px] font-medium">{sticker.name}</span>
+            <span className="text-[9px] font-medium">{displayName}</span>
           </div>
         )}
       </div>
 
       {/* Footer - name + apply button, always visible like TemplateCard */}
       <div className="flex items-center justify-between w-full mt-0.5 z-10">
-        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]">{sticker.name}</span>
-        <button onClick={handleAddToTimeline} disabled={isDownloading} title={isDownloadedFlag ? "Add sticker to timeline" : "Download sticker"} aria-label={isDownloadedFlag ? "Add sticker to timeline" : "Download sticker"} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloadedFlag ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
+        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]">{displayName}</span>
+        <button onClick={handleAddToTimeline} disabled={isDownloading} title={isDownloadedFlag ? t("features.stickers.addToTimeline") : t("features.stickers.download")} aria-label={isDownloadedFlag ? t("features.stickers.addToTimeline") : t("features.stickers.download")} className={`w-4 h-4 rounded-full flex items-center justify-center transition-all relative ${isDownloadedFlag ? "bg-accent hover:bg-accent/85 border border-accent text-white cursor-pointer" : isDownloading ? "bg-accent/20 border border-accent cursor-wait" : "bg-surface/40 hover:bg-surface/60 border border-border/50 text-text-muted hover:text-text-primary cursor-pointer"}`}>
           {isDownloading ? <div className="w-2 h-2 rounded-full border-2 border-accent border-t-transparent animate-spin" /> : isDownloadedFlag ? <Plus className="w-3 h-3 group-hover:scale-110 transition-transform" /> : <Download className="w-2 h-2 group-hover:scale-115 transition-transform" />}
         </button>
       </div>

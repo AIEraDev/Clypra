@@ -17,6 +17,24 @@ const BASE = getApiBaseUrl();
 
 export const STICKER_CATEGORIES: StickerCategory[] = ["emoji", "text", "gaming", "sports", "animals", "love", "mood", "food", "travel", "birthday", "frames", "shapes", "fashion", "retro", "illustration"];
 
+export const STICKER_CATEGORY_LABEL_KEYS = {
+  emoji: "features.stickers.category.emoji",
+  text: "features.stickers.category.text",
+  gaming: "features.stickers.category.gaming",
+  sports: "features.stickers.category.sports",
+  animals: "features.stickers.category.animals",
+  love: "features.stickers.category.love",
+  mood: "features.stickers.category.mood",
+  food: "features.stickers.category.food",
+  travel: "features.stickers.category.travel",
+  birthday: "features.stickers.category.birthday",
+  frames: "features.stickers.category.frames",
+  shapes: "features.stickers.category.shapes",
+  fashion: "features.stickers.category.fashion",
+  retro: "features.stickers.category.retro",
+  illustration: "features.stickers.category.illustration",
+} as const satisfies Record<StickerCategory, string>;
+
 export const StickersApi = {
   async getStickersIndex(): Promise<StickerItem[]> {
     try {
