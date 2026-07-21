@@ -8,6 +8,7 @@ import { Film, Plus } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { MediaCardWaveform } from "./MediaCardWaveform";
+import { t } from "@/i18n";
 
 // MediaCard Component
 interface MediaCardProps {
@@ -53,7 +54,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, isUsedI
         {/* "Added" badge */}
         {isUsedInTimeline && (
           <div className="absolute top-1 left-1 bg-purple-950/80 px-1 py-px rounded-[2px] text-[8px] text-white flex items-center gap-1">
-            <span>Added</span>
+            <span>{t("features.media.added")}</span>
           </div>
         )}
       </div>
@@ -66,7 +67,8 @@ export const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, isUsedI
           e.stopPropagation();
           onAddToTimeline();
         }}
-        title="Add to Track"
+        title={t("features.media.addToTrack")}
+        aria-label={t("features.media.addToTrack")}
         className="hidden cursor-pointer group-hover:flex bg-accent hover:bg-accent/90 w-5 h-5 rounded-full justify-center items-center absolute top-1 right-1 transition-colors"
       >
         <Plus size={14} className="text-white" />

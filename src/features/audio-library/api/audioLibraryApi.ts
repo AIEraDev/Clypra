@@ -38,6 +38,16 @@ const BASE = getApiBaseUrl();
 
 export const AUDIO_LIBRARY_CATEGORIES: AudioLibraryCategory[] = ["music", "cinematic", "upbeat", "lo-fi", "hip-hop", "ambient", "sfx"];
 
+export const AUDIO_LIBRARY_CATEGORY_LABEL_KEYS = {
+  music: "features.audio.category.music",
+  cinematic: "features.audio.category.cinematic",
+  upbeat: "features.audio.category.upbeat",
+  "lo-fi": "features.audio.category.loFi",
+  "hip-hop": "features.audio.category.hipHop",
+  ambient: "features.audio.category.ambient",
+  sfx: "features.audio.category.sfx",
+} as const satisfies Record<AudioLibraryCategory, string>;
+
 export const AudioLibraryApi = {
   async getAudioByCategory(category: AudioLibraryCategory): Promise<AudioLibraryItem[]> {
     try {
