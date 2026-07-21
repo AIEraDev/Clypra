@@ -81,7 +81,7 @@ describe("LaunchScreen", () => {
     vi.useRealTimers();
   });
 
-  test("renders sibling native project and options actions with menu semantics", async () => {
+  test("renders sibling native project and options actions with disclosure semantics", async () => {
     const user = userEvent.setup();
     const onProjectOpen = vi.fn();
 
@@ -98,15 +98,20 @@ describe("LaunchScreen", () => {
     expect(projectButton).not.toContainElement(optionsButton);
     expect(optionsButton).toHaveAttribute("type", "button");
     expect(optionsButton).toHaveAttribute("aria-expanded", "false");
-    expect(optionsButton).toHaveAttribute("aria-haspopup", "menu");
+    expect(optionsButton).not.toHaveAttribute("aria-haspopup");
+    expect(optionsButton).toHaveAttribute("aria-controls", "project-options-project-1");
     expect(optionsButton.parentElement).toHaveClass("group-focus-within:opacity-100");
 
     await user.click(optionsButton);
 
     expect(optionsButton).toHaveAttribute("aria-expanded", "true");
-    const menu = screen.getByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: "重命名" })).toBeInTheDocument();
-    expect(within(menu).getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    const dropdown = document.getElementById("project-options-project-1");
+    expect(dropdown).toBeInTheDocument();
+    const renameButton = within(dropdown!).getByRole("button", { name: "重命名" });
+    const deleteButton = within(dropdown!).getByRole("button", { name: "删除" });
+    expect(renameButton).not.toHaveAttribute("role");
+    expect(deleteButton).not.toHaveAttribute("role");
     expect(onProjectOpen).not.toHaveBeenCalled();
   });
 
@@ -159,7 +164,7 @@ describe("LaunchScreen", () => {
 
       await user.keyboard(key);
 
-      expect(screen.getByRole("menu")).toBeInTheDocument();
+      expect(document.getElementById("project-options-project-1")).toBeInTheDocument();
       expect(onProjectOpen).not.toHaveBeenCalled();
     },
   );

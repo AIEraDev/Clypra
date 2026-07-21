@@ -518,6 +518,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {recentProjects.map((project) => {
                 const thumbnail = getProjectThumbnail(project);
+                const optionsId = `project-options-${project.id}`;
                 return (
                   <div
                     key={project.id}
@@ -567,7 +568,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                         onClick={(e) => handleToggleMenu(e, project.id)}
                         aria-label={t("launch.moreOptions")}
                         aria-expanded={menuOpen === project.id}
-                        aria-haspopup="menu"
+                        aria-controls={optionsId}
                         className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors"
                         title={t("launch.moreOptions")}
                       >
@@ -576,12 +577,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
                       {/* Dropdown menu */}
                       {menuOpen === project.id && (
-                        <div role="menu" className="absolute top-full right-0 mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-surface py-1 shadow-xl overflow-hidden">
-                          <button type="button" role="menuitem" onClick={(e) => handleRenameClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-text-primary hover:bg-surface-raised transition-colors cursor-pointer">
+                        <div id={optionsId} className="absolute top-full right-0 mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-surface py-1 shadow-xl overflow-hidden">
+                          <button type="button" onClick={(e) => handleRenameClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-text-primary hover:bg-surface-raised transition-colors cursor-pointer">
                             <Pencil className="w-3.5 h-3.5" />
                             {t("launch.rename")}
                           </button>
-                          <button type="button" role="menuitem" onClick={(e) => handleDeleteClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-danger hover:bg-surface-raised transition-colors cursor-pointer">
+                          <button type="button" onClick={(e) => handleDeleteClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-danger hover:bg-surface-raised transition-colors cursor-pointer">
                             <Trash2 className="w-3.5 h-3.5" />
                             {t("common.delete")}
                           </button>
