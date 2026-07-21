@@ -310,6 +310,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
   const [cancelError, setCancelError] = useState<string>();
   const [isVerifying, setIsVerifying] = useState(false);
   const downloadAttemptRef = useRef(0);
+  const cancelPromiseRef = useRef<Promise<void> | null>(null);
 
   // Verify model exists on disk when component mounts (if marked as downloaded)
   useEffect(() => {
@@ -358,34 +359,41 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
   const handleDownload = async () => {
     const downloadAttempt = ++downloadAttemptRef.current;
+    setIsDownloading(true);
+    setCancelError(undefined);
+    updateModelDownloadState(model.size, {
+      status: "downloading",
+      progressBytes: 0,
+      totalBytes: 0,
+      speedBytesPerSec: 0,
+      errorMessage: undefined,
+    });
+
+    let outcome:
+      | { status: "downloaded" }
+      | { status: "error"; errorMessage: string };
     try {
-      setIsDownloading(true);
-      setCancelError(undefined);
-      updateModelDownloadState(model.size, {
-        status: "downloading",
-        progressBytes: 0,
-        totalBytes: 0,
-        speedBytesPerSec: 0,
-        errorMessage: undefined,
-      });
-
       await invoke("download_whisper_model", { size: model.size });
-
-      if (downloadAttempt !== downloadAttemptRef.current) return;
-      updateModelDownloadState(model.size, {
-        status: "downloaded",
-      });
+      outcome = { status: "downloaded" };
     } catch (error) {
-      if (downloadAttempt !== downloadAttemptRef.current) return;
-      updateModelDownloadState(model.size, {
+      outcome = {
         status: "error",
         errorMessage: String(error),
-      });
-    } finally {
-      if (downloadAttempt === downloadAttemptRef.current) {
-        setIsDownloading(false);
+      };
+    }
+
+    const pendingCancellation = cancelPromiseRef.current;
+    if (pendingCancellation) {
+      try {
+        await pendingCancellation;
+      } catch {
+        // A failed cancellation leaves this download attempt authoritative.
       }
     }
+
+    if (downloadAttempt !== downloadAttemptRef.current) return;
+    updateModelDownloadState(model.size, outcome);
+    setIsDownloading(false);
   };
 
   const handleDelete = async () => {
@@ -405,19 +413,30 @@ function ModelCard({ model }: { model: ModelInfo }) {
   };
 
   const handleCancel = async () => {
-    if (isCancelling) return;
+    if (cancelPromiseRef.current) return;
 
-    downloadAttemptRef.current += 1;
     setIsCancelling(true);
     setCancelError(undefined);
+    const downloadAttempt = downloadAttemptRef.current;
+    const cancellation = invoke<void>("cancel_whisper_download", {
+      size: model.size,
+    }).then(() => {
+      if (downloadAttemptRef.current === downloadAttempt) {
+        downloadAttemptRef.current += 1;
+      }
+    });
+    cancelPromiseRef.current = cancellation;
 
     try {
-      await invoke("cancel_whisper_download", { size: model.size });
+      await cancellation;
       resetModelState(model.size);
       setIsDownloading(false);
     } catch (error) {
       setCancelError(String(error));
     } finally {
+      if (cancelPromiseRef.current === cancellation) {
+        cancelPromiseRef.current = null;
+      }
       setIsCancelling(false);
     }
   };

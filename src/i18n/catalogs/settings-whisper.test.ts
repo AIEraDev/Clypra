@@ -807,7 +807,7 @@ describe("Whisper settings localization", () => {
     expect(within(tinyCard).getByRole("button", { name: "下载" })).toBeEnabled();
   });
 
-  test("keeps the current state and shows raw detail when cancellation fails", async () => {
+  test("continues to downloaded when cancellation fails but the download later succeeds", async () => {
     const download = createDeferred();
     invokeMock.mockImplementation((command) => {
       if (command === "download_whisper_model") return download.promise;
@@ -831,9 +831,19 @@ describe("Whisper settings localization", () => {
       "downloading",
     );
     expect(within(tinyCard).getByRole("button", { name: "取消" })).toBeEnabled();
+
+    await act(async () => {
+      download.resolve();
+    });
+
+    await waitFor(() => {
+      expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
+        "downloaded",
+      );
+    });
   });
 
-  test("preserves the backend no-active-task detail without silently resetting", async () => {
+  test("continues to the download error when no active cancellation task exists", async () => {
     const download = createDeferred();
     invokeMock.mockImplementation((command) => {
       if (command === "download_whisper_model") return download.promise;
@@ -856,6 +866,20 @@ describe("Whisper settings localization", () => {
     expect(useCaptionStore.getState().captionSettings.models.tiny.status).toBe(
       "downloading",
     );
+
+    await act(async () => {
+      download.reject(new Error("HTTP 503: upstream unavailable"));
+    });
+
+    expect(
+      await within(tinyCard).findByText(
+        "下载失败：Error: HTTP 503: upstream unavailable",
+      ),
+    ).toBeInTheDocument();
+    expect(useCaptionStore.getState().captionSettings.models.tiny).toMatchObject({
+      status: "error",
+      errorMessage: "Error: HTTP 503: upstream unavailable",
+    });
   });
 
   test("deletes the exact active model and clears its downloaded state", async () => {
