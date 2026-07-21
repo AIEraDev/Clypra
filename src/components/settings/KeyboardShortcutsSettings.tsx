@@ -9,31 +9,34 @@ import {
   useShortcutStore,
   type KeyBinding,
   type ShortcutAction,
+  type ShortcutActionId,
+  type ShortcutCategory,
 } from "@/store/shortcutStore";
 
-type ShortcutActionId = keyof typeof SHORTCUT_ACTION_MESSAGE_KEYS;
-type ShortcutCategoryId = keyof typeof SHORTCUT_CATEGORY_MESSAGE_KEYS;
-
 function getShortcutActionLabel(
-  action: Pick<ShortcutAction, "id" | "label">,
+  action: Pick<ShortcutAction, "id">,
 ): string {
-  const messageKey =
-    SHORTCUT_ACTION_MESSAGE_KEYS[action.id as ShortcutActionId];
-  return messageKey ? t(messageKey) : action.label;
+  return t(SHORTCUT_ACTION_MESSAGE_KEYS[action.id]);
 }
 
-function getShortcutCategoryLabel(category: string): string {
-  const messageKey =
-    SHORTCUT_CATEGORY_MESSAGE_KEYS[category as ShortcutCategoryId];
-  return messageKey ? t(messageKey) : category;
+function getShortcutCategoryLabel(category: ShortcutCategory): string {
+  return t(SHORTCUT_CATEGORY_MESSAGE_KEYS[category]);
+}
+
+function normalizeShortcutSearch(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\b(?:command|cmd)\b|⌘/g, "ctrl")
+    .replace(/\boption\b|⌥/g, "alt");
 }
 
 function matchesShortcutSearch(
   action: ShortcutAction,
-  category: string,
+  category: ShortcutCategory,
   query: string,
 ): boolean {
-  const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
+  const normalizedQuery = normalizeShortcutSearch(query);
   if (!normalizedQuery) return true;
 
   return [
@@ -42,24 +45,17 @@ function matchesShortcutSearch(
     getShortcutCategoryLabel(category),
     category,
     formatBinding(action.binding),
-  ].some((value) =>
-    value.toLocaleLowerCase("zh-CN").includes(normalizedQuery),
-  );
+  ].some((value) => normalizeShortcutSearch(value).includes(normalizedQuery));
 }
 
 function ShortcutInstructions() {
-  const instructions = t("settings.shortcuts.instructions");
-  const escIndex = instructions.indexOf("Esc");
-
-  if (escIndex === -1) return <>{instructions}</>;
-
   return (
     <>
-      {instructions.slice(0, escIndex)}
+      {t("settings.shortcuts.instructionsBeforeKey")}
       <kbd className="px-1 py-0.5 text-[10px] bg-surface-raised border border-white/10 rounded">
         Esc
       </kbd>
-      {instructions.slice(escIndex + "Esc".length)}
+      {t("settings.shortcuts.instructionsAfterKey")}
     </>
   );
 }
@@ -142,15 +138,15 @@ function CaptureInput({ actionLabel, onCapture, onCancel }: CaptureInputProps) {
 // ─── Single shortcut row ───────────────────────────────────────────────────
 
 interface ShortcutRowProps {
-  id: string;
+  id: ShortcutActionId;
   label: string;
   binding: KeyBinding;
   defaultBinding: KeyBinding;
   conflictWithLabel: string | null;
-  onEdit: (id: string) => void;
-  onReset: (id: string) => void;
+  onEdit: (id: ShortcutActionId) => void;
+  onReset: (id: ShortcutActionId) => void;
   isEditing: boolean;
-  onCapture: (id: string, binding: KeyBinding) => void;
+  onCapture: (id: ShortcutActionId, binding: KeyBinding) => void;
   onCancelEdit: () => void;
 }
 
@@ -166,7 +162,11 @@ function ShortcutRow({
   onCapture,
   onCancelEdit,
 }: ShortcutRowProps) {
-  const isModified = formatBinding(binding) !== formatBinding(defaultBinding);
+  const formattedBinding = formatBinding(binding);
+  const isModified = formattedBinding !== formatBinding(defaultBinding);
+  const conflictDescriptionId = conflictWithLabel
+    ? `shortcut-conflict-${id}`
+    : undefined;
 
   return (
     <div
@@ -175,7 +175,10 @@ function ShortcutRow({
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-[12px] text-text-primary truncate">{label}</span>
         {conflictWithLabel && (
-          <span className="flex items-center gap-0.5 text-[9px] text-amber-400">
+          <span
+            id={conflictDescriptionId}
+            className="flex items-center gap-0.5 text-[9px] text-amber-400"
+          >
             <AlertTriangle className="w-2.5 h-2.5" />
             {t("settings.shortcuts.conflictWith", {
               action: conflictWithLabel,
@@ -198,7 +201,11 @@ function ShortcutRow({
             onClick={() => onEdit(id)}
             className="group relative"
             title={t("settings.shortcuts.clickToRebind", { action: label })}
-            aria-label={t("settings.shortcuts.rebindLabel", { action: label })}
+            aria-label={t("settings.shortcuts.rebindLabel", {
+              action: label,
+              binding: formattedBinding,
+            })}
+            aria-describedby={conflictDescriptionId}
           >
             <span className="group-hover:opacity-0 transition-opacity">
               <KeyChip binding={binding} />
@@ -227,7 +234,7 @@ function ShortcutRow({
 
 export function KeyboardShortcutsSettings() {
   const { shortcuts, setShortcut, resetShortcut, resetAll } = useShortcutStore();
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<ShortcutActionId | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
@@ -236,29 +243,29 @@ export function KeyboardShortcutsSettings() {
 
   // Build conflict map: for each action id, which other action has the same binding?
   const conflictMap = React.useMemo(() => {
-    const bindingIndex: Record<string, string> = {};
-    const result: Record<string, string | null> = {};
+    const bindingIndex: Record<string, ShortcutActionId | undefined> = {};
+    const result: Partial<Record<ShortcutActionId, ShortcutActionId>> = {};
 
     for (const action of Object.values(shortcuts)) {
       const key = formatBinding(action.binding);
-      if (bindingIndex[key] && bindingIndex[key] !== action.id) {
+      const existingActionId = bindingIndex[key];
+      if (existingActionId && existingActionId !== action.id) {
         // Both sides conflict
-        result[action.id] = bindingIndex[key];
-        result[bindingIndex[key]] = action.id;
+        result[action.id] = existingActionId;
+        result[existingActionId] = action.id;
       } else {
         bindingIndex[key] = action.id;
-        if (result[action.id] === undefined) result[action.id] = null;
       }
     }
 
     return result;
   }, [shortcuts]);
 
-  const handleEdit = (id: string) => {
+  const handleEdit = (id: ShortcutActionId) => {
     setEditingId(id);
   };
 
-  const handleCapture = (id: string, binding: KeyBinding) => {
+  const handleCapture = (id: ShortcutActionId, binding: KeyBinding) => {
     setShortcut(id, binding);
     setEditingId(null);
   };
@@ -267,7 +274,7 @@ export function KeyboardShortcutsSettings() {
     setEditingId(null);
   };
 
-  const handleReset = (id: string) => {
+  const handleReset = (id: ShortcutActionId) => {
     resetShortcut(id);
   };
 

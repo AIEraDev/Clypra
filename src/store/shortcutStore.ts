@@ -27,73 +27,16 @@ export interface KeyBinding {
   alt?: boolean;
 }
 
-export interface ShortcutAction {
-  /** Machine-readable action id */
+interface ShortcutDefinition {
   id: string;
-  /** Human-readable label shown in the UI */
   label: string;
-  /** Category for grouping in the settings panel */
   category: string;
-  /** Default binding (cannot be deleted, only overridden) */
   defaultBinding: KeyBinding;
-  /** Current binding (may differ from default after user customisation) */
-  binding: KeyBinding;
 }
 
 // ─── Default Shortcut Registry ────────────────────────────────────────────────
 
-export const SHORTCUT_CATEGORY_MESSAGE_KEYS = {
-  Transport: "settings.shortcuts.category.transport",
-  "Source Mode": "settings.shortcuts.category.sourceMode",
-  Edit: "settings.shortcuts.category.edit",
-  Nudge: "settings.shortcuts.category.nudge",
-  Navigation: "settings.shortcuts.category.navigation",
-  Timeline: "settings.shortcuts.category.timeline",
-  Track: "settings.shortcuts.category.track",
-} as const satisfies Record<string, MessageKey>;
-
-export const SHORTCUT_ACTION_MESSAGE_KEYS = {
-  "play-pause": "settings.shortcuts.action.playPause",
-  pause: "settings.shortcuts.action.pause",
-  "seek-back-frame": "settings.shortcuts.action.seekBackFrame",
-  "seek-forward-frame": "settings.shortcuts.action.seekForwardFrame",
-  "mark-source-in": "settings.shortcuts.action.markSourceIn",
-  "mark-source-out": "settings.shortcuts.action.markSourceOut",
-  "exit-source-mode": "settings.shortcuts.action.exitSourceMode",
-  undo: "settings.shortcuts.action.undo",
-  redo: "settings.shortcuts.action.redo",
-  "redo-alt": "settings.shortcuts.action.redoAlt",
-  "split-at-playhead": "settings.shortcuts.action.splitAtPlayhead",
-  "split-selected-at-playhead":
-    "settings.shortcuts.action.splitSelectedAtPlayhead",
-  "split-all-at-playhead": "settings.shortcuts.action.splitAllAtPlayhead",
-  "delete-left-at-playhead": "settings.shortcuts.action.deleteLeftAtPlayhead",
-  "delete-right-at-playhead": "settings.shortcuts.action.deleteRightAtPlayhead",
-  "duplicate-clips": "settings.shortcuts.action.duplicateClips",
-  "copy-clips": "settings.shortcuts.action.copyClips",
-  "paste-clips": "settings.shortcuts.action.pasteClips",
-  "swap-clips": "settings.shortcuts.action.swapClips",
-  "select-all": "settings.shortcuts.action.selectAll",
-  "deselect-all": "settings.shortcuts.action.deselectAll",
-  "clear-selection": "settings.shortcuts.action.clearSelection",
-  "nudge-right": "settings.shortcuts.action.nudgeRight",
-  "nudge-left": "settings.shortcuts.action.nudgeLeft",
-  "nudge-right-10": "settings.shortcuts.action.nudgeRight10",
-  "nudge-left-10": "settings.shortcuts.action.nudgeLeft10",
-  "select-clip-above": "settings.shortcuts.action.selectClipAbove",
-  "select-clip-below": "settings.shortcuts.action.selectClipBelow",
-  "zoom-in": "settings.shortcuts.action.zoomIn",
-  "zoom-out": "settings.shortcuts.action.zoomOut",
-  "toggle-ripple-edit": "settings.shortcuts.action.toggleRippleEdit",
-  "add-marker": "settings.shortcuts.action.addMarker",
-  "toggle-track-lock": "settings.shortcuts.action.toggleTrackLock",
-  "toggle-track-visibility": "settings.shortcuts.action.toggleTrackVisibility",
-  "toggle-track-mute": "settings.shortcuts.action.toggleTrackMute",
-  "pack-track": "settings.shortcuts.action.packTrack",
-  "add-track": "settings.shortcuts.action.addTrack",
-} as const satisfies Record<string, MessageKey>;
-
-const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
+export const SHORTCUT_DEFINITIONS = [
   // Transport
   {
     id: "play-pause",
@@ -323,12 +266,89 @@ const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
     category: "Track",
     defaultBinding: { key: "t", ctrl: true, alt: true },
   },
-];
+] as const satisfies readonly ShortcutDefinition[];
+
+export type ShortcutActionId =
+  (typeof SHORTCUT_DEFINITIONS)[number]["id"];
+export type ShortcutCategory =
+  (typeof SHORTCUT_DEFINITIONS)[number]["category"];
+
+export interface ShortcutAction {
+  /** Machine-readable action id */
+  id: ShortcutActionId;
+  /** Human-readable label shown in the UI */
+  label: string;
+  /** Category for grouping in the settings panel */
+  category: ShortcutCategory;
+  /** Default binding (cannot be deleted, only overridden) */
+  defaultBinding: KeyBinding;
+  /** Current binding (may differ from default after user customisation) */
+  binding: KeyBinding;
+}
+
+export const SHORTCUT_CATEGORY_MESSAGE_KEYS = {
+  Transport: "settings.shortcuts.category.transport",
+  "Source Mode": "settings.shortcuts.category.sourceMode",
+  Edit: "settings.shortcuts.category.edit",
+  Nudge: "settings.shortcuts.category.nudge",
+  Navigation: "settings.shortcuts.category.navigation",
+  Timeline: "settings.shortcuts.category.timeline",
+  Track: "settings.shortcuts.category.track",
+} as const satisfies Record<ShortcutCategory, MessageKey>;
+
+export const SHORTCUT_ACTION_MESSAGE_KEYS = {
+  "play-pause": "settings.shortcuts.action.playPause",
+  pause: "settings.shortcuts.action.pause",
+  "seek-back-frame": "settings.shortcuts.action.seekBackFrame",
+  "seek-forward-frame": "settings.shortcuts.action.seekForwardFrame",
+  "mark-source-in": "settings.shortcuts.action.markSourceIn",
+  "mark-source-out": "settings.shortcuts.action.markSourceOut",
+  "exit-source-mode": "settings.shortcuts.action.exitSourceMode",
+  undo: "settings.shortcuts.action.undo",
+  redo: "settings.shortcuts.action.redo",
+  "redo-alt": "settings.shortcuts.action.redoAlt",
+  "split-at-playhead": "settings.shortcuts.action.splitAtPlayhead",
+  "split-selected-at-playhead":
+    "settings.shortcuts.action.splitSelectedAtPlayhead",
+  "split-all-at-playhead": "settings.shortcuts.action.splitAllAtPlayhead",
+  "delete-left-at-playhead": "settings.shortcuts.action.deleteLeftAtPlayhead",
+  "delete-right-at-playhead": "settings.shortcuts.action.deleteRightAtPlayhead",
+  "duplicate-clips": "settings.shortcuts.action.duplicateClips",
+  "copy-clips": "settings.shortcuts.action.copyClips",
+  "paste-clips": "settings.shortcuts.action.pasteClips",
+  "swap-clips": "settings.shortcuts.action.swapClips",
+  "select-all": "settings.shortcuts.action.selectAll",
+  "deselect-all": "settings.shortcuts.action.deselectAll",
+  "clear-selection": "settings.shortcuts.action.clearSelection",
+  "nudge-right": "settings.shortcuts.action.nudgeRight",
+  "nudge-left": "settings.shortcuts.action.nudgeLeft",
+  "nudge-right-10": "settings.shortcuts.action.nudgeRight10",
+  "nudge-left-10": "settings.shortcuts.action.nudgeLeft10",
+  "select-clip-above": "settings.shortcuts.action.selectClipAbove",
+  "select-clip-below": "settings.shortcuts.action.selectClipBelow",
+  "zoom-in": "settings.shortcuts.action.zoomIn",
+  "zoom-out": "settings.shortcuts.action.zoomOut",
+  "toggle-ripple-edit": "settings.shortcuts.action.toggleRippleEdit",
+  "add-marker": "settings.shortcuts.action.addMarker",
+  "toggle-track-lock": "settings.shortcuts.action.toggleTrackLock",
+  "toggle-track-visibility": "settings.shortcuts.action.toggleTrackVisibility",
+  "toggle-track-mute": "settings.shortcuts.action.toggleTrackMute",
+  "pack-track": "settings.shortcuts.action.packTrack",
+  "add-track": "settings.shortcuts.action.addTrack",
+} as const satisfies Record<ShortcutActionId, MessageKey>;
+
+const SHORTCUT_ACTION_IDS = new Set<string>(
+  SHORTCUT_DEFINITIONS.map(({ id }) => id),
+);
+
+function isShortcutActionId(id: string): id is ShortcutActionId {
+  return SHORTCUT_ACTION_IDS.has(id);
+}
 
 // Hydrate bindings from defaults
-function buildInitialShortcuts(): Record<string, ShortcutAction> {
-  const result: Record<string, ShortcutAction> = {};
-  for (const s of DEFAULT_SHORTCUTS) {
+function buildInitialShortcuts(): Record<ShortcutActionId, ShortcutAction> {
+  const result = {} as Record<ShortcutActionId, ShortcutAction>;
+  for (const s of SHORTCUT_DEFINITIONS) {
     result[s.id] = { ...s, binding: { ...s.defaultBinding } };
   }
   return result;
@@ -337,19 +357,19 @@ function buildInitialShortcuts(): Record<string, ShortcutAction> {
 // ─── Store Interface ──────────────────────────────────────────────────────────
 
 interface ShortcutStore {
-  shortcuts: Record<string, ShortcutAction>;
+  shortcuts: Record<ShortcutActionId, ShortcutAction>;
 
   /** Override a single shortcut's binding */
-  setShortcut: (id: string, binding: KeyBinding) => void;
+  setShortcut: (id: ShortcutActionId, binding: KeyBinding) => void;
 
   /** Reset a single shortcut to its default binding */
-  resetShortcut: (id: string) => void;
+  resetShortcut: (id: ShortcutActionId) => void;
 
   /** Reset all shortcuts to defaults */
   resetAll: () => void;
 
   /** Returns the action id whose binding matches the event, or null */
-  getMatchingAction: (e: KeyboardEvent) => string | null;
+  getMatchingAction: (e: KeyboardEvent) => ShortcutActionId | null;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -415,8 +435,10 @@ export const useShortcutStore = create<ShortcutStore>()(
       merge: (persisted: any, current) => {
         const base = buildInitialShortcuts();
         if (persisted?.shortcuts) {
-          for (const [id, data] of Object.entries(persisted.shortcuts as Record<string, any>)) {
-            if (base[id] && data?.binding) {
+          for (const [id, data] of Object.entries(
+            persisted.shortcuts as Record<string, any>,
+          )) {
+            if (isShortcutActionId(id) && data?.binding) {
               base[id] = { ...base[id], binding: data.binding };
             }
           }
@@ -433,7 +455,10 @@ export const useShortcutStore = create<ShortcutStore>()(
  * Returns true if the keyboard event matches the named action's current binding.
  * Can be called imperatively from event handlers.
  */
-export function matchesShortcut(e: KeyboardEvent, actionId: string): boolean {
+export function matchesShortcut(
+  e: KeyboardEvent,
+  actionId: ShortcutActionId,
+): boolean {
   return useShortcutStore.getState().getMatchingAction(e) === actionId;
 }
 
@@ -466,10 +491,10 @@ export function formatBinding(binding: KeyBinding): string {
 }
 
 /** Returns all unique categories in definition order */
-export function getShortcutCategories(): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const s of DEFAULT_SHORTCUTS) {
+export function getShortcutCategories(): ShortcutCategory[] {
+  const seen = new Set<ShortcutCategory>();
+  const result: ShortcutCategory[] = [];
+  for (const s of SHORTCUT_DEFINITIONS) {
     if (!seen.has(s.category)) {
       seen.add(s.category);
       result.push(s.category);

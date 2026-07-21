@@ -1,9 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { KeyboardShortcutsSettings } from "@/components/settings/KeyboardShortcutsSettings";
+import type { MessageKey } from "@/i18n";
 import { settingsMessages } from "@/i18n/catalogs/settings";
+import * as shortcutStoreModule from "@/store/shortcutStore";
 import {
   SHORTCUT_ACTION_MESSAGE_KEYS,
   SHORTCUT_CATEGORY_MESSAGE_KEYS,
@@ -11,6 +13,8 @@ import {
   getShortcutCategories,
   useShortcutStore,
   type KeyBinding,
+  type ShortcutActionId,
+  type ShortcutCategory,
 } from "@/store/shortcutStore";
 
 const CATEGORIES = [
@@ -56,18 +60,23 @@ const CATEGORIES = [
     en: "Track",
     zhCN: "轨道",
   },
-] as const;
-
-interface ExpectedAction {
-  id: keyof typeof SHORTCUT_ACTION_MESSAGE_KEYS;
-  messageKey: keyof typeof settingsMessages;
+] as const satisfies readonly {
+  id: ShortcutCategory;
+  messageKey: MessageKey;
   en: string;
   zhCN: string;
-  category: keyof typeof SHORTCUT_CATEGORY_MESSAGE_KEYS;
+}[];
+
+interface ExpectedAction {
+  id: ShortcutActionId;
+  messageKey: MessageKey;
+  en: string;
+  zhCN: string;
+  category: ShortcutCategory;
   binding: KeyBinding;
 }
 
-const ACTIONS: ExpectedAction[] = [
+const ACTIONS = [
   {
     id: "play-pause",
     messageKey: "settings.shortcuts.action.playPause",
@@ -364,14 +373,60 @@ const ACTIONS: ExpectedAction[] = [
     category: "Track",
     binding: { key: "t", ctrl: true, alt: true },
   },
-];
+] as const satisfies readonly ExpectedAction[];
+
+type SameUnion<A, B> =
+  [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+const ALL_ACTION_IDS_ARE_COVERED: SameUnion<
+  ShortcutActionId,
+  (typeof ACTIONS)[number]["id"]
+> = true;
+const ALL_CATEGORIES_ARE_COVERED: SameUnion<
+  ShortcutCategory,
+  (typeof CATEGORIES)[number]["id"]
+> = true;
 
 beforeEach(() => {
   localStorage.clear();
   useShortcutStore.getState().resetAll();
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("keyboard shortcut localization", () => {
+  test("derives exhaustive action and category mappings from canonical definitions", () => {
+    const definitions = (
+      shortcutStoreModule as typeof shortcutStoreModule & {
+        SHORTCUT_DEFINITIONS?: readonly {
+          id: ShortcutActionId;
+          label: string;
+          category: ShortcutCategory;
+          defaultBinding: KeyBinding;
+        }[];
+      }
+    ).SHORTCUT_DEFINITIONS;
+
+    expect(ALL_ACTION_IDS_ARE_COVERED).toBe(true);
+    expect(ALL_CATEGORIES_ARE_COVERED).toBe(true);
+    expect(definitions).toBeDefined();
+    if (!definitions) return;
+
+    expect(definitions).toEqual(
+      ACTIONS.map(({ id, en, category, binding }) => ({
+        id,
+        label: en,
+        category,
+        defaultBinding: binding,
+      })),
+    );
+    expect([...new Set(definitions.map(({ category }) => category))]).toEqual(
+      CATEGORIES.map(({ id }) => id),
+    );
+  });
+
   test("provides Chinese display text for every stable category and action", () => {
     const shortcuts = useShortcutStore.getState().shortcuts;
 
@@ -402,6 +457,15 @@ describe("keyboard shortcut localization", () => {
         binding: action.binding,
       });
     }
+
+    expect(settingsMessages["settings.shortcuts.instructionsBeforeKey"]).toEqual({
+      en: "Click any binding to rebind it. Press ",
+      zhCN: "点击任意按键组合可重新绑定。按 ",
+    });
+    expect(settingsMessages["settings.shortcuts.instructionsAfterKey"]).toEqual({
+      en: " to cancel.",
+      zhCN: " 取消。",
+    });
 
     render(createElement(KeyboardShortcutsSettings));
 
@@ -453,6 +517,37 @@ describe("keyboard shortcut localization", () => {
     expect(screen.getByText("没有与“不存在”匹配的快捷键")).toBeInTheDocument();
   });
 
+  test("searches macOS bindings by symbols and common textual modifier names", () => {
+    vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    );
+    render(createElement(KeyboardShortcutsSettings));
+
+    const search = screen.getByRole("textbox", { name: "搜索键盘快捷键" });
+    for (const query of ["Command Z", "Cmd Z", "⌘ Z"]) {
+      fireEvent.change(search, { target: { value: query } });
+      expect(screen.getByText("撤销")).toBeInTheDocument();
+    }
+
+    for (const query of ["Option ↑", "Alt ↑", "⌥ ↑"]) {
+      fireEvent.change(search, { target: { value: query } });
+      expect(screen.getByText("选择上方轨道的片段")).toBeInTheDocument();
+    }
+  });
+
+  test("announces the action and current macOS binding on rebind controls", () => {
+    vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    );
+    render(createElement(KeyboardShortcutsSettings));
+
+    expect(
+      screen.getByRole("button", {
+        name: "重新绑定“撤销”，当前快捷键为 ⌘ Z",
+      }),
+    ).toBeInTheDocument();
+  });
+
   test("localizes conflict, rebind, reset, and reset-all prompts with action names", () => {
     useShortcutStore.getState().setShortcut("pause", { key: "Space" });
     render(createElement(KeyboardShortcutsSettings));
@@ -460,7 +555,19 @@ describe("keyboard shortcut localization", () => {
     expect(screen.getByText("与“暂停”冲突")).toBeInTheDocument();
     expect(screen.getByText("与“播放 / 暂停”冲突")).toBeInTheDocument();
 
-    const rebindUndo = screen.getByRole("button", { name: "重新绑定“撤销”" });
+    const rebindPause = screen.getByRole("button", {
+      name: "重新绑定“暂停”，当前快捷键为 Space",
+    });
+    const conflictDescriptionId = rebindPause.getAttribute("aria-describedby");
+    expect(conflictDescriptionId).toBeTruthy();
+    expect(document.getElementById(conflictDescriptionId ?? "")).toHaveTextContent(
+      "与“播放 / 暂停”冲突",
+    );
+
+    const undoBinding = formatBinding({ key: "z", ctrl: true });
+    const rebindUndo = screen.getByRole("button", {
+      name: `重新绑定“撤销”，当前快捷键为 ${undoBinding}`,
+    });
     expect(rebindUndo).toHaveAttribute("title", "点击重新绑定“撤销”");
     fireEvent.click(rebindUndo);
 
@@ -472,7 +579,11 @@ describe("keyboard shortcut localization", () => {
       ctrl: true,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "重新绑定“撤销”" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `重新绑定“撤销”，当前快捷键为 ${undoBinding}`,
+      }),
+    );
     fireEvent.keyDown(screen.getByPlaceholderText("请按下按键…"), {
       key: "x",
       ctrlKey: true,
@@ -481,6 +592,11 @@ describe("keyboard shortcut localization", () => {
       key: "x",
       ctrl: true,
     });
+    expect(
+      screen.getByRole("button", {
+        name: `重新绑定“撤销”，当前快捷键为 ${formatBinding({ key: "x", ctrl: true })}`,
+      }),
+    ).toBeInTheDocument();
 
     const resetUndo = screen.getByRole("button", {
       name: "将“撤销”重置为默认快捷键",

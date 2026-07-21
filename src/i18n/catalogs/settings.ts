@@ -290,9 +290,13 @@ export const settingsMessages = defineMessages({
     zhCN: "你的设置和偏好将保留",
   },
 
-  "settings.shortcuts.instructions": {
-    en: "Click any binding to rebind it. Press Esc to cancel.",
-    zhCN: "点击任意按键组合可重新绑定。按 Esc 取消。",
+  "settings.shortcuts.instructionsBeforeKey": {
+    en: "Click any binding to rebind it. Press ",
+    zhCN: "点击任意按键组合可重新绑定。按 ",
+  },
+  "settings.shortcuts.instructionsAfterKey": {
+    en: " to cancel.",
+    zhCN: " 取消。",
   },
   "settings.shortcuts.searchPlaceholder": {
     en: "Search shortcuts...",
@@ -319,8 +323,8 @@ export const settingsMessages = defineMessages({
     zhCN: "点击重新绑定“{{action}}”",
   },
   "settings.shortcuts.rebindLabel": {
-    en: "Rebind {{action}}",
-    zhCN: "重新绑定“{{action}}”",
+    en: "Rebind {{action}}, current shortcut is {{binding}}",
+    zhCN: "重新绑定“{{action}}”，当前快捷键为 {{binding}}",
   },
   "settings.shortcuts.edit": { en: "Edit", zhCN: "编辑" },
   "settings.shortcuts.resetLabel": {
