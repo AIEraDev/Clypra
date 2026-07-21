@@ -10,8 +10,10 @@ interface ProgressRingProps {
 export const ProgressRing: React.FC<ProgressRingProps> = ({ progress, size = 160, strokeWidth = 6 }) => {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - progress * circumference;
-  const percentage = Math.round(progress * 100);
+  const percent = Math.min(100, Math.max(0, progress));
+  const ratio = percent / 100;
+  const offset = circumference - ratio * circumference;
+  const percentage = Math.round(percent);
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>

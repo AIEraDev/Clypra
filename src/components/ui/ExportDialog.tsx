@@ -94,15 +94,32 @@ const countGraphemes = (str: string): number => {
 
 function getErrorDetail(error: unknown): string {
   if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string") return message;
+  try {
+    if (error instanceof Error) {
+      const message = error.message;
+      if (typeof message === "string") return message;
+    }
+  } catch {
+    // Continue through safer fallbacks for hostile objects.
   }
   try {
-    return JSON.stringify(error) ?? String(error);
+    if (error && (typeof error === "object" || typeof error === "function")) {
+      const message = Reflect.get(error, "message");
+      if (typeof message === "string") return message;
+    }
   } catch {
+    // Accessors and Proxy traps may throw.
+  }
+  try {
+    const serialized = JSON.stringify(error);
+    if (typeof serialized === "string") return serialized;
+  } catch {
+    // Circular values are handled by String or the stable fallback.
+  }
+  try {
     return String(error);
+  } catch {
+    return "Unknown error";
   }
 }
 

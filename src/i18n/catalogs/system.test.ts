@@ -151,11 +151,30 @@ describe("export workflow localization", () => {
     });
   });
 
-  test("localizes only the ProgressRing percent label", () => {
-    render(createElement(ProgressRing, { progress: 0.47 }));
+  test("renders and clamps the ProgressRing 0..100 percent contract", () => {
+    const { container, rerender } = render(
+      createElement(ProgressRing, { progress: 47 }),
+    );
+    const radius = (160 - 6) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const progressArc = () =>
+      container.querySelector('circle[stroke="url(#progressGradient)"]');
 
     expect(screen.getByText("47")).toBeInTheDocument();
     expect(screen.getByText("百分比")).toBeInTheDocument();
+    expect(Number(progressArc()?.getAttribute("stroke-dashoffset"))).toBeCloseTo(
+      circumference * 0.53,
+    );
+
+    rerender(createElement(ProgressRing, { progress: -12 }));
+    expect(screen.getByText("0")).toBeInTheDocument();
+    expect(Number(progressArc()?.getAttribute("stroke-dashoffset"))).toBeCloseTo(
+      circumference,
+    );
+
+    rerender(createElement(ProgressRing, { progress: 140 }));
+    expect(screen.getByText("100")).toBeInTheDocument();
+    expect(Number(progressArc()?.getAttribute("stroke-dashoffset"))).toBe(0);
   });
 
   test("preserves string and Error details in a complete Chinese export failure", () => {
@@ -164,6 +183,30 @@ describe("export workflow localization", () => {
     expect(formatExportFailure(detail)).toBe(`导出失败：${detail}`);
     expect(formatExportFailure(new Error(detail))).toBe(`导出失败：${detail}`);
     expect(formatExportFailure({ message: detail })).toBe(`导出失败：${detail}`);
+    expect(formatExportFailure({ stderr: detail })).toBe(
+      `导出失败：${JSON.stringify({ stderr: detail })}`,
+    );
+  });
+
+  test("uses a stable fallback for hostile and unserializable unknown errors", () => {
+    const circular = Object.create(null) as Record<string, unknown>;
+    circular.self = circular;
+    const throwingProxy = new Proxy(
+      {},
+      {
+        has() {
+          throw new Error("has trap");
+        },
+        get() {
+          throw new Error("get trap");
+        },
+      },
+    );
+
+    expect(() => formatExportFailure(circular)).not.toThrow();
+    expect(formatExportFailure(circular)).toBe("导出失败：Unknown error");
+    expect(() => formatExportFailure(throwingProxy)).not.toThrow();
+    expect(formatExportFailure(throwingProxy)).toBe("导出失败：Unknown error");
   });
 
   test("emits Chinese cloud progress while preserving the download URL", async () => {
