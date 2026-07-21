@@ -35,6 +35,41 @@ const DEFAULT_MODEL_STATE: ModelDownloadState = {
   speedBytesPerSec: 0,
 };
 
+function mergePersistedCaptionStore(
+  persistedState: unknown,
+  currentState: CaptionStore,
+): CaptionStore {
+  if (!persistedState || typeof persistedState !== "object") {
+    return currentState;
+  }
+
+  const persisted = persistedState as Partial<CaptionStore>;
+  if (!persisted.captionSettings) {
+    return { ...currentState, ...persisted };
+  }
+
+  const persistedSettings = persisted.captionSettings;
+  const models = {
+    ...currentState.captionSettings.models,
+    ...persistedSettings.models,
+  };
+
+  return {
+    ...currentState,
+    ...persisted,
+    captionSettings: {
+      ...currentState.captionSettings,
+      ...persistedSettings,
+      models: Object.fromEntries(
+        Object.entries(models).map(([size, model]) => [
+          size,
+          model.status === "downloading" ? { ...DEFAULT_MODEL_STATE } : model,
+        ]),
+      ) as Record<WhisperModelSize, ModelDownloadState>,
+    },
+  };
+}
+
 export const useCaptionStore = create<CaptionStore>()(
   persist(
     (set) => ({
@@ -102,6 +137,7 @@ export const useCaptionStore = create<CaptionStore>()(
     }),
     {
       name: "clypra-caption-settings",
+      merge: mergePersistedCaptionStore,
       // Only persist language and model statuses, not download progress
       partialize: (state) => ({
         captionSettings: {
