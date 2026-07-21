@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { X } from "lucide-react";
+import { t } from "@/i18n";
 
 export interface BottomSheetProps {
   isOpen: boolean;
@@ -55,7 +56,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/6 transition-colors text-text-muted hover:text-text-primary cursor-pointer"
-            aria-label="Close sheet"
+            aria-label={t("shell.closeSheet")}
           >
             <X className="w-4 h-4" />
           </button>

@@ -1,5 +1,6 @@
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { t } from "@/i18n";
 
 // Safe wrapper to check if running inside Tauri desktop environment
 export function isTauriDesktop(): boolean {
@@ -50,9 +51,9 @@ export async function checkAppUpdate(): Promise<UpdateCheckResult> {
     let errorMessage = error?.message || String(error);
 
     if (errorMessage.includes("Could not fetch a valid release JSON")) {
-      errorMessage = "No published releases available. Auto-updates will work once the first release is published on GitHub.";
+      errorMessage = t("system.updateNoPublishedReleases");
     } else if (errorMessage.includes("network") || errorMessage.includes("fetch")) {
-      errorMessage = "Unable to connect to update server. Please check your internet connection.";
+      errorMessage = t("system.updateConnectionFailed");
     }
 
     return {
@@ -69,7 +70,7 @@ export async function checkAppUpdate(): Promise<UpdateCheckResult> {
  */
 export async function installAndRelaunchUpdate(updateObject: any, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
   if (!updateObject) {
-    throw new Error("No update object provided");
+    throw new Error(t("system.updateObjectMissing"));
   }
 
   try {

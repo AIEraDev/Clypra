@@ -1,4 +1,5 @@
 import { platform } from "@/core/platform";
+import { t } from "@/i18n";
 
 export interface DualRecordOptions {
   audio: boolean;
@@ -107,7 +108,7 @@ export class DualRecordService {
       .filter((d) => d.kind === "audioinput")
       .map((d, i) => ({
         deviceId: d.deviceId,
-        label: d.label || `Microphone ${i + 1}`,
+        label: d.label || t("recording.microphoneFallback", { count: i + 1 }),
       }));
   }
 
@@ -121,7 +122,7 @@ export class DualRecordService {
         .filter((d) => d.kind === "videoinput")
         .map((d, i) => ({
           deviceId: d.deviceId,
-          label: d.label || `Camera ${i + 1}`,
+          label: d.label || t("recording.cameraFallback", { count: i + 1 }),
         }));
     } catch {
       return [];
@@ -265,8 +266,8 @@ export class DualRecordService {
             errMessage.includes("sandbox extension");
 
           cameraError = isCameraMissing
-            ? "No camera hardware detected or permission pending."
-            : "Camera access was denied or unavailable.";
+            ? t("recording.noCamera")
+            : t("recording.cameraUnavailable");
 
           // If audio was also requested, fall back to audio-only so mic test works
           if (options.audio) {
@@ -280,7 +281,7 @@ export class DualRecordService {
             } catch (audioErr) {
               console.error("[DualRecordService] Audio fallback failed:", audioErr);
               this.stopWebcamStream();
-              throw new Error("Could not access camera or microphone. Check macOS System Settings → Privacy & Security.");
+              throw new Error(t("recording.permissionDenied"));
             }
           } else {
             this.stopWebcamStream();
@@ -301,7 +302,7 @@ export class DualRecordService {
     } catch (err) {
       console.error("[DualRecordService] Audio preview failed:", err);
       this.stopWebcamStream();
-      throw new Error("Could not access microphone. Check system permissions.");
+      throw new Error(t("recording.microphonePermissionDenied"));
     }
   }
 

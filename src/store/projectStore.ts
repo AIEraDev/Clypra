@@ -34,6 +34,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { calculateTextClipSize } from "@/lib/text/textClip";
 import { useSettingsStore } from "./settingsStore";
 import { saveSnapshot, clearSnapshot } from "@/core/runtime/CrashRecoveryService";
+import { t } from "@/i18n";
 import { lifecycleMonitor } from "@/lib/monitoring/LifecycleMonitor";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
@@ -58,7 +59,7 @@ interface ProjectStore {
   scheduleAutoSave: () => void;
 }
 
-const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+const graphemeSegmenter = new Intl.Segmenter("zh-CN", { granularity: "grapheme" });
 
 // ✅ FIX-005: Load mutex to prevent concurrent project loads
 let loadInProgress: Promise<void> | null = null;
@@ -78,7 +79,7 @@ const truncateGraphemes = (str: string, max: number): string => {
 
 const sanitizeProjectName = (name: string): string => {
   const trimmed = name.trim();
-  if (countGraphemes(trimmed) === 0) return "Untitled Project";
+  if (countGraphemes(trimmed) === 0) return t("launch.untitledProject");
   if (countGraphemes(trimmed) > MAX_PROJECT_NAME_LENGTH) {
     return truncateGraphemes(trimmed, MAX_PROJECT_NAME_LENGTH);
   }
@@ -165,7 +166,7 @@ function normalizeLoadedTextEffectClipBounds(clips: any[] | undefined, project: 
       if (!widthMatchesOldNative && !heightMatchesOldNative) return clip;
 
       const sizing = calculateTextClipSize({
-        text: clip.text ?? "Text",
+        text: clip.text ?? t("project.defaultText"),
         fontFamily: clip.fontFamily ?? effectDefinition.font?.family ?? "Inter, system-ui, sans-serif",
         fontSize: clip.fontSize,
         fontWeight: clip.fontWeight ?? effectDefinition.font?.weight,
@@ -348,7 +349,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
                   // Create FilterAsset from complete clip data (stored on save)
                   const filterAsset = {
                     id: clip.mediaId,
-                    name: clip.name || "Filter",
+                    name: clip.name || t("project.defaultFilter"),
                     type: "filter" as const,
                     category: clip.category || "essentials", // Use stored category
                     description: "",
@@ -512,9 +513,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         }));
       }
 
-      get().showToast("Project renamed");
+      get().showToast(t("project.renamed"));
     } catch (error) {
-      get().showToast("Failed to rename project", "error");
+      get().showToast(t("project.renameFailed"), "error");
       throw error;
     }
   },
@@ -534,7 +535,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         set({ project: null, mediaAssets: [] });
       }
     } catch (error) {
-      get().showToast("Failed to delete project", "error");
+      get().showToast(t("project.deleteFailed"), "error");
       throw error;
     }
   },
@@ -561,9 +562,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
           await platform.saveProject(JSON.stringify(rustProject));
 
-          get().showToast("Project saved");
+          get().showToast(t("project.saved"));
         } catch (error) {
-          get().showToast("Failed to save before closing", "error");
+          get().showToast(t("project.saveBeforeCloseFailed"), "error");
         }
       }
     }
@@ -659,7 +660,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         const rustProject = toRustProject(project, { tracks, clips, transitions, gaps, markers, mediaAssets });
 
         await platform.saveProject(JSON.stringify(rustProject));
-        get().showToast("Project saved");
+        get().showToast(t("project.saved"));
 
         // ── Crash recovery snapshot ──────────────────────────────────────
         // Persist a recovery snapshot so the user can restore their work if

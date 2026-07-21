@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { X } from "lucide-react";
+import { t } from "@/i18n";
 
 export interface ModalProps {
   isOpen: boolean;
@@ -35,7 +36,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
         {/* Header */}
         <div className="flex items-center justify-between px-5 h-12 border-b border-white/6 shrink-0">
           <h2 className="text-[15px] font-semibold text-text-primary tracking-tight">{title}</h2>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/6 transition-colors text-text-muted hover:text-text-primary">
+          <button onClick={onClose} aria-label={t("shell.closeDialog")} className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/6 transition-colors text-text-muted hover:text-text-primary">
             <X className="w-4 h-4" />
           </button>
         </div>

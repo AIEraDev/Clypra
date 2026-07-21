@@ -3,6 +3,7 @@ import { Play, Pause, Download, Edit3, X, Eye, EyeOff } from "lucide-react";
 import { useRecordingStore } from "@/store/recordingStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { AspectRatio } from "@/types";
+import { t } from "@/i18n";
 
 interface ScreenRecordingPreviewModalProps {
   isOpen: boolean;
@@ -214,7 +215,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
         const ext = screenPath.split(".").pop() || "webm";
         const selectedPath = await save({
           defaultPath: `clypra_recording.${ext}`,
-          filters: [{ name: "Video", extensions: [ext] }],
+          filters: [{ name: t("recording.videoFilterName"), extensions: [ext] }],
         });
 
         if (selectedPath) {
@@ -258,7 +259,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
     const { defaultFrameRate } = useSettingsStore.getState();
     // Trim values can be loaded inside timeline later.
     // For now, auto-create project and navigate.
-    onProjectCreate("Screen Recording Project", "16:9", defaultFrameRate, filePaths);
+    onProjectCreate(t("recording.defaultProjectName"), "16:9", defaultFrameRate, filePaths);
     setPreviewRecording(null);
   };
 
@@ -348,20 +349,20 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
       <div className="w-[600px] rounded-2xl bg-[#14141e]/95 border border-white/8 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
         {/* Title bar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-[#1a1a26]/50">
-          <button onClick={handleClose} className="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center text-[8px] text-red-950 font-bold">
+          <button onClick={handleClose} aria-label={t("recording.closePreview")} className="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center text-[8px] text-red-950 font-bold">
             ✕
           </button>
-          <span className="text-sm font-semibold text-slate-300">Screen recording</span>
+          <span className="text-sm font-semibold text-slate-300">{t("recording.previewTitle")}</span>
           <div className="w-4" /> {/* Spacer */}
         </div>
 
         {/* Close Confirmation Banner */}
         {showCloseConfirm && (
           <div className="flex items-center justify-between px-5 py-2.5 bg-amber-500/10 border-b border-amber-500/20">
-            <span className="text-xs text-amber-300">Discard preview? Files remain on disk.</span>
+            <span className="text-xs text-amber-300">{t("recording.discardPreview")}</span>
             <div className="flex items-center gap-2">
               <button onClick={handleCancelClose} className="px-2.5 py-1 text-[11px] font-semibold text-slate-300 hover:text-white rounded-md hover:bg-white/5 transition-colors">
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 onClick={() => {
@@ -370,7 +371,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
                 }}
                 className="px-2.5 py-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300 rounded-md hover:bg-amber-500/10 transition-colors"
               >
-                Discard
+                {t("recovery.discard")}
               </button>
             </div>
           </div>
@@ -378,7 +379,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
 
         {/* Video Preview */}
         <div className="relative aspect-video bg-[#0a0a0f] border-b border-white/5 flex items-center justify-center overflow-hidden">
-          {videoSrc ? <video ref={videoRef} src={videoSrc} onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={handleEnded} onClick={togglePlay} className="max-w-full max-h-full object-contain cursor-pointer" /> : <div className="text-slate-500 text-xs">Loading preview...</div>}
+          {videoSrc ? <video ref={videoRef} src={videoSrc} onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={handleEnded} onClick={togglePlay} className="max-w-full max-h-full object-contain cursor-pointer" /> : <div className="text-slate-500 text-xs">{t("recording.loadingPreview")}</div>}
 
           {/* Camera PiP overlay */}
           {hasDualRecording && cameraSrc && showCameraPip && (
@@ -389,7 +390,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
 
           {/* Camera PiP toggle */}
           {hasDualRecording && (
-            <button onClick={() => setShowCameraPip((v) => !v)} className="absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-black/50 backdrop-blur-sm border border-white/10 hover:bg-black/70 transition-colors text-white/70 hover:text-white" title={showCameraPip ? "Hide camera" : "Show camera"}>
+            <button onClick={() => setShowCameraPip((v) => !v)} className="absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-black/50 backdrop-blur-sm border border-white/10 hover:bg-black/70 transition-colors text-white/70 hover:text-white" title={showCameraPip ? t("recording.hideCamera") : t("recording.showCamera")} aria-label={showCameraPip ? t("recording.hideCamera") : t("recording.showCamera")}>
               {showCameraPip ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
             </button>
           )}
@@ -447,6 +448,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <button
               onClick={togglePlay}
+              aria-label={isPlaying ? t("recording.pausePreview") : t("recording.playPreview")}
               className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-white transition-colors"
             >
               {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white" />}
@@ -461,7 +463,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
           {/* Trim indicator */}
           {isTrimmed && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent/8 border border-accent/20">
-              <span className="text-[11px] text-accent font-semibold">✂ Trimmed</span>
+              <span className="text-[11px] text-accent font-semibold">{t("recording.trimmed")}</span>
               <span className="text-[10px] text-slate-400">
                 {formatTimecode((trimStart / 100) * duration)} → {formatTimecode((trimEnd / 100) * duration)}
               </span>
@@ -472,7 +474,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
                 }}
                 className="ml-auto text-[10px] text-slate-500 hover:text-white transition-colors"
               >
-                Reset
+                {t("common.reset")}
               </button>
             </div>
           )}
@@ -481,11 +483,11 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
           <div className="grid grid-cols-2 gap-3 mt-1">
             <button onClick={handleDownload} disabled={isDownloading} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/15 text-white font-semibold text-sm transition-all border border-white/5 cursor-pointer disabled:opacity-50">
               <Download className="w-4 h-4" />
-              {isDownloading ? "Processing..." : isTrimmed ? "Download Trimmed" : "Download"}
+              {isDownloading ? t("recording.processing") : isTrimmed ? t("recording.downloadTrimmed") : t("common.download")}
             </button>
             <button onClick={handleEditMore} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[#00b4c8] hover:bg-[#00cdd8] active:bg-[#00a0b0] text-slate-950 font-bold text-sm transition-all shadow-lg shadow-cyan-500/10 cursor-pointer">
               <Edit3 className="w-4 h-4" />
-              Edit more
+              {t("recording.editMore")}
             </button>
           </div>
         </div>

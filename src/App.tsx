@@ -19,6 +19,7 @@ import { FloatingWidget } from "@/components/ui/FloatingWidget";
 import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPreviewModal";
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { UpdateBanner } from "@/components/ui/UpdateBanner";
+import { t } from "@/i18n";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -263,7 +264,7 @@ const App = () => {
       }, 200);
     } catch (error) {
       console.error("[OpenProject] Failed to open project:", error);
-      useProjectStore.getState().showToast("Failed to open project", "error");
+      useProjectStore.getState().showToast(t("project.openFailed"), "error");
     }
   };
 
@@ -294,7 +295,7 @@ const App = () => {
       setPendingRecovery(null);
     } catch (error) {
       console.error("[CrashRecovery] Restore failed:", error);
-      useProjectStore.getState().showToast("Failed to restore session", "error");
+      useProjectStore.getState().showToast(t("project.restoreFailed"), "error");
     } finally {
       setIsRestoring(false);
     }
@@ -357,7 +358,7 @@ const App = () => {
       setProjectNameBeforeClose("");
     } catch (error) {
       console.error("[App] Error closing project:", error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = error instanceof Error ? error.message : t("app.unknownError");
 
       const updateStep = (window as any).__updateClosingStep;
       updateStep?.("save", "error", errorMessage);
@@ -371,7 +372,7 @@ const App = () => {
       <div className="w-full h-full flex items-center justify-center bg-bg">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-accent mx-auto mb-4" />
-          <p className="text-text-primary">Loading...</p>
+          <p className="text-text-primary">{t("app.loading")}</p>
         </div>
       </div>
     );
@@ -384,10 +385,10 @@ const App = () => {
         <div className="w-full h-full flex items-center justify-center bg-bg">
           <div className="text-center max-w-md p-8">
             <div className="text-red-500 text-6xl mb-4">⚠️</div>
-            <h1 className="text-2xl font-bold text-text-primary mb-4">Application Error</h1>
-            <p className="text-text-muted mb-6">Something went wrong. The application encountered an unexpected error.</p>
+            <h1 className="text-2xl font-bold text-text-primary mb-4">{t("app.applicationError")}</h1>
+            <p className="text-text-muted mb-6">{t("app.applicationUnexpectedError")}</p>
             <button onClick={() => window.location.reload()} className="px-6 py-3 bg-accent text-white rounded-lg hover:bg-accent-soft transition-colors font-semibold">
-              Restart Application
+              {t("app.restartApplication")}
             </button>
           </div>
         </div>

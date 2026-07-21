@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { t } from "@/i18n";
 
 export type ToastVariant = "success" | "error" | "warning";
 
@@ -16,7 +17,7 @@ export interface SuccessToastProps {
 
 const variantConfig: Record<ToastVariant, { label: string; iconPath: string; accentVar: string; iconColor: string; glowClass: string; barClass: string; bgClass: string; borderClass: string }> = {
   success: {
-    label: "Success",
+    label: t("common.success"),
     iconPath: "M2.5 7.5L5.5 10.5L11.5 4",
     accentVar: "var(--color-accent-soft)",
     iconColor: "text-accent-soft",
@@ -26,7 +27,7 @@ const variantConfig: Record<ToastVariant, { label: string; iconPath: string; acc
     borderClass: "border-accent/25",
   },
   error: {
-    label: "Error",
+    label: t("common.error"),
     iconPath: "M2 2L12 12M12 2L2 12",
     accentVar: "#ef4444",
     iconColor: "text-red-400",
@@ -36,7 +37,7 @@ const variantConfig: Record<ToastVariant, { label: string; iconPath: string; acc
     borderClass: "border-red-500/25",
   },
   warning: {
-    label: "Warning",
+    label: t("toast.warning"),
     iconPath: "M7 2L1 12H13L7 2ZM7 5V8M7 10V10.5",
     accentVar: "#f59e0b",
     iconColor: "text-amber-400",
@@ -143,7 +144,7 @@ export function SuccessToast({ message, variant = "success", onDismiss, autoHide
         </div>
 
         {/* Dismiss button */}
-        <button onClick={startDismiss} aria-label="Dismiss" className="shrink-0 ml-1 rounded-md p-1 text-text-muted hover:text-text-primary transition-colors">
+        <button onClick={startDismiss} aria-label={t("toast.dismiss")} className="shrink-0 ml-1 rounded-md p-1 text-text-muted hover:text-text-primary transition-colors">
           <svg className="h-3.5 w-3.5" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path d="M2 2L12 12M12 2L2 12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
           </svg>

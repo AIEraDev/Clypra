@@ -4,6 +4,7 @@ import { useRecordingStore } from "@/store/recordingStore";
 import { DualRecordService } from "@/services/dualRecordService";
 import { useSettingsStore } from "@/store/settingsStore";
 import { AspectRatio } from "@/types";
+import { t } from "@/i18n";
 
 interface FloatingWidgetProps {
   onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
@@ -162,7 +163,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
         <div className="absolute top-0 left-0 right-0 z-30 bg-red-600/95 backdrop-blur-sm text-white text-[11px] font-semibold px-3 py-2 flex items-center gap-2 animate-fade-in">
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="truncate">{recordingError}</span>
-          <span className="text-white/70 ml-auto text-[10px] flex-shrink-0">Auto-saving…</span>
+          <span className="text-white/70 ml-auto text-[10px] flex-shrink-0">{t("recording.autoSaving")}</span>
         </div>
       )}
 
@@ -186,16 +187,16 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
           />
           <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg">
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-            REC {formatTime(seconds)}
+            {t("recording.recordingWithTime", { time: formatTime(seconds) })}
           </div>
         </div>
       ) : (
         <div className="relative w-48 h-48 rounded-full flex flex-col items-center justify-center border-2 border-dashed border-white/20 bg-white/5">
           <span className="text-3xl">🖥️</span>
-          <span className="text-[10px] text-slate-400 mt-2 font-bold uppercase tracking-wide">Recording Screen</span>
+          <span className="text-[10px] text-slate-400 mt-2 font-bold uppercase tracking-wide">{t("recording.recordingScreen")}</span>
           <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-lg">
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-            REC {formatTime(seconds)}
+            {t("recording.recordingWithTime", { time: formatTime(seconds) })}
           </div>
         </div>
       )}
@@ -203,7 +204,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
       {/* Control toolbar */}
       <div className="w-full bg-[#181826]/90 border border-white/10 rounded-2xl p-3 flex items-center justify-between shadow-xl mb-1">
         <div className="flex flex-col ml-1">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Duration</span>
+          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{t("recording.duration")}</span>
           <span className="text-xs font-bold text-white font-mono">{formatTime(seconds)}</span>
         </div>
 
@@ -213,7 +214,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold transition-all shadow-md shadow-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <StopCircle className="w-4 h-4" />
-          Stop Capture
+          {t("recording.stopCapture")}
         </button>
       </div>
     </div>

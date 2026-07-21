@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t } from "@/i18n";
 
 interface ClosingProjectModalProps {
   isOpen: boolean;
@@ -15,10 +16,10 @@ interface CloseStep {
 
 export const ClosingProjectModal: React.FC<ClosingProjectModalProps> = ({ isOpen, projectName, onComplete }) => {
   const [steps, setSteps] = useState<CloseStep[]>([
-    { id: "save", label: "Saving project", status: "pending" },
-    { id: "session", label: "Stopping preview", status: "pending" },
-    { id: "cleanup", label: "Cleaning up resources", status: "pending" },
-    { id: "reset", label: "Resetting state", status: "pending" },
+    { id: "save", label: t("closing.savingProject"), status: "pending" },
+    { id: "session", label: t("closing.stoppingPreview"), status: "pending" },
+    { id: "cleanup", label: t("closing.cleaningResources"), status: "pending" },
+    { id: "reset", label: t("closing.resettingState"), status: "pending" },
   ]);
 
   const [currentStepIndex, setCurrentStepIndex] = useState(-1);
@@ -89,17 +90,15 @@ export const ClosingProjectModal: React.FC<ClosingProjectModalProps> = ({ isOpen
           )}
         </div>
 
-        <h2 className="text-xl font-bold text-text-primary text-center mb-2">{hasError ? "Error Closing Project" : allCompleted ? "Project Closed" : "Closing Project"}</h2>
+        <h2 className="text-xl font-bold text-text-primary text-center mb-2">{hasError ? t("closing.errorTitle") : allCompleted ? t("closing.closedTitle") : t("closing.title")}</h2>
 
         <p className="text-sm text-text-muted text-center mb-6">
           {hasError ? (
-            "Some cleanup steps failed. Please check the console for details."
+            t("closing.cleanupFailed")
           ) : allCompleted ? (
-            <>Returning to home...</>
+            <>{t("closing.returningHome")}</>
           ) : (
-            <>
-              Saving <span className="font-semibold text-text-primary">"{projectName}"</span> and cleaning up...
-            </>
+            <>{t("closing.savingAndCleaning", { project: projectName })}</>
           )}
         </p>
 
@@ -146,7 +145,7 @@ export const ClosingProjectModal: React.FC<ClosingProjectModalProps> = ({ isOpen
               }}
               className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg bg-accent text-white hover:bg-accent-soft transition-colors"
             >
-              Force Close
+              {t("closing.forceClose")}
             </button>
           </div>
         )}

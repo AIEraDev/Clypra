@@ -10,6 +10,7 @@ import { useUIStore } from "@/store/uiStore";
 import { platform } from "@/core/platform";
 import { DualRecordService } from "@/services/dualRecordService";
 import { useRecordingStore } from "@/store/recordingStore";
+import { t } from "@/i18n";
 
 interface LaunchScreenProps {
   onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
@@ -24,7 +25,7 @@ const toPreviewSrc = (value?: string) => {
 };
 
 
-const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+const graphemeSegmenter = new Intl.Segmenter("zh-CN", { granularity: "grapheme" });
 const countGraphemes = (str: string): number => Array.from(graphemeSegmenter.segment(str)).length;
 
 const getProjectThumbnail = (project: Project) => {
@@ -171,7 +172,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         }
       } catch (err: any) {
         console.error("[LaunchScreen] Camera/microphone setup failed:", err);
-        setPreviewError(err?.message || "Could not access camera or microphone. Check System Preferences → Privacy.");
+        setPreviewError(err?.message || t("recording.permissionDenied"));
       }
     };
 
@@ -231,7 +232,13 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         // Callback when recording is stopped externally (OS "Stop Sharing", recorder error)
         (reason, error) => {
           console.warn(`[LaunchScreen] Recording stopped externally: ${reason}`, error);
-          setRecordingError(error || "Recording stopped unexpectedly");
+          if (reason === "track_ended") {
+            setRecordingError(t("recording.screenSharingStopped"));
+          } else if (error?.toLowerCase().includes("camera")) {
+            setRecordingError(t("recording.cameraRecorderError"));
+          } else {
+            setRecordingError(t("recording.screenRecorderError"));
+          }
         }
       );
 
@@ -257,7 +264,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       }
     } catch (err: any) {
       console.error("[LaunchScreen] Start recording failed:", err);
-      setPreviewError(`Failed to start recording: ${err?.message || err || "Check permissions."}`);
+      const rawError = err?.message || err;
+      const detail =
+        rawError === "Recording already in progress"
+          ? t("recording.alreadyInProgress")
+          : rawError === "At least one recording source must be enabled (screen, webcam, or audio)"
+            ? t("recording.sourceRequired")
+            : rawError || t("recording.checkPermissions");
+      setPreviewError(t("recording.startFailed", { error: String(detail) }));
     }
   };
 
@@ -305,7 +319,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
   const handleStartNewProject = () => {
     const { defaultFrameRate } = useSettingsStore.getState();
-    onProjectCreate("Untitled Project", "16:9", defaultFrameRate);
+    onProjectCreate(t("launch.untitledProject"), "16:9", defaultFrameRate);
   };
 
   const handleDeleteClick = (e: React.MouseEvent, project: Project) => {
@@ -383,10 +397,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return "Today";
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays < 7) return `${diffDays} days ago`;
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    if (diffDays === 0) return t("launch.today");
+    if (diffDays === 1) return t("launch.yesterday");
+    if (diffDays < 7) return t("launch.daysAgo", { count: diffDays });
+    return new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }).format(date);
   };
 
 
@@ -413,20 +431,20 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 flex items-center justify-center relative">
               <div className="absolute inset-0 bg-accent/20 blur-lg rounded-full"></div>
-              <img src="/clypra.svg" alt="Clypra Logo" className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_8px_rgba(108,99,255,0.5)]" />
+              <img src="/clypra.svg" alt={t("launch.logoAlt")} className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_8px_rgba(108,99,255,0.5)]" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">Clypra</h1>
-              <p className="text-[11px] text-text-muted font-medium tracking-wide">VIDEO EDITOR</p>
+              <p className="text-[11px] text-text-muted font-medium tracking-wide">{t("launch.videoEditor")}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon-sm" onClick={() => setShowDiagnosticsModal(true)} title="Performance Diagnostics" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties} className={diagnosticsEnabled.performance || diagnosticsEnabled.projectLoad || diagnosticsEnabled.textRender || diagnosticsEnabled.timelinePerf || diagnosticsEnabled.textTemplate ? "text-accent" : ""}>
+            <Button variant="ghost" size="icon-sm" onClick={() => setShowDiagnosticsModal(true)} title={t("launch.performanceDiagnostics")} aria-label={t("launch.performanceDiagnostics")} style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties} className={diagnosticsEnabled.performance || diagnosticsEnabled.projectLoad || diagnosticsEnabled.textRender || diagnosticsEnabled.timelinePerf || diagnosticsEnabled.textTemplate ? "text-accent" : ""}>
               <Activity className="w-3.5 h-3.5" />
             </Button>
 
-            <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
+            <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title={t("common.settings")} aria-label={t("common.settings")} style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
               <Settings className="w-3.5 h-3.5" />
             </Button>
           </div>
@@ -453,14 +471,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             <div className="relative z-10">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 text-accent text-[11px] font-semibold mb-4">
                 <Sparkles className="w-3 h-3" />
-                Create something amazing
+                {t("launch.createSomethingAmazing")}
               </div>
-              <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-2 tracking-tight">Start a new project</h2>
-              <p className="text-sm text-text-muted mb-6 max-w-md">Begin with a 16:9 landscape canvas, or capture your screen and face simultaneously.</p>
+              <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-2 tracking-tight">{t("launch.startNewProject")}</h2>
+              <p className="text-sm text-text-muted mb-6 max-w-md">{t("launch.startDescription")}</p>
               <div className="flex flex-col sm:flex-row items-center gap-3">
                 <Button variant="default" size="lg" onClick={handleStartNewProject} className="py-2 px-4 text-base font-semibold rounded-xl transition-all cursor-pointer">
                   <Plus className="mr-1" />
-                  New Project
+                  {t("launch.createProject")}
                 </Button>
                 {!platform.isCapacitor() && (
                   <Button
@@ -470,7 +488,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                     className="py-2 px-4 text-base font-semibold rounded-xl transition-all cursor-pointer border border-red-500/40 text-red-400 hover:bg-red-500/10 hover:border-red-500/70 hover:text-red-300"
                   >
                     <Video className="mr-1.5 w-4 h-4" />
-                    Record Screen & Camera
+                    {t("launch.recordScreenAndCamera")}
                   </Button>
                 )}
               </div>
@@ -482,14 +500,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         <section className="flex-1">
           <div className="flex items-center gap-2 mb-4">
             <Clock className="w-4 h-4 text-text-muted" />
-            <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider">Recent Projects</h3>
+            <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider">{t("launch.recentProjects")}</h3>
           </div>
 
           {recentProjects.length === 0 ? (
             <div className="rounded-xl border border-dashed border-white/6 p-10 flex flex-col items-center justify-center text-center">
               <Film className="w-10 h-10 text-text-muted/30 mb-3" />
-              <p className="text-sm text-text-muted">No recent projects</p>
-              <p className="text-xs text-text-muted/60 mt-1">Create a new project to get started</p>
+              <p className="text-sm text-text-muted">{t("launch.noRecentProjects")}</p>
+              <p className="text-xs text-text-muted/60 mt-1">{t("launch.noRecentProjectsDescription")}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -539,7 +557,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
                     {/* More options button */}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <div onClick={(e) => handleToggleMenu(e, project.id)} className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors" title="More options">
+                      <div onClick={(e) => handleToggleMenu(e, project.id)} className="p-1.5 rounded-lg bg-bg/80 backdrop-blur-sm border border-white/4 hover:bg-surface-raised hover:border-white/8 cursor-pointer transition-colors" title={t("launch.moreOptions")}>
                         <MoreHorizontal className="w-3.5 h-3.5 text-text-muted" />
                       </div>
 
@@ -548,11 +566,11 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                         <div ref={menuRef} className="absolute top-full right-0 mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-surface py-1 shadow-xl overflow-hidden">
                           <button onClick={(e) => handleRenameClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-text-primary hover:bg-surface-raised transition-colors cursor-pointer">
                             <Pencil className="w-3.5 h-3.5" />
-                            Rename
+                            {t("launch.rename")}
                           </button>
                           <button onClick={(e) => handleDeleteClick(e, project)} className="w-full px-3 py-2 text-left flex items-center gap-2 text-sm text-danger hover:bg-surface-raised transition-colors cursor-pointer">
                             <Trash2 className="w-3.5 h-3.5" />
-                            Delete
+                            {t("common.delete")}
                           </button>
                         </div>
                       )}
@@ -566,7 +584,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       </div>
 
       {/* Rename Modal */}
-      <Modal isOpen={!!projectToRename} onClose={() => setProjectToRename(null)} title="Rename Project">
+      <Modal isOpen={!!projectToRename} onClose={() => setProjectToRename(null)} title={t("launch.renameProject")}>
         <div className="p-5 space-y-4">
           <div>
             <input
@@ -578,7 +596,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               }}
               autoFocus
               className="w-full px-3 py-2 rounded-lg bg-bg border border-border text-sm text-text-primary focus:outline-none focus:border-accent transition-colors"
-              placeholder="Project name"
+              placeholder={t("launch.projectName")}
             />
             <div className="flex justify-end mt-1">
               <span className={`text-[10px] font-medium ${countGraphemes(renameValue) > MAX_PROJECT_NAME_LENGTH ? "text-danger" : "text-text-muted/60"}`}>
@@ -588,46 +606,48 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           </div>
           <div className="flex gap-3 justify-end pt-2">
             <Button variant="ghost" onClick={() => setProjectToRename(null)} disabled={isRenaming}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="default" onClick={handleConfirmRename} disabled={isRenaming || !renameValue.trim() || countGraphemes(renameValue) > MAX_PROJECT_NAME_LENGTH}>
-              {isRenaming ? "Renaming..." : "Rename"}
+              {isRenaming ? t("launch.renaming") : t("launch.rename")}
             </Button>
           </div>
         </div>
       </Modal>
 
       {/* Delete Confirmation Modal */}
-      <Modal isOpen={!!projectToDelete} onClose={() => setProjectToDelete(null)} title="Delete Project">
+      <Modal isOpen={!!projectToDelete} onClose={() => setProjectToDelete(null)} title={t("launch.deleteProject")}>
         <div className="p-5 space-y-4">
           <p className="text-sm text-text-primary">
-            Are you sure you want to delete <strong>{projectToDelete?.name}</strong>?
+            {t("launch.confirmDeleteProject", { project: projectToDelete?.name ?? "" })}
           </p>
-          <p className="text-xs text-text-muted">This action cannot be undone. All project data will be permanently deleted.</p>
+          <p className="text-xs text-text-muted">{t("launch.deleteProjectWarning")}</p>
 
           <div className="flex gap-3 justify-end pt-2">
             <Button variant="secondary" className="cursor-pointer" onClick={() => setProjectToDelete(null)} disabled={isDeleting}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="default" onClick={handleConfirmDelete} disabled={isDeleting} className="bg-danger hover:bg-danger/80 cursor-pointer">
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? t("launch.deleting") : t("common.delete")}
             </Button>
           </div>
         </div>
       </Modal>
 
       {/* Performance Diagnostics Modal */}
-      <Modal isOpen={showDiagnosticsModal} onClose={() => setShowDiagnosticsModal(false)} title="Performance Diagnostics">
+      <Modal isOpen={showDiagnosticsModal} onClose={() => setShowDiagnosticsModal(false)} title={t("launch.performanceDiagnostics")}>
         <div className="p-5 space-y-5">
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-3 rounded-lg bg-surface border border-border">
               <input type="checkbox" id="diag-performance" checked={diagnosticsEnabled.performance} onChange={() => toggleDiagnostic("performance")} className="mt-0.5 cursor-pointer" />
               <div className="flex-1">
                 <label htmlFor="diag-performance" className="text-sm font-semibold text-text-primary cursor-pointer block">
-                  Performance Monitoring
+                  {t("launch.diagnostics.performanceMonitoring")}
                 </label>
                 <p className="text-xs text-text-muted mt-1">
-                  Track frame rendering, timeline operations, and component performance. Use <code className="px-1 py-0.5 rounded bg-bg text-accent text-[10px]">__performanceMonitor.getSummary()</code> in console.
+                  {t("launch.diagnostics.performanceDescription", {
+                    command: "__performanceMonitor.getSummary()",
+                  })}
                 </p>
               </div>
             </div>
@@ -636,9 +656,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               <input type="checkbox" id="diag-projectload" checked={diagnosticsEnabled.projectLoad} onChange={() => toggleDiagnostic("projectLoad")} className="mt-0.5 cursor-pointer" />
               <div className="flex-1">
                 <label htmlFor="diag-projectload" className="text-sm font-semibold text-text-primary cursor-pointer block">
-                  Project Load Diagnostics
+                  {t("launch.diagnostics.projectLoad")}
                 </label>
-                <p className="text-xs text-text-muted mt-1">Detailed breakdown of project loading phases. Shows which parts take the longest to load.</p>
+                <p className="text-xs text-text-muted mt-1">{t("launch.diagnostics.projectLoadDescription")}</p>
               </div>
             </div>
 
@@ -646,10 +666,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               <input type="checkbox" id="diag-textrender" checked={diagnosticsEnabled.textRender} onChange={() => toggleDiagnostic("textRender")} className="mt-0.5 cursor-pointer" />
               <div className="flex-1">
                 <label htmlFor="diag-textrender" className="text-sm font-semibold text-text-primary cursor-pointer block">
-                  Text Render Tracing
+                  {t("launch.diagnostics.textRender")}
                 </label>
                 <p className="text-xs text-text-muted mt-1">
-                  Verbose logging for text rendering pipeline. Use <code className="px-1 py-0.5 rounded bg-bg text-accent text-[10px]">localStorage.setItem("clypra.debug.textRender", "1")</code>
+                  {t("launch.diagnostics.textRenderDescription", {
+                    command: 'localStorage.setItem("clypra.debug.textRender", "1")',
+                  })}
                 </p>
               </div>
             </div>
@@ -658,10 +680,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               <input type="checkbox" id="diag-timelineperf" checked={diagnosticsEnabled.timelinePerf} onChange={() => toggleDiagnostic("timelinePerf")} className="mt-0.5 cursor-pointer" />
               <div className="flex-1">
                 <label htmlFor="diag-timelineperf" className="text-sm font-semibold text-accent cursor-pointer block">
-                  ⏱️ Timeline Performance (Focused)
+                  {t("launch.diagnostics.timelinePerformance")}
                 </label>
                 <p className="text-xs text-text-muted mt-1">
-                  Focused timeline operation logging. Tracks hydration, clip additions, and timeline mutations. Use <code className="px-1 py-0.5 rounded bg-bg text-accent text-[10px]">__timelinePerf.enable()</code> in console.
+                  {t("launch.diagnostics.timelinePerformanceDescription", {
+                    command: "__timelinePerf.enable()",
+                  })}
                 </p>
               </div>
             </div>
@@ -670,10 +694,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               <input type="checkbox" id="diag-texttemplate" checked={diagnosticsEnabled.textTemplate} onChange={() => toggleDiagnostic("textTemplate")} className="mt-0.5 cursor-pointer" />
               <div className="flex-1">
                 <label htmlFor="diag-texttemplate" className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 cursor-pointer block">
-                  📐 Text Template Bounds (Debug)
+                  {t("launch.diagnostics.textTemplateBounds")}
                 </label>
                 <p className="text-xs text-text-muted mt-1">
-                  Debug text template bounding box issues. Logs canvas size, content bounds, and clip dimensions. Use <code className="px-1 py-0.5 rounded bg-bg text-accent text-[10px]">__textTemplateDebug.enable()</code> in console.
+                  {t("launch.diagnostics.textTemplateBoundsDescription", {
+                    command: "__textTemplateDebug.enable()",
+                  })}
                 </p>
               </div>
             </div>
@@ -681,14 +707,15 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
           <div className="p-3 rounded-lg bg-accent/10 border border-accent/20">
             <p className="text-xs text-text-muted leading-relaxed">
-              <strong className="text-accent font-semibold">Note:</strong> These diagnostics output to the browser console. Open DevTools (F12 or Cmd+Option+I) to view detailed performance metrics and traces.
-              {(diagnosticsEnabled.performance || diagnosticsEnabled.projectLoad || diagnosticsEnabled.textRender || diagnosticsEnabled.timelinePerf || diagnosticsEnabled.textTemplate) && " Refresh the page after toggling for changes to take effect."}
+              <strong className="text-accent font-semibold">{t("launch.diagnostics.note")}</strong>{" "}
+              {t("launch.diagnostics.noteDescription")}
+              {(diagnosticsEnabled.performance || diagnosticsEnabled.projectLoad || diagnosticsEnabled.textRender || diagnosticsEnabled.timelinePerf || diagnosticsEnabled.textTemplate) && ` ${t("launch.diagnostics.refreshRequired")}`}
             </p>
           </div>
 
           <div className="flex gap-3 justify-end pt-2">
             <Button variant="default" onClick={() => setShowDiagnosticsModal(false)}>
-              Done
+              {t("launch.diagnostics.done")}
             </Button>
           </div>
         </div>
@@ -709,11 +736,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 <span className="flex items-center justify-center w-8 h-8 rounded-full bg-red-500/15 border border-red-500/30">
                   <Video className="w-4 h-4 text-red-400" />
                 </span>
-                Record Screen & Camera
+                {t("launch.recordScreenAndCamera")}
               </h3>
               <button
                 onClick={closeRecordModal}
                 disabled={isRecording}
+                aria-label={t("recording.closeDialog")}
                 className="text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 ✕
@@ -727,8 +755,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#07070c] border border-white/5">
                   <div className="flex flex-col items-center justify-center text-slate-500 gap-2">
                     <span className="text-4xl">🖥️</span>
-                    <span className="text-xs font-semibold text-slate-400">Screen Capture Enabled</span>
-                    <span className="text-[10px] text-slate-500">System picker will prompt when recording starts</span>
+                    <span className="text-xs font-semibold text-slate-400">{t("recording.screenCaptureEnabled")}</span>
+                    <span className="text-[10px] text-slate-500">{t("recording.systemPickerPrompt")}</span>
                   </div>
                 </div>
               )}
@@ -756,7 +784,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               {!recordOptions.screen && !recordOptions.webcam && (
                 <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 gap-2">
                   <span className="text-3xl">🎙️</span>
-                  <span className="text-xs font-medium">Recording Audio Only</span>
+                  <span className="text-xs font-medium">{t("recording.audioOnly")}</span>
                 </div>
               )}
 
@@ -764,7 +792,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               {cameraNotice && (
                 <div className="absolute top-2 left-2 right-2 z-20 bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] px-3 py-1.5 rounded-lg flex items-center justify-between backdrop-blur-sm">
                   <span>📷 {cameraNotice}</span>
-                  <button onClick={() => setCameraNotice(null)} className="text-amber-400 hover:text-amber-200">✕</button>
+                  <button onClick={() => setCameraNotice(null)} aria-label={t("recording.dismissCameraNotice")} className="text-amber-400 hover:text-amber-200">✕</button>
                 </div>
               )}
 
@@ -779,7 +807,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               {isRecording && (
                 <div className="absolute top-3 left-3 bg-red-600 text-white text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                  REC {formatTime(seconds)}
+                  {t("recording.recordingWithTime", { time: formatTime(seconds) })}
                 </div>
               )}
             </div>
@@ -787,9 +815,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             {/* Options */}
             <div className="grid grid-cols-3 gap-3">
               {([
-                { key: "screen" as const, label: "Capture Screen", icon: "🖥️" },
-                { key: "webcam" as const, label: "Camera", icon: "📷" },
-                { key: "audio" as const, label: "Microphone", icon: "🎙️" },
+                { key: "screen" as const, label: t("recording.captureScreen"), icon: "🖥️" },
+                { key: "webcam" as const, label: t("recording.camera"), icon: "📷" },
+                { key: "audio" as const, label: t("recording.microphone"), icon: "🎙️" },
               ] as const).map(({ key, label, icon }) => (
                 <label
                   key={key}
@@ -820,16 +848,16 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             {recordOptions.screen && !isRecording && (
               <div className="flex flex-col gap-3 p-4 rounded-xl bg-white/4 border border-white/8 text-slate-300">
                 <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Screen Capture Source
+                  {t("recording.screenCaptureSource")}
                 </div>
                 <select
                   value={recordOptions.screenType}
                   onChange={(e) => setRecordOptions({ ...recordOptions, screenType: e.target.value as any })}
                   className="w-full bg-[#0d0d15] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent/40 cursor-pointer"
                 >
-                  <option value="any">Standard System Picker (Let me choose)</option>
-                  <option value="entire">Prefer Entire Display</option>
-                  <option value="window">Prefer Application Window</option>
+                  <option value="any">{t("recording.standardSystemPicker")}</option>
+                  <option value="entire">{t("recording.preferEntireDisplay")}</option>
+                  <option value="window">{t("recording.preferApplicationWindow")}</option>
                 </select>
               </div>
             )}
@@ -838,8 +866,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             {recordOptions.audio && !isRecording && (
               <div className="flex flex-col gap-3 p-4 rounded-xl bg-white/4 border border-white/8 text-slate-300">
                 <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  <span>Microphone Source</span>
-                  {audioDevices.length > 0 && <span className="text-emerald-400 font-bold flex items-center gap-1.5 animate-pulse">● Live Testing</span>}
+                  <span>{t("recording.microphoneSource")}</span>
+                  {audioDevices.length > 0 && <span className="text-emerald-400 font-bold flex items-center gap-1.5 animate-pulse">{t("recording.liveTesting")}</span>}
                 </div>
                 
                 {audioDevices.length > 0 ? (
@@ -858,7 +886,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                     
                     {/* Live Meter */}
                     <div className="flex items-center gap-3">
-                      <span className="text-[11px] text-slate-400 font-medium">Input level:</span>
+                      <span className="text-[11px] text-slate-400 font-medium">{t("recording.inputLevel")}</span>
                       <div className="flex-1 h-2 rounded-full bg-[#07070a] overflow-hidden flex items-center p-0.5 border border-white/5">
                         <div
                           className="h-full rounded-full transition-all duration-75"
@@ -871,7 +899,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-400">No microphone devices found.</p>
+                  <p className="text-xs text-slate-400">{t("recording.noMicrophones")}</p>
                 )}
               </div>
             )}
@@ -884,15 +912,15 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 className="w-full py-3.5 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold text-sm flex items-center justify-center gap-2.5 transition-colors shadow-lg shadow-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-600"
               >
                 <span className="w-2.5 h-2.5 rounded-full bg-white" />
-                Start Capture
+                {t("recording.startCapture")}
               </button>
               {!recordOptions.screen && !recordOptions.webcam && !recordOptions.audio ? (
                 <p className="text-center text-xs text-amber-400/80 mt-3">
-                  Enable at least one source to start recording.
+                  {t("recording.enableSource")}
                 </p>
               ) : (
                 <p className="text-center text-xs text-slate-500 mt-3">
-                  The recording will automatically open as a new project in the editor.
+                  {t("recording.opensAsProject")}
                 </p>
               )}
             </div>

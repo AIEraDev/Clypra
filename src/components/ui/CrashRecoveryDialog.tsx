@@ -1,4 +1,5 @@
 import type { RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
+import { t } from "@/i18n";
 
 interface CrashRecoveryDialogProps {
   isOpen: boolean;
@@ -11,6 +12,14 @@ interface CrashRecoveryDialogProps {
 export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen, snapshot, isRestoring, onRestore, onDiscard }) => {
   if (!isOpen || !snapshot) return null;
 
+  const savedAt = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(snapshot.savedAt));
+
   return (
     <div id="crash-recovery-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="crash-recovery-title" className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-bg border border-border rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -22,25 +31,19 @@ export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen
         </div>
 
         <h2 id="crash-recovery-title" className="text-xl font-bold text-text-primary text-center mb-2">
-          Restore Unsaved Session?
+          {t("recovery.title")}
         </h2>
 
         <p className="text-sm text-text-muted text-center mb-1">
-          An unsaved session for <span className="font-semibold text-text-primary">"{snapshot.project.name}"</span> was detected.
+          {t("recovery.unsavedDetected", { project: snapshot.project.name })}
         </p>
         <p className="text-xs text-text-muted text-center mb-6">
-          Last saved:{" "}
-          {new Date(snapshot.savedAt).toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {t("recovery.lastSaved", { date: savedAt })}
         </p>
 
         <div className="flex gap-3">
           <button id="crash-recovery-discard-btn" onClick={onDiscard} disabled={isRestoring} className="flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-50">
-            Discard
+            {t("recovery.discard")}
           </button>
           <button id="crash-recovery-restore-btn" onClick={onRestore} disabled={isRestoring} className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg bg-accent text-white hover:bg-accent-soft transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
             {isRestoring ? (
@@ -49,10 +52,10 @@ export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
                 </svg>
-                Restoring…
+                {t("recovery.restoring")}
               </>
             ) : (
-              "Restore Session"
+              t("recovery.restoreProject", { project: snapshot.project.name })
             )}
           </button>
         </div>

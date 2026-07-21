@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Download, X, Sparkles, ArrowRight } from "lucide-react";
 import type { UseAutoUpdaterReturn } from "@/hooks/useAutoUpdater";
+import { t } from "@/i18n";
 
 interface UpdateBannerProps {
   updater: UseAutoUpdaterReturn;
@@ -21,8 +22,8 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
   useEffect(() => {
     if (status === "available") {
       // Small delay for a smoother entrance
-      const t = setTimeout(() => setVisible(true), 200);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setVisible(true), 200);
+      return () => clearTimeout(timer);
     } else if (status === "dismissed") {
       setVisible(false);
     }
@@ -145,8 +146,8 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
             }}
           >
             {isDownloading
-              ? `Downloading update… ${downloadProgress}%`
-              : `Clypra ${updateInfo?.version} is available`}
+              ? t("update.downloading", { percent: downloadProgress })
+              : t("update.available", { version: updateInfo?.version ?? "" })}
           </p>
           <p
             style={{
@@ -157,8 +158,8 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
             }}
           >
             {isDownloading
-              ? "The app will restart when complete"
-              : "A new version has been released on GitHub"}
+              ? t("update.restartWhenComplete")
+              : t("update.newVersionReleased")}
           </p>
           {/* Error fallback */}
           {error && (
@@ -180,7 +181,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
             <button
               id="update-banner-install-btn"
               onClick={installUpdate}
-              title="Download and install update"
+              title={t("update.installTitle")}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -213,14 +214,15 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
                 ((e.currentTarget as HTMLButtonElement).style.transform = "")
               }
             >
-              Update
+              {t("update.install")}
               <ArrowRight style={{ width: "12px", height: "12px" }} />
             </button>
 
             <button
               id="update-banner-dismiss-btn"
               onClick={dismiss}
-              title="Dismiss update notification"
+              title={t("update.dismissTitle")}
+              aria-label={t("update.dismissTitle")}
               style={{
                 display: "flex",
                 alignItems: "center",

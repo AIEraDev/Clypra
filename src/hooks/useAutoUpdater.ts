@@ -6,6 +6,7 @@ import {
   type UpdateCheckResult,
   type DownloadProgress,
 } from "@/services/updaterService";
+import { t } from "@/i18n";
 
 export type AutoUpdateStatus =
   | "idle"
@@ -77,7 +78,7 @@ export function useAutoUpdater(): UseAutoUpdaterReturn {
       setState((s) => ({
         ...s,
         status: "error",
-        error: err?.message ?? "Update check failed",
+        error: err?.message ?? t("system.updateCheckFailed"),
       }));
       return;
     }
@@ -153,7 +154,7 @@ export function useAutoUpdater(): UseAutoUpdaterReturn {
       setState((s) => ({
         ...s,
         status: "error",
-        error: err?.message ?? "Failed to install update",
+        error: err?.message ?? t("system.updateInstallFailed"),
       }));
     }
   }, [state.updateObject]);
