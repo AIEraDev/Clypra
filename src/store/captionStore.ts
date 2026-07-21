@@ -35,37 +35,116 @@ const DEFAULT_MODEL_STATE: ModelDownloadState = {
   speedBytesPerSec: 0,
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isWhisperModelSize(value: unknown): value is WhisperModelSize {
+  return (
+    value === "tiny" ||
+    value === "base" ||
+    value === "small" ||
+    value === "medium" ||
+    value === "large-v3"
+  );
+}
+
+function isModelDownloadStatus(value: unknown): value is ModelDownloadStatus {
+  return (
+    value === "idle" ||
+    value === "downloading" ||
+    value === "downloaded" ||
+    value === "error"
+  );
+}
+
+function isDownloadMetric(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function mergePersistedModelState(
+  persistedModel: unknown,
+  currentModel: ModelDownloadState,
+): ModelDownloadState {
+  if (!isRecord(persistedModel) || !isModelDownloadStatus(persistedModel.status)) {
+    return currentModel;
+  }
+  if (persistedModel.status === "downloading") {
+    return { ...DEFAULT_MODEL_STATE };
+  }
+  if (
+    !isDownloadMetric(persistedModel.progressBytes) ||
+    !isDownloadMetric(persistedModel.totalBytes) ||
+    !isDownloadMetric(persistedModel.speedBytesPerSec) ||
+    (persistedModel.errorMessage !== undefined &&
+      typeof persistedModel.errorMessage !== "string")
+  ) {
+    return currentModel;
+  }
+
+  return {
+    status: persistedModel.status,
+    progressBytes: persistedModel.progressBytes,
+    totalBytes: persistedModel.totalBytes,
+    speedBytesPerSec: persistedModel.speedBytesPerSec,
+    ...(persistedModel.errorMessage === undefined
+      ? {}
+      : { errorMessage: persistedModel.errorMessage }),
+  };
+}
+
 function mergePersistedCaptionStore(
   persistedState: unknown,
   currentState: CaptionStore,
 ): CaptionStore {
-  if (!persistedState || typeof persistedState !== "object") {
+  if (!isRecord(persistedState) || !isRecord(persistedState.captionSettings)) {
     return currentState;
   }
 
-  const persisted = persistedState as Partial<CaptionStore>;
-  if (!persisted.captionSettings) {
-    return { ...currentState, ...persisted };
-  }
-
-  const persistedSettings = persisted.captionSettings;
-  const models = {
-    ...currentState.captionSettings.models,
-    ...persistedSettings.models,
-  };
+  const persistedSettings = persistedState.captionSettings;
+  const persistedModels = isRecord(persistedSettings.models)
+    ? persistedSettings.models
+    : {};
 
   return {
     ...currentState,
-    ...persisted,
     captionSettings: {
-      ...currentState.captionSettings,
-      ...persistedSettings,
-      models: Object.fromEntries(
-        Object.entries(models).map(([size, model]) => [
-          size,
-          model.status === "downloading" ? { ...DEFAULT_MODEL_STATE } : model,
-        ]),
-      ) as Record<WhisperModelSize, ModelDownloadState>,
+      language:
+        typeof persistedSettings.language === "string"
+          ? persistedSettings.language
+          : currentState.captionSettings.language,
+      activeModel:
+        persistedSettings.activeModel === null ||
+        isWhisperModelSize(persistedSettings.activeModel)
+          ? persistedSettings.activeModel
+          : currentState.captionSettings.activeModel,
+      languageHints: Array.isArray(persistedSettings.languageHints)
+        ? persistedSettings.languageHints.filter(
+            (hint): hint is string => typeof hint === "string",
+          )
+        : currentState.captionSettings.languageHints,
+      models: {
+        tiny: mergePersistedModelState(
+          persistedModels.tiny,
+          currentState.captionSettings.models.tiny,
+        ),
+        base: mergePersistedModelState(
+          persistedModels.base,
+          currentState.captionSettings.models.base,
+        ),
+        small: mergePersistedModelState(
+          persistedModels.small,
+          currentState.captionSettings.models.small,
+        ),
+        medium: mergePersistedModelState(
+          persistedModels.medium,
+          currentState.captionSettings.models.medium,
+        ),
+        "large-v3": mergePersistedModelState(
+          persistedModels["large-v3"],
+          currentState.captionSettings.models["large-v3"],
+        ),
+      },
     },
   };
 }

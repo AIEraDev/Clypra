@@ -84,4 +84,61 @@ describe("captionStore persistence", () => {
       languageHints: ["en", "ja"],
     });
   });
+
+  test("ignores malformed persisted caption settings without breaking rehydration", async () => {
+    localStorage.setItem(
+      "clypra-caption-settings",
+      JSON.stringify({
+        state: {
+          captionSettings: {
+            language: "ja",
+            activeModel: "small",
+            languageHints: ["en", 42, "zh"],
+            models: {
+              tiny: null,
+              base: "downloaded",
+              small: {
+                status: "complete",
+                progressBytes: 1,
+                totalBytes: 1,
+                speedBytesPerSec: 0,
+              },
+              medium: {
+                status: "downloaded",
+                progressBytes: "unknown",
+                totalBytes: 1_500_000_000,
+                speedBytesPerSec: 0,
+              },
+              "large-v3": {
+                status: "downloading",
+                progressBytes: 123,
+                totalBytes: 3_000_000_000,
+                speedBytesPerSec: 456,
+                errorMessage: "stale detail",
+              },
+            },
+          },
+          setLanguage: "persisted action must not replace store actions",
+        },
+        version: 0,
+      }),
+    );
+
+    await expect(useCaptionStore.persist.rehydrate()).resolves.toBeUndefined();
+
+    const state = useCaptionStore.getState();
+    expect(state.captionSettings).toEqual({
+      language: "ja",
+      activeModel: "small",
+      languageHints: ["en", "zh"],
+      models: {
+        tiny: IDLE_MODEL,
+        base: IDLE_MODEL,
+        small: IDLE_MODEL,
+        medium: IDLE_MODEL,
+        "large-v3": IDLE_MODEL,
+      },
+    });
+    expect(state.setLanguage).toBeTypeOf("function");
+  });
 });
