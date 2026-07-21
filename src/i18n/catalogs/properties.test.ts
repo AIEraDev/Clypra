@@ -41,4 +41,32 @@ describe("basic property messages", () => {
       "已启用",
     ]);
   });
+
+  it("provides localized transform and applied effect labels", () => {
+    expect([
+      translate("properties.transform.title"),
+      translate("properties.transform.conformMode"),
+      translate("properties.transform.mode.fit"),
+      translate("properties.transform.center"),
+      translate("properties.transform.flipHorizontal"),
+      translate("properties.transform.timing"),
+      translate("properties.effects.appliedFilter"),
+      translate("properties.effects.removeFilter"),
+      translate("properties.effects.videoEffects"),
+      translate("properties.effects.removeEffect"),
+      translate("properties.effects.intensity"),
+    ]).toEqual([
+      "变换",
+      "适配模式",
+      "适应",
+      "居中",
+      "水平翻转",
+      "时间",
+      "已应用滤镜",
+      "删除滤镜",
+      "视频效果",
+      "删除效果",
+      "强度",
+    ]);
+  });
 });
