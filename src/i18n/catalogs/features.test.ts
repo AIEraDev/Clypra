@@ -162,6 +162,31 @@ describe("media and audio localization", () => {
     await expect(audioLibraryApi.AudioLibraryApi.getAudioByCategory("music")).rejects.toThrow("Invalid audio library response: item 1 violates AudioLibraryItem contract");
   });
 
+  test("returns a valid single audio asset without changing it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(remoteItem),
+      }),
+    );
+
+    await expect(audioLibraryApi.AudioLibraryApi.getAudioAsset("lo-fi", remoteItem.id)).resolves.toBe(remoteItem);
+  });
+
+  test.each([null, {}, { ...remoteItem, source: null }])("rejects a malformed single AudioLibraryItem contract: %j", async (body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(body),
+      }),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(audioLibraryApi.AudioLibraryApi.getAudioAsset("lo-fi", "remote-track_01")).rejects.toThrow("Invalid audio library response: asset violates AudioLibraryItem contract");
+  });
+
   test("renders localized AudioTab loading and empty states", async () => {
     let resolveRequest!: (items: audioLibraryApi.AudioLibraryItem[]) => void;
     vi.spyOn(audioLibraryApi.AudioLibraryApi, "getAudioByCategory").mockReturnValue(

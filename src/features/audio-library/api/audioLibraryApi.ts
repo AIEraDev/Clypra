@@ -145,7 +145,11 @@ export const AudioLibraryApi = {
         throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
       }
 
-      return res.json();
+      const data = await res.json();
+      if (!isAudioLibraryItem(data)) {
+        throw new Error("Invalid audio library response: asset violates AudioLibraryItem contract");
+      }
+      return data;
     } catch (error) {
       console.error(`[AudioLibraryApi] Exception loading audio asset ${id}:`, error);
       if (error instanceof Error) {
