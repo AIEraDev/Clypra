@@ -65,7 +65,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
   const [audioDevices, setAudioDevices] = useState<{ deviceId: string; label: string }[]>([]);
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState<string>("");
-  const [micLevel, setMicLevel] = useState<number>(0);
+  const [previewKey, setPreviewKey] = useState(0);
+  const micLevelRef = useRef<HTMLDivElement>(null);
   const [hasCameraHardware, setHasCameraHardware] = useState<boolean>(true);
   const [cameraNotice, setCameraNotice] = useState<string | null>(null);
 
@@ -133,7 +134,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     DualRecordService.getInstance().stopMicTest();
     setPreviewError(null);
     setCameraNotice(null);
-    setMicLevel(0);
+    if (micLevelRef.current) {
+      micLevelRef.current.style.width = "0%";
+    }
 
     let animationFrameId: number;
     let active = true;
@@ -164,7 +167,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
           const pollLevel = () => {
             const level = DualRecordService.getInstance().getMicLevel();
-            setMicLevel(level);
+            if (micLevelRef.current) {
+              micLevelRef.current.style.width = `${level * 100}%`;
+            }
             animationFrameId = requestAnimationFrame(pollLevel);
           };
           pollLevel();
@@ -194,6 +199,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     recordOptions.audio,
     selectedAudioDeviceId,
     isRecording,
+    previewKey,
   ]);
 
   const formatTime = (secs: number) => {
@@ -258,6 +264,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     } catch (err: any) {
       console.error("[LaunchScreen] Start recording failed:", err);
       setPreviewError(`Failed to start recording: ${err?.message || err || "Check permissions."}`);
+      setPreviewKey((k) => k + 1); // Restart preview on cancel
     }
   };
 
@@ -861,9 +868,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                       <span className="text-[11px] text-slate-400 font-medium">Input level:</span>
                       <div className="flex-1 h-2 rounded-full bg-[#07070a] overflow-hidden flex items-center p-0.5 border border-white/5">
                         <div
+                          ref={micLevelRef}
                           className="h-full rounded-full transition-all duration-75"
                           style={{
-                            width: `${micLevel * 100}%`,
+                            width: "0%",
                             background: "linear-gradient(90deg, #10b981 0%, #10b981 70%, #f59e0b 85%, #ef4444 100%)",
                           }}
                         />
