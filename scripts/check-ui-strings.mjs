@@ -286,7 +286,7 @@ function scanSource(source, file = "src/Fixture.tsx") {
       addTranslationShadow(node, node.name.text, constantScope(node));
     } else if (ts.isFunctionExpression(node) && node.name) {
       addTranslationShadow(node, node.name.text, node);
-    } else if (ts.isVariableDeclaration(node)) {
+    } else if (ts.isVariableDeclaration(node) && !ts.isCatchClause(node.parent)) {
       addBindingShadows(node.name, node, variableScope(node));
     } else if (
       ts.isCatchClause(node) &&
@@ -686,6 +686,10 @@ function runSelfTest({ announce = true } = {}) {
   assert.deepEqual(
     scan(`import { t as translate } from "@/i18n"; function f(translate){ alert(translate("Open project")); }`, "src/Fixture.ts"),
     ["src/Fixture.ts:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`import { t } from "@/i18n"; try{} catch(t){} alert(t("message.key"));`, "src/Fixture.ts"),
+    [],
   );
   assert.deepEqual(scan(`alert(t("Open project"));`, "src/Fixture.ts"), [
     "src/Fixture.ts:1: Open project",
