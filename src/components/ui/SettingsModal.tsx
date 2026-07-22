@@ -2,7 +2,7 @@ import React, { useId, useState } from "react";
 import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Captions, RefreshCw, Keyboard } from "lucide-react";
 import packageJson from "../../../package.json";
 import { platform } from "@/core/platform";
-import { t, type MessageKey } from "@/i18n";
+import { t, useLanguage, type MessageKey } from "@/i18n";
 import { Modal } from "./Modal";
 import { useSettingsStore, Theme, FontFamily, THEME_META, FONT_META, getThemeColors, getBaseThemeForCustomization, getThemeColorKeys, sanitizeThemeColors } from "@/store/settingsStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -466,13 +466,25 @@ function CustomThemeEditor() {
 
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 function AppearanceTab() {
-  const { theme, fontFamily, customTheme, setTheme, setFontFamily } = useSettingsStore();
+  const { language, theme, fontFamily, customTheme, setLanguage, setTheme, setFontFamily } = useSettingsStore();
   const [showCustomEditor, setShowCustomEditor] = useState(false);
   const themeKeys: Theme[] = BASE_THEME_KEYS;
   const fontKeys: FontFamily[] = ["inter", "montserrat", "geist", "outfit", "roboto", "space-grotesk", "system", "mono"];
 
   return (
     <div className="space-y-7">
+      <section>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">{t("settings.appearance.language")}</h3>
+        <p className="mt-1 mb-3 text-[11px] text-text-muted">{t("settings.appearance.languageDescription")}</p>
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label={t("settings.appearance.language")}>
+          {(["zhCN", "en"] as const).map((option) => (
+            <button key={option} type="button" aria-pressed={language === option} onClick={() => setLanguage(option)} className={`rounded-lg border px-3 py-2 text-[11px] font-medium transition-colors ${language === option ? "border-accent bg-accent/10 text-accent" : "border-white/6 text-text-muted hover:border-white/12 hover:text-text-primary"}`}>
+              {t(`settings.appearance.language.${option}`)}
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* Themes */}
       <section>
         <div className="flex items-center justify-between mb-3">
@@ -856,6 +868,7 @@ function AboutTab() {
 
 // ─── Main Settings Modal ─────────────────────────────────────────────────
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+  useLanguage();
   const [activeTab, setActiveTab] = useState<Tab>("appearance");
 
   const visibleTabs = TABS.filter((tab) => {

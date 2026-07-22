@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { MessageKey } from "@/i18n";
+import { setLanguage as setI18nLanguage, type MessageKey, type UiLanguage } from "@/i18n";
 
 export type Theme = "dark" | "midnight" | "ocean" | "forest" | "midnight-carbon" | "ember-studio" | "forest-console" | "slate-noir" | "rose-cut" | "custom";
 export type FontFamily = "inter" | "montserrat" | "geist" | "outfit" | "roboto" | "space-grotesk" | "system" | "mono";
@@ -9,6 +9,7 @@ export type PreviewQuality = "full" | "high" | "medium" | "low";
 
 interface SettingsStore {
   // Appearance
+  language: UiLanguage;
   theme: Theme;
   fontFamily: FontFamily;
   customTheme: Record<string, string> | null;
@@ -16,6 +17,7 @@ interface SettingsStore {
   setFontFamily: (fontFamily: FontFamily) => void;
   setCustomTheme: (colors: Record<string, string>) => void;
   resetCustomTheme: () => void;
+  setLanguage: (language: UiLanguage) => void;
   // Editor
   snapToGrid: boolean;
   autoSave: boolean;
@@ -887,6 +889,17 @@ export function applyFontFamily(fontFamily: FontFamily) {
   }
 }
 
+export function isUiLanguage(value: unknown): value is UiLanguage {
+  return value === "zhCN" || value === "en";
+}
+
+export function applyLanguage(language: UiLanguage): void {
+  setI18nLanguage(language);
+  if (typeof document !== "undefined") {
+    document.documentElement.lang = language === "zhCN" ? "zh-CN" : "en";
+  }
+}
+
 function hasOwn(value: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
@@ -895,7 +908,9 @@ export function mergePersistedSettings(
   persistedState: unknown,
   currentState: SettingsStore,
 ): SettingsStore {
-  if (!isRecord(persistedState)) return currentState;
+  if (!isRecord(persistedState)) {
+    return { ...currentState, language: "zhCN" };
+  }
 
   const customTheme = hasOwn(persistedState, "customTheme")
     ? normalizeCustomTheme(persistedState.customTheme)
@@ -919,9 +934,13 @@ export function mergePersistedSettings(
   )
     ? (persistedState.previewQuality as PreviewQuality)
     : currentState.previewQuality;
+  const language = isUiLanguage(persistedState.language)
+    ? persistedState.language
+    : "zhCN";
 
   return {
     ...currentState,
+    language,
     theme,
     fontFamily,
     customTheme,
@@ -941,6 +960,7 @@ export function mergePersistedSettings(
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set, get) => ({
+      language: "zhCN",
       theme: "dark",
       fontFamily: "inter",
       customTheme: null,
@@ -948,6 +968,12 @@ export const useSettingsStore = create<SettingsStore>()(
       autoSave: true,
       defaultFrameRate: 30,
       previewQuality: "high",
+
+      setLanguage: (language) => {
+        const safeLanguage = isUiLanguage(language) ? language : "zhCN";
+        set({ language: safeLanguage });
+        applyLanguage(safeLanguage);
+      },
 
       setTheme: (theme) => {
         const safeTheme = isTheme(theme) ? theme : "dark";
@@ -986,6 +1012,7 @@ export const useSettingsStore = create<SettingsStore>()(
       merge: mergePersistedSettings,
       onRehydrateStorage: () => (state) => {
         if (state) {
+          applyLanguage(state.language);
           applyTheme(state.theme, state.customTheme);
           applyFontFamily(state.fontFamily);
         }
@@ -996,6 +1023,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
 export function initSettings() {
   const state = useSettingsStore.getState();
+  applyLanguage(state.language);
   applyTheme(state.theme, state.customTheme);
   applyFontFamily(state.fontFamily);
 }

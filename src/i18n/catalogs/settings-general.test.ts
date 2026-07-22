@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/features/audio-library/store/audioLibraryStore", () => ({
@@ -30,17 +30,23 @@ import {
   localizeCacheResultMessage,
 } from "@/components/settings/CacheSettings";
 import { SettingsModal } from "@/components/ui/SettingsModal";
-import { t } from "@/i18n";
+import { getLanguage, setLanguage as setI18nLanguage, t } from "@/i18n";
 import { settingsMessages } from "@/i18n/catalogs/settings";
 import * as settingsStoreModule from "@/store/settingsStore";
 import {
   FONT_META,
   THEME_META,
   getThemeColors,
+  initSettings,
   useSettingsStore,
 } from "@/store/settingsStore";
 
 afterEach(() => {
+  act(() => {
+    useSettingsStore.setState({ language: "zhCN" });
+    setI18nLanguage("zhCN");
+  });
+  document.documentElement.lang = "zh-CN";
   vi.restoreAllMocks();
 });
 
@@ -225,6 +231,61 @@ describe("general settings localization", () => {
       fontFamily: "space-grotesk",
       customTheme: validColors,
     });
+  });
+
+  test("keeps a valid persisted English interface language", () => {
+    const merged = settingsStoreModule.mergePersistedSettings(
+      { language: "en" },
+      useSettingsStore.getState(),
+    );
+
+    expect(merged.language).toBe("en");
+  });
+
+  test.each([{}, { language: "fr" }, { language: null }])(
+    "defaults missing or invalid persisted interface language to Simplified Chinese",
+    (persistedState) => {
+      useSettingsStore.setState({ language: "en" });
+
+      const merged = settingsStoreModule.mergePersistedSettings(
+        persistedState,
+        useSettingsStore.getState(),
+      );
+
+      expect(merged.language).toBe("zhCN");
+    },
+  );
+
+  test("switches the open settings modal to English without remounting it", () => {
+    render(createElement(SettingsModal, { isOpen: true, onClose: vi.fn() }));
+    expect(screen.getByRole("group", { name: "界面语言" })).toBeInTheDocument();
+    expect(screen.getByText("立即切换 Clypra 界面语言。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "简体中文" })).toHaveAttribute("aria-pressed", "true");
+    const englishButton = screen.getByRole("button", { name: "English" });
+    englishButton.dataset.sentinel = "mounted";
+
+    fireEvent.click(englishButton);
+
+    expect(useSettingsStore.getState().language).toBe("en");
+    expect(getLanguage()).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Appearance" })).toBeInTheDocument();
+    expect(screen.getByText("Interface Language")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "English" })).toBe(englishButton);
+    expect(englishButton).toHaveAttribute("aria-pressed", "true");
+    expect(englishButton.dataset.sentinel).toBe("mounted");
+  });
+
+  test("initSettings synchronizes the persisted interface language", () => {
+    useSettingsStore.setState({ language: "en" });
+    setI18nLanguage("zhCN");
+    document.documentElement.lang = "zh-CN";
+
+    initSettings();
+
+    expect(getLanguage()).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
   });
 
   test("rejects a malformed imported theme without mutating editor or store state", async () => {

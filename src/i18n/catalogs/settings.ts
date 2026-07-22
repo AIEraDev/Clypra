@@ -11,6 +11,13 @@ export const settingsMessages = defineMessages({
 
   "settings.appearance.theme": { en: "Theme", zhCN: "主题" },
   "settings.appearance.font": { en: "Font", zhCN: "字体" },
+  "settings.appearance.language": { en: "Interface Language", zhCN: "界面语言" },
+  "settings.appearance.languageDescription": {
+    en: "Change the Clypra interface language immediately.",
+    zhCN: "立即切换 Clypra 界面语言。",
+  },
+  "settings.appearance.language.zhCN": { en: "Simplified Chinese", zhCN: "简体中文" },
+  "settings.appearance.language.en": { en: "English", zhCN: "English" },
   "settings.appearance.customTheme": { en: "Custom Theme", zhCN: "自定义主题" },
   "settings.appearance.hideEditor": { en: "Hide Editor", zhCN: "隐藏编辑器" },
 
