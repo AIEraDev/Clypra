@@ -11,7 +11,8 @@ import { createPixiExportCompositor, destroyPixiExportCompositor, renderFrameWit
 import { VideoElementPool } from "../../core/resources/VideoElementPool";
 import { resolveClipSourceTime } from "../../core/timeline/sourceTime";
 import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
-import type { Clip, Track, MediaAsset, Project } from "../../types";
+import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
+import { getActiveVideoClipsForTime } from "./exportUtils";
 
 export interface ExportFrameOptions {
   /** Timeline time to export */
@@ -22,6 +23,9 @@ export interface ExportFrameOptions {
 
   /** Timeline tracks */
   tracks: Track[];
+
+  /** Timeline transitions */
+  transitions?: TransitionTimelineItem[];
 
   /** Media assets */
   assets: MediaAsset[];
@@ -58,6 +62,7 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
     time,
     clips,
     tracks,
+    transitions = [],
     assets,
     project,
     epoch,
@@ -85,13 +90,10 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
   try {
     const videoElements = new Map<string, HTMLVideoElement>();
 
-    // Find all video clips active at this time and acquire them
-    for (const clip of clips) {
-      const asset = assets.find((a) => a.id === clip.mediaId);
-      if (asset?.type !== "video") continue;
-
-      const clipEnd = clip.startTime + clip.duration;
-      if (time < clip.startTime || time >= clipEnd) continue;
+    // Find all video clips active at this time (including transition windows) and acquire them
+    const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
+    for (const clip of activeVideoClips) {
+      const asset = assets.find((a) => a.id === clip.mediaId)!;
 
       const { sourceTime } = resolveClipSourceTime(clip, time, {
         clampToRange: true,
@@ -105,7 +107,7 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
       frameVideoElements.push(video);
     }
 
-    const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch);
+    const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
     await renderFrameWithPixi(pixiHandle, scene, videoElements);
 
     // Convert canvas to Blob
