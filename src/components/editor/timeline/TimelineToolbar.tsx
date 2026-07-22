@@ -47,6 +47,27 @@ export const TimelineToolbar: React.FC = () => {
   const currentTierLabel = TIMELINE_TIER_LABELS[currentSrpTier];
   const temporalDetail = getTimelineTemporalDetail(pixelsPerSecond);
   const cadenceLabel = formatCadenceSeconds(temporalDetail.baseInterval);
+  const labels = {
+    undo: t("timeline.toolbar.undo"),
+    redo: t("timeline.toolbar.redo"),
+    swap: t("timeline.toolbar.swap"),
+    deleteLeft: t("timeline.toolbar.deleteLeft"),
+    deleteRight: t("timeline.toolbar.deleteRight"),
+    splitAll: t("timeline.toolbar.splitAll"),
+    rippleMode: t("timeline.toolbar.rippleMode"),
+    deleteSelected: t("timeline.toolbar.deleteSelected"),
+    duplicateSelected: t("timeline.toolbar.duplicateSelected"),
+    closeGaps: t("timeline.toolbar.closeGaps"),
+    zoomOut: t("timeline.toolbar.zoomOut"),
+    zoomIn: t("timeline.toolbar.zoomIn"),
+    zoomSlider: t("timeline.toolbar.zoomSlider"),
+  };
+  const zoomValueText = t("timeline.toolbar.zoomValue", {
+    zoom: zoomLevel.toFixed(2),
+    spatialTier: currentTierLabel,
+    temporalTier: temporalDetail.label,
+    cadence: cadenceLabel,
+  });
   const snapZoom = (value: number) => {
     const stepped = Number((Math.round(value / TIMELINE_ZOOM_STEP) * TIMELINE_ZOOM_STEP).toFixed(2));
     return snapTimelineZoomToTierAnchors(stepped);
@@ -133,10 +154,10 @@ export const TimelineToolbar: React.FC = () => {
   const handleSplitAllAtPlayhead = () => {
     const results = EditingActions.splitAtPlayhead();
     if (results.length === 0) {
-      setToastMessage("No clips under playhead to split");
+      setToastMessage(t("timeline.toast.split.none"));
     } else {
       const successCount = results.filter((r) => r.success).length;
-      setToastMessage(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+      setToastMessage(t("timeline.toast.split.count", { count: successCount }));
     }
     setTimeout(() => setToastMessage(null), 2000);
   };
@@ -144,10 +165,10 @@ export const TimelineToolbar: React.FC = () => {
   const handleDeleteLeftAtPlayhead = () => {
     const results = EditingActions.deleteLeftAtPlayhead();
     if (results.length === 0) {
-      setToastMessage("No clips to delete left at playhead");
+      setToastMessage(t("timeline.toast.deleteLeft.none"));
     } else {
       const successCount = results.filter((r) => r.success).length;
-      setToastMessage(`Delete left applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
+      setToastMessage(t("timeline.toast.deleteLeft.count", { count: successCount }));
     }
     setTimeout(() => setToastMessage(null), 2000);
   };
@@ -155,10 +176,10 @@ export const TimelineToolbar: React.FC = () => {
   const handleDeleteRightAtPlayhead = () => {
     const results = EditingActions.deleteRightAtPlayhead();
     if (results.length === 0) {
-      setToastMessage("No clips to delete right at playhead");
+      setToastMessage(t("timeline.toast.deleteRight.none"));
     } else {
       const successCount = results.filter((r) => r.success).length;
-      setToastMessage(`Delete right applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
+      setToastMessage(t("timeline.toast.deleteRight.count", { count: successCount }));
     }
     setTimeout(() => setToastMessage(null), 2000);
   };
@@ -193,7 +214,7 @@ export const TimelineToolbar: React.FC = () => {
     });
 
     clearSelection();
-    setToastMessage(`Deleted ${selectedClipIds.length} clip${selectedClipIds.length > 1 ? "s" : ""}`);
+    setToastMessage(t("timeline.toast.deleted.count", { count: selectedClipIds.length }));
     setTimeout(() => setToastMessage(null), 2000);
   };
 
@@ -212,7 +233,7 @@ export const TimelineToolbar: React.FC = () => {
         startTime: clip.startTime + offset,
       });
     });
-    setToastMessage(`Duplicated ${selected.length} clip${selected.length > 1 ? "s" : ""}`);
+    setToastMessage(t("timeline.toast.duplicated.count", { count: selected.length }));
     setTimeout(() => setToastMessage(null), 2000);
   };
 
@@ -221,7 +242,7 @@ export const TimelineToolbar: React.FC = () => {
     const trackIds = tracks.map((t) => t.id);
     trackIds.forEach((trackId) => normalizeTrack(trackId));
     removeEmptyNonMainTracks(trackIds);
-    setToastMessage("Closed timeline gaps");
+    setToastMessage(t("timeline.toast.closedGaps"));
     setTimeout(() => setToastMessage(null), 2000);
   };
 
@@ -229,40 +250,40 @@ export const TimelineToolbar: React.FC = () => {
     <TooltipProvider>
       <div data-timeline-interactive="true" className="border-b border-timeline-toolbar-border flex items-center p-1 gap-2">
         <div className="flex items-center gap-1">
-          <Tool label="Undo (Cmd+Z)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={undo} disabled={!historyState.canUndo}>
+          <Tool label={labels.undo}>
+            <Button aria-label={labels.undo} variant="ghost" size="icon-sm" className={toolButton} onClick={undo} disabled={!historyState.canUndo}>
               <Undo2 className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Redo (Cmd+Shift+Z)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={redo} disabled={!historyState.canRedo}>
+          <Tool label={labels.redo}>
+            <Button aria-label={labels.redo} variant="ghost" size="icon-sm" className={toolButton} onClick={redo} disabled={!historyState.canRedo}>
               <Redo2 className="w-4 h-4" />
             </Button>
           </Tool>
 
           {selectedClipIds.length === 2 && (
-            <Tool label="Swap selected clips (Ctrl+Shift+S)">
-              <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleSwapClick}>
+            <Tool label={labels.swap}>
+              <Button aria-label={labels.swap} variant="ghost" size="icon-sm" className={toolButton} onClick={handleSwapClick}>
                 <ArrowLeftRight className="w-4 h-4" />
               </Button>
             </Tool>
           )}
 
-          <Tool label="Delete left at playhead (Q)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteLeftAtPlayhead}>
+          <Tool label={labels.deleteLeft}>
+            <Button aria-label={labels.deleteLeft} variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteLeftAtPlayhead}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Delete right at playhead (W)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteRightAtPlayhead}>
+          <Tool label={labels.deleteRight}>
+            <Button aria-label={labels.deleteRight} variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteRightAtPlayhead}>
               <ChevronRight className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Split all at playhead (S)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleSplitAllAtPlayhead}>
+          <Tool label={labels.splitAll}>
+            <Button aria-label={labels.splitAll} variant="ghost" size="icon-sm" className={toolButton} onClick={handleSplitAllAtPlayhead}>
               <ScissorsLineDashed className="w-4 h-4" />
             </Button>
           </Tool>
@@ -273,26 +294,26 @@ export const TimelineToolbar: React.FC = () => {
             </Button>
           </Tool> */}
 
-          <Tool label="Ripple mode (R) - Affects drag, trim, and delete operations">
-            <Button variant="ghost" size="icon-sm" className={rippleEditEnabled ? activeButton : toolButton} onClick={toggleRippleEdit}>
+          <Tool label={labels.rippleMode}>
+            <Button aria-label={labels.rippleMode} variant="ghost" size="icon-sm" className={rippleEditEnabled ? activeButton : toolButton} onClick={toggleRippleEdit}>
               <Waves className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Delete selected clip(s)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteSelectedClips} disabled={selectedClipIds.length === 0}>
+          <Tool label={labels.deleteSelected}>
+            <Button aria-label={labels.deleteSelected} variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteSelectedClips} disabled={selectedClipIds.length === 0}>
               <Trash2 className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Duplicate selected clip(s) (Cmd/Ctrl+D)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDuplicateSelectedClips} disabled={selectedClipIds.length === 0}>
+          <Tool label={labels.duplicateSelected}>
+            <Button aria-label={labels.duplicateSelected} variant="ghost" size="icon-sm" className={toolButton} onClick={handleDuplicateSelectedClips} disabled={selectedClipIds.length === 0}>
               <Copy className="w-4 h-4" />
             </Button>
           </Tool>
 
-          <Tool label="Close gaps">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleCloseGaps}>
+          <Tool label={labels.closeGaps}>
+            <Button aria-label={labels.closeGaps} variant="ghost" size="icon-sm" className={toolButton} onClick={handleCloseGaps}>
               <ScissorsLineDashed className="w-4 h-4" />
             </Button>
           </Tool>
@@ -300,11 +321,11 @@ export const TimelineToolbar: React.FC = () => {
 
         <div className="ml-auto flex items-center gap-2">
           <span className="inline-flex items-center gap-1">
-            <Button title="Zoom Out" variant="ghost" size="icon-sm" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={zoomLevel <= TIMELINE_ZOOM_MIN} aria-label="Zoom out timeline">
+            <Button title={labels.zoomOut} variant="ghost" size="icon-sm" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={zoomLevel <= TIMELINE_ZOOM_MIN} aria-label={labels.zoomOut}>
               <ZoomOut className="w-2 h-2" strokeWidth={2} />
             </Button>
 
-            <div ref={zoomRailRef} role="slider" tabIndex={0} aria-label="Timeline zoom" aria-valuemin={TIMELINE_ZOOM_MIN} aria-valuemax={TIMELINE_ZOOM_MAX} aria-valuenow={zoomLevel} aria-valuetext={`${zoomLevel.toFixed(2)} times, ${currentTierLabel}, ${temporalDetail.label}, ${cadenceLabel} samples`} onPointerDown={handleZoomPointerDown} onPointerMove={handleZoomPointerMove} onPointerUp={handleZoomPointerUp} onPointerCancel={handleZoomPointerCancel} onLostPointerCapture={handleZoomPointerCancel} onKeyDown={handleZoomKeyDown} className="group relative flex h-8 w-44 cursor-pointer touch-none items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
+            <div ref={zoomRailRef} role="slider" tabIndex={0} aria-label={labels.zoomSlider} aria-valuemin={TIMELINE_ZOOM_MIN} aria-valuemax={TIMELINE_ZOOM_MAX} aria-valuenow={zoomLevel} aria-valuetext={zoomValueText} onPointerDown={handleZoomPointerDown} onPointerMove={handleZoomPointerMove} onPointerUp={handleZoomPointerUp} onPointerCancel={handleZoomPointerCancel} onLostPointerCapture={handleZoomPointerCancel} onKeyDown={handleZoomKeyDown} className="group relative flex h-8 w-44 cursor-pointer touch-none items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
               <div className="relative mx-[11px] h-[7px] w-full overflow-hidden rounded-full bg-surface-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.04),0_5px_14px_rgba(0,0,0,0.28)]">
                 {tierSegments.map(({ tier, left, width }) => (
                   <div key={tier} aria-hidden className={`absolute top-0 h-full ${tierBandClass[tier]}`} style={{ left: `${left}%`, width: `${width}%` }} />
@@ -314,7 +335,7 @@ export const TimelineToolbar: React.FC = () => {
               <div data-testid="timeline-zoom-thumb" className="absolute top-1/2 h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 rounded-full border-3 border-accent bg-surface" style={{ left: `${zoomThumbLeftPx}px` }} />
             </div>
 
-            <Button title="Zoom In" variant="ghost" size="icon-sm" className={zoomButton} onClick={() => zoomByStep(1)} disabled={zoomLevel >= TIMELINE_ZOOM_MAX} aria-label="Zoom in timeline">
+            <Button title={labels.zoomIn} variant="ghost" size="icon-sm" className={zoomButton} onClick={() => zoomByStep(1)} disabled={zoomLevel >= TIMELINE_ZOOM_MAX} aria-label={labels.zoomIn}>
               <ZoomIn className="w-4 h-4" strokeWidth={2} />
             </Button>
           </span>

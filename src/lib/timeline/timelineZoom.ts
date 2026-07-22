@@ -1,5 +1,6 @@
 import { computeTemporalTierFromDensity } from "../renderEngine/tsp";
 import { DEFAULT_SRP_CONFIG, SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier, type SrpConfig } from "../renderEngine/types";
+import { t } from "@/i18n";
 
 export const TIMELINE_ZOOM_STEP = 0.1;
 export const TIMELINE_ZOOM_DEFAULT = DEFAULT_SRP_CONFIG[SpatialTier.L1].min;
@@ -8,17 +9,17 @@ export const TIMELINE_PPS_PER_ZOOM = BASE_TIMELINE_DENSITY_PPS;
 export const TIMELINE_TIER_SNAP_EPSILON = 0.04;
 
 export const TIMELINE_TIER_LABELS: Record<SpatialTier, string> = {
-  [SpatialTier.L0]: "Overview",
-  [SpatialTier.L1]: "Standard",
-  [SpatialTier.L2]: "Detail",
-  [SpatialTier.L3]: "Frame",
+  [SpatialTier.L0]: t("timeline.zoom.spatial.overview"),
+  [SpatialTier.L1]: t("timeline.zoom.spatial.standard"),
+  [SpatialTier.L2]: t("timeline.zoom.spatial.detail"),
+  [SpatialTier.L3]: t("timeline.zoom.spatial.frame"),
 };
 
 export const TIMELINE_TEMPORAL_LABELS: Record<TemporalTier, string> = {
-  [TemporalTier.L0]: "Sparse cadence",
-  [TemporalTier.L1]: "Readable cadence",
-  [TemporalTier.L2]: "Edit cadence",
-  [TemporalTier.L3]: "Frame cadence",
+  [TemporalTier.L0]: t("timeline.zoom.temporal.sparse"),
+  [TemporalTier.L1]: t("timeline.zoom.temporal.readable"),
+  [TemporalTier.L2]: t("timeline.zoom.temporal.edit"),
+  [TemporalTier.L3]: t("timeline.zoom.temporal.frame"),
 };
 
 export function getTimelineZoomMin(config: SrpConfig = DEFAULT_SRP_CONFIG): number {
@@ -93,5 +94,5 @@ export function getTimelineTemporalDetail(pixelsPerSecond: number): {
 }
 
 export function formatCadenceSeconds(seconds: number): string {
-  return seconds >= 1 ? `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)}s` : `${Math.round(seconds * 1000)}ms`;
+  return seconds >= 1 ? `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)} 秒` : `${Math.round(seconds * 1000)} 毫秒`;
 }
