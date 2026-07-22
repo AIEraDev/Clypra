@@ -69,10 +69,6 @@ vi.mock("../TimelineRuler", () => ({
   TimelineRuler: () => <div data-testid="timeline-ruler">Ruler</div>,
 }));
 
-vi.mock("../TrackLabel", () => ({
-  TrackLabel: (props: any) => <div data-track-label="true">TrackLabel-{props.track.id}</div>,
-}));
-
 vi.mock("../Track", () => ({
   Track: (props: any) => {
     trackPropsSpy(props);
@@ -106,10 +102,11 @@ describe("Timeline click behavior", () => {
     seekMock.mockClear();
     setDurationMock.mockClear();
     trackPropsSpy.mockClear();
-    useUIStore.setState({ selectedClipIds: [] });
+    useUIStore.setState({ selectedClipIds: [], selectedTrackId: null, previewMode: "program" });
     useTimelineStore.setState({
       tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
       clips: [],
+      gaps: [],
       zoomLevel: 1,
       scrollLeft: 0,
       pixelsPerSecond: 100,
@@ -165,6 +162,35 @@ describe("Timeline click behavior", () => {
     fireEvent.click(screen.getByText("Playhead"));
 
     expect(seekMock).not.toHaveBeenCalled();
+  });
+
+  it("selects a track by name without seeking", () => {
+    useTimelineStore.setState({
+      clips: [
+        { id: "c1", trackId: "track-1", mediaId: "m1", startTime: 0, duration: 3, trimIn: 0, trimOut: 3, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+      ],
+    });
+    render(<Timeline />);
+
+    fireEvent.click(screen.getByText("Video 1"));
+
+    expect(useUIStore.getState().selectedTrackId).toBe("track-1");
+    expect(seekMock).not.toHaveBeenCalled();
+  });
+
+  it("renders track names as focusable pressed-state buttons", () => {
+    useTimelineStore.setState({
+      clips: [
+        { id: "c1", trackId: "track-1", mediaId: "m1", startTime: 0, duration: 3, trimIn: 0, trimOut: 3, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+      ],
+    });
+    render(<Timeline />);
+
+    const button = screen.getByRole("button", { name: "选择轨道 Video 1" });
+    expect(button).toHaveAttribute("type", "button");
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    button.focus();
+    expect(button).toHaveFocus();
   });
 
   it("begins a localized delete transaction from the keyboard", () => {

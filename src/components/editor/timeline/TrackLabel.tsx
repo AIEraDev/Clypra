@@ -24,9 +24,12 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
   const isEmpty = !clips.some((c) => c.trackId === track.id);
   const hasGaps = gaps.some((g) => g.trackId === track.id && !g.protected);
   const isSelected = selectedTrackId === track.id;
+  const selectTrackLabel = t("timeline.trackControl.select", { name: track.name });
 
   return (
     <div
+      data-track-label="true"
+      data-timeline-interactive="true"
       className={`group relative flex items-center gap-2 px-2 transition-colors bg-surface-raised ${isSelected ? "bg-timeline-track-selected ring-1 ring-inset ring-timeline-track-active" : "hover:bg-timeline-track-hover"} ${isEmpty ? "opacity-70" : ""} ${track.locked ? "bg-timeline-track-active/60" : ""}`}
       style={{
         height: `${track.height}px`,
@@ -38,10 +41,21 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
         flexShrink: 0,
         borderRight: "1px solid var(--color-timeline-track-border)",
       }}
-      onClick={() => selectTrack(track.id)}
     >
       <div className={`absolute left-0 top-0 h-full w-[2px] ${isSelected ? "bg-timeline-track-label" : "bg-transparent"}`} />
-      <span className="min-w-0 flex-1 truncate text-[10px] text-timeline-track-name" title={track.name}>{track.name}</span>
+      <button
+        type="button"
+        className="min-w-0 flex-1 truncate text-left text-[10px] text-timeline-track-name cursor-pointer"
+        aria-label={selectTrackLabel}
+        aria-pressed={isSelected}
+        title={selectTrackLabel}
+        onClick={(e) => {
+          e.stopPropagation();
+          selectTrack(track.id);
+        }}
+      >
+        {track.name}
+      </button>
       <button
         onClick={(e) => {
           e.stopPropagation();

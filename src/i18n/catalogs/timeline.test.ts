@@ -65,6 +65,7 @@ describe("timeline history localization", () => {
       translate("timeline.trackControl.show"),
       translate("timeline.trackControl.mute"),
       translate("timeline.trackControl.unmute"),
+      t("timeline.trackControl.select", { name: "客户 Track 7" }),
       translate("timeline.trackControl.pack"),
       translate("timeline.trackControl.packTitle"),
     ]).toEqual([
@@ -80,6 +81,7 @@ describe("timeline history localization", () => {
       "显示轨道",
       "静音轨道",
       "取消静音",
+      "选择轨道 客户 Track 7",
       "收紧轨道（移除间隙）",
       "收紧轨道 - 移除所有未保护间隙",
     ]);

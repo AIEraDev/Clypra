@@ -21,6 +21,7 @@ export const timelineMessages = defineMessages({
   "timeline.trackControl.show": { en: "Show track", zhCN: "显示轨道" },
   "timeline.trackControl.mute": { en: "Mute track", zhCN: "静音轨道" },
   "timeline.trackControl.unmute": { en: "Unmute track", zhCN: "取消静音" },
+  "timeline.trackControl.select": { en: "Select track {{name}}", zhCN: "选择轨道 {{name}}" },
   "timeline.trackControl.pack": { en: "Pack track (remove gaps)", zhCN: "收紧轨道（移除间隙）" },
   "timeline.trackControl.packTitle": { en: "Pack track - remove all unprotected gaps", zhCN: "收紧轨道 - 移除所有未保护间隙" },
   "timeline.error.transition.selectTwoClips": { en: "Select two clips to add a transition", zhCN: "请选择两个片段以添加转场" },

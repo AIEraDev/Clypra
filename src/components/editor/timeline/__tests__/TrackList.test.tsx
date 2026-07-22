@@ -79,12 +79,28 @@ describe("TrackLabel interactions", () => {
 
   it("renders the raw track name and localized inverse controls", () => {
     const track = { id: "raw-track-id", type: "video" as const, name: "客户原始 Track 7", muted: true, locked: true, visible: false, height: 68 };
-    render(<TrackLabel track={track} />);
+    const { container } = render(<TrackLabel track={track} />);
 
     expect(screen.getByText("客户原始 Track 7")).toBeInTheDocument();
+    const selectButton = screen.getByRole("button", { name: "选择轨道 客户原始 Track 7" });
+    expect(selectButton).toHaveAttribute("title", "选择轨道 客户原始 Track 7");
+    expect(selectButton).toHaveAttribute("aria-pressed", "false");
+    expect(container.firstElementChild).toHaveAttribute("data-track-label", "true");
+    expect(container.firstElementChild).toHaveAttribute("data-timeline-interactive", "true");
     expect(screen.getByRole("button", { name: "解锁轨道" })).toHaveAttribute("title", "解锁轨道");
     expect(screen.getByRole("button", { name: "显示轨道" })).toHaveAttribute("title", "显示轨道");
     expect(screen.getByRole("button", { name: "取消静音" })).toHaveAttribute("title", "取消静音");
+  });
+
+  it("selects the original track ID only from the track name button", () => {
+    const track = useTimelineStore.getState().tracks[1];
+    render(<TrackLabel track={track} />);
+
+    const button = screen.getByRole("button", { name: "选择轨道 Audio 1" });
+    fireEvent.click(button);
+
+    expect(useUIStore.getState().selectedTrackId).toBe("track-2");
+    expect(button).toHaveAttribute("aria-pressed", "true");
   });
 
   it("packs the original track and exposes a localized accessible name", () => {
