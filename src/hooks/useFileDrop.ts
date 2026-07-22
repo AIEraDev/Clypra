@@ -15,12 +15,13 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const isProcessingRef = useRef(false);
+  const unlistenFns = useRef<Array<() => void>>([]);
 
   useEffect(() => {
     if (!enabled) return;
 
-    let unlisten: (() => void) | undefined;
     let isMounted = true;
+    unlistenFns.current = [];
 
     const setupListener = async () => {
       try {
@@ -36,6 +37,7 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
 
           setIsDraggingOver(isOver);
         });
+        unlistenFns.current.push(unlistenHover);
 
         // Listen for file drop
         const unlistenDrop = await listen<{
@@ -65,49 +67,18 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
             }
           }
         });
+        unlistenFns.current.push(unlistenDrop);
 
         // Listen for drag cancelled
         const unlistenCancel = await listen("tauri://drag-cancelled", () => {
           if (!isMounted) return;
           setIsDraggingOver(false);
         });
+        unlistenFns.current.push(unlistenCancel);
 
-        // Only set unlisten if component is still mounted
-        if (isMounted) {
-          unlisten = () => {
-            try {
-              unlistenHover();
-            } catch (e) {
-              // Listener already cleaned up
-            }
-            try {
-              unlistenDrop();
-            } catch (e) {
-              // Listener already cleaned up
-            }
-            try {
-              unlistenCancel();
-            } catch (e) {
-              // Listener already cleaned up
-            }
-          };
-        } else {
-          // Component unmounted before listeners were set up, clean up immediately
-          try {
-            unlistenHover();
-          } catch (e) {
-            // Ignore
-          }
-          try {
-            unlistenDrop();
-          } catch (e) {
-            // Ignore
-          }
-          try {
-            unlistenCancel();
-          } catch (e) {
-            // Ignore
-          }
+        if (!isMounted) {
+          unlistenFns.current.forEach((fn) => { try { fn(); } catch (e) {} });
+          unlistenFns.current = [];
         }
       } catch (error) {
         console.error("[useFileDrop] Failed to setup file drop listener:", error);
@@ -118,14 +89,8 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
 
     return () => {
       isMounted = false;
-      if (unlisten) {
-        try {
-          unlisten();
-        } catch (error) {
-          // Ignore errors during cleanup (listener may already be unregistered)
-          console.debug("[useFileDrop] Cleanup error (expected):", error);
-        }
-      }
+      unlistenFns.current.forEach((fn) => { try { fn(); } catch (e) {} });
+      unlistenFns.current = [];
     };
   }, [enabled, onDrop]);
 
