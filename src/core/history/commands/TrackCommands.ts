@@ -7,6 +7,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Track, Clip } from "@/types";
+import { t } from "@/i18n";
 
 interface TimelineState {
   tracks: Track[];
@@ -29,7 +30,7 @@ export class AddTrackCommand implements Command {
     private readonly index?: number,
   ) {
     this.id = generateCommandId();
-    this.label = "Add Track";
+    this.label = t("timeline.history.addTrack");
     this.timestamp = Date.now();
   }
 
@@ -83,7 +84,7 @@ export class DeleteTrackCommand implements Command {
 
   constructor(private readonly trackId: string) {
     this.id = generateCommandId();
-    this.label = "Delete Track";
+    this.label = t("timeline.history.deleteTrack");
     this.timestamp = Date.now();
   }
 
@@ -142,7 +143,7 @@ class RestoreTrackCommand implements Command {
     private readonly index: number,
   ) {
     this.id = generateCommandId();
-    this.label = "Restore Track";
+    this.label = t("timeline.history.restoreTrack");
     this.timestamp = Date.now();
   }
 
@@ -189,7 +190,13 @@ export class ToggleTrackPropertyCommand implements Command {
     private readonly property: "locked" | "muted" | "visible",
   ) {
     this.id = generateCommandId();
-    this.label = `Toggle Track ${property.charAt(0).toUpperCase() + property.slice(1)}`;
+    this.label = t(
+      property === "locked"
+        ? "timeline.history.toggleTrackLocked"
+        : property === "muted"
+          ? "timeline.history.toggleTrackMuted"
+          : "timeline.history.toggleTrackVisible",
+    );
     this.timestamp = Date.now();
   }
 

@@ -9,6 +9,7 @@ import { generateCommandId } from "../Command";
 import type { Clip } from "@/types";
 import { generateId } from "@/lib/utils/id";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import { t } from "@/i18n";
 
 interface TimelineState {
   clips: Clip[];
@@ -32,7 +33,7 @@ export class SplitClipCommand implements Command {
     private readonly originalClip: Clip,
   ) {
     this.id = generateCommandId();
-    this.label = "Split Clip";
+    this.label = t("timeline.history.splitClip");
     this.timestamp = Date.now();
   }
 
@@ -173,7 +174,7 @@ class MergeSplitClipsCommand implements Command {
     private readonly splitTime?: number,
   ) {
     this.id = generateCommandId();
-    this.label = "Merge Split Clips";
+    this.label = t("timeline.history.mergeSplitClips");
     this.timestamp = Date.now();
   }
 

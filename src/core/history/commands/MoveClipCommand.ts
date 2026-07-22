@@ -12,6 +12,7 @@
 
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
+import { t } from "@/i18n";
 
 /**
  * Timeline state interface (minimal - only what we need).
@@ -43,7 +44,7 @@ export class MoveClipCommand implements Command {
     private readonly toTime: number,
   ) {
     this.id = generateCommandId();
-    this.label = "Move Clip";
+    this.label = t("timeline.history.moveClip");
     this.timestamp = Date.now();
   }
 

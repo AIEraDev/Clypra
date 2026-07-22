@@ -13,6 +13,7 @@ import { useTimelineTauriDrop } from "@/hooks/useTimelineTauriDrop";
 import { useTimelineZoom } from "@/hooks/useTimelineZoom";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
 import { TIMELINE_TRACK_LABEL_WIDTH_PX, getTimelineLabelColumnWidth, getTimelineLaneWidth } from "@/lib/timeline/timelineViewport";
+import { t } from "@/i18n";
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -226,7 +227,7 @@ export const Timeline: React.FC = () => {
         const { normalizeTrack, removeEmptyNonMainTracks, withBatch } = store;
         const affectedTracks = new Set<string>();
 
-        beginTransaction("Delete Clips");
+        beginTransaction(t("timeline.transaction.deleteClips"));
 
         selectedClipIds.forEach((clipId) => {
           const clip = store.clips.find((c) => c.id === clipId);

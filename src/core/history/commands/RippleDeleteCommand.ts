@@ -11,6 +11,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track } from "@/types";
+import { t } from "@/i18n";
 
 interface TimelineState {
   tracks?: Track[];
@@ -31,7 +32,7 @@ export class RippleDeleteCommand implements Command {
 
   constructor(private readonly clipId: string) {
     this.id = generateCommandId();
-    this.label = "Ripple Delete Clip";
+    this.label = t("timeline.history.rippleDeleteClip");
     this.timestamp = Date.now();
   }
 
@@ -139,7 +140,7 @@ class RippleRestoreCommand implements Command {
     private readonly restoredTrackIndex?: number,
   ) {
     this.id = generateCommandId();
-    this.label = "Restore Ripple Delete";
+    this.label = t("timeline.history.restoreRippleDelete");
     this.timestamp = Date.now();
   }
 

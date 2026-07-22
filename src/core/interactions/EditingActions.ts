@@ -28,6 +28,7 @@ import { useUIStore } from "@/store/uiStore";
 import { SplitClipCommand, UpdateClipCommand } from "../history/commands";
 import type { Clip } from "@/types";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import { t } from "@/i18n";
 
 /**
  * Split interaction context.
@@ -301,7 +302,7 @@ export class EditingActions {
     if (candidates.length === 0) return [];
 
     const history = useHistoryStore.getState();
-    history.beginTransaction(side === "left" ? "Delete Left at Playhead" : "Delete Right at Playhead");
+    history.beginTransaction(side === "left" ? t("timeline.transaction.deleteLeftAtPlayhead") : t("timeline.transaction.deleteRightAtPlayhead"));
     const results: TrimAtPlayheadResult[] = [];
 
     try {

@@ -7,6 +7,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip } from "@/types";
+import { t } from "@/i18n";
 
 /**
  * Timeline state interface (minimal - only what we need).
@@ -28,7 +29,7 @@ export class TransformClipCommand implements Command {
     private readonly newTransform: Partial<Clip>,
   ) {
     this.id = generateCommandId();
-    this.label = "Transform Clip";
+    this.label = t("timeline.history.transformClip");
     this.timestamp = Date.now();
   }
 

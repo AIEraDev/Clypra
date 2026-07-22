@@ -10,6 +10,7 @@ import { generateCommandId } from "../Command";
 import type { Gap } from "@/types/gap";
 import type { Clip } from "@/types";
 import { insertGapWithRipple, createGap, removeGapWithRipple, resizeGap } from "@/lib/timeline/gapEngine";
+import { t } from "@/i18n";
 
 interface TimelineState {
   clips: Clip[];
@@ -37,7 +38,7 @@ export class InsertGapCommand implements Command {
     private readonly duration: number,
   ) {
     this.id = generateCommandId();
-    this.label = "Insert Gap";
+    this.label = t("timeline.history.insertGap");
     this.timestamp = Date.now();
   }
 
@@ -127,7 +128,7 @@ export class RemoveGapCommand implements Command {
 
   constructor(private readonly gapId: string) {
     this.id = generateCommandId();
-    this.label = "Remove Gap";
+    this.label = t("timeline.history.removeGap");
     this.timestamp = Date.now();
   }
 
@@ -210,7 +211,7 @@ class RestoreGapCommand implements Command {
     private readonly originalPositions: Array<{ id: string; originalStartTime: number }>,
   ) {
     this.id = generateCommandId();
-    this.label = "Restore Gap";
+    this.label = t("timeline.history.restoreGap");
     this.timestamp = Date.now();
   }
 
@@ -274,7 +275,7 @@ export class ResizeGapCommand implements Command {
     private readonly newDuration: number,
   ) {
     this.id = generateCommandId();
-    this.label = "Resize Gap";
+    this.label = t("timeline.history.resizeGap");
     this.timestamp = Date.now();
   }
 
@@ -362,7 +363,7 @@ export class PackTrackCommand implements Command {
 
   constructor(private readonly trackId: string) {
     this.id = generateCommandId();
-    this.label = "Pack Track";
+    this.label = t("timeline.history.packTrack");
     this.timestamp = Date.now();
   }
 
@@ -446,7 +447,7 @@ class UnpackTrackCommand implements Command {
     private readonly originalPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }>,
   ) {
     this.id = generateCommandId();
-    this.label = "Unpack Track";
+    this.label = t("timeline.history.unpackTrack");
     this.timestamp = Date.now();
   }
 
@@ -506,7 +507,7 @@ export class ToggleGapProtectionCommand implements Command {
 
   constructor(private readonly gapId: string) {
     this.id = generateCommandId();
-    this.label = "Toggle Gap Protection";
+    this.label = t("timeline.history.toggleGapProtection");
     this.timestamp = Date.now();
   }
 

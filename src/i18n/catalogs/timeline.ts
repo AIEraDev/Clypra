@@ -1,3 +1,30 @@
 import { defineMessages } from "../types";
 
-export const timelineMessages = defineMessages({});
+export const timelineMessages = defineMessages({
+  "timeline.history.deleteClip": { en: "Delete Clip", zhCN: "删除片段" },
+  "timeline.history.addClip": { en: "Add Clip", zhCN: "添加片段" },
+  "timeline.history.insertGap": { en: "Insert Gap", zhCN: "插入间隙" },
+  "timeline.history.removeGap": { en: "Remove Gap", zhCN: "删除间隙" },
+  "timeline.history.restoreGap": { en: "Restore Gap", zhCN: "恢复间隙" },
+  "timeline.history.resizeGap": { en: "Resize Gap", zhCN: "调整间隙" },
+  "timeline.history.packTrack": { en: "Pack Track", zhCN: "收紧轨道" },
+  "timeline.history.unpackTrack": { en: "Unpack Track", zhCN: "恢复轨道间隙" },
+  "timeline.history.toggleGapProtection": { en: "Toggle Gap Protection", zhCN: "切换间隙保护" },
+  "timeline.history.moveClip": { en: "Move Clip", zhCN: "移动片段" },
+  "timeline.history.rippleDeleteClip": { en: "Ripple Delete Clip", zhCN: "波纹删除片段" },
+  "timeline.history.restoreRippleDelete": { en: "Restore Ripple Delete", zhCN: "恢复波纹删除" },
+  "timeline.history.splitClip": { en: "Split Clip", zhCN: "拆分片段" },
+  "timeline.history.mergeSplitClips": { en: "Merge Split Clips", zhCN: "合并拆分片段" },
+  "timeline.history.addTrack": { en: "Add Track", zhCN: "添加轨道" },
+  "timeline.history.deleteTrack": { en: "Delete Track", zhCN: "删除轨道" },
+  "timeline.history.restoreTrack": { en: "Restore Track", zhCN: "恢复轨道" },
+  "timeline.history.toggleTrackLocked": { en: "Toggle Track Locked", zhCN: "切换轨道锁定" },
+  "timeline.history.toggleTrackMuted": { en: "Toggle Track Muted", zhCN: "切换轨道静音" },
+  "timeline.history.toggleTrackVisible": { en: "Toggle Track Visible", zhCN: "切换轨道可见性" },
+  "timeline.history.transformClip": { en: "Transform Clip", zhCN: "变换片段" },
+  "timeline.history.updateClip": { en: "Update Clip", zhCN: "更新片段" },
+  "timeline.history.trimClip": { en: "Trim Clip", zhCN: "裁剪片段" },
+  "timeline.transaction.deleteClips": { en: "Delete Clips", zhCN: "删除片段" },
+  "timeline.transaction.deleteLeftAtPlayhead": { en: "Delete Left at Playhead", zhCN: "删除播放头左侧" },
+  "timeline.transaction.deleteRightAtPlayhead": { en: "Delete Right at Playhead", zhCN: "删除播放头右侧" },
+});

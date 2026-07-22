@@ -7,6 +7,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip } from "@/types";
+import { t } from "@/i18n";
 
 interface TimelineState {
   clips: Clip[];
@@ -25,7 +26,7 @@ export class UpdateClipCommand implements Command {
     private readonly newProperties: Partial<Clip>,
   ) {
     this.id = generateCommandId();
-    this.label = "Update Clip";
+    this.label = t("timeline.history.updateClip");
     this.timestamp = Date.now();
   }
 

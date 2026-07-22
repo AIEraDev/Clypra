@@ -15,6 +15,7 @@ import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimeline
 import { useSplitMode } from "@/hooks/useSplitMode";
 import { EditingActions } from "@/core/interactions";
 import { useAnchoredTimelineZoom, type TimelineZoomAnchor } from "@/hooks/useAnchoredTimelineZoom";
+import { t } from "@/i18n";
 
 export const TimelineToolbar: React.FC = () => {
   const { zoomLevel, pixelsPerSecond, swapClips, rippleEditEnabled, toggleRippleEdit, tracks, normalizeTrack } = useTimelineStore();
@@ -170,7 +171,7 @@ export const TimelineToolbar: React.FC = () => {
     const affectedTracks = new Set<string>();
 
     // Use transaction to group all deletes into a single undo/redo unit
-    beginTransaction("Delete Clips");
+    beginTransaction(t("timeline.transaction.deleteClips"));
 
     selectedClipIds.forEach((clipId) => {
       const clip = clips.find((c) => c.id === clipId);

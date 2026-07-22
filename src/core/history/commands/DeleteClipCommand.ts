@@ -5,6 +5,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track } from "@/types";
+import { t } from "@/i18n";
 
 interface TimelineState {
   tracks?: Track[];
@@ -24,7 +25,7 @@ export class DeleteClipCommand implements Command {
 
   constructor(private readonly clipId: string) {
     this.id = generateCommandId();
-    this.label = "Delete Clip";
+    this.label = t("timeline.history.deleteClip");
     this.timestamp = Date.now();
   }
 
@@ -100,7 +101,7 @@ export class AddClipCommand implements Command {
     private readonly restoredTrackIndex?: number,
   ) {
     this.id = generateCommandId();
-    this.label = "Add Clip";
+    this.label = t("timeline.history.addClip");
     this.timestamp = Date.now();
   }
 
