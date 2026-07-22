@@ -98,5 +98,7 @@ export function getTimelineTemporalDetail(pixelsPerSecond: number): {
 }
 
 export function formatCadenceSeconds(seconds: number): string {
-  return seconds >= 1 ? `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)} 秒` : `${Math.round(seconds * 1000)} 毫秒`;
+  return seconds >= 1
+    ? t("timeline.zoom.cadence.seconds", { value: seconds.toFixed(seconds % 1 === 0 ? 0 : 1) })
+    : t("timeline.zoom.cadence.milliseconds", { value: Math.round(seconds * 1000) });
 }

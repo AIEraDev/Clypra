@@ -37,9 +37,15 @@ describe("timeline zoom localization", () => {
     expect(getTimelineTemporalDetail(400).temporalTier).toBe(TemporalTier.L3);
   });
 
-  test("formats cadence in natural Chinese without changing precision", () => {
+  test("formats cadence units in the current language without changing precision", () => {
     expect(formatCadenceSeconds(2)).toBe("2 秒");
     expect(formatCadenceSeconds(1.5)).toBe("1.5 秒");
     expect(formatCadenceSeconds(0.25)).toBe("250 毫秒");
+
+    setLanguage("en");
+
+    expect(formatCadenceSeconds(2)).toBe("2s");
+    expect(formatCadenceSeconds(1.5)).toBe("1.5s");
+    expect(formatCadenceSeconds(0.25)).toBe("250ms");
   });
 });

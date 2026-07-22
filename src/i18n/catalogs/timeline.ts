@@ -118,6 +118,8 @@ export const timelineMessages = defineMessages({
   "timeline.zoom.temporal.readable": { en: "Readable cadence", zhCN: "易读采样" },
   "timeline.zoom.temporal.edit": { en: "Edit cadence", zhCN: "编辑采样" },
   "timeline.zoom.temporal.frame": { en: "Frame cadence", zhCN: "逐帧采样" },
+  "timeline.zoom.cadence.seconds": { en: "{{value}}s", zhCN: "{{value}} 秒" },
+  "timeline.zoom.cadence.milliseconds": { en: "{{value}}ms", zhCN: "{{value}} 毫秒" },
   "timeline.toast.split.none": { en: "No clips under playhead to split", zhCN: "播放头下方没有可拆分的片段" },
   "timeline.toast.split.count": { en: "Split {{count}} clips", zhCN: "已拆分 {{count}} 个片段" },
   "timeline.toast.deleteLeft.none": { en: "No clips to delete left at playhead", zhCN: "播放头左侧没有可删除的片段" },
