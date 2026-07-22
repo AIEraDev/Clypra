@@ -51,6 +51,40 @@ describe("timeline history localization", () => {
     ]);
   });
 
+  test("translates timeline track UI without changing the import shortcut", () => {
+    expect([
+      translate("timeline.ui.track"),
+      translate("timeline.ui.dropMedia"),
+      translate("timeline.ui.createTrack"),
+      translate("timeline.ui.newTrack"),
+      translate("timeline.ui.noTracks"),
+      translate("timeline.ui.locked"),
+      translate("timeline.trackControl.lock"),
+      translate("timeline.trackControl.unlock"),
+      translate("timeline.trackControl.hide"),
+      translate("timeline.trackControl.show"),
+      translate("timeline.trackControl.mute"),
+      translate("timeline.trackControl.unmute"),
+      translate("timeline.trackControl.pack"),
+      translate("timeline.trackControl.packTitle"),
+    ]).toEqual([
+      "轨道",
+      "将媒体拖放到此处 • 按 I 导入",
+      "新建轨道",
+      "新轨道",
+      "暂无轨道",
+      "已锁定",
+      "锁定轨道",
+      "解锁轨道",
+      "隐藏轨道",
+      "显示轨道",
+      "静音轨道",
+      "取消静音",
+      "收紧轨道（移除间隙）",
+      "收紧轨道 - 移除所有未保护间隙",
+    ]);
+  });
+
   test("translates timeline toolbar labels and zoom description", () => {
     expect([
       translate("timeline.toolbar.undo"),

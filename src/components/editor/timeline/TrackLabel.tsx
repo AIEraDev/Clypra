@@ -4,6 +4,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
 import { TIMELINE_TRACK_LABEL_WIDTH_PX } from "@/lib/timeline/timelineViewport";
+import { t } from "@/i18n";
 import type { Track } from "@/types";
 
 interface TrackLabelProps {
@@ -40,14 +41,15 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
       onClick={() => selectTrack(track.id)}
     >
       <div className={`absolute left-0 top-0 h-full w-[2px] ${isSelected ? "bg-timeline-track-label" : "bg-transparent"}`} />
+      <span className="min-w-0 flex-1 truncate text-[10px] text-timeline-track-name" title={track.name}>{track.name}</span>
       <button
         onClick={(e) => {
           e.stopPropagation();
           toggleTrackLock(track.id);
         }}
         className={`p-1 rounded transition-colors cursor-pointer hover:bg-timeline-button-hover ${track.locked ? "bg-timeline-button-hover text-timeline-track-name" : "text-timeline-button-icon"}`}
-        aria-label={track.locked ? "Unlock track" : "Lock track"}
-        title={track.locked ? "Unlock track" : "Lock track"}
+        aria-label={track.locked ? t("timeline.trackControl.unlock") : t("timeline.trackControl.lock")}
+        title={track.locked ? t("timeline.trackControl.unlock") : t("timeline.trackControl.lock")}
       >
         {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
       </button>
@@ -58,8 +60,8 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
           toggleTrackVisibility(track.id);
         }}
         className={`p-1 rounded transition-colors cursor-pointer hover:bg-timeline-button-hover ${track.visible ? "text-timeline-button-icon" : "bg-timeline-button-hover text-timeline-track-name"}`}
-        aria-label={track.visible ? "Hide track" : "Show track"}
-        title={track.visible ? "Hide track" : "Show track"}
+        aria-label={track.visible ? t("timeline.trackControl.hide") : t("timeline.trackControl.show")}
+        title={track.visible ? t("timeline.trackControl.hide") : t("timeline.trackControl.show")}
       >
         {track.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
       </button>
@@ -72,8 +74,8 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
             toggleTrackMute(track.id);
           }}
           className={`p-1 rounded transition-colors cursor-pointer hover:bg-timeline-button-hover ${track.muted ? "bg-timeline-button-hover text-timeline-track-name" : "text-timeline-button-icon"}`}
-          aria-label={track.muted ? "Unmute track" : "Mute track"}
-          title={track.muted ? "Unmute track" : "Mute track"}
+          aria-label={track.muted ? t("timeline.trackControl.unmute") : t("timeline.trackControl.mute")}
+          title={track.muted ? t("timeline.trackControl.unmute") : t("timeline.trackControl.mute")}
         >
           {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
         </button>
@@ -87,8 +89,8 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
             GapManager.packTrack(track.id);
           }}
           className="p-1 rounded transition-colors cursor-pointer hover:bg-timeline-button-hover text-timeline-button-icon opacity-0 group-hover:opacity-100"
-          aria-label="Pack track (remove gaps)"
-          title="Pack track - remove all unprotected gaps"
+          aria-label={t("timeline.trackControl.pack")}
+          title={t("timeline.trackControl.packTitle")}
         >
           <Minimize2 className="w-3 h-3" />
         </button>

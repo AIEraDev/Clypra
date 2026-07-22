@@ -45,5 +45,6 @@ describe("Track timeline behavior", () => {
 
     fireEvent.click(screen.getByText("Clip A"));
     expect(useUIStore.getState().selectedClipIds).toHaveLength(0);
+    expect(screen.getByText("已锁定")).toBeInTheDocument();
   });
 });

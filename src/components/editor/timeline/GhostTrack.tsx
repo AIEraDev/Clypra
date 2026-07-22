@@ -2,6 +2,7 @@ import React from "react";
 // @ts-ignore - react-dnd types issue
 import { useDrop } from "react-dnd";
 import { handleCreateTrackAndDrop } from "@/lib/timeline/timelineUtils";
+import { t } from "@/i18n";
 import type { DragItem } from "@/types";
 
 interface GhostTrackProps {
@@ -31,7 +32,7 @@ export const GhostTrack: React.FC<GhostTrackProps> = ({ insertIndex, isDragging 
         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 bg-accent rounded-full pointer-events-none">
           {/* Dot at left edge */}
           <div className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-accent" />
-          <span className="absolute left-4 -top-3 text-accent text-[10px] bg-timeline-ghost-track-bg px-1 rounded whitespace-nowrap">New track</span>
+          <span className="absolute left-4 -top-3 text-accent text-[10px] bg-timeline-ghost-track-bg px-1 rounded whitespace-nowrap">{t("timeline.ui.newTrack")}</span>
         </div>
       )}
     </div>

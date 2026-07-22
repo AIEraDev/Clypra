@@ -392,7 +392,7 @@ export const Timeline: React.FC = () => {
                 borderRight: "1px solid var(--color-timeline-track-border)",
               }}
             >
-              <span className="text-[11px] font-semibold tracking-wide text-timeline-track-label uppercase">Track</span>
+              <span className="text-[11px] font-semibold tracking-wide text-timeline-track-label uppercase">{t("timeline.ui.track")}</span>
             </div>
           )}
 
@@ -413,7 +413,7 @@ export const Timeline: React.FC = () => {
           {/* ── Row 2+: Track labels (sticky left) + Track clips ─────── */}
           {!hasClips ? (
             <div className="relative flex-1 flex flex-col min-h-0">
-              <div className="absolute top-1/2 left-3 text-xl text-white pointer-events-none font-mono">Drop media here • I to import</div>
+              <div className="absolute top-1/2 left-3 text-xl text-white pointer-events-none font-mono">{t("timeline.ui.dropMedia")}</div>
               <EmptyTimelineDropZone isDragging={isDraggingMedia} />
             </div>
           ) : (
@@ -502,7 +502,7 @@ export const Timeline: React.FC = () => {
                               boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
                             }}
                           >
-                            Create New Track
+                            {t("timeline.ui.createTrack")}
                           </div>
                         </div>
                       )}

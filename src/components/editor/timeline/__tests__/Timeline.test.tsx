@@ -121,6 +121,12 @@ describe("Timeline click behavior", () => {
     vi.restoreAllMocks();
   });
 
+  it("renders the localized empty state while preserving the I shortcut", () => {
+    render(<Timeline />);
+
+    expect(screen.getByText("将媒体拖放到此处 • 按 I 导入")).toBeInTheDocument();
+  });
+
   it("seeks when clicking empty timeline area", () => {
     const { container } = render(<Timeline />);
     const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
@@ -152,6 +158,8 @@ describe("Timeline click behavior", () => {
       ],
     });
     render(<Timeline />);
+
+    expect(screen.getByText("轨道")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Interactive Clip"));
     fireEvent.click(screen.getByText("Playhead"));
