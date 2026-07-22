@@ -6,6 +6,10 @@ import { SplitClipCommand } from "@/core/history/commands/SplitClipCommand";
 import { resetIdGenerator } from "@/lib/utils/id";
 import type { Clip, TrackType } from "@/types";
 
+beforeEach(() => {
+  useUIStore.setState({ selectedClipIds: [] });
+});
+
 describe("timeline track localization", () => {
   beforeEach(() => {
     resetIdGenerator("timeline-track-test");
