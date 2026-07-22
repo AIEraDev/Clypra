@@ -20,7 +20,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
-import { AddClipCommand } from "@/core/history/commands/DeleteClipCommand";
+import { AddClipCommand, UpdateClipCommand, AddTransitionCommand } from "@/core/history/commands";
 import { useHistoryStore } from "@/store/historyStore";
 
 interface EditorLayoutProps {
@@ -109,7 +109,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         fitMode: resolveDefaultFitModeForAsset(mediaAsset),
       });
 
-      addClip(newClip);
+      execute(new AddClipCommand(newClip));
     } else if (type === "text") {
       // Text clips follow the same placement policy semantics:
       // playhead-first, no overwrite, create track when occupied.
@@ -184,7 +184,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         customization: item.customization,
       });
 
-      addClip(textClip);
+      execute(new AddClipCommand(textClip));
     } else if (type === "audio" && item?.audioUrl) {
       // Audio library item - must be downloaded first
       const cachedFile = getCachedFile(item.id);
@@ -231,8 +231,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
 
         if (!targetTrackId) return;
 
-        addClip(
-          createClipFromAsset({
+        execute(
+          new AddClipCommand(createClipFromAsset({
             asset: mediaAsset,
             trackId: targetTrackId,
             startTime: placement.startTime,
@@ -240,10 +240,10 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
             height: project?.canvasHeight || 1080,
             fitMode: resolveDefaultFitModeForAsset(mediaAsset),
             audioPath: absolutePath, // Store path directly for audio library items
-          }) as any,
+          }) as any)
         );
       })().catch((error) => {
-        // Audio add failed silently
+        console.error("[EditorLayout] Failed to add audio to timeline:", error);
       });
     } else if (type === "stickers") {
       const cachedSticker = useStickersStore.getState().getCachedSticker(item.id);
@@ -305,7 +305,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         });
         execute(new AddClipCommand(stickerClip));
       })().catch((error) => {
-        // Sticker add failed silently
+        console.error("[EditorLayout] Failed to add sticker to timeline:", error);
       });
     } else if (type === "transitions") {
       const selectedPair = selectedClipIds.length === 2 ? ([selectedClipIds[0], selectedClipIds[1]] as const) : null;
@@ -323,7 +323,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
       const result = createTransitionBetweenClips(pair[0], pair[1], transitionType, transitionDuration, renderer);
       if (result.error) {
         useProjectStore.getState().showToast(result.error, "warning");
-      } else {
+      } else if (result.transition) {
+        execute(new AddTransitionCommand(result.transition));
         useProjectStore.getState().showToast(`${item?.name || "Transition"} added between clips`);
       }
     } else if (type === "effects") {
@@ -374,7 +375,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         },
       ];
 
-      updateClip(targetClip.id, { effects: updatedEffects });
+      execute(new UpdateClipCommand(targetClip.id, { effects: currentEffects }, { effects: updatedEffects }));
       useProjectStore.getState().showToast(`Applied ${item.name} effect`);
     } else if (type === "filters") {
       // Filter must be downloaded first
@@ -432,7 +433,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         effectStack: cachedFilter.filter.effectStack,
       };
 
-      addClip(filterClip as any);
+      execute(new AddClipCommand(filterClip as any));
       useProjectStore.getState().showToast(`Added ${cachedFilter.filter.name} filter`);
     } else if (type === "video-effects" || type === "body-effects") {
       // Effects are now created directly on timeline without downloading
@@ -485,7 +486,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
         ...(type === "body-effects" && item.requirements ? { requirements: item.requirements } : {}),
       };
 
-      addClip(effectClip as any);
+      execute(new AddClipCommand(effectClip as any));
       useProjectStore.getState().showToast(`Added ${item.name} effect`);
     }
   };
