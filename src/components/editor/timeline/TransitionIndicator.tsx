@@ -3,7 +3,7 @@ import { GripVertical } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import type { TransitionTimelineItem } from "@/types";
-import { t } from "@/i18n";
+import { t, useLanguage, type MessageKey } from "@/i18n";
 
 interface TransitionIndicatorProps {
   transition: TransitionTimelineItem;
@@ -14,13 +14,14 @@ interface TransitionIndicatorProps {
 
 const MIN_TRANSITION_DURATION = 0.1; // 100ms minimum
 const MAX_TRANSITION_DURATION = 5.0; // 5 seconds maximum
-const TRANSITION_TYPE_LABELS = new Map<TransitionTimelineItem["type"], string>([
-  ["fade", t("timeline.transition.type.fade")],
-  ["dissolve", t("timeline.transition.type.dissolve")],
-  ["canvas", t("timeline.transition.type.canvas")],
+const TRANSITION_TYPE_LABEL_KEYS = new Map<TransitionTimelineItem["type"], MessageKey>([
+  ["fade", "timeline.transition.type.fade"],
+  ["dissolve", "timeline.transition.type.dissolve"],
+  ["canvas", "timeline.transition.type.canvas"],
 ]);
 
 export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transition, pixelsPerSecond, fromClip, toClip }) => {
+  useLanguage();
   const selectedTransitionId = useUIStore((s) => s.selectedTransitionId);
   const selectTransition = useUIStore((s) => s.selectTransition);
   const updateTransition = useTimelineStore((s) => s.updateTransition);
@@ -30,7 +31,8 @@ export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transi
   const indicatorRef = useRef<HTMLDivElement>(null);
 
   const isSelected = selectedTransitionId === transition.id;
-  const transitionTypeLabel = TRANSITION_TYPE_LABELS.get(transition.type) ?? transition.type;
+  const transitionTypeLabelKey = TRANSITION_TYPE_LABEL_KEYS.get(transition.type);
+  const transitionTypeLabel = transitionTypeLabelKey ? t(transitionTypeLabelKey) : transition.type;
   const duration = transition.placement.duration.toFixed(2);
 
   // If clips are missing, don't render (edge case safety)

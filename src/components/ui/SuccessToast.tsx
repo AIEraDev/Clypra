@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { t } from "@/i18n";
+import { t, useLanguage, type MessageKey } from "@/i18n";
 
 export type ToastVariant = "success" | "error" | "warning";
 
@@ -15,9 +15,9 @@ export interface SuccessToastProps {
   autoHideDuration?: number; // ms, 0 to disable auto-hide
 }
 
-const variantConfig: Record<ToastVariant, { label: string; iconPath: string; accentVar: string; iconColor: string; glowClass: string; barClass: string; bgClass: string; borderClass: string }> = {
+const variantConfig: Record<ToastVariant, { labelKey: MessageKey; iconPath: string; accentVar: string; iconColor: string; glowClass: string; barClass: string; bgClass: string; borderClass: string }> = {
   success: {
-    label: t("common.success"),
+    labelKey: "common.success",
     iconPath: "M2.5 7.5L5.5 10.5L11.5 4",
     accentVar: "var(--color-accent-soft)",
     iconColor: "text-accent-soft",
@@ -27,7 +27,7 @@ const variantConfig: Record<ToastVariant, { label: string; iconPath: string; acc
     borderClass: "border-accent/25",
   },
   error: {
-    label: t("common.error"),
+    labelKey: "common.error",
     iconPath: "M2 2L12 12M12 2L2 12",
     accentVar: "#ef4444",
     iconColor: "text-red-400",
@@ -37,7 +37,7 @@ const variantConfig: Record<ToastVariant, { label: string; iconPath: string; acc
     borderClass: "border-red-500/25",
   },
   warning: {
-    label: t("toast.warning"),
+    labelKey: "toast.warning",
     iconPath: "M7 2L1 12H13L7 2ZM7 5V8M7 10V10.5",
     accentVar: "#f59e0b",
     iconColor: "text-amber-400",
@@ -49,6 +49,7 @@ const variantConfig: Record<ToastVariant, { label: string; iconPath: string; acc
 };
 
 export function SuccessToast({ message, variant = "success", onDismiss, autoHideDuration = 3000 }: SuccessToastProps) {
+  useLanguage();
   // "hidden" → "entering" → "visible" → "leaving"
   const [phase, setPhase] = useState<"hidden" | "entering" | "visible" | "leaving">("hidden");
   const [progress, setProgress] = useState(100);
@@ -139,7 +140,7 @@ export function SuccessToast({ message, variant = "success", onDismiss, autoHide
 
         {/* Text */}
         <div className="flex-1 min-w-0">
-          <p className={`text-label ${cfg.iconColor}`}>{cfg.label}</p>
+          <p className={`text-label ${cfg.iconColor}`}>{t(cfg.labelKey)}</p>
           <p className="mt-0.5 text-sm leading-snug text-text-primary">{message}</p>
         </div>
 

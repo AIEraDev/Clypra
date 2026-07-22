@@ -8,7 +8,7 @@ import { ClipFilmstrip } from "./ClipFilmstrip";
 import { TimelineWaveform } from "./TimelineWaveform";
 import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { t } from "@/i18n";
+import { t, useLanguage } from "@/i18n";
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -48,6 +48,7 @@ interface ClipProps {
 }
 
 const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, onDragStart, onDragMove, onDragEnd, isBeingShifted = false, dragState }) => {
+  useLanguage();
   const selectClip = useUIStore((s) => s.selectClip);
   const toggleClipSelection = useUIStore((s) => s.toggleClipSelection);
   // PERF-4 fix: granular selectors prevent all clips re-rendering on every scroll/clip change

@@ -1,27 +1,40 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 
+import { setLanguage } from "@/i18n";
 import { SpatialTier, TemporalTier } from "@/lib/renderEngine/types";
 import {
   formatCadenceSeconds,
-  TIMELINE_TEMPORAL_LABELS,
-  TIMELINE_TIER_LABELS,
+  getTimelineTemporalDetail,
+  getTimelineTierLabel,
 } from "./timelineZoom";
 
 describe("timeline zoom localization", () => {
-  test("uses Chinese labels for every spatial and temporal tier", () => {
+  afterEach(() => setLanguage("zhCN"));
+
+  test("resolves every spatial and temporal tier in the current language", () => {
     expect([
-      TIMELINE_TIER_LABELS[SpatialTier.L0],
-      TIMELINE_TIER_LABELS[SpatialTier.L1],
-      TIMELINE_TIER_LABELS[SpatialTier.L2],
-      TIMELINE_TIER_LABELS[SpatialTier.L3],
+      getTimelineTierLabel(SpatialTier.L0),
+      getTimelineTierLabel(SpatialTier.L1),
+      getTimelineTierLabel(SpatialTier.L2),
+      getTimelineTierLabel(SpatialTier.L3),
     ]).toEqual(["概览", "标准", "细节", "帧级"]);
 
+    setLanguage("en");
+
     expect([
-      TIMELINE_TEMPORAL_LABELS[TemporalTier.L0],
-      TIMELINE_TEMPORAL_LABELS[TemporalTier.L1],
-      TIMELINE_TEMPORAL_LABELS[TemporalTier.L2],
-      TIMELINE_TEMPORAL_LABELS[TemporalTier.L3],
-    ]).toEqual(["稀疏采样", "易读采样", "编辑采样", "逐帧采样"]);
+      getTimelineTierLabel(SpatialTier.L0),
+      getTimelineTierLabel(SpatialTier.L1),
+      getTimelineTierLabel(SpatialTier.L2),
+      getTimelineTierLabel(SpatialTier.L3),
+    ]).toEqual(["Overview", "Standard", "Detail", "Frame"]);
+
+    expect([
+      getTimelineTemporalDetail(10).label,
+      getTimelineTemporalDetail(50).label,
+      getTimelineTemporalDetail(150).label,
+      getTimelineTemporalDetail(400).label,
+    ]).toEqual(["Sparse cadence", "Readable cadence", "Edit cadence", "Frame cadence"]);
+    expect(getTimelineTemporalDetail(400).temporalTier).toBe(TemporalTier.L3);
   });
 
   test("formats cadence in natural Chinese without changing precision", () => {

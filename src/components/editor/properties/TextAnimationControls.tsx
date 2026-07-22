@@ -13,7 +13,7 @@ import { ENTRANCE_PRESETS, EXIT_PRESETS, createDefaultAnimation } from "@/lib/te
 import { PropertySlider } from "./primitives/PropertySlider";
 import { PropertySelect } from "./primitives/PropertySelect";
 import { PropertySection } from "./primitives/PropertySection";
-import { t } from "@/i18n";
+import { t, useLanguage, type MessageKey } from "@/i18n";
 
 interface TextAnimationControlsProps {
   clip: TextClip;
@@ -22,13 +22,14 @@ interface TextAnimationControlsProps {
 }
 
 const EASING_OPTIONS = [
-  { value: "linear", label: t("properties.textAnimation.easing.linear") },
-  { value: "ease-in", label: t("properties.textAnimation.easing.easeIn") },
-  { value: "ease-out", label: t("properties.textAnimation.easing.easeOut") },
-  { value: "ease-in-out", label: t("properties.textAnimation.easing.easeInOut") },
-];
+  { value: "linear", labelKey: "properties.textAnimation.easing.linear" },
+  { value: "ease-in", labelKey: "properties.textAnimation.easing.easeIn" },
+  { value: "ease-out", labelKey: "properties.textAnimation.easing.easeOut" },
+  { value: "ease-in-out", labelKey: "properties.textAnimation.easing.easeInOut" },
+] satisfies { value: string; labelKey: MessageKey }[];
 
 export const TextAnimationControls: React.FC<TextAnimationControlsProps> = ({ clip, handleUpdate }) => {
+  useLanguage();
   const handleEntranceChange = useCallback(
     (type: string) => {
       const animation = type === "none" ? undefined : createDefaultAnimation(type as TextAnimation["type"]);
@@ -93,8 +94,9 @@ export const TextAnimationControls: React.FC<TextAnimationControlsProps> = ({ cl
     [clip.exitAnimation, handleUpdate],
   );
 
-  const entranceOptions = ENTRANCE_PRESETS.map((p) => ({ value: p.type, label: p.name }));
-  const exitOptions = EXIT_PRESETS.map((p) => ({ value: p.type, label: p.name }));
+  const entranceOptions = ENTRANCE_PRESETS.map((p) => ({ value: p.type, label: t(p.nameKey) }));
+  const exitOptions = EXIT_PRESETS.map((p) => ({ value: p.type, label: t(p.nameKey) }));
+  const easingOptions = EASING_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }));
 
   return (
     <PropertySection title={t("properties.textAnimation.title")} icon={<Sparkles className="w-3.5 h-3.5" />}>
@@ -106,7 +108,7 @@ export const TextAnimationControls: React.FC<TextAnimationControlsProps> = ({ cl
           {clip.entranceAnimation && clip.entranceAnimation.type !== "none" && (
             <div className="space-y-2.5 pl-2.5 border-l-2 border-accent/25">
               <PropertySlider label={t("properties.textAnimation.duration")} value={clip.entranceAnimation.duration} min={0.1} max={Math.max(clip.duration / 2, 0.2)} step={0.1} suffix="s" onChange={handleEntranceDurationChange} />
-              <PropertySelect label={t("properties.textAnimation.easing")} value={clip.entranceAnimation.easing} options={EASING_OPTIONS} onChange={handleEntranceEasingChange} />
+              <PropertySelect label={t("properties.textAnimation.easing")} value={clip.entranceAnimation.easing} options={easingOptions} onChange={handleEntranceEasingChange} />
             </div>
           )}
         </div>
@@ -118,7 +120,7 @@ export const TextAnimationControls: React.FC<TextAnimationControlsProps> = ({ cl
           {clip.exitAnimation && clip.exitAnimation.type !== "none" && (
             <div className="space-y-2.5 pl-2.5 border-l-2 border-accent/25">
               <PropertySlider label={t("properties.textAnimation.duration")} value={clip.exitAnimation.duration} min={0.1} max={Math.max(clip.duration / 2, 0.2)} step={0.1} suffix="s" onChange={handleExitDurationChange} />
-              <PropertySelect label={t("properties.textAnimation.easing")} value={clip.exitAnimation.easing} options={EASING_OPTIONS} onChange={handleExitEasingChange} />
+              <PropertySelect label={t("properties.textAnimation.easing")} value={clip.exitAnimation.easing} options={easingOptions} onChange={handleExitEasingChange} />
             </div>
           )}
         </div>

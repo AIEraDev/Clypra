@@ -11,13 +11,14 @@ import { RippleDeleteCommand } from "@/core/history/commands/RippleDeleteCommand
 import { DeleteClipCommand } from "@/core/history/commands/DeleteClipCommand";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { DEFAULT_SRP_CONFIG, SpatialTier } from "@/lib/renderEngine/types";
-import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimelineTemporalDetail, getZoomFromRatio, getZoomRatio, snapTimelineZoomToTierAnchors, TIMELINE_TIER_LABELS, TIMELINE_ZOOM_MAX, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_STEP } from "@/lib/timeline/timelineZoom";
+import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimelineTemporalDetail, getTimelineTierLabel, getZoomFromRatio, getZoomRatio, snapTimelineZoomToTierAnchors, TIMELINE_ZOOM_MAX, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_STEP } from "@/lib/timeline/timelineZoom";
 import { useSplitMode } from "@/hooks/useSplitMode";
 import { EditingActions } from "@/core/interactions";
 import { useAnchoredTimelineZoom, type TimelineZoomAnchor } from "@/hooks/useAnchoredTimelineZoom";
-import { t } from "@/i18n";
+import { t, useLanguage } from "@/i18n";
 
 export const TimelineToolbar: React.FC = () => {
+  useLanguage();
   const { zoomLevel, pixelsPerSecond, swapClips, rippleEditEnabled, toggleRippleEdit, tracks, normalizeTrack } = useTimelineStore();
   const { selectedClipIds, clearSelection } = useUIStore();
   const { state: historyState, undo, redo } = useHistoryStore();
@@ -44,7 +45,7 @@ export const TimelineToolbar: React.FC = () => {
   const zoomProgress = zoomRatio * 100;
   const zoomThumbLeftPx = ZOOM_THUMB_SIZE_PX / 2 + zoomRatio * (ZOOM_RAIL_WIDTH_PX - ZOOM_THUMB_SIZE_PX);
   const currentSrpTier = getSrpTierForZoom(zoomLevel);
-  const currentTierLabel = TIMELINE_TIER_LABELS[currentSrpTier];
+  const currentTierLabel = getTimelineTierLabel(currentSrpTier);
   const temporalDetail = getTimelineTemporalDetail(pixelsPerSecond);
   const cadenceLabel = formatCadenceSeconds(temporalDetail.baseInterval);
   const labels = {

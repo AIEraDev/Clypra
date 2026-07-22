@@ -308,11 +308,15 @@ function scanSource(source, file = "src/Fixture.tsx") {
     ts.forEachChild(node, visitConstants);
   }
 
+  function addFinding(text, node) {
+    const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+    findings.set(`${line}\0${text}`, { file, line, text });
+  }
+
   function add(value, node) {
     const text = normalizeText(value);
     if (!isUntranslatedUiText(text)) return;
-    const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-    findings.set(`${line}\0${text}`, { file, line, text });
+    addFinding(text, node);
   }
 
   function isTranslationCall(node) {
@@ -328,6 +332,15 @@ function scanSource(source, file = "src/Fixture.tsx") {
         node.expression,
       )
     );
+  }
+
+  function isModuleScope(node) {
+    let current = node.parent;
+    while (current && !ts.isSourceFile(current)) {
+      if (ts.isFunctionLike(current)) return false;
+      current = current.parent;
+    }
+    return true;
   }
 
   function resolveObjectMember(object, name, seen) {
@@ -537,6 +550,9 @@ function scanSource(source, file = "src/Fixture.tsx") {
       collect(node.name, new Set(), false, true);
     } else if (ts.isCallExpression(node)) {
       if (isTranslationCall(node)) {
+        if (isModuleScope(node)) {
+          addFinding("module-scope t() freezes the interface language", node);
+        }
         for (const argument of node.arguments.slice(1)) collect(argument, new Set(), true, false);
       } else {
         const name = callName(node.expression);
@@ -654,7 +670,7 @@ function runSelfTest({ announce = true } = {}) {
     scan('setToastMessage(`Exported ${count} clips to ${folder}`);'),
     ["src/Fixture.tsx:1: Exported clips to"],
   );
-  assert.deepEqual(scan(`import { t } from "@/i18n"; alert(t("saved") + " Try again");`), [
+  assert.deepEqual(scan(`import { t } from "@/i18n"; function f(){ alert(t("saved") + " Try again"); }`), [
     "src/Fixture.tsx:1: Try again",
   ]);
   assert.deepEqual(scan(`alert(identity("Open project"));`), [
@@ -681,14 +697,34 @@ function runSelfTest({ announce = true } = {}) {
   assert.deepEqual(scan(`import { translate as t } from "other"; alert(t("Open project"));`, "src/Fixture.ts"), [
     "src/Fixture.ts:1: Open project",
   ]);
-  assert.deepEqual(scan(`import { t } from "@/i18n"; alert(t("message.key"));`, "src/Fixture.ts"), []);
-  assert.deepEqual(scan(`import { t as translate } from "@/i18n"; alert(translate("message.key"));`, "src/Fixture.ts"), []);
+  assert.deepEqual(scan(`import { t } from "@/i18n"; function f(){ alert(t("message.key")); }`, "src/Fixture.ts"), []);
+  assert.deepEqual(scan(`import { t as translate } from "@/i18n"; function f(){ alert(translate("message.key")); }`, "src/Fixture.ts"), []);
+  assert.deepEqual(
+    scan(`import { t } from "@/i18n"; const label = t("message.key");`, "src/Fixture.ts"),
+    ["src/Fixture.ts:1: module-scope t() freezes the interface language"],
+  );
+  assert.deepEqual(
+    scan(`import { t as translate } from "@/i18n"; const label = translate("message.key");`, "src/Fixture.ts"),
+    ["src/Fixture.ts:1: module-scope t() freezes the interface language"],
+  );
+  assert.deepEqual(
+    scan(`import { t } from "@/i18n"; function getLabel(){ return t("message.key"); } const View = () => <div>{t("message.key")}</div>;`, "src/Fixture.tsx"),
+    [],
+  );
+  assert.deepEqual(
+    scan(`import { t as otherT } from "other"; const label = otherT("message.key");`, "src/Fixture.ts"),
+    [],
+  );
+  assert.deepEqual(
+    scan(`import { t } from "@/i18n"; { const t = (value: string) => value; const label = t("message.key"); }`, "src/Fixture.ts"),
+    [],
+  );
   assert.deepEqual(
     scan(`import { t as translate } from "@/i18n"; function f(translate){ alert(translate("Open project")); }`, "src/Fixture.ts"),
     ["src/Fixture.ts:1: Open project"],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; try{} catch(t){} alert(t("message.key"));`, "src/Fixture.ts"),
+    scan(`import { t } from "@/i18n"; function f(){ try{} catch(t){} alert(t("message.key")); }`, "src/Fixture.ts"),
     [],
   );
   assert.deepEqual(scan(`alert(t("Open project"));`, "src/Fixture.ts"), [
@@ -710,23 +746,23 @@ function runSelfTest({ announce = true } = {}) {
     ["src/Fixture.ts:1: Open project", "src/Fixture.ts:1: Save now"],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; alert(t("message.key", { name: "Open project", value: remoteName, detail: remoteCopy.name }));`, "src/Fixture.ts"),
+    scan(`import { t } from "@/i18n"; function f(){ alert(t("message.key", { name: "Open project", value: remoteName, detail: remoteCopy.name })); }`, "src/Fixture.ts"),
     ["src/Fixture.ts:1: Open project"],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; const name = "Open project"; alert(t("message.key", { name }));`, "src/Fixture.ts"),
+    scan(`import { t } from "@/i18n"; function f(){ const name = "Open project"; alert(t("message.key", { name })); }`, "src/Fixture.ts"),
     ["src/Fixture.ts:1: Open project"],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; const copy = { name: "Open project" }; alert(t("message.key", { name: copy.name }));`, "src/Fixture.ts"),
+    scan(`import { t } from "@/i18n"; function f(){ const copy = { name: "Open project" }; alert(t("message.key", { name: copy.name })); }`, "src/Fixture.ts"),
     ["src/Fixture.ts:1: Open project"],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; const model = remoteModel || DEFAULT_MODEL; alert(t("message.key", { model }));`, "src/Fixture.ts"),
+    scan(`import { t } from "@/i18n"; function f(){ const model = remoteModel || DEFAULT_MODEL; alert(t("message.key", { model })); }`, "src/Fixture.ts"),
     [],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; t("message.key", { command: 'localStorage.setItem("flag", "1")' });`, "src/Fixture.ts"),
+    scan(`import { t } from "@/i18n"; function f(){ t("message.key", { command: 'localStorage.setItem("flag", "1")' }); }`, "src/Fixture.ts"),
     [],
   );
   assert.deepEqual(
@@ -742,7 +778,7 @@ function runSelfTest({ announce = true } = {}) {
     ["src/Fixture.tsx:1: Export video"],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; const title = "Open project"; const First = () => <button title={title} />; { const title = t("safe"); const Second = () => <button title={title} />; }`),
+    scan(`import { t } from "@/i18n"; const title = "Open project"; const First = () => <button title={title} />; const Second = () => { const title = t("safe"); return <button title={title} />; };`),
     ["src/Fixture.tsx:1: Open project"],
   );
   assert.deepEqual(

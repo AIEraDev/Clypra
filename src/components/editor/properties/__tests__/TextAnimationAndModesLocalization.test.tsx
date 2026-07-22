@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TextClip } from "@/types";
 import type { TextEffectDefinition } from "@/features/text-effects/types/types";
+import { setLanguage } from "@/i18n";
 import { ENTRANCE_PRESETS, EXIT_PRESETS } from "@/lib/text/textAnimation";
 import { EffectStylePanel } from "../EffectStylePanel";
 import { TextAnimationControls } from "../TextAnimationControls";
@@ -15,18 +16,20 @@ const clip = {
 } as TextClip;
 
 describe("text animation and mode localization", () => {
-  it("localizes preset names while preserving animation contracts", () => {
-    expect(ENTRANCE_PRESETS.map(({ name, type, easing }) => ({ name, type, easing }))).toEqual([
-      { name: "无", type: "none", easing: "linear" },
-      { name: "淡入", type: "fade", easing: "ease-in" },
-      { name: "向上滑入", type: "slide-up", easing: "ease-out" },
-      { name: "向下滑入", type: "slide-down", easing: "ease-out" },
-      { name: "向左滑入", type: "slide-left", easing: "ease-out" },
-      { name: "向右滑入", type: "slide-right", easing: "ease-out" },
-      { name: "缩放", type: "scale", easing: "ease-out" },
-      { name: "放大", type: "zoom-in", easing: "ease-out" },
+  afterEach(() => act(() => setLanguage("zhCN")));
+
+  it("stores preset message keys while preserving animation contracts", () => {
+    expect(ENTRANCE_PRESETS.map(({ nameKey, type, easing }) => ({ nameKey, type, easing }))).toEqual([
+      { nameKey: "properties.textAnimation.preset.none", type: "none", easing: "linear" },
+      { nameKey: "properties.textAnimation.preset.fadeIn", type: "fade", easing: "ease-in" },
+      { nameKey: "properties.textAnimation.preset.slideUp", type: "slide-up", easing: "ease-out" },
+      { nameKey: "properties.textAnimation.preset.slideDown", type: "slide-down", easing: "ease-out" },
+      { nameKey: "properties.textAnimation.preset.slideLeft", type: "slide-left", easing: "ease-out" },
+      { nameKey: "properties.textAnimation.preset.slideRight", type: "slide-right", easing: "ease-out" },
+      { nameKey: "properties.textAnimation.preset.scale", type: "scale", easing: "ease-out" },
+      { nameKey: "properties.textAnimation.preset.zoomIn", type: "zoom-in", easing: "ease-out" },
     ]);
-    expect(EXIT_PRESETS[EXIT_PRESETS.length - 1]).toMatchObject({ name: "缩小", type: "zoom-out", easing: "ease-in" });
+    expect(EXIT_PRESETS[EXIT_PRESETS.length - 1]).toMatchObject({ nameKey: "properties.textAnimation.preset.zoomOut", type: "zoom-out", easing: "ease-in" });
   });
 
   it("localizes animation controls while preserving values and seconds", () => {
@@ -41,6 +44,12 @@ describe("text animation and mode localization", () => {
     expect(screen.getAllByRole("option", { name: "缓入" })[0]).toHaveValue("ease-in");
     expect(screen.getByText("0.5s")).toBeInTheDocument();
     expect(screen.getByText("动画将在播放时预览")).toBeInTheDocument();
+
+    act(() => setLanguage("en"));
+
+    expect(screen.getByRole("button", { name: "Text Animations" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Fade In" })).toHaveValue("fade");
+    expect(screen.getAllByRole("option", { name: "Ease In" })[0]).toHaveValue("ease-in");
 
     fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "slide-right" } });
     expect(handleUpdate).toHaveBeenCalledWith("entranceAnimation", {

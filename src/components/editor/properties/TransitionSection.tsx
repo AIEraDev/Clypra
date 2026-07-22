@@ -1,7 +1,7 @@
 import React, { useCallback } from "react";
 import { Shuffle, Trash2, Sliders } from "lucide-react";
 import type { TransitionTimelineItem, TransitionType, TransitionEasing } from "@/types";
-import { t } from "@/i18n";
+import { t, useLanguage, type MessageKey } from "@/i18n";
 import { PropertySection } from "./primitives/PropertySection";
 import { PropertySlider } from "./primitives/PropertySlider";
 import { PropertySelect } from "./primitives/PropertySelect";
@@ -14,14 +14,14 @@ interface TransitionSectionProps {
 }
 
 const TRANSITION_TYPE_OPTIONS = [
-  { value: "fade", label: t("properties.transition.type.fade") },
-  { value: "dissolve", label: t("properties.transition.type.dissolve") },
-];
+  { value: "fade", labelKey: "properties.transition.type.fade" },
+  { value: "dissolve", labelKey: "properties.transition.type.dissolve" },
+] satisfies { value: string; labelKey: MessageKey }[];
 
 const EASING_OPTIONS = [
-  { value: "linear", label: t("properties.transition.easing.linear") },
-  { value: "easeInOut", label: t("properties.transition.easing.easeInOut") },
-];
+  { value: "linear", labelKey: "properties.transition.easing.linear" },
+  { value: "easeInOut", labelKey: "properties.transition.easing.easeInOut" },
+] satisfies { value: string; labelKey: MessageKey }[];
 
 export const TransitionSection: React.FC<TransitionSectionProps> = ({
   selectedTransition,
@@ -29,6 +29,10 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
   removeTransition,
   clearSelection,
 }) => {
+  useLanguage();
+  const transitionTypeOptions = TRANSITION_TYPE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }));
+  const easingOptions = EASING_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }));
+
   const handleTypeChange = useCallback(
     (val: string) => {
       updateTransition(selectedTransition.id, { type: val as TransitionType });
@@ -76,7 +80,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
           <PropertySelect
             label={t("properties.transition.type")}
             value={selectedTransition.type}
-            options={TRANSITION_TYPE_OPTIONS}
+            options={transitionTypeOptions}
             onChange={handleTypeChange}
           />
 
@@ -84,7 +88,7 @@ export const TransitionSection: React.FC<TransitionSectionProps> = ({
           <PropertySelect
             label={t("properties.transition.easing")}
             value={selectedTransition.easing}
-            options={EASING_OPTIONS}
+            options={easingOptions}
             onChange={handleEasingChange}
           />
 

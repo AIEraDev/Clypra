@@ -26,7 +26,7 @@ import { ContextMenu } from "@/components/ui/ContextMenu";
 import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import { resolveConform } from "@clypra-studio/engine";
-import { t } from "@/i18n";
+import { t, useLanguage } from "@/i18n";
 
 const SELECT_TRACE = import.meta.env.DEV;
 const traceSelect = (...args: unknown[]) => {
@@ -193,6 +193,7 @@ export function getUpdatedConformForClipBounds(clip: Clip, newX: number, newY: n
 }
 
 export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth, canvasHeight, scale, viewport, displayOffset, displayWidth, displayHeight, currentTime, visible = true }) => {
+  useLanguage();
   const { selectedClipIds, selectClip, toggleClipSelection } = useUIStore();
   const { clips, tracks, updateClip } = useTimelineStore();
   const { execute } = useHistoryStore();

@@ -8,7 +8,7 @@ import { Clip } from "./Clip";
 import { GapIndicator } from "./GapIndicator";
 import { TransitionIndicator } from "./TransitionIndicator";
 import { handleDropOnTrack } from "@/lib/timeline/timelineUtils";
-import { t } from "@/i18n";
+import { t, useLanguage } from "@/i18n";
 import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
 
 interface TrackProps {
@@ -32,6 +32,7 @@ interface TrackProps {
 }
 
 const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, dragState }) => {
+  useLanguage();
   const selectedClipIds = useUIStore((s) => s.selectedClipIds);
   const selectedGapId = useUIStore((s) => s.selectedGapId);
   const selectedTrackId = useUIStore((s) => s.selectedTrackId);

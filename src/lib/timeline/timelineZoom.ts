@@ -1,6 +1,6 @@
 import { computeTemporalTierFromDensity } from "../renderEngine/tsp";
 import { DEFAULT_SRP_CONFIG, SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier, type SrpConfig } from "../renderEngine/types";
-import { t } from "@/i18n";
+import { t, type MessageKey } from "@/i18n";
 
 export const TIMELINE_ZOOM_STEP = 0.1;
 export const TIMELINE_ZOOM_DEFAULT = DEFAULT_SRP_CONFIG[SpatialTier.L1].min;
@@ -8,19 +8,23 @@ export const BASE_TIMELINE_DENSITY_PPS = 100;
 export const TIMELINE_PPS_PER_ZOOM = BASE_TIMELINE_DENSITY_PPS;
 export const TIMELINE_TIER_SNAP_EPSILON = 0.04;
 
-export const TIMELINE_TIER_LABELS: Record<SpatialTier, string> = {
-  [SpatialTier.L0]: t("timeline.zoom.spatial.overview"),
-  [SpatialTier.L1]: t("timeline.zoom.spatial.standard"),
-  [SpatialTier.L2]: t("timeline.zoom.spatial.detail"),
-  [SpatialTier.L3]: t("timeline.zoom.spatial.frame"),
+const TIMELINE_TIER_LABEL_KEYS: Record<SpatialTier, MessageKey> = {
+  [SpatialTier.L0]: "timeline.zoom.spatial.overview",
+  [SpatialTier.L1]: "timeline.zoom.spatial.standard",
+  [SpatialTier.L2]: "timeline.zoom.spatial.detail",
+  [SpatialTier.L3]: "timeline.zoom.spatial.frame",
 };
 
-export const TIMELINE_TEMPORAL_LABELS: Record<TemporalTier, string> = {
-  [TemporalTier.L0]: t("timeline.zoom.temporal.sparse"),
-  [TemporalTier.L1]: t("timeline.zoom.temporal.readable"),
-  [TemporalTier.L2]: t("timeline.zoom.temporal.edit"),
-  [TemporalTier.L3]: t("timeline.zoom.temporal.frame"),
+const TIMELINE_TEMPORAL_LABEL_KEYS: Record<TemporalTier, MessageKey> = {
+  [TemporalTier.L0]: "timeline.zoom.temporal.sparse",
+  [TemporalTier.L1]: "timeline.zoom.temporal.readable",
+  [TemporalTier.L2]: "timeline.zoom.temporal.edit",
+  [TemporalTier.L3]: "timeline.zoom.temporal.frame",
 };
+
+export function getTimelineTierLabel(tier: SpatialTier): string {
+  return t(TIMELINE_TIER_LABEL_KEYS[tier]);
+}
 
 export function getTimelineZoomMin(config: SrpConfig = DEFAULT_SRP_CONFIG): number {
   return Math.min(...Object.values(config).map((boundary) => boundary.min));
@@ -88,7 +92,7 @@ export function getTimelineTemporalDetail(pixelsPerSecond: number): {
   const temporalTier = computeTemporalTierFromDensity(pixelsPerSecond);
   return {
     temporalTier,
-    label: TIMELINE_TEMPORAL_LABELS[temporalTier],
+    label: t(TIMELINE_TEMPORAL_LABEL_KEYS[temporalTier]),
     baseInterval: TEMPORAL_TIER_INTERVALS[temporalTier][0],
   };
 }
