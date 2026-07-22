@@ -63,7 +63,10 @@ interface CommandCase {
   create: () => { command: Command; state: Record<string, unknown> };
   label: string;
   inverseLabel: string;
-  serialized: Record<string, unknown> | null;
+  serialized:
+    | Record<string, unknown>
+    | ((state: Record<string, unknown>, nextState: Record<string, unknown>) => Record<string, unknown>)
+    | null;
 }
 
 function inverseCase(command: Command, state: Record<string, unknown>): { command: Command; state: Record<string, unknown> } {
@@ -77,28 +80,51 @@ const commandCases: CommandCase[] = [
     create: () => ({ command: new DeleteClipCommand(clip.id), state: { tracks: [track], clips: [clip], epoch: 0 } }),
     label: "删除片段",
     inverseLabel: "添加片段",
-    serialized: { type: "DeleteClip", clipId: clip.id, deletedClip: clip },
+    serialized: {
+      type: "DeleteClip",
+      clipId: clip.id,
+      deletedClip: clip,
+      deletedTrack: track,
+      deletedTrackIndex: 0,
+    },
   },
   {
     name: "AddClipCommand",
     create: () => ({ command: new AddClipCommand(clip), state: { clips: [], epoch: 0 } }),
     label: "添加片段",
     inverseLabel: "删除片段",
-    serialized: { type: "AddClip", clip },
+    serialized: {
+      type: "AddClip",
+      clip,
+      restoredTrack: undefined,
+      restoredTrackIndex: undefined,
+    },
   },
   {
     name: "InsertGapCommand",
     create: () => ({ command: new InsertGapCommand(track.id, gap.startTime, gap.duration), state: { clips: [], gaps: [], epoch: 0 } }),
     label: "插入间隙",
     inverseLabel: "删除间隙",
-    serialized: { type: "InsertGap", trackId: track.id, startTime: gap.startTime, duration: gap.duration },
+    serialized: (_state, nextState) => ({
+      type: "InsertGap",
+      trackId: track.id,
+      startTime: gap.startTime,
+      duration: gap.duration,
+      insertedGap: (nextState.gaps as Gap[])[0],
+      shiftedClips: [],
+    }),
   },
   {
     name: "RemoveGapCommand",
     create: () => ({ command: new RemoveGapCommand(gap.id), state: { clips: [], gaps: [gap], epoch: 0 } }),
     label: "删除间隙",
     inverseLabel: "恢复间隙",
-    serialized: { type: "RemoveGap", gapId: gap.id, removedGap: gap },
+    serialized: {
+      type: "RemoveGap",
+      gapId: gap.id,
+      removedGap: gap,
+      shiftedClips: [],
+    },
   },
   {
     name: "RestoreGapCommand",
@@ -112,21 +138,37 @@ const commandCases: CommandCase[] = [
     create: () => ({ command: new ResizeGapCommand(gap.id, 3), state: { clips: [], gaps: [gap], epoch: 0 } }),
     label: "调整间隙",
     inverseLabel: "调整间隙",
-    serialized: { type: "ResizeGap", gapId: gap.id, newDuration: 3, originalDuration: gap.duration },
+    serialized: {
+      type: "ResizeGap",
+      gapId: gap.id,
+      newDuration: 3,
+      originalDuration: gap.duration,
+      shiftedClips: [],
+    },
   },
   {
     name: "PackTrackCommand",
     create: () => ({ command: new PackTrackCommand(track.id), state: { clips: [clip], gaps: [gap], epoch: 0 } }),
     label: "收紧轨道",
     inverseLabel: "恢复轨道间隙",
-    serialized: { type: "PackTrack", trackId: track.id, removedGaps: [gap] },
+    serialized: {
+      type: "PackTrack",
+      trackId: track.id,
+      removedGaps: [gap],
+      clipPositions: [{ id: clip.id, originalStartTime: 0, newStartTime: 0 }],
+    },
   },
   {
     name: "UnpackTrackCommand",
     create: () => inverseCase(new PackTrackCommand(track.id), { clips: [clip], gaps: [gap], epoch: 0 }),
     label: "恢复轨道间隙",
     inverseLabel: "收紧轨道",
-    serialized: { type: "UnpackTrack", trackId: track.id, gapsToRestore: [gap] },
+    serialized: {
+      type: "UnpackTrack",
+      trackId: track.id,
+      gapsToRestore: [gap],
+      originalPositions: [{ id: clip.id, originalStartTime: 0, newStartTime: 0 }],
+    },
   },
   {
     name: "ToggleGapProtectionCommand",
@@ -147,28 +189,63 @@ const commandCases: CommandCase[] = [
     create: () => ({ command: new RippleDeleteCommand(clip.id), state: { tracks: [track], clips: [clip], epoch: 0 } }),
     label: "波纹删除片段",
     inverseLabel: "恢复波纹删除",
-    serialized: { type: "RippleDelete", clipId: clip.id, deletedClip: clip },
+    serialized: {
+      type: "RippleDelete",
+      clipId: clip.id,
+      deletedClip: clip,
+      shiftedClips: [],
+      deletedTrack: track,
+      deletedTrackIndex: 0,
+    },
   },
   {
     name: "RippleRestoreCommand",
     create: () => inverseCase(new RippleDeleteCommand(clip.id), { tracks: [track], clips: [clip], epoch: 0 }),
     label: "恢复波纹删除",
     inverseLabel: "波纹删除片段",
-    serialized: { type: "RippleRestore", clipToRestore: clip, originalPositions: [] },
+    serialized: {
+      type: "RippleRestore",
+      clipToRestore: clip,
+      originalPositions: [],
+      restoredTrack: track,
+      restoredTrackIndex: 0,
+    },
   },
   {
     name: "SplitClipCommand",
     create: () => ({ command: new SplitClipCommand(clip.id, 2, 30, clip), state: { clips: [clip], epoch: 0 } }),
     label: "拆分片段",
     inverseLabel: "合并拆分片段",
-    serialized: { type: "SplitClip", clipId: clip.id, splitTime: 2, frameRate: 30, originalClip: clip },
+    serialized: (_state, nextState) => {
+      const [leftClip, rightClip] = nextState.clips as Clip[];
+      return {
+        type: "SplitClip",
+        clipId: clip.id,
+        splitTime: 2,
+        frameRate: 30,
+        originalClip: clip,
+        leftClipId: leftClip.id,
+        rightClipId: rightClip.id,
+        newClipId: rightClip.id,
+      };
+    },
   },
   {
     name: "MergeSplitClipsCommand",
     create: () => inverseCase(new SplitClipCommand(clip.id, 2, 30, clip), { clips: [clip], epoch: 0 }),
     label: "合并拆分片段",
     inverseLabel: "拆分片段",
-    serialized: { type: "MergeSplitClips", originalClip: clip, frameRate: 30, splitTime: 2 },
+    serialized: (state) => {
+      const [leftClip, rightClip] = state.clips as Clip[];
+      return {
+        type: "MergeSplitClips",
+        leftClipId: leftClip.id,
+        rightClipId: rightClip.id,
+        originalClip: clip,
+        frameRate: 30,
+        splitTime: 2,
+      };
+    },
   },
   {
     name: "AddTrackCommand",
@@ -244,9 +321,10 @@ describe("timeline history command labels", () => {
 
     for (const commandCase of serializableCases) {
       const { command, state } = commandCase.create();
-      command.apply(state);
+      const nextState = command.apply(state);
+      const expected = typeof commandCase.serialized === "function" ? commandCase.serialized(state, nextState) : commandCase.serialized;
 
-      expect((command as SerializableTestCommand).toJSON(), commandCase.name).toMatchObject(commandCase.serialized!);
+      expect((command as SerializableTestCommand).toJSON(), commandCase.name).toEqual(expected);
     }
   });
 
