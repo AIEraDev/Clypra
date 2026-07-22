@@ -1,15 +1,22 @@
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GapIndicator } from "../GapIndicator";
 import { TimelineRuler } from "../TimelineRuler";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useUIStore } from "@/store/uiStore";
 import type { Gap } from "@/types/gap";
 
 vi.mock("@/hooks/usePlaybackClock", () => ({
   usePlaybackClock: () => ({ frameRate: 30 }),
 }));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 const makeGap = (type: string, source: string, protectedGap = false): Gap => ({
   id: `gap-${type}-${source}`,
@@ -27,6 +34,10 @@ const openGapMenu = (gap: Gap) => {
 };
 
 describe("GapIndicator localization", () => {
+  beforeEach(() => {
+    useUIStore.setState({ selectedGapId: null });
+  });
+
   it.each([
     ["manual", "user-insert", "手动", "用户插入"],
     ["auto", "clip-drag", "自动", "片段拖动"],
@@ -63,15 +74,31 @@ describe("GapIndicator localization", () => {
     expect(screen.getByText("开始：2:00")).toBeInTheDocument();
     expect(screen.getByText(",")).toBeInTheDocument();
   });
+
+  it("exposes the gap as a keyboard-operable button without changing its ID", async () => {
+    const user = userEvent.setup();
+    const gap = makeGap("manual", "user-insert");
+    render(<GapIndicator gap={gap} pixelsPerSecond={100} />);
+
+    const gapButton = screen.getByRole("button", { name: `选择间隙 ${gap.id}` });
+    gapButton.focus();
+    await user.keyboard("{Enter}");
+    expect(useUIStore.getState().selectedGapId).toBe(gap.id);
+
+    useUIStore.setState({ selectedGapId: null });
+    gapButton.focus();
+    await user.keyboard(" ");
+    expect(useUIStore.getState().selectedGapId).toBe(gap.id);
+  });
 });
 
 describe("TimelineRuler marker localization", () => {
   beforeEach(() => {
-    globalThis.ResizeObserver = class {
+    vi.stubGlobal("ResizeObserver", class {
       observe() {}
       unobserve() {}
       disconnect() {}
-    } as typeof ResizeObserver;
+    });
 
     useTimelineStore.setState({
       markers: [{ id: "marker-raw-id", time: 1, name: "  客户 Marker  ", color: "custom-color" }],
@@ -79,30 +106,73 @@ describe("TimelineRuler marker localization", () => {
     });
   });
 
-  it("preserves custom marker data while localizing the marker editor UI", () => {
-    const { container } = render(<TimelineRuler pixelsPerSecond={100} scrollLeft={0} />);
-
-    const markerPin = container.querySelector('[title="  客户 Marker  "]');
+  const openMarkerEditor = async () => {
+    const user = userEvent.setup();
+    render(<TimelineRuler pixelsPerSecond={100} scrollLeft={0} />);
+    const markerPin = screen.getByRole("button", { name: "选择标记 客户 Marker" });
     expect(markerPin).toHaveAttribute("title", "  客户 Marker  ");
-    fireEvent.click(markerPin!);
+    await user.click(markerPin);
+    return { user, markerPin };
+  };
+
+  it("keeps the marker editor open while clicking its input and color palette", async () => {
+    const { user } = await openMarkerEditor();
     const input = screen.getByPlaceholderText("标记名称…");
 
-    expect(input).toHaveValue("  客户 Marker  ");
     expect(useTimelineStore.getState().markers[0].color).toBe("custom-color");
     ["紫色", "蓝色", "绿色", "黄色", "红色"].forEach((title) => {
       expect(screen.getByTitle(title)).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "删除" })).toHaveAttribute("title", "删除标记");
 
-    fireEvent.change(input, { target: { value: "  新 Marker 名称  " } });
-    fireEvent.blur(input);
-    expect(useTimelineStore.getState().markers[0].name).toBe("  新 Marker 名称  ");
-
-    fireEvent.click(screen.getByTitle("蓝色"));
+    await user.click(input);
+    expect(screen.getByPlaceholderText("标记名称…")).toBeInTheDocument();
+    await user.click(screen.getByTitle("蓝色"));
     expect(useTimelineStore.getState().markers[0].color).toBe("blue");
+    expect(screen.getByPlaceholderText("标记名称…")).toBeInTheDocument();
 
-    fireEvent.click(container.querySelector('[title="  新 Marker 名称  "]')!);
-    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    await user.click(screen.getByRole("button", { name: "删除" }));
     expect(useTimelineStore.getState().markers).toEqual([]);
+  });
+
+  it("commits an empty marker name verbatim", async () => {
+    const updateMarker = vi.spyOn(useTimelineStore.getState(), "updateMarker");
+    const { user } = await openMarkerEditor();
+    const input = screen.getByPlaceholderText("标记名称…");
+
+    await user.clear(input);
+    await user.tab();
+
+    expect(updateMarker).toHaveBeenCalledWith("marker-raw-id", { name: "" });
+    expect(useTimelineStore.getState().markers[0].name).toBe("");
+  });
+
+  it("commits a whitespace-only marker name verbatim", async () => {
+    const updateMarker = vi.spyOn(useTimelineStore.getState(), "updateMarker");
+    const { user } = await openMarkerEditor();
+    const input = screen.getByPlaceholderText("标记名称…");
+
+    await user.clear(input);
+    await user.type(input, "   ");
+    await user.tab();
+
+    expect(updateMarker).toHaveBeenCalledWith("marker-raw-id", { name: "   " });
+    expect(useTimelineStore.getState().markers[0].name).toBe("   ");
+  });
+
+  it("opens the marker editor with Enter and Space", async () => {
+    const { user, markerPin } = await openMarkerEditor();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByPlaceholderText("标记名称…")).not.toBeInTheDocument();
+
+    markerPin.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByPlaceholderText("标记名称…")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    markerPin.focus();
+    await user.keyboard(" ");
+    expect(screen.getByPlaceholderText("标记名称…")).toBeInTheDocument();
   });
 });

@@ -218,6 +218,7 @@ describe("timeline gap and marker localization", () => {
     ["timeline.gap.source.clipDelete", "删除片段"],
     ["timeline.gap.source.imported", "已导入"],
     ["timeline.gap.source.unknown", "未知"],
+    ["timeline.gap.select", "选择间隙 {{id}}"],
     ["timeline.marker.color.purple", "紫色"],
     ["timeline.marker.color.blue", "蓝色"],
     ["timeline.marker.color.green", "绿色"],
@@ -227,6 +228,7 @@ describe("timeline gap and marker localization", () => {
     ["timeline.marker.deleteTitle", "删除标记"],
     ["timeline.marker.delete", "删除"],
     ["timeline.marker.defaultName", "标记"],
+    ["timeline.marker.select", "选择标记 {{name}}"],
   ])("translates %s", (key, expected) => {
     expect(translate(key)).toBe(expected);
   });

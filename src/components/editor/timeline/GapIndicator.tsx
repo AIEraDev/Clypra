@@ -47,7 +47,7 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({ gap, pixelsPerSecond
   const [isHovered, setIsHovered] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
-  const gapRef = useRef<HTMLDivElement>(null);
+  const gapRef = useRef<HTMLButtonElement>(null);
 
   // Calculate position and dimensions
   const left = Math.round(gap.startTime * pixelsPerSecond);
@@ -110,12 +110,16 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({ gap, pixelsPerSecond
 
   return (
     <>
-      <div
+      <button
+        type="button"
         ref={gapRef}
         data-gap-id={gap.id}
+        aria-label={t("timeline.gap.select", { id: gap.id })}
+        aria-disabled={locked}
+        tabIndex={locked ? -1 : 0}
         className={`
           absolute top-0 h-full
-          transition-colors cursor-pointer
+          transition-colors cursor-pointer appearance-none p-0 border-0 bg-transparent text-left
           ${selected ? "ring-2 ring-accent ring-inset z-10" : ""}
           ${isHovered ? "z-5" : "z-0"}
         `}
@@ -170,7 +174,7 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({ gap, pixelsPerSecond
             </div>
           )}
         </div>
-      </div>
+      </button>
 
       {/* Context Menu */}
       {showContextMenu && (

@@ -122,11 +122,25 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
     [marker.id, onSelect],
   );
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onSelect(marker.id);
+    },
+    [marker.id, onSelect],
+  );
+
   return (
     <div
       ref={pin}
+      role="button"
+      tabIndex={0}
+      aria-label={t("timeline.marker.select", { name: marker.name })}
       onMouseDown={handleMouseDown}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       title={marker.name}
       style={{
         position: "absolute",
@@ -193,7 +207,7 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({ marker, x, onClose, onUpd
   }, [onClose]);
 
   const commitName = () => {
-    if (name.trim() && name !== marker.name) {
+    if (name !== marker.name) {
       onUpdate({ name });
     }
   };
@@ -206,6 +220,7 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({ marker, x, onClose, onUpd
     <div
       ref={popoverRef}
       onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
         top: 28,
