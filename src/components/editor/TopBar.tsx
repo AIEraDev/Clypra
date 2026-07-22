@@ -17,7 +17,9 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const { project, closeProject } = useProjectStore();
   const { toggleSettingsModal } = useUIStore();
-  const { state: historyState, undo, redo } = useHistoryStore();
+  const historyState = useHistoryStore((s) => s.state);
+  const undo = useHistoryStore((s) => s.undo);
+  const redo = useHistoryStore((s) => s.redo);
   const [showExportDialog, setShowExportDialog] = useState(false);
 
   const { isFullscreen } = useTauriFullscreen();
