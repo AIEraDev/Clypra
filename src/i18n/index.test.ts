@@ -1,10 +1,20 @@
+import { createElement, memo } from "react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { resolveMessage, t } from "./index";
+import {
+  getLanguage,
+  resolveMessage,
+  setLanguage,
+  subscribeLanguage,
+  t,
+  useLanguage,
+} from "./index";
 import type { MessageParams } from "./types";
 
 describe("i18n", () => {
   afterEach(() => {
+    setLanguage("zhCN");
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
@@ -17,8 +27,60 @@ describe("i18n", () => {
     expect(t("common.selectedCount", { count: 3 })).toBe("已选择 3 项");
   });
 
+  test("uses the English catalog and interpolates parameters", () => {
+    expect(
+      resolveMessage(
+        { en: "{{count}} selected", zhCN: "已选择 {{count}} 项" },
+        "test.selectedCount",
+        { count: 3 },
+        "en",
+      ),
+    ).toBe("3 selected");
+  });
+
   test("falls back to English when the Simplified Chinese message is empty", () => {
-    expect(resolveMessage({ en: "Open", zhCN: "" }, "test.open")).toBe("Open");
+    expect(
+      resolveMessage({ en: "Open", zhCN: "" }, "test.open", {}, "zhCN"),
+    ).toBe("Open");
+  });
+
+  test("falls back to Simplified Chinese when the English message is empty", () => {
+    expect(
+      resolveMessage({ en: "", zhCN: "打开" }, "test.open", {}, "en"),
+    ).toBe("打开");
+  });
+
+  test("switches the catalog language and notifies subscribers", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeLanguage(listener);
+
+    setLanguage("en");
+
+    expect(getLanguage()).toBe("en");
+    expect(t("common.save")).toBe("Save");
+    expect(t("common.selectedCount", { count: 3 })).toBe("3 selected");
+    expect(listener).toHaveBeenCalledOnce();
+
+    unsubscribe();
+    setLanguage("zhCN");
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  test("rerenders a memoized React subscriber immediately after switching", () => {
+    let renderCount = 0;
+    const LanguageLabel = memo(function LanguageLabel() {
+      renderCount += 1;
+      useLanguage();
+      return createElement("span", null, t("common.save"));
+    });
+
+    render(createElement(LanguageLabel));
+    expect(screen.getByText("保存")).toBeInTheDocument();
+
+    act(() => setLanguage("en"));
+
+    expect(screen.getByText("Save")).toBeInTheDocument();
+    expect(renderCount).toBe(2);
   });
 
   test("leaves missing parameters visible and warns in development", () => {

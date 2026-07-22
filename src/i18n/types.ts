@@ -3,6 +3,8 @@ export interface LocalizedMessage {
   zhCN: string;
 }
 
+export type UiLanguage = "zhCN" | "en";
+
 export type MessageParams = Record<string, string | number>;
 
 export function defineMessages<
