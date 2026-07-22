@@ -10,7 +10,7 @@ import { useUIStore } from "@/store/uiStore";
 import { platform } from "@/core/platform";
 import { DualRecordService } from "@/services/dualRecordService";
 import { useRecordingStore } from "@/store/recordingStore";
-import { t } from "@/i18n";
+import { getLanguage, t } from "@/i18n";
 
 interface LaunchScreenProps {
   onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
@@ -39,6 +39,13 @@ const getProjectThumbnail = (project: Project) => {
 };
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export const formatLaunchProjectDate = (date: Date): string =>
+  new Intl.DateTimeFormat(getLanguage() === "zhCN" ? "zh-CN" : "en", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(date);
 
 export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
   const { recentProjects, setRecentProjects, deleteProject, renameProject } = useProjectStore();
@@ -405,11 +412,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     if (diffDays <= 0) return t("launch.today");
     if (diffDays === 1) return t("launch.yesterday");
     if (diffDays < 7) return t("launch.daysAgo", { count: diffDays });
-    return new Intl.DateTimeFormat("zh-CN", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    }).format(date);
+    return formatLaunchProjectDate(date);
   };
 
 

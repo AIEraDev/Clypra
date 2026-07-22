@@ -1,5 +1,5 @@
 import type { RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
-import { t } from "@/i18n";
+import { getLanguage, t } from "@/i18n";
 
 interface CrashRecoveryDialogProps {
   isOpen: boolean;
@@ -9,16 +9,19 @@ interface CrashRecoveryDialogProps {
   onDiscard: () => void;
 }
 
-export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen, snapshot, isRestoring, onRestore, onDiscard }) => {
-  if (!isOpen || !snapshot) return null;
-
-  const savedAt = new Intl.DateTimeFormat("zh-CN", {
+export const formatRecoverySavedAt = (savedAt: string): string =>
+  new Intl.DateTimeFormat(getLanguage() === "zhCN" ? "zh-CN" : "en", {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(snapshot.savedAt));
+  }).format(new Date(savedAt));
+
+export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen, snapshot, isRestoring, onRestore, onDiscard }) => {
+  if (!isOpen || !snapshot) return null;
+
+  const savedAt = formatRecoverySavedAt(snapshot.savedAt);
 
   return (
     <div id="crash-recovery-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="crash-recovery-title" className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 backdrop-blur-sm">

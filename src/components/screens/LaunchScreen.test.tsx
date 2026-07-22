@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { setLanguage } from "@/i18n";
 import { LaunchScreen } from "./LaunchScreen";
 
 const projectStoreMock = vi.hoisted(() => ({
@@ -78,6 +79,7 @@ describe("LaunchScreen", () => {
   });
 
   afterEach(() => {
+    setLanguage("zhCN");
     vi.useRealTimers();
   });
 
@@ -188,5 +190,33 @@ describe("LaunchScreen", () => {
     );
 
     expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  test("formats older project dates in the selected interface language", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 21, 12));
+    projectStoreMock.recentProjects = [
+      createRecentProject(new Date(2026, 6, 8, 12).getTime()),
+    ];
+
+    const view = render(
+      <LaunchScreen
+        onProjectCreate={vi.fn()}
+        onProjectOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("2026年7月8日")).toBeInTheDocument();
+
+    view.unmount();
+    setLanguage("en");
+    render(
+      <LaunchScreen
+        onProjectCreate={vi.fn()}
+        onProjectOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Jul 8, 2026")).toBeInTheDocument();
   });
 });
