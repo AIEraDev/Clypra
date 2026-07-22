@@ -6,12 +6,13 @@
 
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
-import type { Clip } from "@/types";
+import type { Clip, TransitionTimelineItem } from "@/types";
 import { generateId } from "@/lib/utils/id";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
 
 interface TimelineState {
   clips: Clip[];
+  transitions?: TransitionTimelineItem[];
   epoch: number;
 }
 
@@ -90,12 +91,33 @@ export class SplitClipCommand implements Command {
       trimOut: clip.trimOut,
     };
 
-    return {
+    const updatedTransitions = state.transitions?.map((t) => {
+      let fromItemId = t.fromItemId;
+      let toItemId = t.toItemId;
+      if (toItemId === this.clipId) {
+        toItemId = this.leftClipId!;
+      }
+      if (fromItemId === this.clipId) {
+        fromItemId = this.rightClipId!;
+      }
+      if (fromItemId !== t.fromItemId || toItemId !== t.toItemId) {
+        return { ...t, fromItemId, toItemId };
+      }
+      return t;
+    });
+
+    const nextState: TimelineState = {
       ...state,
       // Remove original clip, add both new splits
       clips: [...state.clips.filter((c) => c.id !== this.clipId), leftClip, rightClip],
       epoch: state.epoch + 1, // ✅ Epoch increment inside command
     };
+
+    if (updatedTransitions !== undefined) {
+      nextState.transitions = updatedTransitions;
+    }
+
+    return nextState;
   }
 
   // Expose both new clip IDs
