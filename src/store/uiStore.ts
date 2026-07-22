@@ -133,6 +133,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       return {
         selectedClipIds: already ? state.selectedClipIds.filter((id) => id !== clipId) : [...state.selectedClipIds, clipId],
         selectedTransitionId: null,
+        selectedGapId: null, // TL-07 fix: Clear gap selection when toggling clip selection
       };
     });
   },

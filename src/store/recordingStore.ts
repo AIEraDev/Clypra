@@ -30,7 +30,8 @@ export const useRecordingStore = create<RecordingState>((set) => ({
     })),
   setHasWebcam: (v) => set({ hasWebcam: v }),
   setPreviewRecording: (v) => set({ previewRecording: v }),
-  setRecordingError: (v) => set({ recordingError: v }),
+  // REC-07 fix: Stop recording state when an error is set, so the timer and UI stop.
+  setRecordingError: (v) => set({ recordingError: v, ...(v ? { isRecording: false } : {}) }),
   reset: () => set({ isRecording: false, seconds: 0, hasWebcam: true, previewRecording: null, recordingError: null }),
 }));
 

@@ -106,11 +106,12 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       // Get current timeline state
       const timelineStore = useTimelineStore.getState();
 
-      // Undo (inverse command handles epoch increment internally)
+      // TL-02 fix: Force epoch to increment monotonically even when restoring historical snapshots,
+      // to ensure render caches are properly invalidated after undo.
       const newState = journal.undo(timelineStore);
 
       // Update timeline store (auto-save triggered by middleware)
-      useTimelineStore.setState(newState);
+      useTimelineStore.setState({ ...newState, epoch: timelineStore.epoch + 1 });
 
       // TL-BUG-001 fix: Clear stale selection after undo.
       // Timeline state may no longer contain the previously selected clips/gaps/transitions.
@@ -133,7 +134,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       const newState = journal.redo(timelineStore);
 
       // Update timeline store (auto-save triggered by middleware)
-      useTimelineStore.setState(newState);
+      useTimelineStore.setState({ ...newState, epoch: timelineStore.epoch + 1 });
 
       // TL-BUG-001 fix: Clear stale selection after redo.
       try {
@@ -158,7 +159,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       const { journal } = get();
       const timelineStore = useTimelineStore.getState();
       const newState = journal.rollbackTransaction(timelineStore);
-      useTimelineStore.setState(newState);
+      useTimelineStore.setState({ ...newState, epoch: timelineStore.epoch + 1 });
     },
 
     clear: () => {
