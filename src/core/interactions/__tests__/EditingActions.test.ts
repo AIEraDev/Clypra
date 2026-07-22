@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditingActions } from "../EditingActions";
+import { SplitClipCommand } from "@/core/history/commands";
 import { useHistoryStore } from "@/store/historyStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -128,12 +129,38 @@ describe("EditingActions split interactions", () => {
     expect(EditingActions.executeSplit({ clipId: "clip-1", time: 5, source: "click" }).error).toBe("external encoder failure");
   });
 
+  it("localizes the error when the split command does not provide both clip IDs", () => {
+    vi.spyOn(SplitClipCommand.prototype, "getLeftClipId").mockReturnValue(null);
+
+    const result = EditingActions.executeSplit({ clipId: "clip-1", time: 5, source: "click" });
+
+    expect(result.error).toBe("拆分未生成两个片段");
+  });
+
+  it("localizes the error when split IDs are absent from the new timeline state", () => {
+    vi.spyOn(useHistoryStore.getState(), "execute").mockImplementation(() => {});
+    vi.spyOn(SplitClipCommand.prototype, "getLeftClipId").mockReturnValue("left-id");
+    vi.spyOn(SplitClipCommand.prototype, "getRightClipId").mockReturnValue("right-id");
+
+    const result = EditingActions.executeSplit({ clipId: "clip-1", time: 5, source: "click" });
+
+    expect(result.error).toBe("在时间线中未找到拆分后的片段");
+  });
+
   it("localizes the non-Error trim fallback", () => {
     vi.spyOn(useHistoryStore.getState(), "execute").mockImplementation(() => {
       throw "trim failure";
     });
 
     expect(EditingActions.deleteLeftAtPlayhead()).toEqual([{ success: false, clipId: "clip-1", error: "未知裁剪错误" }]);
+  });
+
+  it("passes through external trim Error messages unchanged", () => {
+    vi.spyOn(useHistoryStore.getState(), "execute").mockImplementation(() => {
+      throw new Error("REMOTE_TRIM_ERR_RAW");
+    });
+
+    expect(EditingActions.deleteLeftAtPlayhead()).toEqual([{ success: false, clipId: "clip-1", error: "REMOTE_TRIM_ERR_RAW" }]);
   });
 
   it.each([
