@@ -1,8 +1,51 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useTimelineStore } from "../timelineStore";
+import { getDefaultTrackName, useTimelineStore } from "../timelineStore";
 import { useHistoryStore } from "../historyStore";
+import { useUIStore } from "../uiStore";
 import { SplitClipCommand } from "@/core/history/commands/SplitClipCommand";
-import type { Clip } from "@/types";
+import { resetIdGenerator } from "@/lib/utils/id";
+import type { Clip, TrackType } from "@/types";
+
+describe("timeline track localization", () => {
+  beforeEach(() => {
+    resetIdGenerator("timeline-track-test");
+    useTimelineStore.setState({ tracks: [], clips: [], transitions: [], mainVideoTrackId: null });
+  });
+
+  it.each([
+    ["video", "视频轨道 7"],
+    ["audio", "音频轨道 7"],
+    ["text", "文字轨道 7"],
+    ["sticker", "贴纸轨道 7"],
+    ["filter", "滤镜轨道 7"],
+    ["video-effect", "视频特效轨道 7"],
+    ["body-effect", "人体特效轨道 7"],
+    ["animated-overlay", "动画叠加轨道 7"],
+  ] satisfies Array<[TrackType, string]>)('names a new %s track without changing its stable type', (type, expectedName) => {
+    expect({ type, name: getDefaultTrackName(type, 7) }).toEqual({ type, name: expectedName });
+  });
+
+  it("uses the shared formatter in both store creation paths while preserving their counters", () => {
+    useTimelineStore.getState().addTrack("video");
+    const insertedId = useTimelineStore.getState().insertTrackAt("audio", 0);
+
+    expect(useTimelineStore.getState().tracks).toMatchObject([
+      { id: insertedId, type: "audio", name: "音频轨道 2", height: 52 },
+      { type: "video", name: "视频轨道 1", height: 68 },
+    ]);
+  });
+
+  it("preserves names loaded from existing projects", () => {
+    useTimelineStore.getState().hydrateFromProject({
+      tracks: [{ id: "legacy", type: "video", name: "My Custom Track", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [],
+      transitions: [],
+      gaps: [],
+    });
+
+    expect(useTimelineStore.getState().tracks[0].name).toBe("My Custom Track");
+  });
+});
 
 describe("timelineStore clip operations", () => {
   beforeEach(() => {
@@ -56,20 +99,42 @@ describe("timelineStore clip operations", () => {
       });
     });
 
-    it("rejects transitions across gaps and locked tracks", () => {
+    it("returns localized transition errors for every validation branch", () => {
+      expect(useTimelineStore.getState().createTransitionBetweenClips("missing-a", "missing-b", "fade", 1).error).toBe("请选择两个片段以添加转场");
+
+      useTimelineStore.setState({
+        tracks: [
+          { id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: true, height: 68 },
+          { id: "track-2", type: "video", name: "Video 2", muted: false, locked: false, visible: true, height: 68 },
+        ],
+        clips: [makeClip("left", 0), { ...makeClip("right", 5), trackId: "track-2" }],
+      });
+      expect(useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1).error).toBe("转场要求两个片段位于同一轨道");
+
+      useTimelineStore.setState({ tracks: [], clips: [makeClip("left", 0), makeClip("right", 5)] });
+      expect(useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1).error).toBe("未找到转场轨道");
+
       useTimelineStore.setState({
         tracks: [{ id: "track-1", type: "video", name: "Video", muted: false, locked: true, visible: true, height: 68 }],
         clips: [makeClip("left", 0), makeClip("right", 6)],
         transitions: [],
       });
 
-      expect(useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1).error).toBe("Unlock the track before adding a transition");
+      expect(useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1).error).toBe("请先解锁轨道再添加转场");
+
+      useTimelineStore.setState({
+        tracks: [{ id: "track-1", type: "audio", name: "Audio", muted: false, locked: false, visible: true, height: 52 }],
+      });
+      expect(useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1).error).toBe("视觉转场只能添加到视频或文字轨道");
 
       useTimelineStore.setState({
         tracks: [{ id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: true, height: 68 }],
       });
 
-      expect(useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1).error).toBe("Move clips together before adding a transition");
+      expect(useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1).error).toBe("请先将片段相邻排列再添加转场");
+
+      useTimelineStore.setState({ clips: [{ ...makeClip("left", 0), duration: 0.1 }, { ...makeClip("right", 0.1), duration: 0.1 }] });
+      expect(useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1).error).toBe("片段过短，无法添加此转场");
     });
 
     it("removes transitions attached to deleted clips", () => {
@@ -83,6 +148,41 @@ describe("timelineStore clip operations", () => {
       useTimelineStore.getState().removeClip("left");
 
       expect(useTimelineStore.getState().transitions).toHaveLength(0);
+    });
+  });
+
+  describe("swap errors", () => {
+    const clip = (id: string, startTime: number, duration = 2): Clip => ({
+      id,
+      trackId: "track-1",
+      mediaId: `media-${id}`,
+      startTime,
+      duration,
+      trimIn: 0,
+      trimOut: duration,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1,
+      rotation: 0,
+    });
+
+    it("requires exactly two selected clips", () => {
+      expect(useTimelineStore.getState().swapClips().error).toBe("请选择恰好两个片段进行交换");
+    });
+
+    it("reports missing selected clips", () => {
+      useUIStore.setState({ selectedClipIds: ["missing-a", "missing-b"] });
+      expect(useTimelineStore.getState().swapClips().error).toBe("未找到所选片段");
+    });
+
+    it("reports insufficient space without changing clip IDs", () => {
+      useTimelineStore.setState({ clips: [clip("left", 0, 2), clip("right", 2, 4), clip("blocker", 4, 2)] });
+      useUIStore.setState({ selectedClipIds: ["left", "right"] });
+
+      expect(useTimelineStore.getState().swapClips().error).toBe("空间不足，交换后片段会重叠");
+      expect(useTimelineStore.getState().clips.map(({ id }) => id)).toEqual(["left", "right", "blocker"]);
     });
   });
 

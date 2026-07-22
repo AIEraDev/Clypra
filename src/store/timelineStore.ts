@@ -32,6 +32,7 @@ import { useProjectStore } from "./projectStore";
 import { clampTimelinePixelsPerSecond, clampTimelineZoom, TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "../lib/timeline/timelineZoom";
 import { getTimelineContentEnd, normalizeClipTiming } from "@/lib/timeline/timelineClip";
 import { autoSaveMiddleware } from "./middleware/autoSaveMiddleware";
+import { t, type MessageKey } from "@/i18n";
 
 interface TimelineStore {
   tracks: Track[];
@@ -125,6 +126,21 @@ const trackHeights: Record<string, number> = {
   "animated-overlay": 30,
 };
 const MIN_TRIM_DURATION_SEC = 1;
+
+const defaultTrackNameKeys = {
+  video: "timeline.track.video",
+  audio: "timeline.track.audio",
+  text: "timeline.track.text",
+  sticker: "timeline.track.sticker",
+  filter: "timeline.track.filter",
+  "video-effect": "timeline.track.videoEffect",
+  "body-effect": "timeline.track.bodyEffect",
+  "animated-overlay": "timeline.track.animatedOverlay",
+} as const satisfies Record<TrackType, MessageKey>;
+
+export function getDefaultTrackName(type: TrackType, number: number): string {
+  return t(defaultTrackNameKeys[type], { number });
+}
 
 /** Where to insert a new row when dropping off-track: video/text at top; audio under first video (or append if no video). */
 export function getInsertIndexForNewTrack(tracks: Track[], trackType: TrackType): number {
@@ -314,7 +330,7 @@ export const useTimelineStore = create<TimelineStore>(
       const newTrack: Track = {
         id: generateId("track"),
         type,
-        name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${getCounter() % 100}`,
+        name: getDefaultTrackName(type, getCounter() % 100),
         muted: false,
         locked: false,
         visible: true,
@@ -330,7 +346,7 @@ export const useTimelineStore = create<TimelineStore>(
       const newTrack: Track = {
         id: generateId("track"),
         type,
-        name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${getCounter() % 100}`,
+        name: getDefaultTrackName(type, getCounter() % 100),
         muted: false,
         locked: false,
         visible: true,
@@ -613,19 +629,19 @@ export const useTimelineStore = create<TimelineStore>(
       const state = get();
       const fromClip = state.clips.find((clip) => clip.id === fromClipId);
       const toClip = state.clips.find((clip) => clip.id === toClipId);
-      if (!fromClip || !toClip) return { error: "Select two clips to add a transition" };
-      if (fromClip.trackId !== toClip.trackId) return { error: "Transitions require two clips on the same track" };
+      if (!fromClip || !toClip) return { error: t("timeline.error.transition.selectTwoClips") };
+      if (fromClip.trackId !== toClip.trackId) return { error: t("timeline.error.transition.sameTrack") };
 
       const track = state.tracks.find((t) => t.id === fromClip.trackId);
-      if (!track) return { error: "Transition track was not found" };
-      if (track.locked) return { error: "Unlock the track before adding a transition" };
-      if (track.type === "audio") return { error: "Visual transitions can only be added to video or text tracks" };
+      if (!track) return { error: t("timeline.error.transition.trackNotFound") };
+      if (track.locked) return { error: t("timeline.error.transition.trackLocked") };
+      if (track.type === "audio") return { error: t("timeline.error.transition.visualTracksOnly") };
 
       const [left, right] = fromClip.startTime <= toClip.startTime ? [fromClip, toClip] : [toClip, fromClip];
       const leftEnd = left.startTime + left.duration;
       const gap = right.startTime - leftEnd;
-      if (gap > 0.001) return { error: "Move clips together before adding a transition" };
-      if (left.duration < duration / 2 || right.duration < duration / 2) return { error: "Clips are too short for this transition" };
+      if (gap > 0.001) return { error: t("timeline.error.transition.clipsAdjacent") };
+      if (left.duration < duration / 2 || right.duration < duration / 2) return { error: t("timeline.error.transition.clipsTooShort") };
 
       const transitionStart = Math.max(0, leftEnd - duration / 2);
       const transition: TransitionTimelineItem = {
@@ -750,7 +766,7 @@ export const useTimelineStore = create<TimelineStore>(
 
       // Guard: exactly 2 clips must be selected
       if (selectedClipIds.length !== 2) {
-        return { error: "Select exactly 2 clips to swap" };
+        return { error: t("timeline.error.swap.selectTwoClips") };
       }
 
       const state = get();
@@ -758,7 +774,7 @@ export const useTimelineStore = create<TimelineStore>(
       const clipB = state.clips.find((c) => c.id === selectedClipIds[1]);
 
       if (!clipA || !clipB) {
-        return { error: "Selected clips not found" };
+        return { error: t("timeline.error.swap.clipsNotFound") };
       }
 
       // Case: different tracks — simple position + track swap
@@ -824,7 +840,7 @@ export const useTimelineStore = create<TimelineStore>(
       });
 
       if (collision) {
-        return { error: "Not enough space to swap — clips would overlap" };
+        return { error: t("timeline.error.swap.notEnoughSpace") };
       }
 
       set((state) => {

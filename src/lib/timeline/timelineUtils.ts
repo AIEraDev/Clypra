@@ -3,11 +3,10 @@ export type { SpatialTier, TemporalTier, VelocityState } from "../renderEngine/t
 export { VELOCITY_THRESHOLDS, classifyVelocity } from "../renderEngine/types";
 
 import type { DragItem, Track, Clip, DensityConfig, DensityLevel } from "../../types";
-import { useTimelineStore } from "../../store/timelineStore";
+import { getDefaultTrackName, useTimelineStore } from "../../store/timelineStore";
 import { useProjectStore } from "../../store/projectStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { AddTrackCommand, AddClipCommand, DeleteClipCommand } from "../../core/history/commands";
-import { capitalize } from "../utils";
 import { DensityLevel as DensityLevelEnum } from "../../types";
 import { createClipFromAsset } from "./timelineClip";
 import { autoAdaptSequenceForFirstVisualClip } from "../sequence/sequenceAutoAspect";
@@ -91,7 +90,7 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
   const newTrack: Track = {
     id: generateId("track"),
     type: trackType,
-    name: `${capitalize(trackType)} ${existingOfType + 1}`,
+    name: getDefaultTrackName(trackType, existingOfType + 1),
     muted: false,
     locked: false,
     visible: true,

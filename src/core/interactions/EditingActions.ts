@@ -85,7 +85,7 @@ export class EditingActions {
     if (!clip) {
       return {
         success: false,
-        error: `Clip ${clipId} not found`,
+        error: t("timeline.error.split.clipNotFound", { clipId }),
       };
     }
 
@@ -94,7 +94,11 @@ export class EditingActions {
     if (time <= clip.startTime || time >= clipEndTime) {
       return {
         success: false,
-        error: `Split time ${time.toFixed(2)}s is outside clip bounds [${clip.startTime.toFixed(2)}s, ${clipEndTime.toFixed(2)}s]`,
+        error: t("timeline.error.split.outsideBounds", {
+          time: time.toFixed(2),
+          start: clip.startTime.toFixed(2),
+          end: clipEndTime.toFixed(2),
+        }),
       };
     }
 
@@ -103,7 +107,7 @@ export class EditingActions {
     if (track?.locked) {
       return {
         success: false,
-        error: "Cannot split clip on locked track",
+        error: t("timeline.error.split.trackLocked"),
       };
     }
 
@@ -113,7 +117,7 @@ export class EditingActions {
     if (snappedTime <= clip.startTime || snappedTime >= clipEndTime) {
       return {
         success: false,
-        error: `Split time ${time.toFixed(2)}s snaps to a clip boundary`,
+        error: t("timeline.error.split.clipBoundary", { time: time.toFixed(2) }),
       };
     }
 
@@ -130,7 +134,7 @@ export class EditingActions {
       if (!leftClipId || !rightClipId) {
         return {
           success: false,
-          error: "Split did not create both clips",
+          error: t("timeline.error.split.missingClips"),
         };
       }
 
@@ -142,7 +146,7 @@ export class EditingActions {
       if (!leftClip || !rightClip) {
         return {
           success: false,
-          error: "Split clips not found in timeline",
+          error: t("timeline.error.split.clipsNotFound"),
         };
       }
 
@@ -163,7 +167,7 @@ export class EditingActions {
       console.error("[EditingActions] Split failed:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: error instanceof Error ? error.message : t("timeline.error.split.unknown"),
       };
     }
   }
@@ -366,7 +370,7 @@ export class EditingActions {
       return results;
     } catch (error) {
       history.rollbackTransaction();
-      const message = error instanceof Error ? error.message : "Unknown trim error";
+      const message = error instanceof Error ? error.message : t("timeline.error.trim.unknown");
       return candidates.map((clip) => ({
         success: false,
         clipId: clip.id,

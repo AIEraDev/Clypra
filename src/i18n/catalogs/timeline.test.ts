@@ -22,4 +22,32 @@ describe("timeline history localization", () => {
       "删除播放头右侧",
     ]);
   });
+
+  test("translates default track names and timeline operation errors", () => {
+    expect([
+      translate("timeline.track.video"),
+      translate("timeline.track.audio"),
+      translate("timeline.track.text"),
+      translate("timeline.track.sticker"),
+      translate("timeline.track.filter"),
+      translate("timeline.track.videoEffect"),
+      translate("timeline.track.bodyEffect"),
+      translate("timeline.track.animatedOverlay"),
+      translate("timeline.error.transition.selectTwoClips"),
+      translate("timeline.error.swap.notEnoughSpace"),
+      translate("timeline.message.splitFailed"),
+    ]).toEqual([
+      "视频轨道 {{number}}",
+      "音频轨道 {{number}}",
+      "文字轨道 {{number}}",
+      "贴纸轨道 {{number}}",
+      "滤镜轨道 {{number}}",
+      "视频特效轨道 {{number}}",
+      "人体特效轨道 {{number}}",
+      "动画叠加轨道 {{number}}",
+      "请选择两个片段以添加转场",
+      "空间不足，交换后片段会重叠",
+      "拆分失败",
+    ]);
+  });
 });

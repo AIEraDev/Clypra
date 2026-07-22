@@ -1,6 +1,51 @@
-import { describe, it, expect } from "vitest";
-import { getDensityForZoom, DENSITY_CONFIGS, generateTimestampGrid, getIntervalForDensity } from "../timeline/timelineUtils";
-import { DensityLevel } from "@/types";
+import { beforeEach, describe, it, expect } from "vitest";
+import { getDensityForZoom, DENSITY_CONFIGS, generateTimestampGrid, getIntervalForDensity, handleCreateTrackAndDrop } from "../timeline/timelineUtils";
+import { DensityLevel, type Clip } from "@/types";
+import { useHistoryStore } from "@/store/historyStore";
+import { useTimelineStore } from "@/store/timelineStore";
+
+describe("handleCreateTrackAndDrop track localization", () => {
+  beforeEach(() => {
+    useHistoryStore.getState().clear();
+    useTimelineStore.setState({
+      tracks: [],
+      clips: [],
+      transitions: [],
+      mainVideoTrackId: null,
+      epoch: 0,
+      pixelsPerSecond: 100,
+      scrollLeft: 0,
+    });
+    document.body.innerHTML = '<div id="timeline-tracks-container"></div>';
+  });
+
+  it("uses the shared default formatter when a drop creates a track", () => {
+    const clip: Clip = {
+      id: "clip-source",
+      trackId: "old-track",
+      mediaId: "media-1",
+      startTime: 0,
+      duration: 2,
+      trimIn: 0,
+      trimOut: 2,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1,
+      rotation: 0,
+    };
+    useTimelineStore.setState({ clips: [clip] });
+
+    handleCreateTrackAndDrop({ type: "CLIP", clip }, { getClientOffset: () => null }, 0);
+
+    expect(useTimelineStore.getState().tracks[0]).toMatchObject({
+      type: "video",
+      name: "视频轨道 1",
+      height: 68,
+    });
+  });
+});
 
 describe("getDensityForZoom", () => {
   describe("exact boundary tests", () => {

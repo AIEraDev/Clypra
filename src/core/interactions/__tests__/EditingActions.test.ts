@@ -92,9 +92,48 @@ describe("EditingActions split interactions", () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe("Split time 0.00s snaps to a clip boundary");
+    expect(result.error).toBe("拆分时间 0.00 秒吸附到片段边界");
     expect(useTimelineStore.getState().clips).toHaveLength(1);
     expect(useUIStore.getState().selectedClipIds).toEqual([]);
+  });
+
+  it("keeps a dynamic clip ID in the localized missing-clip error", () => {
+    const result = EditingActions.executeSplit({ clipId: "clip-dynamic-42", time: 1, source: "click" });
+
+    expect(result.error).toBe("未找到片段 clip-dynamic-42");
+  });
+
+  it("keeps dynamic seconds in the localized out-of-bounds error", () => {
+    const result = EditingActions.executeSplit({ clipId: "clip-1", time: 12.345, source: "click" });
+
+    expect(result.error).toBe("拆分时间 12.35 秒超出片段范围 [0.00 秒, 10.00 秒]");
+  });
+
+  it("localizes locked-track and non-Error split failures", () => {
+    useTimelineStore.setState({ tracks: [{ ...useTimelineStore.getState().tracks[0], locked: true }] });
+    expect(EditingActions.executeSplit({ clipId: "clip-1", time: 5, source: "click" }).error).toBe("锁定轨道上的片段无法拆分");
+
+    useTimelineStore.setState({ tracks: [{ ...useTimelineStore.getState().tracks[0], locked: false }] });
+    vi.spyOn(useHistoryStore.getState(), "execute").mockImplementation(() => {
+      throw "split failure";
+    });
+    expect(EditingActions.executeSplit({ clipId: "clip-1", time: 5, source: "click" }).error).toBe("未知拆分错误");
+  });
+
+  it("passes through external Error messages unchanged", () => {
+    vi.spyOn(useHistoryStore.getState(), "execute").mockImplementation(() => {
+      throw new Error("external encoder failure");
+    });
+
+    expect(EditingActions.executeSplit({ clipId: "clip-1", time: 5, source: "click" }).error).toBe("external encoder failure");
+  });
+
+  it("localizes the non-Error trim fallback", () => {
+    vi.spyOn(useHistoryStore.getState(), "execute").mockImplementation(() => {
+      throw "trim failure";
+    });
+
+    expect(EditingActions.deleteLeftAtPlayhead()).toEqual([{ success: false, clipId: "clip-1", error: "未知裁剪错误" }]);
   });
 
   it.each([
