@@ -4,6 +4,7 @@ import { useDragLayer } from "react-dnd";
 import { useDragStateStore } from "@/store/dragStateStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
+import { t } from "@/i18n";
 
 export const ClipDragLayer: React.FC = () => {
   const { draggingClip, grabOffsetX, grabOffsetY } = useDragStateStore();
@@ -60,10 +61,10 @@ export const ClipDragLayer: React.FC = () => {
         {mediaAsset?.posterFrame && mediaAsset.type === "video" && <img src={mediaAsset.posterFrame} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" style={{ pointerEvents: "none" }} />}
 
         {/* Clip name */}
-        <div className="absolute top-1 left-2 text-xs text-white/90 font-medium truncate max-w-[calc(100%-16px)]">{mediaAsset?.name || "Clip"}</div>
+        <div className="absolute top-1 left-2 text-xs text-white/90 font-medium truncate max-w-[calc(100%-16px)]">{mediaAsset?.name || t("timeline.clip.default")}</div>
 
         {/* Duration */}
-        <div className="absolute bottom-1 right-2 text-xs text-white/70">{draggingClip.duration.toFixed(1)}s</div>
+        <div className="absolute bottom-1 right-2 text-xs text-white/70">{t("timeline.clipDrag.duration", { duration: draggingClip.duration.toFixed(1) })}</div>
       </div>
     </div>
   );

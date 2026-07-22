@@ -149,4 +149,54 @@ describe("timeline history localization", () => {
       "已消除时间线间隙",
     ]);
   });
+
+  test("translates clip, audio envelope, waveform, and transition labels", () => {
+    expect([
+      translate("timeline.clip.trim.ripple"),
+      translate("timeline.clip.trim.normal"),
+      translate("timeline.clip.defaultText"),
+      translate("timeline.clip.filter"),
+      translate("timeline.clip.videoEffect"),
+      translate("timeline.clip.bodyEffect"),
+      translate("timeline.clip.overlay"),
+      translate("timeline.clip.sticker"),
+      translate("timeline.clip.default"),
+      translate("timeline.audio.resetVolume"),
+      translate("timeline.waveform.unavailable"),
+      translate("timeline.transition.type.fade"),
+      translate("timeline.transition.type.dissolve"),
+      translate("timeline.transition.type.canvas"),
+    ]).toEqual([
+      "波纹裁剪（按 Shift 禁用）",
+      "普通裁剪（按 Shift 启用波纹）",
+      "默认文本",
+      "滤镜",
+      "视频特效",
+      "人体特效",
+      "叠加层",
+      "贴纸",
+      "片段",
+      "双击重置音量",
+      "波形不可用",
+      "淡入淡出",
+      "溶解",
+      "画布",
+    ]);
+
+    expect([
+      t("timeline.clipDrag.duration", { duration: "1.0" }),
+      t("timeline.audio.fadeIn", { duration: "0.5" }),
+      t("timeline.audio.fadeOut", { duration: "0.4" }),
+      t("timeline.audio.volume", { volume: 50 }),
+      t("timeline.transition.title", { type: "淡入淡出", duration: "0.50" }),
+      t("timeline.transition.duration", { duration: "0.50" }),
+    ]).toEqual([
+      "1.0 秒",
+      "淡入：0.5 秒",
+      "淡出：0.4 秒",
+      "音量：50%",
+      "淡入淡出转场（0.50 秒）",
+      "0.50 秒",
+    ]);
+  });
 });

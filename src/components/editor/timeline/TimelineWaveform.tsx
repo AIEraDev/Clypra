@@ -4,6 +4,7 @@ import { drawProfessionalWaveform, getThemeAccentRgb } from "@/lib/utils/canvasU
 import type { WaveformBucket } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
 import { normalizePathForTauriInvoke } from "@/lib/platform/tauri";
+import { t } from "@/i18n";
 
 interface TimelineWaveformProps {
   audioPath: string;
@@ -240,7 +241,7 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, c
   }, [waveformData, themeRevision, validClipWidth]);
 
   if (hasError) {
-    return <div className={`w-full h-full rounded-[2px] border border-border/30 bg-surface-raised/30 ${className}`} title="Waveform unavailable" />;
+    return <div className={`w-full h-full rounded-[2px] border border-border/30 bg-surface-raised/30 ${className}`} title={t("timeline.waveform.unavailable")} />;
   }
 
   return (

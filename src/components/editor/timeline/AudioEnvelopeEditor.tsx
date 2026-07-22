@@ -3,6 +3,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import type { Clip } from "@/types";
+import { t } from "@/i18n";
 
 interface AudioEnvelopeEditorProps {
   clip: Clip;
@@ -204,7 +205,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           transform: "translateX(-50%)",
         }}
         onPointerDown={(e) => handleDragStart(e, "fadeIn")}
-        title={`Fade In: ${fadeIn.toFixed(1)}s`}
+        title={t("timeline.audio.fadeIn", { duration: fadeIn.toFixed(1) })}
       />
 
       {/* Draggable fade-out handle (knob) */}
@@ -218,7 +219,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           transform: "translateX(50%)",
         }}
         onPointerDown={(e) => handleDragStart(e, "fadeOut")}
-        title={`Fade Out: ${fadeOut.toFixed(1)}s`}
+        title={t("timeline.audio.fadeOut", { duration: fadeOut.toFixed(1) })}
       />
 
       {/* Draggable volume bar line */}
@@ -231,7 +232,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         }}
         onPointerDown={(e) => handleDragStart(e, "volume")}
         onDoubleClick={handleVolumeDoubleClick}
-        title="Double-click to reset volume"
+        title={t("timeline.audio.resetVolume")}
       >
         <div className="w-full h-[1.5px] bg-emerald-400/90 shadow-[0_0_4px_rgba(52,211,153,0.5)] hover:bg-white" />
       </div>
@@ -243,10 +244,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         >
           <span>
             {activeDrag === "volume"
-              ? `Volume: ${Math.round(dragValue * 100)}%`
+              ? t("timeline.audio.volume", { volume: Math.round(dragValue * 100) })
               : activeDrag === "fadeIn"
-              ? `Fade In: ${dragValue.toFixed(1)}s`
-              : `Fade Out: ${dragValue.toFixed(1)}s`}
+              ? t("timeline.audio.fadeIn", { duration: dragValue.toFixed(1) })
+              : t("timeline.audio.fadeOut", { duration: dragValue.toFixed(1) })}
           </span>
         </div>
       )}

@@ -8,6 +8,7 @@ import { ClipFilmstrip } from "./ClipFilmstrip";
 import { TimelineWaveform } from "./TimelineWaveform";
 import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { t } from "@/i18n";
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -670,7 +671,7 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "left");
         }}
-        title={rippleEditEnabled ? "Ripple trim (Shift to disable)" : "Normal trim (Shift for ripple)"}
+        title={rippleEditEnabled ? t("timeline.clip.trim.ripple") : t("timeline.clip.trim.normal")}
       >
         <div className="absolute left-[5px] top-1/2 h-[70%] w-[2px] -translate-y-1/2 rounded bg-white/90" />
       </div>
@@ -680,45 +681,45 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
         <div className="relative flex h-full w-full items-center px-3">
           {/* Icon badge for text role differentiation */}
           {(isCaption || isTitle) && <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-black/30 px-1.5 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm">{isCaption ? "CC" : "T"}</div>}
-          <div className="text-[12px] text-white/95 font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">{(clip as any).text || "Default text"}</div>
+          <div className="text-[12px] text-white/95 font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">{(clip as any).text || t("timeline.clip.defaultText")}</div>
         </div>
       ) : isClipFilter ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-violet-600/60 border border-white/10 flex items-center justify-center backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || "Filter"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || t("timeline.clip.filter")}</span>
         </div>
       ) : isClipVideoEffect ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-violet-600/60 border border-white/10 flex items-center justify-center backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || "Video Effect"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || t("timeline.clip.videoEffect")}</span>
         </div>
       ) : isClipBodyEffect ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-violet-600/60 border border-white/10 flex items-center justify-center backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || "Body Effect"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || t("timeline.clip.bodyEffect")}</span>
         </div>
       ) : isClipAnimatedOverlay ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-violet-600/60 border border-white/10 flex items-center justify-center backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || "Overlay"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || t("timeline.clip.overlay")}</span>
         </div>
       ) : isSticker ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           {mediaAsset?.path ? <img src={resolveMediaSrc(mediaAsset.path)} alt="" className="w-5 h-5 object-contain filter brightness-0 invert opacity-90 shrink-0" draggable={false} /> : <div className="w-5 h-5 flex items-center justify-center text-xs shrink-0">🎨</div>}
-          <span className="text-[10px] font-bold text-white/90 truncate">{mediaAsset?.name || "Sticker"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">{mediaAsset?.name || t("timeline.clip.sticker")}</span>
         </div>
       ) : (
         <div className="flex h-full min-h-0 w-full flex-col gap-1 overflow-hidden px-1 py-1">
           <div className="flex shrink-0 items-center gap-3">
-            <div className="text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text truncate">{mediaAsset?.name || "Clip"}</div>
+            <div className="text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text truncate">{mediaAsset?.name || t("timeline.clip.default")}</div>
             <div className="text-[9px] font-medium text-timeline-clip-duration shrink-0">{formatDuration(clip.duration)}</div>
           </div>
           {mediaAsset && (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
@@ -760,7 +761,7 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           handleResizeStart(e, "right");
         }}
         // BUG-6 fix: removed duplicate onMouseDown (PointerEvents sufficient for Chromium/Tauri)
-        title={rippleEditEnabled ? "Ripple trim (Shift to disable)" : "Normal trim (Shift for ripple)"}
+        title={rippleEditEnabled ? t("timeline.clip.trim.ripple") : t("timeline.clip.trim.normal")}
       >
         <div className="absolute right-[5px] top-1/2 h-[70%] w-[2px] -translate-y-1/2 rounded bg-white/90" />
       </div>

@@ -40,6 +40,7 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => {
 // Mock stores
 const mockSelectClip = vi.fn();
 const mockUpdateClip = vi.fn();
+let mockRippleEditEnabled = false;
 
 vi.mock("@/store/uiStore", () => ({
   useUIStore: () => ({
@@ -48,13 +49,16 @@ vi.mock("@/store/uiStore", () => ({
   }),
 }));
 
-vi.mock("@/store/timelineStore", () => ({
-  useTimelineStore: () => ({
+vi.mock("@/store/timelineStore", () => {
+  const getState = () => ({
     updateClip: mockUpdateClip,
-    rippleEditEnabled: false,
+    rippleEditEnabled: mockRippleEditEnabled,
     rippleTrimClip: vi.fn(),
-  }),
-}));
+  });
+  const useTimelineStore = (selector?: (state: ReturnType<typeof getState>) => unknown) => selector ? selector(getState()) : getState();
+  useTimelineStore.getState = getState;
+  return { useTimelineStore };
+});
 
 const createMockClip = (overrides?: Partial<ClipType>): ClipType => ({
   id: "clip-1",
@@ -99,6 +103,7 @@ const renderClip = (clip: ClipType, mediaAsset?: MediaAsset, props?: Partial<any
 describe("Clip Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRippleEditEnabled = false;
     clearFilmstripFrameCache();
   });
 
@@ -119,6 +124,30 @@ describe("Clip Component", () => {
       renderClip(clip, mediaAsset);
 
       expect(screen.getByText("my-video.mp4")).toBeInTheDocument();
+    });
+
+    it.each([
+      [{ kind: "text", text: "" }, undefined, "默认文本"],
+      [{ kind: "filter", name: "" }, undefined, "滤镜"],
+      [{ kind: "video-effect", name: "" }, undefined, "视频特效"],
+      [{ kind: "body-effect", name: "" }, undefined, "人体特效"],
+      [{ kind: "animated-overlay", name: "" }, undefined, "叠加层"],
+      [{ kind: "sticker" }, undefined, "贴纸"],
+      [{}, undefined, "片段"],
+    ])("localizes the clip fallback for %o", (clipOverrides, mediaAsset, expected) => {
+      renderClip(createMockClip(clipOverrides as Partial<ClipType>), mediaAsset);
+
+      expect(screen.getByText(expected)).toBeInTheDocument();
+    });
+
+    it.each([
+      [{ kind: "text", text: "Customer Default text" }, undefined, "Customer Default text"],
+      [{ kind: "filter", name: "Client Filter" }, undefined, "Client Filter"],
+      [{}, createMockMediaAsset({ name: "客户 Clip.mov" }), "客户 Clip.mov"],
+    ])("preserves dynamic clip text and names for %s", (clipOverrides, mediaAsset, expected) => {
+      renderClip(createMockClip(clipOverrides as Partial<ClipType>), mediaAsset);
+
+      expect(screen.getByText(expected)).toBeInTheDocument();
     });
 
     it("displays formatted duration", () => {
@@ -238,6 +267,21 @@ describe("Clip Component", () => {
 
       expect(leftHandle.className).toContain("w-3");
       expect(rightHandle.className).toContain("w-3");
+    });
+
+    it("localizes normal trim titles while preserving Shift", () => {
+      renderClip(createMockClip());
+
+      expect(screen.getByTestId("clip-clip-1-resize-left")).toHaveAttribute("title", "普通裁剪（按 Shift 启用波纹）");
+      expect(screen.getByTestId("clip-clip-1-resize-right")).toHaveAttribute("title", "普通裁剪（按 Shift 启用波纹）");
+    });
+
+    it("localizes ripple trim titles while preserving Shift", () => {
+      mockRippleEditEnabled = true;
+      renderClip(createMockClip());
+
+      expect(screen.getByTestId("clip-clip-1-resize-left")).toHaveAttribute("title", "波纹裁剪（按 Shift 禁用）");
+      expect(screen.getByTestId("clip-clip-1-resize-right")).toHaveAttribute("title", "波纹裁剪（按 Shift 禁用）");
     });
   });
 
@@ -411,7 +455,7 @@ describe("Clip Component", () => {
       const clip = createMockClip();
       renderClip(clip, undefined);
 
-      expect(screen.getByText("Clip")).toBeInTheDocument();
+      expect(screen.getByText("片段")).toBeInTheDocument();
     });
 
     it("handles media asset without poster frame", async () => {

@@ -3,6 +3,7 @@ import { GripVertical } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import type { TransitionTimelineItem } from "@/types";
+import { t } from "@/i18n";
 
 interface TransitionIndicatorProps {
   transition: TransitionTimelineItem;
@@ -13,6 +14,11 @@ interface TransitionIndicatorProps {
 
 const MIN_TRANSITION_DURATION = 0.1; // 100ms minimum
 const MAX_TRANSITION_DURATION = 5.0; // 5 seconds maximum
+const TRANSITION_TYPE_LABELS = new Map<TransitionTimelineItem["type"], string>([
+  ["fade", t("timeline.transition.type.fade")],
+  ["dissolve", t("timeline.transition.type.dissolve")],
+  ["canvas", t("timeline.transition.type.canvas")],
+]);
 
 export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transition, pixelsPerSecond, fromClip, toClip }) => {
   const selectedTransitionId = useUIStore((s) => s.selectedTransitionId);
@@ -24,6 +30,8 @@ export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transi
   const indicatorRef = useRef<HTMLDivElement>(null);
 
   const isSelected = selectedTransitionId === transition.id;
+  const transitionTypeLabel = TRANSITION_TYPE_LABELS.get(transition.type) ?? transition.type;
+  const duration = transition.placement.duration.toFixed(2);
 
   // If clips are missing, don't render (edge case safety)
   if (!fromClip || !toClip) return null;
@@ -107,7 +115,7 @@ export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transi
         left: `${left}px`,
         width: `${width}px`,
       }}
-      title={`${transition.type} transition (${transition.placement.duration.toFixed(2)}s)`}
+      title={t("timeline.transition.title", { type: transitionTypeLabel, duration })}
     >
       {/* Diagonal gradient overlay */}
       <div
@@ -165,7 +173,7 @@ export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transi
             zIndex: 50,
           }}
         >
-          {transition.placement.duration.toFixed(2)}s
+          {t("timeline.transition.duration", { duration })}
         </div>
       )}
     </div>
