@@ -1,11 +1,11 @@
 use tauri::Manager;
 
-pub mod thumbnail_engine;
 pub mod commands;
 pub mod models;
+pub mod thumbnail_engine;
 
-use thumbnail_engine::init_thumbnail_engine;
 use commands::*;
+use thumbnail_engine::init_thumbnail_engine;
 
 #[cfg(test)]
 mod thumbnail_engine_tests;
@@ -34,10 +34,10 @@ pub fn run() {
                     let _ = init_thumbnail_engine(dir).await;
                 }
             });
-            
+
             // Initialize Whisper download state
             app.manage(whisper::init_download_state());
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

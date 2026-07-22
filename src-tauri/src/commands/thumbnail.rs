@@ -3,17 +3,17 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use tauri::Manager;
+use tokio::sync::broadcast;
 
 use crate::thumbnail_engine::decoder::{get_decoder, release_decoder};
-use crate::thumbnail_engine::pyramid::RawRgbaFrame;
 use crate::thumbnail_engine::geometry::fit_preserving_aspect;
+use crate::thumbnail_engine::pyramid::RawRgbaFrame;
 use crate::thumbnail_engine::{
-    clear_video_thumbnail_cache, downsample_pyramid, get_cache_stats,
-    init_thumbnail_engine, tier_inflight_key, ArtifactSource, DensityLevel, FrameContentHash,
-    RenderArtifact, SpatialTier, ThumbnailTile, TierCacheKey, FRAME_CACHE, IN_FLIGHT_TIER,
-    TIER_CACHE, ResolutionTier, GLOBAL_CACHE,
+    clear_video_thumbnail_cache, downsample_pyramid, get_cache_stats, init_thumbnail_engine,
+    tier_inflight_key, ArtifactSource, DensityLevel, FrameContentHash, RenderArtifact,
+    ResolutionTier, SpatialTier, ThumbnailTile, TierCacheKey, FRAME_CACHE, GLOBAL_CACHE,
+    IN_FLIGHT_TIER, TIER_CACHE,
 };
 
 /// In-flight extraction deduplication for fast scrubbing.
@@ -96,8 +96,8 @@ pub async fn extract_poster_frame_command(
     duration: f64,
     dpr: f64,
 ) -> Result<String, String> {
-    use image::codecs::webp::WebPEncoder;
     use crate::thumbnail_engine::decoder::get_decoder;
+    use image::codecs::webp::WebPEncoder;
 
     // Professional thumbnail heuristic:
     // 15% into video, never < 1.0s (first GOP / black frames), never > 30.0s
@@ -752,7 +752,12 @@ pub async fn get_render_artifacts_batch(
     use crate::thumbnail_engine::atlas::get_atlas_manager;
 
     let req_id = request_id.unwrap_or_else(|| "unknown".to_string());
-    eprintln!("[batch:start] req={} ts={} tiers={:?}", req_id, timestamps_ms.len(), spatial_tiers);
+    eprintln!(
+        "[batch:start] req={} ts={} tiers={:?}",
+        req_id,
+        timestamps_ms.len(),
+        spatial_tiers
+    );
 
     let video_id = format!("{:x}", md5::compute(&video_path));
 
@@ -799,7 +804,8 @@ pub async fn get_render_artifacts_batch(
             };
             let density = DensityLevel::Medium;
 
-            let atlas_manager = get_atlas_manager(&video_id, density, resolution_tier, cache_dir.clone()).await;
+            let atlas_manager =
+                get_atlas_manager(&video_id, density, resolution_tier, cache_dir.clone()).await;
 
             let manager = atlas_manager.read().await;
             if let Some(location) = manager.get_location(timestamp_secs) {
@@ -816,7 +822,10 @@ pub async fn get_render_artifacts_batch(
                         source: ArtifactSource::BackendTierCache,
                     };
                     let _ = on_artifact.send(artifact);
-                    eprintln!("[batch:atlas-hit] req={} tier={:?} ts={} (hits={})", req_id, tier, timestamp_ms, atlas_hits);
+                    eprintln!(
+                        "[batch:atlas-hit] req={} tier={:?} ts={} (hits={})",
+                        req_id, tier, timestamp_ms, atlas_hits
+                    );
                     continue;
                 }
             }
@@ -838,14 +847,20 @@ pub async fn get_render_artifacts_batch(
                     source: ArtifactSource::BackendTierCache,
                 };
                 let _ = on_artifact.send(artifact);
-                eprintln!("[batch:tier-hit] req={} tier={:?} ts={} (hits={})", req_id, tier, timestamp_ms, tier_cache_hits);
+                eprintln!(
+                    "[batch:tier-hit] req={} tier={:?} ts={} (hits={})",
+                    req_id, tier, timestamp_ms, tier_cache_hits
+                );
             } else {
                 missing_tiers.push(*tier);
             }
         }
 
         if !missing_tiers.is_empty() {
-            eprintln!("[batch:decode] req={} tiers={:?} ts={}", req_id, missing_tiers, timestamp_ms);
+            eprintln!(
+                "[batch:decode] req={} tiers={:?} ts={}",
+                req_id, missing_tiers, timestamp_ms
+            );
             decodes += 1;
             let inflight_key = tier_inflight_key(&content_hash, SpatialTier::L0);
             let is_new = IN_FLIGHT_TIER.insert(inflight_key.clone(), ()).is_none();
@@ -905,7 +920,10 @@ pub async fn get_render_artifacts_batch(
                         };
                         TIER_CACHE.insert(key, tier_frame);
                         let _ = on_artifact.send(artifact);
-                        eprintln!("[batch:decoded] req={} tier={:?} ts={}", req_id, tier, timestamp_ms);
+                        eprintln!(
+                            "[batch:decoded] req={} tier={:?} ts={}",
+                            req_id, tier, timestamp_ms
+                        );
                     }
                     Err(e) => {
                         eprintln!("[batch:error] req={} tier={:?} error={}", req_id, tier, e);
@@ -915,7 +933,10 @@ pub async fn get_render_artifacts_batch(
         }
     }
 
-    eprintln!("[batch:complete] req={} atlas_hits={} tier_cache_hits={} decodes={}", req_id, atlas_hits, tier_cache_hits, decodes);
+    eprintln!(
+        "[batch:complete] req={} atlas_hits={} tier_cache_hits={} decodes={}",
+        req_id, atlas_hits, tier_cache_hits, decodes
+    );
 
     GLOBAL_ATLAS_HITS.fetch_add(atlas_hits as u64, Ordering::Relaxed);
     GLOBAL_TIER_CACHE_HITS.fetch_add(tier_cache_hits as u64, Ordering::Relaxed);

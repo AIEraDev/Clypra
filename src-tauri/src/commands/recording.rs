@@ -40,13 +40,19 @@ pub async fn trim_video(
 
     let output = Command::new("ffmpeg")
         .args([
-            "-y",                          // Overwrite output without asking
-            "-ss", &format!("{:.3}", start_seconds), // Seek before -i for fast keyframe seek
-            "-i", &input_path,
-            "-t", &format!("{:.3}", duration),        // Duration, not end time
-            "-c", "copy",                  // Stream copy — no re-encode
-            "-avoid_negative_ts", "make_zero",        // Clean trim start
-            "-movflags", "+faststart",     // Web-friendly MP4 structure
+            "-y", // Overwrite output without asking
+            "-ss",
+            &format!("{:.3}", start_seconds), // Seek before -i for fast keyframe seek
+            "-i",
+            &input_path,
+            "-t",
+            &format!("{:.3}", duration), // Duration, not end time
+            "-c",
+            "copy", // Stream copy — no re-encode
+            "-avoid_negative_ts",
+            "make_zero", // Clean trim start
+            "-movflags",
+            "+faststart", // Web-friendly MP4 structure
             &output_path,
         ])
         .output()

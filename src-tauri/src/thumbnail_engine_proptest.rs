@@ -3,9 +3,9 @@
 //! These tests verify universal correctness properties using proptest.
 //! Each property is tagged with its corresponding design property number.
 
+use crate::thumbnail_engine::*;
 use proptest::prelude::*;
 use std::path::PathBuf;
-use crate::thumbnail_engine::*;
 
 // Property 1: Cache key round-trip preservation
 // For any valid video path, timestamp, density, and DPR, serializing a CacheKey

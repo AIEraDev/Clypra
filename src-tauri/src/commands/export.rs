@@ -12,7 +12,7 @@
  * - Cancellation support
  * - Multiple codec support (H.264, H.265, ProRes)
  * - Audio mixing (future)
- * 
+ *
  * Monitoring:
  * - Frame write timing (logged periodically)
  * - Export FPS tracking
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
 use std::sync::Arc;
-use tauri::ipc::{Channel, Request, InvokeBody};
+use tauri::ipc::{Channel, InvokeBody, Request};
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
@@ -33,16 +33,16 @@ use tokio::sync::Mutex;
 pub struct ExportProgress {
     /// Current frame number
     pub current_frame: u32,
-    
+
     /// Total frames to export
     pub total_frames: u32,
-    
+
     /// Progress (0.0 - 1.0)
     pub progress: f64,
-    
+
     /// Estimated time remaining in seconds
     pub eta_seconds: f64,
-    
+
     /// Current FPS (frames per second)
     pub fps: f64,
 }
@@ -53,16 +53,16 @@ pub struct ExportProgress {
 pub struct ExportAudioClip {
     /// Absolute local file path
     pub path: String,
-    
+
     /// Start time in seconds (relative to the export video start)
     pub start_time: f64,
-    
+
     /// Duration in seconds to play
     pub duration: f64,
-    
+
     /// Trim in offset in seconds inside the source media file
     pub trim_in: f64,
-    
+
     /// Volume multiplier (0.0-1.0)
     /// This prevents precision loss during serialization round-trips
     pub volume: f64,
@@ -80,28 +80,28 @@ pub struct ExportAudioClip {
 pub struct ExportConfig {
     /// Output file path
     pub output_path: String,
-    
+
     /// Video width
     pub width: u32,
-    
+
     /// Video height
     pub height: u32,
-    
+
     /// Frame rate
     pub frame_rate: f64,
-    
+
     /// Total frames to export
     pub total_frames: u32,
-    
+
     /// Video codec (h264, h265, prores)
     pub codec: String,
-    
+
     /// Quality preset (ultrafast, fast, medium, slow, veryslow)
     pub preset: String,
-    
+
     /// CRF quality (0-51, lower = better quality)
     pub crf: u32,
-    
+
     /// Pixel format (yuv420p, yuv444p)
     pub pixel_format: String,
 
@@ -113,29 +113,29 @@ pub struct ExportConfig {
 struct ExportSession {
     /// FFmpeg child process
     process: Child,
-    
+
     /// Stdin handle for writing frames
     stdin: tokio::process::ChildStdin,
-    
+
     /// Current frame count
     current_frame: u32,
-    
+
     /// Total frames
     total_frames: u32,
-    
+
     /// Start time
     start_time: std::time::Instant,
 
     /// Channel for progress updates
     on_progress: Channel<ExportProgress>,
-    
+
     /// Export configuration (for frame size validation)
     width: u32,
     height: u32,
-    
+
     /// Output file path (for cleanup on cancellation)
     output_path: Option<String>,
-    
+
     /// Performance monitoring
     frame_write_times: VecDeque<f64>, // Last 60 frame write times (ms) — VecDeque for O(1) front removal
     last_perf_log_time: std::time::Instant,
@@ -171,10 +171,14 @@ async fn has_audio_stream(path: &str) -> bool {
     let output = Command::new("ffprobe")
         .env("PATH", &path_env)
         .args([
-            "-v", "error",
-            "-select_streams", "a",
-            "-show_entries", "stream=codec_type",
-            "-of", "csv=p=0",
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
             path,
         ])
         .output()
@@ -189,12 +193,19 @@ async fn has_audio_stream(path: &str) -> bool {
                 has_audio
             } else {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                eprintln!("[has_audio_stream] ffprobe non-zero exit for {}: {}", path, stderr.trim());
+                eprintln!(
+                    "[has_audio_stream] ffprobe non-zero exit for {}: {}",
+                    path,
+                    stderr.trim()
+                );
                 false
             }
         }
         Err(e) => {
-            eprintln!("[has_audio_stream] Could not spawn ffprobe (PATH={}): {}", path_env, e);
+            eprintln!(
+                "[has_audio_stream] Could not spawn ffprobe (PATH={}): {}",
+                path_env, e
+            );
             false
         }
     }
@@ -218,14 +229,14 @@ pub async fn start_video_export(
             config.width, config.height
         ));
     }
-    
+
     // Generate session ID
     let session_id = uuid::Uuid::new_v4().to_string();
-    
+
     // Build FFmpeg command
     let mut cmd = Command::new("ffmpeg");
     cmd.env("PATH", augmented_path());
-    
+
     // Input 0: raw RGBA frames from stdin
     cmd.arg("-f")
         .arg("rawvideo")
@@ -264,7 +275,7 @@ pub async fn start_video_export(
     // Build filter complex for mixing if we have valid audio clips
     if !valid_audio_clips.is_empty() {
         let mut filter_complex = String::new();
-        
+
         // Generate a silent audio track matching the exact video duration.
         // This serves as a duration anchor. When mixed with duration=longest,
         // it ensures that the mixed audio stream has the exact same duration
@@ -274,39 +285,45 @@ pub async fn start_video_export(
             "anullsrc=channel_layout=stereo:sample_rate=48000:duration={:.3}[asilence];",
             total_duration
         ));
-        
+
         for (idx, clip) in valid_audio_clips.iter().enumerate() {
             let input_idx = idx + 1; // input 0 is pipe:0 (video)
             let delay_ms = (clip.start_time * 1000.0) as i64;
             let end_time = clip.trim_in + clip.duration;
-            
+
             let fade_in = clip.fade_in.unwrap_or(0.0).max(0.0).min(clip.duration);
             let fade_out = clip.fade_out.unwrap_or(0.0).max(0.0).min(clip.duration);
-            
+
             // Ensure audio timebase alignment with video to prevent A/V drift
             // Resample to consistent 48kHz before processing to match video timebase
             let mut chain = format!(
                 "[{}:a]aresample=48000,atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS",
                 input_idx, clip.trim_in, end_time
             );
-            
+
             if fade_in > 0.001 {
                 chain.push_str(&format!(",afade=t=in:st=0:d={:.3}", fade_in));
             }
             if fade_out > 0.001 {
                 let fade_start = (clip.duration - fade_out).max(0.0);
-                chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", fade_start, fade_out));
+                chain.push_str(&format!(
+                    ",afade=t=out:st={:.3}:d={:.3}",
+                    fade_start, fade_out
+                ));
             }
-            chain.push_str(&format!(",adelay={}:all=1,volume={:.3}[a{}];", delay_ms, clip.volume, input_idx));
+            chain.push_str(&format!(
+                ",adelay={}:all=1,volume={:.3}[a{}];",
+                delay_ms, clip.volume, input_idx
+            ));
             filter_complex.push_str(&chain);
         }
-        
+
         // Map all processed streams (including silence) into amix
         filter_complex.push_str("[asilence]");
         for idx in 0..valid_audio_clips.len() {
             filter_complex.push_str(&format!("[a{}]", idx + 1));
         }
-        
+
         // Mix with duration=longest. The silence stream guarantees the audio
         // output has exactly the same duration as the video, preventing both
         // early cut-off (BUG-shortest) and trailing audio bloat.
@@ -314,13 +331,13 @@ pub async fn start_video_export(
             "amix=inputs={}:duration=longest[a]",
             valid_audio_clips.len() + 1
         ));
-        
+
         cmd.arg("-filter_complex").arg(filter_complex);
-        
+
         // Map streams explicitly: input 0 video, mixed audio
         cmd.arg("-map").arg("0:v");
         cmd.arg("-map").arg("[a]");
-        
+
         // Configure AAC audio codec with explicit sample rate for consistency
         cmd.arg("-c:a").arg("aac");
         cmd.arg("-ar").arg("48000"); // Lock output sample rate
@@ -329,7 +346,7 @@ pub async fn start_video_export(
         // Map only the video stream from input 0
         cmd.arg("-map").arg("0:v");
     }
-    
+
     // Video codec settings
     match config.codec.as_str() {
         "h264" => {
@@ -363,7 +380,8 @@ pub async fn start_video_export(
             // libx265 have competing frame-type control. force-idr=1 is the canonical
             // x265 mechanism and is processed after open-gop/scenecut, guaranteeing
             // an IDR at frame 0 for thumbnail extraction.
-            cmd.arg("-x265-params").arg("scenecut=0:open-gop=0:force-idr=1");
+            cmd.arg("-x265-params")
+                .arg("scenecut=0:open-gop=0:force-idr=1");
         }
         "prores" => {
             cmd.arg("-c:v").arg("prores_ks");
@@ -373,8 +391,8 @@ pub async fn start_video_export(
             let (prores_profile, prores_pix_fmt) = match config.pixel_format.as_str() {
                 "yuv422p10le" => ("3", "yuv422p10le"), // ProRes 422 HQ (profile 3)
                 "yuva444p10le" => ("4", "yuva444p10le"), // ProRes 4444
-                "yuv422p"     => ("1", "yuv422p"),      // ProRes 422 LT (profile 1)
-                _ => ("3", "yuv422p10le"),               // Default: ProRes 422 HQ
+                "yuv422p" => ("1", "yuv422p"),         // ProRes 422 LT (profile 1)
+                _ => ("3", "yuv422p10le"),             // Default: ProRes 422 HQ
             };
             cmd.arg("-profile:v").arg(prores_profile);
             cmd.arg("-pix_fmt").arg(prores_pix_fmt);
@@ -384,29 +402,29 @@ pub async fn start_video_export(
             return Err(format!("不支持的编码格式：{}", config.codec));
         }
     }
-    
+
     // Output settings
     cmd.arg("-movflags").arg("+faststart"); // Enable streaming
     cmd.arg("-y"); // Overwrite output file
     cmd.arg(&config.output_path);
-    
+
     // Spawn FFmpeg process
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    
+
     // Log the full FFmpeg command for debugging
     eprintln!("[start_video_export] FFmpeg command: {:?}", cmd);
-    
+
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("启动 FFmpeg 失败：{}", e))?;
-    
+
     let stdin = child
         .stdin
         .take()
         .ok_or_else(|| "打开 FFmpeg 标准输入失败".to_string())?;
-    
+
     // Create session
     let session = ExportSession {
         process: child,
@@ -421,15 +439,23 @@ pub async fn start_video_export(
         frame_write_times: VecDeque::with_capacity(60), // FIX (BUG-M7): VecDeque for O(1) front removal
         last_perf_log_time: std::time::Instant::now(),
     };
-    
+
     // Store session
-    EXPORT_SESSIONS.lock().await.insert(session_id.clone(), session);
-    
+    EXPORT_SESSIONS
+        .lock()
+        .await
+        .insert(session_id.clone(), session);
+
     eprintln!(
         "[start_video_export] Started session {} ({}x{} @ {}fps, {} frames, codec={})",
-        session_id, config.width, config.height, config.frame_rate, config.total_frames, config.codec
+        session_id,
+        config.width,
+        config.height,
+        config.frame_rate,
+        config.total_frames,
+        config.codec
     );
-    
+
     Ok(session_id)
 }
 
@@ -437,9 +463,7 @@ pub async fn start_video_export(
 ///
 /// Frame data should be raw RGBA bytes (width * height * 4) sent as raw request payload.
 #[tauri::command]
-pub async fn write_export_frame(
-    request: Request<'_>,
-) -> Result<(), String> {
+pub async fn write_export_frame(request: Request<'_>) -> Result<(), String> {
     // Extract session-id from headers
     let headers = request.headers();
     let session_id = headers
@@ -454,33 +478,33 @@ pub async fn write_export_frame(
     };
 
     let mut sessions = EXPORT_SESSIONS.lock().await;
-    
+
     let session = sessions
         .get_mut(&session_id)
         .ok_or_else(|| format!("未找到导出会话：{}", session_id))?;
-    
+
     // Validate frame buffer size matches expected dimensions
     // RGBA format = 4 bytes per pixel
     let expected_size = (session.width * session.height * 4) as usize;
     let actual_size = frame_data.len();
-    
+
     if actual_size != expected_size {
         return Err(format!(
             "帧缓冲区大小不匹配：应为 {} 字节（{}x{}x4），实际为 {} 字节",
             expected_size, session.width, session.height, actual_size
         ));
     }
-    
+
     // MONITORING: Track frame write timing
     let write_start = std::time::Instant::now();
-    
+
     // Write frame data to FFmpeg stdin
     session
         .stdin
         .write_all(frame_data)
         .await
         .map_err(|e| format!("写入帧失败：{}", e))?;
-    
+
     // Flush stdin buffer after each frame to ensure FFmpeg processes it immediately
     // This prevents PTS discontinuities from buffering delays
     session
@@ -488,29 +512,33 @@ pub async fn write_export_frame(
         .flush()
         .await
         .map_err(|e| format!("刷新帧缓冲区失败：{}", e))?;
-    
+
     // MONITORING: Record write time
     let write_duration = write_start.elapsed().as_secs_f64() * 1000.0; // ms
     session.frame_write_times.push_back(write_duration); // push_back on VecDeque
-    
+
     // Keep only last 60 frames for rolling statistics — O(1) pop_front on VecDeque
     if session.frame_write_times.len() > 60 {
         session.frame_write_times.pop_front(); // FIX (BUG-M7): was remove(0) — O(n) Vec shift
     }
-    
+
     session.current_frame += 1;
-    
+
     // Calculate progress
     let progress = session.current_frame as f64 / session.total_frames as f64;
     let elapsed = session.start_time.elapsed().as_secs_f64();
-    let fps = if elapsed > 0.0 { session.current_frame as f64 / elapsed } else { 0.0 };
+    let fps = if elapsed > 0.0 {
+        session.current_frame as f64 / elapsed
+    } else {
+        0.0
+    };
     let remaining_frames = session.total_frames.saturating_sub(session.current_frame);
     let eta_seconds = if fps > 0.0 {
         remaining_frames as f64 / fps
     } else {
         0.0
     };
-    
+
     // Send progress update
     let progress_update = ExportProgress {
         current_frame: session.current_frame,
@@ -519,9 +547,9 @@ pub async fn write_export_frame(
         eta_seconds,
         fps,
     };
-    
+
     let _ = session.on_progress.send(progress_update);
-    
+
     // Log progress periodically
     if session.current_frame % 30 == 0 || session.current_frame == session.total_frames {
         // MONITORING: Calculate frame write statistics
@@ -530,9 +558,13 @@ pub async fn write_export_frame(
         } else {
             0.0
         };
-        
-        let max_write_ms = session.frame_write_times.iter().cloned().fold(0.0f64, f64::max);
-        
+
+        let max_write_ms = session
+            .frame_write_times
+            .iter()
+            .cloned()
+            .fold(0.0f64, f64::max);
+
         eprintln!(
             "[write_export_frame] Session {}: {}/{} frames ({:.1}%) @ {:.1} fps, ETA {:.1}s | Frame write: avg={:.2}ms max={:.2}ms",
             session_id,
@@ -544,7 +576,7 @@ pub async fn write_export_frame(
             avg_write_ms,
             max_write_ms
         );
-        
+
         // Log detailed performance every 5 seconds
         if session.last_perf_log_time.elapsed().as_secs() >= 5 {
             session.last_perf_log_time = std::time::Instant::now();
@@ -559,7 +591,7 @@ pub async fn write_export_frame(
             );
         }
     }
-    
+
     Ok(())
 }
 
@@ -584,11 +616,9 @@ pub async fn write_export_frame(
 ///   - `frame-count`: Number of frames in this batch
 /// * Request body: Raw concatenated RGBA frames
 #[tauri::command]
-pub async fn write_export_frames_batch(
-    request: Request<'_>,
-) -> Result<(), String> {
+pub async fn write_export_frames_batch(request: Request<'_>) -> Result<(), String> {
     let batch_start = std::time::Instant::now();
-    
+
     // Extract headers
     let headers = request.headers();
     let session_id = headers
@@ -596,13 +626,13 @@ pub async fn write_export_frames_batch(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| "缺少 session-id 请求头".to_string())?
         .to_string();
-    
+
     let frame_count = headers
         .get("frame-count")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u32>().ok())
         .ok_or_else(|| "缺少 frame-count 请求头，或其值无效".to_string())?;
-    
+
     if frame_count == 0 {
         return Err("frame-count 必须大于 0".to_string());
     }
@@ -613,42 +643,42 @@ pub async fn write_export_frames_batch(
     };
 
     let mut sessions = EXPORT_SESSIONS.lock().await;
-    
+
     let session = sessions
         .get_mut(&session_id)
         .ok_or_else(|| format!("未找到导出会话：{}", session_id))?;
-    
+
     // Validate total batch size
     let frame_size = (session.width * session.height * 4) as usize;
     let expected_batch_size = frame_size * frame_count as usize;
     let actual_batch_size = batch_data.len();
-    
+
     if actual_batch_size != expected_batch_size {
         return Err(format!(
             "批次大小不匹配：应为 {} 字节（{} 帧 × {} 字节），实际为 {} 字节",
             expected_batch_size, frame_count, frame_size, actual_batch_size
         ));
     }
-    
+
     // Write all frames in batch
     let write_start = std::time::Instant::now();
-    
+
     session
         .stdin
         .write_all(batch_data)
         .await
         .map_err(|e| format!("写入帧批次失败：{}", e))?;
-    
+
     // Flush after batch (not per frame - reduces syscalls)
     session
         .stdin
         .flush()
         .await
         .map_err(|e| format!("刷新帧批次失败：{}", e))?;
-    
+
     let write_duration = write_start.elapsed().as_secs_f64() * 1000.0; // ms
     let per_frame_ms = write_duration / frame_count as f64;
-    
+
     // Record per-frame time for statistics
     for _ in 0..frame_count {
         session.frame_write_times.push_back(per_frame_ms); // push_back on VecDeque
@@ -656,20 +686,24 @@ pub async fn write_export_frames_batch(
             session.frame_write_times.pop_front(); // O(1) — FIX (BUG-M7)
         }
     }
-    
+
     session.current_frame += frame_count;
-    
+
     // Calculate progress
     let progress = session.current_frame as f64 / session.total_frames as f64;
     let elapsed = session.start_time.elapsed().as_secs_f64();
-    let fps = if elapsed > 0.0 { session.current_frame as f64 / elapsed } else { 0.0 };
+    let fps = if elapsed > 0.0 {
+        session.current_frame as f64 / elapsed
+    } else {
+        0.0
+    };
     let remaining_frames = session.total_frames.saturating_sub(session.current_frame); // FIX (BUG-H2): no underflow
     let eta_seconds = if fps > 0.0 {
         remaining_frames as f64 / fps
     } else {
         0.0
     };
-    
+
     // Send progress update
     let progress_update = ExportProgress {
         current_frame: session.current_frame,
@@ -678,13 +712,13 @@ pub async fn write_export_frames_batch(
         eta_seconds,
         fps,
     };
-    
+
     let _ = session.on_progress.send(progress_update);
-    
+
     // Log batch statistics
     let batch_duration = batch_start.elapsed().as_secs_f64() * 1000.0;
     let batch_fps = frame_count as f64 / (batch_duration / 1000.0);
-    
+
     eprintln!(
         "[write_export_frames_batch] Session {}: Wrote {} frames in {:.2}ms ({:.2}ms/frame, {:.1} fps) | Total: {}/{} ({:.1}%) @ {:.1} fps overall, ETA {:.1}s",
         session_id,
@@ -698,7 +732,7 @@ pub async fn write_export_frames_batch(
         fps,
         eta_seconds
     );
-    
+
     Ok(())
 }
 
@@ -712,23 +746,23 @@ fn format_ffmpeg_failure(stderr: &str) -> String {
 #[tauri::command]
 pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
     let mut sessions = EXPORT_SESSIONS.lock().await;
-    
+
     let session = sessions
         .remove(&session_id)
         .ok_or_else(|| format!("未找到导出会话：{}", session_id))?;
-    
+
     // Close stdin to signal end of input
     drop(session.stdin);
-    
+
     // Wait for FFmpeg to finish
     let output = session
         .process
         .wait_with_output()
         .await
         .map_err(|e| format!("等待 FFmpeg 完成失败：{}", e))?;
-    
+
     let elapsed = session.start_time.elapsed();
-    
+
     if output.status.success() {
         eprintln!(
             "[finalize_video_export] Session {} completed successfully in {:.2}s ({} frames)",
@@ -755,14 +789,14 @@ pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
     let mut sessions = EXPORT_SESSIONS.lock().await;
-    
+
     let mut session = sessions
         .remove(&session_id)
         .ok_or_else(|| format!("未找到导出会话：{}", session_id))?;
-    
+
     // Capture output path before killing the process
     let output_path = session.output_path.clone();
-    
+
     // Kill FFmpeg process.
     // FIX (BUG-L6): treat kill errors as non-fatal — the process may have already
     // exited (e.g. it crashed, or finalize raced with cancel). Either way we still
@@ -804,7 +838,7 @@ pub async fn check_ffmpeg_available() -> Result<bool, String> {
         .arg("-version")
         .output()
         .await;
-    
+
     match output {
         Ok(output) => Ok(output.status.success()),
         Err(_) => Ok(false),
@@ -824,7 +858,7 @@ pub async fn get_ffmpeg_version() -> Result<String, String> {
         .output()
         .await
         .map_err(|e| format!("运行 FFmpeg 失败：{}", e))?;
-    
+
     if output.status.success() {
         let version = String::from_utf8_lossy(&output.stdout);
         Ok(ffmpeg_version_first_line(&version).to_string())

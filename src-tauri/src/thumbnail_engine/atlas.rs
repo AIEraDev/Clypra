@@ -41,11 +41,14 @@ impl AtlasMetadata {
     }
 
     pub fn get_position(&self, time: f64) -> Option<(u32, u32)> {
-        self.timestamps.iter().position(|&t| (t - time).abs() < 0.001).map(|idx| {
-            let col = (idx as u32) % ATLAS_COLS;
-            let row = (idx as u32) / ATLAS_COLS;
-            (col, row)
-        })
+        self.timestamps
+            .iter()
+            .position(|&t| (t - time).abs() < 0.001)
+            .map(|idx| {
+                let col = (idx as u32) % ATLAS_COLS;
+                let row = (idx as u32) / ATLAS_COLS;
+                (col, row)
+            })
     }
 
     pub fn add_timestamp(&mut self, time: f64) -> usize {
@@ -93,7 +96,9 @@ impl AtlasManager {
 
     pub fn get_location(&self, time: f64) -> Option<AtlasLocation> {
         let timestamp_ms = (time * 1000.0).round() as u64;
-        self.timestamp_map.get(&timestamp_ms).map(|entry| entry.clone())
+        self.timestamp_map
+            .get(&timestamp_ms)
+            .map(|entry| entry.clone())
     }
 
     pub fn allocate(&mut self, time: f64) -> AtlasLocation {
@@ -157,7 +162,12 @@ impl AtlasBuilder {
         }
     }
 
-    pub fn add_thumbnail(&mut self, rgba_data: &[u8], actual_width: u32, actual_height: u32) -> Result<(u32, u32), String> {
+    pub fn add_thumbnail(
+        &mut self,
+        rgba_data: &[u8],
+        actual_width: u32,
+        actual_height: u32,
+    ) -> Result<(u32, u32), String> {
         if self.count >= THUMBNAILS_PER_ATLAS {
             return Err("Atlas is full".to_string());
         }
@@ -166,19 +176,22 @@ impl AtlasBuilder {
         if rgba_data.len() != expected_bytes {
             return Err(format!(
                 "Buffer size mismatch: expected {} bytes for {}×{} image, got {}",
-                expected_bytes, actual_width, actual_height, rgba_data.len()
+                expected_bytes,
+                actual_width,
+                actual_height,
+                rgba_data.len()
             ));
         }
 
         let col = (self.count as u32) % ATLAS_COLS;
         let row = (self.count as u32) / ATLAS_COLS;
-        
+
         let cell_x = col * self.thumb_width;
         let cell_y = row * self.thumb_height;
-        
+
         let offset_x = cell_x + (self.thumb_width - actual_width) / 2;
         let offset_y = cell_y + (self.thumb_height - actual_height) / 2;
-        
+
         for y in 0..actual_height {
             for x in 0..actual_width {
                 let src_idx = ((y * actual_width + x) * 4) as usize;
@@ -199,22 +212,30 @@ impl AtlasBuilder {
     pub async fn save(&self, path: &PathBuf) -> Result<(), String> {
         use image::codecs::webp::WebPEncoder;
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await
+            tokio::fs::create_dir_all(parent)
+                .await
                 .map_err(|e| format!("Failed to create atlas directory: {}", e))?;
         }
         let mut webp_data = Vec::new();
         let encoder = WebPEncoder::new_lossless(&mut webp_data);
-        encoder.encode(
-            self.atlas.as_raw(),
-            self.atlas.width(),
-            self.atlas.height(),
-            image::ExtendedColorType::Rgba8,
-        ).map_err(|e| format!("WebP encoding failed: {}", e))?;
-        tokio::fs::write(path, &webp_data).await
+        encoder
+            .encode(
+                self.atlas.as_raw(),
+                self.atlas.width(),
+                self.atlas.height(),
+                image::ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("WebP encoding failed: {}", e))?;
+        tokio::fs::write(path, &webp_data)
+            .await
             .map_err(|e| format!("Failed to write atlas file: {}", e))?;
 
-        eprintln!("[AtlasBuilder] Saved atlas: {} ({} thumbnails, {} bytes)",
-                  path.display(), self.count, webp_data.len());
+        eprintln!(
+            "[AtlasBuilder] Saved atlas: {} ({} thumbnails, {} bytes)",
+            path.display(),
+            self.count,
+            webp_data.len()
+        );
 
         Ok(())
     }
@@ -224,15 +245,19 @@ impl AtlasBuilder {
     }
 }
 
-pub static ATLAS_CACHE: Lazy<DashMap<String, Arc<RwLock<AtlasManager>>>> =
-    Lazy::new(DashMap::new);
+pub static ATLAS_CACHE: Lazy<DashMap<String, Arc<RwLock<AtlasManager>>>> = Lazy::new(DashMap::new);
 pub async fn get_atlas_manager(
     video_id: &str,
     density: DensityLevel,
     resolution_tier: ResolutionTier,
     cache_dir: PathBuf,
 ) -> Arc<RwLock<AtlasManager>> {
-    let key = format!("{}:{}:{}", video_id, density.label(), resolution_tier.label());
+    let key = format!(
+        "{}:{}:{}",
+        video_id,
+        density.label(),
+        resolution_tier.label()
+    );
 
     if let Some(manager) = ATLAS_CACHE.get(&key) {
         return manager.clone();

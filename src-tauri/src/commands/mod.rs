@@ -1,13 +1,13 @@
+pub mod export;
 pub mod media;
 pub mod project;
-pub mod export;
+pub mod recording;
 pub mod thumbnail;
 pub mod whisper;
-pub mod recording;
 
+pub use export::*;
 pub use media::*;
 pub use project::*;
-pub use export::*;
+pub use recording::*;
 pub use thumbnail::*;
 pub use whisper::*;
-pub use recording::*;

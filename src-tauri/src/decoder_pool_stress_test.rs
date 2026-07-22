@@ -189,7 +189,10 @@ mod decoder_pool_stress_tests {
         assert_eq!(hits, 2, "Should have 2 hits (A, B)");
         assert_eq!(misses, 4, "Should have 4 misses (A, B, C, D)");
 
-        println!("LRU test: {} hits, {} misses, {} evictions", hits, misses, evictions);
+        println!(
+            "LRU test: {} hits, {} misses, {} evictions",
+            hits, misses, evictions
+        );
     }
 
     #[test]
