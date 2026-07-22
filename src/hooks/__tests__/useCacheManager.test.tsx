@@ -58,7 +58,7 @@ describe("useCacheManager hook", () => {
     expect(CacheManager.clearAppCache).toHaveBeenCalled();
     expect(resultHook.current.lastResult).toEqual({
       success: true,
-      message: "App cache cleared successfully!",
+      message: "应用缓存已成功清理！",
     });
   });
 
@@ -78,7 +78,7 @@ describe("useCacheManager hook", () => {
     expect(CacheManager.clearWebViewCache).toHaveBeenCalled();
     expect(resultHook.current.lastResult).toEqual({
       success: true,
-      message: "WebView cache cleared successfully!",
+      message: "WebView 缓存已成功清理！",
     });
   });
 
@@ -98,7 +98,7 @@ describe("useCacheManager hook", () => {
     expect(CacheManager.clearGPUCache).toHaveBeenCalled();
     expect(resultHook.current.lastResult).toEqual({
       success: true,
-      message: "GPU cache cleared successfully!",
+      message: "GPU 缓存已成功清理！",
     });
   });
 
@@ -124,7 +124,7 @@ describe("useCacheManager hook", () => {
     expect(CacheManager.clearAllCaches).toHaveBeenCalledWith({ localStorage: false });
     expect(resultHook.current.lastResult).toEqual({
       success: true,
-      message: "All caches cleared successfully!",
+      message: "所有缓存已成功清理！",
       stats: mockStats,
     });
   });
@@ -149,7 +149,7 @@ describe("useCacheManager hook", () => {
     });
 
     expect(resultHook.current.lastResult?.success).toBe(false);
-    expect(resultHook.current.lastResult?.message).toContain("Cleared with 1 error");
+    expect(resultHook.current.lastResult?.message).toBe("缓存已清理，但发生 1 个错误");
   });
 
   it("should reset last result on clearResult call", async () => {

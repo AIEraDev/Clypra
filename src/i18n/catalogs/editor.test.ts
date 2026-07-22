@@ -372,4 +372,11 @@ describe("editor shell localization", () => {
     expect(gpuPreviewSource).toContain('t("editor.preview.gpu.initializing")');
     expect(gpuPreviewSource).toContain('t("editor.preview.gpu.consoleDetails")');
   });
+
+  test("translates renderer fallback diagnostics", () => {
+    expect(t("editor.preview.fallback.noContentAt", { time: "1.25" })).toBe(
+      "1.25 秒处无内容",
+    );
+    expect(t("editor.preview.fallback.frozenFrame")).toBe("冻结帧");
+  });
 });

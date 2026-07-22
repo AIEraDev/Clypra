@@ -10,6 +10,7 @@ import { useShortcutStore } from "@/store/shortcutStore";
 import { EditingActions } from "@/core/interactions";
 import { generateId } from "@/lib/utils/id";
 import { useAnchoredTimelineZoom } from "./useAnchoredTimelineZoom";
+import { t } from "@/i18n";
 
 let copiedClipsClipboard: Array<{
   trackId: string;
@@ -151,7 +152,7 @@ export const useKeyboardShortcuts = () => {
             startTime: clip.startTime + offset,
           });
         });
-        setToastMessage(`Duplicated ${selected.length} clip${selected.length > 1 ? "s" : ""}`);
+        setToastMessage(t("timeline.toast.duplicated.count", { count: selected.length }));
         setTimeout(() => setToastMessage(null), 2000);
       } else if (isMeta && e.key.toLowerCase() === "c") {
         e.preventDefault();
@@ -176,7 +177,7 @@ export const useKeyboardShortcuts = () => {
           sourceAspectRatio: clip.sourceAspectRatio,
           fitMode: clip.fitMode,
         }));
-        setToastMessage(`Copied ${copiedClipsClipboard.length} clip${copiedClipsClipboard.length > 1 ? "s" : ""}`);
+        setToastMessage(t("timeline.toast.copied.count", { count: copiedClipsClipboard.length }));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (isMeta && e.key.toLowerCase() === "v") {
         e.preventDefault();
@@ -202,7 +203,7 @@ export const useKeyboardShortcuts = () => {
             fitMode: clip.fitMode,
           });
         });
-        setToastMessage(`Pasted ${copiedClipsClipboard.length} clip${copiedClipsClipboard.length > 1 ? "s" : ""}`);
+        setToastMessage(t("timeline.toast.pasted.count", { count: copiedClipsClipboard.length }));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (isMeta && e.shiftKey && e.key === "S") {
         e.preventDefault();
@@ -224,7 +225,7 @@ export const useKeyboardShortcuts = () => {
       } else if (e.key === "r" && !isMeta) {
         e.preventDefault();
         toggleRippleEdit();
-        setToastMessage(rippleEditEnabled ? "Ripple Mode: OFF" : "Ripple Mode: ON");
+        setToastMessage(t(rippleEditEnabled ? "timeline.toast.ripple.off" : "timeline.toast.ripple.on"));
         setTimeout(() => setToastMessage(null), 2000);
       } else if (isMeta && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -233,10 +234,10 @@ export const useKeyboardShortcuts = () => {
           // PB-HIDDEN-005 fix: Ctrl+Shift+K splits ALL clips at playhead
           const results = EditingActions.splitAtPlayhead();
           if (results.length === 0) {
-            setToastMessage("No clips under playhead to split");
+            setToastMessage(t("timeline.toast.split.none"));
           } else {
             const successCount = results.filter((r) => r.success).length;
-            setToastMessage(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+            setToastMessage(t("timeline.toast.split.count", { count: successCount }));
           }
         } else {
           // PB-HIDDEN-005 fix: Ctrl+K splits only SELECTED clips at playhead
@@ -246,19 +247,19 @@ export const useKeyboardShortcuts = () => {
           if (selected.length > 0) {
             const results = EditingActions.splitSelectedAtPlayhead(selectedClipIds);
             if (results.length === 0) {
-              setToastMessage("No selected clips under playhead to split");
+              setToastMessage(t("timeline.toast.split.selectedNone"));
             } else {
               const successCount = results.filter((r) => r.success).length;
-              setToastMessage(`Split ${successCount} selected clip${successCount > 1 ? "s" : ""}`);
+              setToastMessage(t("timeline.toast.split.selectedCount", { count: successCount }));
             }
           } else {
             // No selection — fall back to split all
             const results = EditingActions.splitAtPlayhead();
             if (results.length === 0) {
-              setToastMessage("No clips under playhead to split");
+              setToastMessage(t("timeline.toast.split.none"));
             } else {
               const successCount = results.filter((r) => r.success).length;
-              setToastMessage(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+              setToastMessage(t("timeline.toast.split.count", { count: successCount }));
             }
           }
         }
@@ -269,13 +270,13 @@ export const useKeyboardShortcuts = () => {
         const store = useTimelineStore.getState();
         const allClipIds = store.clips.map((c) => c.id);
         useUIStore.setState({ selectedClipIds: allClipIds, selectedGapId: null });
-        setToastMessage(`Selected ${allClipIds.length} clip${allClipIds.length !== 1 ? "s" : ""}`);
+        setToastMessage(t("timeline.toast.selected.count", { count: allClipIds.length }));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (isMeta && e.shiftKey && e.key.toLowerCase() === "d") {
         e.preventDefault();
         // Ctrl/Cmd+Shift+D: Deselect all
         useUIStore.getState().clearSelection();
-        setToastMessage("Deselected all clips");
+        setToastMessage(t("timeline.toast.deselectedAll"));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (isMeta && (e.key === "]" || e.key === "[")) {
         e.preventDefault();
@@ -289,7 +290,7 @@ export const useKeyboardShortcuts = () => {
         const selectedClips = store.clips.filter((c) => selectedClipIds.includes(c.id));
 
         if (selectedClips.length === 0) {
-          setToastMessage("No clips selected to nudge");
+          setToastMessage(t("timeline.toast.nudge.none"));
           setTimeout(() => setToastMessage(null), 1500);
           return;
         }
@@ -301,8 +302,11 @@ export const useKeyboardShortcuts = () => {
           });
         });
 
-        const directionText = direction > 0 ? "right" : "left";
-        setToastMessage(`Nudged ${selectedClips.length} clip${selectedClips.length > 1 ? "s" : ""} ${directionText} by ${nudgeAmount} frame${nudgeAmount > 1 ? "s" : ""}`);
+        setToastMessage(t("timeline.toast.nudge.count", {
+          count: selectedClips.length,
+          direction: t(direction > 0 ? "timeline.direction.right" : "timeline.direction.left"),
+          frames: nudgeAmount,
+        }));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
         e.preventDefault();
@@ -314,7 +318,7 @@ export const useKeyboardShortcuts = () => {
         // Get currently selected clip
         const currentClipId = selectedClipIds[0];
         if (!currentClipId) {
-          setToastMessage("No clip selected");
+          setToastMessage(t("timeline.toast.navigation.noClip"));
           setTimeout(() => setToastMessage(null), 1500);
           return;
         }
@@ -329,7 +333,9 @@ export const useKeyboardShortcuts = () => {
         // Find target track
         const targetTrackIndex = currentTrackIndex + direction;
         if (targetTrackIndex < 0 || targetTrackIndex >= store.tracks.length) {
-          setToastMessage("No track " + (direction < 0 ? "above" : "below"));
+          setToastMessage(t("timeline.toast.navigation.noTrack", {
+            direction: t(direction < 0 ? "timeline.direction.above" : "timeline.direction.below"),
+          }));
           setTimeout(() => setToastMessage(null), 1500);
           return;
         }
@@ -340,7 +346,9 @@ export const useKeyboardShortcuts = () => {
         const targetTrackClips = store.clips.filter((c) => c.trackId === targetTrack.id).sort((a, b) => Math.abs(a.startTime - currentClip.startTime) - Math.abs(b.startTime - currentClip.startTime));
 
         if (targetTrackClips.length === 0) {
-          setToastMessage(`No clips on track ${direction < 0 ? "above" : "below"}`);
+          setToastMessage(t("timeline.toast.navigation.noClips", {
+            direction: t(direction < 0 ? "timeline.direction.above" : "timeline.direction.below"),
+          }));
           setTimeout(() => setToastMessage(null), 1500);
           return;
         }
@@ -348,7 +356,9 @@ export const useKeyboardShortcuts = () => {
         // Select the closest clip
         const closestClip = targetTrackClips[0];
         uiStore.selectClip(closestClip.id);
-        setToastMessage(`Selected clip on track ${direction < 0 ? "above" : "below"}`);
+        setToastMessage(t("timeline.toast.navigation.selectedClip", {
+          direction: t(direction < 0 ? "timeline.direction.above" : "timeline.direction.below"),
+        }));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "l") {
         e.preventDefault();
@@ -357,7 +367,7 @@ export const useKeyboardShortcuts = () => {
         const selectedTrackId = uiStore.selectedTrackId;
 
         if (!selectedTrackId) {
-          setToastMessage("No track selected");
+          setToastMessage(t("timeline.toast.track.noneSelected"));
           setTimeout(() => setToastMessage(null), 1500);
           return;
         }
@@ -366,7 +376,7 @@ export const useKeyboardShortcuts = () => {
         store.toggleTrackLock(selectedTrackId);
 
         const track = store.tracks.find((t) => t.id === selectedTrackId);
-        setToastMessage(track?.locked ? "Track locked" : "Track unlocked");
+        setToastMessage(t(track?.locked ? "timeline.toast.track.locked" : "timeline.toast.track.unlocked"));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "v") {
         e.preventDefault();
@@ -375,7 +385,7 @@ export const useKeyboardShortcuts = () => {
         const selectedTrackId = uiStore.selectedTrackId;
 
         if (!selectedTrackId) {
-          setToastMessage("No track selected");
+          setToastMessage(t("timeline.toast.track.noneSelected"));
           setTimeout(() => setToastMessage(null), 1500);
           return;
         }
@@ -384,7 +394,7 @@ export const useKeyboardShortcuts = () => {
         store.toggleTrackVisibility(selectedTrackId);
 
         const track = store.tracks.find((t) => t.id === selectedTrackId);
-        setToastMessage(track?.visible ? "Track visible" : "Track hidden");
+        setToastMessage(t(track?.visible ? "timeline.toast.track.visible" : "timeline.toast.track.hidden"));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "m") {
         e.preventDefault();
@@ -393,7 +403,7 @@ export const useKeyboardShortcuts = () => {
         const selectedTrackId = uiStore.selectedTrackId;
 
         if (!selectedTrackId) {
-          setToastMessage("No track selected");
+          setToastMessage(t("timeline.toast.track.noneSelected"));
           setTimeout(() => setToastMessage(null), 1500);
           return;
         }
@@ -402,7 +412,7 @@ export const useKeyboardShortcuts = () => {
         store.toggleTrackMute(selectedTrackId);
 
         const track = store.tracks.find((t) => t.id === selectedTrackId);
-        setToastMessage(track?.muted ? "Track muted" : "Track unmuted");
+        setToastMessage(t(track?.muted ? "timeline.toast.track.muted" : "timeline.toast.track.unmuted"));
         setTimeout(() => setToastMessage(null), 1500);
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
@@ -411,7 +421,7 @@ export const useKeyboardShortcuts = () => {
         const selectedTrackId = uiStore.selectedTrackId;
 
         if (!selectedTrackId) {
-          setToastMessage("No track selected");
+          setToastMessage(t("timeline.toast.track.noneSelected"));
           setTimeout(() => setToastMessage(null), 1500);
           return;
         }
@@ -421,13 +431,13 @@ export const useKeyboardShortcuts = () => {
           const unprotectedCount = GapManager.countUnprotectedGaps(selectedTrackId);
 
           if (unprotectedCount === 0) {
-            setToastMessage("No unprotected gaps to remove");
+            setToastMessage(t("timeline.toast.track.noGaps"));
             setTimeout(() => setToastMessage(null), 1500);
             return;
           }
 
           GapManager.packTrack(selectedTrackId);
-          setToastMessage(`Packed track - removed ${unprotectedCount} gap${unprotectedCount > 1 ? "s" : ""}`);
+          setToastMessage(t("timeline.toast.track.packed", { count: unprotectedCount }));
           setTimeout(() => setToastMessage(null), 1500);
         });
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "t") {
@@ -453,7 +463,9 @@ export const useKeyboardShortcuts = () => {
 
         // Add track at the end
         const newTrackId = store.insertTrackAt(trackType, store.tracks.length);
-        setToastMessage(`Added ${trackType} track`);
+        setToastMessage(t("timeline.toast.track.added", {
+          trackType: t(`timeline.trackType.${trackType}`),
+        }));
         setTimeout(() => setToastMessage(null), 1500);
 
         // Select the new track
@@ -466,22 +478,22 @@ export const useKeyboardShortcuts = () => {
         const secs = Math.floor(liveTime % 60);
         const timeLabel = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
         addMarker(liveTime);
-        setToastMessage(`Marker added at ${timeLabel}`);
+        setToastMessage(t("timeline.toast.marker.added", { time: timeLabel }));
         setTimeout(() => setToastMessage(null), 2000);
       } else if (e.key === "s" && !isMeta) {
         e.preventDefault();
         const results = EditingActions.splitAtPlayhead();
 
         if (results.length === 0) {
-          setToastMessage("No clips under playhead to split");
+          setToastMessage(t("timeline.toast.split.none"));
         } else {
           const successCount = results.filter((r) => r.success).length;
           const failCount = results.length - successCount;
 
           if (successCount > 0) {
-            setToastMessage(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+            setToastMessage(t("timeline.toast.split.count", { count: successCount }));
           } else if (failCount > 0) {
-            setToastMessage(results[0].error || "Split failed");
+            setToastMessage(results[0].error || t("timeline.message.splitFailed"));
           }
         }
         setTimeout(() => setToastMessage(null), 2000);
@@ -489,20 +501,20 @@ export const useKeyboardShortcuts = () => {
         e.preventDefault();
         const results = EditingActions.deleteLeftAtPlayhead();
         if (results.length === 0) {
-          setToastMessage("No clips to delete left at playhead");
+          setToastMessage(t("timeline.toast.deleteLeft.none"));
         } else {
           const successCount = results.filter((r) => r.success).length;
-          setToastMessage(`Delete left applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
+          setToastMessage(t("timeline.toast.deleteLeft.count", { count: successCount }));
         }
         setTimeout(() => setToastMessage(null), 2000);
       } else if (e.key.toLowerCase() === "w" && !isMeta) {
         e.preventDefault();
         const results = EditingActions.deleteRightAtPlayhead();
         if (results.length === 0) {
-          setToastMessage("No clips to delete right at playhead");
+          setToastMessage(t("timeline.toast.deleteRight.none"));
         } else {
           const successCount = results.filter((r) => r.success).length;
-          setToastMessage(`Delete right applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
+          setToastMessage(t("timeline.toast.deleteRight.count", { count: successCount }));
         }
         setTimeout(() => setToastMessage(null), 2000);
       }

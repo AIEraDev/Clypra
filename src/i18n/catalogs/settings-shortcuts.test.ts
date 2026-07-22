@@ -402,7 +402,7 @@ describe("keyboard shortcut localization", () => {
       shortcutStoreModule as typeof shortcutStoreModule & {
         SHORTCUT_DEFINITIONS?: readonly {
           id: ShortcutActionId;
-          label: string;
+          searchAlias: string;
           category: ShortcutCategory;
           defaultBinding: KeyBinding;
         }[];
@@ -417,7 +417,7 @@ describe("keyboard shortcut localization", () => {
     expect(definitions).toEqual(
       ACTIONS.map(({ id, en, category, binding }) => ({
         id,
-        label: en,
+        searchAlias: en,
         category,
         defaultBinding: binding,
       })),
@@ -451,11 +451,12 @@ describe("keyboard shortcut localization", () => {
       });
       expect(shortcuts[action.id]).toMatchObject({
         id: action.id,
-        label: action.en,
+        searchAlias: action.en,
         category: action.category,
         defaultBinding: action.binding,
         binding: action.binding,
       });
+      expect(shortcuts[action.id]).not.toHaveProperty("label");
     }
 
     expect(settingsMessages["settings.shortcuts.instructionsBeforeKey"]).toEqual({

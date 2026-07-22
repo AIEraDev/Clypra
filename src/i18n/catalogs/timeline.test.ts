@@ -150,6 +150,66 @@ describe("timeline history localization", () => {
     ]);
   });
 
+  test("translates keyboard shortcut toasts while preserving runtime parameters", () => {
+    expect([
+      t("timeline.toast.copied.count", { count: 2 }),
+      t("timeline.toast.pasted.count", { count: 2 }),
+      translate("timeline.toast.ripple.off"),
+      translate("timeline.toast.ripple.on"),
+      translate("timeline.toast.split.selectedNone"),
+      t("timeline.toast.split.selectedCount", { count: 2 }),
+      t("timeline.toast.selected.count", { count: 2 }),
+      translate("timeline.toast.deselectedAll"),
+      translate("timeline.toast.nudge.none"),
+      t("timeline.toast.nudge.count", {
+        count: 2,
+        direction: translate("timeline.direction.right"),
+        frames: 10,
+      }),
+      translate("timeline.toast.navigation.noClip"),
+      t("timeline.toast.navigation.noTrack", { direction: translate("timeline.direction.above") }),
+      t("timeline.toast.navigation.noClips", { direction: translate("timeline.direction.below") }),
+      t("timeline.toast.navigation.selectedClip", { direction: translate("timeline.direction.above") }),
+      translate("timeline.toast.track.noneSelected"),
+      translate("timeline.toast.track.locked"),
+      translate("timeline.toast.track.unlocked"),
+      translate("timeline.toast.track.visible"),
+      translate("timeline.toast.track.hidden"),
+      translate("timeline.toast.track.muted"),
+      translate("timeline.toast.track.unmuted"),
+      translate("timeline.toast.track.noGaps"),
+      t("timeline.toast.track.packed", { count: 2 }),
+      t("timeline.toast.track.added", { trackType: translate("timeline.trackType.video") }),
+      t("timeline.toast.marker.added", { time: "01:23" }),
+    ]).toEqual([
+      "已复制 2 个片段",
+      "已粘贴 2 个片段",
+      "波纹模式：关闭",
+      "波纹模式：开启",
+      "播放头下方没有可拆分的所选片段",
+      "已拆分 2 个所选片段",
+      "已选择 2 个片段",
+      "已取消选择所有片段",
+      "没有可微调的所选片段",
+      "已将 2 个片段向右微调 10 帧",
+      "未选择片段",
+      "未找到上方轨道",
+      "下方轨道上没有片段",
+      "已选择上方轨道上的片段",
+      "未选择轨道",
+      "轨道已锁定",
+      "轨道已解锁",
+      "轨道已显示",
+      "轨道已隐藏",
+      "轨道已静音",
+      "轨道已取消静音",
+      "没有可移除的未保护间隙",
+      "已收紧轨道，移除 2 个间隙",
+      "已添加视频轨道",
+      "已在 01:23 添加标记",
+    ]);
+  });
+
   test("translates clip, audio envelope, waveform, and transition labels", () => {
     expect([
       translate("timeline.clip.trim.ripple"),

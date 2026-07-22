@@ -9,6 +9,7 @@
  */
 
 import type { RenderStack } from "../compositor/types";
+import { t } from "@/i18n";
 
 export type FallbackStrategy = "black" | "freeze" | "placeholder" | "transparent";
 
@@ -47,7 +48,7 @@ export function getFallbackFrame(time: number, strategy: FallbackStrategy = "bla
     case "placeholder":
       return {
         type: "placeholder",
-        message: `No content at ${time.toFixed(2)}s`,
+        message: t("editor.preview.fallback.noContentAt", { time: time.toFixed(2) }),
       };
 
     case "freeze":
@@ -55,7 +56,7 @@ export function getFallbackFrame(time: number, strategy: FallbackStrategy = "bla
       if (previousStack && previousStack.hasContent) {
         return {
           type: "freeze",
-          message: "Frozen frame",
+          message: t("editor.preview.fallback.frozenFrame"),
         };
       }
       // Fall back to black if no previous frame

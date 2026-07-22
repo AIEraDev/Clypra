@@ -103,6 +103,9 @@ describe("general settings localization", () => {
     expect(localizeCacheErrorDetail(`App cache: ${detail}`)).toBe(
       `应用缓存：${detail}`,
     );
+    expect(localizeCacheResultMessage("应用缓存已成功清理！")).toBe(
+      "应用缓存已成功清理！",
+    );
   });
 
   test("renders the About version from package metadata", () => {

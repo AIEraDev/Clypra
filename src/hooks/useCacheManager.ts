@@ -7,6 +7,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { CacheManager, CacheStats } from "@/lib/cache/cacheManager";
+import { t } from "@/i18n";
 
 interface CacheInfo {
   localStorage: number;
@@ -64,7 +65,7 @@ export function useCacheManager(): UseCacheManagerReturn {
       const result = await CacheManager.clearAppCache();
       setLastResult({
         success: result.success,
-        message: result.success ? "App cache cleared successfully!" : `Failed to clear app cache: ${result.error}`,
+        message: result.success ? t("settings.cache.appCleared") : t("settings.cache.clearFailed", { cache: t("settings.cache.name.app"), error: result.error ?? t("settings.cache.unknownError") }),
       });
 
       if (result.success) {
@@ -73,7 +74,7 @@ export function useCacheManager(): UseCacheManagerReturn {
     } catch (error) {
       setLastResult({
         success: false,
-        message: error instanceof Error ? error.message : "Unknown error occurred",
+        message: error instanceof Error ? error.message : t("settings.cache.unknownError"),
       });
     } finally {
       setIsClearing(false);
@@ -88,7 +89,7 @@ export function useCacheManager(): UseCacheManagerReturn {
       const result = await CacheManager.clearWebViewCache();
       setLastResult({
         success: result.success,
-        message: result.success ? "WebView cache cleared successfully!" : `Failed to clear WebView cache: ${result.error}`,
+        message: result.success ? t("settings.cache.webViewCleared") : t("settings.cache.clearFailed", { cache: t("settings.cache.name.webView"), error: result.error ?? t("settings.cache.unknownError") }),
       });
 
       if (result.success) {
@@ -97,7 +98,7 @@ export function useCacheManager(): UseCacheManagerReturn {
     } catch (error) {
       setLastResult({
         success: false,
-        message: error instanceof Error ? error.message : "Unknown error occurred",
+        message: error instanceof Error ? error.message : t("settings.cache.unknownError"),
       });
     } finally {
       setIsClearing(false);
@@ -112,7 +113,7 @@ export function useCacheManager(): UseCacheManagerReturn {
       const result = CacheManager.clearGPUCache();
       setLastResult({
         success: result.success,
-        message: result.success ? "GPU cache cleared successfully!" : `Failed to clear GPU cache: ${result.error}`,
+        message: result.success ? t("settings.cache.gpuCleared") : t("settings.cache.clearFailed", { cache: t("settings.cache.name.gpu"), error: result.error ?? t("settings.cache.unknownError") }),
       });
 
       if (result.success) {
@@ -121,7 +122,7 @@ export function useCacheManager(): UseCacheManagerReturn {
     } catch (error) {
       setLastResult({
         success: false,
-        message: error instanceof Error ? error.message : "Unknown error occurred",
+        message: error instanceof Error ? error.message : t("settings.cache.unknownError"),
       });
     } finally {
       setIsClearing(false);
@@ -137,7 +138,7 @@ export function useCacheManager(): UseCacheManagerReturn {
         const stats = await CacheManager.clearAllCaches(options);
         setLastResult({
           success: stats.errors.length === 0,
-          message: stats.errors.length === 0 ? "All caches cleared successfully!" : `Cleared with ${stats.errors.length} error(s)`,
+          message: stats.errors.length === 0 ? t("settings.cache.allCleared") : t("settings.cache.clearedWithErrors", { count: stats.errors.length }),
           stats,
         });
 
@@ -146,7 +147,7 @@ export function useCacheManager(): UseCacheManagerReturn {
       } catch (error) {
         setLastResult({
           success: false,
-          message: error instanceof Error ? error.message : "Unknown error occurred",
+          message: error instanceof Error ? error.message : t("settings.cache.unknownError"),
         });
       } finally {
         setIsClearing(false);

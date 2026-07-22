@@ -29,7 +29,7 @@ export interface KeyBinding {
 
 interface ShortcutDefinition {
   id: string;
-  label: string;
+  searchAlias: string;
   category: string;
   defaultBinding: KeyBinding;
 }
@@ -40,229 +40,229 @@ export const SHORTCUT_DEFINITIONS = [
   // Transport
   {
     id: "play-pause",
-    label: "Play / Pause",
+    searchAlias: "Play / Pause",
     category: "Transport",
     defaultBinding: { key: "Space" },
   },
   {
     id: "pause",
-    label: "Pause",
+    searchAlias: "Pause",
     category: "Transport",
     defaultBinding: { key: "k" },
   },
   {
     id: "seek-back-frame",
-    label: "Step Back One Frame",
+    searchAlias: "Step Back One Frame",
     category: "Transport",
     defaultBinding: { key: "ArrowLeft" },
   },
   {
     id: "seek-forward-frame",
-    label: "Step Forward One Frame",
+    searchAlias: "Step Forward One Frame",
     category: "Transport",
     defaultBinding: { key: "ArrowRight" },
   },
   // Source Mode
   {
     id: "mark-source-in",
-    label: "Mark In Point (Source)",
+    searchAlias: "Mark In Point (Source)",
     category: "Source Mode",
     defaultBinding: { key: "i" },
   },
   {
     id: "mark-source-out",
-    label: "Mark Out Point (Source)",
+    searchAlias: "Mark Out Point (Source)",
     category: "Source Mode",
     defaultBinding: { key: "o" },
   },
   {
     id: "exit-source-mode",
-    label: "Exit Source Mode",
+    searchAlias: "Exit Source Mode",
     category: "Source Mode",
     defaultBinding: { key: "Escape" },
   },
   // Edit
   {
     id: "undo",
-    label: "Undo",
+    searchAlias: "Undo",
     category: "Edit",
     defaultBinding: { key: "z", ctrl: true },
   },
   {
     id: "redo",
-    label: "Redo",
+    searchAlias: "Redo",
     category: "Edit",
     defaultBinding: { key: "z", ctrl: true, shift: true },
   },
   {
     id: "redo-alt",
-    label: "Redo (Alt)",
+    searchAlias: "Redo (Alt)",
     category: "Edit",
     defaultBinding: { key: "y", ctrl: true },
   },
   {
     id: "split-at-playhead",
-    label: "Split at Playhead",
+    searchAlias: "Split at Playhead",
     category: "Edit",
     defaultBinding: { key: "s" },
   },
   {
     id: "split-selected-at-playhead",
-    label: "Split Selected at Playhead",
+    searchAlias: "Split Selected at Playhead",
     category: "Edit",
     defaultBinding: { key: "k", ctrl: true },
   },
   {
     id: "split-all-at-playhead",
-    label: "Split All at Playhead",
+    searchAlias: "Split All at Playhead",
     category: "Edit",
     defaultBinding: { key: "k", ctrl: true, shift: true },
   },
   {
     id: "delete-left-at-playhead",
-    label: "Delete Left of Playhead",
+    searchAlias: "Delete Left of Playhead",
     category: "Edit",
     defaultBinding: { key: "q" },
   },
   {
     id: "delete-right-at-playhead",
-    label: "Delete Right of Playhead",
+    searchAlias: "Delete Right of Playhead",
     category: "Edit",
     defaultBinding: { key: "w" },
   },
   {
     id: "duplicate-clips",
-    label: "Duplicate Selected Clips",
+    searchAlias: "Duplicate Selected Clips",
     category: "Edit",
     defaultBinding: { key: "d", ctrl: true },
   },
   {
     id: "copy-clips",
-    label: "Copy Selected Clips",
+    searchAlias: "Copy Selected Clips",
     category: "Edit",
     defaultBinding: { key: "c", ctrl: true },
   },
   {
     id: "paste-clips",
-    label: "Paste Clips",
+    searchAlias: "Paste Clips",
     category: "Edit",
     defaultBinding: { key: "v", ctrl: true },
   },
   {
     id: "swap-clips",
-    label: "Swap Clips",
+    searchAlias: "Swap Clips",
     category: "Edit",
     defaultBinding: { key: "S", ctrl: true, shift: true },
   },
   {
     id: "select-all",
-    label: "Select All Clips",
+    searchAlias: "Select All Clips",
     category: "Edit",
     defaultBinding: { key: "a", ctrl: true },
   },
   {
     id: "deselect-all",
-    label: "Deselect All Clips",
+    searchAlias: "Deselect All Clips",
     category: "Edit",
     defaultBinding: { key: "d", ctrl: true, shift: true },
   },
   {
     id: "clear-selection",
-    label: "Clear Selection",
+    searchAlias: "Clear Selection",
     category: "Edit",
     defaultBinding: { key: "Escape" },
   },
   // Nudge
   {
     id: "nudge-right",
-    label: "Nudge Right 1 Frame",
+    searchAlias: "Nudge Right 1 Frame",
     category: "Nudge",
     defaultBinding: { key: "]", ctrl: true },
   },
   {
     id: "nudge-left",
-    label: "Nudge Left 1 Frame",
+    searchAlias: "Nudge Left 1 Frame",
     category: "Nudge",
     defaultBinding: { key: "[", ctrl: true },
   },
   {
     id: "nudge-right-10",
-    label: "Nudge Right 10 Frames",
+    searchAlias: "Nudge Right 10 Frames",
     category: "Nudge",
     defaultBinding: { key: "]", ctrl: true, shift: true },
   },
   {
     id: "nudge-left-10",
-    label: "Nudge Left 10 Frames",
+    searchAlias: "Nudge Left 10 Frames",
     category: "Nudge",
     defaultBinding: { key: "[", ctrl: true, shift: true },
   },
   // Track Navigation
   {
     id: "select-clip-above",
-    label: "Select Clip on Track Above",
+    searchAlias: "Select Clip on Track Above",
     category: "Navigation",
     defaultBinding: { key: "ArrowUp", alt: true },
   },
   {
     id: "select-clip-below",
-    label: "Select Clip on Track Below",
+    searchAlias: "Select Clip on Track Below",
     category: "Navigation",
     defaultBinding: { key: "ArrowDown", alt: true },
   },
   // Timeline
   {
     id: "zoom-in",
-    label: "Zoom In Timeline",
+    searchAlias: "Zoom In Timeline",
     category: "Timeline",
     defaultBinding: { key: "=", ctrl: true },
   },
   {
     id: "zoom-out",
-    label: "Zoom Out Timeline",
+    searchAlias: "Zoom Out Timeline",
     category: "Timeline",
     defaultBinding: { key: "-", ctrl: true },
   },
   {
     id: "toggle-ripple-edit",
-    label: "Toggle Ripple Edit",
+    searchAlias: "Toggle Ripple Edit",
     category: "Timeline",
     defaultBinding: { key: "r" },
   },
   {
     id: "add-marker",
-    label: "Add Timeline Marker",
+    searchAlias: "Add Timeline Marker",
     category: "Timeline",
     defaultBinding: { key: "m" },
   },
   // Track Operations
   {
     id: "toggle-track-lock",
-    label: "Toggle Track Lock",
+    searchAlias: "Toggle Track Lock",
     category: "Track",
     defaultBinding: { key: "l", ctrl: true, alt: true },
   },
   {
     id: "toggle-track-visibility",
-    label: "Toggle Track Visibility",
+    searchAlias: "Toggle Track Visibility",
     category: "Track",
     defaultBinding: { key: "v", ctrl: true, alt: true },
   },
   {
     id: "toggle-track-mute",
-    label: "Toggle Track Mute",
+    searchAlias: "Toggle Track Mute",
     category: "Track",
     defaultBinding: { key: "m", ctrl: true, alt: true },
   },
   {
     id: "pack-track",
-    label: "Pack Track (Remove Gaps)",
+    searchAlias: "Pack Track (Remove Gaps)",
     category: "Track",
     defaultBinding: { key: "p", ctrl: true, alt: true },
   },
   {
     id: "add-track",
-    label: "Add New Track",
+    searchAlias: "Add New Track",
     category: "Track",
     defaultBinding: { key: "t", ctrl: true, alt: true },
   },
@@ -276,8 +276,8 @@ export type ShortcutCategory =
 export interface ShortcutAction {
   /** Machine-readable action id */
   id: ShortcutActionId;
-  /** Human-readable label shown in the UI */
-  label: string;
+  /** English alias used only as a shortcut-search fallback */
+  searchAlias: string;
   /** Category for grouping in the settings panel */
   category: ShortcutCategory;
   /** Default binding (cannot be deleted, only overridden) */

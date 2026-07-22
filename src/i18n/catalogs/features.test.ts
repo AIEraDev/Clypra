@@ -5,6 +5,8 @@ import { t } from "@/i18n";
 import { AudioTab } from "@/components/editor/media-tabs/AudioTab";
 import * as audioLibraryApi from "@/features/audio-library/api/audioLibraryApi";
 import * as textTemplateTypes from "@/features/text-templates/types";
+import filtersTabSource from "@/components/editor/media-tabs/FiltersTab.tsx?raw";
+import transitionsTabSource from "@/components/editor/media-tabs/TransitionsTab.tsx?raw";
 
 vi.mock("@/features/audio-library/store/audioLibraryStore", () => ({
   useAudioLibraryStore: () => ({
@@ -429,5 +431,52 @@ describe("video effect browser localization", () => {
 
     expect(translate("features.videoEffects.favorite", { name })).toBe(`收藏 ${name}`);
     expect(translate("features.videoEffects.unfavorite", { name })).toBe(`取消收藏 ${name}`);
+  });
+});
+
+describe("remaining local feature status localization", () => {
+  test.each([
+    ["features.filters.loadFailedUnknown", "加载滤镜失败"],
+    ["features.transitions.loadFailedUnknown", "加载转场失败"],
+    ["features.media.waveformUnavailableForFormat", "此格式无法显示波形"],
+    ["features.media.noWaveform", "无波形"],
+    ["features.media.importPickerFailed", "无法打开文件选择器"],
+    ["features.media.fileFallback", "文件"],
+    ["features.templates.noTemplateLoaded", "未加载模板"],
+  ])("translates %s", (key, expected) => {
+    expect(translate(key)).toBe(expected);
+  });
+
+  test("translates media import summaries with counts", () => {
+    expect(translate("features.media.importSummary.failed", { failed: 2 })).toBe(
+      "2 个文件导入失败。",
+    );
+    expect(
+      translate("features.media.importSummary.failedWithSuccess", {
+        failed: 2,
+        imported: 3,
+      }),
+    ).toBe("2 个文件导入失败，3 个导入成功。");
+    expect(
+      translate("features.media.importSummary.importedWithSkipped", {
+        imported: 3,
+        skipped: 1,
+      }),
+    ).toBe("已导入 3 个文件，跳过 1 个重复文件。");
+    expect(translate("features.media.importSummary.alreadyImported", { count: 2 })).toBe(
+      "2 个文件已导入。",
+    );
+    expect(translate("features.media.importSummary.imported", { count: 3 })).toBe(
+      "已成功导入 3 个文件。",
+    );
+  });
+
+  test("wraps filter and transition API errors in localized UI messages", () => {
+    expect(filtersTabSource).toContain(
+      't("features.filters.loadFailed", { error: err.message })',
+    );
+    expect(transitionsTabSource).toContain(
+      't("features.transitions.loadFailed", { error: err.message })',
+    );
   });
 });

@@ -5,6 +5,7 @@ import { generateSimpleWaveform } from "../lib/audio/audioWaveformGenerator";
 import { generateId } from "@/lib/utils/id";
 import { platform } from "@/core/platform";
 import { DEFAULT_STILL_DURATION_SECONDS } from "../constants/config";
+import { t } from "@/i18n";
 
 export const useMediaImport = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -93,27 +94,29 @@ export const useMediaImport = () => {
       if (failedCount > 0) {
         setToastMessage({
           type: "warning",
-          message: `${failedCount} file(s) failed to import.${importedCount > 0 ? ` ${importedCount} succeeded.` : ""}`,
+          message: importedCount > 0
+            ? t("features.media.importSummary.failedWithSuccess", { failed: failedCount, imported: importedCount })
+            : t("features.media.importSummary.failed", { failed: failedCount }),
         });
       } else if (importedCount > 0 && skippedCount > 0) {
         setToastMessage({
           type: "warning",
-          message: `Imported ${importedCount} file(s). ${skippedCount} duplicate(s) skipped.`,
+          message: t("features.media.importSummary.importedWithSkipped", { imported: importedCount, skipped: skippedCount }),
         });
       } else if (skippedCount > 0) {
         setToastMessage({
           type: "warning",
-          message: `${skippedCount} file(s) already imported.`,
+          message: t("features.media.importSummary.alreadyImported", { count: skippedCount }),
         });
       } else if (importedCount > 0) {
         setToastMessage({
           type: "success",
-          message: `Successfully imported ${importedCount} file(s).`,
+          message: t("features.media.importSummary.imported", { count: importedCount }),
         });
       }
     } catch (error) {
       console.error("[MediaImport] Import failed:", error);
-      setToastMessage({ type: "warning", message: "Failed to open file picker" });
+      setToastMessage({ type: "warning", message: t("features.media.importPickerFailed") });
     } finally {
       setIsLoading(false);
     }

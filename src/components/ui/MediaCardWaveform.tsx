@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
 import { drawProfessionalWaveform, convertLegacyWaveform, getThemeAccentRgb } from "@/lib/utils/canvasUtils";
 import type { WaveformBucket } from "@/types";
+import { t } from "@/i18n";
 
 interface MediaCardWaveformProps {
   audioPath: string;
@@ -153,8 +154,8 @@ export const MediaCardWaveform: React.FC<MediaCardWaveformProps> = ({ audioPath,
 
       {/* Error indicator - honest signal that waveform is unavailable */}
       {hasError && !isLoading && (
-        <div className="absolute bottom-1 left-1 bg-text-muted/20 px-1.5 py-0.5 rounded text-[9px] text-text-muted/70" title="Waveform unavailable for this format">
-          No waveform
+        <div className="absolute bottom-1 left-1 bg-text-muted/20 px-1.5 py-0.5 rounded text-[9px] text-text-muted/70" title={t("features.media.waveformUnavailableForFormat")}>
+          {t("features.media.noWaveform")}
         </div>
       )}
     </div>

@@ -9,6 +9,7 @@ import type { VideoMetadata } from "@/types";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
 import { autoAdaptSequenceForFirstVisualClip } from "@/lib/sequence/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime, resolvePreferredTrackId, resolveTargetTrackType } from "@/lib/timeline/placementPolicy";
+import { t } from "@/i18n";
 
 const getMediaType = (path: string): "video" | "audio" | "image" => {
   const lower = path.toLowerCase();
@@ -125,9 +126,9 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
         } catch (error) {
           // Platform-aware filename extraction in error message
           const pathParts = filePath.replace(/\\/g, "/").split("/");
-          const filename = pathParts.pop() || "file";
+          const filename = pathParts.pop() || t("features.media.fileFallback");
           console.error(`[Timeline] Failed to import ${filePath}:`, error);
-          useProjectStore.getState().showToast(`Failed to import ${filename}`, "error");
+          useProjectStore.getState().showToast(t("features.media.importFailed", { file: filename }), "error");
         }
       }
     },

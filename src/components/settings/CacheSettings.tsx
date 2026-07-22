@@ -22,6 +22,8 @@ const CACHE_ERROR_PREFIXES: Array<{ prefix: string; messageKey: MessageKey }> = 
 ];
 
 export function localizeCacheResultMessage(message: string): string {
+  if (/[\u3400-\u9fff]/u.test(message)) return message;
+
   const successMessages: Record<string, MessageKey> = {
     "App cache cleared successfully!": "settings.cache.appCleared",
     "WebView cache cleared successfully!": "settings.cache.webViewCleared",

@@ -3,6 +3,7 @@ import React, {
   forwardRef, useState
 } from 'react';
 import { TemplateRenderer } from '@clypra-studio/engine';
+import { t } from '@/i18n';
 
 export interface TemplatePreviewPlayerHandle {
   play:        () => void;
@@ -215,7 +216,7 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
     if (!template) {
       return (
         <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666677', fontSize: 12 }}>
-          No template loaded
+          {t("features.templates.noTemplateLoaded")}
         </div>
       );
     }

@@ -41,7 +41,7 @@ function matchesShortcutSearch(
 
   return [
     getShortcutActionLabel(action),
-    action.label,
+    action.searchAlias,
     getShortcutCategoryLabel(category),
     category,
     formatBinding(action.binding),

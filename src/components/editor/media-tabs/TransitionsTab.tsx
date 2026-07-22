@@ -51,7 +51,11 @@ export const TransitionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         setTransitions(data);
       } catch (err) {
         console.error(`[TransitionsTab] Failed to load category ${activeCategory}:`, err);
-        setError(err instanceof Error ? err.message : "Failed to load transitions");
+        setError(
+          err instanceof Error
+            ? t("features.transitions.loadFailed", { error: err.message })
+            : t("features.transitions.loadFailedUnknown"),
+        );
       } finally {
         setLoading(false);
       }
@@ -109,7 +113,7 @@ export const TransitionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="mb-3 p-3 rounded-lg border border-red-500/20 bg-red-500/5 text-red-200 flex items-start gap-2.5 text-xs">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">{t("features.transitions.loadFailed", { error })}</p>
+              <p className="font-semibold">{error}</p>
             </div>
           </div>
         )}

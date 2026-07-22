@@ -101,7 +101,11 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         setFilters(data);
       } catch (err) {
         console.error(`[FiltersTab] Failed to load category ${activeCategory}:`, err);
-        setError(err instanceof Error ? err.message : "Failed to load filters");
+        setError(
+          err instanceof Error
+            ? t("features.filters.loadFailed", { error: err.message })
+            : t("features.filters.loadFailedUnknown"),
+        );
       } finally {
         setLoading(false);
       }
@@ -136,7 +140,7 @@ export const FiltersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="mb-3 p-3 rounded-lg border border-red-500/20 bg-red-500/5 text-red-200 flex items-start gap-2.5 text-xs">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">{t("features.filters.loadFailed", { error })}</p>
+              <p className="font-semibold">{error}</p>
             </div>
           </div>
         )}

@@ -26,6 +26,7 @@ import { ContextMenu } from "@/components/ui/ContextMenu";
 import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import { resolveConform } from "@clypra-studio/engine";
+import { t } from "@/i18n";
 
 const SELECT_TRACE = import.meta.env.DEV;
 const traceSelect = (...args: unknown[]) => {
@@ -1057,17 +1058,17 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   const contextMenuItems = React.useMemo(
     () => [
       {
-        label: "Fit Canvas",
+        label: t("properties.transform.fitCanvas"),
         icon: Maximize2,
         onClick: handleFitCanvas,
       },
       {
-        label: "Fill Canvas",
+        label: t("properties.transform.fillCanvas"),
         icon: Minimize2,
         onClick: handleFillCanvas,
       },
       {
-        label: "Reset Transform",
+        label: t("properties.transform.resetTransform"),
         icon: RotateCcw,
         onClick: handleResetTransform,
       },
