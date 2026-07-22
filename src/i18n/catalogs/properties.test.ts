@@ -4,6 +4,44 @@ import { t } from "@/i18n";
 const translate = t as (key: string) => string;
 
 describe("basic property messages", () => {
+  it("provides localized text animation, mode, and effect style labels", () => {
+    expect([
+      translate("properties.textAnimation.title"),
+      translate("properties.textAnimation.entrance"),
+      translate("properties.textAnimation.exit"),
+      translate("properties.textAnimation.duration"),
+      translate("properties.textAnimation.easing"),
+      translate("properties.textAnimation.easing.easeInOut"),
+      translate("properties.textAnimation.preset.slideLeft"),
+      translate("properties.textAnimation.preset.zoomOut"),
+      translate("properties.textAnimation.previewTip"),
+      translate("properties.textMode.plain"),
+      translate("properties.textMode.effect"),
+      translate("properties.textMode.template"),
+      translate("properties.effectStyle.custom"),
+      translate("properties.effectStyle.changeEffect"),
+      translate("properties.effectStyle.detachEffect"),
+      translate("properties.effectStyle.modifiedTip"),
+    ]).toEqual([
+      "文字动画",
+      "入场",
+      "出场",
+      "时长",
+      "缓动",
+      "缓入缓出",
+      "向左滑入",
+      "缩小",
+      "动画将在播放时预览",
+      "纯文本",
+      "文字效果",
+      "模板",
+      "自定义",
+      "更换文字效果",
+      "分离效果（保留当前样式）",
+      "提示：编辑下方的字体排印或颜色将与预设效果分离。",
+    ]);
+  });
+
   it("provides localized empty, audio, transition, effect, and sticker labels", () => {
     expect([
       translate("properties.title"),

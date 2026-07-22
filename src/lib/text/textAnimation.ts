@@ -5,6 +5,7 @@
  */
 
 import type { TextAnimation, TextAnimationType } from "@/types";
+import { t } from "@/i18n";
 
 export interface AnimationPreset {
   name: string;
@@ -18,28 +19,28 @@ export interface AnimationPreset {
  * Predefined entrance animation presets
  */
 export const ENTRANCE_PRESETS: AnimationPreset[] = [
-  { name: "None", type: "none", duration: 0, easing: "linear" },
-  { name: "Fade In", type: "fade", duration: 0.5, easing: "ease-in" },
-  { name: "Slide Up", type: "slide-up", duration: 0.6, easing: "ease-out" },
-  { name: "Slide Down", type: "slide-down", duration: 0.6, easing: "ease-out" },
-  { name: "Slide Left", type: "slide-left", duration: 0.6, easing: "ease-out" },
-  { name: "Slide Right", type: "slide-right", duration: 0.6, easing: "ease-out" },
-  { name: "Scale", type: "scale", duration: 0.5, easing: "ease-out" },
-  { name: "Zoom In", type: "zoom-in", duration: 0.6, easing: "ease-out" },
+  { name: t("properties.textAnimation.preset.none"), type: "none", duration: 0, easing: "linear" },
+  { name: t("properties.textAnimation.preset.fadeIn"), type: "fade", duration: 0.5, easing: "ease-in" },
+  { name: t("properties.textAnimation.preset.slideUp"), type: "slide-up", duration: 0.6, easing: "ease-out" },
+  { name: t("properties.textAnimation.preset.slideDown"), type: "slide-down", duration: 0.6, easing: "ease-out" },
+  { name: t("properties.textAnimation.preset.slideLeft"), type: "slide-left", duration: 0.6, easing: "ease-out" },
+  { name: t("properties.textAnimation.preset.slideRight"), type: "slide-right", duration: 0.6, easing: "ease-out" },
+  { name: t("properties.textAnimation.preset.scale"), type: "scale", duration: 0.5, easing: "ease-out" },
+  { name: t("properties.textAnimation.preset.zoomIn"), type: "zoom-in", duration: 0.6, easing: "ease-out" },
 ];
 
 /**
  * Predefined exit animation presets
  */
 export const EXIT_PRESETS: AnimationPreset[] = [
-  { name: "None", type: "none", duration: 0, easing: "linear" },
-  { name: "Fade Out", type: "fade", duration: 0.5, easing: "ease-out" },
-  { name: "Slide Up", type: "slide-up", duration: 0.6, easing: "ease-in" },
-  { name: "Slide Down", type: "slide-down", duration: 0.6, easing: "ease-in" },
-  { name: "Slide Left", type: "slide-left", duration: 0.6, easing: "ease-in" },
-  { name: "Slide Right", type: "slide-right", duration: 0.6, easing: "ease-in" },
-  { name: "Scale", type: "scale", duration: 0.5, easing: "ease-in" },
-  { name: "Zoom Out", type: "zoom-out", duration: 0.6, easing: "ease-in" },
+  { name: t("properties.textAnimation.preset.none"), type: "none", duration: 0, easing: "linear" },
+  { name: t("properties.textAnimation.preset.fadeOut"), type: "fade", duration: 0.5, easing: "ease-out" },
+  { name: t("properties.textAnimation.preset.slideUp"), type: "slide-up", duration: 0.6, easing: "ease-in" },
+  { name: t("properties.textAnimation.preset.slideDown"), type: "slide-down", duration: 0.6, easing: "ease-in" },
+  { name: t("properties.textAnimation.preset.slideLeft"), type: "slide-left", duration: 0.6, easing: "ease-in" },
+  { name: t("properties.textAnimation.preset.slideRight"), type: "slide-right", duration: 0.6, easing: "ease-in" },
+  { name: t("properties.textAnimation.preset.scale"), type: "scale", duration: 0.5, easing: "ease-in" },
+  { name: t("properties.textAnimation.preset.zoomOut"), type: "zoom-out", duration: 0.6, easing: "ease-in" },
 ];
 
 export interface AnimationState {

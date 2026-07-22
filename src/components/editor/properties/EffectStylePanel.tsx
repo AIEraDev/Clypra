@@ -1,7 +1,16 @@
 import React from "react";
 import { Sparkles, Scissors, RefreshCw, AlertTriangle } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { TextEffectDefinition } from "@/features/text-effects/types/types";
+import { t, type MessageKey } from "@/i18n";
+
+const CATEGORY_LABEL_KEYS = new Map<string, MessageKey>([
+  ["3d", "features.textEffects.category.3d"],
+  ["neon", "features.textEffects.category.neon"],
+  ["essentials", "features.textEffects.category.essentials"],
+  ["glitch", "features.textEffects.category.glitch"],
+  ["gradient", "features.textEffects.category.gradient"],
+  ["outline", "features.textEffects.category.outline"],
+]);
 
 interface EffectStylePanelProps {
   effectId: string;
@@ -18,8 +27,10 @@ export const EffectStylePanel: React.FC<EffectStylePanelProps> = ({
   onChangeEffect,
   isModified,
 }) => {
-  const effectName = effectDefinition?.name || effectId.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  const effectCategory = effectDefinition?.category || "Custom";
+  const effectName = effectDefinition?.name || effectId;
+  const rawCategory = effectDefinition?.category;
+  const categoryKey = rawCategory ? CATEGORY_LABEL_KEYS.get(rawCategory) : undefined;
+  const effectCategory = categoryKey ? t(categoryKey) : rawCategory || t("properties.effectStyle.custom");
 
   return (
     <div className="space-y-3 mb-4">
@@ -32,24 +43,28 @@ export const EffectStylePanel: React.FC<EffectStylePanelProps> = ({
             <div className="text-xs font-semibold text-white leading-tight">
               {effectName}
             </div>
-            <div className="text-[10px] text-zinc-400 capitalize">
-              {effectCategory} Effect
+            <div className="text-[10px] text-zinc-400">
+              {t("properties.effectStyle.categoryLabel", { category: effectCategory })}
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5">
           <button
+            type="button"
             onClick={onChangeEffect}
-            title="Change Text Effect"
+            aria-label={t("properties.effectStyle.changeEffect")}
+            title={t("properties.effectStyle.changeEffect")}
             className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all duration-150 flex items-center justify-center"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
           
           <button
+            type="button"
             onClick={onDetach}
-            title="Detach Effect (Keep current styles)"
+            aria-label={t("properties.effectStyle.detachEffect")}
+            title={t("properties.effectStyle.detachEffect")}
             className="p-1.5 rounded hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-all duration-150 flex items-center justify-center"
           >
             <Scissors className="w-3.5 h-3.5" />
@@ -60,9 +75,7 @@ export const EffectStylePanel: React.FC<EffectStylePanelProps> = ({
       {isModified && (
         <div className="flex items-start gap-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-md text-[11px] text-amber-400 select-none">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            Tip: Editing typography or colors below will detach from the preset effect.
-          </span>
+          <span>{t("properties.effectStyle.modifiedTip")}</span>
         </div>
       )}
     </div>

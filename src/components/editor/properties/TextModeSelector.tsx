@@ -1,6 +1,7 @@
 import React from "react";
 import { Type, Sparkles, Layout } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 interface TextModeSelectorProps {
   mode: "plain" | "effect" | "template";
@@ -14,6 +15,7 @@ export const TextModeSelector: React.FC<TextModeSelectorProps> = ({
   return (
     <div className="flex p-1 bg-zinc-900 border border-zinc-800 rounded-lg gap-1 mb-4 select-none">
       <button
+        type="button"
         onClick={() => onSwitch("plain")}
         className={cn(
           "flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-all duration-200",
@@ -23,10 +25,11 @@ export const TextModeSelector: React.FC<TextModeSelectorProps> = ({
         )}
       >
         <Type className="w-3.5 h-3.5" />
-        <span>Plain Text</span>
+        <span>{t("properties.textMode.plain")}</span>
       </button>
       
       <button
+        type="button"
         onClick={() => onSwitch("effect")}
         className={cn(
           "flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-all duration-200",
@@ -36,10 +39,11 @@ export const TextModeSelector: React.FC<TextModeSelectorProps> = ({
         )}
       >
         <Sparkles className="w-3.5 h-3.5" />
-        <span>Text Effect</span>
+        <span>{t("properties.textMode.effect")}</span>
       </button>
 
       <button
+        type="button"
         onClick={() => onSwitch("template")}
         className={cn(
           "flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-all duration-200",
@@ -49,7 +53,7 @@ export const TextModeSelector: React.FC<TextModeSelectorProps> = ({
         )}
       >
         <Layout className="w-3.5 h-3.5" />
-        <span>Template</span>
+        <span>{t("properties.textMode.template")}</span>
       </button>
     </div>
   );
