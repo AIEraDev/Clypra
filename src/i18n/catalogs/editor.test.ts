@@ -9,6 +9,8 @@ import audioWaveformSource from "../../components/editor/media-panel/AudioWavefo
 import gpuPreviewSource from "../../components/editor/preview/GPUPreview.tsx?raw";
 import pixiProgramPreviewSource from "../../components/editor/preview/PixiProgramPreview.tsx?raw";
 import sourcePreviewSource from "../../components/editor/preview/SourcePreview.tsx?raw";
+import textSourcePreviewSource from "../../components/editor/preview/TextSourcePreview.tsx?raw";
+import fallbackSource from "../../core/render/fallback.ts?raw";
 import { t } from "@/i18n";
 import * as editorCatalog from "@/i18n/catalogs/editor";
 import * as appTypes from "@/types";
@@ -377,6 +379,12 @@ describe("editor shell localization", () => {
     expect(t("editor.preview.fallback.noContentAt", { time: "1.25" })).toBe(
       "1.25 秒处无内容",
     );
+    expect(t("editor.preview.fallback.noContent")).toBe("无内容");
     expect(t("editor.preview.fallback.frozenFrame")).toBe("冻结帧");
+
+    expect(fallbackSource).toContain('fallback.message || t("editor.preview.fallback.noContent")');
+    expect(fallbackSource).not.toContain('fallback.message || "No content"');
+    expect(textSourcePreviewSource).toContain('t("editor.preview.source.textEffectLoadFailed")');
+    expect(textSourcePreviewSource).not.toContain('ctx.fillText("Render Error"');
   });
 });

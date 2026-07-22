@@ -193,6 +193,7 @@ export const editorMessages = defineMessages({
   "editor.preview.telemetry.maxDrift": { en: "Max drift", zhCN: "最大漂移" },
   "editor.preview.safe.action": { en: "Action Safe (90%)", zhCN: "动作安全区 (90%)" },
   "editor.preview.safe.title": { en: "Title Safe (80%)", zhCN: "标题安全区 (80%)" },
+  "editor.preview.fallback.noContent": { en: "No content", zhCN: "无内容" },
   "editor.preview.fallback.noContentAt": { en: "No content at {{time}}s", zhCN: "{{time}} 秒处无内容" },
   "editor.preview.fallback.frozenFrame": { en: "Frozen frame", zhCN: "冻结帧" },
 });

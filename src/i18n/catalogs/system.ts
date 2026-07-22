@@ -161,6 +161,10 @@ export const systemMessages = defineMessages({
   },
   "system.export.complete.frameCount": { en: "{{count}} frames", zhCN: "{{count}} 帧" },
   "system.export.complete.averageSpeed": { en: "Average Speed", zhCN: "平均速度" },
+  "system.export.complete.averageSpeedValue": {
+    en: "{{fps}} fps ({{ms}}ms/f)",
+    zhCN: "{{fps}} fps ({{ms}}ms/f)",
+  },
   "system.export.complete.sharedFile": { en: "Shared File", zhCN: "已分享文件" },
   "system.export.complete.savedPath": { en: "Saved Path", zhCN: "保存路径" },
   "system.export.failed.title": { en: "Export Failed", zhCN: "导出失败" },

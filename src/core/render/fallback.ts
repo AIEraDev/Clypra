@@ -98,7 +98,7 @@ export function renderFallbackToCanvas(ctx: CanvasRenderingContext2D, width: num
       ctx.font = "14px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(fallback.message || "No content", width / 2, height / 2);
+      ctx.fillText(fallback.message || t("editor.preview.fallback.noContent"), width / 2, height / 2);
       break;
 
     case "freeze":

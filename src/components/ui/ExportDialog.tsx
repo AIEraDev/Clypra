@@ -119,7 +119,7 @@ function getErrorDetail(error: unknown): string {
   try {
     return String(error);
   } catch {
-    return "Unknown error";
+    return t("app.unknownError");
   }
 }
 
@@ -810,7 +810,10 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
                       <div className="flex justify-between">
                         <span className="text-text-muted">{t("system.export.complete.averageSpeed")}</span>
                         <span className="font-medium text-text-primary">
-                          {(1000 / result.avgTimePerFrameMs).toFixed(1)} fps ({result.avgTimePerFrameMs.toFixed(1)}ms/f)
+                          {t("system.export.complete.averageSpeedValue", {
+                            fps: (1000 / result.avgTimePerFrameMs).toFixed(1),
+                            ms: result.avgTimePerFrameMs.toFixed(1),
+                          })}
                         </span>
                       </div>
                     )}

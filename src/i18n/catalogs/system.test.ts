@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import exportDialogSource from "../../components/ui/ExportDialog.tsx?raw";
 import { formatExportFailure } from "@/components/ui/ExportDialog";
 import { ExportPresetCard } from "@/components/ui/ExportPresetCard";
 import { ProgressRing } from "@/components/ui/ProgressRing";
@@ -43,7 +44,15 @@ describe("export workflow localization", () => {
     expect(t("system.export.complete.frameCount", { count: 240 })).toBe(
       "240 帧",
     );
+    expect(t("system.export.complete.averageSpeedValue", { fps: "30.0", ms: "33.3" })).toBe(
+      "30.0 fps (33.3ms/f)",
+    );
     expect(t("system.export.progress.percent")).toBe("百分比");
+  });
+
+  test("wires the complete export speed measurement through one translated message", () => {
+    expect(exportDialogSource).toContain('t("system.export.complete.averageSpeedValue", {');
+    expect(exportDialogSource).not.toContain("} fps ({result.avgTimePerFrameMs.toFixed(1)}ms/f)");
   });
 
   test("wraps failures while preserving raw project, file, path, URL, and FFmpeg detail", () => {
@@ -204,9 +213,9 @@ describe("export workflow localization", () => {
     );
 
     expect(() => formatExportFailure(circular)).not.toThrow();
-    expect(formatExportFailure(circular)).toBe("导出失败：Unknown error");
+    expect(formatExportFailure(circular)).toBe("导出失败：未知错误");
     expect(() => formatExportFailure(throwingProxy)).not.toThrow();
-    expect(formatExportFailure(throwingProxy)).toBe("导出失败：Unknown error");
+    expect(formatExportFailure(throwingProxy)).toBe("导出失败：未知错误");
   });
 
   test("emits Chinese cloud progress while preserving the download URL", async () => {

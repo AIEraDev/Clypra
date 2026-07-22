@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useCallback } from "react";
 import { TemplatePreviewPlayer } from "@/features/text-templates";
 import { renderTextEffectCore, type TextEffectConfig, _buildConfig } from "@clypra-studio/engine";
 import { getFontLoader } from "@/core/fonts/FontLoader";
+import { t } from "@/i18n";
 
 // Effects are designed for this banner canvas size (800×200).
 const PREVIEW_CANVAS_W = 800;
@@ -144,7 +145,7 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
         ctx.fillStyle = "#ff0000";
         ctx.font = "14px Arial";
         ctx.textAlign = "center";
-        ctx.fillText("Render Error", PREVIEW_CANVAS_W / 2, PREVIEW_CANVAS_H / 2);
+        ctx.fillText(t("editor.preview.source.textEffectLoadFailed"), PREVIEW_CANVAS_W / 2, PREVIEW_CANVAS_H / 2);
       }
     }
 
