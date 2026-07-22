@@ -1,7 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { getClipVisibleDuration, getClipEndTime, getTimelineContentEnd, getTimelineViewportEnd, normalizeClipTiming, createClipFromAsset, resolveClipDuration } from "../timeline/timelineClip";
+import { getClipVisibleDuration, getClipEndTime, getTimelineContentEnd, getTimelineViewportEnd, normalizeClipTiming, createClipFromAsset, resolveClipDuration, isStickerClip, isFilterClip } from "../timeline/timelineClip";
 import { resolveDefaultFitModeForAsset } from "../timeline/placementPolicy";
 import type { Clip, MediaAsset } from "@/types";
+
+describe("clip kind predicates", () => {
+  it("identifies stickers by explicit kind or legacy media ID", () => {
+    expect(isStickerClip({ kind: "sticker", mediaId: "media-1" })).toBe(true);
+    expect(isStickerClip({ kind: "image", mediaId: "sticker-1" })).toBe(true);
+    expect(isStickerClip({ kind: "image", mediaId: "media-1" })).toBe(false);
+  });
+
+  it("identifies filters by explicit kind or legacy clip ID", () => {
+    expect(isFilterClip({ id: "clip-1", kind: "filter" })).toBe(true);
+    expect(isFilterClip({ id: "filter-clip-1", kind: "video" })).toBe(true);
+    expect(isFilterClip({ id: "clip-1", kind: "video" })).toBe(false);
+  });
+});
 
 describe("timelineClip timing helpers", () => {
   describe("getClipVisibleDuration", () => {

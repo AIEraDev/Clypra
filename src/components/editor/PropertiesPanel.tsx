@@ -5,7 +5,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
-import { calculateClipDimensions, type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
+import { calculateClipDimensions, isFilterClip, isStickerClip, type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import type { Clip, TextClip } from "@/types";
 import { usePresetStore } from "@/store/presetStore";
@@ -118,7 +118,7 @@ export const PropertiesPanel: React.FC = () => {
   const selectedClipId = selectedClipIds[0] ?? null;
   const selectedClip = clips.find((c) => c.id === selectedClipId);
   let selectedAsset = mediaAssets.find((a) => a.id === selectedClip?.mediaId);
-  if (!selectedAsset && selectedClip && (selectedClip.kind === "sticker" || selectedClip.mediaId.startsWith("sticker-"))) {
+  if (!selectedAsset && selectedClip && isStickerClip(selectedClip)) {
     selectedAsset = {
       id: selectedClip.mediaId,
       name: selectedClip.name || t("editor.fallback.sticker"),
@@ -201,8 +201,8 @@ export const PropertiesPanel: React.FC = () => {
     );
   };
 
-  const isSticker = selectedClip?.kind === "sticker" || selectedClip?.mediaId.startsWith("sticker-");
-  const isFilter = selectedClip?.kind === "filter" || selectedClip?.id.startsWith("filter-clip-");
+  const isSticker = isStickerClip(selectedClip);
+  const isFilter = isFilterClip(selectedClip);
   const isTimelineEffectClip = isFilter || selectedClip?.kind === "video-effect" || selectedClip?.kind === "body-effect";
 
   // Clip type info for the header. For audio library clips, selectedAsset is undefined; derive type from kind.

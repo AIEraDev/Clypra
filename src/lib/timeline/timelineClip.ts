@@ -10,6 +10,12 @@ export const resolveClipDuration = (asset: MediaAsset): number => {
   return DEFAULT_STILL_DURATION_SECONDS;
 };
 
+export const isStickerClip = (clip: Pick<Clip, "kind" | "mediaId">): boolean =>
+  clip.kind === "sticker" || clip.mediaId.startsWith("sticker-");
+
+export const isFilterClip = (clip: Pick<Clip, "id" | "kind">): boolean =>
+  clip.kind === "filter" || clip.id.startsWith("filter-clip-");
+
 // Centralized timeline timing helpers
 
 export function getClipVisibleDuration(clip: Pick<Clip, "trimIn" | "trimOut">): number {

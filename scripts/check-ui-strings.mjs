@@ -311,14 +311,6 @@ function scanSource(source, file = "src/Fixture.tsx") {
     );
   }
 
-  function isNonUiStringPredicateCall(node) {
-    return (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "startsWith"
-    );
-  }
-
   function resolveStaticExpression(expression, seen) {
     const node = unwrapExpression(expression);
     if (ts.isIdentifier(node)) {
@@ -392,11 +384,7 @@ function scanSource(source, file = "src/Fixture.tsx") {
         for (const argument of node.arguments.slice(1)) collect(argument, seen, true, false);
         return;
       }
-      if (
-        collectAllObjectValues ||
-        !followCallArguments ||
-        isNonUiStringPredicateCall(node)
-      ) {
+      if (collectAllObjectValues || !followCallArguments) {
         return;
       }
       for (const argument of node.arguments) {
@@ -738,6 +726,10 @@ function runSelfTest({ announce = true } = {}) {
     scan(`const startsWith = (value: string) => value; const View = () => <div>{startsWith("Open project")}</div>;`),
     ["src/Fixture.tsx:1: Open project"],
   );
+  assert.deepEqual(
+    scan(`const helper = { startsWith: (value: string) => value }; const View = () => <div>{helper.startsWith("Open project")}</div>;`),
+    ["src/Fixture.tsx:1: Open project"],
+  );
   assert.deepEqual(scan(`const View = () => <div>请选择 Open/Save 操作</div>;`), [
     "src/Fixture.tsx:1: 请选择 Open/Save 操作",
   ]);
@@ -783,7 +775,7 @@ function runSelfTest({ announce = true } = {}) {
     "src/Fixture.tsx:1: Render Error",
   ]);
   assert.deepEqual(
-    scan(`const isSticker = id.startsWith("sticker-"); const icon = icons[category || "aura"]; const View = () => <>{isSticker}{icon}</>;`),
+    scan(`const isSticker = isStickerId(id); const icon = icons[category || "aura"]; const View = () => <>{isSticker}{icon}</>;`),
     [],
   );
   assert.deepEqual(scan(`alert("FFmpeg export failed");`), [
