@@ -9,6 +9,7 @@ import type { VideoExportConfig, VideoExportResult } from "./videoExport";
 import { MobileExportEncoder } from "./mobileExportEncoder";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
 import { resolveTransitionDefinition, mergeTransitionParams } from "../../core/render/utils/transitionResolver";
+import { getActiveVideoClipsForTime } from "./exportUtils";
 
 export async function exportVideoMobile(config: VideoExportConfig): Promise<VideoExportResult> {
   const { clips, tracks, transitions = [], assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, onProgress, onSessionReady } = config;
@@ -148,12 +149,9 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
       try {
         const videoElements = new Map<string, HTMLVideoElement>();
 
-        for (const clip of clips) {
-          const asset = assets.find((a) => a.id === clip.mediaId);
-          if (asset?.type !== "video") continue;
-
-          const clipEnd = clip.startTime + clip.duration;
-          if (time < clip.startTime || time >= clipEnd) continue;
+        const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
+        for (const clip of activeVideoClips) {
+          const asset = assets.find((a) => a.id === clip.mediaId)!;
 
           const { sourceTime } = resolveClipSourceTime(clip, time, {
             clampToRange: true,
