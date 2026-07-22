@@ -211,6 +211,18 @@ function scanSource(source, file = "src/Fixture.tsx") {
     return sourceFile;
   }
 
+  function variableScope(node) {
+    if (!ts.isVariableDeclarationList(node.parent) || node.parent.flags & ts.NodeFlags.BlockScoped) {
+      return constantScope(node);
+    }
+    let current = node.parent;
+    while (current) {
+      if (ts.isSourceFile(current) || ts.isFunctionLike(current)) return current;
+      current = current.parent;
+    }
+    return sourceFile;
+  }
+
   function resolveConstant(identifier) {
     const candidates = constants.get(identifier.text);
     if (!candidates) return undefined;
@@ -230,56 +242,58 @@ function scanSource(source, file = "src/Fixture.tsx") {
       .sort((a, b) => scopes.get(a.scope) - scopes.get(b.scope))[0];
   }
 
-  function addTranslationShadow(declaration, scope) {
-    shadowedTranslationBindings.push({ declaration, scope });
+  function addTranslationShadow(declaration, localName, scope) {
+    shadowedTranslationBindings.push({ declaration, localName, scope });
   }
 
-  function bindingContainsTranslationName(name) {
-    if (ts.isIdentifier(name)) return name.text === "t";
-    return name.elements.some(
-      (element) => !ts.isOmittedExpression(element) && bindingContainsTranslationName(element.name),
-    );
+  function addBindingShadows(name, declaration, scope) {
+    if (ts.isIdentifier(name)) {
+      addTranslationShadow(declaration, name.text, scope);
+      return;
+    }
+    for (const element of name.elements) {
+      if (!ts.isOmittedExpression(element)) addBindingShadows(element.name, declaration, scope);
+    }
   }
 
   function visitConstants(node) {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const importClause = node.importClause;
       const isI18nModule = node.moduleSpecifier.text === "@/i18n";
-      if (importClause?.name?.text === "t") {
-        addTranslationShadow(importClause.name, sourceFile);
+      if (importClause?.name) {
+        addTranslationShadow(importClause.name, importClause.name.text, sourceFile);
       }
       const bindings = importClause?.namedBindings;
-      if (bindings && ts.isNamespaceImport(bindings) && bindings.name.text === "t") {
-        addTranslationShadow(bindings, sourceFile);
+      if (bindings && ts.isNamespaceImport(bindings)) {
+        addTranslationShadow(bindings, bindings.name.text, sourceFile);
       } else if (bindings && ts.isNamedImports(bindings)) {
         for (const element of bindings.elements) {
           const importedName = element.propertyName?.text ?? element.name.text;
-          if (element.name.text === "t") {
-            if (isI18nModule && importedName === "t") {
-              translationImports.push({ declaration: element, scope: sourceFile });
-            } else {
-              addTranslationShadow(element, sourceFile);
-            }
+          if (isI18nModule && importedName === "t") {
+            translationImports.push({
+              declaration: element,
+              localName: element.name.text,
+              scope: sourceFile,
+            });
+          } else {
+            addTranslationShadow(element, element.name.text, sourceFile);
           }
         }
       }
-    } else if (ts.isParameter(node) && bindingContainsTranslationName(node.name)) {
-      addTranslationShadow(node, node.parent);
-    } else if (ts.isFunctionDeclaration(node) && node.name?.text === "t") {
-      addTranslationShadow(node, constantScope(node));
-    } else if (ts.isFunctionExpression(node) && node.name?.text === "t") {
-      addTranslationShadow(node, node);
-    } else if (
-      ts.isVariableDeclaration(node) &&
-      bindingContainsTranslationName(node.name)
-    ) {
-      addTranslationShadow(node, constantScope(node));
+    } else if (ts.isParameter(node)) {
+      addBindingShadows(node.name, node, node.parent);
+    } else if (ts.isFunctionDeclaration(node) && node.name) {
+      addTranslationShadow(node, node.name.text, constantScope(node));
+    } else if (ts.isFunctionExpression(node) && node.name) {
+      addTranslationShadow(node, node.name.text, node);
+    } else if (ts.isVariableDeclaration(node)) {
+      addBindingShadows(node.name, node, variableScope(node));
     } else if (
       ts.isCatchClause(node) &&
       node.variableDeclaration &&
-      bindingContainsTranslationName(node.variableDeclaration.name)
+      node.variableDeclaration.name
     ) {
-      addTranslationShadow(node.variableDeclaration, node);
+      addBindingShadows(node.variableDeclaration.name, node.variableDeclaration, node);
     }
     if (
       ts.isVariableDeclaration(node) &&
@@ -302,17 +316,48 @@ function scanSource(source, file = "src/Fixture.tsx") {
   }
 
   function isTranslationCall(node) {
+    if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return false;
+    const localName = node.expression.text;
     return (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "t" &&
-      resolveScopedEntry(translationImports, node.expression) &&
-      !resolveScopedEntry(shadowedTranslationBindings, node.expression)
+      resolveScopedEntry(
+        translationImports.filter((binding) => binding.localName === localName),
+        node.expression,
+      ) &&
+      !resolveScopedEntry(
+        shadowedTranslationBindings.filter((binding) => binding.localName === localName),
+        node.expression,
+      )
     );
+  }
+
+  function resolveObjectMember(object, name, seen) {
+    for (const member of [...object.properties].reverse()) {
+      if (propertyName(member.name) === name) {
+        if (ts.isPropertyAssignment(member)) {
+          return (
+            resolveStaticExpression(member.initializer, seen) ??
+            { expression: member.initializer, seen }
+          );
+        }
+        if (ts.isShorthandPropertyAssignment(member)) {
+          return resolveStaticExpression(member.name, seen);
+        }
+      }
+      if (ts.isSpreadAssignment(member)) {
+        const spread = resolveStaticExpression(member.expression, seen);
+        const spreadObject = spread && unwrapExpression(spread.expression);
+        if (spreadObject && ts.isObjectLiteralExpression(spreadObject)) {
+          const resolved = resolveObjectMember(spreadObject, name, spread.seen);
+          if (resolved) return resolved;
+        }
+      }
+    }
+    return undefined;
   }
 
   function resolveStaticExpression(expression, seen) {
     const node = unwrapExpression(expression);
+    if (ts.isObjectLiteralExpression(node)) return { expression: node, seen };
     if (ts.isIdentifier(node)) {
       const constant = resolveConstant(node);
       if (!constant || seen.has(constant.declaration.pos)) return undefined;
@@ -332,16 +377,7 @@ function scanSource(source, file = "src/Fixture.tsx") {
       if (!target) return undefined;
       const object = unwrapExpression(target.expression);
       if (!ts.isObjectLiteralExpression(object)) return undefined;
-      const member = object.properties.find((property) => propertyName(property.name) === name);
-      if (member && ts.isPropertyAssignment(member)) {
-        return (
-          resolveStaticExpression(member.initializer, target.seen) ??
-          { expression: member.initializer, seen: target.seen }
-        );
-      }
-      if (member && ts.isShorthandPropertyAssignment(member)) {
-        return resolveStaticExpression(member.name, target.seen);
-      }
+      return resolveObjectMember(object, name, target.seen);
     }
     return undefined;
   }
@@ -421,6 +457,13 @@ function scanSource(source, file = "src/Fixture.tsx") {
       return;
     }
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      if (
+        ts.isElementAccessExpression(node) &&
+        (!node.argumentExpression || !ts.isStringLiteralLike(unwrapExpression(node.argumentExpression)))
+      ) {
+        collect(node.expression, seen, true, followCallArguments);
+        return;
+      }
       const resolved = resolveStaticExpression(node, seen);
       if (resolved) {
         collect(resolved.expression, resolved.seen, collectAllObjectValues, followCallArguments);
@@ -639,6 +682,11 @@ function runSelfTest({ announce = true } = {}) {
     "src/Fixture.ts:1: Open project",
   ]);
   assert.deepEqual(scan(`import { t } from "@/i18n"; alert(t("message.key"));`, "src/Fixture.ts"), []);
+  assert.deepEqual(scan(`import { t as translate } from "@/i18n"; alert(translate("message.key"));`, "src/Fixture.ts"), []);
+  assert.deepEqual(
+    scan(`import { t as translate } from "@/i18n"; function f(translate){ alert(translate("Open project")); }`, "src/Fixture.ts"),
+    ["src/Fixture.ts:1: Open project"],
+  );
   assert.deepEqual(scan(`alert(t("Open project"));`, "src/Fixture.ts"), [
     "src/Fixture.ts:1: Open project",
   ]);
@@ -648,6 +696,14 @@ function runSelfTest({ announce = true } = {}) {
   assert.deepEqual(
     scan(`import { t } from "@/i18n"; { const t = (value: string) => value; alert(t("Open project")); }`, "src/Fixture.ts"),
     ["src/Fixture.ts:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`import { t } from "@/i18n"; function f(){ if(x){ var t=(s)=>s; } alert(t("Open project")); }`, "src/Fixture.ts"),
+    ["src/Fixture.ts:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`import { t } from "@/i18n"; function f(){ if(x){ let t=(s)=>s; alert(t("Open project")); } if(y){ const t=(s)=>s; alert(t("Save now")); } alert(t("message.key")); }`, "src/Fixture.ts"),
+    ["src/Fixture.ts:1: Open project", "src/Fixture.ts:1: Save now"],
   );
   assert.deepEqual(
     scan(`import { t } from "@/i18n"; alert(t("message.key", { name: "Open project", value: remoteName, detail: remoteCopy.name }));`, "src/Fixture.ts"),
@@ -758,6 +814,22 @@ function runSelfTest({ announce = true } = {}) {
   assert.deepEqual(
     scan(`const inner = { text: "Open project" }; const copy = { nested: inner }; alert(copy.nested.text);`),
     ["src/Fixture.tsx:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`const labels={open:"Open project"}; const View = () => <div>{labels[key]}</div>;`),
+    ["src/Fixture.tsx:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`const labels={open:"Open project",save:"Save now"}; const View = () => <div>{labels.open}</div>;`),
+    ["src/Fixture.tsx:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`const rawCopy={text:"Open project"}; const View = () => <div>{({...rawCopy}).text}</div>;`),
+    ["src/Fixture.tsx:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`const first=second; const second=first; const View = () => <div>{first[key]}</div>;`),
+    [],
   );
   assert.deepEqual(scan(`const props = { ["aria-label"]: "Open project" };`), [
     "src/Fixture.tsx:1: Open project",
