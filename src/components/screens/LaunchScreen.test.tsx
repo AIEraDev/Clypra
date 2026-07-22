@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -199,7 +199,7 @@ describe("LaunchScreen", () => {
       createRecentProject(new Date(2026, 6, 8, 12).getTime()),
     ];
 
-    const view = render(
+    render(
       <LaunchScreen
         onProjectCreate={vi.fn()}
         onProjectOpen={vi.fn()}
@@ -208,14 +208,7 @@ describe("LaunchScreen", () => {
 
     expect(screen.getByText("2026年7月8日")).toBeInTheDocument();
 
-    view.unmount();
-    setLanguage("en");
-    render(
-      <LaunchScreen
-        onProjectCreate={vi.fn()}
-        onProjectOpen={vi.fn()}
-      />,
-    );
+    act(() => setLanguage("en"));
 
     expect(screen.getByText("Jul 8, 2026")).toBeInTheDocument();
   });

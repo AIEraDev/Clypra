@@ -10,7 +10,7 @@ import { useUIStore } from "@/store/uiStore";
 import { platform } from "@/core/platform";
 import { DualRecordService } from "@/services/dualRecordService";
 import { useRecordingStore } from "@/store/recordingStore";
-import { getLanguage, t } from "@/i18n";
+import { getLanguage, t, useLanguage } from "@/i18n";
 
 interface LaunchScreenProps {
   onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
@@ -48,6 +48,7 @@ export const formatLaunchProjectDate = (date: Date): string =>
   }).format(date);
 
 export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
+  useLanguage();
   const { recentProjects, setRecentProjects, deleteProject, renameProject } = useProjectStore();
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);

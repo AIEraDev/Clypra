@@ -1,5 +1,5 @@
 import type { RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
-import { getLanguage, t } from "@/i18n";
+import { getLanguage, t, useLanguage } from "@/i18n";
 
 interface CrashRecoveryDialogProps {
   isOpen: boolean;
@@ -19,6 +19,7 @@ export const formatRecoverySavedAt = (savedAt: string): string =>
   }).format(new Date(savedAt));
 
 export const CrashRecoveryDialog: React.FC<CrashRecoveryDialogProps> = ({ isOpen, snapshot, isRestoring, onRestore, onDiscard }) => {
+  useLanguage();
   if (!isOpen || !snapshot) return null;
 
   const savedAt = formatRecoverySavedAt(snapshot.savedAt);

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { setLanguage } from "@/i18n";
@@ -11,8 +11,23 @@ describe("CrashRecoveryDialog", () => {
   test("formats the saved time in the selected interface language", () => {
     const snapshot = {
       savedAt: new Date(2026, 6, 8, 12, 5).toISOString(),
-      project: { name: "客户项目" },
-    } as RecoverySnapshot;
+      project: {
+        id: "project-1",
+        name: "客户项目",
+        createdAt: 1,
+        updatedAt: 1,
+        aspectRatio: "16:9",
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        frameRate: 30,
+        duration: 0,
+        mediaAssets: [],
+      },
+      mediaAssets: [],
+      tracks: [],
+      clips: [],
+      transitions: [],
+    } satisfies RecoverySnapshot;
     const props = {
       isOpen: true,
       snapshot,
@@ -21,12 +36,10 @@ describe("CrashRecoveryDialog", () => {
       onDiscard: vi.fn(),
     };
 
-    const view = render(<CrashRecoveryDialog {...props} />);
+    render(<CrashRecoveryDialog {...props} />);
     expect(screen.getByText(/2026年7月8日/)).toBeInTheDocument();
 
-    view.unmount();
-    setLanguage("en");
-    render(<CrashRecoveryDialog {...props} />);
+    act(() => setLanguage("en"));
     expect(screen.getByText(/Jul 8, 2026/)).toBeInTheDocument();
   });
 });
