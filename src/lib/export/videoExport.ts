@@ -21,6 +21,7 @@ import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from ".
 import type { ExportAudioClip, ExportProgress } from "../../types/export";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
 import { resolveTransitionDefinition, mergeTransitionParams } from "../../core/render/utils/transitionResolver";
+import { getActiveVideoClipsForTime } from "./exportUtils";
 
 /**
  * Video export progress - Re-exported from types/export
@@ -310,14 +311,8 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         // Pre-load and seek all video elements for this frame
         const videoElements = new Map<string, HTMLVideoElement>();
 
-        // Find all active video clips at this time
-        const activeVideoClips = clips.filter((clip) => {
-          const asset = assets.find((a) => a.id === clip.mediaId);
-          if (asset?.type !== "video") return false;
-
-          const clipEnd = clip.startTime + clip.duration;
-          return time >= clip.startTime && time < clipEnd;
-        });
+        // Find all active video clips at this time (including clips in active transition windows)
+        const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
 
         // Seek all active video elements in parallel
         const acquirePromises = activeVideoClips.map(async (clip) => {
