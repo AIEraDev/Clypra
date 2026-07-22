@@ -291,6 +291,16 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         break;
       }
 
+      // EXP-05 fix: Yield to main thread every 10 frames so UI events (Cancel button, progress ring) process smoothly
+      if (i > 0 && i % 10 === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      // Check for WebGL context loss during export
+      if (pixiHandle.compositor.isContextLost) {
+        throw new Error("WebGL context was lost during video export. Aborting to prevent black frames.");
+      }
+
       const time = frameTimes[i];
 
       // Track ALL acquired video elements for this frame (released in finally)

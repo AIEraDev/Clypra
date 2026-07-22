@@ -31,6 +31,7 @@ export class PixiSceneCompositor {
   private canvas: HTMLCanvasElement | null = null;
   private contextLostHandler: ((event: Event) => void) | null = null;
   private contextRestoredHandler: ((event: Event) => void) | null = null;
+  private _isContextLost = false;
 
   // Stub render textures used for off-screen pre-warming (1×1 px).
   // Allocated once and reused for all prewarm calls to avoid GC pressure.
@@ -61,6 +62,10 @@ export class PixiSceneCompositor {
     return this.renderer?.isReady || false;
   }
 
+  get isContextLost(): boolean {
+    return this._isContextLost;
+  }
+
   async waitForReady(): Promise<void> {
     while (!this.renderer?.isReady) {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -81,9 +86,8 @@ export class PixiSceneCompositor {
         return;
       }
 
+      this._isContextLost = true;
       console.error("[PixiSceneCompositor] Unexpected WebGL context loss");
-      // TODO: Add metrics tracking here
-      // metrics.increment("preview.webgl_context_lost.unexpected");
     };
 
     this.contextRestoredHandler = (event: Event) => {
@@ -91,8 +95,8 @@ export class PixiSceneCompositor {
         return;
       }
 
+      this._isContextLost = false;
       console.log("[PixiSceneCompositor] WebGL context restored");
-      // TODO: Add recovery logic here if needed
     };
 
     canvas.addEventListener("webglcontextlost", this.contextLostHandler);
@@ -124,6 +128,10 @@ export class PixiSceneCompositor {
   }
 
   async composeFrame(scene: EvaluatedScene, viewport: { scale: number; offsetX: number; offsetY: number; pixelRatio: number; projectWidth?: number; projectHeight?: number }, videoElements: Map<string, HTMLVideoElement>, resourceHandleMap?: Map<string, any>, bodyMasks: Map<string, any> = new Map()): Promise<void> {
+    if (this._isContextLost) {
+      throw new Error("[PixiSceneCompositor] WebGL context lost during frame composition");
+    }
+
     if (!this.renderer.isReady) {
       return;
     }
@@ -296,8 +304,10 @@ export class PixiSceneCompositor {
       const outIdx = sortedLayers.findIndex((l) => l.layerId === activeTransition.outgoingLayer);
       const inIdx = sortedLayers.findIndex((l) => l.layerId === activeTransition.incomingLayer);
       const transitionOrder = Math.max(0, outIdx, inIdx);
+      
+      const maxTrackIndex = calculateMaxTrackIndex(extractVisualMediaLayers(sortedLayers));
 
-      await this.composeActiveTransition(activeTransition, definition, scene, baseMediaContainer, transitionOrder, videoElements, resourceHandleMap);
+      await this.composeActiveTransition(activeTransition, definition, scene, baseMediaContainer, transitionOrder, maxTrackIndex, videoElements, resourceHandleMap);
     }
 
     // Use sprite lifecycle manager to reconcile sprite states
@@ -351,7 +361,7 @@ export class PixiSceneCompositor {
     }
   }
 
-  private async composeActiveTransition(transition: EvaluatedTransition, definition: any, scene: EvaluatedScene, baseMediaContainer: Container, renderOrder: number, videoElements: Map<string, HTMLVideoElement>, resourceHandleMap?: Map<string, any>): Promise<void> {
+  private async composeActiveTransition(transition: EvaluatedTransition, definition: any, scene: EvaluatedScene, baseMediaContainer: Container, renderOrder: number, maxTrackIndex: number, videoElements: Map<string, HTMLVideoElement>, resourceHandleMap?: Map<string, any>): Promise<void> {
     const outgoingLayer = scene.visualLayers.find((l) => l.layerId === transition.outgoingLayer) as EvaluatedMediaLayer;
     const incomingLayer = scene.visualLayers.find((l) => l.layerId === transition.incomingLayer) as EvaluatedMediaLayer;
     if (!outgoingLayer || !incomingLayer) return;
@@ -393,8 +403,9 @@ export class PixiSceneCompositor {
         transitionSprite.parent?.removeChild(transitionSprite);
         baseMediaContainer.addChild(transitionSprite);
       }
+      const trackIdx = Math.min(outgoingLayer.trackIndex ?? 0, incomingLayer.trackIndex ?? 0);
       transitionSprite.visible = true;
-      transitionSprite.zIndex = renderOrder;
+      transitionSprite.zIndex = calculateLayerZIndex(trackIdx, maxTrackIndex, renderOrder);
       transitionSprite.position.set(0, 0);
       transitionSprite.width = scene.metadata.canvasWidth || 1920;
       transitionSprite.height = scene.metadata.canvasHeight || 1080;
@@ -412,6 +423,9 @@ export class PixiSceneCompositor {
     if (!texture || texture.width !== canvasWidth || texture.height !== canvasHeight || !container) {
       if (texture) {
         texture.destroy(true);
+      }
+      if (container) {
+        container.destroy({ children: true });
       }
       texture = RenderTexture.create({ width: canvasWidth, height: canvasHeight });
       container = new Container();
