@@ -28,7 +28,7 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
   let mixedAudioBuffer: AudioBuffer | null = null;
   if (hasAudio) {
     if (onProgress) {
-      onProgress({ progress: 0, status: "Mixing audio..." });
+      onProgress({ currentFrame: 0, totalFrames, progress: 0, etaSeconds: 0, fps: 0 });
     }
     
     try {
@@ -182,10 +182,18 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
         completedFrames++;
 
         if (onProgress) {
-          const progressPercent = Math.round((completedFrames / totalFrames) * 85); // 85% is video encoding, remaining is audio/sharing
+          const progressRatio = completedFrames / totalFrames;
+          const elapsedSec = (Date.now() - startTimeMs) / 1000;
+          const fps = completedFrames > 0 && elapsedSec > 0 ? completedFrames / elapsedSec : 0;
+          const remainingFrames = totalFrames - completedFrames;
+          const etaSeconds = fps > 0 ? remainingFrames / fps : 0;
+
           onProgress({
-            progress: progressPercent,
-            status: `Encoding video frame ${completedFrames}/${totalFrames}...`,
+            currentFrame: completedFrames,
+            totalFrames,
+            progress: Math.min(1.0, progressRatio),
+            etaSeconds,
+            fps,
           });
         }
       } finally {
