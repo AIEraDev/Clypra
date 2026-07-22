@@ -67,11 +67,17 @@ interface CommandCase {
     | Record<string, unknown>
     | ((state: Record<string, unknown>, nextState: Record<string, unknown>) => Record<string, unknown>)
     | null;
+  fromJSON: ((data: Record<string, any>, source: Command) => Command) | null;
 }
 
 function inverseCase(command: Command, state: Record<string, unknown>): { command: Command; state: Record<string, unknown> } {
   const nextState = command.apply(state);
   return { command: command.invert(), state: nextState };
+}
+
+function fromPrivateCommand(data: Record<string, any>, source: Command): Command {
+  const commandClass = source.constructor as unknown as { fromJSON: (value: Record<string, any>) => Command };
+  return commandClass.fromJSON(data);
 }
 
 const commandCases: CommandCase[] = [
@@ -87,6 +93,7 @@ const commandCases: CommandCase[] = [
       deletedTrack: track,
       deletedTrackIndex: 0,
     },
+    fromJSON: (data) => DeleteClipCommand.fromJSON(data),
   },
   {
     name: "AddClipCommand",
@@ -99,6 +106,7 @@ const commandCases: CommandCase[] = [
       restoredTrack: undefined,
       restoredTrackIndex: undefined,
     },
+    fromJSON: (data) => AddClipCommand.fromJSON(data),
   },
   {
     name: "InsertGapCommand",
@@ -113,6 +121,7 @@ const commandCases: CommandCase[] = [
       insertedGap: (nextState.gaps as Gap[])[0],
       shiftedClips: [],
     }),
+    fromJSON: (data) => InsertGapCommand.fromJSON(data),
   },
   {
     name: "RemoveGapCommand",
@@ -125,6 +134,7 @@ const commandCases: CommandCase[] = [
       removedGap: gap,
       shiftedClips: [],
     },
+    fromJSON: (data) => RemoveGapCommand.fromJSON(data),
   },
   {
     name: "RestoreGapCommand",
@@ -132,6 +142,7 @@ const commandCases: CommandCase[] = [
     label: "恢复间隙",
     inverseLabel: "删除间隙",
     serialized: { type: "RestoreGap", gap, originalPositions: [] },
+    fromJSON: fromPrivateCommand,
   },
   {
     name: "ResizeGapCommand",
@@ -145,6 +156,7 @@ const commandCases: CommandCase[] = [
       originalDuration: gap.duration,
       shiftedClips: [],
     },
+    fromJSON: (data) => ResizeGapCommand.fromJSON(data),
   },
   {
     name: "PackTrackCommand",
@@ -157,6 +169,7 @@ const commandCases: CommandCase[] = [
       removedGaps: [gap],
       clipPositions: [{ id: clip.id, originalStartTime: 0, newStartTime: 0 }],
     },
+    fromJSON: (data) => PackTrackCommand.fromJSON(data),
   },
   {
     name: "UnpackTrackCommand",
@@ -169,6 +182,7 @@ const commandCases: CommandCase[] = [
       gapsToRestore: [gap],
       originalPositions: [{ id: clip.id, originalStartTime: 0, newStartTime: 0 }],
     },
+    fromJSON: fromPrivateCommand,
   },
   {
     name: "ToggleGapProtectionCommand",
@@ -176,6 +190,7 @@ const commandCases: CommandCase[] = [
     label: "切换间隙保护",
     inverseLabel: "切换间隙保护",
     serialized: { type: "ToggleGapProtection", gapId: gap.id, gapPosition: { trackId: track.id, startTime: gap.startTime, duration: gap.duration } },
+    fromJSON: (data) => ToggleGapProtectionCommand.fromJSON(data),
   },
   {
     name: "MoveClipCommand",
@@ -183,6 +198,7 @@ const commandCases: CommandCase[] = [
     label: "移动片段",
     inverseLabel: "移动片段",
     serialized: { type: "MoveClip", clipId: clip.id, fromTrackId: track.id, toTrackId: "track-2", fromTime: 0, toTime: 2 },
+    fromJSON: (data) => MoveClipCommand.fromJSON(data),
   },
   {
     name: "RippleDeleteCommand",
@@ -197,6 +213,7 @@ const commandCases: CommandCase[] = [
       deletedTrack: track,
       deletedTrackIndex: 0,
     },
+    fromJSON: (data) => RippleDeleteCommand.fromJSON(data),
   },
   {
     name: "RippleRestoreCommand",
@@ -210,6 +227,7 @@ const commandCases: CommandCase[] = [
       restoredTrack: track,
       restoredTrackIndex: 0,
     },
+    fromJSON: fromPrivateCommand,
   },
   {
     name: "SplitClipCommand",
@@ -229,6 +247,7 @@ const commandCases: CommandCase[] = [
         newClipId: rightClip.id,
       };
     },
+    fromJSON: (data) => SplitClipCommand.fromJSON(data),
   },
   {
     name: "MergeSplitClipsCommand",
@@ -246,6 +265,7 @@ const commandCases: CommandCase[] = [
         splitTime: 2,
       };
     },
+    fromJSON: fromPrivateCommand,
   },
   {
     name: "AddTrackCommand",
@@ -253,6 +273,7 @@ const commandCases: CommandCase[] = [
     label: "添加轨道",
     inverseLabel: "删除轨道",
     serialized: { type: "AddTrack", track, index: 0 },
+    fromJSON: (data) => AddTrackCommand.fromJSON(data),
   },
   {
     name: "DeleteTrackCommand",
@@ -260,6 +281,7 @@ const commandCases: CommandCase[] = [
     label: "删除轨道",
     inverseLabel: "恢复轨道",
     serialized: { type: "DeleteTrack", trackId: track.id, deletedTrack: track, deletedClips: [clip], trackIndex: 0 },
+    fromJSON: (data) => DeleteTrackCommand.fromJSON(data),
   },
   {
     name: "RestoreTrackCommand",
@@ -267,6 +289,7 @@ const commandCases: CommandCase[] = [
     label: "恢复轨道",
     inverseLabel: "删除轨道",
     serialized: { type: "RestoreTrack", track, clips: [clip], index: 0 },
+    fromJSON: fromPrivateCommand,
   },
   ...(["locked", "muted", "visible"] as const).map((property): CommandCase => ({
     name: `ToggleTrackPropertyCommand(${property})`,
@@ -274,6 +297,7 @@ const commandCases: CommandCase[] = [
     label: property === "locked" ? "切换轨道锁定" : property === "muted" ? "切换轨道静音" : "切换轨道可见性",
     inverseLabel: property === "locked" ? "切换轨道锁定" : property === "muted" ? "切换轨道静音" : "切换轨道可见性",
     serialized: { type: "ToggleTrackProperty", trackId: track.id, property },
+    fromJSON: (data) => ToggleTrackPropertyCommand.fromJSON(data),
   })),
   {
     name: "TransformClipCommand",
@@ -281,6 +305,7 @@ const commandCases: CommandCase[] = [
     label: "变换片段",
     inverseLabel: "变换片段",
     serialized: null,
+    fromJSON: null,
   },
   {
     name: "UpdateClipCommand",
@@ -288,6 +313,7 @@ const commandCases: CommandCase[] = [
     label: "更新片段",
     inverseLabel: "更新片段",
     serialized: { type: "UpdateClip", clipId: clip.id, oldProperties: { opacity: 1 }, newProperties: { opacity: 0.5 } },
+    fromJSON: (data) => UpdateClipCommand.fromJSON(data),
   },
   {
     name: "TrimClipCommand",
@@ -295,6 +321,7 @@ const commandCases: CommandCase[] = [
     label: "裁剪片段",
     inverseLabel: "裁剪片段",
     serialized: { type: "TrimClip", clipId: clip.id, oldTrimIn: 0, oldTrimOut: 4, oldDuration: 4, newTrimIn: 1, newTrimOut: 4, newDuration: 3 },
+    fromJSON: (data) => TrimClipCommand.fromJSON(data),
   },
 ];
 
@@ -315,16 +342,22 @@ describe("timeline history command labels", () => {
     }
   });
 
-  test("preserves every serializable command type and critical payload", () => {
-    const serializableCases = commandCases.filter((commandCase) => commandCase.serialized !== null);
+  test("round-trips every serializable command with localized labels and exact payloads", () => {
+    const serializableCases = commandCases.filter((commandCase) => commandCase.serialized !== null && commandCase.fromJSON !== null);
     expect(serializableCases).toHaveLength(22);
 
     for (const commandCase of serializableCases) {
       const { command, state } = commandCase.create();
       const nextState = command.apply(state);
       const expected = typeof commandCase.serialized === "function" ? commandCase.serialized(state, nextState) : commandCase.serialized;
+      const json = (command as SerializableTestCommand).toJSON();
+      const restored = commandCase.fromJSON!(json, command);
+      const restoredJson = (restored as SerializableTestCommand).toJSON();
 
-      expect((command as SerializableTestCommand).toJSON(), commandCase.name).toEqual(expected);
+      expect(json, commandCase.name).toEqual(expected);
+      expect(restoredJson, `${commandCase.name} round-trip`).toEqual(json);
+      expect(restored.label, `${commandCase.name} restored label`).toBe(commandCase.label);
+      expect(restored.invert().label, `${commandCase.name} restored inverse`).toBe(commandCase.inverseLabel);
     }
   });
 

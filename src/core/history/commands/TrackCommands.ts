@@ -172,6 +172,10 @@ class RestoreTrackCommand implements Command {
       index: this.index,
     };
   }
+
+  static fromJSON(data: Record<string, any>): RestoreTrackCommand {
+    return new RestoreTrackCommand(data.track, data.clips, data.index);
+  }
 }
 
 /**

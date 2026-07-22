@@ -5,6 +5,7 @@ import { Timeline } from "../Timeline";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
+import { useHistoryStore } from "@/store/historyStore";
 
 const seekMock = vi.fn();
 const setDurationMock = vi.fn();
@@ -101,6 +102,7 @@ vi.mock("react-dnd", () => ({
 
 describe("Timeline click behavior", () => {
   beforeEach(() => {
+    useHistoryStore.getState().clear();
     seekMock.mockClear();
     setDurationMock.mockClear();
     trackPropsSpy.mockClear();
@@ -113,6 +115,10 @@ describe("Timeline click behavior", () => {
       pixelsPerSecond: 100,
     });
     useProjectStore.setState({ project: null, mediaAssets: [], recentProjects: [] });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("seeks when clicking empty timeline area", () => {
@@ -151,6 +157,21 @@ describe("Timeline click behavior", () => {
     fireEvent.click(screen.getByText("Playhead"));
 
     expect(seekMock).not.toHaveBeenCalled();
+  });
+
+  it("begins a localized delete transaction from the keyboard", () => {
+    const beginTransaction = vi.spyOn(useHistoryStore.getState().journal, "beginTransaction");
+    useTimelineStore.setState({
+      clips: [
+        { id: "c1", trackId: "track-1", mediaId: "m1", startTime: 0, duration: 3, trimIn: 0, trimOut: 3, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+      ],
+    });
+    useUIStore.setState({ selectedClipIds: ["c1"] });
+
+    render(<Timeline />);
+    fireEvent.keyDown(window, { key: "Delete" });
+
+    expect(beginTransaction).toHaveBeenCalledWith("删除片段");
   });
 });
 

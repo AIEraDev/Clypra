@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditingActions } from "../EditingActions";
 import { useHistoryStore } from "@/store/historyStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import type { Clip, Project } from "@/types";
+
+vi.mock("@/hooks/usePlaybackClock", () => ({
+  getPlaybackClock: () => ({ time: 2 }),
+}));
 
 const project: Project = {
   id: "project-1",
@@ -58,6 +62,10 @@ describe("EditingActions split interactions", () => {
     });
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("returns and selects the right clip when split time is frame-snapped", () => {
     const result = EditingActions.executeSplit({
       clipId: "clip-1",
@@ -87,5 +95,17 @@ describe("EditingActions split interactions", () => {
     expect(result.error).toBe("Split time 0.00s snaps to a clip boundary");
     expect(useTimelineStore.getState().clips).toHaveLength(1);
     expect(useUIStore.getState().selectedClipIds).toEqual([]);
+  });
+
+  it.each([
+    ["left", () => EditingActions.deleteLeftAtPlayhead(), "删除播放头左侧"],
+    ["right", () => EditingActions.deleteRightAtPlayhead(), "删除播放头右侧"],
+  ] as const)("begins a localized delete-%s transaction", (_side, action, expectedLabel) => {
+    const beginTransaction = vi.spyOn(useHistoryStore.getState().journal, "beginTransaction");
+
+    const result = action();
+
+    expect(result).toHaveLength(1);
+    expect(beginTransaction).toHaveBeenCalledWith(expectedLabel);
   });
 });

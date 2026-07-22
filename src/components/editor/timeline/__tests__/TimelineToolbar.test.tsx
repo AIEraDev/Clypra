@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { TimelineToolbar } from "../TimelineToolbar";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
+import { useHistoryStore } from "@/store/historyStore";
 
 vi.mock("@/hooks/usePlaybackClock", () => ({
   getPlaybackClock: () => ({
@@ -15,6 +16,7 @@ describe("TimelineToolbar zoom controls", () => {
   let scroller: HTMLDivElement;
 
   beforeEach(() => {
+    useHistoryStore.getState().clear();
     useTimelineStore.setState({
       tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
       clips: [
@@ -50,6 +52,7 @@ describe("TimelineToolbar zoom controls", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     scroller.remove();
   });
 
@@ -61,5 +64,17 @@ describe("TimelineToolbar zoom controls", () => {
     expect(useTimelineStore.getState().pixelsPerSecond).toBeCloseTo(110, 5);
     expect(scroller.scrollLeft).toBeCloseTo(120, 5);
     expect(useTimelineStore.getState().scrollLeft).toBeCloseTo(120, 5);
+  });
+
+  it("begins a localized transaction when deleting selected clips", () => {
+    const beginTransaction = vi.spyOn(useHistoryStore.getState().journal, "beginTransaction");
+    useUIStore.setState({ selectedClipIds: ["clip-1"] });
+
+    const { container } = render(<TimelineToolbar />);
+    const deleteButton = container.querySelector(".lucide-trash-2")?.closest("button");
+    expect(deleteButton).toBeTruthy();
+    fireEvent.click(deleteButton!);
+
+    expect(beginTransaction).toHaveBeenCalledWith("删除片段");
   });
 });
