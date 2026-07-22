@@ -26,27 +26,27 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
   // Stream binding effect
   useEffect(() => {
     let active = true;
-    let clonedStream: MediaStream | null = null;
+    let boundStream: MediaStream | null = null;
 
     const attachStream = () => {
       if (!active) return;
       const stream = DualRecordService.getInstance().getWebcamStream();
       if (videoRef.current && stream) {
-        if (clonedStream) {
-          clonedStream.getTracks().forEach((t) => t.stop());
+        const videoTracks = stream.getVideoTracks();
+        if (videoTracks.length > 0) {
+          // Construct a video-only MediaStream wrapper without cloning track objects.
+          // This avoids cloning active capture tracks (which breaks in WebKit when stopped)
+          // and ensures no audio tracks are passed to the video element.
+          boundStream = new MediaStream(videoTracks);
+          videoRef.current.srcObject = boundStream;
+          const playPromise = videoRef.current.play();
+          if (playPromise && typeof playPromise.catch === "function") {
+            playPromise.catch((err) => {
+              console.error("[FloatingWidget] Failed to play video stream:", err);
+            });
+          }
         }
-
-        // WebKit / WKWebView workaround: Clone the stream to force re-binding
-        // the video tracks to this new <video> element. In Tauri's Safari-based
-        // webview, assigning the same MediaStream to a second element doesn't
-        // reliably start playback. Cloning creates a new internal binding.
-        // TODO: Remove when WebKit fixes MediaStream element re-attachment.
-        clonedStream = stream.clone();
-        videoRef.current.srcObject = clonedStream;
-        videoRef.current.play().catch((err) => {
-          console.error("[FloatingWidget] Failed to play video stream:", err);
-        });
-      } else {
+      } else if (active) {
         setTimeout(attachStream, 100);
       }
     };
@@ -57,10 +57,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
-      if (clonedStream) {
-        clonedStream.getTracks().forEach((t) => t.stop());
-        clonedStream = null;
-      }
+      boundStream = null;
     };
   }, [hasWebcam]);
 
@@ -126,12 +123,14 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
       setPreviewRecording({ filePaths });
       setSeconds(0);
       setIsRecording(false);
+      setRecordingError(null);
     } catch (err: any) {
       console.error("[FloatingWidget] Stop recording failed:", err);
       // CRITICAL: Always exit the floating widget — don't trap the user
       DualRecordService.getInstance().cleanup();
       setSeconds(0);
       setIsRecording(false);
+      setRecordingError(null);
 
       if (isTauri) {
         try {
@@ -209,8 +208,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
 
         <button
           onClick={handleStop}
-          disabled={!!recordingError}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold transition-all shadow-md shadow-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold transition-all shadow-md shadow-red-900/30 cursor-pointer"
         >
           <StopCircle className="w-4 h-4" />
           Stop Capture
