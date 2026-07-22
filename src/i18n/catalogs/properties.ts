@@ -128,7 +128,7 @@ export const propertyMessages = defineMessages({
   "properties.textStyle.detachTypographyTip": { en: "Note: Modifying typography will detach from the effect preset.", zhCN: "修改字体排印将与效果预设分离。" },
   "properties.textStyle.fontFamily": { en: "Font Family", zhCN: "字体" },
   "properties.textStyle.systemFonts": { en: "System Fonts", zhCN: "系统字体" },
-  "properties.textStyle.googleFonts": { en: "Google Web Fonts", zhCN: "Google 网络字体" },
+  "properties.textStyle.googleFonts": { en: "Google Web Fonts", zhCN: "网络字体" },
   "properties.textStyle.fontSize": { en: "Font Size", zhCN: "字号" },
   "properties.textStyle.fontWeight": { en: "Font Weight", zhCN: "字重" },
   "properties.textStyle.weight.thin": { en: "Thin", zhCN: "极细" },

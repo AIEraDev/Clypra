@@ -83,7 +83,7 @@ describe("TextStyleSection localization", () => {
     expect(screen.getByRole("button", { name: "保存样式" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "系统字体" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Arial" })).toHaveValue("Arial");
-    expect(screen.getByRole("group", { name: "Google 网络字体" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "网络字体" })).toBeInTheDocument();
     expect(screen.queryByText("Regular (400)")).not.toBeInTheDocument();
     expect(screen.getByText("常规 (400)")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "关闭" })).toHaveLength(3);
