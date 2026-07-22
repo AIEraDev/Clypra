@@ -109,8 +109,8 @@ describe("editor shell localization", () => {
   });
 
   test("interpolates complete Chinese messages without translating dynamic values", () => {
-    expect(translate("editor.topBar.undoAction", { action: "波纹删除片段" })).toBe("撤销 波纹删除片段");
-    expect(translate("editor.topBar.redoAction", { action: "拆分片段" })).toBe("重做 拆分片段");
+    expect(translate("editor.topBar.undoAction", { action: "波纹删除片段" })).toBe("撤销波纹删除片段");
+    expect(translate("editor.topBar.redoAction", { action: "拆分片段" })).toBe("重做拆分片段");
     expect(translate("editor.toast.transitionAddedBetweenClips", { name: "Neon Wipe v2" })).toBe("已在片段间添加“Neon Wipe v2”");
     expect(translate("editor.toast.effectAlreadyApplied", { name: "Glitch-X" })).toBe("效果“Glitch-X”已应用");
     expect(translate("editor.toast.effectApplied", { name: "Glow/Remote" })).toBe("已应用效果“Glow/Remote”");

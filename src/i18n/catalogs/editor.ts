@@ -4,8 +4,8 @@ export const editorMessages = defineMessages({
   "editor.topBar.backHome": { en: "Back to Home", zhCN: "返回首页" },
   "editor.topBar.undo": { en: "Undo", zhCN: "撤销" },
   "editor.topBar.redo": { en: "Redo", zhCN: "重做" },
-  "editor.topBar.undoAction": { en: "Undo {{action}}", zhCN: "撤销 {{action}}" },
-  "editor.topBar.redoAction": { en: "Redo {{action}}", zhCN: "重做 {{action}}" },
+  "editor.topBar.undoAction": { en: "Undo {{action}}", zhCN: "撤销{{action}}" },
+  "editor.topBar.redoAction": { en: "Redo {{action}}", zhCN: "重做{{action}}" },
 
   "editor.media.nav.media": { en: "Media", zhCN: "媒体" },
   "editor.media.nav.audio": { en: "Audio", zhCN: "音频" },

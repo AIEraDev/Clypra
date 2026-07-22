@@ -136,7 +136,7 @@ export class CompositeCommand implements Command {
     // Invert all commands in reverse order
     const invertedCommands = this._commands.map((cmd) => cmd.invert()).reverse();
 
-    return new CompositeCommand(`Undo ${this.label}`, invertedCommands);
+    return new CompositeCommand(this.label, invertedCommands);
   }
 
   merge(next: Command): Command | null {
