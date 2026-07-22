@@ -203,6 +203,10 @@ export const propertyMessages = defineMessages({
   "properties.textStyle.active": { en: "Active", zhCN: "已启用" },
   "properties.textStyle.inactive": { en: "Inactive", zhCN: "未启用" },
 
+  "properties.templateLayers.title": { en: "Template Layers", zhCN: "模板图层" },
+  "properties.templateLayers.fillColor": { en: "Fill Color", zhCN: "填充颜色" },
+  "properties.templateLayers.default": { en: "default", zhCN: "默认" },
+
   "properties.sticker.animation": { en: "Sticker Animation", zhCN: "贴纸动画" },
   "properties.sticker.speed": { en: "Speed", zhCN: "速度" },
   "properties.sticker.loopAnimation": { en: "Loop Animation", zhCN: "循环动画" },

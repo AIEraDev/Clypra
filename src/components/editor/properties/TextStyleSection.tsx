@@ -14,6 +14,7 @@ import { EffectStylePanel } from "./EffectStylePanel";
 import { TemplateLayerEditor } from "./TemplateLayerEditor";
 import { t, type MessageKey } from "@/i18n";
 import { TEMPLATE_CATEGORIES, TEMPLATE_CATEGORY_LABEL_KEYS } from "@/features/text-templates/types";
+import { getPresetDisplayName } from "@/store/presetStore";
 
 // Extracted font list for maintainability
 const SYSTEM_FONTS = [
@@ -397,26 +398,29 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
         <PropertySection title={t("properties.textStyle.stylePresets")} icon={<Layers className="w-3.5 h-3.5" />} defaultCollapsed>
           <div className="space-y-3">
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
-              {presets.map((preset) => (
-                <div key={preset.id} className="relative shrink-0 group/preset">
-                  <button onClick={() => handleApplyPreset(preset)} className="px-3 py-2 bg-surface-raised hover:bg-surface-raised/80 border border-border/60 hover:border-accent rounded-lg text-xs font-semibold text-text-primary transition-all cursor-pointer whitespace-nowrap" style={{ fontFamily: preset.fontFamily, color: preset.color }}>
-                    {preset.name}
-                  </button>
-                  {preset.isCustom && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deletePreset(preset.id);
-                      }}
-                      aria-label={t("properties.textStyle.deletePreset", { name: preset.name })}
-                      title={t("properties.textStyle.deletePreset", { name: preset.name })}
-                      className="absolute -top-1.5 -right-1.5 p-0.5 bg-destructive text-white rounded-full opacity-0 group-hover/preset:opacity-100 transition-opacity hover:bg-destructive/80 cursor-pointer"
-                    >
-                      <Trash2 className="w-2.5 h-2.5" />
+              {presets.map((preset) => {
+                const displayName = getPresetDisplayName(preset);
+                return (
+                  <div key={preset.id} className="relative shrink-0 group/preset">
+                    <button onClick={() => handleApplyPreset(preset)} className="px-3 py-2 bg-surface-raised hover:bg-surface-raised/80 border border-border/60 hover:border-accent rounded-lg text-xs font-semibold text-text-primary transition-all cursor-pointer whitespace-nowrap" style={{ fontFamily: preset.fontFamily, color: preset.color }}>
+                      {displayName}
                     </button>
-                  )}
-                </div>
-              ))}
+                    {preset.isCustom && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deletePreset(preset.id);
+                        }}
+                        aria-label={t("properties.textStyle.deletePreset", { name: displayName })}
+                        title={t("properties.textStyle.deletePreset", { name: displayName })}
+                        className="absolute -top-1.5 -right-1.5 p-0.5 bg-destructive text-white rounded-full opacity-0 group-hover/preset:opacity-100 transition-opacity hover:bg-destructive/80 cursor-pointer"
+                      >
+                        <Trash2 className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             <div className="flex items-center gap-2 pt-2 border-t border-border/30">

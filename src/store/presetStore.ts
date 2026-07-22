@@ -33,6 +33,16 @@ export interface TextPreset {
   isCustom?: boolean;
 }
 
+const PRESET_DISPLAY_NAMES = new Map<TextPreset["id"], string>([
+  ["preset-neon", "霓虹光效"],
+  ["preset-minimal", "极简无衬线"],
+  ["preset-editorial", "经典编辑风"],
+  ["preset-subtitles", "高级字幕"],
+]);
+
+export const getPresetDisplayName = (preset: TextPreset): string =>
+  preset.isCustom ? preset.name : PRESET_DISPLAY_NAMES.get(preset.id) ?? preset.name;
+
 interface PresetStore {
   presets: TextPreset[];
   savePreset: (name: string, presetData: Omit<TextPreset, "id" | "name" | "isCustom">) => void;

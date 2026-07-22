@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Type, Square, Image, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TextTemplate } from "@/features/text-templates/types";
+import { t } from "@/i18n";
 import { PropertySlider } from "./primitives/PropertySlider";
 
 interface TemplateLayerEditorProps {
@@ -85,7 +86,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
   return (
     <div className="space-y-2 select-none">
       <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-        Template Layers
+        {t("properties.templateLayers.title")}
       </div>
 
       {sortedLayers.map((layer) => {
@@ -163,8 +164,9 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                 {layer.kind === "text" && (
                   <>
                     <div className="space-y-1">
-                      <label className="text-[9px] text-zinc-400 block font-medium">Text Content</label>
+                      <label className="text-[9px] text-zinc-400 block font-medium">{t("properties.textStyle.content")}</label>
                       <textarea
+                        aria-label={t("properties.textStyle.content")}
                         value={currentText}
                         onChange={(e) => handleLayerTextChange(layer.id, e.target.value, layer.role)}
                         rows={2}
@@ -173,13 +175,14 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] text-zinc-400 font-medium">Text Color</span>
+                      <span className="text-[9px] text-zinc-400 font-medium">{t("properties.textStyle.textColor")}</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-zinc-500 tabular-nums uppercase">
                           {currentColor}
                         </span>
                         <input
                           type="color"
+                          aria-label={t("properties.textStyle.textColor")}
                           value={currentColor}
                           onChange={(e) => handleLayerColorChange(layer.id, e.target.value, layer.role)}
                           className="w-6 h-6 bg-transparent border-0 cursor-pointer rounded overflow-hidden"
@@ -188,7 +191,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                     </div>
 
                     <PropertySlider
-                      label="Font Size"
+                      label={t("properties.textStyle.fontSize")}
                       value={currentFontSize}
                       min={10}
                       max={1000}
@@ -197,21 +200,22 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                     />
 
                     <div className="space-y-1">
-                      <label className="text-[9px] text-zinc-400 block font-medium">Font Weight</label>
+                      <label className="text-[9px] text-zinc-400 block font-medium">{t("properties.textStyle.fontWeight")}</label>
                       <select
+                        aria-label={t("properties.textStyle.fontWeight")}
                         value={currentFontWeight}
                         onChange={(e) => handleLayerFontPropertyChange(layer.id, "fontWeight", Number(e.target.value))}
                         className="w-full bg-zinc-900 border border-zinc-800 rounded-md py-1.5 px-2 text-xs text-white outline-none focus:border-sky-500"
                       >
-                        <option value={100}>Thin (100)</option>
-                        <option value={200}>Extra Light (200)</option>
-                        <option value={300}>Light (300)</option>
-                        <option value={400}>Regular (400)</option>
-                        <option value={500}>Medium (500)</option>
-                        <option value={600}>Semi Bold (600)</option>
-                        <option value={700}>Bold (700)</option>
-                        <option value={800}>Extra Bold (800)</option>
-                        <option value={900}>Black (900)</option>
+                        <option value={100}>{t("properties.textStyle.weight.thin")} (100)</option>
+                        <option value={200}>{t("properties.textStyle.weight.extraLight")} (200)</option>
+                        <option value={300}>{t("properties.textStyle.weight.light")} (300)</option>
+                        <option value={400}>{t("properties.textStyle.weight.regular")} (400)</option>
+                        <option value={500}>{t("properties.textStyle.weight.medium")} (500)</option>
+                        <option value={600}>{t("properties.textStyle.weight.semiBold")} (600)</option>
+                        <option value={700}>{t("properties.textStyle.weight.bold")} (700)</option>
+                        <option value={800}>{t("properties.textStyle.weight.extraBold")} (800)</option>
+                        <option value={900}>{t("properties.textStyle.weight.black")} (900)</option>
                       </select>
                     </div>
                   </>
@@ -219,13 +223,14 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                 {layer.kind === "shape" && (
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] text-zinc-400 font-medium">Fill Color</span>
+                    <span className="text-[9px] text-zinc-400 font-medium">{t("properties.templateLayers.fillColor")}</span>
                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px] text-zinc-500 tabular-nums uppercase">
                         {currentColor}
                       </span>
                       <input
                         type="color"
+                        aria-label={t("properties.templateLayers.fillColor")}
                         value={currentColor}
                         onChange={(e) => handleLayerColorChange(layer.id, e.target.value)}
                         className="w-6 h-6 bg-transparent border-0 cursor-pointer rounded overflow-hidden"
@@ -236,7 +241,7 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                 {layer.kind === "image" && (
                   <div className="text-[10px] text-zinc-500 break-all select-all">
-                    URL: {layer.url || "default"}
+                    URL: {layer.url || t("properties.templateLayers.default")}
                   </div>
                 )}
               </div>

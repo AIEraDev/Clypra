@@ -71,6 +71,21 @@ describe("TextStyleSection localization", () => {
     useTemplateStore.setState({ templates });
   });
 
+  it("displays built-in preset labels in Chinese while applying the original object", () => {
+    const preset = {
+      id: "preset-neon",
+      name: "Neon Glow",
+      fontFamily: "Outfit Variable",
+      color: "#ff007f",
+    };
+    const handleApplyPreset = vi.fn();
+    const { props } = renderSection(baseClip, { presets: [preset], handleApplyPreset });
+
+    fireEvent.click(screen.getByRole("button", { name: "霓虹光效" }));
+    expect(props.handleApplyPreset).toHaveBeenCalledWith(preset);
+    expect(preset.name).toBe("Neon Glow");
+  });
+
   it("localizes the plain editor while preserving names, values, units, and user input", () => {
     const { props } = renderSection({ ...baseClip, textRole: "caption" });
 

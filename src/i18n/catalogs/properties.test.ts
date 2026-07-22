@@ -4,6 +4,14 @@ import { t } from "@/i18n";
 const translate = t as (key: string) => string;
 
 describe("basic property messages", () => {
+  it("provides localized template layer labels", () => {
+    expect([
+      translate("properties.templateLayers.title"),
+      translate("properties.templateLayers.fillColor"),
+      translate("properties.templateLayers.default"),
+    ]).toEqual(["模板图层", "填充颜色", "默认"]);
+  });
+
   it("provides localized text style property labels", () => {
     expect([
       translate("properties.textStyle.content"),
