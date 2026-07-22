@@ -4,6 +4,52 @@ import { t } from "@/i18n";
 const translate = t as (key: string) => string;
 
 describe("basic property messages", () => {
+  it("provides localized text style property labels", () => {
+    expect([
+      translate("properties.textStyle.content"),
+      translate("properties.textStyle.stylePresets"),
+      translate("properties.textStyle.customStylePlaceholder"),
+      translate("properties.textStyle.typography"),
+      translate("properties.textStyle.fontFamily"),
+      translate("properties.textStyle.fontSize"),
+      translate("properties.textStyle.fontWeight"),
+      translate("properties.textStyle.colorsEffects"),
+      translate("properties.textStyle.solidColor"),
+      translate("properties.textStyle.enabled"),
+      translate("properties.textStyle.disabled"),
+      translate("properties.textStyle.presetEffects"),
+      translate("properties.textStyle.searchEffects"),
+      translate("properties.textStyle.noMatchingEffects"),
+      translate("properties.textStyle.templateGallery"),
+      translate("properties.textStyle.searchTemplates"),
+      translate("properties.textStyle.noMatchingTemplates"),
+      translate("properties.textStyle.applyAllCaptions"),
+      translate("properties.textStyle.active"),
+      translate("properties.textStyle.inactive"),
+    ]).toEqual([
+      "文本内容",
+      "样式预设",
+      "自定义样式名称...",
+      "字体排印",
+      "字体",
+      "字号",
+      "字重",
+      "颜色与效果",
+      "纯色",
+      "开启",
+      "关闭",
+      "预设效果",
+      "搜索效果...",
+      "未找到匹配的效果预设。",
+      "模板库",
+      "搜索模板...",
+      "未找到匹配的模板。",
+      "应用到所有字幕",
+      "已启用",
+      "未启用",
+    ]);
+  });
+
   it("provides localized text animation, mode, and effect style labels", () => {
     expect([
       translate("properties.textAnimation.title"),
