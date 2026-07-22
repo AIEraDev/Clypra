@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useTransportControls } from "@/hooks/usePlaybackClock";
-import { useCaptionStore } from "@/store/captionStore";
+import { DEFAULT_WHISPER_MODEL, useCaptionStore } from "@/store/captionStore";
 import { useUIStore } from "@/store/uiStore";
 import { createTextClip } from "@/lib/text/textClip";
 import { parseSubtitles, serializeSubtitles, formatSubtitleTime } from "@/features/subtitles/parser";
@@ -49,7 +49,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const mediaAssets = project?.mediaAssets || [];
 
   // Check model status for helpful UI hints
-  const selectedModel = captionSettings.activeModel || "tiny";
+  const selectedModel = captionSettings.activeModel || DEFAULT_WHISPER_MODEL;
   const isModelDownloaded = captionSettings.models[selectedModel]?.status === "downloaded";
 
   // Find the text track designated for captions
@@ -181,7 +181,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   // Auto-generate captions using Whisper — ZERO CONFIG
   const handleAutoGenerate = async () => {
     // Smart defaults — no pre-flight checks blocking the user
-    const model = captionSettings.activeModel || "tiny"; // Default to tiny if none selected
+    const model = captionSettings.activeModel || DEFAULT_WHISPER_MODEL;
     const language = captionSettings.language || "auto"; // Default to auto-detect
 
     console.log(`[CaptionsTab] Starting auto-generate with model: ${model}, language: ${language}`);

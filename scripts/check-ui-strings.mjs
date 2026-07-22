@@ -28,7 +28,7 @@ const UI_CALLS = new Set([
   "beginTransaction",
   "fillText",
 ]);
-const NON_UI_ARGUMENT_CALLS = new Set(["startsWith", "getCategoryIcon"]);
+const TECHNICAL_TEXT_ELEMENTS = new Set(["style", "code", "pre"]);
 const SHORTCUT_KEY = String.raw`(?:[A-Za-z0-9]|F(?:[1-9]|1\d|2[0-4])|Enter|Esc|Escape|Space|Tab|Backspace|Delete|Home|End|PageUp|PageDown|Arrow(?:Up|Down|Left|Right))`;
 const STANDALONE_SHORTCUT_KEY = String.raw`(?:F(?:[1-9]|1\d|2[0-4])|Enter|Esc|Escape|Space|Tab|Backspace|Delete|Home|End|PageUp|PageDown|Arrow(?:Up|Down|Left|Right))`;
 const SHORTCUT_VALUE = new RegExp(
@@ -311,6 +311,14 @@ function scanSource(source, file = "src/Fixture.tsx") {
     );
   }
 
+  function isNonUiStringPredicateCall(node) {
+    return (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "startsWith"
+    );
+  }
+
   function resolveStaticExpression(expression, seen) {
     const node = unwrapExpression(expression);
     if (ts.isIdentifier(node)) {
@@ -387,7 +395,7 @@ function scanSource(source, file = "src/Fixture.tsx") {
       if (
         collectAllObjectValues ||
         !followCallArguments ||
-        NON_UI_ARGUMENT_CALLS.has(callName(node.expression))
+        isNonUiStringPredicateCall(node)
       ) {
         return;
       }
@@ -414,7 +422,6 @@ function scanSource(source, file = "src/Fixture.tsx") {
       return;
     }
     if (ts.isIdentifier(node)) {
-      if (collectAllObjectValues) return;
       const constant = resolveConstant(node);
       if (!constant || seen.has(constant.declaration.pos)) return;
       collect(
@@ -426,7 +433,6 @@ function scanSource(source, file = "src/Fixture.tsx") {
       return;
     }
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-      if (collectAllObjectValues) return;
       const resolved = resolveStaticExpression(node, seen);
       if (resolved) {
         collect(resolved.expression, resolved.seen, collectAllObjectValues, followCallArguments);
@@ -456,16 +462,16 @@ function scanSource(source, file = "src/Fixture.tsx") {
     }
   }
 
-  function insideStyleElement(node) {
+  function insideTechnicalTextElement(node) {
     let current = node.parent;
     while (current) {
       if (
         (ts.isJsxElement(current) || ts.isJsxSelfClosingElement(current)) &&
-        propertyName(
+        TECHNICAL_TEXT_ELEMENTS.has(propertyName(
           ts.isJsxElement(current)
             ? current.openingElement.tagName
             : current.tagName,
-        ) === "style"
+        ))
       ) {
         return true;
       }
@@ -476,9 +482,16 @@ function scanSource(source, file = "src/Fixture.tsx") {
   }
 
   function visit(node) {
-    if (ts.isJsxText(node) && !insideStyleElement(node)) {
+    if (
+      ts.isJsxElement(node) &&
+      TECHNICAL_TEXT_ELEMENTS.has(propertyName(node.openingElement.tagName))
+    ) {
+      visit(node.openingElement);
+      return;
+    }
+    if (ts.isJsxText(node) && !insideTechnicalTextElement(node)) {
       add(node.text, node);
-    } else if (ts.isJsxExpression(node) && node.expression && !insideStyleElement(node)) {
+    } else if (ts.isJsxExpression(node) && node.expression && !insideTechnicalTextElement(node)) {
       const attribute = node.parent;
       if (ts.isJsxAttribute(attribute)) {
         if (UI_NAMES.has(attribute.name.text)) collect(node.expression, new Set(), false, true);
@@ -649,11 +662,19 @@ function runSelfTest({ announce = true } = {}) {
     ["src/Fixture.ts:1: Open project"],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; alert(t("message.key", { name: "Open project", value: remoteName }));`, "src/Fixture.ts"),
+    scan(`import { t } from "@/i18n"; alert(t("message.key", { name: "Open project", value: remoteName, detail: remoteCopy.name }));`, "src/Fixture.ts"),
     ["src/Fixture.ts:1: Open project"],
   );
   assert.deepEqual(
-    scan(`import { t } from "@/i18n"; const model = remoteModel || "tiny"; alert(t("message.key", { model }));`, "src/Fixture.ts"),
+    scan(`import { t } from "@/i18n"; const name = "Open project"; alert(t("message.key", { name }));`, "src/Fixture.ts"),
+    ["src/Fixture.ts:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`import { t } from "@/i18n"; const copy = { name: "Open project" }; alert(t("message.key", { name: copy.name }));`, "src/Fixture.ts"),
+    ["src/Fixture.ts:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`import { t } from "@/i18n"; const model = remoteModel || DEFAULT_MODEL; alert(t("message.key", { model }));`, "src/Fixture.ts"),
     [],
   );
   assert.deepEqual(
@@ -709,9 +730,25 @@ function runSelfTest({ announce = true } = {}) {
   assert.deepEqual(scan(`const View = () => <div>{formatLabel("Open project")}</div>;`), [
     "src/Fixture.tsx:1: Open project",
   ]);
+  assert.deepEqual(
+    scan(`const getCategoryIcon = (value: string) => value; const View = () => <div>{getCategoryIcon("Open project")}</div>;`),
+    ["src/Fixture.tsx:1: Open project"],
+  );
+  assert.deepEqual(
+    scan(`const startsWith = (value: string) => value; const View = () => <div>{startsWith("Open project")}</div>;`),
+    ["src/Fixture.tsx:1: Open project"],
+  );
   assert.deepEqual(scan(`const View = () => <div>请选择 Open/Save 操作</div>;`), [
     "src/Fixture.tsx:1: 请选择 Open/Save 操作",
   ]);
+  assert.deepEqual(
+    scan(`const View = () => <><code>npm run build</code><pre>git diff --check</pre></>;`),
+    [],
+  );
+  assert.deepEqual(
+    scan(`const View = () => <pre>{JSON.stringify({ label: "Open project" })}</pre>;`),
+    [],
+  );
   assert.deepEqual(scan(`const View = () => <><span>详情 (F12)</span><span>提交 (⌘Enter)</span></>;`), []);
   assert.deepEqual(scan(`alert(String.raw\`Open project\`);`), [
     "src/Fixture.tsx:1: Open project",
@@ -746,7 +783,7 @@ function runSelfTest({ announce = true } = {}) {
     "src/Fixture.tsx:1: Render Error",
   ]);
   assert.deepEqual(
-    scan(`const isSticker = id.startsWith("sticker-"); const View = () => <>{isSticker}{getCategoryIcon(category || "aura")}</>;`),
+    scan(`const isSticker = id.startsWith("sticker-"); const icon = icons[category || "aura"]; const View = () => <>{isSticker}{icon}</>;`),
     [],
   );
   assert.deepEqual(scan(`alert("FFmpeg export failed");`), [

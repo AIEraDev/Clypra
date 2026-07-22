@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 
 export type WhisperModelSize = "tiny" | "base" | "small" | "medium" | "large-v3";
 export type ModelDownloadStatus = "idle" | "downloading" | "downloaded" | "error";
+export const DEFAULT_WHISPER_MODEL: WhisperModelSize = "tiny";
 
 export interface ModelDownloadState {
   status: ModelDownloadStatus;
