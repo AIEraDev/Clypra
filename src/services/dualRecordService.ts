@@ -52,6 +52,7 @@ export class DualRecordService {
   private micSourceNode: MediaStreamAudioSourceNode | null = null;
   private micLevelBuffer: Uint8Array | null = null;
   private isMicTestActive = false;
+  private _previewGeneration = 0;
 
   private constructor() {}
 
@@ -218,6 +219,8 @@ export class DualRecordService {
     options: Pick<DualRecordOptions, "webcam" | "audio">,
     audioDeviceId?: string
   ): Promise<{ stream: MediaStream | null; cameraError?: string }> {
+    const currentGeneration = ++this._previewGeneration;
+
     if (this.isRecordingActive) return { stream: this.webcamStream };
 
     if (this.webcamStream) {
@@ -239,20 +242,30 @@ export class DualRecordService {
     // Try combined video + audio first if webcam is requested
     if (options.webcam) {
       try {
-        this.webcamStream = await navigator.mediaDevices.getUserMedia({
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
           audio: audioConstraints,
         });
+        if (currentGeneration !== this._previewGeneration) {
+          stream.getTracks().forEach(t => t.stop());
+          return { stream: null };
+        }
+        this.webcamStream = stream;
         this.isPreviewActive = true;
         return { stream: this.webcamStream };
       } catch (err1) {
         console.warn("[DualRecordService] Camera request with ideal constraints failed, retrying with video: true...", err1);
         // Retry with simple video: true constraint for maximum WebKit / macOS AVVideoCaptureSource compatibility
         try {
-          this.webcamStream = await navigator.mediaDevices.getUserMedia({
+          const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: audioConstraints,
           });
+          if (currentGeneration !== this._previewGeneration) {
+            stream.getTracks().forEach(t => t.stop());
+            return { stream: null };
+          }
+          this.webcamStream = stream;
           this.isPreviewActive = true;
           return { stream: this.webcamStream };
         } catch (err2: any) {
@@ -271,10 +284,15 @@ export class DualRecordService {
           // If audio was also requested, fall back to audio-only so mic test works
           if (options.audio) {
             try {
-              this.webcamStream = await navigator.mediaDevices.getUserMedia({
+              const stream = await navigator.mediaDevices.getUserMedia({
                 video: false,
                 audio: audioConstraints,
               });
+              if (currentGeneration !== this._previewGeneration) {
+                stream.getTracks().forEach(t => t.stop());
+                return { stream: null, cameraError };
+              }
+              this.webcamStream = stream;
               this.isPreviewActive = true;
               return { stream: this.webcamStream, cameraError };
             } catch (audioErr) {
@@ -292,10 +310,15 @@ export class DualRecordService {
 
     // Audio-only preview
     try {
-      this.webcamStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: false,
         audio: audioConstraints,
       });
+      if (currentGeneration !== this._previewGeneration) {
+        stream.getTracks().forEach(t => t.stop());
+        return { stream: null };
+      }
+      this.webcamStream = stream;
       this.isPreviewActive = true;
       return { stream: this.webcamStream };
     } catch (err) {
@@ -503,7 +526,9 @@ export class DualRecordService {
       }
 
       // 4. Webcam recorder
-      if (this.webcamStream && (options.webcam || options.audio)) {
+      // REC-03 fix: Only record webcam separately if webcam is enabled, or if audio-only (no screen).
+      // When screen+audio (no webcam), mic audio is already injected into the screen recorder.
+      if (this.webcamStream && (options.webcam || (options.audio && !options.screen))) {
         this.webcamRecorder = new MediaRecorder(
           this.webcamStream,
           selectedMime ? { mimeType: selectedMime } : undefined
@@ -540,7 +565,16 @@ export class DualRecordService {
         recorder: MediaRecorder | null,
         chunks: Blob[]
       ): Promise<Blob | null> => {
-        if (!recorder || recorder.state === "inactive") return Promise.resolve(null);
+        if (!recorder) return Promise.resolve(null);
+        if (recorder.state === "inactive") {
+          // REC-01 fix: If the recorder was stopped externally (e.g. native "Stop sharing"),
+          // it transitions to "inactive" but accumulated chunks are still valid.
+          if (chunks.length > 0) {
+            const mimeType = recorder.mimeType || "video/webm";
+            return Promise.resolve(new Blob(chunks, { type: mimeType }));
+          }
+          return Promise.resolve(null);
+        }
         return new Promise((resolve) => {
           recorder.onstop = () => {
             const mimeType = recorder.mimeType || "video/webm";
@@ -564,8 +598,7 @@ export class DualRecordService {
         const mimeType = this.screenRecorder?.mimeType ?? "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
         const fileName = `screen_${timestamp}.${ext}`;
-        const arrayBuffer = await screenBlob.arrayBuffer();
-        const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
+        const path = await platform.saveRecording(fileName, new Uint8Array(await screenBlob.arrayBuffer()));
         filePaths.push(path);
       }
 
@@ -574,8 +607,7 @@ export class DualRecordService {
         const mimeType = this.webcamRecorder?.mimeType ?? "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
         const fileName = `camera_${timestamp}.${ext}`;
-        const arrayBuffer = await webcamBlob.arrayBuffer();
-        const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
+        const path = await platform.saveRecording(fileName, new Uint8Array(await webcamBlob.arrayBuffer()));
         filePaths.push(path);
       }
 
