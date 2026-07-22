@@ -218,7 +218,7 @@ function generateWarnings(clips: CompositorClip[], gapRanges: TimeRange[], prima
   }
 
   // Warn about clips with invalid trim ranges
-  const invalidTrims = clips.filter((c) => c.trimIn >= c.trimOut || c.trimOut - c.trimIn !== c.duration);
+  const invalidTrims = clips.filter((c) => c.trimIn >= c.trimOut || Math.abs((c.trimOut - c.trimIn) - c.duration) > 0.001);
   if (invalidTrims.length > 0) {
     warnings.push(`${invalidTrims.length} clip(s) have invalid trim ranges`);
   }
