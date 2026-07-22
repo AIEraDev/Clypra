@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useMemo, useCallback } from "react"
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import type { TimelineMarker } from "@/types";
+import { t, type MessageKey } from "@/i18n";
 
 interface TimelineRulerProps {
   pixelsPerSecond: number;
@@ -32,12 +33,12 @@ const INTERVAL_TABLE: [number, number][] = [
 
 const MIN_LABEL_GAP_PX = 80;
 
-const MARKER_COLORS: { label: string; value: string; css: string }[] = [
-  { label: "Purple", value: "purple", css: "#a855f7" },
-  { label: "Blue",   value: "blue",   css: "#3b82f6" },
-  { label: "Green",  value: "green",  css: "#22c55e" },
-  { label: "Yellow", value: "yellow", css: "#eab308" },
-  { label: "Red",    value: "red",    css: "#ef4444" },
+const MARKER_COLORS: { titleKey: MessageKey; value: string; css: string }[] = [
+  { titleKey: "timeline.marker.color.purple", value: "purple", css: "#a855f7" },
+  { titleKey: "timeline.marker.color.blue",   value: "blue",   css: "#3b82f6" },
+  { titleKey: "timeline.marker.color.green",  value: "green",  css: "#22c55e" },
+  { titleKey: "timeline.marker.color.yellow", value: "yellow", css: "#eab308" },
+  { titleKey: "timeline.marker.color.red",    value: "red",    css: "#ef4444" },
 ];
 
 function markerCss(color: string): string {
@@ -192,8 +193,8 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({ marker, x, onClose, onUpd
   }, [onClose]);
 
   const commitName = () => {
-    if (name.trim() && name.trim() !== marker.name) {
-      onUpdate({ name: name.trim() });
+    if (name.trim() && name !== marker.name) {
+      onUpdate({ name });
     }
   };
 
@@ -238,7 +239,7 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({ marker, x, onClose, onUpd
           if (e.key === "Escape") onClose();
           e.stopPropagation();
         }}
-        placeholder="Marker name…"
+        placeholder={t("timeline.marker.namePlaceholder")}
         style={{
           background: "rgba(255,255,255,0.07)",
           border: "1px solid rgba(255,255,255,0.14)",
@@ -258,7 +259,7 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({ marker, x, onClose, onUpd
           <button
             key={c.value}
             onClick={() => onUpdate({ color: c.value })}
-            title={c.label}
+            title={t(c.titleKey)}
             style={{
               width: 16,
               height: 16,
@@ -276,7 +277,7 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({ marker, x, onClose, onUpd
         {/* Delete */}
         <button
           onClick={onDelete}
-          title="Delete marker"
+          title={t("timeline.marker.deleteTitle")}
           style={{
             background: "rgba(239,68,68,0.15)",
             border: "1px solid rgba(239,68,68,0.35)",
@@ -288,7 +289,7 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({ marker, x, onClose, onUpd
             fontWeight: 600,
           }}
         >
-          Delete
+          {t("timeline.marker.delete")}
         </button>
       </div>
     </div>

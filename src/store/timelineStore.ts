@@ -1343,9 +1343,9 @@ export const useTimelineStore = create<TimelineStore>(
 
     // ─── Marker actions ──────────────────────────────────────────────────────
 
-    addMarker: (time, name = "Marker", color = "purple") => {
+    addMarker: (time, name, color = "purple") => {
       const id = generateId("marker");
-      const marker: TimelineMarker = { id, time, name, color };
+      const marker: TimelineMarker = { id, time, name: name === undefined ? t("timeline.marker.defaultName") : name, color };
       set((state) => ({
         markers: [...state.markers, marker].sort((a, b) => a.time - b.time),
         epoch: state.epoch + 1,

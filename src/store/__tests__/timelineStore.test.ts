@@ -51,6 +51,27 @@ describe("timeline track localization", () => {
   });
 });
 
+describe("timeline marker localization", () => {
+  beforeEach(() => {
+    resetIdGenerator("timeline-marker-test");
+    useTimelineStore.setState({ markers: [], epoch: 0 });
+  });
+
+  it("defaults only an omitted marker name and preserves explicit names verbatim", () => {
+    const store = useTimelineStore.getState();
+
+    store.addMarker(1);
+    store.addMarker(2, "");
+    store.addMarker(3, "  客户 Marker  ");
+
+    expect(useTimelineStore.getState().markers.map(({ time, name }) => ({ time, name }))).toEqual([
+      { time: 1, name: "标记" },
+      { time: 2, name: "" },
+      { time: 3, name: "  客户 Marker  " },
+    ]);
+  });
+});
+
 describe("timelineStore clip operations", () => {
   beforeEach(() => {
     // Reset store before each test

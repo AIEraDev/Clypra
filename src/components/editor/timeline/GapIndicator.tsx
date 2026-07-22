@@ -3,6 +3,26 @@ import { Lock, Trash2 } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
 import type { Gap } from "@/types/gap";
+import { t, type MessageKey } from "@/i18n";
+
+const GAP_TYPE_MESSAGE_KEYS = new Map<string, MessageKey>([
+  ["manual", "timeline.gap.type.manual"],
+  ["auto", "timeline.gap.type.auto"],
+  ["protected", "timeline.gap.type.protected"],
+]);
+
+const GAP_SOURCE_MESSAGE_KEYS = new Map<string, MessageKey>([
+  ["user-insert", "timeline.gap.source.userInsert"],
+  ["clip-drag", "timeline.gap.source.clipDrag"],
+  ["clip-delete", "timeline.gap.source.clipDelete"],
+  ["imported", "timeline.gap.source.imported"],
+  ["unknown", "timeline.gap.source.unknown"],
+]);
+
+const localizeGapValue = (value: string, messageKeys: Map<string, MessageKey>): string => {
+  const messageKey = messageKeys.get(value);
+  return messageKey ? t(messageKey) : value;
+};
 
 interface GapIndicatorProps {
   gap: Gap;
@@ -164,22 +184,22 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({ gap, pixelsPerSecond
         >
           <button className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-hover flex items-center gap-2" onClick={handleRemove} disabled={gap.protected}>
             <Trash2 size={14} />
-            <span>Remove Gap</span>
+            <span>{t("timeline.gap.remove")}</span>
             <span className="ml-auto text-xs text-muted">,</span>
           </button>
 
           <button className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-hover flex items-center gap-2" onClick={handleToggleProtection}>
             <Lock size={14} />
-            <span>{gap.protected ? "Unprotect" : "Protect"} Gap</span>
+            <span>{t(gap.protected ? "timeline.gap.unprotect" : "timeline.gap.protect")}</span>
           </button>
 
           <div className="border-t border-border my-1" />
 
           <div className="px-3 py-1.5 text-xs text-muted space-y-0.5">
-            <div>Duration: {formatDuration(gap.duration)}</div>
-            <div>Start: {formatDuration(gap.startTime)}</div>
-            <div>Type: {gap.type}</div>
-            {gap.source !== "unknown" && <div>Source: {gap.source.replace("-", " ")}</div>}
+            <div>{t("timeline.gap.duration", { duration: formatDuration(gap.duration) })}</div>
+            <div>{t("timeline.gap.start", { start: formatDuration(gap.startTime) })}</div>
+            <div>{t("timeline.gap.type", { type: localizeGapValue(gap.type, GAP_TYPE_MESSAGE_KEYS) })}</div>
+            <div>{t("timeline.gap.source", { source: localizeGapValue(gap.source, GAP_SOURCE_MESSAGE_KEYS) })}</div>
           </div>
         </div>
       )}

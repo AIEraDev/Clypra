@@ -200,3 +200,34 @@ describe("timeline history localization", () => {
     ]);
   });
 });
+
+describe("timeline gap and marker localization", () => {
+  test.each([
+    ["timeline.gap.remove", "删除间隙"],
+    ["timeline.gap.protect", "保护间隙"],
+    ["timeline.gap.unprotect", "取消保护间隙"],
+    ["timeline.gap.duration", "时长：{{duration}}"],
+    ["timeline.gap.start", "开始：{{start}}"],
+    ["timeline.gap.type", "类型：{{type}}"],
+    ["timeline.gap.source", "来源：{{source}}"],
+    ["timeline.gap.type.manual", "手动"],
+    ["timeline.gap.type.auto", "自动"],
+    ["timeline.gap.type.protected", "已保护"],
+    ["timeline.gap.source.userInsert", "用户插入"],
+    ["timeline.gap.source.clipDrag", "片段拖动"],
+    ["timeline.gap.source.clipDelete", "删除片段"],
+    ["timeline.gap.source.imported", "已导入"],
+    ["timeline.gap.source.unknown", "未知"],
+    ["timeline.marker.color.purple", "紫色"],
+    ["timeline.marker.color.blue", "蓝色"],
+    ["timeline.marker.color.green", "绿色"],
+    ["timeline.marker.color.yellow", "黄色"],
+    ["timeline.marker.color.red", "红色"],
+    ["timeline.marker.namePlaceholder", "标记名称…"],
+    ["timeline.marker.deleteTitle", "删除标记"],
+    ["timeline.marker.delete", "删除"],
+    ["timeline.marker.defaultName", "标记"],
+  ])("translates %s", (key, expected) => {
+    expect(translate(key)).toBe(expected);
+  });
+});
