@@ -303,33 +303,63 @@ pub async fn transcribe_audio_local(
             Ok(path)
         }).map_err(|e| format!("Failed to get app data dir: {}", e))?;
     
-    let models_dir = format!("{}/models/whisper", app_data_dir);
+    // Build the models dir with PathBuf::join so the platform-native separator
+    // is used. The previous format!("{}/models/whisper", app_data_dir) mixed
+    // separators on Windows (app_data_dir ends with '\', then '/models/whisper'
+    // was appended), which can confuse downstream tools consuming --model-dir.
+    let models_dir = std::path::Path::new(&app_data_dir)
+        .join("models")
+        .join("whisper")
+        .to_string_lossy()
+        .to_string();
     eprintln!("🦀 [transcribe_audio_local] Models directory: {}", models_dir);
 
-    // Verify Python script exists
-    let mut script_path = PathBuf::from("src/features/text-effects/transcribe.py");
-    if !script_path.exists() {
-        script_path = PathBuf::from("../src/features/text-effects/transcribe.py");
-    }
-    if !script_path.exists() {
-        let mut dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        for _ in 0..4 {
-            let test_path = dir.join("src/features/text-effects/transcribe.py");
-            if test_path.exists() {
-                script_path = test_path;
-                break;
-            }
-            if let Some(parent) = dir.parent() {
-                dir = parent.to_path_buf();
-            } else {
-                break;
+    // Resolve the transcription Python script robustly. On Windows the app may
+    // be launched from the Start Menu / installer, where the process working
+    // directory is unrelated to the install/source tree (often System32 or the
+    // user profile), so we anchor first to the executable's directory and then
+    // walk up from the current working directory (covers dev mode and launching
+    // from the project root). All path composition uses PathBuf::join so the
+    // platform-native separator is used instead of hardcoded '/'.
+    const SCRIPT_REL: &str = "src/features/text-effects/transcribe.py";
+
+    let mut script_path: Option<PathBuf> = None;
+
+    // 1. Relative to the running executable (robust on Windows installer launches).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let candidate = exe_dir.join(SCRIPT_REL);
+            if candidate.exists() {
+                script_path = Some(candidate);
             }
         }
     }
 
-    if !script_path.exists() {
-        return Err(format!("Transcription script not found. Expected at: {:?}", script_path));
+    // 2. Walk up from the current working directory (dev mode / source tree).
+    if script_path.is_none() {
+        let mut dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        for _ in 0..4 {
+            let candidate = dir.join(SCRIPT_REL);
+            if candidate.exists() {
+                script_path = Some(candidate);
+                break;
+            }
+            match dir.parent() {
+                Some(parent) => dir = parent.to_path_buf(),
+                None => break,
+            }
+        }
     }
+
+    let script_path = match script_path {
+        Some(path) => path,
+        None => {
+            return Err(format!(
+                "Transcription script not found. Expected at: {}",
+                SCRIPT_REL
+            ));
+        }
+    };
 
     let script_path_str = script_path.to_str().ok_or("Failed to convert script path to string")?.to_string();
     eprintln!("🦀 [transcribe_audio_local] Resolved script path: {}", script_path_str);

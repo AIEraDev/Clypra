@@ -151,6 +151,14 @@ static EXPORT_SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, ExportSe
 /// may not be found with the default PATH.
 pub(crate) fn augmented_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
+    // Windows uses ';' as the PATH separator and has no equivalent of the Unix
+    // homebrew/local entries below. Appending those entries with ':' would corrupt
+    // the PATH (turning it into one giant invalid entry), which makes ffmpeg/ffprobe
+    // — even though they are on the user's PATH — unfindable to Command::new().
+    // On Windows, the inherited process PATH is already correct, so return it as-is.
+    if cfg!(windows) {
+        return current;
+    }
     let extra = "/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin";
     if current.is_empty() {
         extra.to_string()
@@ -817,7 +825,7 @@ pub async fn check_ffmpeg_available() -> Result<bool, String> {
         .arg("-version")
         .output()
         .await;
-    
+
     match output {
         Ok(output) => Ok(output.status.success()),
         Err(_) => Ok(false),
