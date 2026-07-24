@@ -1125,6 +1125,11 @@ export class PreviewMediaPool {
 
   private createVideo(key: string, clipId: string, mediaId: string, sourcePath: string): ManagedVideo {
     const video = document.createElement("video");
+    // CORS fix: asset:// (http://asset.localhost) is cross-origin vs the app origin.
+    // Without this, WebGL texImage2D rejects the video as "cross-origin data" and the
+    // preview canvas stays blank. Requesting anonymous CORS lets the asset protocol
+    // response be treated as a clean (untainted) source for GPU texture upload.
+    video.crossOrigin = "anonymous";
     video.preload = "auto";
     video.muted = true; // Always muted — audio is handled separately or not at all
     video.playsInline = true;
