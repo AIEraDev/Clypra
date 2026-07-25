@@ -44,11 +44,11 @@ export const resolveTextSourcePreviewConfig = (preset: any): TextEffectConfig =>
   // Built-in presets are nested TextEffectDefinition structures, while API presets can be flat TextEffectConfig structures.
   // Normalize them into the exact config shape consumed by renderTextEffectCore.
   const isNested = !!preset?.font;
-  const config = isNested ? _buildConfig(preset, preset.text || "CLYPRA", preset.fontSize || 100, PREVIEW_CANVAS_W, PREVIEW_CANVAS_H) : preset;
+  const config = isNested ? _buildConfig(preset, preset.text || "VIREOSTUDIO", preset.fontSize || 100, PREVIEW_CANVAS_W, PREVIEW_CANVAS_H) : preset;
 
   return {
     ...config,
-    text: config.text || "CLYPRA",
+    text: config.text || "VIREOSTUDIO",
     effectName: config.effectName || config.name || preset?.name || "Effect",
     fontFamily: config.fontFamily || preset?.font?.family || preset?.fontFamily || "Inter Variable",
     fontWeight: normalizePreviewFontWeight(config.fontWeight ?? preset?.font?.weight ?? preset?.fontWeight),

@@ -23,7 +23,7 @@ describe("Typography Warping & Path Layout Engine", () => {
       } as unknown as CanvasRenderingContext2D;
 
       const drawnChars: string[] = [];
-      drawTextOnArc(dummyCtx, "CLYPRA", 0, 0, 100, 45, 1.0, (char) => {
+      drawTextOnArc(dummyCtx, "VIREOSTUDIO", 0, 0, 100, 45, 1.0, (char) => {
         drawnChars.push(char);
       });
 

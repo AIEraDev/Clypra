@@ -23,7 +23,7 @@
  */
 
 const CACHE_VERSION = "v1";
-const CACHE_PREFIX = `clypra.apiCache.${CACHE_VERSION}`;
+const CACHE_PREFIX = `vireostudio.apiCache.${CACHE_VERSION}`;
 
 // Cache duration constants
 const CACHE_DURATION = {

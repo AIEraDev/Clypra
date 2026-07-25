@@ -112,7 +112,7 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
       return projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     } catch (err) {
       console.warn("Failed to read projects from Capacitor Filesystem, falling back to localStorage", err);
-      const fallback = localStorage.getItem("clypra_recent_projects");
+      const fallback = localStorage.getItem("vireostudio_recent_projects");
       return fallback ? JSON.parse(fallback) : [];
     }
   }
@@ -133,7 +133,7 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
       // LocalStorage fallback with platform-aware path parsing
       const pathParts = path.replace(/\\/g, "/").split("/");
       const projectId = pathParts.pop()?.replace(".json", "") || "";
-      const project = localStorage.getItem(`clypra_project_${projectId}`);
+      const project = localStorage.getItem(`vireostudio_project_${projectId}`);
       if (project) return project;
       throw err;
     }
@@ -153,21 +153,21 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
       });
 
       // Update recent projects list in localStorage
-      const fallback = localStorage.getItem("clypra_recent_projects");
+      const fallback = localStorage.getItem("vireostudio_recent_projects");
       const recentProjects = fallback ? JSON.parse(fallback) : [];
       const updatedList = recentProjects.filter((p: any) => p.id !== project.id);
       updatedList.unshift(project);
-      localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
+      localStorage.setItem("vireostudio_recent_projects", JSON.stringify(updatedList));
     } catch (err) {
       console.warn("Capacitor Filesystem save failed, saving to localStorage:", err);
       const project = JSON.parse(payload);
-      localStorage.setItem(`clypra_project_${project.id}`, payload);
+      localStorage.setItem(`vireostudio_project_${project.id}`, payload);
 
-      const fallback = localStorage.getItem("clypra_recent_projects");
+      const fallback = localStorage.getItem("vireostudio_recent_projects");
       const recentProjects = fallback ? JSON.parse(fallback) : [];
       const updatedList = recentProjects.filter((p: any) => p.id !== project.id);
       updatedList.unshift(project);
-      localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
+      localStorage.setItem("vireostudio_recent_projects", JSON.stringify(updatedList));
     }
   }
 
@@ -179,7 +179,7 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
         directory: Directory.Data,
       });
     } catch (err) {
-      localStorage.removeItem(`clypra_project_${projectId}`);
+      localStorage.removeItem(`vireostudio_project_${projectId}`);
     }
   }
 

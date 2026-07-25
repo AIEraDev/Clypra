@@ -213,7 +213,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
 
         const ext = screenPath.split(".").pop() || "webm";
         const selectedPath = await save({
-          defaultPath: `clypra_recording.${ext}`,
+          defaultPath: `vireostudio_recording.${ext}`,
           filters: [{ name: "Video", extensions: [ext] }],
         });
 
@@ -243,7 +243,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
         // Browser fallback (no trim support)
         const a = document.createElement("a");
         a.href = videoSrc;
-        a.download = "clypra_recording.webm";
+        a.download = "vireostudio_recording.webm";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

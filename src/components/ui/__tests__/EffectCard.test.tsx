@@ -13,7 +13,7 @@ describe("EffectCard Component", () => {
     id: "effect-1",
     category: "3d",
     name: "Classic 3D",
-    text: "CLYPRA",
+    text: "VIREOSTUDIO",
     thumbnail: "http://example.com/thumbnail.png",
     thumbnailUrl: "",
     description: "A classic 3D text effect",

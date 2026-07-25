@@ -8,7 +8,7 @@ import {
   getClipLayout,
 } from "../index";
 
-describe("Clypra Media Layout Engine Math Suite", () => {
+describe("VireoStudio Media Layout Engine Math Suite", () => {
   describe("calculateMediaFit", () => {
     const target169 = { width: 1920, height: 1080 };
     const source916 = { width: 1080, height: 1920 };

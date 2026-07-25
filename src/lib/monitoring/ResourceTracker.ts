@@ -6,12 +6,12 @@
  * resources that are still alive but belong to a project that is no longer
  * active — i.e. leaks.
  *
- * Exposed globally at `window.__clypra_diagnostics.resources` so engineers can
+ * Exposed globally at `window.__vireostudio_diagnostics.resources` so engineers can
  * inspect the live state from the browser console without a build step.
  *
  * Usage (DevTools console):
- *   __clypra_diagnostics.resources.printDiagnostics()
- *   __clypra_diagnostics.resources.findLeaks()
+ *   __vireostudio_diagnostics.resources.printDiagnostics()
+ *   __vireostudio_diagnostics.resources.findLeaks()
  *
  * MED-002 / LEAK-003 fix.
  */
@@ -162,14 +162,14 @@ class ResourceTracker {
 export const resourceTracker = new ResourceTracker();
 
 /**
- * Install diagnostics onto `window.__clypra_diagnostics`.
+ * Install diagnostics onto `window.__vireostudio_diagnostics`.
  * Safe to call multiple times (idempotent).
  */
 export function installDiagnostics(): void {
   if (typeof window === "undefined") return;
 
-  const existing = (window as any).__clypra_diagnostics ?? {};
-  (window as any).__clypra_diagnostics = {
+  const existing = (window as any).__vireostudio_diagnostics ?? {};
+  (window as any).__vireostudio_diagnostics = {
     ...existing,
     resources: resourceTracker,
   };

@@ -3,7 +3,7 @@
  *
  * Records a chronological log of project lifecycle events into a fixed-size
  * circular in-memory ring buffer. The log is available at
- * `window.__clypra_diagnostics.lifecycle` for inspection in DevTools.
+ * `window.__vireostudio_diagnostics.lifecycle` for inspection in DevTools.
  *
  * Events are lightweight (no heap snapshots) and always collected in
  * development builds. In production they are kept but capped at 500 entries

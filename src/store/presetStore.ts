@@ -132,7 +132,7 @@ export const usePresetStore = create<PresetStore>()(
       },
     }),
     {
-      name: "clypra-text-presets",
+      name: "vireostudio-text-presets",
     }
   )
 );

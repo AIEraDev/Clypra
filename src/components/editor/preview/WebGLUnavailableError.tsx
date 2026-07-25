@@ -2,7 +2,7 @@ import React from "react";
 
 /**
  * Shown when the PreviewErrorBoundary catches a WebGL / Pixi initialization error.
- * Clypra requires WebGL — there is no Canvas 2D fallback renderer.
+ * VireoStudio requires WebGL — there is no Canvas 2D fallback renderer.
  */
 export const WebGLUnavailableError: React.FC = () => {
   return (
@@ -40,7 +40,7 @@ export const WebGLUnavailableError: React.FC = () => {
         WebGL is unavailable
       </p>
       <p style={{ fontSize: "13px", margin: 0, color: "#9ca3af", maxWidth: "320px", lineHeight: 1.5 }}>
-        Clypra requires WebGL to render the preview. Please update your graphics drivers
+        VireoStudio requires WebGL to render the preview. Please update your graphics drivers
         or try a different browser.
       </p>
     </div>

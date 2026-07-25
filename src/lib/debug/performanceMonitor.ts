@@ -2,13 +2,13 @@
  * Performance Monitor
  *
  * Usage:
- * 1. Enable monitoring: localStorage.setItem("clypra.debug.performance", "1")
+ * 1. Enable monitoring: localStorage.setItem("vireostudio.debug.performance", "1")
  * 2. Refresh page
  * 3. Use performanceMonitor.startMeasure() / endMeasure() in your code
  * 4. Check console for performance reports
  */
 
-const DEBUG_KEY = "clypra.debug.performance";
+const DEBUG_KEY = "vireostudio.debug.performance";
 
 export function isPerformanceMonitorEnabled(): boolean {
   if (typeof window === "undefined") return false;

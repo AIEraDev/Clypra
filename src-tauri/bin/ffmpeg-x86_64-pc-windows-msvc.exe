@@ -1,5 +1,5 @@
 @echo off
 REM Dev helper: runs ffmpeg from PATH. Replace with a static ffmpeg for release builds.
 where ffmpeg >nul 2>&1 && (ffmpeg %*) && exit /b
-echo clypra: ffmpeg not on PATH and sidecar is a stub. Install ffmpeg or replace this file per src-tauri\bin\README.md >&2
+echo vireostudio: ffmpeg not on PATH and sidecar is a stub. Install ffmpeg or replace this file per src-tauri\bin\README.md >&2
 exit /b 127

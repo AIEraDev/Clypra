@@ -4,7 +4,7 @@
  */
 
 const API_BASE_URL = "https://clypra-worker-api.abdulkabirmusa.com";
-const API_KEY = import.meta.env.VITE_CLYPRA_API_KEY || "";
+const API_KEY = import.meta.env.VITE_VIREOSTUDIO_API_KEY || "";
 
 /**
  * Create headers with API key for authenticated requests
@@ -13,7 +13,7 @@ const API_KEY = import.meta.env.VITE_CLYPRA_API_KEY || "";
 export function getApiHeaders(): HeadersInit {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
-    "X-Clypra-Client": "clypra-desktop-v1",
+    "X-VireoStudio-Client": "vireostudio-desktop-v1",
   };
 
   if (API_KEY) {

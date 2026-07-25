@@ -1,22 +1,22 @@
-const DEBUG_KEY = "clypra.debug.textRender";
+const DEBUG_KEY = "vireostudio.debug.textRender";
 
 /**
  * Text Render Trace - Disabled by default to reduce console noise
  *
  * To enable for debugging:
  * 1. Open browser console
- * 2. Run: localStorage.setItem("clypra.debug.textRender", "1")
+ * 2. Run: localStorage.setItem("vireostudio.debug.textRender", "1")
  * 3. Refresh the page
  *
  * To disable:
- * localStorage.removeItem("clypra.debug.textRender")
+ * localStorage.removeItem("vireostudio.debug.textRender")
  */
 export function isTextRenderTraceEnabled(): boolean {
   // Disabled by default - uncomment below to enable via localStorage
   return false;
   // if (typeof window === "undefined") return false;
   // if (!import.meta.env.DEV) return false;
-  // return window.localStorage?.getItem(DEBUG_KEY) === "1" || (window as any).__CLYPRA_TEXT_RENDER_DEBUG__ === true;
+  // return window.localStorage?.getItem(DEBUG_KEY) === "1" || (window as any).__VIREOSTUDIO_TEXT_RENDER_DEBUG__ === true;
 }
 
 export function textRenderTrace(stage: string, payload: Record<string, unknown>): void {

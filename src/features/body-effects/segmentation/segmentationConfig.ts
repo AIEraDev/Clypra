@@ -14,13 +14,13 @@ function normalizeRuntime(value: unknown): BodySegmentationRuntime | null {
 }
 
 function envOverrides(): Partial<BodySegmentationRuntimeConfig> {
-  const runtime = normalizeRuntime(getEnvValue("VITE_CLYPRA_BODY_SEGMENTATION_RUNTIME"));
+  const runtime = normalizeRuntime(getEnvValue("VITE_VIREOSTUDIO_BODY_SEGMENTATION_RUNTIME"));
 
   return {
     ...(runtime ? { runtime } : {}),
-    ...(getEnvValue("VITE_CLYPRA_BODY_SEGMENTATION_MODEL_URL") ? { modelUrl: getEnvValue("VITE_CLYPRA_BODY_SEGMENTATION_MODEL_URL") } : {}),
-    ...(getEnvValue("VITE_CLYPRA_BODY_SEGMENTATION_RUNTIME_SCRIPT_URL") ? { runtimeScriptUrl: getEnvValue("VITE_CLYPRA_BODY_SEGMENTATION_RUNTIME_SCRIPT_URL") } : {}),
-    ...(getEnvValue("VITE_CLYPRA_BODY_SEGMENTATION_WASM_BASE_URL") ? { wasmBaseUrl: getEnvValue("VITE_CLYPRA_BODY_SEGMENTATION_WASM_BASE_URL") } : {}),
+    ...(getEnvValue("VITE_VIREOSTUDIO_BODY_SEGMENTATION_MODEL_URL") ? { modelUrl: getEnvValue("VITE_VIREOSTUDIO_BODY_SEGMENTATION_MODEL_URL") } : {}),
+    ...(getEnvValue("VITE_VIREOSTUDIO_BODY_SEGMENTATION_RUNTIME_SCRIPT_URL") ? { runtimeScriptUrl: getEnvValue("VITE_VIREOSTUDIO_BODY_SEGMENTATION_RUNTIME_SCRIPT_URL") } : {}),
+    ...(getEnvValue("VITE_VIREOSTUDIO_BODY_SEGMENTATION_WASM_BASE_URL") ? { wasmBaseUrl: getEnvValue("VITE_VIREOSTUDIO_BODY_SEGMENTATION_WASM_BASE_URL") } : {}),
   };
 }
 

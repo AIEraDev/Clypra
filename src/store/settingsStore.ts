@@ -63,7 +63,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setPreviewQuality: (previewQuality) => set({ previewQuality }),
     }),
     {
-      name: "clypra-settings",
+      name: "vireostudio-settings",
       onRehydrateStorage: () => (state) => {
         if (state) {
           applyTheme(state.theme, state.customTheme);

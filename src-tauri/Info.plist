@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>NSCameraUsageDescription</key>
-  <string>Clypra requires camera access for dual screen + webcam recording.</string>
+  <string>VireoStudio requires camera access for dual screen + webcam recording.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Clypra requires microphone access for audio recording during screen capture.</string>
+  <string>VireoStudio requires microphone access for audio recording during screen capture.</string>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>Clypra requires screen recording access to capture your screen content.</string>
+  <string>VireoStudio requires screen recording access to capture your screen content.</string>
 </dict>
 </plist>

@@ -617,8 +617,8 @@ export async function createProjectSession(projectId: string): Promise<ProjectSe
   installDiagnostics();
   // Also attach lifecycle log to the diagnostics surface
   if (typeof window !== "undefined") {
-    const diag = (window as any).__clypra_diagnostics ?? {};
-    (window as any).__clypra_diagnostics = { ...diag, lifecycle: lifecycleMonitor };
+    const diag = (window as any).__vireostudio_diagnostics ?? {};
+    (window as any).__vireostudio_diagnostics = { ...diag, lifecycle: lifecycleMonitor };
   }
 
   lifecycleMonitor.record("PROJECT_LOAD_START", { projectId });

@@ -162,7 +162,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             timeline.withBatch(() => {
               segments.forEach((seg: any) => {
                 // Whisper timestamps are relative to the audio file.
-                // In Clypra, we need to map them relative to the clip's start time on the timeline,
+                // In VireoStudio, we need to map them relative to the clip's start time on the timeline,
                 // adjusting for any trimIn offsets.
                 const relativeStart = seg.start - mediaClip.trimIn;
 
@@ -313,7 +313,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         }
       }
     } catch (err) {
-      console.error(`[Clypra:TextTab] Failed to load ${type} preview:`, err);
+      console.error(`[VireoStudio:TextTab] Failed to load ${type} preview:`, err);
       cancelDownload(itemId);
 
       // Only project fallback if this item is still the active preview target
@@ -361,13 +361,13 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         try {
           await TextEffectsApi.getFullEffect(item.category, item.id);
         } catch (err) {
-          console.error("[Clypra:TextTab] Failed to lazy load detailed config on click:", err);
+          console.error("[VireoStudio:TextTab] Failed to lazy load detailed config on click:", err);
         }
       } else {
         try {
           await selectTemplate(item);
         } catch (err) {
-          console.error("[Clypra:TextTab] Failed to lazy load Lottie data on click:", err);
+          console.error("[VireoStudio:TextTab] Failed to lazy load Lottie data on click:", err);
         }
       }
 
@@ -381,13 +381,13 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         try {
           fullEffect = await TextEffectsApi.getFullEffect(item.category, item.id);
         } catch (err) {
-          console.error("[Clypra:TextTab] Failed to get effect config on apply:", err);
+          console.error("[VireoStudio:TextTab] Failed to get effect config on apply:", err);
         }
         const targetEffect = fullEffect || item;
         onAddToTimeline?.(
           {
             name: targetEffect.name,
-            text: targetEffect.text || "CLYPRA", // Use default text from full definition
+            text: targetEffect.text || "VIREOSTUDIO", // Use default text from full definition
             presetType: "effect",
             styleId: targetEffect.id,
             effectDefinition: targetEffect, // ← Pass the full effect definition for proper dimensions
@@ -442,7 +442,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     onAddToTimeline?.(
       {
         name: effect.name,
-        text: text || "CLYPRA",
+        text: text || "VIREOSTUDIO",
         presetType: "effect",
         styleId: effect.id,
         effectDefinition: effect, // ← Pass the full effect definition
@@ -621,7 +621,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                     {captioningState === "aligning" && "Aligning Word Timestamps..."}
                     {captioningState === "stitching" && "Stitching Subtitle Track..."}
                   </div>
-                  <div className="text-[10px] text-text-muted">Please keep Clypra open. This process runs locally.</div>
+                  <div className="text-[10px] text-text-muted">Please keep VireoStudio open. This process runs locally.</div>
                 </div>
 
                 {/* Progress bar */}

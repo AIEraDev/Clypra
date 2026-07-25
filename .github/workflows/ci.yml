@@ -12,26 +12,26 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: clypra
+        working-directory: vireostudio
 
     steps:
-      - name: Checkout Clypra
+      - name: Checkout VireoStudio
         uses: actions/checkout@v4
         with:
-          path: clypra
+          path: vireostudio
 
-      - name: Checkout clypra-studio
+      - name: Checkout vireostudio-studio
         uses: actions/checkout@v4
         with:
-          repository: AIEraDev/clypra-studio
-          path: clypra-studio
+          repository: AIEraDev/vireostudio-studio
+          path: vireostudio-studio
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: "clypra/package-lock.json"
+          cache-dependency-path: "vireostudio/package-lock.json"
 
       - name: Install dependencies
         run: npm ci
@@ -99,26 +99,26 @@ jobs:
     needs: [test-frontend, test-rust]
     defaults:
       run:
-        working-directory: clypra
+        working-directory: vireostudio
 
     steps:
-      - name: Checkout Clypra
+      - name: Checkout VireoStudio
         uses: actions/checkout@v4
         with:
-          path: clypra
+          path: vireostudio
 
-      - name: Checkout clypra-studio
+      - name: Checkout vireostudio-studio
         uses: actions/checkout@v4
         with:
-          repository: AIEraDev/clypra-studio
-          path: clypra-studio
+          repository: AIEraDev/vireostudio-studio
+          path: vireostudio-studio
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: "clypra/package-lock.json"
+          cache-dependency-path: "vireostudio/package-lock.json"
 
       - name: Install dependencies
         run: npm ci

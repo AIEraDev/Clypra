@@ -1,5 +1,5 @@
 /**
- * Clypra Video Effects API Client
+ * VireoStudio Video Effects API Client
  *
  * Handles fetching:
  * 1. Video Effects (renderer-based effects)
@@ -112,7 +112,7 @@ export class VideoEffectsApi {
       return this._blobCache.get(cacheKey)!;
     }
 
-    const res = await fetch(`https://raw.githubusercontent.com/AIEraDev/clypra-api/main/public/effect-previews/${category}/${effectId}.webm`, { headers: getApiHeaders() });
+    const res = await fetch(`https://raw.githubusercontent.com/AIEraDev/vireostudio-api/main/public/effect-previews/${category}/${effectId}.webm`, { headers: getApiHeaders() });
 
     if (!res.ok) {
       throw new Error(`Failed to download preview for effect "${effectId}": ${res.statusText}`);

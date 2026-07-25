@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# GitHub Setup Script for Clypra v0.1.0
+# GitHub Setup Script for VireoStudio v0.1.0
 # Run this once to set up labels, milestone, and issues
 
-REPO="AIEraDev/Clypra"
+REPO="AIEraDev/VireoStudio"
 
 echo "Setting up GitHub repository: $REPO"
 echo ""

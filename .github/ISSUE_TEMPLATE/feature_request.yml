@@ -1,5 +1,5 @@
 name: Feature Request
-description: Suggest a new feature for Clypra
+description: Suggest a new feature for VireoStudio
 title: "[Feature]: "
 labels: ["type: feature"]
 assignees: []
@@ -33,7 +33,7 @@ body:
     attributes:
       label: Alternatives considered
       description: Have you considered any alternative solutions?
-      placeholder: I could use another editor, but I prefer Clypra...
+      placeholder: I could use another editor, but I prefer VireoStudio...
 
   - type: dropdown
     id: priority

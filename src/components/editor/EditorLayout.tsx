@@ -211,7 +211,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
           type: "audio",
           duration: cachedFile.metadata.duration || Number(item.duration) || 5,
           size: cachedFile.size,
-          // coverArt removed - will use Clypra logo fallback in preview
+          // coverArt removed - will use VireoStudio logo fallback in preview
         };
 
         // NOTE: Don't add audio library items to project media assets

@@ -223,7 +223,7 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-describe("Clypra Text Effects Engine & Presets", () => {
+describe("VireoStudio Text Effects Engine & Presets", () => {
   test("All mock effect definitions have unique IDs", () => {
     const ids = mockEffects.map((e) => e.id);
     const uniqueIds = new Set(ids);
@@ -251,7 +251,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
 
     mockEffects.forEach((effect) => {
       expect(() => {
-        renderTextEffect(canvas, "Clypra Test", effect, 48);
+        renderTextEffect(canvas, "VireoStudio Test", effect, 48);
       }).not.toThrow();
     });
   });
@@ -278,7 +278,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
       canvas.height = 400;
 
       expect(() => {
-        renderTextEffect(canvas, "CLYPRA", SolarisInkDefinition, 85);
+        renderTextEffect(canvas, "VIREOSTUDIO", SolarisInkDefinition, 85);
       }).not.toThrow();
     });
 
@@ -291,7 +291,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
       mockCtx.fillText.mockClear();
       mockCtx.strokeText.mockClear();
 
-      renderTextEffect(canvas, "CLYPRA", SolarisInkDefinition, 85);
+      renderTextEffect(canvas, "VIREOSTUDIO", SolarisInkDefinition, 85);
 
       // The engine must clear its canvas at the start of drawFrame
       expect(mockCtx.clearRect).toHaveBeenCalled();
@@ -307,13 +307,13 @@ describe("Clypra Text Effects Engine & Presets", () => {
       mockCtx.strokeText.mockClear();
 
       // SolarisInkDefinition has a stroke defined
-      renderTextEffect(canvas, "CLYPRA", SolarisInkDefinition, 85);
+      renderTextEffect(canvas, "VIREOSTUDIO", SolarisInkDefinition, 85);
 
       expect(mockCtx.strokeText).toHaveBeenCalled();
     });
 
     test("Solaris Ink renderTextEffectToDataURL returns valid PNG data URL", () => {
-      const dataURL = renderTextEffectToDataURL("CLYPRA", SolarisInkDefinition, 85, 800, 400);
+      const dataURL = renderTextEffectToDataURL("VIREOSTUDIO", SolarisInkDefinition, 85, 800, 400);
       expect(dataURL).toBeDefined();
       expect(typeof dataURL).toBe("string");
       expect(dataURL.startsWith("data:image/png;base64,")).toBe(true);
@@ -335,7 +335,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
       canvas.height = 400;
 
       expect(() => {
-        renderTextEffect(canvas, "CLYPRA", BiolumeTrenchDefinition, 85);
+        renderTextEffect(canvas, "VIREOSTUDIO", BiolumeTrenchDefinition, 85);
       }).not.toThrow();
     });
 
@@ -348,7 +348,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
       mockCtx.fillText.mockClear();
       mockCtx.strokeText.mockClear();
 
-      renderTextEffect(canvas, "CLYPRA", BiolumeTrenchDefinition, 85);
+      renderTextEffect(canvas, "VIREOSTUDIO", BiolumeTrenchDefinition, 85);
 
       // The engine must clear its canvas at the start of drawFrame
       expect(mockCtx.clearRect).toHaveBeenCalled();
@@ -364,13 +364,13 @@ describe("Clypra Text Effects Engine & Presets", () => {
       mockCtx.strokeText.mockClear();
 
       // BiolumeTrenchDefinition has a stroke defined
-      renderTextEffect(canvas, "CLYPRA", BiolumeTrenchDefinition, 85);
+      renderTextEffect(canvas, "VIREOSTUDIO", BiolumeTrenchDefinition, 85);
 
       expect(mockCtx.strokeText).toHaveBeenCalled();
     });
 
     test("Biolume Trench renderTextEffectToDataURL returns valid PNG data URL", () => {
-      const dataURL = renderTextEffectToDataURL("CLYPRA", BiolumeTrenchDefinition, 85, 800, 400);
+      const dataURL = renderTextEffectToDataURL("VIREOSTUDIO", BiolumeTrenchDefinition, 85, 800, 400);
       expect(dataURL).toBeDefined();
       expect(typeof dataURL).toBe("string");
       expect(dataURL.startsWith("data:image/png;base64,")).toBe(true);
@@ -391,7 +391,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
       canvas.height = 400;
 
       expect(() => {
-        renderTextEffect(canvas, "CLYPRA", BitDecayDefinition, 85);
+        renderTextEffect(canvas, "VIREOSTUDIO", BitDecayDefinition, 85);
       }).not.toThrow();
     });
 
@@ -404,7 +404,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
       mockCtx.fillText.mockClear();
       mockCtx.strokeText.mockClear();
 
-      renderTextEffect(canvas, "CLYPRA", BitDecayDefinition, 85);
+      renderTextEffect(canvas, "VIREOSTUDIO", BitDecayDefinition, 85);
 
       // The engine must clear its canvas at the start of drawFrame
       expect(mockCtx.clearRect).toHaveBeenCalled();
@@ -420,13 +420,13 @@ describe("Clypra Text Effects Engine & Presets", () => {
       mockCtx.strokeText.mockClear();
 
       // BitDecayDefinition has a stroke defined
-      renderTextEffect(canvas, "CLYPRA", BitDecayDefinition, 85);
+      renderTextEffect(canvas, "VIREOSTUDIO", BitDecayDefinition, 85);
 
       expect(mockCtx.strokeText).toHaveBeenCalled();
     });
 
     test("Bit Decay renderTextEffectToDataURL returns valid PNG data URL", () => {
-      const dataURL = renderTextEffectToDataURL("CLYPRA", BitDecayDefinition, 85, 800, 400);
+      const dataURL = renderTextEffectToDataURL("VIREOSTUDIO", BitDecayDefinition, 85, 800, 400);
       expect(dataURL).toBeDefined();
       expect(typeof dataURL).toBe("string");
       expect(dataURL.startsWith("data:image/png;base64,")).toBe(true);
@@ -447,7 +447,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
       canvas.height = 400;
 
       expect(() => {
-        renderTextEffect(canvas, "CLYPRA", NeonCrimsonDefinition, 85);
+        renderTextEffect(canvas, "VIREOSTUDIO", NeonCrimsonDefinition, 85);
       }).not.toThrow();
     });
 
@@ -458,7 +458,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
 
       mockCtx.clearRect.mockClear();
 
-      renderTextEffect(canvas, "CLYPRA", NeonCrimsonDefinition, 85);
+      renderTextEffect(canvas, "VIREOSTUDIO", NeonCrimsonDefinition, 85);
 
       // The engine must clear its canvas at the start of drawFrame
       expect(mockCtx.clearRect).toHaveBeenCalled();
@@ -472,13 +472,13 @@ describe("Clypra Text Effects Engine & Presets", () => {
       mockCtx.strokeText.mockClear();
 
       // NeonCrimsonDefinition has a stroke defined
-      renderTextEffect(canvas, "CLYPRA", NeonCrimsonDefinition, 85);
+      renderTextEffect(canvas, "VIREOSTUDIO", NeonCrimsonDefinition, 85);
 
       expect(mockCtx.strokeText).toHaveBeenCalled();
     });
 
     test("Neon Crimson renderTextEffectToDataURL returns valid PNG data URL", () => {
-      const dataURL = renderTextEffectToDataURL("CLYPRA", NeonCrimsonDefinition, 85, 800, 400);
+      const dataURL = renderTextEffectToDataURL("VIREOSTUDIO", NeonCrimsonDefinition, 85, 800, 400);
       expect(dataURL).toBeDefined();
       expect(typeof dataURL).toBe("string");
       expect(dataURL.startsWith("data:image/png;base64,")).toBe(true);
@@ -488,7 +488,7 @@ describe("Clypra Text Effects Engine & Presets", () => {
   describe("renderTextEffectAsync", () => {
     test("should load fonts and render without throwing", async () => {
       const canvas = document.createElement("canvas");
-      await expect(renderTextEffectAsync(canvas, "CLYPRA", SolarisInkDefinition, 48)).resolves.not.toThrow();
+      await expect(renderTextEffectAsync(canvas, "VIREOSTUDIO", SolarisInkDefinition, 48)).resolves.not.toThrow();
     });
   });
 });

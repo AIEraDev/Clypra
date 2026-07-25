@@ -1,5 +1,5 @@
 /**
- * Clypra Editor — V2 MPG frame execution (compile → validate → plan → render).
+ * VireoStudio Editor — V2 MPG frame execution (compile → validate → plan → render).
  */
 
 import {

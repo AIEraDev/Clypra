@@ -36,7 +36,7 @@ export interface RecoverySnapshot {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const DB_NAME = "clypra_recovery";
+const DB_NAME = "vireostudio_recovery";
 const DB_VERSION = 1;
 const STORE_NAME = "snapshots";
 const SNAPSHOT_KEY = "activeProject";

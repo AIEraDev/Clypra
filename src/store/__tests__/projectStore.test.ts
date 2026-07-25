@@ -60,7 +60,7 @@ describe("projectStore", () => {
         height: 160,
         opacity: 1,
         rotation: 0,
-        text: "CLYPRA",
+        text: "VIREOSTUDIO",
         fontFamily: "Inter",
         fontSize: 96,
         color: "#ffffff",

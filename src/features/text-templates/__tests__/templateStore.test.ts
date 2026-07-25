@@ -22,7 +22,7 @@ describe("TemplateStore Preloading", () => {
     useTemplateStore.setState({
       templates: [],
       selectedTemplate: null,
-      customization: { primaryText: "Clypra", secondaryText: "", accentText: "" },
+      customization: { primaryText: "VireoStudio", secondaryText: "", accentText: "" },
     });
   });
 

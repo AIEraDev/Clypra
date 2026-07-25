@@ -1,14 +1,14 @@
-# Clypra
+# VireoStudio
 
 <div align="center">
 
-![Clypra Showcase Banner](public/clypra.jpg)
+![VireoStudio Showcase Banner](public/vireostudio.jpg)
 
 **Professional video editing—free and open source forever.**
 
 A modern video editor built on Tauri v2, React 19, and Rust. Hardware-accelerated processing, cross-platform (desktop + mobile), with optional AI-powered features.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md) [![GitHub issues](https://img.shields.io/github/issues/AIEraDev/clypra)](https://github.com/AIEraDev/clypra/issues) [![GitHub stars](https://img.shields.io/github/stars/AIEraDev/clypra)](https://github.com/AIEraDev/clypra/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md) [![GitHub issues](https://img.shields.io/github/issues/AIEraDev/vireostudio)](https://github.com/AIEraDev/vireostudio/issues) [![GitHub stars](https://img.shields.io/github/stars/AIEraDev/vireostudio)](https://github.com/AIEraDev/vireostudio/stargazers)
 
 [Features](#features) • [Architecture](#architecture) • [Installation](#installation) • [Development](#development) • [Contributing](#contributing) • [Open Core](#open-core-model)
 
@@ -18,7 +18,7 @@ A modern video editor built on Tauri v2, React 19, and Rust. Hardware-accelerate
 
 ## Overview
 
-Clypra is a **free, open-source video editor** (MIT License) with professional-grade features. The core editor, effects engine, and all UI components are free forever—no watermarks, no feature limits, no subscriptions required.
+VireoStudio is a **free, open-source video editor** (MIT License) with professional-grade features. The core editor, effects engine, and all UI components are free forever—no watermarks, no feature limits, no subscriptions required.
 
 Want AI superpowers? Optional [Pro features](#pro-features-ai-layer) add natural language editing, auto-captions, smart reframing, and more.
 
@@ -68,7 +68,7 @@ Want AI superpowers? Optional [Pro features](#pro-features-ai-layer) add natural
 
 ## Architecture
 
-Clypra is architected as a **native desktop and mobile application** with clear separation between frontend UI and backend processing.
+VireoStudio is architected as a **native desktop and mobile application** with clear separation between frontend UI and backend processing.
 
 ### Technology Stack
 
@@ -164,29 +164,29 @@ For detailed performance metrics and optimization roadmap, see [PERFORMANCE-DESK
 
 ### Binary Releases
 
-Pre-built binaries are available for all supported platforms. Download from the [latest release](https://github.com/AIEraDev/Clypra/releases/latest).
+Pre-built binaries are available for all supported platforms. Download from the [latest release](https://github.com/AIEraDev/VireoStudio/releases/latest).
 
 #### macOS
 
 **Recommended: Homebrew Installation**
 
 ```bash
-brew install AIEraDev/tap/clypra
+brew install AIEraDev/tap/vireostudio
 ```
 
 This method automatically handles Gatekeeper authorization and updates.
 
 **Alternative: Direct Download**
 
-1. Download `Clypra-universal.dmg` from releases
-2. Open the DMG and drag Clypra to `/Applications`
+1. Download `VireoStudio-universal.dmg` from releases
+2. Open the DMG and drag VireoStudio to `/Applications`
 3. Right-click the app icon and select "Open" to authorize first launch
 
 Supported: macOS 11+ (Big Sur and later), both Apple Silicon and Intel
 
 #### Windows
 
-1. Download `Clypra-x64.msi` from releases
+1. Download `VireoStudio-x64.msi` from releases
 2. Run the installer
 3. If Windows SmartScreen blocks execution, click "More Info" → "Run Anyway"
 
@@ -194,9 +194,9 @@ Supported: Windows 10 (version 1809+) and Windows 11
 
 #### Linux
 
-1. Download `Clypra-x86_64.AppImage` from releases
-2. Make executable: `chmod +x Clypra-x86_64.AppImage`
-3. Run: `./Clypra-x86_64.AppImage`
+1. Download `VireoStudio-x86_64.AppImage` from releases
+2. Make executable: `chmod +x VireoStudio-x86_64.AppImage`
+3. Run: `./VireoStudio-x86_64.AppImage`
 
 Supported: Ubuntu 20.04+, Fedora 35+, Debian 11+, and derivatives
 
@@ -248,15 +248,15 @@ choco install ffmpeg
 
 ```bash
 # Clone repository
-git clone https://github.com/AIEraDev/clypra.git
-cd clypra
+git clone https://github.com/AIEraDev/vireostudio.git
+cd vireostudio
 
 # Install dependencies
 npm install
 
 # Configure environment
 cp .env.example .env
-# Edit .env and add your Clypra API key (required for text effects)
+# Edit .env and add your VireoStudio API key (required for text effects)
 
 # Development mode with hot reload
 npm run tauri dev
@@ -312,7 +312,7 @@ src-tauri/
 
 ### API Configuration
 
-Clypra uses the Clypra API for text effects and templates. To enable these features:
+VireoStudio uses the VireoStudio API for text effects and templates. To enable these features:
 
 1. Copy `.env.example` to `.env`:
 
@@ -323,7 +323,7 @@ Clypra uses the Clypra API for text effects and templates. To enable these featu
 2. Add your API key to `.env`:
 
    ```
-   VITE_CLYPRA_API_KEY=your_api_key_here
+   VITE_VIREOSTUDIO_API_KEY=your_api_key_here
    ```
 
 3. **Important**: Never commit `.env` to version control (already in `.gitignore`)
@@ -370,7 +370,7 @@ cd src-tauri && cargo fmt
 
 ### State Management Architecture
 
-Clypra uses Zustand with domain-separated stores to maintain clear ownership boundaries:
+VireoStudio uses Zustand with domain-separated stores to maintain clear ownership boundaries:
 
 - **timelineStore**: Timeline structure (tracks, clips, transitions, gaps)
 - **playbackStore**: Playback state, playhead position, AV sync
@@ -429,7 +429,7 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 ### FFmpeg Licensing
 
-Clypra uses FFmpeg for video processing. FFmpeg is licensed under:
+VireoStudio uses FFmpeg for video processing. FFmpeg is licensed under:
 
 - LGPL 2.1+ (default build)
 - GPL 2+ (if built with GPL-only components)
@@ -449,15 +449,15 @@ Binary releases include FFmpeg under LGPL. If you build with GPL components, ens
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/AIEraDev/clypra/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/AIEraDev/clypra/discussions)
-- **Documentation**: [Project Wiki](https://github.com/AIEraDev/clypra/wiki)
+- **Issues**: [GitHub Issues](https://github.com/AIEraDev/vireostudio/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/AIEraDev/vireostudio/discussions)
+- **Documentation**: [Project Wiki](https://github.com/AIEraDev/vireostudio/wiki)
 
 ---
 
 ## Open Core Model
 
-Clypra uses an **Open Core** business model:
+VireoStudio uses an **Open Core** business model:
 
 ### Free & Open Source (MIT License)
 
@@ -482,7 +482,7 @@ Clypra uses an **Open Core** business model:
 
 **Pricing**: Free tier (100 AI calls/month) • Pro ($10/month, unlimited) • Enterprise (custom)
 
-[Learn more about Pro features →](https://clypra.com/pricing)
+[Learn more about Pro features →](https://vireostudio.com/pricing)
 
 ### Why Open Core?
 

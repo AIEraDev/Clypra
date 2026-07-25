@@ -3,12 +3,12 @@
  *
  * Helps diagnose slow project loading and timeline rendering
  *
- * Enable: localStorage.setItem("clypra.debug.projectLoad", "1")
+ * Enable: localStorage.setItem("vireostudio.debug.projectLoad", "1")
  */
 
 import { performanceMonitor } from "./performanceMonitor";
 
-const DEBUG_KEY = "clypra.debug.projectLoad";
+const DEBUG_KEY = "vireostudio.debug.projectLoad";
 
 export function isProjectLoadDiagnosticsEnabled(): boolean {
   if (typeof window === "undefined") return false;
@@ -154,10 +154,10 @@ if (typeof window !== "undefined") {
  * Console commands:
  *
  * Enable diagnostics:
- * localStorage.setItem("clypra.debug.projectLoad", "1")
+ * localStorage.setItem("vireostudio.debug.projectLoad", "1")
  *
  * Disable diagnostics:
- * localStorage.removeItem("clypra.debug.projectLoad")
+ * localStorage.removeItem("vireostudio.debug.projectLoad")
  *
  * Clear clip render tracking:
  * __projectLoadDiagnostics.clearClipRenderTracking()

@@ -18,7 +18,7 @@
 
 import { useEffect, useRef } from "react";
 
-const DEBUG_KEY = "clypra.debug.performance";
+const DEBUG_KEY = "vireostudio.debug.performance";
 
 function isDebugEnabled(): boolean {
   if (typeof window === "undefined") return false;

@@ -17,8 +17,8 @@ const isLiveReload = process.env.CAPACITOR_LIVE_RELOAD === "true";
 const localIP = getLocalIP();
 
 const config: CapacitorConfig = {
-  appId: "com.clypra.app",
-  appName: "Clypra",
+  appId: "com.vireostudio.app",
+  appName: "VireoStudio",
   webDir: "dist",
   server: isLiveReload
     ? {

@@ -1,6 +1,6 @@
 /**
  * Transitions API Client
- * Handles all API calls for transition effects from the Clypra API.
+ * Handles all API calls for transition effects from the VireoStudio API.
  *
  * All transition data lives in Cloudflare R2, served through the API.
  * Use transitionCacheManager to persist definitions locally after fetching.

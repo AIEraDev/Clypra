@@ -282,9 +282,9 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   useEffect(() => {
     if (typeof window !== "undefined") {
       setDiagnosticsEnabled({
-        performance: localStorage.getItem("clypra.debug.performance") === "1",
-        projectLoad: localStorage.getItem("clypra.debug.projectLoad") === "1",
-        textRender: localStorage.getItem("clypra.debug.textRender") === "1",
+        performance: localStorage.getItem("vireostudio.debug.performance") === "1",
+        projectLoad: localStorage.getItem("vireostudio.debug.projectLoad") === "1",
+        textRender: localStorage.getItem("vireostudio.debug.textRender") === "1",
         timelinePerf: localStorage.getItem("debug:timeline-perf") === "true",
         textTemplate: localStorage.getItem("debug:text-template") === "true",
       });
@@ -365,7 +365,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   };
 
   const toggleDiagnostic = (key: "performance" | "projectLoad" | "textRender" | "timelinePerf" | "textTemplate") => {
-    const storageKey = key === "performance" ? "clypra.debug.performance" : key === "projectLoad" ? "clypra.debug.projectLoad" : key === "textRender" ? "clypra.debug.textRender" : key === "timelinePerf" ? "debug:timeline-perf" : "debug:text-template";
+    const storageKey = key === "performance" ? "vireostudio.debug.performance" : key === "projectLoad" ? "vireostudio.debug.projectLoad" : key === "textRender" ? "vireostudio.debug.textRender" : key === "timelinePerf" ? "debug:timeline-perf" : "debug:text-template";
 
     const newValue = !diagnosticsEnabled[key];
 
@@ -394,7 +394,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     <div className="w-full h-full bg-bg flex flex-col overflow-hidden">
       {/* Native title bar area */}
       <div className="h-[37px] select-none flex items-center justify-center bg-transparent" data-tauri-drag-region style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
-        <span className="text-xs font-semibold text-text-muted/60">Clypra</span>
+        <span className="text-xs font-semibold text-text-muted/60">VireoStudio</span>
       </div>
 
       {/* ── Background gradient ─────────────────────────────────── */}
@@ -413,10 +413,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 flex items-center justify-center relative">
               <div className="absolute inset-0 bg-accent/20 blur-lg rounded-full"></div>
-              <img src="/clypra.svg" alt="Clypra Logo" className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_8px_rgba(108,99,255,0.5)]" />
+              <img src="/vireostudio.svg" alt="VireoStudio Logo" className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_8px_rgba(108,99,255,0.5)]" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">Clypra</h1>
+              <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">VireoStudio</h1>
               <p className="text-[11px] text-text-muted font-medium tracking-wide">VIDEO EDITOR</p>
             </div>
           </div>
@@ -647,7 +647,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                   Text Render Tracing
                 </label>
                 <p className="text-xs text-text-muted mt-1">
-                  Verbose logging for text rendering pipeline. Use <code className="px-1 py-0.5 rounded bg-bg text-accent text-[10px]">localStorage.setItem("clypra.debug.textRender", "1")</code>
+                  Verbose logging for text rendering pipeline. Use <code className="px-1 py-0.5 rounded bg-bg text-accent text-[10px]">localStorage.setItem("vireostudio.debug.textRender", "1")</code>
                 </p>
               </div>
             </div>

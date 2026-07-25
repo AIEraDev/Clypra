@@ -1,5 +1,5 @@
 @echo off
 REM Dev helper: runs ffprobe from PATH. Replace with a static ffprobe for release builds.
 where ffprobe >nul 2>&1 && (ffprobe %*) && exit /b
-echo clypra: ffprobe not on PATH and sidecar is a stub. Install ffmpeg or replace this file per src-tauri\bin\README.md >&2
+echo vireostudio: ffprobe not on PATH and sidecar is a stub. Install ffmpeg or replace this file per src-tauri\bin\README.md >&2
 exit /b 127

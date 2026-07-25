@@ -13,7 +13,7 @@
 
 import type { EffectFullDefinition } from "../types/types";
 
-const DB_NAME = "clypra_text_effects";
+const DB_NAME = "vireostudio_text_effects";
 const DB_VERSION = 1;
 const STORE_NAME = "definitions";
 const CACHE_VERSION = "v1"; // Increment to invalidate all cached effects

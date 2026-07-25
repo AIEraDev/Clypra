@@ -11,9 +11,9 @@ import { execSync } from "child_process";
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from "fs";
 import { join } from "path";
 
-const BUCKET = "clypra-assets";
+const BUCKET = "vireostudio-assets";
 const TEMP_DIR = "./r2-migration-temp";
-const GITHUB_BASE = "https://raw.githubusercontent.com/AIEraDev/clypra-api/main/data/";
+const GITHUB_BASE = "https://raw.githubusercontent.com/AIEraDev/vireostudio-api/main/data/";
 const CLOUDFLARE_BASE = "https://clypra-worker-api.abdulkabirmusa.com/files/";
 
 console.log("🚀 Starting R2 Audio URL Migration...");

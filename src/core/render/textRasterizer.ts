@@ -69,7 +69,7 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
         await useTemplateStore.getState().loadTemplates();
         templates = useTemplateStore.getState().templates;
       } catch (e) {
-        console.error("[Clypra:Rasterizer] Failed to load templates index:", e);
+        console.error("[VireoStudio:Rasterizer] Failed to load templates index:", e);
       }
     }
     const rawTemplate = templates.find((t) => t.id === layer.templateId);
@@ -86,7 +86,7 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
         const { useTimelineStore } = await import("@/store/timelineStore");
         useTimelineStore.getState().incrementEpoch();
       } catch (err) {
-        console.error(`[Clypra:Rasterizer] Failed to lazy-load template data for template ${rawTemplate.id}:`, err);
+        console.error(`[VireoStudio:Rasterizer] Failed to lazy-load template data for template ${rawTemplate.id}:`, err);
       }
     }
 

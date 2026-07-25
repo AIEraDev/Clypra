@@ -1,5 +1,5 @@
 /**
- * Clypra Editor — Timeline → ProjectManifestV2 adapter for V2 MPG pipeline.
+ * VireoStudio Editor — Timeline → ProjectManifestV2 adapter for V2 MPG pipeline.
  */
 
 import {

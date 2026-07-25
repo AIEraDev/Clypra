@@ -1,10 +1,10 @@
 #!/bin/bash
-# tauri-dev.sh — Run Clypra in dev mode with camera/mic working on macOS.
+# tauri-dev.sh — Run VireoStudio in dev mode with camera/mic working on macOS.
 #
 # WHY A BUNDLE IS NEEDED:
 #   WKWebView camera access on macOS requires TCC to show a permission prompt.
 #   TCC only prompts for properly bundled .app packages (with Info.plist containing
-#   NSCameraUsageDescription). A bare binary at target/debug/clypra has no bundle,
+#   NSCameraUsageDescription). A bare binary at target/debug/vireostudio has no bundle,
 #   so TCC silently denies all getUserMedia requests regardless of entitlements.
 #
 #   This script creates a minimal .app bundle wrapper around the debug binary,
@@ -15,10 +15,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TAURI_DIR="$PROJECT_ROOT/src-tauri"
-BINARY="$TAURI_DIR/target/debug/clypra"
-BUNDLE_DIR="$TAURI_DIR/target/debug/ClypraDev.app"
-BUNDLE_BINARY="$BUNDLE_DIR/Contents/MacOS/clypra"
-BUNDLE_ID="com.clypra.editor"
+BINARY="$TAURI_DIR/target/debug/vireostudio"
+BUNDLE_DIR="$TAURI_DIR/target/debug/VireoStudioDev.app"
+BUNDLE_BINARY="$BUNDLE_DIR/Contents/MacOS/vireostudio"
+BUNDLE_ID="com.vireostudio.editor"
 
 # ── 1. Build ──────────────────────────────────────────────────────────────────
 echo "🔨 Building Tauri (debug)..."
@@ -26,7 +26,7 @@ cd "$TAURI_DIR"
 cargo build
 
 # ── 2. Assemble .app bundle ───────────────────────────────────────────────────
-echo "📦 Assembling ClypraDev.app bundle..."
+echo "📦 Assembling VireoStudioDev.app bundle..."
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS"
 mkdir -p "$BUNDLE_DIR/Contents/Resources"
@@ -41,7 +41,7 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" << EOF
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Clypra</string>
+    <string>VireoStudio</string>
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleVersion</key>
@@ -49,17 +49,17 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" << EOF
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
     <key>CFBundleExecutable</key>
-    <string>clypra</string>
+    <string>vireostudio</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
     <string>11.0</string>
     <key>NSCameraUsageDescription</key>
-    <string>Clypra requires camera access for dual screen and webcam recording.</string>
+    <string>VireoStudio requires camera access for dual screen and webcam recording.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Clypra requires microphone access for audio recording during screen capture.</string>
+    <string>VireoStudio requires microphone access for audio recording during screen capture.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Clypra requires screen recording access to capture your screen content.</string>
+    <string>VireoStudio requires screen recording access to capture your screen content.</string>
 </dict>
 </plist>
 EOF
@@ -68,7 +68,7 @@ EOF
 echo "🔏 Codesigning bundle with camera/mic entitlements..."
 
 # Write dev entitlements to a temp file
-DEV_ENT="$(mktemp /tmp/clypra-dev-ent.XXXXXX.plist)"
+DEV_ENT="$(mktemp /tmp/vireostudio-dev-ent.XXXXXX.plist)"
 cat > "$DEV_ENT" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -122,7 +122,7 @@ for i in $(seq 1 30); do
 done
 
 # ── 6. Launch .app bundle ─────────────────────────────────────────────────────
-echo "🎬 Launching ClypraDev.app..."
+echo "🎬 Launching VireoStudioDev.app..."
 open -W "$BUNDLE_DIR"
 
 # Cleanup on exit

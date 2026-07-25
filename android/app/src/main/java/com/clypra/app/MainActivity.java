@@ -1,4 +1,4 @@
-package com.clypra.app;
+package com.vireostudio.app;
 
 import com.getcapacitor.BridgeActivity;
 

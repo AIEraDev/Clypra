@@ -27,12 +27,12 @@ describe("favoritesStore", () => {
     // Toggle favorite on
     toggleFavorite("effect-1");
     expect(useFavoritesStore.getState().favorites).toEqual(["effect-1"]);
-    expect(JSON.parse(localStorage.getItem("clypra_text_favorites") || "[]")).toEqual(["effect-1"]);
+    expect(JSON.parse(localStorage.getItem("vireostudio_text_favorites") || "[]")).toEqual(["effect-1"]);
 
     // Toggle favorite off
     toggleFavorite("effect-1");
     expect(useFavoritesStore.getState().favorites).toEqual([]);
-    expect(JSON.parse(localStorage.getItem("clypra_text_favorites") || "[]")).toEqual([]);
+    expect(JSON.parse(localStorage.getItem("vireostudio_text_favorites") || "[]")).toEqual([]);
   });
 
   it("should handle start, complete, and cancel downloads for effects", () => {
@@ -52,7 +52,7 @@ describe("favoritesStore", () => {
     
     expect(useFavoritesStore.getState().downloadingIds).toEqual([]);
     expect(useFavoritesStore.getState().downloadedEffects).toEqual(["effect-1"]);
-    expect(JSON.parse(localStorage.getItem("clypra_downloaded_effects") || "[]")).toEqual(["effect-1"]);
+    expect(JSON.parse(localStorage.getItem("vireostudio_downloaded_effects") || "[]")).toEqual(["effect-1"]);
   });
 
   it("should handle start and complete downloads for templates", () => {
@@ -64,17 +64,17 @@ describe("favoritesStore", () => {
     completeDownload("template-1", "template");
     expect(useFavoritesStore.getState().downloadingIds).toEqual([]);
     expect(useFavoritesStore.getState().downloadedTemplates).toEqual(["template-1"]);
-    expect(JSON.parse(localStorage.getItem("clypra_downloaded_templates") || "[]")).toEqual(["template-1"]);
+    expect(JSON.parse(localStorage.getItem("vireostudio_downloaded_templates") || "[]")).toEqual(["template-1"]);
   });
 
   it("should parse existing items from localStorage upon state restoration", () => {
-    localStorage.setItem("clypra_text_favorites", JSON.stringify(["saved-1"]));
-    localStorage.setItem("clypra_downloaded_effects", JSON.stringify(["saved-eff"]));
-    localStorage.setItem("clypra_downloaded_templates", JSON.stringify(["saved-temp"]));
+    localStorage.setItem("vireostudio_text_favorites", JSON.stringify(["saved-1"]));
+    localStorage.setItem("vireostudio_downloaded_effects", JSON.stringify(["saved-eff"]));
+    localStorage.setItem("vireostudio_downloaded_templates", JSON.stringify(["saved-temp"]));
 
-    const savedFav = JSON.parse(localStorage.getItem("clypra_text_favorites") || "[]");
-    const savedEff = JSON.parse(localStorage.getItem("clypra_downloaded_effects") || "[]");
-    const savedTemp = JSON.parse(localStorage.getItem("clypra_downloaded_templates") || "[]");
+    const savedFav = JSON.parse(localStorage.getItem("vireostudio_text_favorites") || "[]");
+    const savedEff = JSON.parse(localStorage.getItem("vireostudio_downloaded_effects") || "[]");
+    const savedTemp = JSON.parse(localStorage.getItem("vireostudio_downloaded_templates") || "[]");
     
     useFavoritesStore.setState({
       favorites: savedFav,

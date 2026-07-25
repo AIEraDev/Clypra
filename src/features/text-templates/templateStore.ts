@@ -34,7 +34,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
   templates: [],
   selectedTemplate: null,
   customization: {
-    primaryText: "Clypra",
+    primaryText: "VireoStudio",
     secondaryText: "",
     accentText: "",
   },
@@ -58,7 +58,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
         isLoading: false,
       });
     } catch (err) {
-      console.warn("[Clypra:TemplateStore] Failed to fetch templates from API, falling back to static templates:", err);
+      console.warn("[VireoStudio:TemplateStore] Failed to fetch templates from API, falling back to static templates:", err);
       set({
         templates: ALL_TEMPLATES,
         isApiConnected: false,
@@ -71,7 +71,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
     if (!template) {
       set({
         selectedTemplate: null,
-        customization: { primaryText: "Clypra", secondaryText: "", accentText: "" },
+        customization: { primaryText: "VireoStudio", secondaryText: "", accentText: "" },
       });
       return;
     }
@@ -110,7 +110,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
             isLoading: false,
           }));
         } catch (err) {
-          console.error(`[Clypra:TemplateStore] Failed to load template data for template ${loadedTemplate.id}:`, err);
+          console.error(`[VireoStudio:TemplateStore] Failed to load template data for template ${loadedTemplate.id}:`, err);
           set({ isLoading: false });
 
           // Fallback to static templates
@@ -130,7 +130,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
     // Initialize customisation with defaults from the selected template
     const fullTemplate = loadedTemplate.templateData || loadedTemplate.lottieData || loadedTemplate;
     const textLayers = (fullTemplate.layers || []).filter((l: any) => l.kind === "text") as any[];
-    const primary = textLayers.find((tl) => tl.role === "primary")?.content || "Clypra";
+    const primary = textLayers.find((tl) => tl.role === "primary")?.content || "VireoStudio";
     const secondary = textLayers.find((tl) => tl.role === "secondary")?.content || "";
     const accent = textLayers.find((tl) => tl.role === "accent")?.content || "";
 
@@ -215,7 +215,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
 
     if (templateIds.length === 0) return;
 
-    const DEBUG = typeof window !== "undefined" && window.localStorage?.getItem("clypra.debug.projectLoad") === "1";
+    const DEBUG = typeof window !== "undefined" && window.localStorage?.getItem("vireostudio.debug.projectLoad") === "1";
 
     try {
       // 1. Ensure templates list is loaded (check cache first)
@@ -266,7 +266,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
                   })
                   .catch(() => {});
               } catch (err) {
-                console.error(`[Clypra:TemplateStore] Preload failed for template ${id}:`, err);
+                console.error(`[VireoStudio:TemplateStore] Preload failed for template ${id}:`, err);
                 return;
               }
             }
@@ -295,11 +295,11 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
           const { useTimelineStore } = await import("@/store/timelineStore");
           useTimelineStore.getState().incrementEpoch();
         } catch (fontErr) {
-          console.warn("[Clypra:TemplateStore] Failed to preload template fonts:", fontErr);
+          console.warn("[VireoStudio:TemplateStore] Failed to preload template fonts:", fontErr);
         }
       }
     } catch (err) {
-      console.warn("[Clypra:TemplateStore] Preload templates and fonts failed:", err);
+      console.warn("[VireoStudio:TemplateStore] Preload templates and fonts failed:", err);
     }
   },
 
@@ -308,7 +308,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
     set({
       selectedTemplate: null,
       customization: {
-        primaryText: "Clypra",
+        primaryText: "VireoStudio",
         secondaryText: "",
         accentText: "",
       },

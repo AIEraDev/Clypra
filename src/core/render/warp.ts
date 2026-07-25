@@ -1,5 +1,5 @@
 /**
- * Clypra Advanced Typography layout & Warping Engine
+ * VireoStudio Advanced Typography layout & Warping Engine
  */
 
 export interface PathPoint {

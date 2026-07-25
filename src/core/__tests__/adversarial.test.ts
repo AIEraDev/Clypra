@@ -90,7 +90,7 @@ function createAsset(id: string, path: string): MediaAsset {
 // TEST SUITES
 // =========================================================================
 
-describe("Clypra — Adversarial Test Suite", () => {
+describe("VireoStudio — Adversarial Test Suite", () => {
   
   // ─── 1. GATLING GUN CONCURRENCY ──────────────────────────────────────────
   describe("Scenario 1: Gatling Gun Project Switcher", () => {

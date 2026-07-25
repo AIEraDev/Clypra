@@ -86,7 +86,7 @@ export const AudioTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="rounded-lg border border-border bg-surface-raised/40 p-4 text-center">
             <Music2 className="mx-auto mb-2 h-5 w-5 text-text-muted" />
             <p className="text-xs font-semibold text-text-primary">No approved audio yet</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Audio published from Clypra Studio will appear here after API cache refresh.</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Audio published from VireoStudio Studio will appear here after API cache refresh.</p>
           </div>
         )}
 
@@ -190,7 +190,7 @@ const AudioItem: React.FC<AudioItemProps> = ({ item, onAddToTimeline }) => {
           <img src={item.coverArtUrl} alt={item.name} className="w-full h-full object-cover" onError={() => setImageError(true)} />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-accent/20 to-accent/10">
-            <img src="/clypra.svg" alt="Clypra" className="w-8 h-8 object-contain opacity-60" />
+            <img src="/vireostudio.svg" alt="VireoStudio" className="w-8 h-8 object-contain opacity-60" />
           </div>
         )}
         {/* Play/Pause Overlay */}

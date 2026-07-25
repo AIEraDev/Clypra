@@ -9,9 +9,9 @@
 
 set -e
 
-BUCKET="clypra-assets"
+BUCKET="vireostudio-assets"
 TEMP_DIR="./r2-migration-temp"
-GITHUB_BASE="https://raw.githubusercontent.com/AIEraDev/clypra-api/main/data/"
+GITHUB_BASE="https://raw.githubusercontent.com/AIEraDev/vireostudio-api/main/data/"
 CLOUDFLARE_BASE="https://clypra-worker-api.abdulkabirmusa.com/files/"
 
 echo "🚀 Starting R2 Audio URL Migration..."

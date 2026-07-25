@@ -52,5 +52,5 @@ export const getPlatformType = (): PlatformType => {
   if (typeof (globalThis as any).process !== "undefined" && (globalThis as any).process.env?.NODE_ENV === "test") {
     return "tauri";
   }
-  throw new Error("Unsupported platform: Clypra is built only for Tauri Desktop and Mobile/Capacitor.");
+  throw new Error("Unsupported platform: VireoStudio is built only for Tauri Desktop and Mobile/Capacitor.");
 };

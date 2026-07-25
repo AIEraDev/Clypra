@@ -1,6 +1,6 @@
-# Clypra Contributor License Agreement
+# VireoStudio Contributor License Agreement
 
-Thank you for your interest in contributing to Clypra ("**We**" or "**Us**").
+Thank you for your interest in contributing to VireoStudio ("**We**" or "**Us**").
 
 This Contributor License Agreement ("**Agreement**") documents the rights granted by contributors to Us. To make this document effective, please sign it and send it to Us by electronic submission, following the instructions at [CLA Signing Process]. This is a legally binding document, so please read it carefully before agreeing to it.
 
@@ -83,19 +83,19 @@ This CLA is managed via CLA Assistant bot on GitHub. When you submit your first 
 3. Review this agreement and click "I Agree"
 4. The bot will update your PR status to show CLA signed
 
-Your signature applies to all future contributions to Clypra. You only need to sign once.
+Your signature applies to all future contributions to VireoStudio. You only need to sign once.
 
 ## Questions?
 
 If you have questions about the CLA:
 
-- **Legal questions**: Email legal@clypra.com
-- **Process questions**: Ask in your PR or [GitHub Discussions](https://github.com/AIEraDev/clypra/discussions)
-- **Chat**: Join our [Discord](https://discord.gg/clypra)
+- **Legal questions**: Email legal@vireostudio.com
+- **Process questions**: Ask in your PR or [GitHub Discussions](https://github.com/AIEraDev/vireostudio/discussions)
+- **Chat**: Join our [Discord](https://discord.gg/vireostudio)
 
 ---
 
-**Project**: Clypra  
+**Project**: VireoStudio  
 **Maintainer**: AIEraDev  
 **CLA Version**: 1.0  
 **Effective Date**: 2026-07-11

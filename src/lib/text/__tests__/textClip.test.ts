@@ -75,7 +75,7 @@ describe("Text Clip Utilities", () => {
   describe("measureTextEffectContentBounds & calculateTextClipSize", () => {
     it("should compute sensible dimensions based on font size and letter spacing", () => {
       const options = {
-        text: "Clypra Editor",
+        text: "VireoStudio Editor",
         fontFamily: "Inter",
         fontSize: 48,
         bold: true,

@@ -220,7 +220,7 @@ export class PixiSceneCompositor {
 
           if (!sourceElement && mediaLayer.mediaType === "video" && import.meta.env.DEV) {
             const key = `${mediaLayer.clipId}-${mediaLayer.mediaId}`;
-            console.warn(`[Clypra Compositor] Active video clip "${mediaLayer.clipId}" has no backing video element (key: ${key}). It will not be rendered.`);
+            console.warn(`[VireoStudio Compositor] Active video clip "${mediaLayer.clipId}" has no backing video element (key: ${key}). It will not be rendered.`);
           }
 
           if (sourceElement) {

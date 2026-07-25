@@ -38,7 +38,7 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
     onAddToTimeline?.(
       {
         name: effect.name,
-        text: effect.text || "CLYPRA",
+        text: effect.text || "VIREOSTUDIO",
         presetType: "effect",
         styleId: effect.id,
         effectDefinition: effect,
@@ -157,7 +157,7 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
   const convertToEffectDefinition = (item: any): TextEffectDefinition => {
     return {
       ...item,
-      text: "CLYPRA",
+      text: "VIREOSTUDIO",
       description: item.description || "",
       tags: item.tags || [],
       font: {

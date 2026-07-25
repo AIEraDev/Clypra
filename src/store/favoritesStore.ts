@@ -38,9 +38,9 @@ const saveArray = (key: string, arr: string[]) => {
 
 export const useFavoritesStore = create<FavoritesState>((set, get) => {
   // Initialize from localStorage on creation
-  const initialFavorites = getSavedArray("clypra_text_favorites");
-  const initialDownloadedEffects = getSavedArray("clypra_downloaded_effects");
-  const initialDownloadedTemplates = getSavedArray("clypra_downloaded_templates");
+  const initialFavorites = getSavedArray("vireostudio_text_favorites");
+  const initialDownloadedEffects = getSavedArray("vireostudio_downloaded_effects");
+  const initialDownloadedTemplates = getSavedArray("vireostudio_downloaded_templates");
 
   return {
     favorites: initialFavorites,
@@ -52,7 +52,7 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => {
       const current = get().favorites;
       const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
       set({ favorites: next });
-      saveArray("clypra_text_favorites", next);
+      saveArray("vireostudio_text_favorites", next);
     },
 
     startDownload: (id) => {
@@ -67,14 +67,14 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => {
 
         if (type === "effect") {
           const nextDownloaded = state.downloadedEffects.includes(id) ? state.downloadedEffects : [...state.downloadedEffects, id];
-          saveArray("clypra_downloaded_effects", nextDownloaded);
+          saveArray("vireostudio_downloaded_effects", nextDownloaded);
           return {
             downloadingIds: nextDownloading,
             downloadedEffects: nextDownloaded,
           };
         } else {
           const nextDownloaded = state.downloadedTemplates.includes(id) ? state.downloadedTemplates : [...state.downloadedTemplates, id];
-          saveArray("clypra_downloaded_templates", nextDownloaded);
+          saveArray("vireostudio_downloaded_templates", nextDownloaded);
           return {
             downloadingIds: nextDownloading,
             downloadedTemplates: nextDownloaded,
@@ -91,18 +91,18 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => {
 
     clearDownloadedEffects: () => {
       set({ downloadedEffects: [] });
-      saveArray("clypra_downloaded_effects", []);
+      saveArray("vireostudio_downloaded_effects", []);
     },
 
     clearDownloadedTemplates: () => {
       set({ downloadedTemplates: [] });
-      saveArray("clypra_downloaded_templates", []);
+      saveArray("vireostudio_downloaded_templates", []);
     },
 
     clearAllDownloaded: () => {
       set({ downloadedEffects: [], downloadedTemplates: [] });
-      saveArray("clypra_downloaded_effects", []);
-      saveArray("clypra_downloaded_templates", []);
+      saveArray("vireostudio_downloaded_effects", []);
+      saveArray("vireostudio_downloaded_templates", []);
     },
   };
 });

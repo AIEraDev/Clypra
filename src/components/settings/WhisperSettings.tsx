@@ -170,23 +170,23 @@ function LanguageSelector() {
 
   return (
     <div className="space-y-2">
-      <label className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677)">Transcription Language</label>
+      <label className="text-[13px] font-semibold uppercase tracking-wider text-(--vireostudio-muted,#666677)">Transcription Language</label>
 
       <div className="relative">
-        <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between px-3 py-2 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg text-sm text-text-primary hover:border-(--clypra-violet,#7C6FFF) transition-colors">
+        <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between px-3 py-2 bg-(--vireostudio-surface,#1E1E26) border border-(--vireostudio-border,#2A2A38) rounded-lg text-sm text-text-primary hover:border-(--vireostudio-violet,#7C6FFF) transition-colors">
           <span className="flex items-center gap-2">
-            {selectedLanguage?.code === "auto" && <Sparkles className="w-4 h-4 text-(--clypra-violet,#7C6FFF)" />}
+            {selectedLanguage?.code === "auto" && <Sparkles className="w-4 h-4 text-(--vireostudio-violet,#7C6FFF)" />}
             {selectedLanguage?.name || "Select language"}
           </span>
-          <Search className="w-4 h-4 text-(--clypra-muted,#666677)" />
+          <Search className="w-4 h-4 text-(--vireostudio-muted,#666677)" />
         </button>
 
         {isOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-            <div className="absolute top-full left-0 right-0 mt-1 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg shadow-lg z-50 overflow-hidden">
-              <div className="p-2 border-b border-(--clypra-border,#2A2A38)">
-                <input type="text" placeholder="Search languages..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-1.5 bg-(--clypra-ink,#0E0E12) border border-(--clypra-border,#2A2A38) rounded text-sm text-text-primary placeholder:text-(--clypra-muted,#666677) focus:outline-none focus:border-(--clypra-violet,#7C6FFF)" autoFocus />
+            <div className="absolute top-full left-0 right-0 mt-1 bg-(--vireostudio-surface,#1E1E26) border border-(--vireostudio-border,#2A2A38) rounded-lg shadow-lg z-50 overflow-hidden">
+              <div className="p-2 border-b border-(--vireostudio-border,#2A2A38)">
+                <input type="text" placeholder="Search languages..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-1.5 bg-(--vireostudio-ink,#0E0E12) border border-(--vireostudio-border,#2A2A38) rounded text-sm text-text-primary placeholder:text-(--vireostudio-muted,#666677) focus:outline-none focus:border-(--vireostudio-violet,#7C6FFF)" autoFocus />
               </div>
               <div className="max-h-[240px] overflow-y-auto scrollbar-thin">
                 {filteredLanguages.map((lang) => (
@@ -197,7 +197,7 @@ function LanguageSelector() {
                       setIsOpen(false);
                       setSearchQuery("");
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${lang.code === captionSettings.language ? "bg-(--clypra-violet,#7C6FFF)/15 text-(--clypra-violet,#7C6FFF)" : "text-text-primary hover:bg-(--clypra-surface,#1E1E26)"}`}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${lang.code === captionSettings.language ? "bg-(--vireostudio-violet,#7C6FFF)/15 text-(--vireostudio-violet,#7C6FFF)" : "text-text-primary hover:bg-(--vireostudio-surface,#1E1E26)"}`}
                   >
                     <span className="flex items-center gap-2">
                       {lang.code === "auto" && <Sparkles className="w-3.5 h-3.5" />}
@@ -212,7 +212,7 @@ function LanguageSelector() {
         )}
       </div>
 
-      <p className="text-[11px] text-(--clypra-muted,#666677) leading-relaxed">Auto-detect works well for most content. Set a language explicitly to improve accuracy for accented speech or mixed-language content.</p>
+      <p className="text-[11px] text-(--vireostudio-muted,#666677) leading-relaxed">Auto-detect works well for most content. Set a language explicitly to improve accuracy for accented speech or mixed-language content.</p>
     </div>
   );
 }
@@ -350,28 +350,28 @@ function ModelCard({ model }: { model: ModelInfo }) {
   };
 
   return (
-    <div className={`bg-(--clypra-surface,#1E1E26) border rounded-xl p-4 transition-all ${isActive ? "border-(--clypra-violet,#7C6FFF) shadow-lg shadow-(--clypra-violet,#7C6FFF)/20" : "border-(--clypra-border,#2A2A38) hover:border-(--clypra-border,#2A2A38)"}`}>
+    <div className={`bg-(--vireostudio-surface,#1E1E26) border rounded-xl p-4 transition-all ${isActive ? "border-(--vireostudio-violet,#7C6FFF) shadow-lg shadow-(--vireostudio-violet,#7C6FFF)/20" : "border-(--vireostudio-border,#2A2A38) hover:border-(--vireostudio-border,#2A2A38)"}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <h4 className="text-sm font-medium text-text-primary">{model.size}</h4>
-            {model.recommended && <span className="px-2 py-0.5 text-[10px] font-medium bg-(--clypra-violet,#7C6FFF)/15 text-(--clypra-violet,#7C6FFF) rounded-full">Recommended</span>}
+            {model.recommended && <span className="px-2 py-0.5 text-[10px] font-medium bg-(--vireostudio-violet,#7C6FFF)/15 text-(--vireostudio-violet,#7C6FFF) rounded-full">Recommended</span>}
             {isActive && <span className="px-2 py-0.5 text-[10px] font-medium bg-green-500/15 text-green-400 rounded-full">Active</span>}
           </div>
-          <div className="flex items-center gap-3 text-[11px] font-mono text-(--clypra-muted,#666677)">
+          <div className="flex items-center gap-3 text-[11px] font-mono text-(--vireostudio-muted,#666677)">
             <span>{model.params} params</span>
             <span>•</span>
             <span>{model.vram}</span>
           </div>
         </div>
-        <div className="px-2 py-1 text-[10px] font-mono bg-(--clypra-violet,#7C6FFF)/10 text-(--clypra-violet,#7C6FFF) rounded">{model.speed}</div>
+        <div className="px-2 py-1 text-[10px] font-mono bg-(--vireostudio-violet,#7C6FFF)/10 text-(--vireostudio-violet,#7C6FFF) rounded">{model.speed}</div>
       </div>
 
-      <p className="text-[13px] text-(--clypra-muted,#666677) mb-3">{model.quality}</p>
+      <p className="text-[13px] text-(--vireostudio-muted,#666677) mb-3">{model.quality}</p>
 
       {/* Download state UI */}
       {modelState.status === "idle" && (
-        <button onClick={handleDownload} disabled={isDownloading} className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--clypra-violet,#7C6FFF) text-(--clypra-violet,#7C6FFF) rounded-lg text-sm font-medium hover:bg-(--clypra-violet,#7C6FFF)/10 transition-colors disabled:opacity-50 cursor-pointer">
+        <button onClick={handleDownload} disabled={isDownloading} className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--vireostudio-violet,#7C6FFF) text-(--vireostudio-violet,#7C6FFF) rounded-lg text-sm font-medium hover:bg-(--vireostudio-violet,#7C6FFF)/10 transition-colors disabled:opacity-50 cursor-pointer">
           <Download className="w-4 h-4" />
           Download
         </button>
@@ -379,10 +379,10 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
       {modelState.status === "downloading" && (
         <div className="space-y-2">
-          <div className="w-full bg-(--clypra-ink,#0E0E12) rounded-full h-2 overflow-hidden">
-            <div className="h-full bg-(--clypra-violet,#7C6FFF) transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+          <div className="w-full bg-(--vireostudio-ink,#0E0E12) rounded-full h-2 overflow-hidden">
+            <div className="h-full bg-(--vireostudio-violet,#7C6FFF) transition-all duration-300" style={{ width: `${progressPercent}%` }} />
           </div>
-          <div className="flex items-center justify-between text-[11px] font-mono text-(--clypra-muted,#666677)">
+          <div className="flex items-center justify-between text-[11px] font-mono text-(--vireostudio-muted,#666677)">
             <span>
               {formatBytes(modelState.progressBytes)} / {formatBytes(modelState.totalBytes)}
               {modelState.speedBytesPerSec > 0 && ` · ${formatBytes(modelState.speedBytesPerSec)}/s`}
@@ -396,11 +396,11 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
       {modelState.status === "downloaded" && !isActive && (
         <div className="flex items-center gap-2">
-          <button onClick={handleSetActive} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-(--clypra-violet,#7C6FFF) text-white rounded-lg text-sm font-medium hover:bg-(--clypra-deep-violet,#5B4EE8) transition-colors">
+          <button onClick={handleSetActive} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-(--vireostudio-violet,#7C6FFF) text-white rounded-lg text-sm font-medium hover:bg-(--vireostudio-deep-violet,#5B4EE8) transition-colors">
             <Check className="w-4 h-4" />
             Use this model
           </button>
-          <button onClick={handleDelete} className="px-3 py-2 border border-(--clypra-border,#2A2A38) text-(--clypra-muted,#666677) rounded-lg hover:border-red-500/50 hover:text-red-400 transition-colors" title="Delete model">
+          <button onClick={handleDelete} className="px-3 py-2 border border-(--vireostudio-border,#2A2A38) text-(--vireostudio-muted,#666677) rounded-lg hover:border-red-500/50 hover:text-red-400 transition-colors" title="Delete model">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -410,7 +410,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
         <div className="flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/30 rounded-lg text-sm text-green-400">
           <Check className="w-4 h-4" />
           <span className="flex-1">Model active</span>
-          <button onClick={handleDelete} className="text-(--clypra-muted,#666677) hover:text-red-400 transition-colors" title="Delete model">
+          <button onClick={handleDelete} className="text-(--vireostudio-muted,#666677) hover:text-red-400 transition-colors" title="Delete model">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -422,7 +422,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <p className="text-[11px] text-red-400 flex-1">{modelState.errorMessage || "Download failed"}</p>
           </div>
-          <button onClick={handleRetry} className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--clypra-violet,#7C6FFF) text-(--clypra-violet,#7C6FFF) rounded-lg text-sm font-medium hover:bg-(--clypra-violet,#7C6FFF)/10 transition-colors">
+          <button onClick={handleRetry} className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--vireostudio-violet,#7C6FFF) text-(--vireostudio-violet,#7C6FFF) rounded-lg text-sm font-medium hover:bg-(--vireostudio-violet,#7C6FFF)/10 transition-colors">
             <RefreshCw className="w-4 h-4" />
             Retry
           </button>
@@ -456,11 +456,11 @@ function ActiveModelIndicator() {
   }
 
   return (
-    <div className="flex items-center gap-3 p-4 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg">
+    <div className="flex items-center gap-3 p-4 bg-(--vireostudio-surface,#1E1E26) border border-(--vireostudio-border,#2A2A38) rounded-lg">
       <Check className="w-5 h-5 text-green-400" />
       <div className="flex-1">
         <p className="text-[13px] text-text-primary">
-          <span className="text-(--clypra-muted,#666677)">Active model: </span>
+          <span className="text-(--vireostudio-muted,#666677)">Active model: </span>
           <span className="font-medium">{activeModel}</span>
         </p>
       </div>
@@ -472,8 +472,8 @@ export const WhisperSettings: React.FC = () => {
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677) mb-2">Auto-Captions Configuration</h3>
-        <p className="text-[11px] text-(--clypra-muted,#666677)">Configure Whisper speech recognition for automatic caption generation.</p>
+        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--vireostudio-muted,#666677) mb-2">Auto-Captions Configuration</h3>
+        <p className="text-[11px] text-(--vireostudio-muted,#666677)">Configure Whisper speech recognition for automatic caption generation.</p>
       </div>
 
       {/* Language Selection */}
@@ -481,7 +481,7 @@ export const WhisperSettings: React.FC = () => {
 
       {/* Model Download Manager */}
       <div className="space-y-3">
-        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677)">Whisper Models</h3>
+        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--vireostudio-muted,#666677)">Whisper Models</h3>
         <div className="grid grid-cols-1 gap-3">
           {MODEL_INFO.map((model) => (
             <ModelCard key={model.size} model={model} />
@@ -493,11 +493,11 @@ export const WhisperSettings: React.FC = () => {
       <ActiveModelIndicator />
 
       {/* Info Note */}
-      <div className="flex items-start gap-3 p-4 bg-(--clypra-violet,#7C6FFF)/10 border border-(--clypra-violet,#7C6FFF)/30 rounded-lg">
-        <Sparkles className="w-5 h-5 text-(--clypra-violet,#7C6FFF) shrink-0 mt-0.5" />
+      <div className="flex items-start gap-3 p-4 bg-(--vireostudio-violet,#7C6FFF)/10 border border-(--vireostudio-violet,#7C6FFF)/30 rounded-lg">
+        <Sparkles className="w-5 h-5 text-(--vireostudio-violet,#7C6FFF) shrink-0 mt-0.5" />
         <div className="text-[11px] text-text-primary/90">
           <p className="font-semibold mb-1">Local-First Privacy</p>
-          <p className="text-(--clypra-muted,#666677)">All models run locally on your device. Your audio never leaves your computer, ensuring complete privacy and offline functionality.</p>
+          <p className="text-(--vireostudio-muted,#666677)">All models run locally on your device. Your audio never leaves your computer, ensuring complete privacy and offline functionality.</p>
         </div>
       </div>
     </div>

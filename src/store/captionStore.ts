@@ -101,7 +101,7 @@ export const useCaptionStore = create<CaptionStore>()(
         })),
     }),
     {
-      name: "clypra-caption-settings",
+      name: "vireostudio-caption-settings",
       // Only persist language and model statuses, not download progress
       partialize: (state) => ({
         captionSettings: {

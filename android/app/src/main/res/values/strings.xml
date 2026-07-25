@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Clypra</string>
-    <string name="title_activity_main">Clypra</string>
-    <string name="package_name">com.clypra.app</string>
-    <string name="custom_url_scheme">com.clypra.app</string>
+    <string name="app_name">VireoStudio</string>
+    <string name="title_activity_main">VireoStudio</string>
+    <string name="package_name">com.vireostudio.app</string>
+    <string name="custom_url_scheme">com.vireostudio.app</string>
 </resources>

@@ -1,5 +1,5 @@
 /**
- * Clypra Text Effect Registry
+ * VireoStudio Text Effect Registry
  *
  * The single source of truth for all registered text effects.
  *

@@ -19,7 +19,7 @@ const mockIndexItems = [
     category: "metallic",
     isPremium: false,
     previewType: "static",
-    thumbnailUrl: "https://raw.githubusercontent.com/AIEraDev/clypra-api/main/data/thumbnails/solaris-ink.png",
+    thumbnailUrl: "https://raw.githubusercontent.com/AIEraDev/vireostudio-api/main/data/thumbnails/solaris-ink.png",
   },
 ];
 
@@ -29,7 +29,7 @@ const mockFullDefinition = {
   category: "metallic",
   isPremium: false,
   previewType: "static",
-  thumbnailUrl: "https://raw.githubusercontent.com/AIEraDev/clypra-api/main/data/thumbnails/solaris-ink.png",
+  thumbnailUrl: "https://raw.githubusercontent.com/AIEraDev/vireostudio-api/main/data/thumbnails/solaris-ink.png",
   font: {
     family: "Montserrat",
     weight: 700,

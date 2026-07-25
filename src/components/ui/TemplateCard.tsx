@@ -30,7 +30,7 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
   const resolvedThumbnailUrl =
     template.thumbnailUrl ||
     template.thumbnail ||
-    `https://raw.githubusercontent.com/AIEraDev/clypra-api/main/data/thumbnails/${template.id}.png`;
+    `https://raw.githubusercontent.com/AIEraDev/vireostudio-api/main/data/thumbnails/${template.id}.png`;
 
   const handleMouseEnter = () => {
     setIsHovered(true);

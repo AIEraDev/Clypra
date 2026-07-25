@@ -12,7 +12,7 @@ interface EffectPreviewProps {
 export function EffectPreview({ onApply, onCancel }: EffectPreviewProps) {
   const { selectedEffect, clearSelected } = useEffectsStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [userText, setUserText] = useState("CLYPRA");
+  const [userText, setUserText] = useState("VIREOSTUDIO");
 
   useEffectCanvas(canvasRef, userText);
 

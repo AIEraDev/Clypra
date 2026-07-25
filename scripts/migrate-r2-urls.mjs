@@ -9,9 +9,9 @@ import { execSync } from "child_process";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 
-const BUCKET = "clypra-assets";
-const WRANGLER_DIR = resolve("../clypra-api");
-const GITHUB_BASE = "https://raw.githubusercontent.com/AIEraDev/clypra-api/main/data/";
+const BUCKET = "vireostudio-assets";
+const WRANGLER_DIR = resolve("../vireostudio-api");
+const GITHUB_BASE = "https://raw.githubusercontent.com/AIEraDev/vireostudio-api/main/data/";
 const CLOUDFLARE_BASE = "https://clypra-worker-api.abdulkabirmusa.com/files/";
 
 const files = ["audio/music/333524-lekhalekha-music-school-india.json", "audio/music/heavy-urban-traffic.json", "audio/music/jumpscare-icy-chill.json", "audio/music/wii-u-song-pou-song-loop.json", "audio/music/m142-himars-rocket-launch.json"];
@@ -19,7 +19,7 @@ const files = ["audio/music/333524-lekhalekha-music-school-india.json", "audio/m
 console.log("🚀 R2 Audio URL Migration\n");
 
 if (!existsSync(WRANGLER_DIR)) {
-  console.error("❌ clypra-api directory not found");
+  console.error("❌ vireostudio-api directory not found");
   process.exit(1);
 }
 

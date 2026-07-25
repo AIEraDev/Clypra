@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Clypra will be documented in this file.
+All notable changes to VireoStudio will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -10,15 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### 🎉 First Alpha Release
 
-Welcome to **Clypra** - a modern, open-source video editor built for creators who value performance, precision, and transparency. This alpha release marks the first public milestone in our journey to build a professional-grade video editor that's fast, native, and completely open.
+Welcome to **VireoStudio** - a modern, open-source video editor built for creators who value performance, precision, and transparency. This alpha release marks the first public milestone in our journey to build a professional-grade video editor that's fast, native, and completely open.
 
-**What is Clypra?**
+**What is VireoStudio?**
 
-Clypra is a desktop video editor built with Tauri, React, and TypeScript, powered by FFmpeg for video processing. It combines the performance of native desktop apps with the flexibility of modern web technologies, delivering a smooth editing experience without the bloat of traditional video editors.
+VireoStudio is a desktop video editor built with Tauri, React, and TypeScript, powered by FFmpeg for video processing. It combines the performance of native desktop apps with the flexibility of modern web technologies, delivering a smooth editing experience without the bloat of traditional video editors.
 
-**Why Clypra?**
+**Why VireoStudio?**
 
-- **Native Performance**: Built with Tauri and Rust, Clypra runs as a true desktop application with minimal memory footprint
+- **Native Performance**: Built with Tauri and Rust, VireoStudio runs as a true desktop application with minimal memory footprint
 - **GPU-Accelerated Preview**: Real-time video preview powered by WebGL for smooth playback
 - **Frame-Accurate Editing**: Precision timeline with frame-level control for professional results
 - **Open Source**: MIT licensed - inspect the code, contribute features, or fork for your own needs
@@ -100,9 +100,9 @@ We're focused on stability and core functionality for the v0.1.0 release:
 This alpha is released to gather real-world feedback from the community:
 
 - **Try it out**: Download, import your videos, and test the editing workflow
-- **Report bugs**: Found a crash or unexpected behavior? [Open an issue](https://github.com/AIEraDev/clypra/issues)
+- **Report bugs**: Found a crash or unexpected behavior? [Open an issue](https://github.com/AIEraDev/vireostudio/issues)
 - **Request features**: What's missing for your workflow? Let us know
-- **Contribute**: Check our [contributing guide](https://github.com/AIEraDev/clypra/blob/master/CONTRIBUTING.md) to get involved
+- **Contribute**: Check our [contributing guide](https://github.com/AIEraDev/vireostudio/blob/master/CONTRIBUTING.md) to get involved
 
 ### 📦 Installation
 
@@ -115,8 +115,8 @@ This alpha is released to gather real-world feedback from the community:
 **Build from source:**
 
 ```bash
-git clone https://github.com/AIEraDev/clypra.git
-cd clypra
+git clone https://github.com/AIEraDev/vireostudio.git
+cd vireostudio
 npm install
 npm run tauri build
 ```
@@ -133,13 +133,13 @@ Please include:
 
 ### 📄 License
 
-Clypra is MIT licensed - free to use, modify, and distribute.
+VireoStudio is MIT licensed - free to use, modify, and distribute.
 
 ---
 
-**Thank you for trying Clypra!** This is just the beginning. With your feedback and contributions, we'll build a video editor that's powerful, accessible, and truly open.
+**Thank you for trying VireoStudio!** This is just the beginning. With your feedback and contributions, we'll build a video editor that's powerful, accessible, and truly open.
 
-— The Clypra Team
+— The VireoStudio Team
 
-[Unreleased]: https://github.com/AIEraDev/Clypra/compare/v0.1.0-alpha.1...HEAD
-[0.1.0-alpha.1]: https://github.com/AIEraDev/Clypra/releases/tag/v0.1.0-alpha.1
+[Unreleased]: https://github.com/AIEraDev/VireoStudio/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/AIEraDev/VireoStudio/releases/tag/v0.1.0-alpha.1

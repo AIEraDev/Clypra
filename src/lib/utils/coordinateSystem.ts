@@ -1,7 +1,7 @@
 /**
  * Coordinate System Architecture
  *
- * This module defines the 3-layer coordinate system used throughout Clypra.
+ * This module defines the 3-layer coordinate system used throughout VireoStudio.
  * Understanding these spaces is CRITICAL for correct transform behavior.
  *
  * ┌─────────────────────────────────────────────────────────────────────┐

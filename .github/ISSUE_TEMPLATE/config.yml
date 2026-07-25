@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Discord Community
-    url: https://discord.gg/clypra
+    url: https://discord.gg/vireostudio
     about: Join our Discord for questions and discussions
   - name: Documentation
-    url: https://github.com/AIEraDev/Clypra/tree/master/docs
+    url: https://github.com/AIEraDev/VireoStudio/tree/master/docs
     about: Check the documentation for help

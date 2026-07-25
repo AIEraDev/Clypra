@@ -358,7 +358,7 @@ export const SourcePreview: React.FC = () => {
         trackId: targetTrackId,
         startTime,
         duration: 3.0,
-        text: preset.text || "CLYPRA",
+        text: preset.text || "VIREOSTUDIO",
         canvasWidth: project?.canvasWidth || 1920,
         canvasHeight: project?.canvasHeight || 1080,
         // When styleId is present, the engine will use the effect definition for ALL styling

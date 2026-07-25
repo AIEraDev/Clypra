@@ -1,15 +1,15 @@
 {
-  "name": "clypra",
+  "name": "vireostudio",
   "version": "1.0.2",
   "description": "A modern, open-source video editor built with Tauri, React, and TypeScript",
-  "author": "Clypra Contributors",
+  "author": "VireoStudio Contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AIEraDev/clypra.git"
+    "url": "https://github.com/AIEraDev/vireostudio.git"
   },
   "bugs": {
-    "url": "https://github.com/AIEraDev/clypra/issues"
+    "url": "https://github.com/AIEraDev/vireostudio/issues"
   },
   "keywords": [
     "video-editor",

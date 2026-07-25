@@ -1,10 +1,10 @@
-# Contributing to Clypra
+# Contributing to VireoStudio
 
-First off, thank you for considering contributing to Clypra! It's people like you that make Clypra a great tool for creators worldwide.
+First off, thank you for considering contributing to VireoStudio! It's people like you that make VireoStudio a great tool for creators worldwide.
 
 ## Open Core Model
 
-Clypra uses an **Open Core** model:
+VireoStudio uses an **Open Core** model:
 
 - **Open Source (MIT License)**: The core editor, effects engine, and all UI components are free and open source forever
 - **Commercial**: AI-powered features (auto-captions, natural language editing, smart reframe) are proprietary and accessed via API
@@ -25,7 +25,7 @@ Before creating bug reports, please check the existing issues to avoid duplicate
 - **Describe the exact steps to reproduce the problem**
 - **Provide specific examples** (code snippets, screenshots, videos)
 - **Describe the behavior you observed and what you expected**
-- **Include your environment**: OS version, Clypra version, hardware specs
+- **Include your environment**: OS version, VireoStudio version, hardware specs
 
 ### Suggesting Features
 
@@ -34,7 +34,7 @@ Feature suggestions are welcome! Before creating a feature request:
 - **Check if the feature already exists** in a newer version
 - **Check if it's already been suggested** in Issues or Discussions
 - **Provide a clear use case** - why would this benefit users?
-- **Consider the scope** - does it fit Clypra's mission?
+- **Consider the scope** - does it fit VireoStudio's mission?
 
 ### Pull Requests
 
@@ -49,11 +49,11 @@ We actively welcome your pull requests:
 
 ## Contributor License Agreement (CLA)
 
-To preserve our ability to maintain Clypra long-term, all contributors must sign a Contributor License Agreement. This:
+To preserve our ability to maintain VireoStudio long-term, all contributors must sign a Contributor License Agreement. This:
 
-- **Grants us a license** to use your contribution in Clypra (open source and commercial versions)
+- **Grants us a license** to use your contribution in VireoStudio (open source and commercial versions)
 - **Doesn't transfer ownership** - you retain copyright to your work
-- **Ensures legal clarity** - we can license Clypra under MIT without legal uncertainty
+- **Ensures legal clarity** - we can license VireoStudio under MIT without legal uncertainty
 - **Protects the project** - we can defend against patent/copyright claims
 
 ### How to Sign
@@ -67,7 +67,7 @@ When you submit your first pull request, a bot will comment with a link to sign 
 
 ### What You're Agreeing To
 
-The CLA grants Clypra maintainers:
+The CLA grants VireoStudio maintainers:
 
 - **Copyright license**: Right to use, modify, and distribute your contribution
 - **Patent license**: Right to use any patents you hold that are necessary for your contribution
@@ -87,7 +87,7 @@ This is the same CLA model used by major open source projects like Kubernetes, A
 Active contributors (3+ merged PRs in the last 12 months) receive:
 
 - **Free Pro Tier Access** ($10/month value) - unlimited AI features
-- **Recognition** in CONTRIBUTORS.md and on clypra.com
+- **Recognition** in CONTRIBUTORS.md and on vireostudio.com
 - **Direct communication** with core maintainers via private Discord channel
 - **Early access** to new features and beta releases
 - **Speaking opportunities** at community calls and virtual meetups
@@ -105,18 +105,18 @@ Active contributors (3+ merged PRs in the last 12 months) receive:
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/clypra.git
-cd clypra
+git clone https://github.com/YOUR_USERNAME/vireostudio.git
+cd vireostudio
 
 # Add upstream remote
-git remote add upstream https://github.com/AIEraDev/clypra.git
+git remote add upstream https://github.com/AIEraDev/vireostudio.git
 
 # Install dependencies
 npm install
 
 # Configure environment
 cp .env.example .env
-# Add your Clypra API key if testing text effects
+# Add your VireoStudio API key if testing text effects
 
 # Start development
 npm run tauri dev
@@ -278,10 +278,10 @@ Look for issues labeled `good first issue`:
 
 ## Getting Help
 
-- **Questions**: Use [GitHub Discussions](https://github.com/AIEraDev/clypra/discussions)
-- **Bugs**: Open an [Issue](https://github.com/AIEraDev/clypra/issues)
-- **Chat**: Join our [Discord](https://discord.gg/clypra) (community channel)
-- **Security**: Email security@clypra.com (do not open public issues)
+- **Questions**: Use [GitHub Discussions](https://github.com/AIEraDev/vireostudio/discussions)
+- **Bugs**: Open an [Issue](https://github.com/AIEraDev/vireostudio/issues)
+- **Chat**: Join our [Discord](https://discord.gg/vireostudio) (community channel)
+- **Security**: Email security@vireostudio.com (do not open public issues)
 
 ## Recognition
 
@@ -296,10 +296,10 @@ Top contributors may be invited to join the core maintainer team.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License, the same license covering the open source Clypra editor. Your contribution will be subject to the Contributor License Agreement.
+By contributing, you agree that your contributions will be licensed under the MIT License, the same license covering the open source VireoStudio editor. Your contribution will be subject to the Contributor License Agreement.
 
 ---
 
-**Thank you for making Clypra better!** 🎬✨
+**Thank you for making VireoStudio better!** 🎬✨
 
 If you have questions about contributing, reach out in Discussions or Discord. We're here to help!

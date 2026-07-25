@@ -18,7 +18,7 @@ const baseTextClip: TextClip = {
   opacity: 1,
   rotation: 0,
   aspectRatioLocked: false,
-  text: "CLYPRA",
+  text: "VIREOSTUDIO",
   fontFamily: "Inter, system-ui, sans-serif",
   fontSize: 72,
   fontWeight: "normal",

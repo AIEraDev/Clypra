@@ -86,7 +86,7 @@ describe("calculateTextClipSize", () => {
 
   it("does not put ink-effect render bleed into the editable text box height", () => {
     const sized = calculateTextClipSize({
-      text: "CLYPRA",
+      text: "VIREOSTUDIO",
       fontFamily: "Bebas Neue",
       fontSize: 100,
       styleId: "neon-crimson",
@@ -130,7 +130,7 @@ describe("calculateTextClipSize", () => {
     });
 
     const wrapped = calculateTextClipSize({
-      text: "CLYPRA",
+      text: "VIREOSTUDIO",
       fontFamily: "Inter, system-ui, sans-serif",
       fontSize: 520,
       styleId: "neon-outline",

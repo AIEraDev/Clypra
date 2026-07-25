@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Clypra",
+  "productName": "VireoStudio",
   "version": "1.0.2",
-  "identifier": "com.clypra.editor",
+  "identifier": "com.vireostudio.editor",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -49,7 +49,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/AIEraDev/clypra/releases/latest/download/updater.json"
+        "https://github.com/AIEraDev/vireostudio/releases/latest/download/updater.json"
       ],
       "pubkey": "dW51c2VkX3B1YmxpY19rZXlfZm9yX3VwZGF0ZXJfZGVtbw=="
     }

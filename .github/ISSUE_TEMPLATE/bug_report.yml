@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug or issue with Clypra
+description: Report a bug or issue with VireoStudio
 title: "[Bug]: "
 labels: ["type: bug"]
 assignees: []
@@ -13,8 +13,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Clypra Version
-      description: What version of Clypra are you using?
+      label: VireoStudio Version
+      description: What version of VireoStudio are you using?
       placeholder: "0.1.0"
     validations:
       required: true
