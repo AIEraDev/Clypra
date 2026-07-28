@@ -148,4 +148,28 @@ export class TauriPlatformAdapter implements PlatformInterface {
     await writeFile(filePath, data);
     return filePath;
   }
+
+  async appendRecordingChunk(fileName: string, data: Uint8Array): Promise<void> {
+    const { writeFile, mkdir, exists } = await import("@tauri-apps/plugin-fs");
+    const { appLocalDataDir, join } = await import("@tauri-apps/api/path");
+    const localDir = await appLocalDataDir();
+    if (!(await exists(localDir))) {
+      await mkdir(localDir, { recursive: true });
+    }
+    const filePath = await join(localDir, fileName);
+    await writeFile(filePath, data, { append: true });
+  }
+
+  async finalizeRecordingFile(tempFileName: string, finalFileName: string): Promise<string> {
+    const { rename, exists } = await import("@tauri-apps/plugin-fs");
+    const { appLocalDataDir, join } = await import("@tauri-apps/api/path");
+    const localDir = await appLocalDataDir();
+    const tempPath = await join(localDir, tempFileName);
+    const finalPath = await join(localDir, finalFileName);
+
+    if (await exists(tempPath)) {
+      await rename(tempPath, finalPath);
+    }
+    return finalPath;
+  }
 }
