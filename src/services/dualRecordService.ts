@@ -606,15 +606,14 @@ export class DualRecordService {
         );
         this.screenRecorder.ondataavailable = async (e) => {
           if (e.data && e.data.size > 0) {
+            this.screenChunks.push(e.data);
             if (platform.appendRecordingChunk && this.screenTempFileName) {
               try {
                 const buffer = new Uint8Array(await e.data.arrayBuffer());
                 await platform.appendRecordingChunk(this.screenTempFileName, buffer);
-              } catch {
-                this.screenChunks.push(e.data);
+              } catch (err) {
+                console.warn("[DualRecordService] Streaming screen chunk to disk failed:", err);
               }
-            } else {
-              this.screenChunks.push(e.data);
             }
           }
         };
@@ -638,15 +637,14 @@ export class DualRecordService {
         );
         this.webcamRecorder.ondataavailable = async (e) => {
           if (e.data && e.data.size > 0) {
+            this.webcamChunks.push(e.data);
             if (platform.appendRecordingChunk && this.cameraTempFileName) {
               try {
                 const buffer = new Uint8Array(await e.data.arrayBuffer());
                 await platform.appendRecordingChunk(this.cameraTempFileName, buffer);
-              } catch {
-                this.webcamChunks.push(e.data);
+              } catch (err) {
+                console.warn("[DualRecordService] Streaming camera chunk to disk failed:", err);
               }
-            } else {
-              this.webcamChunks.push(e.data);
             }
           }
         };
