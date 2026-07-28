@@ -54,6 +54,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
     webcam: true,
     screen: true,
     screenType: "any" as "any" | "entire" | "window",
+    resolution: "1080p" as "720p" | "1080p" | "4k",
+    frameRate: 30 as 30 | 60,
   });
   // Recording active state lives in the global store so App.tsx can render the
   // floating widget overlay even after navigating away from LaunchScreen.
@@ -233,6 +235,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           ...recordOptions,
           screenType: recordOptions.screenType === "any" ? undefined : recordOptions.screenType,
           audioDeviceId: selectedAudioDeviceId || undefined,
+          resolution: recordOptions.resolution,
+          frameRate: recordOptions.frameRate,
         },
         // Callback when recording is stopped externally (OS "Stop Sharing", recorder error)
         (reason, error) => {
@@ -844,6 +848,51 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                   <option value="entire">Prefer Entire Display</option>
                   <option value="window">Prefer Application Window</option>
                 </select>
+              </div>
+            )}
+
+            {/* Quality Presets: Resolution & Frame Rate */}
+            {!isRecording && (
+              <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-white/4 border border-white/8 text-slate-300">
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Resolution</span>
+                  <div className="grid grid-cols-3 gap-1.5 bg-[#0d0d15] p-1 rounded-lg border border-white/10">
+                    {(["720p", "1080p", "4k"] as const).map((res) => (
+                      <button
+                        key={res}
+                        type="button"
+                        onClick={() => setRecordOptions({ ...recordOptions, resolution: res })}
+                        className={`py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
+                          recordOptions.resolution === res
+                            ? "bg-accent text-white shadow-sm"
+                            : "text-slate-400 hover:text-white hover:bg-white/5"
+                        }`}
+                      >
+                        {res.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Frame Rate</span>
+                  <div className="grid grid-cols-2 gap-1.5 bg-[#0d0d15] p-1 rounded-lg border border-white/10">
+                    {([30, 60] as const).map((fps) => (
+                      <button
+                        key={fps}
+                        type="button"
+                        onClick={() => setRecordOptions({ ...recordOptions, frameRate: fps })}
+                        className={`py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
+                          recordOptions.frameRate === fps
+                            ? "bg-accent text-white shadow-sm"
+                            : "text-slate-400 hover:text-white hover:bg-white/5"
+                        }`}
+                      >
+                        {fps} FPS
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
