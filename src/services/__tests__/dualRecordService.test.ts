@@ -349,4 +349,16 @@ describe("DualRecordService", () => {
     delete (platform as any).appendRecordingChunk;
     delete (platform as any).finalizeRecordingFile;
   });
+
+  it("should calculate sub-frame start timestamp metadata and cameraOffsetSeconds", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: true, audio: true });
+
+    const stopRes = await service.stopRecording();
+    expect(stopRes.metadata).toBeDefined();
+    expect(typeof stopRes.metadata.screenStartPerfTime).toBe("number");
+    expect(typeof stopRes.metadata.webcamStartPerfTime).toBe("number");
+    expect(typeof stopRes.metadata.cameraOffsetSeconds).toBe("number");
+    expect(stopRes.metadata.cameraOffsetSeconds).toBeGreaterThanOrEqual(0);
+  });
 });
