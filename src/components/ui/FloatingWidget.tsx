@@ -47,7 +47,9 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
           const playPromise = videoRef.current.play();
           if (playPromise && typeof playPromise.catch === "function") {
             playPromise.catch((err) => {
-              console.error("[FloatingWidget] Failed to play video stream:", err);
+              if (err.name !== "AbortError") {
+                console.error("[FloatingWidget] Failed to play video stream:", err);
+              }
             });
           }
         }
