@@ -136,7 +136,13 @@ const App = () => {
     };
   }, []);
 
-  const handleCreateProject = (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => {
+  const handleCreateProject = (
+    name: string,
+    aspectRatio: AspectRatio,
+    frameRate: 24 | 30 | 60,
+    initialClipPaths?: string[],
+    recordingMetadata?: { cameraOffsetSeconds?: number }
+  ) => {
     // Reset UI state from any previous session
     useUIStore.getState().exitSourceMode();
     createProject(name, aspectRatio, frameRate);
@@ -146,7 +152,6 @@ const App = () => {
         try {
           const { generateId } = await import("@/lib/utils/id");
           const { useTimelineStore } = await import("@/store/timelineStore");
-          const { MediaAsset, Clip } = await import("@/types");
 
           const loadedAssets: any[] = [];
 
@@ -242,12 +247,14 @@ const App = () => {
                 const pipX = canvasW - pipW - margin;
                 const pipY = canvasH - pipH - margin;
 
+                const cameraStartTime = recordingMetadata?.cameraOffsetSeconds || 0;
+
                 const cameraClip = {
                   id: generateId("clip"),
                   name: cameraAsset.name,
                   trackId: overlayTrackId,
                   mediaId: cameraAsset.id,
-                  startTime: 0,
+                  startTime: cameraStartTime,
                   duration: cameraAsset.duration,
                   trimIn: 0,
                   trimOut: cameraAsset.duration,
