@@ -138,7 +138,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
     setIsStopping(true);
 
     try {
-      const { filePaths } = await DualRecordService.getInstance().stopRecording();
+      const { filePaths, metadata } = await DualRecordService.getInstance().stopRecording();
 
       if (isTauri) {
         try {
@@ -149,7 +149,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
         }
       }
 
-      setPreviewRecording({ filePaths });
+      setPreviewRecording({ filePaths, metadata });
       setSeconds(0);
       setIsRecording(false);
       setRecordingError(null);
