@@ -1,5 +1,8 @@
 import { platform } from "@/core/platform";
 
+export type RecordingResolution = "720p" | "1080p" | "4k";
+export type RecordingFrameRate = 30 | 60;
+
 export interface DualRecordOptions {
   audio: boolean;
   webcam: boolean;
@@ -8,6 +11,22 @@ export interface DualRecordOptions {
   audioDeviceId?: string;
   /** Optional screen capture surface preference */
   screenType?: "entire" | "window";
+  /** Optional recording resolution preference */
+  resolution?: RecordingResolution;
+  /** Optional recording frame rate preference */
+  frameRate?: RecordingFrameRate;
+}
+
+export function getResolutionDimensions(res: RecordingResolution = "1080p"): { width: number; height: number } {
+  switch (res) {
+    case "720p":
+      return { width: 1280, height: 720 };
+    case "4k":
+      return { width: 3840, height: 2160 };
+    case "1080p":
+    default:
+      return { width: 1920, height: 1080 };
+  }
 }
 
 export interface AudioDevice {
@@ -461,12 +480,15 @@ export class DualRecordService {
     const selectedMime = mimePreference.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
 
     try {
+      const targetDims = getResolutionDimensions(options.resolution);
+      const targetFps = options.frameRate ?? 30;
+
       // 1. Screen stream capture
       if (options.screen && !this.screenStream) {
         const videoConstraints: any = {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
+          width: { ideal: targetDims.width },
+          height: { ideal: targetDims.height },
+          frameRate: { ideal: targetFps },
         };
         if (options.screenType === "entire") {
           videoConstraints.displaySurface = "monitor";
@@ -497,7 +519,7 @@ export class DualRecordService {
         if (options.webcam) {
           try {
             this.webcamStream = await navigator.mediaDevices.getUserMedia({
-              video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+              video: { width: { ideal: Math.min(1920, targetDims.width) }, height: { ideal: Math.min(1080, targetDims.height) }, frameRate: { ideal: targetFps } },
               audio: options.audio
                 ? options.audioDeviceId
                   ? { deviceId: { exact: options.audioDeviceId } }
