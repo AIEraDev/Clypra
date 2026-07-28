@@ -40,6 +40,13 @@ class FilterCacheManager {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
+    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+    if (!isTauri) {
+      // In web or test environment, use in-memory cache without disk persistence
+      this.initialized = true;
+      return;
+    }
+
     try {
       const appCache = await appCacheDir();
       this.cacheDir = await join(appCache, CACHE_DIR);
@@ -52,8 +59,8 @@ class FilterCacheManager {
       await this.loadIndex();
       this.initialized = true;
     } catch (error) {
-      console.error("[FilterCache] Failed to initialize:", error);
-      throw new Error("Failed to initialize filter cache");
+      console.warn("[FilterCache] Disk cache initialization failed, falling back to memory:", error);
+      this.initialized = true;
     }
   }
 
