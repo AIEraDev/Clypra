@@ -563,24 +563,35 @@ export class DualRecordService {
             } catch (err2) {
               console.warn("[DualRecordService] Camera start failed with video: true, falling back to audio-only:", err2);
               if (options.audio) {
-                this.webcamStream = await navigator.mediaDevices.getUserMedia({
-                  video: false,
-                  audio: options.audioDeviceId
-                    ? { deviceId: { exact: options.audioDeviceId } }
-                    : true,
-                });
+                try {
+                  this.webcamStream = await navigator.mediaDevices.getUserMedia({
+                    video: false,
+                    audio: options.audioDeviceId
+                      ? { deviceId: { exact: options.audioDeviceId } }
+                      : true,
+                  });
+                } catch (audioErr) {
+                  console.warn("[DualRecordService] Camera and audio acquisition both failed:", audioErr);
+                  if (!options.screen) throw audioErr;
+                }
               } else {
-                throw err2;
+                console.warn("[DualRecordService] Camera acquisition failed:", err2);
+                if (!options.screen) throw err2;
               }
             }
           }
         } else if (options.audio) {
-          this.webcamStream = await navigator.mediaDevices.getUserMedia({
-            video: false,
-            audio: options.audioDeviceId
-              ? { deviceId: { exact: options.audioDeviceId } }
-              : true,
-          });
+          try {
+            this.webcamStream = await navigator.mediaDevices.getUserMedia({
+              video: false,
+              audio: options.audioDeviceId
+                ? { deviceId: { exact: options.audioDeviceId } }
+                : true,
+            });
+          } catch (audioErr) {
+            console.warn("[DualRecordService] Audio acquisition failed:", audioErr);
+            if (!options.screen) throw audioErr;
+          }
         }
       }
 
