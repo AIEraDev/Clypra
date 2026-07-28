@@ -45,6 +45,12 @@ export interface VideoDevice {
  */
 export type RecordingStoppedCallback = (reason: "track_ended" | "recorder_error", error?: string) => void;
 
+export interface RecordingMetadata {
+  screenStartPerfTime?: number;
+  webcamStartPerfTime?: number;
+  cameraOffsetSeconds: number;
+}
+
 export class DualRecordService {
   private static instance: DualRecordService | null = null;
 
@@ -63,6 +69,10 @@ export class DualRecordService {
   private cameraTempFileName: string | null = null;
   private screenFinalFileName: string | null = null;
   private cameraFinalFileName: string | null = null;
+
+  // High-precision start timestamps
+  private screenStartPerfTime: number | null = null;
+  private webcamStartPerfTime: number | null = null;
 
   private isRecordingActive = false;
   private isPreviewActive = false;
@@ -614,6 +624,7 @@ export class DualRecordService {
             this.onRecordingStopped?.("recorder_error", "Screen recorder encountered an error");
           }
         };
+        this.screenStartPerfTime = performance.now();
         this.screenRecorder.start(250);
       }
 
@@ -645,6 +656,7 @@ export class DualRecordService {
             this.onRecordingStopped?.("recorder_error", "Camera recorder encountered an error");
           }
         };
+        this.webcamStartPerfTime = performance.now();
         this.webcamRecorder.start(250);
       }
 
@@ -655,8 +667,8 @@ export class DualRecordService {
     }
   }
 
-  /** Stop recording and save screen and webcam as separate files. Returns file paths. */
-  async stopRecording(): Promise<{ filePaths: string[] }> {
+  /** Stop recording and save screen and webcam as separate files. Returns file paths and metadata. */
+  async stopRecording(): Promise<{ filePaths: string[]; metadata: RecordingMetadata }> {
     if (!this.isRecordingActive) {
       throw new Error("No active recording session");
     }
@@ -719,7 +731,19 @@ export class DualRecordService {
         filePaths.push(path);
       }
 
-      return { filePaths };
+      let cameraOffsetSeconds = 0;
+      if (this.screenStartPerfTime !== null && this.webcamStartPerfTime !== null) {
+        const deltaMs = this.webcamStartPerfTime - this.screenStartPerfTime;
+        cameraOffsetSeconds = Math.max(0, deltaMs / 1000);
+      }
+
+      const metadata: RecordingMetadata = {
+        screenStartPerfTime: this.screenStartPerfTime ?? undefined,
+        webcamStartPerfTime: this.webcamStartPerfTime ?? undefined,
+        cameraOffsetSeconds,
+      };
+
+      return { filePaths, metadata };
     } finally {
       this.cleanup();
     }
@@ -755,6 +779,8 @@ export class DualRecordService {
     this.cameraTempFileName = null;
     this.screenFinalFileName = null;
     this.cameraFinalFileName = null;
+    this.screenStartPerfTime = null;
+    this.webcamStartPerfTime = null;
   }
 
 }
