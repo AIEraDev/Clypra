@@ -292,4 +292,35 @@ describe("DualRecordService", () => {
     expect(service.isMicMuted()).toBe(false);
     expect(audioTrack?.enabled).toBe(true);
   });
+
+  it("should apply custom resolution and frame rate constraints to capture streams", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({
+      screen: true,
+      webcam: true,
+      audio: true,
+      resolution: "4k",
+      frameRate: 60,
+    });
+
+    expect(navigator.mediaDevices.getDisplayMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video: expect.objectContaining({
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          frameRate: { ideal: 60 },
+        }),
+      })
+    );
+
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video: expect.objectContaining({
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 60 },
+        }),
+      })
+    );
+  });
 });
