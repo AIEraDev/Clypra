@@ -41,6 +41,8 @@ export class DualRecordService {
 
   private isRecordingActive = false;
   private isPreviewActive = false;
+  private isPausedState = false;
+  private isMicMutedState = false;
 
   /** Callback for external stop events (track ended, recorder error) */
   private onRecordingStopped: RecordingStoppedCallback | null = null;
@@ -73,6 +75,50 @@ export class DualRecordService {
 
   isRecording(): boolean {
     return this.isRecordingActive;
+  }
+
+  isPaused(): boolean {
+    return this.isPausedState;
+  }
+
+  isMicMuted(): boolean {
+    return this.isMicMutedState;
+  }
+
+  pauseRecording(): void {
+    if (!this.isRecordingActive || this.isPausedState) return;
+    if (this.screenRecorder && this.screenRecorder.state === "recording") {
+      this.screenRecorder.pause();
+    }
+    if (this.webcamRecorder && this.webcamRecorder.state === "recording") {
+      this.webcamRecorder.pause();
+    }
+    this.isPausedState = true;
+  }
+
+  resumeRecording(): void {
+    if (!this.isRecordingActive || !this.isPausedState) return;
+    if (this.screenRecorder && this.screenRecorder.state === "paused") {
+      this.screenRecorder.resume();
+    }
+    if (this.webcamRecorder && this.webcamRecorder.state === "paused") {
+      this.webcamRecorder.resume();
+    }
+    this.isPausedState = false;
+  }
+
+  setMicMuted(muted: boolean): void {
+    this.isMicMutedState = muted;
+    if (this.webcamStream) {
+      this.webcamStream.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+      });
+    }
+    if (this.screenStream) {
+      this.screenStream.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+      });
+    }
   }
 
   isMicTesting(): boolean {
@@ -627,6 +673,8 @@ export class DualRecordService {
   cleanup(): void {
     this.isRecordingActive = false;
     this.isPreviewActive = false;
+    this.isPausedState = false;
+    this.isMicMutedState = false;
     this.onRecordingStopped = null;
 
     this.stopMicTest();
