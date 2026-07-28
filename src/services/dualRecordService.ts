@@ -58,6 +58,12 @@ export class DualRecordService {
   private screenChunks: Blob[] = [];
   private webcamChunks: Blob[] = [];
 
+  // Disk-streamed chunk files
+  private screenTempFileName: string | null = null;
+  private cameraTempFileName: string | null = null;
+  private screenFinalFileName: string | null = null;
+  private cameraFinalFileName: string | null = null;
+
   private isRecordingActive = false;
   private isPreviewActive = false;
   private isPausedState = false;
@@ -479,6 +485,13 @@ export class DualRecordService {
     ];
     const selectedMime = mimePreference.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
 
+    const timestamp = Date.now();
+    const ext = selectedMime.includes("mp4") ? "mp4" : "webm";
+    this.screenTempFileName = options.screen ? `screen_temp_${timestamp}.part` : null;
+    this.cameraTempFileName = (options.webcam || (options.audio && !options.screen)) ? `camera_temp_${timestamp}.part` : null;
+    this.screenFinalFileName = options.screen ? `screen_${timestamp}.${ext}` : null;
+    this.cameraFinalFileName = (options.webcam || (options.audio && !options.screen)) ? `camera_${timestamp}.${ext}` : null;
+
     try {
       const targetDims = getResolutionDimensions(options.resolution);
       const targetFps = options.frameRate ?? 30;
@@ -581,8 +594,19 @@ export class DualRecordService {
           screenRecordStream,
           selectedMime ? { mimeType: selectedMime } : undefined
         );
-        this.screenRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) this.screenChunks.push(e.data);
+        this.screenRecorder.ondataavailable = async (e) => {
+          if (e.data && e.data.size > 0) {
+            if (platform.appendRecordingChunk && this.screenTempFileName) {
+              try {
+                const buffer = new Uint8Array(await e.data.arrayBuffer());
+                await platform.appendRecordingChunk(this.screenTempFileName, buffer);
+              } catch {
+                this.screenChunks.push(e.data);
+              }
+            } else {
+              this.screenChunks.push(e.data);
+            }
+          }
         };
         this.screenRecorder.onerror = (e) => {
           console.error("[DualRecordService] Screen MediaRecorder error:", e);
@@ -601,8 +625,19 @@ export class DualRecordService {
           this.webcamStream,
           selectedMime ? { mimeType: selectedMime } : undefined
         );
-        this.webcamRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) this.webcamChunks.push(e.data);
+        this.webcamRecorder.ondataavailable = async (e) => {
+          if (e.data && e.data.size > 0) {
+            if (platform.appendRecordingChunk && this.cameraTempFileName) {
+              try {
+                const buffer = new Uint8Array(await e.data.arrayBuffer());
+                await platform.appendRecordingChunk(this.cameraTempFileName, buffer);
+              } catch {
+                this.webcamChunks.push(e.data);
+              }
+            } else {
+              this.webcamChunks.push(e.data);
+            }
+          }
         };
         this.webcamRecorder.onerror = (e) => {
           console.error("[DualRecordService] Webcam MediaRecorder error:", e);
@@ -627,55 +662,60 @@ export class DualRecordService {
     }
 
     try {
-      // Pass the chunks array explicitly to avoid fragile identity comparison
-      // with `this.screenRecorder` which could be nulled by a concurrent cleanup.
-      const stopRecorder = (
-        recorder: MediaRecorder | null,
-        chunks: Blob[]
-      ): Promise<Blob | null> => {
-        if (!recorder) return Promise.resolve(null);
-        if (recorder.state === "inactive") {
-          // REC-01 fix: If the recorder was stopped externally (e.g. native "Stop sharing"),
-          // it transitions to "inactive" but accumulated chunks are still valid.
-          if (chunks.length > 0) {
-            const mimeType = recorder.mimeType || "video/webm";
-            return Promise.resolve(new Blob(chunks, { type: mimeType }));
-          }
-          return Promise.resolve(null);
-        }
+      const stopRecorderInstance = (recorder: MediaRecorder | null): Promise<void> => {
+        if (!recorder || recorder.state === "inactive") return Promise.resolve();
         return new Promise((resolve) => {
-          recorder.onstop = () => {
-            const mimeType = recorder.mimeType || "video/webm";
-            const blob = new Blob(chunks, { type: mimeType });
-            resolve(blob);
-          };
+          recorder.onstop = () => resolve();
           recorder.stop();
         });
       };
 
-      const [screenBlob, webcamBlob] = await Promise.all([
-        stopRecorder(this.screenRecorder, this.screenChunks),
-        stopRecorder(this.webcamRecorder, this.webcamChunks),
+      await Promise.all([
+        stopRecorderInstance(this.screenRecorder),
+        stopRecorderInstance(this.webcamRecorder),
       ]);
 
-      const timestamp = Date.now();
       const filePaths: string[] = [];
 
-      // Save screen recording
-      if (screenBlob && screenBlob.size > 0) {
+      // Finalize screen recording
+      if (this.screenTempFileName && this.screenFinalFileName && platform.finalizeRecordingFile) {
+        try {
+          const path = await platform.finalizeRecordingFile(this.screenTempFileName, this.screenFinalFileName);
+          filePaths.push(path);
+        } catch {
+          if (this.screenChunks.length > 0) {
+            const blob = new Blob(this.screenChunks, { type: this.screenRecorder?.mimeType || "video/webm" });
+            const path = await platform.saveRecording(this.screenFinalFileName, new Uint8Array(await blob.arrayBuffer()));
+            filePaths.push(path);
+          }
+        }
+      } else if (this.screenChunks.length > 0) {
         const mimeType = this.screenRecorder?.mimeType ?? "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
-        const fileName = `screen_${timestamp}.${ext}`;
-        const path = await platform.saveRecording(fileName, new Uint8Array(await screenBlob.arrayBuffer()));
+        const fileName = this.screenFinalFileName || `screen_${Date.now()}.${ext}`;
+        const blob = new Blob(this.screenChunks, { type: mimeType });
+        const path = await platform.saveRecording(fileName, new Uint8Array(await blob.arrayBuffer()));
         filePaths.push(path);
       }
 
-      // Save camera/audio recording
-      if (webcamBlob && webcamBlob.size > 0) {
+      // Finalize camera recording
+      if (this.cameraTempFileName && this.cameraFinalFileName && platform.finalizeRecordingFile) {
+        try {
+          const path = await platform.finalizeRecordingFile(this.cameraTempFileName, this.cameraFinalFileName);
+          filePaths.push(path);
+        } catch {
+          if (this.webcamChunks.length > 0) {
+            const blob = new Blob(this.webcamChunks, { type: this.webcamRecorder?.mimeType || "video/webm" });
+            const path = await platform.saveRecording(this.cameraFinalFileName, new Uint8Array(await blob.arrayBuffer()));
+            filePaths.push(path);
+          }
+        }
+      } else if (this.webcamChunks.length > 0) {
         const mimeType = this.webcamRecorder?.mimeType ?? "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
-        const fileName = `camera_${timestamp}.${ext}`;
-        const path = await platform.saveRecording(fileName, new Uint8Array(await webcamBlob.arrayBuffer()));
+        const fileName = this.cameraFinalFileName || `camera_${Date.now()}.${ext}`;
+        const blob = new Blob(this.webcamChunks, { type: mimeType });
+        const path = await platform.saveRecording(fileName, new Uint8Array(await blob.arrayBuffer()));
         filePaths.push(path);
       }
 
@@ -709,9 +749,12 @@ export class DualRecordService {
 
     this.screenRecorder = null;
     this.webcamRecorder = null;
-    // Release recorded blob data to free memory
     this.screenChunks = [];
     this.webcamChunks = [];
+    this.screenTempFileName = null;
+    this.cameraTempFileName = null;
+    this.screenFinalFileName = null;
+    this.cameraFinalFileName = null;
   }
 
 }
