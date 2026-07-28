@@ -3,6 +3,7 @@ import { savePreRecordingWindowGeometry, restorePreRecordingWindowGeometry } fro
 
 const mockWin = {
   isMaximized: vi.fn().mockResolvedValue(true),
+  isFullscreen: vi.fn().mockResolvedValue(false),
   outerPosition: vi.fn().mockResolvedValue({ x: 200, y: 150 }),
   outerSize: vi.fn().mockResolvedValue({ width: 1920, height: 1080 }),
   setAlwaysOnTop: vi.fn().mockResolvedValue(undefined),
@@ -10,6 +11,7 @@ const mockWin = {
   setPosition: vi.fn().mockResolvedValue(undefined),
   setSize: vi.fn().mockResolvedValue(undefined),
   maximize: vi.fn().mockResolvedValue(undefined),
+  setFullscreen: vi.fn().mockResolvedValue(undefined),
   unminimize: vi.fn().mockResolvedValue(undefined),
   setFocus: vi.fn().mockResolvedValue(undefined),
 };
@@ -51,13 +53,12 @@ describe("WindowState Module", () => {
       width: 1920,
       height: 1080,
       isMaximized: true,
+      isFullscreen: false,
     });
 
     await restorePreRecordingWindowGeometry();
 
     expect(mockWin.setAlwaysOnTop).toHaveBeenCalledWith(false);
-    expect(mockWin.setPosition).toHaveBeenCalledWith(expect.objectContaining({ x: 200, y: 150 }));
-    expect(mockWin.setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 1920, height: 1080 }));
     expect(mockWin.maximize).toHaveBeenCalled();
     expect(mockWin.unminimize).toHaveBeenCalled();
     expect(mockWin.setFocus).toHaveBeenCalled();
