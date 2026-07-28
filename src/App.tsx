@@ -145,6 +145,10 @@ const App = () => {
       setTimeout(async () => {
         try {
           const { generateId } = await import("@/lib/utils/id");
+          const { useTimelineStore } = await import("@/store/timelineStore");
+          const { MediaAsset, Clip } = await import("@/types");
+
+          const loadedAssets: any[] = [];
 
           for (const path of initialClipPaths) {
             try {
@@ -165,7 +169,6 @@ const App = () => {
               const asset = {
                 id: generateId("asset"),
                 name: filename,
-                // Store the webview-safe URL so <video src> can render it
                 path: displayPath,
                 type: "video" as const,
                 duration: metadata.duration,
@@ -175,11 +178,92 @@ const App = () => {
                 size: 0,
               };
 
-              // Add to media panel only — do NOT add to timeline
               useProjectStore.getState().addMediaAsset(asset);
+              loadedAssets.push(asset);
             } catch (innerErr) {
               console.error("[App] Failed to import path:", path, innerErr);
             }
+          }
+
+          // Auto-insert recordings onto timeline tracks with Picture-in-Picture placement
+          if (loadedAssets.length > 0) {
+            const currentProject = useProjectStore.getState().project;
+            const canvasW = currentProject?.canvasWidth || 1920;
+            const canvasH = currentProject?.canvasHeight || 1080;
+
+            const screenAsset = loadedAssets.find((a) => a.name.toLowerCase().includes("screen")) || loadedAssets[0];
+            const cameraAsset = loadedAssets.find((a) => a.name.toLowerCase().includes("camera") && a.id !== screenAsset.id);
+
+            const timelineStore = useTimelineStore.getState();
+
+            timelineStore.withBatch(() => {
+              // Ensure main video track exists
+              let tracks = useTimelineStore.getState().tracks;
+              let mainVideoTrack = tracks.find((t) => t.type === "video");
+
+              if (!mainVideoTrack) {
+                useTimelineStore.getState().addTrack("video");
+                tracks = useTimelineStore.getState().tracks;
+                mainVideoTrack = tracks.find((t) => t.type === "video");
+              }
+
+              const mainTrackId = mainVideoTrack!.id;
+
+              // 1. Add Main Screen Clip on Track 1 (Bottom/Main Track)
+              const screenClip = {
+                id: generateId("clip"),
+                name: screenAsset.name,
+                trackId: mainTrackId,
+                mediaId: screenAsset.id,
+                startTime: 0,
+                duration: screenAsset.duration,
+                trimIn: 0,
+                trimOut: screenAsset.duration,
+                x: 0,
+                y: 0,
+                width: canvasW,
+                height: canvasH,
+                opacity: 1,
+                rotation: 0,
+                fitMode: "contain" as const,
+                aspectRatioLocked: true,
+                kind: "video" as const,
+              };
+              useTimelineStore.getState().addClip(screenClip);
+
+              // 2. Add Camera Overlay Clip on Top Track (Track 0 / PiP Placement) if dual recording
+              if (cameraAsset) {
+                // Insert top track above main track so camera renders on top (lower trackIndex = top z-index)
+                const overlayTrackId = useTimelineStore.getState().insertTrackAt("video", 0);
+
+                const pipW = Math.round(canvasW * 0.28);
+                const pipH = Math.round(canvasH * 0.28);
+                const margin = 40;
+                const pipX = canvasW - pipW - margin;
+                const pipY = canvasH - pipH - margin;
+
+                const cameraClip = {
+                  id: generateId("clip"),
+                  name: cameraAsset.name,
+                  trackId: overlayTrackId,
+                  mediaId: cameraAsset.id,
+                  startTime: 0,
+                  duration: cameraAsset.duration,
+                  trimIn: 0,
+                  trimOut: cameraAsset.duration,
+                  x: pipX,
+                  y: pipY,
+                  width: pipW,
+                  height: pipH,
+                  opacity: 1,
+                  rotation: 0,
+                  fitMode: "cover" as const,
+                  aspectRatioLocked: true,
+                  kind: "video" as const,
+                };
+                useTimelineStore.getState().addClip(cameraClip);
+              }
+            });
           }
         } catch (err) {
           console.error("[App] Failed to auto-import initial recordings:", err);
