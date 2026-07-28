@@ -323,4 +323,30 @@ describe("DualRecordService", () => {
       })
     );
   });
+
+  it("should stream chunks to disk via platform.appendRecordingChunk and finalize files on stop", async () => {
+    const { platform } = await import("@/core/platform");
+    const appendSpy = vi.fn().mockResolvedValue(undefined);
+    const finalizeSpy = vi.fn().mockImplementation((temp, final) => Promise.resolve(`/mock/${final}`));
+
+    (platform as any).appendRecordingChunk = appendSpy;
+    (platform as any).finalizeRecordingFile = finalizeSpy;
+
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: false, audio: false });
+
+    // Simulate chunk availability
+    const screenStream = service.getScreenStream();
+    expect(screenStream).toBeDefined();
+
+    const stopRes = await service.stopRecording();
+    expect(finalizeSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^screen_temp_\d+\.part$/),
+      expect.stringMatching(/^screen_\d+\.webm$/)
+    );
+    expect(stopRes.filePaths).toContainEqual(expect.stringMatching(/\/mock\/screen_\d+\.webm$/));
+
+    delete (platform as any).appendRecordingChunk;
+    delete (platform as any).finalizeRecordingFile;
+  });
 });
