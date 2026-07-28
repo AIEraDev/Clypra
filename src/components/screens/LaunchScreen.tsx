@@ -247,12 +247,18 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       setIsRecordOpen(false);
       timerRef.current = setInterval(() => setSeconds((p) => p + 1), 1000);
 
-      // 2. Resize window to float layout after capture has been successfully initiated
+      // 2. Save window geometry snapshot and resize window to float layout
       if (isTauri) {
         try {
+          const { savePreRecordingWindowGeometry } = await import("@/lib/window/windowState");
+          await savePreRecordingWindowGeometry();
+
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
           const { LogicalSize } = await import("@tauri-apps/api/dpi");
           const win = getCurrentWindow();
+          if (await win.isMaximized()) {
+            await win.unmaximize();
+          }
           await win.setMinSize(null);
           await win.setSize(new LogicalSize(320, 420));
           await win.setMinSize(new LogicalSize(320, 420));
