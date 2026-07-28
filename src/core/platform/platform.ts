@@ -43,6 +43,8 @@ export interface PlatformInterface {
   extractPosterFrame(path: string, duration: number, dpr: number): Promise<string>;
   extractAudioArtwork(path: string): Promise<string | undefined>;
   saveRecording(fileName: string, data: Uint8Array): Promise<string>;
+  appendRecordingChunk?(fileName: string, data: Uint8Array): Promise<void>;
+  finalizeRecordingFile?(tempFileName: string, finalFileName: string): Promise<string>;
 }
 
 // ─── Environment Detection ───────────────────────────────────────────────────
