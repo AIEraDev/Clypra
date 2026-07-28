@@ -61,24 +61,23 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
     };
   }, [hasWebcam]);
 
+  const [isStopping, setIsStopping] = useState(false);
+
   // Auto-recover when recording is externally stopped (screen track ended / recorder error)
   useEffect(() => {
-    if (!recordingError) return;
+    if (!recordingError || isStopping) return;
 
     // Give the user a moment to see the error, then auto-stop
     const timeout = setTimeout(async () => {
+      setIsStopping(true);
       try {
         const { filePaths } = await DualRecordService.getInstance().stopRecording();
         if (isTauri) {
           try {
-            const { getCurrentWindow } = await import("@tauri-apps/api/window");
-            const { LogicalSize } = await import("@tauri-apps/api/dpi");
-            const win = getCurrentWindow();
-            await win.setMinSize(new LogicalSize(1100, 720));
-            await win.setSize(new LogicalSize(1100, 720));
-            await win.setAlwaysOnTop(false);
+            const { restorePreRecordingWindowGeometry } = await import("@/lib/window/windowState");
+            await restorePreRecordingWindowGeometry();
           } catch (winErr) {
-            console.error("[FloatingWidget] Failed to restore window size:", winErr);
+            console.error("[FloatingWidget] Failed to restore window geometry:", winErr);
           }
         }
         if (filePaths.length > 0) {
@@ -91,11 +90,12 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
         setSeconds(0);
         setIsRecording(false);
         setRecordingError(null);
+        setIsStopping(false);
       }
     }, 2000);
 
     return () => clearTimeout(timeout);
-  }, [recordingError, setPreviewRecording, setIsRecording, setSeconds, setRecordingError]);
+  }, [recordingError, isStopping, setPreviewRecording, setIsRecording, setSeconds, setRecordingError]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60).toString().padStart(2, "0");
@@ -104,19 +104,18 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
   };
 
   const handleStop = async () => {
+    if (isStopping) return;
+    setIsStopping(true);
+
     try {
       const { filePaths } = await DualRecordService.getInstance().stopRecording();
 
       if (isTauri) {
         try {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          const { LogicalSize } = await import("@tauri-apps/api/dpi");
-          const win = getCurrentWindow();
-          await win.setMinSize(new LogicalSize(1100, 720));
-          await win.setSize(new LogicalSize(1100, 720));
-          await win.setAlwaysOnTop(false);
+          const { restorePreRecordingWindowGeometry } = await import("@/lib/window/windowState");
+          await restorePreRecordingWindowGeometry();
         } catch (winErr) {
-          console.error("[FloatingWidget] Failed to restore window size:", winErr);
+          console.error("[FloatingWidget] Failed to restore window geometry:", winErr);
         }
       }
 
@@ -134,16 +133,14 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
 
       if (isTauri) {
         try {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          const { LogicalSize } = await import("@tauri-apps/api/dpi");
-          const win = getCurrentWindow();
-          await win.setMinSize(new LogicalSize(1100, 720));
-          await win.setSize(new LogicalSize(1100, 720));
-          await win.setAlwaysOnTop(false);
+          const { restorePreRecordingWindowGeometry } = await import("@/lib/window/windowState");
+          await restorePreRecordingWindowGeometry();
         } catch {
           // Best effort
         }
       }
+    } finally {
+      setIsStopping(false);
     }
   };
 
@@ -208,10 +205,11 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
 
         <button
           onClick={handleStop}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold transition-all shadow-md shadow-red-900/30 cursor-pointer"
+          disabled={isStopping}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold transition-all shadow-md shadow-red-900/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <StopCircle className="w-4 h-4" />
-          Stop Capture
+          {isStopping ? "Saving…" : "Stop Capture"}
         </button>
       </div>
     </div>
