@@ -1,17 +1,26 @@
 import { create } from "zustand";
 
+export interface RecordingResult {
+  filePaths: string[];
+  metadata?: {
+    screenStartPerfTime?: number;
+    webcamStartPerfTime?: number;
+    cameraOffsetSeconds?: number;
+  };
+}
+
 export interface RecordingState {
   isRecording: boolean;
   seconds: number;
   hasWebcam: boolean;
-  previewRecording: { filePaths: string[] } | null;
+  previewRecording: RecordingResult | null;
   /** Error surfaced from MediaRecorder/track lifecycle — shown in FloatingWidget */
   recordingError: string | null;
 
   setIsRecording: (v: boolean) => void;
   setSeconds: (updater: number | ((prev: number) => number)) => void;
   setHasWebcam: (v: boolean) => void;
-  setPreviewRecording: (v: { filePaths: string[] } | null) => void;
+  setPreviewRecording: (v: RecordingResult | null) => void;
   setRecordingError: (v: string | null) => void;
   reset: () => void;
 }
