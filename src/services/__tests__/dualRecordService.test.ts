@@ -37,6 +37,12 @@ class MockMediaRecorder {
   onerror: ((e: any) => void) | null = null;
 
   start = vi.fn();
+  pause = vi.fn(() => {
+    this.state = "paused";
+  });
+  resume = vi.fn(() => {
+    this.state = "recording";
+  });
   stop = vi.fn(() => {
     this.state = "inactive";
     setTimeout(() => {
@@ -254,5 +260,36 @@ describe("DualRecordService", () => {
 
     service.cleanup();
     expect((service as any).onRecordingStopped).toBeNull();
+  });
+
+  it("should toggle pause and resume states during recording", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: true, audio: true });
+
+    expect(service.isPaused()).toBe(false);
+
+    service.pauseRecording();
+    expect(service.isPaused()).toBe(true);
+
+    service.resumeRecording();
+    expect(service.isPaused()).toBe(false);
+  });
+
+  it("should toggle microphone mute state and track enabled property", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: true, audio: true });
+
+    expect(service.isMicMuted()).toBe(false);
+
+    service.setMicMuted(true);
+    expect(service.isMicMuted()).toBe(true);
+
+    const webcamStream = service.getWebcamStream();
+    const audioTrack = webcamStream?.getAudioTracks()[0];
+    expect(audioTrack?.enabled).toBe(false);
+
+    service.setMicMuted(false);
+    expect(service.isMicMuted()).toBe(false);
+    expect(audioTrack?.enabled).toBe(true);
   });
 });
