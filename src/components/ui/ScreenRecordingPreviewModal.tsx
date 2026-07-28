@@ -7,7 +7,7 @@ import { AspectRatio } from "@/types";
 interface ScreenRecordingPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
+  onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[], recordingMetadata?: any) => void;
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -258,7 +258,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
     const { defaultFrameRate } = useSettingsStore.getState();
     // Trim values can be loaded inside timeline later.
     // For now, auto-create project and navigate.
-    onProjectCreate("Screen Recording Project", "16:9", defaultFrameRate, filePaths);
+    onProjectCreate("Screen Recording Project", "16:9", defaultFrameRate, filePaths, previewRecording?.metadata);
     setPreviewRecording(null);
   };
 
