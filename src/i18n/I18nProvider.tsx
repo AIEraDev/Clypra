@@ -262,10 +262,19 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       .then(({ invoke }) => invoke("set_menu_language", { language }))
       .catch(() => undefined);
     localizeTree(document.body, language);
+    let isApplying = false;
     const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === "characterData") localizeTree(mutation.target, language);
-        mutation.addedNodes.forEach((node) => localizeTree(node, language));
+      if (isApplying) return;
+      isApplying = true;
+      try {
+        for (const mutation of mutations) {
+          if (mutation.type === "characterData") localizeTree(mutation.target, language);
+          mutation.addedNodes.forEach((node) => localizeTree(node, language));
+        }
+      } finally {
+        queueMicrotask(() => {
+          isApplying = false;
+        });
       }
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: [...ATTRIBUTES] });
