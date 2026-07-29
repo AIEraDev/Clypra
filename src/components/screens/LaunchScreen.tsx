@@ -229,6 +229,11 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       setSeconds(0);
       setHasWebcam(recordOptions.webcam);
 
+      // Release preview streams before starting recording streams to avoid hardware device collisions
+      if (previewVideoRef.current) previewVideoRef.current.srcObject = null;
+      DualRecordService.getInstance().stopPreview();
+      DualRecordService.getInstance().stopMicTest();
+
       // 1. Start recording streams first (must be called within the user gesture callback stack)
       await DualRecordService.getInstance().startRecording(
         {
