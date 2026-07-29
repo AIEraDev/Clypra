@@ -713,18 +713,18 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
       {/* ── Recording Modal ───────────────────────────────── */}
       {isRecordOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto">
           <div
-            className="w-[560px] rounded-2xl p-7 shadow-2xl flex flex-col gap-5 text-slate-100 border border-white/10"
+            className="w-full max-w-[520px] max-h-[88vh] rounded-2xl p-5 shadow-2xl flex flex-col gap-3.5 text-slate-100 border border-white/10 overflow-y-auto"
             style={{
               background: "linear-gradient(160deg, rgba(18,18,28,0.97) 0%, rgba(12,12,20,0.99) 100%)",
             }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold flex items-center gap-2.5 text-white">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-red-500/15 border border-red-500/30">
-                  <Video className="w-4 h-4 text-red-400" />
+            <div className="flex items-center justify-between flex-shrink-0">
+              <h3 className="text-base font-bold flex items-center gap-2 text-white">
+                <span className="flex items-center justify-center w-7 h-7 rounded-full bg-red-500/15 border border-red-500/30">
+                  <Video className="w-3.5 h-3.5 text-red-400" />
                 </span>
                 Record Screen & Camera
               </h3>
@@ -738,7 +738,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             </div>
 
             {/* Live Preview */}
-            <div className="relative aspect-video rounded-xl bg-[#0a0a12] border border-white/8 overflow-hidden">
+            <div className="relative h-36 rounded-xl bg-[#0a0a12] border border-white/8 overflow-hidden flex-shrink-0">
               {/* Screen preview (fills the background) */}
               {recordOptions.screen && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#07070c] border border-white/5">
@@ -835,14 +835,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
             {/* Screen Capture Source selector */}
             {recordOptions.screen && !isRecording && (
-              <div className="flex flex-col gap-3 p-4 rounded-xl bg-white/4 border border-white/8 text-slate-300">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <div className="flex flex-col gap-2 p-3 rounded-xl bg-white/4 border border-white/8 text-slate-300">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Screen Capture Source
                 </div>
                 <select
                   value={recordOptions.screenType}
                   onChange={(e) => setRecordOptions({ ...recordOptions, screenType: e.target.value as any })}
-                  className="w-full bg-[#0d0d15] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent/40 cursor-pointer"
+                  className="w-full bg-[#0d0d15] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-accent/40 cursor-pointer"
                 >
                   <option value="any">Standard System Picker (Let me choose)</option>
                   <option value="entire">Prefer Entire Display</option>
@@ -853,16 +853,16 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
             {/* Quality Presets: Resolution & Frame Rate */}
             {!isRecording && (
-              <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-white/4 border border-white/8 text-slate-300">
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Resolution</span>
-                  <div className="grid grid-cols-3 gap-1.5 bg-[#0d0d15] p-1 rounded-lg border border-white/10">
+              <div className="grid grid-cols-2 gap-2.5 p-3 rounded-xl bg-white/4 border border-white/8 text-slate-300">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Resolution</span>
+                  <div className="grid grid-cols-3 gap-1 bg-[#0d0d15] p-1 rounded-lg border border-white/10">
                     {(["720p", "1080p", "4k"] as const).map((res) => (
                       <button
                         key={res}
                         type="button"
                         onClick={() => setRecordOptions({ ...recordOptions, resolution: res })}
-                        className={`py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
+                        className={`py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
                           recordOptions.resolution === res
                             ? "bg-accent text-white shadow-sm"
                             : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -874,15 +874,15 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Frame Rate</span>
-                  <div className="grid grid-cols-2 gap-1.5 bg-[#0d0d15] p-1 rounded-lg border border-white/10">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Frame Rate</span>
+                  <div className="grid grid-cols-2 gap-1 bg-[#0d0d15] p-1 rounded-lg border border-white/10">
                     {([30, 60] as const).map((fps) => (
                       <button
                         key={fps}
                         type="button"
                         onClick={() => setRecordOptions({ ...recordOptions, frameRate: fps })}
-                        className={`py-1.5 rounded text-xs font-bold transition-all cursor-pointer ${
+                        className={`py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
                           recordOptions.frameRate === fps
                             ? "bg-accent text-white shadow-sm"
                             : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -898,8 +898,8 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
             {/* Mic Testing & Selection */}
             {recordOptions.audio && !isRecording && (
-              <div className="flex flex-col gap-3 p-4 rounded-xl bg-white/4 border border-white/8 text-slate-300">
-                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <div className="flex flex-col gap-2 p-3 rounded-xl bg-white/4 border border-white/8 text-slate-300">
+                <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   <span>Microphone Source</span>
                   {audioDevices.length > 0 && <span className="text-emerald-400 font-bold flex items-center gap-1.5 animate-pulse">● Live Testing</span>}
                 </div>
