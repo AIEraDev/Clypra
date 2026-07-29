@@ -18,7 +18,6 @@ mod decoder_pool_stress_test;
 
 #[tauri::command]
 fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
     if let Some(menu) = app.menu() {
         let labels = if language == "zh-TW" {
             ["Clypra", "檔案", "編輯", "顯示方式", "視窗", "輔助說明"]
