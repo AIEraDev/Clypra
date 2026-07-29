@@ -82,6 +82,9 @@ export class DualRecordService {
   /** Callback for external stop events (track ended, recorder error) */
   private onRecordingStopped: RecordingStoppedCallback | null = null;
 
+  /** WebAudio context used to safely mix/bridge mic audio into screen recorder stream without hardware track conflicts */
+  private recordingAudioCtx: AudioContext | null = null;
+
   /** Cloned tracks created for injected mic stream to ensure isolated track lifecycles */
   private injectedClonedTracks: MediaStreamTrack[] = [];
 
@@ -606,26 +609,39 @@ export class DualRecordService {
         }
       }
 
-      // 3. Screen recorder — combine screen video + mic audio so the screen
-      //    recording file has sound even when webcam is also recording.
+      // 3. Screen recorder — record screen video + WebAudio mic audio if enabled
       if (this.screenStream && options.screen) {
-        // Build a combined stream: screen video track(s) + mic audio track (if available)
-        const combinedTracks: MediaStreamTrack[] = [
-          ...this.screenStream.getVideoTracks(),
-        ];
-        if (options.audio && this.webcamStream) {
-          const micAudioTracks = this.webcamStream.getAudioTracks();
-          if (micAudioTracks.length > 0) {
-            const clonedMicTrack = micAudioTracks[0].clone();
-            this.injectedClonedTracks.push(clonedMicTrack);
-            combinedTracks.push(clonedMicTrack);
-            console.log("[DualRecordService] Injecting cloned mic audio track into screen recorder.");
+        let streamToRecord = this.screenStream;
+
+        if (options.audio && this.webcamStream && this.webcamStream.getAudioTracks().length > 0) {
+          try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            if (AudioCtx) {
+              this.recordingAudioCtx = new AudioCtx();
+              if (this.recordingAudioCtx.state === "suspended") {
+                await this.recordingAudioCtx.resume().catch(() => {});
+              }
+              const sourceNode = this.recordingAudioCtx.createMediaStreamSource(this.webcamStream);
+              const destNode = this.recordingAudioCtx.createMediaStreamDestination();
+              sourceNode.connect(destNode);
+
+              const webAudioMicTrack = destNode.stream.getAudioTracks()[0];
+              if (webAudioMicTrack) {
+                const combinedTracks = [
+                  ...this.screenStream.getVideoTracks(),
+                  webAudioMicTrack,
+                ];
+                streamToRecord = new MediaStream(combinedTracks);
+                console.log("[DualRecordService] Injected WebAudio mic track into screen recorder.");
+              }
+            }
+          } catch (audioCtxErr) {
+            console.warn("[DualRecordService] WebAudio mic track creation failed, falling back to video-only screen stream:", audioCtxErr);
           }
         }
-        const screenRecordStream = new MediaStream(combinedTracks);
 
         this.screenRecorder = new MediaRecorder(
-          screenRecordStream,
+          streamToRecord,
           selectedMime ? { mimeType: selectedMime } : undefined
         );
         this.screenRecorder.ondataavailable = (e) => {
@@ -643,10 +659,8 @@ export class DualRecordService {
         this.screenRecorder.start(250);
       }
 
-      // 4. Webcam recorder
-      // REC-03 fix: Only record webcam separately if webcam is enabled, or if audio-only (no screen).
-      // When screen+audio (no webcam), mic audio is already injected into the screen recorder.
-      if (this.webcamStream && (options.webcam || (options.audio && !options.screen))) {
+      // 4. Webcam/Audio recorder — record webcam and/or mic audio stream
+      if (this.webcamStream && (options.webcam || options.audio)) {
         this.webcamRecorder = new MediaRecorder(
           this.webcamStream,
           selectedMime ? { mimeType: selectedMime } : undefined
@@ -789,6 +803,11 @@ export class DualRecordService {
     this.onRecordingStopped = null;
 
     this.stopMicTest();
+
+    if (this.recordingAudioCtx) {
+      this.recordingAudioCtx.close().catch(() => {});
+      this.recordingAudioCtx = null;
+    }
 
     if (this.injectedClonedTracks.length > 0) {
       this.injectedClonedTracks.forEach((t) => t.stop());
