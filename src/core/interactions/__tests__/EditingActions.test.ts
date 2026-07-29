@@ -88,4 +88,39 @@ describe("EditingActions split interactions", () => {
     expect(useTimelineStore.getState().clips).toHaveLength(1);
     expect(useUIStore.getState().selectedClipIds).toEqual([]);
   });
+
+  it("ripple deletes a selected middle range and selects the next clip", () => {
+    useTimelineStore.setState({
+      clips: [
+        makeClip({ id: "left", startTime: 0, duration: 2, trimOut: 2 }),
+        makeClip({ id: "middle-a", startTime: 2, duration: 2, trimIn: 2, trimOut: 4 }),
+        makeClip({ id: "middle-b", startTime: 4, duration: 2, trimIn: 4, trimOut: 6 }),
+        makeClip({ id: "right", startTime: 6, duration: 4, trimIn: 6, trimOut: 10 }),
+      ],
+      gaps: [{ id: "stale-gap", trackId: "track-1", startTime: 2, duration: 4, type: "auto", source: "clip-delete", protected: false }],
+    });
+
+    const result = EditingActions.deleteSelection(["middle-a", "middle-b"]);
+    const state = useTimelineStore.getState();
+    expect(result).toMatchObject({ editTime: 2, selectedClipId: "right" });
+    expect(state.clips.find((clip) => clip.id === "right")?.startTime).toBe(2);
+    expect(state.gaps).toEqual([]);
+    expect(useUIStore.getState().selectedClipIds).toEqual(["right"]);
+
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().clips.map((clip) => [clip.id, clip.startTime])).toEqual([
+      ["left", 0],
+      ["middle-a", 2],
+      ["middle-b", 4],
+      ["right", 6],
+    ]);
+  });
+
+  it("lift deletes without shifting later clips", () => {
+    useTimelineStore.setState({
+      clips: [makeClip({ id: "left", startTime: 0, duration: 5, trimOut: 5 }), makeClip({ id: "right", startTime: 5, duration: 5, trimIn: 5, trimOut: 10 })],
+    });
+    EditingActions.deleteSelection(["left"], true);
+    expect(useTimelineStore.getState().clips.find((clip) => clip.id === "right")?.startTime).toBe(5);
+  });
 });

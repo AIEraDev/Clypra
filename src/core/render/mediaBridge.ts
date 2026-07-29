@@ -17,8 +17,8 @@ export function releaseMediaSprite(clipId: string, container: import("pixi.js").
   engineReleaseSprite(clipId, container);
 }
 
-export function getOrCreateMediaSprite(clipId: string, kind: "video" | "image", sourceElement: HTMLVideoElement | ImageBitmap | HTMLImageElement, container: import("pixi.js").Container): MediaSpriteRecord | null {
-  return engineGetOrCreateSprite(clipId, kind, sourceElement, container);
+export function getOrCreateMediaSprite(clipId: string, kind: "video" | "image", sourceElement: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement, container: import("pixi.js").Container): MediaSpriteRecord | null {
+  return engineGetOrCreateSprite(clipId, kind, sourceElement as any, container);
 }
 
 /**
@@ -144,7 +144,7 @@ function applyMediaEffectsAndFilters(sprite: Sprite, layer: any, bodyMasks: Map<
 /**
  * Registers and updates a base media layer's sprite in the current frame.
  */
-export function renderBaseMediaLayer(layer: any, frameId: number, sourceEl: HTMLVideoElement | ImageBitmap | HTMLImageElement, container: import("pixi.js").Container, viewport: RenderViewport, renderOrder: number, bodyMasks: Map<string, any> = new Map()): void {
+export function renderBaseMediaLayer(layer: any, frameId: number, sourceEl: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement, container: import("pixi.js").Container, viewport: RenderViewport, renderOrder: number, bodyMasks: Map<string, any> = new Map()): void {
   const record = getOrCreateMediaSprite(layer.clipId, layer.mediaType, sourceEl, container);
   if (!record) return;
 

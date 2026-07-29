@@ -92,6 +92,10 @@ export function useTransportControls() {
         getActiveSessionOrNull()?.unlockPreviewAudio();
         authority?.play();
       },
+      togglePlayback: () => {
+        getActiveSessionOrNull()?.unlockPreviewAudio();
+        authority?.togglePlayback();
+      },
       pause: () => authority?.pause(),
       stop: () => authority?.stop(),
       seek: (time: number) => authority?.seek(time),

@@ -24,10 +24,12 @@ import { useHistoryStore } from "@/store/historyStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
+import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useUIStore } from "@/store/uiStore";
-import { SplitClipCommand, UpdateClipCommand } from "../history/commands";
+import { DeleteClipCommand, RippleDeleteRangeCommand, SplitClipCommand, UpdateClipCommand } from "../history/commands";
 import type { Clip } from "@/types";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import { getScrollLeftToRevealTime, getTimelineViewportEndForDuration } from "@/lib/timeline/timelineViewport";
 
 /**
  * Split interaction context.
@@ -58,6 +60,13 @@ export interface TrimAtPlayheadResult {
   error?: string;
 }
 
+/** Result of deleting the current clip selection. */
+export interface DeleteSelectionResult {
+  deletedClipIds: string[];
+  editTime: number;
+  selectedClipId: string | null;
+}
+
 /**
  * Editing Actions - Unified interaction layer.
  *
@@ -65,6 +74,64 @@ export interface TrimAtPlayheadResult {
  * This ensures consistent command execution and history tracking.
  */
 export class EditingActions {
+  /** Delete selected clips with ripple closure, or lift them while preserving time. */
+  static deleteSelection(clipIds: string[], lift = false): DeleteSelectionResult | null {
+    const timeline = useTimelineStore.getState();
+    const selected = timeline.clips.filter((clip) => clipIds.includes(clip.id) && !timeline.tracks.find((track) => track.id === clip.trackId)?.locked);
+    if (selected.length === 0) return null;
+
+    const editTime = Math.min(...selected.map((clip) => clip.startTime));
+    const affectedTrackIds = new Set(selected.map((clip) => clip.trackId));
+    const history = useHistoryStore.getState();
+
+    if (lift) {
+      history.beginTransaction("Lift Delete Clips");
+      selected.forEach((clip) => history.execute(new DeleteClipCommand(clip.id)));
+      history.commitTransaction();
+    } else {
+      history.execute(new RippleDeleteRangeCommand(selected.map((clip) => clip.id)));
+    }
+
+    affectedTrackIds.forEach((trackId) => useTimelineStore.getState().detectAndSyncGaps(trackId));
+
+    const nextState = useTimelineStore.getState();
+    const nextClip =
+      nextState.clips
+        .filter((clip) => affectedTrackIds.has(clip.trackId) && clip.startTime >= editTime - 0.001)
+        .sort((a, b) => a.startTime - b.startTime)[0] ?? null;
+
+    const ui = useUIStore.getState();
+    ui.clearSelection();
+    if (nextClip) ui.selectClip(nextClip.id);
+
+    const session = getActiveSessionOrNull();
+    session?.transportAuthority?.seek(editTime);
+
+    const container =
+      typeof document === "undefined"
+        ? null
+        : (document.getElementById("timeline-tracks-container") as HTMLDivElement | null);
+    if (container) {
+      const currentTimeline = useTimelineStore.getState();
+      const nextScrollLeft = getScrollLeftToRevealTime({
+        time: editTime,
+        currentScrollLeft: container.scrollLeft,
+        containerWidth: container.clientWidth,
+        pixelsPerSecond: currentTimeline.pixelsPerSecond,
+        viewportEndSeconds: getTimelineViewportEndForDuration(currentTimeline.getTimelineEndTime()),
+        hasClips: currentTimeline.clips.length > 0,
+      });
+      container.scrollLeft = nextScrollLeft;
+      currentTimeline.setScrollLeft(nextScrollLeft);
+    }
+
+    return {
+      deletedClipIds: selected.map((clip) => clip.id),
+      editTime,
+      selectedClipId: nextClip?.id ?? null,
+    };
+  }
+
   /**
    * Execute a split operation.
    *

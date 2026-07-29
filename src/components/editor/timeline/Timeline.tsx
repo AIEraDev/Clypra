@@ -1,10 +1,8 @@
 import React, { useRef, useEffect, useCallback, useMemo } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
-import { useHistoryStore } from "@/store/historyStore";
-import { RippleDeleteCommand } from "@/core/history/commands/RippleDeleteCommand";
-import { DeleteClipCommand } from "@/core/history/commands/DeleteClipCommand";
 import { GapManager } from "@/lib/timeline/gapManager";
+import { EditingActions } from "@/core/interactions";
 import { usePreviewMode } from "@/hooks/usePreviewMode";
 import { usePlaybackClock, usePlaybackControls, getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { getTimelineViewportEnd } from "@/lib/timeline/timelineClip";
@@ -201,9 +199,6 @@ export const Timeline: React.FC = () => {
 
       const uiState = useUIStore.getState();
       const store = useTimelineStore.getState();
-      const { execute, beginTransaction, commitTransaction } = useHistoryStore.getState();
-      const rippleEnabled = store.rippleEditEnabled;
-
       // Delete/Backspace: Remove selected clips or gaps
       if (e.key === "Delete" || e.key === "Backspace") {
         const { selectedClipIds, selectedGapId } = uiState;
@@ -223,31 +218,7 @@ export const Timeline: React.FC = () => {
         if (selectedClipIds.length === 0) return;
         e.preventDefault();
 
-        const { normalizeTrack, removeEmptyNonMainTracks, withBatch } = store;
-        const affectedTracks = new Set<string>();
-
-        beginTransaction("Delete Clips");
-
-        selectedClipIds.forEach((clipId) => {
-          const clip = store.clips.find((c) => c.id === clipId);
-          if (clip) {
-            affectedTracks.add(clip.trackId);
-            // Use ripple delete if ripple mode is enabled, otherwise regular delete
-            if (rippleEnabled) {
-              execute(new RippleDeleteCommand(clipId));
-            } else {
-              execute(new DeleteClipCommand(clipId));
-            }
-          }
-        });
-
-        commitTransaction();
-
-        withBatch(() => {
-          removeEmptyNonMainTracks(Array.from(affectedTracks));
-        });
-
-        uiState.clearSelection();
+        EditingActions.deleteSelection(selectedClipIds, e.altKey);
         return;
       }
 

@@ -47,3 +47,30 @@ export function getAnchoredZoomScrollLeft(input: {
 export function getTimelineViewportEndForDuration(contentEndSeconds: number): number {
   return getTimelineViewportEnd(contentEndSeconds);
 }
+
+/** Compute the density needed to show the entire sequence in the usable lane. */
+export function getFitSequencePixelsPerSecond(containerWidth: number, duration: number, hasClips: boolean): number {
+  if (duration <= 0) return zoomToPixelsPerSecond(1);
+  return clampTimelinePixelsPerSecond(getTimelineLaneWidth(containerWidth, hasClips) / duration);
+}
+
+/** Return the smallest scroll adjustment that reveals an edit point with context. */
+export function getScrollLeftToRevealTime(input: {
+  time: number;
+  currentScrollLeft: number;
+  containerWidth: number;
+  pixelsPerSecond: number;
+  viewportEndSeconds: number;
+  hasClips: boolean;
+  insetRatio?: number;
+}): number {
+  const laneWidth = getTimelineLaneWidth(input.containerWidth, input.hasClips);
+  const inset = laneWidth * (input.insetRatio ?? 0.15);
+  const editPointPixels = input.time * input.pixelsPerSecond;
+  const visibleLeft = input.currentScrollLeft + inset;
+  const visibleRight = input.currentScrollLeft + laneWidth - inset;
+  let next = input.currentScrollLeft;
+  if (editPointPixels < visibleLeft) next = editPointPixels - inset;
+  if (editPointPixels > visibleRight) next = editPointPixels - laneWidth + inset;
+  return clampTimelineScrollLeft(next, input.containerWidth, input.viewportEndSeconds, input.pixelsPerSecond, input.hasClips);
+}

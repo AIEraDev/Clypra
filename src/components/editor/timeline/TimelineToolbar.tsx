@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy } from "lucide-react";
+import { Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -7,8 +7,6 @@ import { useUIStore } from "@/store/uiStore";
 import { generateId } from "@/lib/utils/id";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useHistoryStore } from "@/store/historyStore";
-import { RippleDeleteCommand } from "@/core/history/commands/RippleDeleteCommand";
-import { DeleteClipCommand } from "@/core/history/commands/DeleteClipCommand";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { DEFAULT_SRP_CONFIG, SpatialTier } from "@/lib/renderEngine/types";
 import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimelineTemporalDetail, getZoomFromRatio, getZoomRatio, snapTimelineZoomToTierAnchors, TIMELINE_TIER_LABELS, TIMELINE_ZOOM_MAX, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_STEP } from "@/lib/timeline/timelineZoom";
@@ -17,15 +15,15 @@ import { EditingActions } from "@/core/interactions";
 import { useAnchoredTimelineZoom, type TimelineZoomAnchor } from "@/hooks/useAnchoredTimelineZoom";
 
 export const TimelineToolbar: React.FC = () => {
-  const { zoomLevel, pixelsPerSecond, swapClips, rippleEditEnabled, toggleRippleEdit, tracks, normalizeTrack } = useTimelineStore();
-  const { selectedClipIds, clearSelection } = useUIStore();
+  const { zoomLevel, pixelsPerSecond, swapClips, tracks, normalizeTrack } = useTimelineStore();
+  const { selectedClipIds } = useUIStore();
   const { state: historyState, undo, redo } = useHistoryStore();
   const [splitMode, setSplitMode] = useState(false);
   // const [linkMode, setLinkMode] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const zoomRailRef = useRef<HTMLDivElement>(null);
   const zoomGestureAnchorRef = useRef<TimelineZoomAnchor | null>(null);
-  const { captureZoomAnchor, applyZoomLevel, zoomByStep } = useAnchoredTimelineZoom();
+  const { captureZoomAnchor, applyZoomLevel, zoomByStep, fitSequence } = useAnchoredTimelineZoom();
 
   // Split mode hook
   useSplitMode({
@@ -164,35 +162,9 @@ export const TimelineToolbar: React.FC = () => {
 
   const handleDeleteSelectedClips = () => {
     if (selectedClipIds.length === 0) return;
-
-    const { clips, normalizeTrack, removeEmptyNonMainTracks, withBatch } = useTimelineStore.getState();
-    const { execute, beginTransaction, commitTransaction } = useHistoryStore.getState();
-    const affectedTracks = new Set<string>();
-
-    // Use transaction to group all deletes into a single undo/redo unit
-    beginTransaction("Delete Clips");
-
-    selectedClipIds.forEach((clipId) => {
-      const clip = clips.find((c) => c.id === clipId);
-      if (!clip) return;
-      affectedTracks.add(clip.trackId);
-      // Use ripple delete if ripple mode is enabled, otherwise regular delete
-      if (rippleEditEnabled) {
-        execute(new RippleDeleteCommand(clipId));
-      } else {
-        execute(new DeleteClipCommand(clipId));
-      }
-    });
-
-    commitTransaction();
-
-    // Remove empty tracks after deletion (not part of undo/redo)
-    withBatch(() => {
-      removeEmptyNonMainTracks(Array.from(affectedTracks));
-    });
-
-    clearSelection();
+    const result = EditingActions.deleteSelection(selectedClipIds);
     setToastMessage(`Deleted ${selectedClipIds.length} clip${selectedClipIds.length > 1 ? "s" : ""}`);
+    if (!result) setToastMessage("No unlocked clips selected");
     setTimeout(() => setToastMessage(null), 2000);
   };
 
@@ -272,12 +244,6 @@ export const TimelineToolbar: React.FC = () => {
             </Button>
           </Tool> */}
 
-          <Tool label="Ripple mode (R) - Affects drag, trim, and delete operations">
-            <Button variant="ghost" size="icon-sm" className={rippleEditEnabled ? activeButton : toolButton} onClick={toggleRippleEdit}>
-              <Waves className="w-4 h-4" />
-            </Button>
-          </Tool>
-
           <Tool label="Delete selected clip(s)">
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteSelectedClips} disabled={selectedClipIds.length === 0}>
               <Trash2 className="w-4 h-4" />
@@ -299,6 +265,9 @@ export const TimelineToolbar: React.FC = () => {
 
         <div className="ml-auto flex items-center gap-2">
           <span className="inline-flex items-center gap-1">
+            <Button title="Fit sequence (Shift+Z)" variant="ghost" size="icon-sm" className={zoomButton} onClick={fitSequence} aria-label="Fit sequence">
+              <Maximize2 className="w-3.5 h-3.5" strokeWidth={2} />
+            </Button>
             <Button title="Zoom Out" variant="ghost" size="icon-sm" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={zoomLevel <= TIMELINE_ZOOM_MIN} aria-label="Zoom out timeline">
               <ZoomOut className="w-2 h-2" strokeWidth={2} />
             </Button>

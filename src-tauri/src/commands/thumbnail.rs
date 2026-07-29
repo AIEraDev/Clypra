@@ -286,6 +286,25 @@ pub async fn decode_frame_gpu(
     result
 }
 
+/// Decode a frame for desktop export and return raw RGBA as a binary IPC
+/// response. Unlike `decode_frame_gpu`, this avoids serializing millions of
+/// bytes as a JSON number array on every frame.
+#[tauri::command]
+pub async fn decode_export_frame(
+    video_path: String,
+    time_secs: f64,
+    width: u32,
+    height: u32,
+) -> Result<tauri::ipc::Response, String> {
+    let decoder = get_decoder(&video_path).await?;
+    let rgba_bytes = {
+        let mut decoder_guard = decoder.lock().await;
+        decoder_guard.decode_frame(time_secs, width, height)?
+    };
+
+    Ok(tauri::ipc::Response::new(rgba_bytes))
+}
+
 /// Extract multiple frames with streaming and atlas-based storage.
 #[tauri::command]
 pub async fn decode_frames_streaming(

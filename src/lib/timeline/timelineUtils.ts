@@ -5,14 +5,17 @@ export { VELOCITY_THRESHOLDS, classifyVelocity } from "../renderEngine/types";
 import type { DragItem, Track, Clip, DensityConfig, DensityLevel } from "../../types";
 import { useTimelineStore } from "../../store/timelineStore";
 import { useProjectStore } from "../../store/projectStore";
+import { useUIStore } from "../../store/uiStore";
 import { useHistoryStore } from "../../store/historyStore";
-import { AddTrackCommand, AddClipCommand, DeleteClipCommand } from "../../core/history/commands";
+import { AddTrackCommand, AddClipCommand, DeleteClipCommand, InsertEditCommand } from "../../core/history/commands";
 import { capitalize } from "../utils";
 import { DensityLevel as DensityLevelEnum } from "../../types";
 import { createClipFromAsset } from "./timelineClip";
 import { autoAdaptSequenceForFirstVisualClip } from "../sequence/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime } from "./placementPolicy";
 import { generateId } from "@/lib/utils/id";
+import { resolveInsertEdit } from "./insertEdit";
+import { getTimelineLaneClientX } from "./timelineViewport";
 
 // Density configurations mapping zoom levels to extraction densities. Each configuration defines the time interval between thumbnails and the zoom range.
 export const DENSITY_CONFIGS: DensityConfig[] = [
@@ -136,13 +139,14 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
 
 // Handle dropping media assets onto existing tracks
 export function handleDropOnTrack(item: DragItem, monitor: any, trackId: string) {
-  const { pixelsPerSecond, scrollLeft } = useTimelineStore.getState();
+  const timelineState = useTimelineStore.getState();
+  const { pixelsPerSecond, scrollLeft } = timelineState;
   const { execute } = useHistoryStore.getState();
 
   const offset = monitor.getClientOffset();
   const containerRect = document.getElementById("timeline-tracks-container")?.getBoundingClientRect();
 
-  const dropTime = offset && containerRect ? (offset.x - containerRect.left + scrollLeft) / pixelsPerSecond : 0;
+  const dropTime = offset && containerRect ? (getTimelineLaneClientX(offset.x, containerRect.left, timelineState.clips.length > 0) + scrollLeft) / pixelsPerSecond : 0;
   const startTime = resolveClipStartTime({ intent: "drop", timelineEndTime: 0, dropTime });
 
   if (item.type === "MEDIA_ASSET") {
@@ -169,7 +173,23 @@ export function handleDropOnTrack(item: DragItem, monitor: any, trackId: string)
       height: canvasHeight,
     });
 
-    // Use command to add clip (enables undo/redo)
-    execute(new AddClipCommand(newClip));
+    const track = timelineState.tracks.find((candidate) => candidate.id === trackId);
+    if (!track) return;
+    const decision = resolveInsertEdit({
+      track,
+      asset: item.asset,
+      clips: timelineState.clips,
+      requestedTime: startTime,
+      frameRate: projectState.project?.frameRate ?? 30,
+    });
+    if (!decision.accepted) {
+      useProjectStore.getState().showToast(decision.reason ?? "Cannot insert media here", "error");
+      return;
+    }
+
+    execute(new InsertEditCommand({ ...newClip, startTime: decision.insertionTime }, decision.insertionTime, decision.splitClipId));
+    useUIStore.getState().clearSelection();
+    useUIStore.getState().selectClip(newClip.id);
+    requestAnimationFrame(() => useTimelineStore.getState().detectAndSyncGaps(trackId));
   }
 }

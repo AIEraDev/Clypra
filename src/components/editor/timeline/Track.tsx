@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Lock } from "lucide-react";
 import { useDrop } from "react-dnd";
 import { useUIStore } from "@/store/uiStore";
@@ -8,6 +8,10 @@ import { Clip } from "./Clip";
 import { GapIndicator } from "./GapIndicator";
 import { TransitionIndicator } from "./TransitionIndicator";
 import { handleDropOnTrack } from "@/lib/timeline/timelineUtils";
+import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
+import { getTimelineLaneClientX } from "@/lib/timeline/timelineViewport";
+import { resolveClipDuration } from "@/lib/timeline/timelineClip";
+import { useProjectStore } from "@/store/projectStore";
 import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
 
 interface TrackProps {
@@ -31,18 +35,40 @@ interface TrackProps {
 }
 
 const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, dragState }) => {
-  const selectedClipIds = useUIStore((s) => s.selectedClipIds);
-  const selectedGapId = useUIStore((s) => s.selectedGapId);
-  const selectedTrackId = useUIStore((s) => s.selectedTrackId);
-  const gaps = useTimelineStore((s) => s.gaps ?? []);
-  const transitions = useTimelineStore((s) => s.transitions ?? []);
-  const allClips = useTimelineStore((s) => s.clips);
+  const selectedClipIds = useUIStore((state) => state.selectedClipIds);
+  const selectedGapId = useUIStore((state) => state.selectedGapId);
+  const selectedTrackId = useUIStore((state) => state.selectedTrackId);
+  const gaps = useTimelineStore((state) => state.gaps ?? []);
+  const transitions = useTimelineStore((state) => state.transitions ?? []);
+  const allClips = useTimelineStore((state) => state.clips);
+  const scrollLeft = useTimelineStore((state) => state.scrollLeft);
+  const frameRate = useProjectStore((state) => state.project?.frameRate ?? 30);
   const { getMediaAsset } = useTimeline();
+  const [mediaDropPreview, setMediaDropPreview] = useState<{ startTime: number; duration: number; splitClipId: string | null; shiftedClipIds: string[] } | null>(null);
 
   // Drop handler for media assets from MediaTab
   const [{ isOver, canDrop }, drop] = useDrop(
     () => ({
       accept: ["MEDIA_ASSET"],
+      hover: (item: DragItem, monitor: any) => {
+        if (item.type !== "MEDIA_ASSET") return;
+        const offset = monitor.getClientOffset();
+        const container = document.getElementById("timeline-tracks-container");
+        if (!offset || !container) return;
+        const rect = container.getBoundingClientRect();
+        const requestedTime = (getTimelineLaneClientX(offset.x, rect.left, allClips.length > 0) + scrollLeft) / pixelsPerSecond;
+        const decision = resolveInsertEdit({ track, asset: item.asset, clips: allClips, requestedTime, frameRate });
+        setMediaDropPreview(
+          decision.accepted
+            ? {
+                startTime: decision.insertionTime,
+                duration: resolveClipDuration(item.asset),
+                splitClipId: decision.splitClipId,
+                shiftedClipIds: decision.shiftedClipIds,
+              }
+            : null,
+        );
+      },
       drop: (item: DragItem, monitor: any) => {
         if (!track.locked && track.type !== "text") {
           handleDropOnTrack(item, monitor, track.id);
@@ -54,8 +80,12 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
         canDrop: monitor.canDrop(),
       }),
     }),
-    [track.id, track.locked, track.type],
+    [track, allClips, scrollLeft, pixelsPerSecond, frameRate],
   );
+
+  useEffect(() => {
+    if (!isOver) setMediaDropPreview(null);
+  }, [isOver]);
 
   // FIX: clips are now pre-filtered by Timeline, so trackClips === clips
   // No need to filter again - this was causing unnecessary re-computation
@@ -72,6 +102,17 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
 
   // Calculate display info from placement preview (single source of truth)
   const displayInfo = useMemo(() => {
+    if ((!dragState || !dragState.draggedClipIds) && mediaDropPreview) {
+      const shifted = new Set(mediaDropPreview.shiftedClipIds);
+      return {
+        displayPositions: new Map(sortedTrackClips.map((clip) => [clip.id, shifted.has(clip.id) ? clip.startTime + mediaDropPreview.duration : clip.startTime])),
+        gapIndicator: {
+          startTime: mediaDropPreview.startTime,
+          duration: mediaDropPreview.duration,
+        },
+      };
+    }
+
     if (!dragState || !dragState.draggedClipIds) {
       return { displayPositions: null, gapIndicator: null };
     }
@@ -148,7 +189,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
     }
 
     return { displayPositions: null, gapIndicator: null };
-  }, [dragState, track.id, sortedTrackClips, pixelsPerSecond]);
+  }, [dragState, track.id, sortedTrackClips, pixelsPerSecond, mediaDropPreview]);
 
   const { displayPositions, gapIndicator } = displayInfo;
 
@@ -175,7 +216,15 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
           const isShifted = displayStartTime !== clip.startTime;
 
           // Override clip's startTime for display if shifted
-          const displayClip = isShifted ? { ...clip, startTime: displayStartTime } : clip;
+          let displayClip = isShifted ? { ...clip, startTime: displayStartTime } : clip;
+          const activeMediaPreview = mediaDropPreview;
+          if (activeMediaPreview && activeMediaPreview.splitClipId === clip.id) {
+            displayClip = {
+              ...displayClip,
+              duration: Math.max(0, activeMediaPreview.startTime - clip.startTime),
+              trimOut: clip.trimIn + Math.max(0, activeMediaPreview.startTime - clip.startTime),
+            };
+          }
 
           return (
             <Clip
@@ -202,6 +251,23 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
             />
           );
         })}
+
+      {mediaDropPreview?.splitClipId &&
+        (() => {
+          const splitClip = sortedTrackClips.find((clip) => clip.id === mediaDropPreview!.splitClipId);
+          if (!splitClip) return null;
+          const rightDuration = splitClip.startTime + splitClip.duration - mediaDropPreview!.startTime;
+          return (
+            <div
+              className="pointer-events-none absolute top-1 bottom-1 z-10 rounded border border-accent/60 bg-accent/20"
+              style={{
+                left: `${Math.round((mediaDropPreview.startTime + mediaDropPreview.duration) * pixelsPerSecond)}px`,
+                width: `${Math.max(1, Math.round(rightDuration * pixelsPerSecond))}px`,
+              }}
+              aria-hidden
+            />
+          );
+        })()}
 
       {/* Transitions layer */}
       {track.visible &&
