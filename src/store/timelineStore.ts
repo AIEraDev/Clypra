@@ -331,10 +331,18 @@ export const useTimelineStore = create<TimelineStore>(
         visible: true,
         height: trackHeights[type],
       };
-      set((state) => ({
-        tracks: [...state.tracks, newTrack],
-        mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          tracks: [...state.tracks, newTrack],
+          mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
     },
 
     insertTrackAt: (type, index) => {
@@ -350,30 +358,52 @@ export const useTimelineStore = create<TimelineStore>(
       const id = newTrack.id;
       set((state) => {
         const clamped = Math.max(0, Math.min(index, state.tracks.length));
-        const next = [...state.tracks];
-        next.splice(clamped, 0, newTrack);
-        return {
-          tracks: next,
+        const nextTracks = [...state.tracks];
+        nextTracks.splice(clamped, 0, newTrack);
+        const next: Partial<TimelineStore> = {
+          tracks: nextTracks,
           mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
         };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
       });
       return id;
     },
 
     removeTrack: (trackId) => {
       // TL- fix: Also cascade-remove gaps for the deleted track
-      set((state) => ({
-        tracks: state.tracks.filter((t) => t.id !== trackId),
-        clips: state.clips.filter((c) => c.trackId !== trackId),
-        transitions: state.transitions.filter((transition) => transition.placement.trackId !== trackId),
-        gaps: state.gaps.filter((g) => g.trackId !== trackId),
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          tracks: state.tracks.filter((t) => t.id !== trackId),
+          clips: state.clips.filter((c) => c.trackId !== trackId),
+          transitions: state.transitions.filter((transition) => transition.placement.trackId !== trackId),
+          gaps: state.gaps.filter((g) => g.trackId !== trackId),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
     },
 
     toggleTrackLock: (trackId) => {
-      set((state) => ({
-        tracks: state.tracks.map((track) => (track.id === trackId ? { ...track, locked: !track.locked } : track)),
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          tracks: state.tracks.map((track) => (track.id === trackId ? { ...track, locked: !track.locked } : track)),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
     },
 
     // HIDDEN-006 fix: toggleTrackMute and toggleTrackVisibility now increment epoch
@@ -529,7 +559,8 @@ export const useTimelineStore = create<TimelineStore>(
           const hasOtherClips = remainingClips.some((c) => c.trackId === trackId);
 
           // If no other clips on this track, remove the track
-          if (!hasOtherClips) {
+          // TL-06 fix: Don't auto-delete the main video track
+          if (!hasOtherClips && trackId !== state.mainVideoTrackId) {
             tracksToKeep = state.tracks.filter((t) => t.id !== trackId);
             // TL- fix: Also cascade-remove gaps for the auto-removed track
             gapsToKeep = state.gaps.filter((g) => g.trackId !== trackId);
@@ -661,7 +692,6 @@ export const useTimelineStore = create<TimelineStore>(
         },
       };
 
-      get().addTransition(transition);
       return { transition, error: null };
     },
 
@@ -775,18 +805,11 @@ export const useTimelineStore = create<TimelineStore>(
       // Case: different tracks — simple position + track swap
       if (clipA.trackId !== clipB.trackId) {
         set((state) => {
-          // TL- fix: Update transition references when clips swap tracks
-          const updatedTransitions = state.transitions.map((t) => {
-            let updated = t;
-            // If transition references clipA, update its track to clipB's track
-            if (t.fromItemId === clipA.id || t.toItemId === clipA.id) {
-              updated = { ...updated, placement: { ...updated.placement, trackId: clipB.trackId } };
-            }
-            // If transition references clipB, update its track to clipA's track
-            if (t.fromItemId === clipB.id || t.toItemId === clipB.id) {
-              updated = { ...updated, placement: { ...updated.placement, trackId: clipA.trackId } };
-            }
-            return updated;
+          // TL-04 fix: Remove transitions that would bridge different tracks after swap
+          const updatedTransitions = state.transitions.filter((t) => {
+            const refsClipA = t.fromItemId === clipA.id || t.toItemId === clipA.id;
+            const refsClipB = t.fromItemId === clipB.id || t.toItemId === clipB.id;
+            return !refsClipA && !refsClipB;
           });
 
           const next: Partial<TimelineStore> = {
@@ -816,8 +839,9 @@ export const useTimelineStore = create<TimelineStore>(
       // Ensure left is always the leftmost clip
       const [left, right] = clipA.startTime < clipB.startTime ? [clipA, clipB] : [clipB, clipA];
 
-      const newLeftStart = left.startTime; // right clip takes left's old start
-      const newRightStart = left.startTime + right.duration; // left clip follows immediately after right
+      // TL-05 fix: Swap startTime values directly to preserve gaps between clips
+      const newLeftStart = right.startTime;
+      const newRightStart = left.startTime;
       const newLeftEnd = newLeftStart + right.duration;
       const newRightEnd = newRightStart + left.duration;
 
@@ -921,7 +945,8 @@ export const useTimelineStore = create<TimelineStore>(
         const minDelta = Math.max(-clip.startTime, previousClipEnd - clip.startTime);
         const maxDeltaByDuration = clip.duration - minDuration;
         const maxDeltaByMedia = maxTrimIn - clip.trimIn;
-        const clampedDelta = Math.max(minDelta, Math.min(desiredDelta, maxDeltaByDuration, maxDeltaByMedia));
+        // TL-01 fix: Clamp against clip.trimIn to prevent negative source timestamps
+        const clampedDelta = Math.max(minDelta, -clip.trimIn, Math.min(desiredDelta, maxDeltaByDuration, maxDeltaByMedia));
 
         newStartTime = clip.startTime + clampedDelta;
         newDuration = clip.duration - clampedDelta;
@@ -1341,27 +1366,48 @@ export const useTimelineStore = create<TimelineStore>(
     addMarker: (time, name = "Marker", color = "purple") => {
       const id = generateId("marker");
       const marker: TimelineMarker = { id, time, name, color };
-      set((state) => ({
-        markers: [...state.markers, marker].sort((a, b) => a.time - b.time),
-        epoch: state.epoch + 1,
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          markers: [...state.markers, marker].sort((a, b) => a.time - b.time),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
       return id;
     },
 
     removeMarker: (markerId) => {
-      set((state) => ({
-        markers: state.markers.filter((m) => m.id !== markerId),
-        epoch: state.epoch + 1,
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          markers: state.markers.filter((m) => m.id !== markerId),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
     },
 
     updateMarker: (markerId, updates) => {
-      set((state) => ({
-        markers: state.markers
-          .map((m) => (m.id === markerId ? { ...m, ...updates } : m))
-          .sort((a, b) => a.time - b.time),
-        epoch: state.epoch + 1,
-      }));
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          markers: state.markers
+            .map((m) => (m.id === markerId ? { ...m, ...updates } : m))
+            .sort((a, b) => a.time - b.time),
+        };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
     },
   })),
 );

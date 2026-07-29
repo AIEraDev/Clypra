@@ -23,7 +23,7 @@ import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibrar
 import { platform } from "@/core/platform";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
-import { AddClipCommand } from "@/core/history/commands/DeleteClipCommand";
+import { AddClipCommand, UpdateClipCommand, AddTransitionCommand } from "@/core/history/commands";
 
 export const MobileEditorLayout: React.FC = () => {
   const { tracks, clips, addClip, addTrack, insertTrackAt, getTimelineEndTime, createTransitionBetweenClips } = useTimelineStore();
@@ -53,7 +53,7 @@ export const MobileEditorLayout: React.FC = () => {
     return null;
   };
 
-  const handleAddToTimeline = (item: any, type: string) => {
+  const handleAddToTimeline = async (item: any, type: string) => {
     // Close sheet when adding an item to timeline to reveal change
     setMediaSheetOpen(false);
 
@@ -97,7 +97,7 @@ export const MobileEditorLayout: React.FC = () => {
         fitMode: resolveDefaultFitModeForAsset(mediaAsset),
       });
 
-      addClip(newClip);
+      execute(new AddClipCommand(newClip));
     } else if (type === "text") {
       // Text clips follow the same placement policy semantics:
       // playhead-first, no overwrite, create track when occupied.
@@ -126,6 +126,26 @@ export const MobileEditorLayout: React.FC = () => {
         }
       }
 
+      // If styleId is present but effectDefinition is missing, fetch it before creating the clip
+      let effectDefinition = item.effectDefinition;
+      if (item.styleId && !effectDefinition) {
+        try {
+          const { useEffectsStore } = await import("@/features/text-effects/store/effectsStore");
+          const store = useEffectsStore.getState();
+
+          // Check if already in store cache
+          effectDefinition = store.definitions[item.styleId];
+
+          // If not in cache, fetch it
+          if (!effectDefinition) {
+            await store.fetchDefinitionOnlyById(item.styleId);
+            effectDefinition = useEffectsStore.getState().definitions[item.styleId];
+          }
+        } catch (error) {
+          // Continue without definition - will use fallback sizing
+        }
+      }
+
       const textClip = createTextClip({
         trackId: targetTrackId,
         startTime: placement.startTime,
@@ -133,6 +153,7 @@ export const MobileEditorLayout: React.FC = () => {
         text: item.text || item.name || "Text",
         canvasWidth: project?.canvasWidth || 1920,
         canvasHeight: project?.canvasHeight || 1080,
+        textRole: "title",
         ...presetConfig,
         fontFamily: item.fontFamily,
         color: item.color,
@@ -143,12 +164,12 @@ export const MobileEditorLayout: React.FC = () => {
         shadow: item.shadow,
         background: item.background,
         styleId: item.styleId,
-        effectDefinition: item.effectDefinition,
+        effectDefinition: effectDefinition,
         templateId: item.templateId,
         customization: item.customization,
       });
 
-      addClip(textClip);
+      execute(new AddClipCommand(textClip));
     } else if (type === "audio" && item?.audioUrl) {
       // Audio library item - must be downloaded first
       const cachedFile = getCachedFile(item.id);
@@ -196,15 +217,16 @@ export const MobileEditorLayout: React.FC = () => {
 
         if (!targetTrackId) return;
 
-        addClip(
-          createClipFromAsset({
+        execute(
+          new AddClipCommand(createClipFromAsset({
             asset: mediaAsset,
             trackId: targetTrackId,
             startTime: placement.startTime,
             width: project?.canvasWidth || 1920,
             height: project?.canvasHeight || 1080,
             fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-          }),
+            audioPath: absolutePath,
+          }))
         );
       })().catch((error) => {
         console.error("[MobileEditorLayout] Failed to add audio to timeline:", error);
@@ -280,11 +302,15 @@ export const MobileEditorLayout: React.FC = () => {
         useProjectStore.getState().showToast("Select two adjacent clips or place the playhead at a cut", "warning");
         return;
       }
-      const transitionType = item?.preview === "dissolve" || item?.name?.toLowerCase?.() === "dissolve" ? "dissolve" : "fade";
-      const result = createTransitionBetweenClips(pair[0], pair[1], transitionType, Number(item?.duration) || 0.5);
+      const transitionType = item?.renderer || item?.category || "fade";
+      const transitionDuration = item?.duration?.default || Number(item?.duration) || 0.5;
+      const renderer = item?.renderer; // Store the renderer ID for GPU lookup
+
+      const result = createTransitionBetweenClips(pair[0], pair[1], transitionType, transitionDuration, renderer);
       if (result.error) {
         useProjectStore.getState().showToast(result.error, "warning");
-      } else {
+      } else if (result.transition) {
+        execute(new AddTransitionCommand(result.transition));
         useProjectStore.getState().showToast(`${item?.name || "Transition"} added`);
       }
     } else if (type === "filters") {
@@ -340,8 +366,106 @@ export const MobileEditorLayout: React.FC = () => {
         effectStack: cachedFilter.filter.effectStack,
       };
 
-      addClip(filterClip as any);
+      execute(new AddClipCommand(filterClip as any));
       useProjectStore.getState().showToast(`Added ${cachedFilter.filter.name} filter to timeline`);
+    } else if (type === "effects") {
+      const selectedClipId = selectedClipIds[0] ?? null;
+      let targetClip = clips.find((c) => c.id === selectedClipId);
+
+      if (!targetClip) {
+        const currentTime = getPlaybackClock().time;
+        const visualClips = clips.filter((c) => {
+          const asset = mediaAssets.find((a) => a.id === c.mediaId);
+          return asset && (asset.type === "video" || asset.type === "image");
+        });
+        targetClip = visualClips.find((c) => currentTime >= c.startTime && currentTime <= c.startTime + c.duration);
+      }
+
+      if (!targetClip) {
+        useProjectStore.getState().showToast("Select a video or image clip to apply this effect", "warning");
+        return;
+      }
+
+      const asset = mediaAssets.find((a) => a.id === targetClip.mediaId);
+      if (asset?.type !== "video" && asset?.type !== "image") {
+        useProjectStore.getState().showToast("Effects can only be applied to video or image clips", "warning");
+        return;
+      }
+
+      const currentEffects = targetClip.effects || [];
+      const effectExists = currentEffects.some((fx) => fx.id === item.id);
+
+      if (effectExists) {
+        useProjectStore.getState().showToast(`Effect "${item.name}" is already applied`, "warning");
+        return;
+      }
+
+      const updatedEffects = [
+        ...currentEffects,
+        {
+          id: item.id,
+          effectId: item.id,
+          type: "effect" as const,
+          renderer: item.renderer || item.id,
+          params: item.params || {},
+          name: item.name,
+          startTime: 0,
+          duration: targetClip.duration,
+          intensity: 0.5,
+        },
+      ];
+
+      execute(new UpdateClipCommand(targetClip.id, { effects: currentEffects }, { effects: updatedEffects }));
+      useProjectStore.getState().showToast(`Applied ${item.name} effect`);
+    } else if (type === "video-effects" || type === "body-effects") {
+      const effectTrackType = type === "body-effects" ? "body-effect" : "video-effect";
+
+      const placement = resolveAddToTimelinePlacement({
+        asset: { type: "video", id: item.id, trackType: effectTrackType },
+        tracks,
+        clips,
+        playheadTime: getPlaybackClock().time,
+        sequenceEndTime: getTimelineEndTime(),
+      });
+
+      let targetTrackId = placement.targetTrackId;
+      if (placement.shouldCreateTrack || !targetTrackId) {
+        const latestTracks = useTimelineStore.getState().tracks;
+        const latestClips = useTimelineStore.getState().clips;
+        const insertIndex = getInsertIndexForNewTrackGrouped(latestTracks, latestClips, effectTrackType, item.id);
+        targetTrackId = insertTrackAt(effectTrackType, insertIndex);
+      }
+
+      if (!targetTrackId) {
+        return;
+      }
+
+      const defaultIntensity = item.intensity?.default !== undefined ? item.intensity.default / 100 : 0.8;
+
+      const effectClip = {
+        id: generateId(type === "body-effects" ? "body-effect-clip" : "video-effect-clip"),
+        trackId: targetTrackId,
+        mediaId: item.id,
+        startTime: placement.startTime,
+        duration: 5.0,
+        trimIn: 0,
+        trimOut: 5.0,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        opacity: 1.0,
+        rotation: 0,
+        kind: type === "body-effects" ? ("body-effect" as const) : ("video-effect" as const),
+        name: item.name || "Effect",
+        intensity: defaultIntensity,
+        renderer: item.renderer || item.id,
+        params: item.params || {},
+        ...(type === "body-effects" && item.requirements ? { requirements: item.requirements } : {}),
+      };
+
+      execute(new AddClipCommand(effectClip as any));
+      useProjectStore.getState().showToast(`Added ${item.name} effect`);
     }
   };
 

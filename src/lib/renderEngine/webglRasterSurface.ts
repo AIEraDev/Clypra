@@ -154,8 +154,6 @@ export class WebGLRasterSurface {
     return shader;
   }
 
-  // ── Filmstrip render ────────────────────────────────────────────────────────
-
   drawFilmstrip(artifacts: readonly TransportArtifact[], layout: FilmstripLayout): void {
     const validArtifacts = artifacts.filter(isValidArtifact);
     if (this._disposed || validArtifacts.length === 0) {
@@ -166,9 +164,13 @@ export class WebGLRasterSurface {
     const gl = this._gl;
     const { clipWidthPx, stripHeightPx, dpr, tileWidthPx: targetTileW = 60 } = layout;
 
-    const tileCount = Math.max(1, Math.ceil(clipWidthPx / targetTileW));
-    const backingW = Math.round(clipWidthPx * dpr);
-    const backingH = Math.round(stripHeightPx * dpr);
+    const safeClipWidth = Number.isFinite(clipWidthPx) && clipWidthPx > 0 ? clipWidthPx : 1;
+    const safeStripHeight = Number.isFinite(stripHeightPx) && stripHeightPx > 0 ? stripHeightPx : 1;
+    const safeDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+
+    const tileCount = Math.max(1, Math.ceil(safeClipWidth / targetTileW));
+    const backingW = Math.max(1, Math.round(safeClipWidth * safeDpr));
+    const backingH = Math.max(1, Math.round(safeStripHeight * safeDpr));
 
     if (this._canvas.width !== backingW || this._canvas.height !== backingH) {
       this._canvas.width = backingW;
@@ -390,8 +392,12 @@ export class WebGLRasterSurface {
   private _clear(layout: FilmstripLayout): void {
     const gl = this._gl;
     const { clipWidthPx, stripHeightPx, dpr } = layout;
-    const w = Math.round(clipWidthPx * dpr);
-    const h = Math.round(stripHeightPx * dpr);
+    const safeClipWidth = Number.isFinite(clipWidthPx) && clipWidthPx > 0 ? clipWidthPx : 1;
+    const safeStripHeight = Number.isFinite(stripHeightPx) && stripHeightPx > 0 ? stripHeightPx : 1;
+    const safeDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+
+    const w = Math.max(1, Math.round(safeClipWidth * safeDpr));
+    const h = Math.max(1, Math.round(safeStripHeight * safeDpr));
     if (this._canvas.width !== w || this._canvas.height !== h) {
       this._canvas.width = w;
       this._canvas.height = h;

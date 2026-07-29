@@ -1,5 +1,6 @@
 use crate::thumbnail_engine::decoder::get_decoder;
 use crate::models::{VideoMetadata, MediaMetadata};
+use crate::commands::export::augmented_path;
 use base64::Engine;
 use image::ImageEncoder;
 use std::fs;
@@ -133,6 +134,7 @@ async fn get_audio_duration(path: &str) -> Result<f64, String> {
     eprintln!("[get_audio_duration] Attempting to get duration for: {}", path);
     
     let output = Command::new("ffprobe")
+        .env("PATH", augmented_path())
         .args([
             "-v", "error",
             "-show_entries", "format=duration",
@@ -193,6 +195,7 @@ pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, Strin
     eprintln!("[extract_audio_artwork] Extracting artwork from: {}", path);
     
     let output = Command::new("ffmpeg")
+        .env("PATH", augmented_path())
         .args([
             "-i", &path,
             "-an", // No audio
@@ -240,6 +243,7 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
 
     // Call ffmpeg command to extract audio: ffmpeg -i <path> -vn -acodec libmp3lame -ac 1 -ar 16000 -y <output_path>
     let output = Command::new("ffmpeg")
+        .env("PATH", augmented_path())
         .args([
             "-i", &path,
             "-vn",
@@ -303,13 +307,32 @@ pub async fn transcribe_audio_local(
             Ok(path)
         }).map_err(|e| format!("Failed to get app data dir: {}", e))?;
     
-    let models_dir = format!("{}/models/whisper", app_data_dir);
+    let models_dir = PathBuf::from(&app_data_dir).join("models").join("whisper").to_string_lossy().to_string();
     eprintln!("🦀 [transcribe_audio_local] Models directory: {}", models_dir);
 
     // Verify Python script exists
     let mut script_path = PathBuf::from("src/features/text-effects/transcribe.py");
     if !script_path.exists() {
         script_path = PathBuf::from("../src/features/text-effects/transcribe.py");
+    }
+    if !script_path.exists() {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let mut dir = exe_dir.to_path_buf();
+                for _ in 0..5 {
+                    let test_path = dir.join("src/features/text-effects/transcribe.py");
+                    if test_path.exists() {
+                        script_path = test_path;
+                        break;
+                    }
+                    if let Some(parent) = dir.parent() {
+                        dir = parent.to_path_buf();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
     }
     if !script_path.exists() {
         let mut dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -389,6 +412,7 @@ pub async fn transcribe_audio_local(
 
     // Call uv command to run our python script
     let output = Command::new("uv")
+        .env("PATH", augmented_path())
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to execute uv transcription: {}", e))?;
@@ -442,6 +466,7 @@ pub async fn extract_waveform_data(
     
     // Use ffmpeg to decode audio to raw PCM samples (mono, 16kHz for efficiency)
     let mut cmd = Command::new("ffmpeg");
+    cmd.env("PATH", augmented_path());
     if let Some(start) = start_time.filter(|v| v.is_finite() && *v > 0.0) {
         cmd.arg("-ss").arg(format!("{:.3}", start));
     }

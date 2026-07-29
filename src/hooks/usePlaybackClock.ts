@@ -19,7 +19,7 @@
  *   });
  */
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { getPlaybackClock, type PlaybackClockState } from "../core/playback";
 import type { TransportAuthority, PlaybackContextStateSnapshot } from "../core/playback";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
@@ -123,6 +123,9 @@ export function useTransportSnapshot(throttleMs = 50): PlaybackContextStateSnaps
     };
   });
 
+  const lastUpdateRef = useRef(0);
+  const pendingUpdateRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!authority) return;
 
@@ -133,7 +136,17 @@ export function useTransportSnapshot(throttleMs = 50): PlaybackContextStateSnaps
       const ctx = authority.getActiveContext();
       if (ctx) {
         ctxUnsub = ctx.subscribe((snapshot) => {
-          setState({ ...snapshot, contextType: ctx.type });
+          const now = Date.now();
+          if (now - lastUpdateRef.current >= throttleMs) {
+            lastUpdateRef.current = now;
+            setState({ ...snapshot, contextType: ctx.type });
+          } else if (!pendingUpdateRef.current) {
+            pendingUpdateRef.current = window.setTimeout(() => {
+              pendingUpdateRef.current = null;
+              lastUpdateRef.current = Date.now();
+              setState({ ...snapshot, contextType: ctx.type });
+            }, throttleMs - (now - lastUpdateRef.current));
+          }
         });
       } else {
         setState({ time: 0, state: "stopped", duration: 0, speed: 1, contextType: null });
@@ -149,8 +162,9 @@ export function useTransportSnapshot(throttleMs = 50): PlaybackContextStateSnaps
     return () => {
       authUnsub();
       if (ctxUnsub) ctxUnsub();
+      if (pendingUpdateRef.current) window.clearTimeout(pendingUpdateRef.current);
     };
-  }, [authority]);
+  }, [authority, throttleMs]);
 
   return state;
 }

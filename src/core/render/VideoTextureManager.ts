@@ -263,7 +263,7 @@ export class VideoTextureManager {
       state.textureDirty = true;
 
       // Re-register for next frame (if still valid)
-      if (!video.paused && state.generation === generation) {
+      if (state.generation === generation) {
         try {
           state.callbackHandle = video.requestVideoFrameCallback(callback);
         } catch {

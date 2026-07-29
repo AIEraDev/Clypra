@@ -677,21 +677,28 @@ describe("Timeline Store - Gap Operations", () => {
   });
 
   describe("Edge Cases", () => {
-    it("should handle empty track gracefully (track is removed when last clip deleted)", () => {
+    it("should handle empty track gracefully (non-main track is removed when last clip deleted)", () => {
       const store = useTimelineStore.getState();
-      // Use trackId from beforeEach
+      const secondaryTrackId = store.insertTrackAt("video", 1);
 
-      // Remove all clips
-      const clipIds = store.clips.map((c) => c.id);
-      clipIds.forEach((id) => store.removeClip(id));
+      store.addClip({
+        id: "clip-temp",
+        trackId: secondaryTrackId,
+        mediaId: "media1",
+        startTime: 0,
+        duration: 5,
+      } as any);
 
-      // After removing all clips, the track itself is automatically removed
+      // Remove the clip from the secondary track
+      store.removeClip("clip-temp");
+
+      // After removing all clips, the non-main track itself is automatically removed
       let freshStore = useTimelineStore.getState();
-      const trackStillExists = freshStore.tracks.some((t) => t.id === trackId);
+      const trackStillExists = freshStore.tracks.some((t) => t.id === secondaryTrackId);
       expect(trackStillExists).toBe(false);
 
       // Try to insert gap on non-existent track
-      const gap = freshStore.insertGap(trackId, 0, 2);
+      const gap = freshStore.insertGap(secondaryTrackId, 0, 2);
 
       // insertGap returns null because track doesn't exist
       expect(gap).toBeNull();

@@ -79,6 +79,8 @@ interface SeekPolicyConfig {
   minSeekIntervalAudioFriendly: number;
   /** Scrubbing detection threshold (seconds) */
   scrubbingDriftThreshold: number;
+  /** Minimum interval between seeks during scrubbing (ms) */
+  minSeekIntervalScrubbing: number;
   /** Post-throttling detection threshold (seconds) */
   postThrottlingDriftThreshold: number;
   /** Drift range for playback rate correction */
@@ -98,6 +100,7 @@ const DEFAULT_SEEK_POLICY: SeekPolicyConfig = {
   hardSeekThresholdAudioFriendly: 1.0, // 1s for audio-friendly sync
   minSeekInterval: 400, // 400ms minimum between seeks
   minSeekIntervalAudioFriendly: 1500, // 1.5s for audio tracks
+  minSeekIntervalScrubbing: 150, // 150ms during scrubbing
   scrubbingDriftThreshold: 2.0, // >2s drift indicates scrubbing
   postThrottlingDriftThreshold: 5.0, // ≥5s drift indicates throttling recovery
   rateCorrectionMinDrift: 0.1, // Start rate correction at 100ms
@@ -203,13 +206,15 @@ export class PreviewPlaybackScheduler {
       }
 
       if (isScrubbing) {
-        // User scrubbing - immediate seek without rate limiting
-        actions.push({
-          type: "seek",
-          clipId,
-          time: targetTime,
-          reason: "scrubbing",
-        });
+        // User scrubbing - immediate seek without rate limiting (except for scrubbing throttle)
+        if (now - state.lastSeekTimestamp > this.config.minSeekIntervalScrubbing) {
+          actions.push({
+            type: "seek",
+            clipId,
+            time: targetTime,
+            reason: "scrubbing",
+          });
+        }
         return actions;
       }
 

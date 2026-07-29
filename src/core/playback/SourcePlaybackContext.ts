@@ -66,6 +66,15 @@ export class SourcePlaybackContext implements PlaybackContext {
 
   play(): void {
     if (!this._mediaElement) return;
+
+    if (this._outPoint !== null && this.getTime() >= this._outPoint) {
+      if (this._inPoint !== null) {
+        this.seek(this._inPoint);
+      } else {
+        return;
+      }
+    }
+
     this._mediaElement.play().catch((err) => {
       console.warn("[SourcePlaybackContext] Play failed:", err);
     });

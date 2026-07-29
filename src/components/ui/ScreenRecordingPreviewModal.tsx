@@ -7,7 +7,7 @@ import { AspectRatio } from "@/types";
 interface ScreenRecordingPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
+  onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[], recordingMetadata?: any) => void;
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -167,6 +167,60 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
     };
   }, [isDragging, handleGlobalMouseMove, handleGlobalMouseUp]);
 
+  // ── Filmstrip ────────────────────────────────────────────────────────────────
+  const filmstripCanvasRef = useRef<HTMLCanvasElement>(null);
+  const filmstripDrawnRef = useRef(false);
+
+  // Draw thumbnail frames onto the filmstrip canvas once the video is loaded
+  const drawFilmstrip = useCallback(async () => {
+    const video = videoRef.current;
+    const canvas = filmstripCanvasRef.current;
+    if (!video || !canvas || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    if (filmstripDrawnRef.current) return;
+    filmstripDrawnRef.current = true;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const totalDur = video.duration;
+    const frameCount = Math.max(4, Math.min(16, Math.floor(canvas.offsetWidth / 48)));
+    const frameW = canvas.width / frameCount;
+    const frameH = canvas.height;
+
+    // Preserve original time so playback isn't disrupted
+    const originalTime = video.currentTime;
+    const wasPaused = video.paused;
+    if (!wasPaused) video.pause();
+
+    for (let i = 0; i < frameCount; i++) {
+      const t = (i / frameCount) * totalDur;
+      await new Promise<void>((resolve) => {
+        const onSeeked = () => {
+          video.removeEventListener("seeked", onSeeked);
+          ctx.drawImage(video, i * frameW, 0, frameW, frameH);
+          resolve();
+        };
+        video.addEventListener("seeked", onSeeked, { once: true });
+        video.currentTime = t;
+      });
+    }
+
+    // Restore original position
+    video.currentTime = originalTime;
+    if (!wasPaused) video.play().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    filmstripDrawnRef.current = false;
+  }, [videoSrc]);
+
+  // Trigger filmstrip draw once video metadata is ready AND duration is known
+  useEffect(() => {
+    if (duration > 0) {
+      drawFilmstrip();
+    }
+  }, [duration, drawFilmstrip]);
+
   if (!isOpen || filePaths.length === 0) return null;
 
   const isTrimmed = trimStart > 0 || trimEnd < 100;
@@ -184,13 +238,38 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
+      const vid = videoRef.current;
+      setCurrentTime(vid.currentTime);
+      if (
+        (!Number.isFinite(duration) || duration === 0 || duration === Infinity) &&
+        Number.isFinite(vid.duration) &&
+        vid.duration > 0 &&
+        vid.duration !== Infinity
+      ) {
+        setDuration(vid.duration);
+      }
     }
   };
 
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
-      setDuration(videoRef.current.duration);
+      const vid = videoRef.current;
+      const dur = vid.duration;
+      if (dur === Infinity || isNaN(dur)) {
+        // Fix for WebM MediaRecorder output where duration reports as Infinity until seeked
+        vid.currentTime = 1e101;
+        const onTimeUpdateForDuration = () => {
+          vid.removeEventListener("timeupdate", onTimeUpdateForDuration);
+          const realDur = vid.duration;
+          vid.currentTime = 0;
+          if (Number.isFinite(realDur) && realDur > 0 && realDur !== Infinity) {
+            setDuration(realDur);
+          }
+        };
+        vid.addEventListener("timeupdate", onTimeUpdateForDuration);
+      } else if (Number.isFinite(dur) && dur > 0) {
+        setDuration(dur);
+      }
     }
   };
 
@@ -258,7 +337,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
     const { defaultFrameRate } = useSettingsStore.getState();
     // Trim values can be loaded inside timeline later.
     // For now, auto-create project and navigate.
-    onProjectCreate("Screen Recording Project", "16:9", defaultFrameRate, filePaths);
+    onProjectCreate("Screen Recording Project", "16:9", defaultFrameRate, filePaths, previewRecording?.metadata);
     setPreviewRecording(null);
   };
 
@@ -286,60 +365,6 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
     const frames = Math.floor((seconds % 1) * fps).toString().padStart(2, "0");
     return `${hrs}:${mins}:${secs}:${frames}`;
   };
-
-  // ── Filmstrip ────────────────────────────────────────────────────────────────
-  const filmstripCanvasRef = useRef<HTMLCanvasElement>(null);
-  const filmstripDrawnRef = useRef(false);
-
-  // Draw thumbnail frames onto the filmstrip canvas once the video is loaded
-  const drawFilmstrip = useCallback(async () => {
-    const video = videoRef.current;
-    const canvas = filmstripCanvasRef.current;
-    if (!video || !canvas || !Number.isFinite(video.duration) || video.duration <= 0) return;
-    if (filmstripDrawnRef.current) return;
-    filmstripDrawnRef.current = true;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const totalDur = video.duration;
-    const frameCount = Math.max(4, Math.min(16, Math.floor(canvas.offsetWidth / 48)));
-    const frameW = canvas.width / frameCount;
-    const frameH = canvas.height;
-
-    // Preserve original time so playback isn't disrupted
-    const originalTime = video.currentTime;
-    const wasPaused = video.paused;
-    if (!wasPaused) video.pause();
-
-    for (let i = 0; i < frameCount; i++) {
-      const t = (i / frameCount) * totalDur;
-      await new Promise<void>((resolve) => {
-        const onSeeked = () => {
-          video.removeEventListener("seeked", onSeeked);
-          ctx.drawImage(video, i * frameW, 0, frameW, frameH);
-          resolve();
-        };
-        video.addEventListener("seeked", onSeeked, { once: true });
-        video.currentTime = t;
-      });
-    }
-
-    // Restore original position
-    video.currentTime = originalTime;
-    if (!wasPaused) video.play().catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    filmstripDrawnRef.current = false;
-  }, [videoSrc]);
-
-  // Trigger filmstrip draw once video metadata is ready AND duration is known
-  useEffect(() => {
-    if (duration > 0) {
-      drawFilmstrip();
-    }
-  }, [duration, drawFilmstrip]);
 
   const playheadPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -380,10 +405,10 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
         <div className="relative aspect-video bg-[#0a0a0f] border-b border-white/5 flex items-center justify-center overflow-hidden">
           {videoSrc ? <video ref={videoRef} src={videoSrc} onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={handleEnded} onClick={togglePlay} className="max-w-full max-h-full object-contain cursor-pointer" /> : <div className="text-slate-500 text-xs">Loading preview...</div>}
 
-          {/* Camera PiP overlay */}
-          {hasDualRecording && cameraSrc && showCameraPip && (
-            <div className="absolute bottom-3 right-3 w-28 aspect-video rounded-lg overflow-hidden border border-white/20 shadow-2xl bg-black z-10">
-              <video ref={cameraVideoRef} src={cameraSrc} muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
+          {/* Camera PiP overlay (unmuted so mic audio in camera recording plays during preview) */}
+          {hasDualRecording && cameraSrc && (
+            <div className={`absolute bottom-3 right-3 w-28 aspect-video rounded-lg overflow-hidden border border-white/20 shadow-2xl bg-black z-10 ${showCameraPip ? "" : "hidden"}`}>
+              <video ref={cameraVideoRef} src={cameraSrc} playsInline className="w-full h-full object-cover scale-x-[-1]" />
             </div>
           )}
 
@@ -454,7 +479,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
             <div className="flex items-center gap-1.5 select-none">
               <span className="text-white">{formatTimecode(currentTime)}</span>
               <span>/</span>
-              <span>{formatTimecode(Number.isFinite(duration) && duration > 0 ? (trimEnd - trimStart) / 100 * duration : 0)}</span>
+              <span>{formatTimecode(Number.isFinite(duration) && duration > 0 ? (trimEnd - trimStart) / 100 * duration : Math.max(currentTime, 0))}</span>
             </div>
           </div>
 

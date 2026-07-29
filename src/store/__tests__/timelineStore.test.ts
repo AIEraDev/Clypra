@@ -45,6 +45,7 @@ describe("timelineStore clip operations", () => {
       });
 
       const result = useTimelineStore.getState().createTransitionBetweenClips("left", "right", "dissolve", 1);
+      if (result.transition) useTimelineStore.getState().addTransition(result.transition);
 
       expect(result.error).toBeNull();
       expect(useTimelineStore.getState().transitions).toHaveLength(1);
@@ -78,7 +79,8 @@ describe("timelineStore clip operations", () => {
         clips: [makeClip("left", 0), makeClip("right", 5)],
         transitions: [],
       });
-      useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1);
+      const res = useTimelineStore.getState().createTransitionBetweenClips("left", "right", "fade", 1);
+      if (res.transition) useTimelineStore.getState().addTransition(res.transition);
 
       useTimelineStore.getState().removeClip("left");
 

@@ -819,7 +819,7 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
               const existingEnd = existingClip.startTime + existingClip.duration;
 
               // Check if there's any overlap
-              if (finalStartTime < existingEnd && clipEnd > existingClip.startTime) {
+              if (finalStartTime < existingEnd - 0.001 && clipEnd > existingClip.startTime + 0.001) {
                 // Overlap detected - drop is invalid
                 isValidDrop = false;
                 break;
@@ -834,7 +834,7 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
               if (!otherClip) continue;
 
               const otherEnd = other.startTime + otherClip.duration;
-              if (finalStartTime < otherEnd && clipEnd > other.startTime) {
+              if (finalStartTime < otherEnd - 0.001 && clipEnd > other.startTime + 0.001) {
                 isValidDrop = false;
                 break;
               }

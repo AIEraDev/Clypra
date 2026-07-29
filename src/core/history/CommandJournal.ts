@@ -92,8 +92,14 @@ export class CommandJournal {
   execute<T>(command: Command, state: T): T {
     // If in transaction, add to transaction instead of history
     if (this._activeTransaction) {
-      this._activeTransaction.addCommand(command);
-      return command.apply(state) as T;
+      try {
+        this._activeTransaction.addCommand(command);
+        return command.apply(state) as T;
+      } catch (err) {
+        console.error("[CommandJournal] Command execution failed inside active transaction. Aborting transaction.", err);
+        this.rollbackTransaction(state);
+        throw err;
+      }
     }
 
     // Skip non-undoable commands

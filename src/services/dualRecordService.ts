@@ -1,5 +1,8 @@
 import { platform } from "@/core/platform";
 
+export type RecordingResolution = "720p" | "1080p" | "4k";
+export type RecordingFrameRate = 30 | 60;
+
 export interface DualRecordOptions {
   audio: boolean;
   webcam: boolean;
@@ -8,6 +11,22 @@ export interface DualRecordOptions {
   audioDeviceId?: string;
   /** Optional screen capture surface preference */
   screenType?: "entire" | "window";
+  /** Optional recording resolution preference */
+  resolution?: RecordingResolution;
+  /** Optional recording frame rate preference */
+  frameRate?: RecordingFrameRate;
+}
+
+export function getResolutionDimensions(res: RecordingResolution = "1080p"): { width: number; height: number } {
+  switch (res) {
+    case "720p":
+      return { width: 1280, height: 720 };
+    case "4k":
+      return { width: 3840, height: 2160 };
+    case "1080p":
+    default:
+      return { width: 1920, height: 1080 };
+  }
 }
 
 export interface AudioDevice {
@@ -26,6 +45,12 @@ export interface VideoDevice {
  */
 export type RecordingStoppedCallback = (reason: "track_ended" | "recorder_error", error?: string) => void;
 
+export interface RecordingMetadata {
+  screenStartPerfTime?: number;
+  webcamStartPerfTime?: number;
+  cameraOffsetSeconds: number;
+}
+
 export class DualRecordService {
   private static instance: DualRecordService | null = null;
 
@@ -39,11 +64,29 @@ export class DualRecordService {
   private screenChunks: Blob[] = [];
   private webcamChunks: Blob[] = [];
 
+  // Disk-streamed chunk files
+  private screenTempFileName: string | null = null;
+  private cameraTempFileName: string | null = null;
+  private screenFinalFileName: string | null = null;
+  private cameraFinalFileName: string | null = null;
+
+  // High-precision start timestamps
+  private screenStartPerfTime: number | null = null;
+  private webcamStartPerfTime: number | null = null;
+
   private isRecordingActive = false;
   private isPreviewActive = false;
+  private isPausedState = false;
+  private isMicMutedState = false;
 
   /** Callback for external stop events (track ended, recorder error) */
   private onRecordingStopped: RecordingStoppedCallback | null = null;
+
+  /** WebAudio context used to safely mix/bridge mic audio into screen recorder stream without hardware track conflicts */
+  private recordingAudioCtx: AudioContext | null = null;
+
+  /** Cloned tracks created for injected mic stream to ensure isolated track lifecycles */
+  private injectedClonedTracks: MediaStreamTrack[] = [];
 
   // Microphone testing
   private micTestStream: MediaStream | null = null;
@@ -52,6 +95,7 @@ export class DualRecordService {
   private micSourceNode: MediaStreamAudioSourceNode | null = null;
   private micLevelBuffer: Uint8Array | null = null;
   private isMicTestActive = false;
+  private _previewGeneration = 0;
 
   private constructor() {}
 
@@ -72,6 +116,50 @@ export class DualRecordService {
 
   isRecording(): boolean {
     return this.isRecordingActive;
+  }
+
+  isPaused(): boolean {
+    return this.isPausedState;
+  }
+
+  isMicMuted(): boolean {
+    return this.isMicMutedState;
+  }
+
+  pauseRecording(): void {
+    if (!this.isRecordingActive || this.isPausedState) return;
+    if (this.screenRecorder && this.screenRecorder.state === "recording") {
+      this.screenRecorder.pause();
+    }
+    if (this.webcamRecorder && this.webcamRecorder.state === "recording") {
+      this.webcamRecorder.pause();
+    }
+    this.isPausedState = true;
+  }
+
+  resumeRecording(): void {
+    if (!this.isRecordingActive || !this.isPausedState) return;
+    if (this.screenRecorder && this.screenRecorder.state === "paused") {
+      this.screenRecorder.resume();
+    }
+    if (this.webcamRecorder && this.webcamRecorder.state === "paused") {
+      this.webcamRecorder.resume();
+    }
+    this.isPausedState = false;
+  }
+
+  setMicMuted(muted: boolean): void {
+    this.isMicMutedState = muted;
+    if (this.webcamStream) {
+      this.webcamStream.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+      });
+    }
+    if (this.screenStream) {
+      this.screenStream.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+      });
+    }
   }
 
   isMicTesting(): boolean {
@@ -218,6 +306,8 @@ export class DualRecordService {
     options: Pick<DualRecordOptions, "webcam" | "audio">,
     audioDeviceId?: string
   ): Promise<{ stream: MediaStream | null; cameraError?: string }> {
+    const currentGeneration = ++this._previewGeneration;
+
     if (this.isRecordingActive) return { stream: this.webcamStream };
 
     if (this.webcamStream) {
@@ -239,20 +329,30 @@ export class DualRecordService {
     // Try combined video + audio first if webcam is requested
     if (options.webcam) {
       try {
-        this.webcamStream = await navigator.mediaDevices.getUserMedia({
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
           audio: audioConstraints,
         });
+        if (currentGeneration !== this._previewGeneration) {
+          stream.getTracks().forEach(t => t.stop());
+          return { stream: null };
+        }
+        this.webcamStream = stream;
         this.isPreviewActive = true;
         return { stream: this.webcamStream };
       } catch (err1) {
         console.warn("[DualRecordService] Camera request with ideal constraints failed, retrying with video: true...", err1);
         // Retry with simple video: true constraint for maximum WebKit / macOS AVVideoCaptureSource compatibility
         try {
-          this.webcamStream = await navigator.mediaDevices.getUserMedia({
+          const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: audioConstraints,
           });
+          if (currentGeneration !== this._previewGeneration) {
+            stream.getTracks().forEach(t => t.stop());
+            return { stream: null };
+          }
+          this.webcamStream = stream;
           this.isPreviewActive = true;
           return { stream: this.webcamStream };
         } catch (err2: any) {
@@ -271,10 +371,15 @@ export class DualRecordService {
           // If audio was also requested, fall back to audio-only so mic test works
           if (options.audio) {
             try {
-              this.webcamStream = await navigator.mediaDevices.getUserMedia({
+              const stream = await navigator.mediaDevices.getUserMedia({
                 video: false,
                 audio: audioConstraints,
               });
+              if (currentGeneration !== this._previewGeneration) {
+                stream.getTracks().forEach(t => t.stop());
+                return { stream: null, cameraError };
+              }
+              this.webcamStream = stream;
               this.isPreviewActive = true;
               return { stream: this.webcamStream, cameraError };
             } catch (audioErr) {
@@ -292,10 +397,15 @@ export class DualRecordService {
 
     // Audio-only preview
     try {
-      this.webcamStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: false,
         audio: audioConstraints,
       });
+      if (currentGeneration !== this._previewGeneration) {
+        stream.getTracks().forEach(t => t.stop());
+        return { stream: null };
+      }
+      this.webcamStream = stream;
       this.isPreviewActive = true;
       return { stream: this.webcamStream };
     } catch (err) {
@@ -391,24 +501,44 @@ export class DualRecordService {
     ];
     const selectedMime = mimePreference.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
 
+    const timestamp = Date.now();
+    const ext = selectedMime.includes("mp4") ? "mp4" : "webm";
+    this.screenTempFileName = options.screen ? `screen_temp_${timestamp}.part` : null;
+    this.cameraTempFileName = (options.webcam || (options.audio && !options.screen)) ? `camera_temp_${timestamp}.part` : null;
+    this.screenFinalFileName = options.screen ? `screen_${timestamp}.${ext}` : null;
+    this.cameraFinalFileName = (options.webcam || (options.audio && !options.screen)) ? `camera_${timestamp}.${ext}` : null;
+
     try {
+      const targetDims = getResolutionDimensions(options.resolution);
+      const targetFps = options.frameRate ?? 30;
+
       // 1. Screen stream capture
       if (options.screen && !this.screenStream) {
-        const videoConstraints: any = {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
-        };
-        if (options.screenType === "entire") {
-          videoConstraints.displaySurface = "monitor";
-        } else if (options.screenType === "window") {
-          videoConstraints.displaySurface = "window";
-        }
+        try {
+          const videoConstraints: any = {
+            width: { ideal: targetDims.width },
+            height: { ideal: targetDims.height },
+            frameRate: { ideal: targetFps },
+          };
+          if (options.screenType === "entire") {
+            videoConstraints.displaySurface = "monitor";
+          } else if (options.screenType === "window") {
+            videoConstraints.displaySurface = "window";
+          }
 
-        this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: videoConstraints,
-          audio: false, // Mic audio is added from webcamStream below
-        });
+          this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: videoConstraints,
+            audio: false, // Mic audio is added from webcamStream below
+          });
+        } catch (displayErr) {
+          console.warn("[DualRecordService] getDisplayMedia with constraints failed, retrying with video: true...", displayErr);
+          this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false,
+          });
+        }
+        // Brief delay for OS window manager to settle after display capture prompt
+        await new Promise((r) => setTimeout(r, 100));
 
         // Listen for the OS "Stop Sharing" event on the screen video track.
         const screenVideoTrack = this.screenStream.getVideoTracks()[0];
@@ -428,7 +558,7 @@ export class DualRecordService {
         if (options.webcam) {
           try {
             this.webcamStream = await navigator.mediaDevices.getUserMedia({
-              video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+              video: { width: { ideal: Math.min(1920, targetDims.width) }, height: { ideal: Math.min(1080, targetDims.height) }, frameRate: { ideal: targetFps } },
               audio: options.audio
                 ? options.audioDeviceId
                   ? { deviceId: { exact: options.audioDeviceId } }
@@ -449,49 +579,65 @@ export class DualRecordService {
             } catch (err2) {
               console.warn("[DualRecordService] Camera start failed with video: true, falling back to audio-only:", err2);
               if (options.audio) {
-                this.webcamStream = await navigator.mediaDevices.getUserMedia({
-                  video: false,
-                  audio: options.audioDeviceId
-                    ? { deviceId: { exact: options.audioDeviceId } }
-                    : true,
-                });
+                try {
+                  this.webcamStream = await navigator.mediaDevices.getUserMedia({
+                    video: false,
+                    audio: options.audioDeviceId
+                      ? { deviceId: { exact: options.audioDeviceId } }
+                      : true,
+                  });
+                } catch (audioErr) {
+                  console.warn("[DualRecordService] Camera and audio acquisition both failed:", audioErr);
+                  if (!options.screen) throw audioErr;
+                }
               } else {
-                throw err2;
+                console.warn("[DualRecordService] Camera acquisition failed:", err2);
+                if (!options.screen) throw err2;
               }
             }
           }
         } else if (options.audio) {
-          this.webcamStream = await navigator.mediaDevices.getUserMedia({
-            video: false,
-            audio: options.audioDeviceId
-              ? { deviceId: { exact: options.audioDeviceId } }
-              : true,
-          });
+          try {
+            this.webcamStream = await navigator.mediaDevices.getUserMedia({
+              video: false,
+              audio: options.audioDeviceId
+                ? { deviceId: { exact: options.audioDeviceId } }
+                : true,
+            });
+          } catch (audioErr) {
+            console.warn("[DualRecordService] Audio acquisition failed:", audioErr);
+            if (!options.screen) throw audioErr;
+          }
         }
       }
 
-      // 3. Screen recorder — combine screen video + mic audio so the screen
-      //    recording file has sound even when webcam is also recording.
+      // 3. Screen recorder — record screen video (+ mic audio if audio enabled and webcam disabled)
       if (this.screenStream && options.screen) {
-        // Build a combined stream: screen video track(s) + mic audio track (if available)
-        const combinedTracks: MediaStreamTrack[] = [
-          ...this.screenStream.getVideoTracks(),
-        ];
-        if (options.audio && this.webcamStream) {
-          const micAudioTracks = this.webcamStream.getAudioTracks();
-          if (micAudioTracks.length > 0) {
-            combinedTracks.push(micAudioTracks[0]);
-            console.log("[DualRecordService] Injecting mic audio track into screen recorder.");
+        let streamToRecord = this.screenStream;
+
+        // If audio is enabled BUT webcam is disabled (Screen + Mic mode),
+        // combine mic audio directly into screen stream. Since webcamRecorder
+        // is not running, screenRecorder is the sole consumer of the mic track.
+        if (options.audio && !options.webcam && this.webcamStream) {
+          const micTracks = this.webcamStream.getAudioTracks();
+          if (micTracks.length > 0) {
+            const combinedTracks = [
+              ...this.screenStream.getVideoTracks(),
+              micTracks[0],
+            ];
+            streamToRecord = new MediaStream(combinedTracks);
+            console.log("[DualRecordService] Combined mic audio track into screen recorder (Screen + Audio mode).");
           }
         }
-        const screenRecordStream = new MediaStream(combinedTracks);
 
         this.screenRecorder = new MediaRecorder(
-          screenRecordStream,
+          streamToRecord,
           selectedMime ? { mimeType: selectedMime } : undefined
         );
         this.screenRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) this.screenChunks.push(e.data);
+          if (e.data && e.data.size > 0) {
+            this.screenChunks.push(e.data);
+          }
         };
         this.screenRecorder.onerror = (e) => {
           console.error("[DualRecordService] Screen MediaRecorder error:", e);
@@ -499,17 +645,20 @@ export class DualRecordService {
             this.onRecordingStopped?.("recorder_error", "Screen recorder encountered an error");
           }
         };
+        this.screenStartPerfTime = performance.now();
         this.screenRecorder.start(250);
       }
 
-      // 4. Webcam recorder
-      if (this.webcamStream && (options.webcam || options.audio)) {
+      // 4. Webcam/Audio recorder — record webcam and/or mic audio stream
+      if (this.webcamStream && (options.webcam || (options.audio && !options.screen))) {
         this.webcamRecorder = new MediaRecorder(
           this.webcamStream,
           selectedMime ? { mimeType: selectedMime } : undefined
         );
         this.webcamRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) this.webcamChunks.push(e.data);
+          if (e.data && e.data.size > 0) {
+            this.webcamChunks.push(e.data);
+          }
         };
         this.webcamRecorder.onerror = (e) => {
           console.error("[DualRecordService] Webcam MediaRecorder error:", e);
@@ -517,6 +666,7 @@ export class DualRecordService {
             this.onRecordingStopped?.("recorder_error", "Camera recorder encountered an error");
           }
         };
+        this.webcamStartPerfTime = performance.now();
         this.webcamRecorder.start(250);
       }
 
@@ -527,59 +677,102 @@ export class DualRecordService {
     }
   }
 
-  /** Stop recording and save screen and webcam as separate files. Returns file paths. */
-  async stopRecording(): Promise<{ filePaths: string[] }> {
+  /** Stop recording and save screen and webcam as separate files. Returns file paths and metadata. */
+  async stopRecording(): Promise<{ filePaths: string[]; metadata: RecordingMetadata }> {
     if (!this.isRecordingActive) {
       throw new Error("No active recording session");
     }
 
     try {
-      // Pass the chunks array explicitly to avoid fragile identity comparison
-      // with `this.screenRecorder` which could be nulled by a concurrent cleanup.
-      const stopRecorder = (
-        recorder: MediaRecorder | null,
-        chunks: Blob[]
-      ): Promise<Blob | null> => {
-        if (!recorder || recorder.state === "inactive") return Promise.resolve(null);
+      const stopRecorderInstance = (recorder: MediaRecorder | null): Promise<void> => {
+        if (!recorder || recorder.state === "inactive") return Promise.resolve();
         return new Promise((resolve) => {
-          recorder.onstop = () => {
-            const mimeType = recorder.mimeType || "video/webm";
-            const blob = new Blob(chunks, { type: mimeType });
-            resolve(blob);
+          let resolved = false;
+          const done = () => {
+            if (!resolved) {
+              resolved = true;
+              resolve();
+            }
           };
-          recorder.stop();
+
+          const timeout = setTimeout(() => {
+            console.warn("[DualRecordService] MediaRecorder onstop timeout hit, forcing resolution.");
+            done();
+          }, 1000);
+
+          recorder.onstop = () => {
+            clearTimeout(timeout);
+            done();
+          };
+
+          recorder.onerror = () => {
+            clearTimeout(timeout);
+            done();
+          };
+
+          try {
+            if (recorder.state === "recording" || recorder.state === "paused") {
+              recorder.requestData();
+            }
+            recorder.stop();
+          } catch (err) {
+            console.warn("[DualRecordService] Error requesting data or stopping recorder:", err);
+            clearTimeout(timeout);
+            done();
+          }
         });
       };
 
-      const [screenBlob, webcamBlob] = await Promise.all([
-        stopRecorder(this.screenRecorder, this.screenChunks),
-        stopRecorder(this.webcamRecorder, this.webcamChunks),
+      await Promise.all([
+        stopRecorderInstance(this.screenRecorder),
+        stopRecorderInstance(this.webcamRecorder),
       ]);
 
-      const timestamp = Date.now();
       const filePaths: string[] = [];
 
-      // Save screen recording
-      if (screenBlob && screenBlob.size > 0) {
-        const mimeType = this.screenRecorder?.mimeType ?? "video/webm";
+      // Save Screen Recording
+      if (this.screenChunks.length > 0) {
+        const mimeType = this.screenRecorder?.mimeType || "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
-        const fileName = `screen_${timestamp}.${ext}`;
-        const arrayBuffer = await screenBlob.arrayBuffer();
-        const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
-        filePaths.push(path);
+        const fileName = this.screenFinalFileName || `screen_${Date.now()}.${ext}`;
+        const blob = new Blob(this.screenChunks, { type: mimeType });
+        const arrayBuffer = await blob.arrayBuffer();
+        if (arrayBuffer.byteLength > 0) {
+          const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
+          filePaths.push(path);
+        }
       }
 
-      // Save camera/audio recording
-      if (webcamBlob && webcamBlob.size > 0) {
-        const mimeType = this.webcamRecorder?.mimeType ?? "video/webm";
+      // Save Camera Recording
+      if (this.webcamChunks.length > 0) {
+        const mimeType = this.webcamRecorder?.mimeType || "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
-        const fileName = `camera_${timestamp}.${ext}`;
-        const arrayBuffer = await webcamBlob.arrayBuffer();
-        const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
-        filePaths.push(path);
+        const fileName = this.cameraFinalFileName || `camera_${Date.now()}.${ext}`;
+        const blob = new Blob(this.webcamChunks, { type: mimeType });
+        const arrayBuffer = await blob.arrayBuffer();
+        if (arrayBuffer.byteLength > 0) {
+          const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
+          filePaths.push(path);
+        }
       }
 
-      return { filePaths };
+      if (filePaths.length === 0) {
+        throw new Error("Screen recording ended before video data was captured. Please verify screen capture permissions.");
+      }
+
+      let cameraOffsetSeconds = 0;
+      if (this.screenStartPerfTime !== null && this.webcamStartPerfTime !== null) {
+        const deltaMs = this.webcamStartPerfTime - this.screenStartPerfTime;
+        cameraOffsetSeconds = Math.max(0, deltaMs / 1000);
+      }
+
+      const metadata: RecordingMetadata = {
+        screenStartPerfTime: this.screenStartPerfTime ?? undefined,
+        webcamStartPerfTime: this.webcamStartPerfTime ?? undefined,
+        cameraOffsetSeconds,
+      };
+
+      return { filePaths, metadata };
     } finally {
       this.cleanup();
     }
@@ -595,9 +788,21 @@ export class DualRecordService {
   cleanup(): void {
     this.isRecordingActive = false;
     this.isPreviewActive = false;
+    this.isPausedState = false;
+    this.isMicMutedState = false;
     this.onRecordingStopped = null;
 
     this.stopMicTest();
+
+    if (this.recordingAudioCtx) {
+      this.recordingAudioCtx.close().catch(() => {});
+      this.recordingAudioCtx = null;
+    }
+
+    if (this.injectedClonedTracks.length > 0) {
+      this.injectedClonedTracks.forEach((t) => t.stop());
+      this.injectedClonedTracks = [];
+    }
 
     if (this.screenStream) {
       this.screenStream.getTracks().forEach((t) => t.stop());
@@ -607,9 +812,14 @@ export class DualRecordService {
 
     this.screenRecorder = null;
     this.webcamRecorder = null;
-    // Release recorded blob data to free memory
     this.screenChunks = [];
     this.webcamChunks = [];
+    this.screenTempFileName = null;
+    this.cameraTempFileName = null;
+    this.screenFinalFileName = null;
+    this.cameraFinalFileName = null;
+    this.screenStartPerfTime = null;
+    this.webcamStartPerfTime = null;
   }
 
 }

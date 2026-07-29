@@ -136,7 +136,13 @@ const App = () => {
     };
   }, []);
 
-  const handleCreateProject = (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => {
+  const handleCreateProject = (
+    name: string,
+    aspectRatio: AspectRatio,
+    frameRate: 24 | 30 | 60,
+    initialClipPaths?: string[],
+    recordingMetadata?: { cameraOffsetSeconds?: number }
+  ) => {
     // Reset UI state from any previous session
     useUIStore.getState().exitSourceMode();
     createProject(name, aspectRatio, frameRate);
@@ -145,6 +151,9 @@ const App = () => {
       setTimeout(async () => {
         try {
           const { generateId } = await import("@/lib/utils/id");
+          const { useTimelineStore } = await import("@/store/timelineStore");
+
+          const loadedAssets: any[] = [];
 
           for (const path of initialClipPaths) {
             try {
@@ -160,26 +169,150 @@ const App = () => {
               }
 
               const metadata = await platform.getMediaMetadata(path);
-              const posterFrame = await platform.extractPosterFrame(path, metadata.duration, window.devicePixelRatio || 1.0).catch(() => undefined);
+              let validDuration = metadata?.duration;
+
+              // If metadata duration is non-finite or non-positive (common with WebM MediaRecorder headers), probe via HTMLVideoElement
+              if (!Number.isFinite(validDuration) || validDuration <= 0) {
+                try {
+                  validDuration = await new Promise<number>((resolve) => {
+                    const vid = document.createElement("video");
+                    vid.preload = "metadata";
+                    let resolved = false;
+                    const finish = (d: number) => {
+                      if (!resolved) {
+                        resolved = true;
+                        vid.removeAttribute("src");
+                        vid.load();
+                        resolve(Number.isFinite(d) && d > 0 ? d : 5.0);
+                      }
+                    };
+                    const timeout = setTimeout(() => finish(5.0), 1000);
+                    vid.onloadedmetadata = () => {
+                      if (vid.duration && vid.duration !== Infinity && !isNaN(vid.duration) && vid.duration > 0) {
+                        clearTimeout(timeout);
+                        finish(vid.duration);
+                      } else {
+                        vid.currentTime = 1e101;
+                        vid.ontimeupdate = () => {
+                          clearTimeout(timeout);
+                          finish(vid.duration);
+                        };
+                      }
+                    };
+                    vid.onerror = () => {
+                      clearTimeout(timeout);
+                      finish(5.0);
+                    };
+                    vid.src = displayPath;
+                  });
+                } catch {
+                  validDuration = 5.0;
+                }
+              }
+
+              const safeDuration = Math.max(0.5, validDuration || 5.0);
+              const posterFrame = await platform.extractPosterFrame(path, safeDuration, window.devicePixelRatio || 1.0).catch(() => undefined);
 
               const asset = {
                 id: generateId("asset"),
                 name: filename,
-                // Store the webview-safe URL so <video src> can render it
                 path: displayPath,
                 type: "video" as const,
-                duration: metadata.duration,
-                width: metadata.width,
-                height: metadata.height,
+                duration: safeDuration,
+                width: metadata.width || 1920,
+                height: metadata.height || 1080,
                 posterFrame,
                 size: 0,
               };
 
-              // Add to media panel only — do NOT add to timeline
               useProjectStore.getState().addMediaAsset(asset);
+              loadedAssets.push(asset);
             } catch (innerErr) {
               console.error("[App] Failed to import path:", path, innerErr);
             }
+          }
+
+          // Auto-insert recordings onto timeline tracks with Picture-in-Picture placement
+          if (loadedAssets.length > 0) {
+            const currentProject = useProjectStore.getState().project;
+            const canvasW = currentProject?.canvasWidth || 1920;
+            const canvasH = currentProject?.canvasHeight || 1080;
+
+            const screenAsset = loadedAssets.find((a) => a.name.toLowerCase().includes("screen")) || loadedAssets[0];
+            const cameraAsset = loadedAssets.find((a) => a.name.toLowerCase().includes("camera") && a.id !== screenAsset.id);
+
+            const timelineStore = useTimelineStore.getState();
+
+            timelineStore.withBatch(() => {
+              // Ensure main video track exists
+              let tracks = useTimelineStore.getState().tracks;
+              let mainVideoTrack = tracks.find((t) => t.type === "video");
+
+              if (!mainVideoTrack) {
+                useTimelineStore.getState().addTrack("video");
+                tracks = useTimelineStore.getState().tracks;
+                mainVideoTrack = tracks.find((t) => t.type === "video");
+              }
+
+              const mainTrackId = mainVideoTrack!.id;
+
+              // 1. Add Main Screen Clip on Track 1 (Bottom/Main Track)
+              const screenClip = {
+                id: generateId("clip"),
+                name: screenAsset.name,
+                trackId: mainTrackId,
+                mediaId: screenAsset.id,
+                startTime: 0,
+                duration: screenAsset.duration,
+                trimIn: 0,
+                trimOut: screenAsset.duration,
+                x: 0,
+                y: 0,
+                width: canvasW,
+                height: canvasH,
+                opacity: 1,
+                rotation: 0,
+                fitMode: "contain" as const,
+                aspectRatioLocked: true,
+                kind: "video" as const,
+              };
+              useTimelineStore.getState().addClip(screenClip);
+
+              // 2. Add Camera Overlay Clip on Top Track (Track 0 / PiP Placement) if dual recording
+              if (cameraAsset) {
+                // Insert top track above main track so camera renders on top (lower trackIndex = top z-index)
+                const overlayTrackId = useTimelineStore.getState().insertTrackAt("video", 0);
+
+                const pipW = Math.round(canvasW * 0.28);
+                const pipH = Math.round(canvasH * 0.28);
+                const margin = 40;
+                const pipX = canvasW - pipW - margin;
+                const pipY = canvasH - pipH - margin;
+
+                const cameraStartTime = recordingMetadata?.cameraOffsetSeconds || 0;
+
+                const cameraClip = {
+                  id: generateId("clip"),
+                  name: cameraAsset.name,
+                  trackId: overlayTrackId,
+                  mediaId: cameraAsset.id,
+                  startTime: cameraStartTime,
+                  duration: cameraAsset.duration,
+                  trimIn: 0,
+                  trimOut: cameraAsset.duration,
+                  x: pipX,
+                  y: pipY,
+                  width: pipW,
+                  height: pipH,
+                  opacity: 1,
+                  rotation: 0,
+                  fitMode: "cover" as const,
+                  aspectRatioLocked: true,
+                  kind: "video" as const,
+                };
+                useTimelineStore.getState().addClip(cameraClip);
+              }
+            });
           }
         } catch (err) {
           console.error("[App] Failed to auto-import initial recordings:", err);

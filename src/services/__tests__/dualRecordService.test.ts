@@ -16,6 +16,7 @@ vi.mock("@/core/platform", () => {
 class MockMediaStreamTrack {
   constructor(public kind: string = "video") {}
   stop = vi.fn();
+  clone = vi.fn(() => new MockMediaStreamTrack(this.kind));
   addEventListener = vi.fn();
   removeEventListener = vi.fn();
 }
@@ -37,6 +38,13 @@ class MockMediaRecorder {
   onerror: ((e: any) => void) | null = null;
 
   start = vi.fn();
+  requestData = vi.fn();
+  pause = vi.fn(() => {
+    this.state = "paused";
+  });
+  resume = vi.fn(() => {
+    this.state = "recording";
+  });
   stop = vi.fn(() => {
     this.state = "inactive";
     setTimeout(() => {
@@ -109,6 +117,7 @@ describe("DualRecordService", () => {
     class MockAudioContext {
       createAnalyser = vi.fn(() => mockAnalyserNode);
       createMediaStreamSource = vi.fn(() => mockSourceNode);
+      createMediaStreamDestination = vi.fn(() => ({ stream: new MockMediaStream([new MockMediaStreamTrack("audio")]) }));
       close = vi.fn().mockResolvedValue(undefined);
     }
     (globalThis as any).AudioContext = MockAudioContext;
@@ -254,5 +263,122 @@ describe("DualRecordService", () => {
 
     service.cleanup();
     expect((service as any).onRecordingStopped).toBeNull();
+  });
+
+  it("should toggle pause and resume states during recording", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: true, audio: true });
+
+    expect(service.isPaused()).toBe(false);
+
+    service.pauseRecording();
+    expect(service.isPaused()).toBe(true);
+
+    service.resumeRecording();
+    expect(service.isPaused()).toBe(false);
+  });
+
+  it("should toggle microphone mute state and track enabled property", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: true, audio: true });
+
+    expect(service.isMicMuted()).toBe(false);
+
+    service.setMicMuted(true);
+    expect(service.isMicMuted()).toBe(true);
+
+    const webcamStream = service.getWebcamStream();
+    const audioTrack = webcamStream?.getAudioTracks()[0];
+    expect(audioTrack?.enabled).toBe(false);
+
+    service.setMicMuted(false);
+    expect(service.isMicMuted()).toBe(false);
+    expect(audioTrack?.enabled).toBe(true);
+  });
+
+  it("should apply custom resolution and frame rate constraints to capture streams", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({
+      screen: true,
+      webcam: true,
+      audio: true,
+      resolution: "4k",
+      frameRate: 60,
+    });
+
+    expect(navigator.mediaDevices.getDisplayMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video: expect.objectContaining({
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          frameRate: { ideal: 60 },
+        }),
+      })
+    );
+
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video: expect.objectContaining({
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 60 },
+        }),
+      })
+    );
+  });
+
+  it("should save recorded chunk outputs to disk via platform.saveRecording on stop", async () => {
+    const { platform } = await import("@/core/platform");
+    const saveSpy = vi.fn().mockImplementation((finalName) => Promise.resolve(`/mock/${finalName}`));
+    (platform as any).saveRecording = saveSpy;
+
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: false, audio: false });
+
+    // Simulate chunk availability
+    (service as any).screenChunks = [new Blob(["test-data"], { type: "video/webm" })];
+
+    const stopRes = await service.stopRecording();
+    expect(saveSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^screen_\d+\.webm$/),
+      expect.any(Uint8Array)
+    );
+    expect(stopRes.filePaths).toContainEqual(expect.stringMatching(/\/mock\/screen_\d+\.webm$/));
+  });
+
+  it("should calculate sub-frame start timestamp metadata and cameraOffsetSeconds", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: true, audio: true });
+
+    const stopRes = await service.stopRecording();
+    expect(stopRes.metadata).toBeDefined();
+    expect(typeof stopRes.metadata.screenStartPerfTime).toBe("number");
+    expect(typeof stopRes.metadata.webcamStartPerfTime).toBe("number");
+    expect(typeof stopRes.metadata.cameraOffsetSeconds).toBe("number");
+    expect(stopRes.metadata.cameraOffsetSeconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it("should record screen and webcam streams independently without cross-track injection", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: true, audio: true });
+
+    expect(service.getScreenStream()).toBeDefined();
+    expect(service.getWebcamStream()).toBeDefined();
+
+    const stopRes = await service.stopRecording();
+    expect(stopRes.filePaths).toHaveLength(2);
+  });
+
+  it("should invoke requestData on MediaRecorder before stopping", async () => {
+    const service = DualRecordService.getInstance();
+    await service.startRecording({ screen: true, webcam: true, audio: true });
+
+    const screenRecorder = (service as any).screenRecorder as MockMediaRecorder;
+    const webcamRecorder = (service as any).webcamRecorder as MockMediaRecorder;
+
+    await service.stopRecording();
+
+    expect(screenRecorder.requestData).toHaveBeenCalled();
+    expect(webcamRecorder.requestData).toHaveBeenCalled();
   });
 });

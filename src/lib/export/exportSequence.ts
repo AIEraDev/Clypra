@@ -7,6 +7,7 @@
  */
 
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { createPixiExportCompositor, destroyPixiExportCompositor, renderFrameWithPixi } from "./pixiExportRenderer";
 import { VideoElementPool } from "../../core/resources/VideoElementPool";
 import { resolveClipSourceTime } from "../../core/timeline/sourceTime";
@@ -14,6 +15,7 @@ import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
 import { resolveTransitionDefinition, mergeTransitionParams } from "../../core/render/utils/transitionResolver";
+import { getActiveVideoClipsForTime } from "./exportUtils";
 
 /**
  * Image sequence export options.
@@ -198,19 +200,16 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
       try {
         const videoElements = new Map<string, HTMLVideoElement>();
 
-        for (const clip of clips) {
-          const asset = assets.find((a) => a.id === clip.mediaId);
-          if (asset?.type !== "video") continue;
-
-          const clipEnd = clip.startTime + clip.duration;
-          if (time < clip.startTime || time >= clipEnd) continue;
+        const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
+        for (const clip of activeVideoClips) {
+          const asset = assets.find((a) => a.id === clip.mediaId)!;
 
           const { sourceTime } = resolveClipSourceTime(clip, time, {
             clampToRange: true,
             frameRate,
           });
 
-          const resolvedPath = asset.path.startsWith("asset://") ? asset.path : convertFileSrc(asset.path);
+          const resolvedPath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
           const key = `${clip.id}-${clip.mediaId}`;
           const video = await videoPool.acquire(resolvedPath, sourceTime);
           videoElements.set(key, video);

@@ -151,6 +151,9 @@ static EXPORT_SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, ExportSe
 /// may not be found with the default PATH.
 pub(crate) fn augmented_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
+    if cfg!(target_os = "windows") {
+        return current;
+    }
     let extra = "/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin";
     if current.is_empty() {
         extra.to_string()

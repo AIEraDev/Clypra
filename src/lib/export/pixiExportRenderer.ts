@@ -56,6 +56,9 @@ export interface PixiExportCompositor {
   container: HTMLDivElement;
   width: number;
   height: number;
+  pboBuffers?: WebGLBuffer[];
+  pboIndex?: number;
+  gl2?: WebGL2RenderingContext | null;
 }
 
 /**
@@ -136,7 +139,31 @@ export function createPixiExportCompositor(width: number, height: number): PixiE
     }
   }
 
-  return { compositor, canvas, readbackCanvas, readbackCtx, container, width, height };
+  // EXP-02: Initialize WebGL2 Pixel Buffer Objects (PBOs) for double-buffered async readback
+  let pboBuffers: WebGLBuffer[] | undefined;
+  let gl2: WebGL2RenderingContext | null = null;
+
+  try {
+    const gl = canvas.getContext("webgl2") as WebGL2RenderingContext | null;
+    if (gl && typeof gl.createBuffer === "function") {
+      gl2 = gl;
+      const buf0 = gl.createBuffer();
+      const buf1 = gl.createBuffer();
+      if (buf0 && buf1) {
+        const byteSize = width * height * 4;
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf0);
+        gl.bufferData(gl.PIXEL_PACK_BUFFER, byteSize, gl.STREAM_READ);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf1);
+        gl.bufferData(gl.PIXEL_PACK_BUFFER, byteSize, gl.STREAM_READ);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        pboBuffers = [buf0, buf1];
+      }
+    }
+  } catch (err) {
+    console.warn("[PixiExportRenderer] WebGL2 PBO initialization failed, falling back to sync readPixels:", err);
+  }
+
+  return { compositor, canvas, readbackCanvas, readbackCtx, container, width, height, pboBuffers, pboIndex: 0, gl2 };
 }
 
 /**
@@ -144,6 +171,14 @@ export function createPixiExportCompositor(width: number, height: number): PixiE
  * Always call this in a finally block after createPixiExportCompositor.
  */
 export function destroyPixiExportCompositor(handle: PixiExportCompositor): void {
+  if (handle.gl2 && handle.pboBuffers) {
+    try {
+      handle.gl2.deleteBuffer(handle.pboBuffers[0]);
+      handle.gl2.deleteBuffer(handle.pboBuffers[1]);
+    } catch (err) {
+      console.warn("[PixiExportRenderer] Error deleting PBO buffers:", err);
+    }
+  }
   try {
     handle.compositor.destroy();
   } catch (err) {
@@ -168,6 +203,7 @@ export async function renderFrameWithPixi(
   scene: EvaluatedScene,
   videoElements: Map<string, HTMLVideoElement>,
   directWebGLReadback = false,
+  bodyMasks: Map<string, any> = new Map(),
 ): Promise<ImageData | Uint8Array> {
   videoElements: Map<string, VideoFrameSource>,
 ): Promise<ImageData> {
@@ -198,7 +234,7 @@ export async function renderFrameWithPixi(
     viewport,
     videoElements,
     undefined,  // resourceHandleMap (unused during export)
-    new Map(),  // bodyMasks (no body segmentation during export)
+    bodyMasks,  // EXP-07: Pass body segmentation masks if available
   );
 
   if (directWebGLReadback) {
@@ -208,7 +244,32 @@ export async function renderFrameWithPixi(
     }
     // Bind default framebuffer (null) to guarantee reading from the screen render target
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
     const frameBytes = new Uint8Array(width * height * 4);
+
+    // EXP-02: Use WebGL2 PBO async readback if available
+    if (handle.gl2 && handle.pboBuffers && handle.pboBuffers.length === 2) {
+      const pIdx = handle.pboIndex ?? 0;
+      const writePbo = handle.pboBuffers[pIdx];
+      const readPbo = handle.pboBuffers[1 - pIdx];
+
+      // Initiate async read into writePbo
+      handle.gl2.bindBuffer(handle.gl2.PIXEL_PACK_BUFFER, writePbo);
+      handle.gl2.readPixels(0, 0, width, height, handle.gl2.RGBA, handle.gl2.UNSIGNED_BYTE, 0);
+
+      // Read back pixels from previous frame in readPbo
+      handle.gl2.bindBuffer(handle.gl2.PIXEL_PACK_BUFFER, readPbo);
+      handle.gl2.getBufferSubData(handle.gl2.PIXEL_PACK_BUFFER, 0, frameBytes);
+      handle.gl2.bindBuffer(handle.gl2.PIXEL_PACK_BUFFER, null);
+
+      // Toggle buffer index
+      handle.pboIndex = 1 - pIdx;
+      return frameBytes;
+    }
+
+    // EXP-06 Note: WebGL gl.readPixels returns bottom-up pixel rows.
+    // The Tauri FFmpeg backend (export.rs) applies a `vflip` filter ([0:v]vflip[v])
+    // to invert the stream vertically into standard top-down video format.
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, frameBytes);
     return frameBytes;
   }

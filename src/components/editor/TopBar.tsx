@@ -17,7 +17,9 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const { project, closeProject } = useProjectStore();
   const { toggleSettingsModal } = useUIStore();
-  const { state: historyState, undo, redo } = useHistoryStore();
+  const historyState = useHistoryStore((s) => s.state);
+  const undo = useHistoryStore((s) => s.undo);
+  const redo = useHistoryStore((s) => s.redo);
   const [showExportDialog, setShowExportDialog] = useState(false);
 
   const { isFullscreen } = useTauriFullscreen();
@@ -31,12 +33,14 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
     }
   };
 
+  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|Macintosh/.test(navigator.userAgent);
+
   return (
     <>
       {/* Native title bar area - content positioned in the title bar */}
       <div className="h-[30px] flex items-center justify-between gap-3" data-tauri-drag-region style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
         {/* Left side - starts after traffic lights */}
-        <div className={`flex items-center gap-2 ${platform.type === "tauri" && !isFullscreen ? "pl-[70px]" : ""}`} data-tauri-drag-region>
+        <div className={`flex items-center gap-2 ${platform.type === "tauri" && isMac && !isFullscreen ? "pl-[70px]" : "pl-2"}`} data-tauri-drag-region>
           <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Back to Home" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
             <Home className="w-4 h-4" />
           </Button>

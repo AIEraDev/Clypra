@@ -4,11 +4,12 @@
 
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
-import type { Clip, Track } from "@/types";
+import type { Clip, Track, TransitionTimelineItem } from "@/types";
 
 interface TimelineState {
   tracks?: Track[];
   clips: Clip[];
+  transitions?: TransitionTimelineItem[];
   epoch: number;
 }
 
@@ -21,6 +22,7 @@ export class DeleteClipCommand implements Command {
   private deletedClip: Clip | null = null;
   private deletedTrack: Track | null = null;
   private deletedTrackIndex: number = -1;
+  private deletedTransitions: TransitionTimelineItem[] = [];
 
   constructor(private readonly clipId: string) {
     this.id = generateCommandId();
@@ -46,6 +48,10 @@ export class DeleteClipCommand implements Command {
       }
     }
 
+    if (state.transitions) {
+      this.deletedTransitions = state.transitions.filter((t) => t.fromItemId === this.clipId || t.toItemId === this.clipId);
+    }
+
     const nextState: TimelineState = {
       ...state,
       clips: remainingClips,
@@ -56,6 +62,10 @@ export class DeleteClipCommand implements Command {
       nextState.tracks = tracks;
     }
 
+    if (state.transitions !== undefined) {
+      nextState.transitions = state.transitions.filter((t) => t.fromItemId !== this.clipId && t.toItemId !== this.clipId);
+    }
+
     return nextState;
   }
 
@@ -63,7 +73,7 @@ export class DeleteClipCommand implements Command {
     if (!this.deletedClip) {
       throw new Error("Cannot invert DeleteClipCommand: no deleted clip stored");
     }
-    return new AddClipCommand(this.deletedClip, this.deletedTrack, this.deletedTrackIndex);
+    return new AddClipCommand(this.deletedClip, this.deletedTrack, this.deletedTrackIndex, this.deletedTransitions);
   }
 
   toJSON(): Record<string, any> {
@@ -98,6 +108,7 @@ export class AddClipCommand implements Command {
     private readonly clip: Clip,
     private readonly restoredTrack?: Track | null,
     private readonly restoredTrackIndex?: number,
+    private readonly restoredTransitions: TransitionTimelineItem[] = [],
   ) {
     this.id = generateCommandId();
     this.label = "Add Clip";
@@ -146,6 +157,12 @@ export class AddClipCommand implements Command {
 
     if (state.tracks !== undefined) {
       nextState.tracks = tracks;
+    }
+
+    if (state.transitions !== undefined && this.restoredTransitions.length > 0) {
+      const existingIds = new Set(state.transitions.map((t) => t.id));
+      const transitionsToAdd = this.restoredTransitions.filter((t) => !existingIds.has(t.id));
+      nextState.transitions = [...state.transitions, ...transitionsToAdd];
     }
 
     return nextState;

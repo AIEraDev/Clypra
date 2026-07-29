@@ -292,7 +292,22 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
   const transitionSignature = transitions
     .slice()
     .sort((a, b) => String(a.id).localeCompare(String(b.id)))
-    .map((t) => [t.id, t.type, t.fromItemId, t.toItemId, t.alignment, t.easing, t.placement?.trackId, Number(t.placement?.startTime ?? 0).toFixed(3), Number(t.placement?.duration ?? 0).toFixed(3), t.effects?.version ?? 0].join(":"))
+    .map((t) =>
+      [
+        t.id,
+        t.type,
+        t.renderer ?? "",
+        t.fromItemId,
+        t.toItemId,
+        t.alignment,
+        t.easing,
+        t.placement?.trackId,
+        Number(t.placement?.startTime ?? 0).toFixed(3),
+        Number(t.placement?.duration ?? 0).toFixed(3),
+        t.effects?.version ?? 0,
+        JSON.stringify(t.metadata ?? null),
+      ].join(":")
+    )
     .join("|");
 
   const signature = `${clipSignature}::transitions::${transitionSignature}`;

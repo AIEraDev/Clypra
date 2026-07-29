@@ -186,7 +186,7 @@ export class PlaybackClock {
         const audioElapsed = this._audioContext.currentTime - this._playStartAudioTime;
         this._time = Math.min(this._playStartClockTime + audioElapsed * this._speed, this._duration);
       }
-      this.pause();
+      this.pause(true);
     }
 
     this._speed = Math.max(0.1, Math.min(4, speed));
@@ -235,14 +235,14 @@ export class PlaybackClock {
   /**
    * Pause playback.
    */
-  pause(): void {
+  pause(skipTimeSync: boolean = false): void {
     if (this._state !== "playing") {
       this._isSeeking = false;
       return;
     }
 
     // Sync precise live time from AudioContext before pausing
-    if (this._audioContext && this._audioContext.state === "running") {
+    if (!skipTimeSync && this._audioContext && this._audioContext.state === "running") {
       const elapsed = (this._audioContext.currentTime - this._playStartAudioTime) * this._speed;
       this._time = Math.max(0, Math.min(this._playStartClockTime + elapsed, this._duration));
     }
