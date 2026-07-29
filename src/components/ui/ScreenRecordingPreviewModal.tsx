@@ -167,6 +167,60 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
     };
   }, [isDragging, handleGlobalMouseMove, handleGlobalMouseUp]);
 
+  // ── Filmstrip ────────────────────────────────────────────────────────────────
+  const filmstripCanvasRef = useRef<HTMLCanvasElement>(null);
+  const filmstripDrawnRef = useRef(false);
+
+  // Draw thumbnail frames onto the filmstrip canvas once the video is loaded
+  const drawFilmstrip = useCallback(async () => {
+    const video = videoRef.current;
+    const canvas = filmstripCanvasRef.current;
+    if (!video || !canvas || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    if (filmstripDrawnRef.current) return;
+    filmstripDrawnRef.current = true;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const totalDur = video.duration;
+    const frameCount = Math.max(4, Math.min(16, Math.floor(canvas.offsetWidth / 48)));
+    const frameW = canvas.width / frameCount;
+    const frameH = canvas.height;
+
+    // Preserve original time so playback isn't disrupted
+    const originalTime = video.currentTime;
+    const wasPaused = video.paused;
+    if (!wasPaused) video.pause();
+
+    for (let i = 0; i < frameCount; i++) {
+      const t = (i / frameCount) * totalDur;
+      await new Promise<void>((resolve) => {
+        const onSeeked = () => {
+          video.removeEventListener("seeked", onSeeked);
+          ctx.drawImage(video, i * frameW, 0, frameW, frameH);
+          resolve();
+        };
+        video.addEventListener("seeked", onSeeked, { once: true });
+        video.currentTime = t;
+      });
+    }
+
+    // Restore original position
+    video.currentTime = originalTime;
+    if (!wasPaused) video.play().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    filmstripDrawnRef.current = false;
+  }, [videoSrc]);
+
+  // Trigger filmstrip draw once video metadata is ready AND duration is known
+  useEffect(() => {
+    if (duration > 0) {
+      drawFilmstrip();
+    }
+  }, [duration, drawFilmstrip]);
+
   if (!isOpen || filePaths.length === 0) return null;
 
   const isTrimmed = trimStart > 0 || trimEnd < 100;
@@ -286,60 +340,6 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
     const frames = Math.floor((seconds % 1) * fps).toString().padStart(2, "0");
     return `${hrs}:${mins}:${secs}:${frames}`;
   };
-
-  // ── Filmstrip ────────────────────────────────────────────────────────────────
-  const filmstripCanvasRef = useRef<HTMLCanvasElement>(null);
-  const filmstripDrawnRef = useRef(false);
-
-  // Draw thumbnail frames onto the filmstrip canvas once the video is loaded
-  const drawFilmstrip = useCallback(async () => {
-    const video = videoRef.current;
-    const canvas = filmstripCanvasRef.current;
-    if (!video || !canvas || !Number.isFinite(video.duration) || video.duration <= 0) return;
-    if (filmstripDrawnRef.current) return;
-    filmstripDrawnRef.current = true;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const totalDur = video.duration;
-    const frameCount = Math.max(4, Math.min(16, Math.floor(canvas.offsetWidth / 48)));
-    const frameW = canvas.width / frameCount;
-    const frameH = canvas.height;
-
-    // Preserve original time so playback isn't disrupted
-    const originalTime = video.currentTime;
-    const wasPaused = video.paused;
-    if (!wasPaused) video.pause();
-
-    for (let i = 0; i < frameCount; i++) {
-      const t = (i / frameCount) * totalDur;
-      await new Promise<void>((resolve) => {
-        const onSeeked = () => {
-          video.removeEventListener("seeked", onSeeked);
-          ctx.drawImage(video, i * frameW, 0, frameW, frameH);
-          resolve();
-        };
-        video.addEventListener("seeked", onSeeked, { once: true });
-        video.currentTime = t;
-      });
-    }
-
-    // Restore original position
-    video.currentTime = originalTime;
-    if (!wasPaused) video.play().catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    filmstripDrawnRef.current = false;
-  }, [videoSrc]);
-
-  // Trigger filmstrip draw once video metadata is ready AND duration is known
-  useEffect(() => {
-    if (duration > 0) {
-      drawFilmstrip();
-    }
-  }, [duration, drawFilmstrip]);
 
   const playheadPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
