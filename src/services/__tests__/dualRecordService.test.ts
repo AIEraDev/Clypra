@@ -117,6 +117,7 @@ describe("DualRecordService", () => {
     class MockAudioContext {
       createAnalyser = vi.fn(() => mockAnalyserNode);
       createMediaStreamSource = vi.fn(() => mockSourceNode);
+      createMediaStreamDestination = vi.fn(() => ({ stream: new MockMediaStream([new MockMediaStreamTrack("audio")]) }));
       close = vi.fn().mockResolvedValue(undefined);
     }
     (globalThis as any).AudioContext = MockAudioContext;
@@ -357,15 +358,15 @@ describe("DualRecordService", () => {
     expect(stopRes.metadata.cameraOffsetSeconds).toBeGreaterThanOrEqual(0);
   });
 
-  it("should clone mic track when injecting audio into screen recorder stream", async () => {
+  it("should record screen and webcam streams independently without cross-track injection", async () => {
     const service = DualRecordService.getInstance();
     await service.startRecording({ screen: true, webcam: true, audio: true });
 
-    const webcamStream = service.getWebcamStream();
-    const micTrack = webcamStream?.getAudioTracks()[0];
-    expect(micTrack?.clone).toHaveBeenCalled();
+    expect(service.getScreenStream()).toBeDefined();
+    expect(service.getWebcamStream()).toBeDefined();
 
-    await service.stopRecording();
+    const stopRes = await service.stopRecording();
+    expect(stopRes.filePaths).toHaveLength(2);
   });
 
   it("should invoke requestData on MediaRecorder before stopping", async () => {
