@@ -160,7 +160,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
       DualRecordService.getInstance().cleanup();
       setSeconds(0);
       setIsRecording(false);
-      setRecordingError(null);
+      setRecordingError(err?.message || "Screen recording ended unexpectedly. Please check permissions.");
 
       if (isTauri) {
         try {
