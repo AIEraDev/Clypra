@@ -238,13 +238,38 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
+      const vid = videoRef.current;
+      setCurrentTime(vid.currentTime);
+      if (
+        (!Number.isFinite(duration) || duration === 0 || duration === Infinity) &&
+        Number.isFinite(vid.duration) &&
+        vid.duration > 0 &&
+        vid.duration !== Infinity
+      ) {
+        setDuration(vid.duration);
+      }
     }
   };
 
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
-      setDuration(videoRef.current.duration);
+      const vid = videoRef.current;
+      const dur = vid.duration;
+      if (dur === Infinity || isNaN(dur)) {
+        // Fix for WebM MediaRecorder output where duration reports as Infinity until seeked
+        vid.currentTime = 1e101;
+        const onTimeUpdateForDuration = () => {
+          vid.removeEventListener("timeupdate", onTimeUpdateForDuration);
+          const realDur = vid.duration;
+          vid.currentTime = 0;
+          if (Number.isFinite(realDur) && realDur > 0 && realDur !== Infinity) {
+            setDuration(realDur);
+          }
+        };
+        vid.addEventListener("timeupdate", onTimeUpdateForDuration);
+      } else if (Number.isFinite(dur) && dur > 0) {
+        setDuration(dur);
+      }
     }
   };
 
@@ -454,7 +479,7 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
             <div className="flex items-center gap-1.5 select-none">
               <span className="text-white">{formatTimecode(currentTime)}</span>
               <span>/</span>
-              <span>{formatTimecode(Number.isFinite(duration) && duration > 0 ? (trimEnd - trimStart) / 100 * duration : 0)}</span>
+              <span>{formatTimecode(Number.isFinite(duration) && duration > 0 ? (trimEnd - trimStart) / 100 * duration : Math.max(currentTime, 0))}</span>
             </div>
           </div>
 
