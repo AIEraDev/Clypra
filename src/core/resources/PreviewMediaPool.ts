@@ -601,12 +601,12 @@ export class PreviewMediaPool {
       // LRU eviction: Remove unused cached elements (not just inactive ones)
       this.evictUnusedElements(clips, assets, syncState);
 
-      // Create or update audio elements (unchanged logic)
+      // Create or update audio elements (for both audio clips AND video clips with audio tracks)
       for (const clip of clips) {
         const asset = assets.find((a) => a.id === clip.mediaId);
         const directAudioPath = (clip as any).audioPath as string | undefined;
-        const isAudioClip = asset?.type === "audio" || (clip.kind === "audio" && !!directAudioPath);
-        if (!isAudioClip) continue;
+        const hasAudio = asset?.type === "audio" || asset?.type === "video" || clip.kind === "audio" || clip.kind === "video" || !!directAudioPath;
+        if (!hasAudio) continue;
         const track = this.trackMap.get(clip.trackId);
         if (track?.visible === false) continue;
 
@@ -1126,7 +1126,8 @@ export class PreviewMediaPool {
   private createVideo(key: string, clipId: string, mediaId: string, sourcePath: string): ManagedVideo {
     const video = document.createElement("video");
     video.preload = "auto";
-    video.muted = true; // Always muted — audio is handled separately or not at all
+    video.crossOrigin = "anonymous";
+    video.muted = true; // Always muted — audio is handled separately by ManagedAudio
     video.playsInline = true;
     // Browsers aggressively throttle decoding for tiny videos. Use a larger size (256x256)
     // to ensure the hardware decoder remains active.
@@ -1690,6 +1691,7 @@ export class PreviewMediaPool {
   private createAudio(key: string, clipId: string, mediaId: string, sourcePath: string): ManagedAudio {
     const audio = document.createElement("audio");
     audio.preload = "auto";
+    audio.crossOrigin = "anonymous";
     audio.style.cssText = "position:absolute;width:1px;height:1px;";
 
     // ─── RESOURCE TRACKING: Track audio element creation ──────────────────
