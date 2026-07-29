@@ -161,15 +161,19 @@ export class TauriPlatformAdapter implements PlatformInterface {
   }
 
   async finalizeRecordingFile(tempFileName: string, finalFileName: string): Promise<string> {
-    const { rename, exists } = await import("@tauri-apps/plugin-fs");
+    const { rename, exists, stat } = await import("@tauri-apps/plugin-fs");
     const { appLocalDataDir, join } = await import("@tauri-apps/api/path");
     const localDir = await appLocalDataDir();
     const tempPath = await join(localDir, tempFileName);
     const finalPath = await join(localDir, finalFileName);
 
     if (await exists(tempPath)) {
-      await rename(tempPath, finalPath);
+      const fileStat = await stat(tempPath).catch(() => ({ size: 0 }));
+      if (fileStat.size > 0) {
+        await rename(tempPath, finalPath);
+        return finalPath;
+      }
     }
-    return finalPath;
+    throw new Error(`Temp recording file ${tempFileName} is missing or 0 bytes`);
   }
 }
