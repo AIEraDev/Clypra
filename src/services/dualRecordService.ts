@@ -726,46 +726,62 @@ export class DualRecordService {
 
       const filePaths: string[] = [];
 
-      // Finalize screen recording
+      // Save Screen Recording
       if (this.screenTempFileName && this.screenFinalFileName && platform.finalizeRecordingFile) {
         try {
           const path = await platform.finalizeRecordingFile(this.screenTempFileName, this.screenFinalFileName);
           filePaths.push(path);
-        } catch {
+        } catch (finalizeErr) {
+          console.warn("[DualRecordService] Screen temp file finalization failed, falling back to in-memory chunks:", finalizeErr);
           if (this.screenChunks.length > 0) {
-            const blob = new Blob(this.screenChunks, { type: this.screenRecorder?.mimeType || "video/webm" });
-            const path = await platform.saveRecording(this.screenFinalFileName, new Uint8Array(await blob.arrayBuffer()));
-            filePaths.push(path);
+            const mimeType = this.screenRecorder?.mimeType || "video/webm";
+            const blob = new Blob(this.screenChunks, { type: mimeType });
+            const arrayBuffer = await blob.arrayBuffer();
+            if (arrayBuffer.byteLength > 0) {
+              const path = await platform.saveRecording(this.screenFinalFileName, new Uint8Array(arrayBuffer));
+              filePaths.push(path);
+            }
           }
         }
       } else if (this.screenChunks.length > 0) {
-        const mimeType = this.screenRecorder?.mimeType ?? "video/webm";
+        const mimeType = this.screenRecorder?.mimeType || "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
         const fileName = this.screenFinalFileName || `screen_${Date.now()}.${ext}`;
         const blob = new Blob(this.screenChunks, { type: mimeType });
-        const path = await platform.saveRecording(fileName, new Uint8Array(await blob.arrayBuffer()));
-        filePaths.push(path);
+        const arrayBuffer = await blob.arrayBuffer();
+        if (arrayBuffer.byteLength > 0) {
+          const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
+          filePaths.push(path);
+        }
       }
 
-      // Finalize camera recording
+      // Save Camera Recording
       if (this.cameraTempFileName && this.cameraFinalFileName && platform.finalizeRecordingFile) {
         try {
           const path = await platform.finalizeRecordingFile(this.cameraTempFileName, this.cameraFinalFileName);
           filePaths.push(path);
-        } catch {
+        } catch (finalizeErr) {
+          console.warn("[DualRecordService] Camera temp file finalization failed, falling back to in-memory chunks:", finalizeErr);
           if (this.webcamChunks.length > 0) {
-            const blob = new Blob(this.webcamChunks, { type: this.webcamRecorder?.mimeType || "video/webm" });
-            const path = await platform.saveRecording(this.cameraFinalFileName, new Uint8Array(await blob.arrayBuffer()));
-            filePaths.push(path);
+            const mimeType = this.webcamRecorder?.mimeType || "video/webm";
+            const blob = new Blob(this.webcamChunks, { type: mimeType });
+            const arrayBuffer = await blob.arrayBuffer();
+            if (arrayBuffer.byteLength > 0) {
+              const path = await platform.saveRecording(this.cameraFinalFileName, new Uint8Array(arrayBuffer));
+              filePaths.push(path);
+            }
           }
         }
       } else if (this.webcamChunks.length > 0) {
-        const mimeType = this.webcamRecorder?.mimeType ?? "video/webm";
+        const mimeType = this.webcamRecorder?.mimeType || "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
         const fileName = this.cameraFinalFileName || `camera_${Date.now()}.${ext}`;
         const blob = new Blob(this.webcamChunks, { type: mimeType });
-        const path = await platform.saveRecording(fileName, new Uint8Array(await blob.arrayBuffer()));
-        filePaths.push(path);
+        const arrayBuffer = await blob.arrayBuffer();
+        if (arrayBuffer.byteLength > 0) {
+          const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
+          filePaths.push(path);
+        }
       }
 
       let cameraOffsetSeconds = 0;
