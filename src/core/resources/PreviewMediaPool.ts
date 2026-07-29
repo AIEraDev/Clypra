@@ -30,6 +30,7 @@
 
 import type { Clip, MediaAsset, TransitionTimelineItem } from "@/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { performanceMonitor } from "@/lib/monitoring/PerformanceMonitor";
 import { resourceTracker } from "@/lib/monitoring/ResourceTracker";
@@ -413,7 +414,7 @@ export class PreviewMediaPool {
         if (track?.visible === false) continue;
 
         if (asset?.type === "video") {
-          const sourcePath = asset.path.startsWith("asset://") ? asset.path : convertFileSrc(asset.path);
+          const sourcePath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
 
           const cacheKey = clip.id;
 
@@ -454,7 +455,7 @@ export class PreviewMediaPool {
         // Get or create cached element
         let managed = this.videoCache.get(cacheKey);
         if (!managed) {
-          const sourcePath = asset.path.startsWith("asset://") ? asset.path : convertFileSrc(asset.path);
+          const sourcePath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
           managed = this.createVideo(cacheKey, clip.id, clip.mediaId, sourcePath);
         } else {
           // Element exists - update its binding
@@ -611,7 +612,7 @@ export class PreviewMediaPool {
         if (track?.visible === false) continue;
 
         const rawPath = asset ? asset.path : directAudioPath!;
-        const sourcePath = rawPath.startsWith("asset://") ? rawPath : convertFileSrc(rawPath);
+        const sourcePath = isWebviewOrExternalUrl(rawPath) ? rawPath : convertFileSrc(rawPath);
         const key = clip.id;
 
         let managed = this.audios.get(key);
@@ -698,7 +699,7 @@ export class PreviewMediaPool {
 
       const trimIn = clip.trimIn || 0;
       const normalizedTrimIn = Math.round(trimIn * 1000) / 1000;
-      const sourcePath = asset.path.startsWith("asset://") ? asset.path : convertFileSrc(asset.path);
+      const sourcePath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
       const cacheKey = clip.id;
 
       if (this.videoCache.has(cacheKey)) {

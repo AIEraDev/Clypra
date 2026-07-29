@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 import { platform } from "@/core/platform";
+import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { drawProfessionalWaveform, getThemeAccentRgb } from "@/lib/utils/canvasUtils";
 import type { WaveformBucket } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
@@ -79,7 +80,7 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, c
   const sourceDuration = Math.max(0, Math.min(duration, (Number.isFinite(trimOut) ? trimOut! : sourceStart + duration) - sourceStart));
 
   // Resolve path once
-  const resolvedPath = audioPath.startsWith("asset://") ? audioPath : platform.convertFileSrc(audioPath);
+  const resolvedPath = isWebviewOrExternalUrl(audioPath) ? audioPath : platform.convertFileSrc(audioPath);
 
   // Watch for theme changes via shared observer (PERF-7 fix)
   useEffect(() => {

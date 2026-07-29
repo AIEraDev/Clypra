@@ -5,6 +5,7 @@ import { getResourceCache } from "../../core/resources/ResourceCache";
 import { resolveClipSourceTime } from "../../core/timeline/sourceTime";
 import { getActiveAudioClips } from "../../core/timeline/audioClips";
 import { platform } from "../../core/platform";
+import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import type { VideoExportConfig, VideoExportResult } from "./videoExport";
 import { MobileExportEncoder } from "./mobileExportEncoder";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
@@ -38,7 +39,7 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
       
       for (const clip of audioClips) {
         try {
-          const resolvedPath = clip.path.startsWith("asset://") ? clip.path : platform.convertFileSrc(clip.path);
+          const resolvedPath = isWebviewOrExternalUrl(clip.path) ? clip.path : platform.convertFileSrc(clip.path);
           const response = await fetch(resolvedPath);
           const arrayBuffer = await response.arrayBuffer();
           const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
@@ -158,7 +159,7 @@ export async function exportVideoMobile(config: VideoExportConfig): Promise<Vide
             frameRate,
           });
 
-          const resolvedPath = asset.path.startsWith("asset://") ? asset.path : platform.convertFileSrc(asset.path);
+          const resolvedPath = isWebviewOrExternalUrl(asset.path) ? asset.path : platform.convertFileSrc(asset.path);
           const key = `${clip.id}-${clip.mediaId}`;
           try {
             const video = await videoPool.acquire(resolvedPath, sourceTime);

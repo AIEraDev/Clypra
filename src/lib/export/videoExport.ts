@@ -10,6 +10,7 @@
  */
 
 import { platform } from "../../core/platform";
+import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { evaluateTimelineSceneCached, clearEvaluationCache } from "../../core/evaluation/evaluator";
 import { createPixiExportCompositor, destroyPixiExportCompositor, renderFrameWithPixi } from "./pixiExportRenderer";
 import { VideoElementPool } from "../../core/resources/VideoElementPool";
@@ -322,7 +323,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
             frameRate,
           });
 
-          const resolvedPath = asset.path.startsWith("asset://") ? asset.path : platform.convertFileSrc(asset.path);
+          const resolvedPath = isWebviewOrExternalUrl(asset.path) ? asset.path : platform.convertFileSrc(asset.path);
           const key = `${clip.id}-${clip.mediaId}`;
 
           const video = await videoPool.acquire(resolvedPath, sourceTime);

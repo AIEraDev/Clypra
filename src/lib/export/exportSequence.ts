@@ -7,6 +7,7 @@
  */
 
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { createPixiExportCompositor, destroyPixiExportCompositor, renderFrameWithPixi } from "./pixiExportRenderer";
 import { VideoElementPool } from "../../core/resources/VideoElementPool";
 import { resolveClipSourceTime } from "../../core/timeline/sourceTime";
@@ -208,7 +209,7 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
             frameRate,
           });
 
-          const resolvedPath = asset.path.startsWith("asset://") ? asset.path : convertFileSrc(asset.path);
+          const resolvedPath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
           const key = `${clip.id}-${clip.mediaId}`;
           const video = await videoPool.acquire(resolvedPath, sourceTime);
           videoElements.set(key, video);
