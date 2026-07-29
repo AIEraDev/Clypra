@@ -405,10 +405,10 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
         <div className="relative aspect-video bg-[#0a0a0f] border-b border-white/5 flex items-center justify-center overflow-hidden">
           {videoSrc ? <video ref={videoRef} src={videoSrc} onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={handleEnded} onClick={togglePlay} className="max-w-full max-h-full object-contain cursor-pointer" /> : <div className="text-slate-500 text-xs">Loading preview...</div>}
 
-          {/* Camera PiP overlay */}
-          {hasDualRecording && cameraSrc && showCameraPip && (
-            <div className="absolute bottom-3 right-3 w-28 aspect-video rounded-lg overflow-hidden border border-white/20 shadow-2xl bg-black z-10">
-              <video ref={cameraVideoRef} src={cameraSrc} muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
+          {/* Camera PiP overlay (unmuted so mic audio in camera recording plays during preview) */}
+          {hasDualRecording && cameraSrc && (
+            <div className={`absolute bottom-3 right-3 w-28 aspect-video rounded-lg overflow-hidden border border-white/20 shadow-2xl bg-black z-10 ${showCameraPip ? "" : "hidden"}`}>
+              <video ref={cameraVideoRef} src={cameraSrc} playsInline className="w-full h-full object-cover scale-x-[-1]" />
             </div>
           )}
 
