@@ -69,7 +69,7 @@ describe("FloatingWidget", () => {
 
     render(<FloatingWidget onProjectCreate={vi.fn()} />);
 
-    const stopButton = screen.getByText(/Stop Capture/i);
+    const stopButton = screen.getByRole("button", { name: /Stop/i });
     expect(stopButton).not.toBeDisabled();
 
     await act(async () => {
