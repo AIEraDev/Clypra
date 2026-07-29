@@ -82,6 +82,9 @@ export class DualRecordService {
   /** Callback for external stop events (track ended, recorder error) */
   private onRecordingStopped: RecordingStoppedCallback | null = null;
 
+  /** Cloned tracks created for injected mic stream to ensure isolated track lifecycles */
+  private injectedClonedTracks: MediaStreamTrack[] = [];
+
   // Microphone testing
   private micTestStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
@@ -613,8 +616,10 @@ export class DualRecordService {
         if (options.audio && this.webcamStream) {
           const micAudioTracks = this.webcamStream.getAudioTracks();
           if (micAudioTracks.length > 0) {
-            combinedTracks.push(micAudioTracks[0]);
-            console.log("[DualRecordService] Injecting mic audio track into screen recorder.");
+            const clonedMicTrack = micAudioTracks[0].clone();
+            this.injectedClonedTracks.push(clonedMicTrack);
+            combinedTracks.push(clonedMicTrack);
+            console.log("[DualRecordService] Injecting cloned mic audio track into screen recorder.");
           }
         }
         const screenRecordStream = new MediaStream(combinedTracks);
@@ -623,17 +628,9 @@ export class DualRecordService {
           screenRecordStream,
           selectedMime ? { mimeType: selectedMime } : undefined
         );
-        this.screenRecorder.ondataavailable = async (e) => {
+        this.screenRecorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) {
             this.screenChunks.push(e.data);
-            if (platform.appendRecordingChunk && this.screenTempFileName) {
-              try {
-                const buffer = new Uint8Array(await e.data.arrayBuffer());
-                await platform.appendRecordingChunk(this.screenTempFileName, buffer);
-              } catch (err) {
-                console.warn("[DualRecordService] Streaming screen chunk to disk failed:", err);
-              }
-            }
           }
         };
         this.screenRecorder.onerror = (e) => {
@@ -654,17 +651,9 @@ export class DualRecordService {
           this.webcamStream,
           selectedMime ? { mimeType: selectedMime } : undefined
         );
-        this.webcamRecorder.ondataavailable = async (e) => {
+        this.webcamRecorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) {
             this.webcamChunks.push(e.data);
-            if (platform.appendRecordingChunk && this.cameraTempFileName) {
-              try {
-                const buffer = new Uint8Array(await e.data.arrayBuffer());
-                await platform.appendRecordingChunk(this.cameraTempFileName, buffer);
-              } catch (err) {
-                console.warn("[DualRecordService] Streaming camera chunk to disk failed:", err);
-              }
-            }
           }
         };
         this.webcamRecorder.onerror = (e) => {
@@ -718,9 +707,12 @@ export class DualRecordService {
           };
 
           try {
+            if (recorder.state === "recording" || recorder.state === "paused") {
+              recorder.requestData();
+            }
             recorder.stop();
           } catch (err) {
-            console.warn("[DualRecordService] Error calling recorder.stop():", err);
+            console.warn("[DualRecordService] Error requesting data or stopping recorder:", err);
             clearTimeout(timeout);
             done();
           }
@@ -735,23 +727,7 @@ export class DualRecordService {
       const filePaths: string[] = [];
 
       // Save Screen Recording
-      if (this.screenTempFileName && this.screenFinalFileName && platform.finalizeRecordingFile) {
-        try {
-          const path = await platform.finalizeRecordingFile(this.screenTempFileName, this.screenFinalFileName);
-          filePaths.push(path);
-        } catch (finalizeErr) {
-          console.warn("[DualRecordService] Screen temp file finalization failed, falling back to in-memory chunks:", finalizeErr);
-          if (this.screenChunks.length > 0) {
-            const mimeType = this.screenRecorder?.mimeType || "video/webm";
-            const blob = new Blob(this.screenChunks, { type: mimeType });
-            const arrayBuffer = await blob.arrayBuffer();
-            if (arrayBuffer.byteLength > 0) {
-              const path = await platform.saveRecording(this.screenFinalFileName, new Uint8Array(arrayBuffer));
-              filePaths.push(path);
-            }
-          }
-        }
-      } else if (this.screenChunks.length > 0) {
+      if (this.screenChunks.length > 0) {
         const mimeType = this.screenRecorder?.mimeType || "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
         const fileName = this.screenFinalFileName || `screen_${Date.now()}.${ext}`;
@@ -764,23 +740,7 @@ export class DualRecordService {
       }
 
       // Save Camera Recording
-      if (this.cameraTempFileName && this.cameraFinalFileName && platform.finalizeRecordingFile) {
-        try {
-          const path = await platform.finalizeRecordingFile(this.cameraTempFileName, this.cameraFinalFileName);
-          filePaths.push(path);
-        } catch (finalizeErr) {
-          console.warn("[DualRecordService] Camera temp file finalization failed, falling back to in-memory chunks:", finalizeErr);
-          if (this.webcamChunks.length > 0) {
-            const mimeType = this.webcamRecorder?.mimeType || "video/webm";
-            const blob = new Blob(this.webcamChunks, { type: mimeType });
-            const arrayBuffer = await blob.arrayBuffer();
-            if (arrayBuffer.byteLength > 0) {
-              const path = await platform.saveRecording(this.cameraFinalFileName, new Uint8Array(arrayBuffer));
-              filePaths.push(path);
-            }
-          }
-        }
-      } else if (this.webcamChunks.length > 0) {
+      if (this.webcamChunks.length > 0) {
         const mimeType = this.webcamRecorder?.mimeType || "video/webm";
         const ext = mimeType.includes("mp4") ? "mp4" : "webm";
         const fileName = this.cameraFinalFileName || `camera_${Date.now()}.${ext}`;
@@ -829,6 +789,11 @@ export class DualRecordService {
     this.onRecordingStopped = null;
 
     this.stopMicTest();
+
+    if (this.injectedClonedTracks.length > 0) {
+      this.injectedClonedTracks.forEach((t) => t.stop());
+      this.injectedClonedTracks = [];
+    }
 
     if (this.screenStream) {
       this.screenStream.getTracks().forEach((t) => t.stop());
