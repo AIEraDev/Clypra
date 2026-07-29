@@ -149,8 +149,11 @@ static EXPORT_SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, ExportSe
 /// locations. Tauri apps on macOS launch with a stripped environment, so
 /// `ffmpeg` and `ffprobe` (typically in /opt/homebrew/bin or /usr/local/bin)
 /// may not be found with the default PATH.
-fn augmented_path() -> String {
+pub(crate) fn augmented_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
+    if cfg!(target_os = "windows") {
+        return current;
+    }
     let extra = "/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin";
     if current.is_empty() {
         extra.to_string()

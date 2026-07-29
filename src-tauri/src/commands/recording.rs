@@ -5,6 +5,7 @@
  * Currently provides lossless video trimming via the bundled FFmpeg binary.
  */
 use std::process::Command;
+use crate::commands::export::augmented_path;
 
 /// Trim a video file using FFmpeg stream copy (lossless, near-instant).
 ///
@@ -39,6 +40,7 @@ pub async fn trim_video(
     );
 
     let output = Command::new("ffmpeg")
+        .env("PATH", augmented_path())
         .args([
             "-y",                          // Overwrite output without asking
             "-ss", &format!("{:.3}", start_seconds), // Seek before -i for fast keyframe seek
