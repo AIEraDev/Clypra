@@ -572,6 +572,9 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
   }, [isResizing, pixelsPerSecond, mediaAsset, updateClip, rippleEditEnabled, rippleTrimClip, snapEnabled, setSnapGuides, clearSnapGuides]);
 
   const formatDuration = (seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
+      seconds = 0;
+    }
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `00:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}:00`;

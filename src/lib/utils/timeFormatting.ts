@@ -13,6 +13,9 @@
  * Used for simple time displays without frame precision
  */
 export function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
+    seconds = 0;
+  }
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
@@ -28,9 +31,13 @@ export function formatTime(seconds: number): string {
  * Used for precise timeline displays
  */
 export function formatTimecode(seconds: number, frameRate: number): string {
-  const totalFrames = Math.round(seconds * frameRate);
-  const totalSeconds = Math.floor(totalFrames / frameRate);
-  const frames = totalFrames % frameRate;
+  if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
+    seconds = 0;
+  }
+  const safeFps = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
+  const totalFrames = Math.round(seconds * safeFps);
+  const totalSeconds = Math.floor(totalFrames / safeFps);
+  const frames = totalFrames % safeFps;
 
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
