@@ -508,21 +508,29 @@ export class DualRecordService {
 
       // 1. Screen stream capture
       if (options.screen && !this.screenStream) {
-        const videoConstraints: any = {
-          width: { ideal: targetDims.width },
-          height: { ideal: targetDims.height },
-          frameRate: { ideal: targetFps },
-        };
-        if (options.screenType === "entire") {
-          videoConstraints.displaySurface = "monitor";
-        } else if (options.screenType === "window") {
-          videoConstraints.displaySurface = "window";
-        }
+        try {
+          const videoConstraints: any = {
+            width: { ideal: targetDims.width },
+            height: { ideal: targetDims.height },
+            frameRate: { ideal: targetFps },
+          };
+          if (options.screenType === "entire") {
+            videoConstraints.displaySurface = "monitor";
+          } else if (options.screenType === "window") {
+            videoConstraints.displaySurface = "window";
+          }
 
-        this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: videoConstraints,
-          audio: false, // Mic audio is added from webcamStream below
-        });
+          this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: videoConstraints,
+            audio: false, // Mic audio is added from webcamStream below
+          });
+        } catch (displayErr) {
+          console.warn("[DualRecordService] getDisplayMedia with constraints failed, retrying with video: true...", displayErr);
+          this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false,
+          });
+        }
 
         // Listen for the OS "Stop Sharing" event on the screen video track.
         const screenVideoTrack = this.screenStream.getVideoTracks()[0];
@@ -782,6 +790,10 @@ export class DualRecordService {
           const path = await platform.saveRecording(fileName, new Uint8Array(arrayBuffer));
           filePaths.push(path);
         }
+      }
+
+      if (filePaths.length === 0) {
+        throw new Error("Screen recording ended before video data was captured. Please verify screen capture permissions.");
       }
 
       let cameraOffsetSeconds = 0;
