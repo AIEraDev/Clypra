@@ -609,34 +609,22 @@ export class DualRecordService {
         }
       }
 
-      // 3. Screen recorder — record screen video + WebAudio mic audio if enabled
+      // 3. Screen recorder — record screen video (+ mic audio if audio enabled and webcam disabled)
       if (this.screenStream && options.screen) {
         let streamToRecord = this.screenStream;
 
-        if (options.audio && this.webcamStream && this.webcamStream.getAudioTracks().length > 0) {
-          try {
-            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-            if (AudioCtx) {
-              this.recordingAudioCtx = new AudioCtx();
-              if (this.recordingAudioCtx.state === "suspended") {
-                await this.recordingAudioCtx.resume().catch(() => {});
-              }
-              const sourceNode = this.recordingAudioCtx.createMediaStreamSource(this.webcamStream);
-              const destNode = this.recordingAudioCtx.createMediaStreamDestination();
-              sourceNode.connect(destNode);
-
-              const webAudioMicTrack = destNode.stream.getAudioTracks()[0];
-              if (webAudioMicTrack) {
-                const combinedTracks = [
-                  ...this.screenStream.getVideoTracks(),
-                  webAudioMicTrack,
-                ];
-                streamToRecord = new MediaStream(combinedTracks);
-                console.log("[DualRecordService] Injected WebAudio mic track into screen recorder.");
-              }
-            }
-          } catch (audioCtxErr) {
-            console.warn("[DualRecordService] WebAudio mic track creation failed, falling back to video-only screen stream:", audioCtxErr);
+        // If audio is enabled BUT webcam is disabled (Screen + Mic mode),
+        // combine mic audio directly into screen stream. Since webcamRecorder
+        // is not running, screenRecorder is the sole consumer of the mic track.
+        if (options.audio && !options.webcam && this.webcamStream) {
+          const micTracks = this.webcamStream.getAudioTracks();
+          if (micTracks.length > 0) {
+            const combinedTracks = [
+              ...this.screenStream.getVideoTracks(),
+              micTracks[0],
+            ];
+            streamToRecord = new MediaStream(combinedTracks);
+            console.log("[DualRecordService] Combined mic audio track into screen recorder (Screen + Audio mode).");
           }
         }
 
@@ -660,7 +648,7 @@ export class DualRecordService {
       }
 
       // 4. Webcam/Audio recorder — record webcam and/or mic audio stream
-      if (this.webcamStream && (options.webcam || options.audio)) {
+      if (this.webcamStream && (options.webcam || (options.audio && !options.screen))) {
         this.webcamRecorder = new MediaRecorder(
           this.webcamStream,
           selectedMime ? { mimeType: selectedMime } : undefined
