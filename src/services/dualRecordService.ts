@@ -537,6 +537,8 @@ export class DualRecordService {
             audio: false,
           });
         }
+        // Brief delay for OS window manager to settle after display capture prompt
+        await new Promise((r) => setTimeout(r, 100));
 
         // Listen for the OS "Stop Sharing" event on the screen video track.
         const screenVideoTrack = this.screenStream.getVideoTracks()[0];
