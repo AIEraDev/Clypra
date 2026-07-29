@@ -686,8 +686,36 @@ export class DualRecordService {
       const stopRecorderInstance = (recorder: MediaRecorder | null): Promise<void> => {
         if (!recorder || recorder.state === "inactive") return Promise.resolve();
         return new Promise((resolve) => {
-          recorder.onstop = () => resolve();
-          recorder.stop();
+          let resolved = false;
+          const done = () => {
+            if (!resolved) {
+              resolved = true;
+              resolve();
+            }
+          };
+
+          const timeout = setTimeout(() => {
+            console.warn("[DualRecordService] MediaRecorder onstop timeout hit, forcing resolution.");
+            done();
+          }, 1000);
+
+          recorder.onstop = () => {
+            clearTimeout(timeout);
+            done();
+          };
+
+          recorder.onerror = () => {
+            clearTimeout(timeout);
+            done();
+          };
+
+          try {
+            recorder.stop();
+          } catch (err) {
+            console.warn("[DualRecordService] Error calling recorder.stop():", err);
+            clearTimeout(timeout);
+            done();
+          }
         });
       };
 
