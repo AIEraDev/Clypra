@@ -169,16 +169,58 @@ const App = () => {
               }
 
               const metadata = await platform.getMediaMetadata(path);
-              const posterFrame = await platform.extractPosterFrame(path, metadata.duration, window.devicePixelRatio || 1.0).catch(() => undefined);
+              let validDuration = metadata?.duration;
+
+              // If metadata duration is non-finite or non-positive (common with WebM MediaRecorder headers), probe via HTMLVideoElement
+              if (!Number.isFinite(validDuration) || validDuration <= 0) {
+                try {
+                  validDuration = await new Promise<number>((resolve) => {
+                    const vid = document.createElement("video");
+                    vid.preload = "metadata";
+                    let resolved = false;
+                    const finish = (d: number) => {
+                      if (!resolved) {
+                        resolved = true;
+                        vid.removeAttribute("src");
+                        vid.load();
+                        resolve(Number.isFinite(d) && d > 0 ? d : 5.0);
+                      }
+                    };
+                    const timeout = setTimeout(() => finish(5.0), 1000);
+                    vid.onloadedmetadata = () => {
+                      if (vid.duration && vid.duration !== Infinity && !isNaN(vid.duration) && vid.duration > 0) {
+                        clearTimeout(timeout);
+                        finish(vid.duration);
+                      } else {
+                        vid.currentTime = 1e101;
+                        vid.ontimeupdate = () => {
+                          clearTimeout(timeout);
+                          finish(vid.duration);
+                        };
+                      }
+                    };
+                    vid.onerror = () => {
+                      clearTimeout(timeout);
+                      finish(5.0);
+                    };
+                    vid.src = displayPath;
+                  });
+                } catch {
+                  validDuration = 5.0;
+                }
+              }
+
+              const safeDuration = Math.max(0.5, validDuration || 5.0);
+              const posterFrame = await platform.extractPosterFrame(path, safeDuration, window.devicePixelRatio || 1.0).catch(() => undefined);
 
               const asset = {
                 id: generateId("asset"),
                 name: filename,
                 path: displayPath,
                 type: "video" as const,
-                duration: metadata.duration,
-                width: metadata.width,
-                height: metadata.height,
+                duration: safeDuration,
+                width: metadata.width || 1920,
+                height: metadata.height || 1080,
                 posterFrame,
                 size: 0,
               };
