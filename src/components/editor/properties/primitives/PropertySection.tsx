@@ -15,15 +15,15 @@ export const PropertySection: React.FC<PropertySectionProps> = ({ title, icon, d
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-surface-raised/20 overflow-hidden transition-all">
+    <div className="rounded-xl border border-border/50 hover:border-border/80 bg-surface-raised/40 backdrop-blur-xs overflow-hidden transition-all shadow-xs">
       {/* Header */}
       <button
         type="button"
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/[0.02] transition-colors cursor-pointer select-none"
+        className="w-full flex items-center justify-between px-3.5 py-2.5 hover:bg-surface-raised/60 transition-colors cursor-pointer select-none"
       >
         <div className="flex items-center gap-2">
-          {icon && <span className="text-accent/80">{icon}</span>}
+          {icon && <span className="text-accent">{icon}</span>}
           <span className="text-[11px] font-semibold text-text-primary tracking-wide">{title}</span>
         </div>
         <div className="flex items-center gap-1.5">
