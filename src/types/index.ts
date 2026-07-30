@@ -77,6 +77,25 @@ export interface VideoMetadata {
   has_alpha?: boolean;
 }
 
+export interface CanvasBackgroundConfig {
+  type: "solid" | "gradient" | "shader" | "media";
+  color?: string; // HEX/RGBA color
+  gradient?: {
+    type: "linear" | "radial";
+    stops: Array<{ color: string; offset: number }>;
+    angle?: number;
+  };
+  shader?: {
+    presetId: "liquid_aurora" | "neon_grid" | "particle_dust" | "gradient_wave";
+    speed?: number;
+    intensity?: number;
+    colors?: string[];
+  };
+  mediaUrl?: string;
+  opacity?: number;
+  isTransparent?: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -87,6 +106,7 @@ export interface Project {
   canvasHeight: number;
   frameRate: 24 | 30 | 60;
   duration: number;
+  canvasBackground?: CanvasBackgroundConfig;
   mediaAssets?: MediaAsset[];
   markers?: TimelineMarker[];
   /** Timeline schema version for forward-compatible project migrations. */
