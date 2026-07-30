@@ -15,6 +15,7 @@ import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimeline
 import { useSplitMode } from "@/hooks/useSplitMode";
 import { EditingActions } from "@/core/interactions";
 import { useAnchoredTimelineZoom, type TimelineZoomAnchor } from "@/hooks/useAnchoredTimelineZoom";
+import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
 
 export const TimelineToolbar: React.FC = () => {
   const { zoomLevel, pixelsPerSecond, swapClips, rippleEditEnabled, toggleRippleEdit, tracks, normalizeTrack } = useTimelineStore();
@@ -298,6 +299,8 @@ export const TimelineToolbar: React.FC = () => {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <VoiceoverRecorderButton />
+
           <span className="inline-flex items-center gap-1">
             <Button title="Zoom Out" variant="ghost" size="icon-sm" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={zoomLevel <= TIMELINE_ZOOM_MIN} aria-label="Zoom out timeline">
               <ZoomOut className="w-2 h-2" strokeWidth={2} />
