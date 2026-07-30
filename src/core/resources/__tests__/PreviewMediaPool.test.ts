@@ -141,6 +141,60 @@ describe("PreviewMediaPool — Re-entrancy Protection", () => {
     expect(videoElements.size).toBeGreaterThan(0);
   });
 
+  it("retains video clip audio elements across sync ticks", () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "paused",
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+      frameRate: 30,
+    });
+
+    const firstAudio = pool.getAudioElements().get("clip-1");
+    expect(firstAudio).toBeDefined();
+
+    pool.sync(clips, assets, tracks, {
+      time: 2.7,
+      state: "paused",
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+      frameRate: 30,
+    });
+
+    expect(pool.getAudioElements().get("clip-1")).toBe(firstAudio);
+  });
+
+  it("keeps video elements muted when paired audio elements are active", () => {
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    pool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing",
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+      frameRate: 30,
+    });
+
+    const video = pool.getVideoElements().get("clip-1-media-1");
+    const audio = pool.getAudioElements().get("clip-1");
+
+    expect(video).toBeDefined();
+    expect(audio).toBeDefined();
+    expect(video?.muted).toBe(true);
+    expect(video?.volume).toBe(0);
+    expect(audio?.muted).toBe(false);
+    expect(audio?.volume).toBe(1);
+  });
+
   it("should queue sync request when already syncing", async () => {
     // Create a large number of clips to make sync() take longer
     const clips = Array.from({ length: 100 }, (_, i) => createMockClip(`clip-${i}`, `media-${i}`, i * 2, 2));
@@ -2940,13 +2994,13 @@ describe("PreviewMediaPool —: Conditional Property Updates", () => {
       frameRate: 30 as 24 | 30 | 60,
     });
 
-    const videoElements = pool.getVideoElements();
-    const element = Array.from(videoElements.values())[0];
+    const element = pool.getAudioElements().get("clip-1");
+    expect(element).toBeDefined();
 
     let volumeSetCount = 0;
-    const originalDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "volume");
+    const originalDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element!), "volume");
 
-    Object.defineProperty(element, "volume", {
+    Object.defineProperty(element!, "volume", {
       get: originalDescriptor?.get || (() => 0.5),
       set: (value: number) => {
         volumeSetCount++;
@@ -3040,11 +3094,15 @@ describe("PreviewMediaPool —: Conditional Property Updates", () => {
     });
 
     const videoElements = pool.getVideoElements();
-    const elements = Array.from(videoElements.values());
+    const videoElementsList = Array.from(videoElements.values());
+    const audioElements = pool.getAudioElements();
+    const audioElementsList = Array.from(audioElements.values());
 
-    // Both active visible video elements should be unmuted
-    const unmutedCount = elements.filter((e) => !e.muted).length;
-    expect(unmutedCount).toBe(2);
+    // Video elements are frame-only; paired audio elements own audible playback.
+    const unmutedVideoCount = videoElementsList.filter((e) => !e.muted).length;
+    const unmutedAudioCount = audioElementsList.filter((e) => !e.muted).length;
+    expect(unmutedVideoCount).toBe(0);
+    expect(unmutedAudioCount).toBe(2);
 
     // Sync again - muted states should remain correct
     pool.sync(clips, assets, tracks, {
@@ -3056,8 +3114,10 @@ describe("PreviewMediaPool —: Conditional Property Updates", () => {
       frameRate: 30 as 24 | 30 | 60,
     });
 
-    const unmutedCountAfter = elements.filter((e) => !e.muted).length;
-    expect(unmutedCountAfter).toBe(2);
+    const unmutedVideoCountAfter = videoElementsList.filter((e) => !e.muted).length;
+    const unmutedAudioCountAfter = audioElementsList.filter((e) => !e.muted).length;
+    expect(unmutedVideoCountAfter).toBe(0);
+    expect(unmutedAudioCountAfter).toBe(2);
   });
 });
 
