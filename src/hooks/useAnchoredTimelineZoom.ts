@@ -3,6 +3,7 @@ import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import {
   getAnchoredZoomScrollLeft,
+  getFitSequencePixelsPerSecond,
   getTimelineLaneWidth,
   getTimelineViewportEndForDuration,
   zoomToPixelsPerSecond,
@@ -85,9 +86,20 @@ export function useAnchoredTimelineZoom() {
     applyZoomLevel(clampTimelineZoom(state.zoomLevel + direction * TIMELINE_ZOOM_STEP), anchor);
   }, [applyZoomLevel, captureZoomAnchor]);
 
+  const fitSequence = useCallback(() => {
+    const container = getTimelineContainer();
+    if (!container) return;
+    const state = useTimelineStore.getState();
+    const pixelsPerSecond = getFitSequencePixelsPerSecond(container.clientWidth, state.getTimelineEndTime(), state.clips.length > 0);
+    state.setPixelsPerSecond(pixelsPerSecond);
+    container.scrollLeft = 0;
+    state.setScrollLeft(0);
+  }, []);
+
   return {
     captureZoomAnchor,
     applyZoomLevel,
     zoomByStep,
+    fitSequence,
   };
 }

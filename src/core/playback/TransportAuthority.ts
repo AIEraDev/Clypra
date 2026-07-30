@@ -70,6 +70,17 @@ export class TransportAuthority {
     this.activeContext?.play();
   }
 
+  /** Toggle the active context from its live state without a throttled UI snapshot. */
+  togglePlayback(): void {
+    const context = this.activeContext;
+    if (!context) return;
+    if (context.getState() === "playing") {
+      context.pause();
+    } else {
+      context.play();
+    }
+  }
+
   pause(): void {
     this.activeContext?.pause();
   }

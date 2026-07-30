@@ -7,6 +7,7 @@
 export { MoveClipCommand } from "./MoveClipCommand";
 export { DeleteClipCommand, AddClipCommand } from "./DeleteClipCommand";
 export { RippleDeleteCommand } from "./RippleDeleteCommand";
+export { RippleDeleteRangeCommand } from "./RippleDeleteRangeCommand";
 export { TrimClipCommand } from "./TrimClipCommand";
 export { SplitClipCommand } from "./SplitClipCommand";
 export { UpdateClipCommand } from "./UpdateClipCommand";
@@ -14,3 +15,4 @@ export { AddTrackCommand, DeleteTrackCommand, ToggleTrackPropertyCommand } from 
 export { TransformClipCommand } from "./TransformCommand";
 export { InsertGapCommand, RemoveGapCommand, ResizeGapCommand, ToggleGapProtectionCommand } from "./GapCommands";
 export { AddTransitionCommand, DeleteTransitionCommand } from "./TransitionCommands";
+export { InsertEditCommand } from "./InsertEditCommand";

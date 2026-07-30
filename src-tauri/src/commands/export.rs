@@ -476,14 +476,23 @@ pub async fn start_video_export(
     // Log the full FFmpeg command for debugging
     eprintln!("[start_video_export] FFmpeg command: {:?}", cmd);
     
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?;
+    super::native_export::acquire_export_slot()?;
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            super::native_export::release_export_slot();
+            return Err(format!("Failed to spawn FFmpeg: {}", error));
+        }
+    };
     
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "Failed to open stdin".to_string())?;
+    let stdin = match child.stdin.take() {
+        Some(stdin) => stdin,
+        None => {
+            let _ = child.kill().await;
+            super::native_export::release_export_slot();
+            return Err("Failed to open stdin".to_string());
+        }
+    };
     
     // Create session
     let session = ExportSession {
@@ -795,14 +804,18 @@ pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
     drop(session.stdin);
     
     // Wait for FFmpeg to finish
-    let output = session
-        .process
-        .wait_with_output()
-        .await
-        .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
+    let output = match session.process.wait_with_output().await {
+        Ok(output) => output,
+        Err(error) => {
+            super::native_export::release_export_slot();
+            return Err(format!("Failed to wait for FFmpeg: {}", error));
+        }
+    };
     
     let elapsed = session.start_time.elapsed();
     
+    super::native_export::release_export_slot();
+
     if output.status.success() {
         eprintln!(
             "[finalize_video_export] Session {} completed successfully in {:.2}s ({} frames)",
@@ -867,6 +880,7 @@ pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
         session_id, session.current_frame
     );
 
+    super::native_export::release_export_slot();
     Ok(())
 }
 

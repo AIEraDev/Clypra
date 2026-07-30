@@ -8,6 +8,8 @@
 import type { EvaluatedMediaLayer } from "../../evaluation/types";
 import { getResourceCache } from "../../resources/ResourceCache";
 
+export type VideoFrameSource = HTMLVideoElement | HTMLCanvasElement;
+
 /**
  * Resolve video element for a media layer.
  *
@@ -15,7 +17,7 @@ import { getResourceCache } from "../../resources/ResourceCache";
  * @param videoElements - Map of clip/media ID to video elements
  * @returns Video element if found, null otherwise
  */
-export function resolveVideoElement(mediaLayer: EvaluatedMediaLayer, videoElements: Map<string, HTMLVideoElement>): HTMLVideoElement | null {
+export function resolveVideoElement(mediaLayer: EvaluatedMediaLayer, videoElements: Map<string, VideoFrameSource>): VideoFrameSource | null {
   const key = `${mediaLayer.clipId}-${mediaLayer.mediaId}`;
   const element = videoElements.get(key);
 
@@ -57,7 +59,7 @@ export function resolveImageResource(mediaLayer: EvaluatedMediaLayer, resourceHa
  * @param resourceHandleMap - Optional map of layer IDs to resource handles
  * @returns Source element (HTMLVideoElement | ImageBitmap) or null
  */
-export function resolveMediaSource(mediaLayer: EvaluatedMediaLayer, videoElements: Map<string, HTMLVideoElement>, resourceHandleMap?: Map<string, any>): HTMLVideoElement | ImageBitmap | null {
+export function resolveMediaSource(mediaLayer: EvaluatedMediaLayer, videoElements: Map<string, VideoFrameSource>, resourceHandleMap?: Map<string, any>): VideoFrameSource | ImageBitmap | null {
   if (mediaLayer.mediaType === "video") {
     return resolveVideoElement(mediaLayer, videoElements);
   } else {

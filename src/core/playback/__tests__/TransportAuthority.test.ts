@@ -112,6 +112,16 @@ describe("TransportAuthority", () => {
       expect(mockProgramContext.pause).toHaveBeenCalled();
     });
 
+    it("toggles from the active context's live state", () => {
+      mockProgramContext.getState = vi.fn(() => "paused" as any);
+      authority.togglePlayback();
+      expect(mockProgramContext.play).toHaveBeenCalledTimes(1);
+
+      mockProgramContext.getState = vi.fn(() => "playing" as any);
+      authority.togglePlayback();
+      expect(mockProgramContext.pause).toHaveBeenCalledTimes(1);
+    });
+
     it("seek delegates to active context", () => {
       authority.seek(5);
       expect(mockProgramContext.seek).toHaveBeenCalledWith(5);

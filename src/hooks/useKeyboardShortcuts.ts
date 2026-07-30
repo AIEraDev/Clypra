@@ -30,16 +30,15 @@ let copiedClipsClipboard: Array<{
 }> = [];
 
 export const useKeyboardShortcuts = () => {
-  const { play, pause, seek, setActiveContext } = useTransportControls();
-  const { state: transportState, time: transportTime, speed } = useTransportSnapshot();
-  const { swapClips, rippleEditEnabled, toggleRippleEdit, addMarker } = useTimelineStore();
+  const { pause, seek, setActiveContext, togglePlayback } = useTransportControls();
+  const { time: transportTime } = useTransportSnapshot();
+  const { swapClips, addMarker } = useTimelineStore();
   const { selectedClipIds, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
   const { project } = useProjectStore();
   const { undo, redo } = useHistoryStore();
-  const { zoomByStep } = useAnchoredTimelineZoom();
+  const { zoomByStep, fitSequence } = useAnchoredTimelineZoom();
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
 
-  const isPlaying = transportState === "playing";
   const frameRate = project?.frameRate ?? 30;
 
   useEffect(() => {
@@ -56,7 +55,7 @@ export const useKeyboardShortcuts = () => {
 
       if (e.code === "Space") {
         e.preventDefault();
-        isPlaying ? pause() : play();
+        if (!e.repeat) togglePlayback();
         return;
       }
 
@@ -221,11 +220,9 @@ export const useKeyboardShortcuts = () => {
       } else if (isMeta && e.key === "-") {
         e.preventDefault();
         zoomByStep(-1);
-      } else if (e.key === "r" && !isMeta) {
+      } else if (e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        toggleRippleEdit();
-        setToastMessage(rippleEditEnabled ? "Ripple Mode: OFF" : "Ripple Mode: ON");
-        setTimeout(() => setToastMessage(null), 2000);
+        fitSequence();
       } else if (isMeta && e.key.toLowerCase() === "k") {
         e.preventDefault();
         // Ctrl/Cmd+K: Split selected clips (or all if none selected)
@@ -510,7 +507,7 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, transportTime, frameRate, selectedClipIds, previewMode, rippleEditEnabled, play, pause, seek, setActiveContext, zoomByStep, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips, toggleRippleEdit, addMarker, undo, redo]);
+  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, pause, seek, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips, addMarker, undo, redo]);
 
   return { toastMessage };
 };
