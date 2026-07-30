@@ -24,7 +24,7 @@ describe("CaptionsTab Component Integration Tests", () => {
           duration: 3,
           trimIn: 0,
           trimOut: 3,
-          text: "Hello World Caption",
+          text: "Welcome to Clypra Studio",
         } as any,
       ],
     });
