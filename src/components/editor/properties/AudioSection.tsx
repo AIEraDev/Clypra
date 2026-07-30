@@ -96,7 +96,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({ selectedClip, handle
       </PropertySection>
 
       {/* Fade Section */}
-      <PropertySection title="Fade" icon={<AudioLines className="w-3.5 h-3.5" />} defaultCollapsed>
+      <PropertySection title="Fade & Curves" icon={<AudioLines className="w-3.5 h-3.5" />} defaultCollapsed>
         <div className="space-y-2.5">
           <PropertySlider
             label="Fade In"
@@ -116,6 +116,120 @@ export const AudioSection: React.FC<AudioSectionProps> = ({ selectedClip, handle
             suffix="s"
             onChange={(v) => handleUpdate("fadeOut", clampFade(v))}
           />
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <div>
+              <span className="text-[10px] text-text-muted block mb-1">In Curve</span>
+              <select
+                value={(selectedClip as any).fadeInCurve || "linear"}
+                onChange={(e) => handleUpdate("fadeInCurve", e.target.value)}
+                className="w-full bg-surface-raised border border-white/10 rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent"
+              >
+                <option value="linear">Linear</option>
+                <option value="exponential">Exponential</option>
+                <option value="logarithmic">Logarithmic</option>
+                <option value="s-curve">S-Curve</option>
+              </select>
+            </div>
+            <div>
+              <span className="text-[10px] text-text-muted block mb-1">Out Curve</span>
+              <select
+                value={(selectedClip as any).fadeOutCurve || "linear"}
+                onChange={(e) => handleUpdate("fadeOutCurve", e.target.value)}
+                className="w-full bg-surface-raised border border-white/10 rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent"
+              >
+                <option value="linear">Linear</option>
+                <option value="exponential">Exponential</option>
+                <option value="logarithmic">Logarithmic</option>
+                <option value="s-curve">S-Curve</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </PropertySection>
+
+      {/* Audio FX Section (EQ, Pan, Noise Gate) */}
+      <PropertySection title="Audio FX & Equalizer" icon={<AudioLines className="w-3.5 h-3.5" />} defaultCollapsed>
+        <div className="space-y-3">
+          {/* Stereo Pan */}
+          <PropertySlider
+            label="Stereo Pan"
+            value={selectedClip.audioFX?.pan ? Math.round(selectedClip.audioFX.pan * 100) : 0}
+            min={-100}
+            max={100}
+            step={5}
+            suffix="%"
+            onChange={(v) =>
+              handleUpdate("audioFX", {
+                ...(selectedClip.audioFX || {}),
+                pan: v / 100,
+              })
+            }
+          />
+
+          {/* 3-Band EQ */}
+          <div className="space-y-2 pt-1 border-t border-white/5">
+            <span className="text-[10px] font-semibold text-text-secondary block">3-Band Equalizer</span>
+            <PropertySlider
+              label="Bass (100Hz)"
+              value={selectedClip.audioFX?.eq?.low ?? 0}
+              min={-12}
+              max={12}
+              step={1}
+              suffix="dB"
+              onChange={(v) =>
+                handleUpdate("audioFX", {
+                  ...(selectedClip.audioFX || {}),
+                  eq: { ...(selectedClip.audioFX?.eq || { low: 0, mid: 0, high: 0 }), low: v },
+                })
+              }
+            />
+            <PropertySlider
+              label="Mid (1kHz)"
+              value={selectedClip.audioFX?.eq?.mid ?? 0}
+              min={-12}
+              max={12}
+              step={1}
+              suffix="dB"
+              onChange={(v) =>
+                handleUpdate("audioFX", {
+                  ...(selectedClip.audioFX || {}),
+                  eq: { ...(selectedClip.audioFX?.eq || { low: 0, mid: 0, high: 0 }), mid: v },
+                })
+              }
+            />
+            <PropertySlider
+              label="Treble (8kHz)"
+              value={selectedClip.audioFX?.eq?.high ?? 0}
+              min={-12}
+              max={12}
+              step={1}
+              suffix="dB"
+              onChange={(v) =>
+                handleUpdate("audioFX", {
+                  ...(selectedClip.audioFX || {}),
+                  eq: { ...(selectedClip.audioFX?.eq || { low: 0, mid: 0, high: 0 }), high: v },
+                })
+              }
+            />
+          </div>
+
+          {/* Noise Suppression */}
+          <div className="pt-1 border-t border-white/5">
+            <PropertySlider
+              label="Noise Reduction"
+              value={Math.round((selectedClip.audioFX?.noiseSuppression ?? 0) * 100)}
+              min={0}
+              max={100}
+              step={5}
+              suffix="%"
+              onChange={(v) =>
+                handleUpdate("audioFX", {
+                  ...(selectedClip.audioFX || {}),
+                  noiseSuppression: v / 100,
+                })
+              }
+            />
+          </div>
         </div>
       </PropertySection>
     </div>

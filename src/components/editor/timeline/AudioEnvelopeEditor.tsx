@@ -162,6 +162,29 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     }
   };
 
+  const addAudioKeyframe = useTimelineStore((s) => s.addAudioKeyframe);
+  const removeAudioKeyframe = useTimelineStore((s) => s.removeAudioKeyframe);
+  const updateAudioKeyframe = useTimelineStore((s) => s.updateAudioKeyframe);
+
+  const [activeKfDrag, setActiveKfDrag] = useState<string | null>(null);
+
+  const keyframes = clip.volumeKeyframes || [];
+
+  // Double click line to add keyframe
+  const handleLineDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    const relTime = Math.max(0, Math.min(clip.duration, clickX / pixelsPerSecond));
+    const gain = Math.max(0, Math.min(2.0, (1 - clickY / rect.height) * 1.25));
+
+    addAudioKeyframe(clip.id, relTime, gain);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -174,9 +197,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     >
       {/* Visual Envelope Shape (SVG) */}
       <svg
-        className="w-full h-full absolute inset-0 opacity-40 hover:opacity-60 transition-opacity"
+        className="w-full h-full absolute inset-0 opacity-40 hover:opacity-60 transition-opacity pointer-events-auto cursor-pointer"
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
+        onDoubleClick={handleLineDoubleClick}
       >
         {/* Shaded area underneath volume envelope */}
         <polygon
@@ -192,6 +216,29 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           strokeWidth="1.5"
         />
       </svg>
+
+      {/* Render Keyframe Points */}
+      {keyframes.map((kf) => {
+        const kfX = Math.max(0, Math.min(clipWidthPx, kf.time * pixelsPerSecond));
+        const kfYPercent = 90 - (kf.gain / 1.25) * 80;
+        return (
+          <div
+            key={kf.id}
+            className="absolute w-2.5 h-2.5 bg-emerald-300 border border-white rotate-45 cursor-grab pointer-events-auto z-30 shadow-md hover:scale-125 transition-transform"
+            style={{
+              left: `${kfX}px`,
+              top: `${kfYPercent}%`,
+              transform: "translate(-50%, -50%) rotate(45deg)",
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              removeAudioKeyframe(clip.id, kf.id);
+            }}
+            title={`Keyframe: ${(kf.gain * 100).toFixed(0)}% at ${kf.time.toFixed(2)}s (Right-click to remove)`}
+          />
+        );
+      })}
 
       {/* Draggable fade-in handle (knob) */}
       <div
