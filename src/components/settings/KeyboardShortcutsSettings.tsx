@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from "react";
 import { RotateCcw, Keyboard, Search, AlertTriangle, Check } from "lucide-react";
-import { useShortcutStore, formatBinding, getShortcutCategories, type KeyBinding } from "@/store/shortcutStore";
+import { useShortcutStore, formatBinding, getShortcutCategories, type KeyBinding, PRESET_NAME_MAP, type ShortcutPreset } from "@/store/shortcutStore";
 
 // ─── Key chip ──────────────────────────────────────────────────────────────
 
@@ -155,7 +155,7 @@ function ShortcutRow({
 // ─── Main Component ────────────────────────────────────────────────────────
 
 export function KeyboardShortcutsSettings() {
-  const { shortcuts, setShortcut, resetShortcut, resetAll } = useShortcutStore();
+  const { shortcuts, setShortcut, resetShortcut, resetAll, activePreset, applyPreset } = useShortcutStore();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [recentlySaved, setRecentlySaved] = useState<string | null>(null);
@@ -255,6 +255,28 @@ export function KeyboardShortcutsSettings() {
             Reset All
           </button>
         )}
+      </div>
+
+      {/* Preset selector */}
+      <div className="flex items-center justify-between bg-surface-raised p-2.5 rounded-lg border border-white/6">
+        <div className="flex items-center gap-2">
+          <Keyboard className="w-4 h-4 text-accent" />
+          <div>
+            <span className="text-[11px] font-medium text-text-primary block">Hotkey Layout Preset</span>
+            <span className="text-[10px] text-text-muted">Choose industry standard keybindings</span>
+          </div>
+        </div>
+        <select
+          value={activePreset}
+          onChange={(e) => applyPreset(e.target.value as ShortcutPreset)}
+          className="bg-surface border border-white/10 rounded-md px-2 py-1 text-[11px] text-text-primary outline-none focus:border-accent cursor-pointer"
+        >
+          {Object.entries(PRESET_NAME_MAP).map(([key, name]) => (
+            <option key={key} value={key}>
+              {name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Search */}

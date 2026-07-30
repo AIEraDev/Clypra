@@ -39,6 +39,31 @@ export interface ShortcutAction {
   binding: KeyBinding;
 }
 
+export type ShortcutPreset = "clypra" | "premiere" | "finalcut" | "davinci";
+
+export const PRESET_NAME_MAP: Record<ShortcutPreset, string> = {
+  clypra: "Clypra Default",
+  premiere: "Adobe Premiere Pro",
+  finalcut: "Final Cut Pro",
+  davinci: "DaVinci Resolve",
+};
+
+export const PRESET_BINDINGS: Record<ShortcutPreset, Record<string, KeyBinding>> = {
+  clypra: {},
+  premiere: {
+    "split-at-playhead": { key: "c" },
+    "delete-left-at-playhead": { key: "q" },
+    "delete-right-at-playhead": { key: "w" },
+  },
+  finalcut: {
+    "split-at-playhead": { key: "b" },
+    "undo": { key: "z", ctrl: true },
+  },
+  davinci: {
+    "split-at-playhead": { key: "b" },
+  },
+};
+
 // ─── Default Shortcut Registry ────────────────────────────────────────────────
 
 const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
@@ -284,8 +309,18 @@ function buildInitialShortcuts(): Record<string, ShortcutAction> {
 
 // ─── Store Interface ──────────────────────────────────────────────────────────
 
-interface ShortcutStore {
+export interface ShortcutStore {
+  /** Map of action id -> action definition */
   shortcuts: Record<string, ShortcutAction>;
+
+  /** Currently selected hotkey preset scheme */
+  activePreset: ShortcutPreset;
+
+  /** Apply a predefined preset layout */
+  applyPreset: (preset: ShortcutPreset) => void;
+
+  /** Find conflict if a keybinding is already assigned to another action */
+  findConflict: (binding: KeyBinding, excludeActionId?: string) => ShortcutAction | null;
 
   /** Override a single shortcut's binding */
   setShortcut: (id: string, binding: KeyBinding) => void;
@@ -306,6 +341,35 @@ export const useShortcutStore = create<ShortcutStore>()(
   persist(
     (set, get) => ({
       shortcuts: buildInitialShortcuts(),
+      activePreset: "clypra",
+
+      applyPreset: (preset) => {
+        const base = buildInitialShortcuts();
+        const presetOverrides = PRESET_BINDINGS[preset] || {};
+        for (const [id, binding] of Object.entries(presetOverrides)) {
+          if (base[id]) {
+            base[id] = { ...base[id], binding };
+          }
+        }
+        set({ activePreset: preset, shortcuts: base });
+      },
+
+      findConflict: (binding, excludeActionId) => {
+        const { shortcuts } = get();
+        for (const action of Object.values(shortcuts)) {
+          if (excludeActionId && action.id === excludeActionId) continue;
+          const b = action.binding;
+          if (
+            b.key.toLowerCase() === binding.key.toLowerCase() &&
+            !!b.ctrl === !!binding.ctrl &&
+            !!b.shift === !!binding.shift &&
+            !!b.alt === !!binding.alt
+          ) {
+            return action;
+          }
+        }
+        return null;
+      },
 
       setShortcut: (id, binding) => {
         set((state) => ({
@@ -330,7 +394,7 @@ export const useShortcutStore = create<ShortcutStore>()(
       },
 
       resetAll: () => {
-        set({ shortcuts: buildInitialShortcuts() });
+        set({ activePreset: "clypra", shortcuts: buildInitialShortcuts() });
       },
 
       getMatchingAction: (e: KeyboardEvent) => {
