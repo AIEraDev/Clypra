@@ -25,7 +25,8 @@
 
 import { create } from "zustand";
 import { platform } from "@/core/platform";
-import type { Project, MediaAsset, TransitionTimelineItem } from "@/types";
+import type { Project, MediaAsset, TransitionTimelineItem, TimelineMarker } from "@/types";
+import type { Gap } from "@/types/gap";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toRustProject } from "@/types/serialization";
 import { generateId } from "@/lib/utils/id";
@@ -48,7 +49,17 @@ interface ProjectStore {
   showToast: (message: string, variant?: "success" | "error" | "warning", durationMs?: number) => void;
   createProject: (name: string, aspectRatio: string, frameRate: 24 | 30 | 60) => void;
   createProjectFromTemplate: (templateId: string, customName?: string) => Promise<void>;
-  loadProject: (project: Project, payload?: { tracks?: any[]; clips?: any[]; transitions?: TransitionTimelineItem[]; mediaAssets?: MediaAsset[] }) => Promise<void> | void;
+  loadProject: (
+    project: Project,
+    payload?: {
+      tracks?: any[];
+      clips?: any[];
+      transitions?: TransitionTimelineItem[];
+      gaps?: Gap[];
+      markers?: TimelineMarker[];
+      mediaAssets?: MediaAsset[];
+    },
+  ) => Promise<void> | void;
   addMediaAsset: (asset: MediaAsset) => void;
   removeMediaAsset: (assetId: string) => void;
   updateProject: (updates: Partial<Project>) => void;
@@ -432,8 +443,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             tracks: payload?.tracks ?? [],
             clips: normalizedClips,
             transitions: payload?.transitions ?? [],
-            gaps: (payload as any)?.gaps ?? [],
-            markers: (payload as any)?.markers ?? [],
+            gaps: payload?.gaps ?? [],
+            markers: payload?.markers ?? [],
             cleanEmptyTracks: true,
           });
           console.log("  ✅ Timeline hydrated");
