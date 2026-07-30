@@ -611,7 +611,8 @@ export class PreviewMediaPool {
         const track = this.trackMap.get(clip.trackId);
         if (track?.visible === false) continue;
 
-        const rawPath = asset ? asset.path : directAudioPath!;
+        const rawPath = (asset ? asset.path : directAudioPath) || (clip as any).path;
+        if (!rawPath) continue;
         const sourcePath = isWebviewOrExternalUrl(rawPath) ? rawPath : convertFileSrc(rawPath);
         const key = clip.id;
 
@@ -1272,8 +1273,8 @@ export class PreviewMediaPool {
       }
     });
 
-    const separator = sourcePath.includes("?") ? "&" : "?";
-    video.src = `${sourcePath}${separator}clipId=${clipId}`;
+    const isSpecialUrl = sourcePath.startsWith("blob:") || sourcePath.startsWith("data:");
+    video.src = isSpecialUrl ? sourcePath : `${sourcePath}${sourcePath.includes("?") ? "&" : "?"}clipId=${clipId}`;
 
     // Explicitly trigger video load
     video.load();
@@ -1730,8 +1731,8 @@ export class PreviewMediaPool {
       { once: true },
     );
 
-    const separator = sourcePath.includes("?") ? "&" : "?";
-    audio.src = `${sourcePath}${separator}clipId=${clipId}`;
+    const isSpecialUrl = sourcePath.startsWith("blob:") || sourcePath.startsWith("data:");
+    audio.src = isSpecialUrl ? sourcePath : `${sourcePath}${sourcePath.includes("?") ? "&" : "?"}clipId=${clipId}`;
     this.container.appendChild(audio);
     this.audios.set(key, managed);
 
