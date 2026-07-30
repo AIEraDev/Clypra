@@ -8,6 +8,7 @@ import { useCaptionStore } from "@/store/captionStore";
 import { useUIStore } from "@/store/uiStore";
 import { createTextClip } from "@/lib/text/textClip";
 import { parseSubtitles, serializeSubtitles, formatSubtitleTime } from "@/features/subtitles/parser";
+import { CAPTION_STYLE_PRESETS, getCaptionPresetById } from "@/features/subtitles/captionPresets";
 import { invoke } from "@tauri-apps/api/core";
 import { platform } from "@/core/platform";
 import type { TabProps } from "./types";
@@ -339,6 +340,23 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     updateClip(clipId, { [field]: value });
   };
 
+  const handleApplyBatchPreset = (presetId: string) => {
+    const preset = getCaptionPresetById(presetId);
+    if (!preset || captionClips.length === 0) return;
+
+    captionClips.forEach((clip) => {
+      updateClip(clip.id, {
+        fillColor: preset.fillColor,
+        strokeColor: preset.strokeColor,
+        strokeWidth: preset.strokeWidth,
+        backgroundColor: preset.backgroundColor,
+        fontFamily: preset.fontFamily,
+        fontSize: preset.fontSize,
+        bold: preset.bold,
+      } as any);
+    });
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background overflow-hidden p-3 space-y-3">
       {/* Hidden file input */}
@@ -355,6 +373,28 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           Export SRT
         </Button>
       </div>
+
+      {/* 1-Click Batch Subtitle Style Bar */}
+      {captionClips.length > 0 && (
+        <div className="p-2 bg-surface-raised border border-white/6 rounded-lg space-y-1.5 select-none">
+          <div className="flex items-center justify-between text-[10px] text-text-muted font-medium">
+            <span>Batch Style Presets ({captionClips.length} captions)</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {CAPTION_STYLE_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() => handleApplyBatchPreset(preset.id)}
+                className="flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-semibold rounded bg-surface border border-white/10 hover:border-accent/50 text-text-primary hover:text-accent transition-all cursor-pointer truncate"
+                title={preset.description}
+              >
+                <Sparkles className="w-3 h-3 shrink-0 text-accent" />
+                <span className="truncate">{preset.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Auto-Generate Section — Zero Config UX */}
       <div className="space-y-2">
