@@ -29,7 +29,6 @@ import { detectGaps, createGap, insertGapWithRipple, removeGapWithRipple, resize
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import { useUIStore } from "./uiStore";
 import { useProjectStore } from "./projectStore";
-import { usePlaybackStore } from "./playbackStore";
 import { clampTimelinePixelsPerSecond, clampTimelineZoom, TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "../lib/timeline/timelineZoom";
 import { getTimelineContentEnd, normalizeClipTiming } from "@/lib/timeline/timelineClip";
 import { autoSaveMiddleware } from "./middleware/autoSaveMiddleware";
