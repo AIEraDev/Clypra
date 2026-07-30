@@ -4,6 +4,8 @@ import type { Clip } from "@/types";
 import { PropertySection } from "./primitives/PropertySection";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import type { ColorAdjustments } from "@clypra-studio/engine";
+import { ColorWheelsSection } from "./ColorWheelsSection";
+import { LUTSection } from "./LUTSection";
 
 interface AdjustmentsSectionProps {
   selectedClip: Clip;
@@ -424,6 +426,12 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
               onReset={() => resetAdjustment("crossProcess")}
             />
           </div>
+
+          {/* 3-Way Color Wheels */}
+          <ColorWheelsSection selectedClip={selectedClip} handleUpdate={handleUpdate} />
+
+          {/* 3D LUT Importer & Presets */}
+          <LUTSection selectedClip={selectedClip} handleUpdate={handleUpdate} />
         </div>
       </div>
     </PropertySection>
