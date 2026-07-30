@@ -8,7 +8,7 @@ import { drawCanvasBackground } from "./canvasBackground.js";
 
 // Utility imports
 import { extractVisualMediaLayers, calculateMaxTrackIndex, calculateLayerZIndex } from "./utils/zIndexCalculator.js";
-import { resolveMediaSource, type VideoFrameSource } from "./utils/mediaResolver.js";
+import { resolveMediaSource } from "./utils/mediaResolver.js";
 import { resolveTransitionDefinition, mergeTransitionParams } from "./utils/transitionResolver.js";
 import { TransitionShaderCache } from "./TransitionShaderCache.js";
 import { getPlaybackClock } from "../playback/PlaybackClock.js";
@@ -138,7 +138,6 @@ export class PixiSceneCompositor {
       throw new Error("[PixiSceneCompositor] WebGL context lost during frame composition");
     }
 
-  async composeFrame(scene: EvaluatedScene, viewport: { scale: number; offsetX: number; offsetY: number; pixelRatio: number; projectWidth?: number; projectHeight?: number }, videoElements: Map<string, VideoFrameSource>, resourceHandleMap?: Map<string, any>, bodyMasks: Map<string, any> = new Map()): Promise<void> {
     if (!this.renderer.isReady) {
       return;
     }
@@ -280,10 +279,6 @@ export class PixiSceneCompositor {
                 record.texture.source.update();
                 this.mediaPool.markTextureClean(mediaLayer.clipId);
               }
-            }
-
-            if (mediaLayer.mediaType === "video" && sourceElement instanceof HTMLCanvasElement) {
-              record.texture.source.update();
             }
 
             // Capture video source dimensions using conform capture service
@@ -431,7 +426,6 @@ export class PixiSceneCompositor {
   }
 
   private async composeActiveTransition(transition: EvaluatedTransition, definition: any, scene: EvaluatedScene, baseMediaContainer: Container, renderOrder: number, maxTrackIndex: number, videoElements: Map<string, HTMLVideoElement>, resourceHandleMap?: Map<string, any>): Promise<void> {
-  private async composeActiveTransition(transition: EvaluatedTransition, definition: any, scene: EvaluatedScene, baseMediaContainer: Container, renderOrder: number, videoElements: Map<string, VideoFrameSource>, resourceHandleMap?: Map<string, any>): Promise<void> {
     const outgoingLayer = scene.visualLayers.find((l) => l.layerId === transition.outgoingLayer) as EvaluatedMediaLayer;
     const incomingLayer = scene.visualLayers.find((l) => l.layerId === transition.incomingLayer) as EvaluatedMediaLayer;
     if (!outgoingLayer || !incomingLayer) return;
@@ -482,7 +476,7 @@ export class PixiSceneCompositor {
     }
   }
 
-  private renderToOffscreenTexture(slot: "from" | "to", layer: EvaluatedMediaLayer, scene: EvaluatedScene, videoElements: Map<string, VideoFrameSource>, resourceHandleMap?: Map<string, any>): RenderTexture {
+  private renderToOffscreenTexture(slot: "from" | "to", layer: EvaluatedMediaLayer, scene: EvaluatedScene, videoElements: Map<string, HTMLVideoElement>, resourceHandleMap?: Map<string, any>): RenderTexture {
     const app = this.renderer.getApp()!;
     const canvasWidth = scene.metadata.canvasWidth || 1920;
     const canvasHeight = scene.metadata.canvasHeight || 1080;
@@ -532,10 +526,6 @@ export class PixiSceneCompositor {
           record.texture.source.update();
           this.mediaPool.markTextureClean(layer.clipId);
         }
-      }
-
-      if (layer.mediaType === "video" && sourceElement instanceof HTMLCanvasElement) {
-        record.texture.source.update();
       }
 
       const layersCopy = { ...layer, opacity: 1.0 };
