@@ -73,9 +73,11 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     return Boolean(el.closest("[data-clip-resize-handle='true']"));
   };
 
-  // Calculate position
+  // Calculate position (derived from right edge to align with END marker)
   const left = timeToPixel(clip.startTime, pixelsPerSecond);
-  const width = timeToPixel(clip.duration, pixelsPerSecond);
+  const right = timeToPixel(clip.startTime + clip.duration, pixelsPerSecond);
+  const width = right - left;
+
 
 
   // Log clip renders during resize for debugging

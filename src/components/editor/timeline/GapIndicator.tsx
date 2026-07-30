@@ -30,9 +30,11 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({ gap, pixelsPerSecond
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
   const gapRef = useRef<HTMLDivElement>(null);
 
-  // Calculate position and dimensions
+  // Calculate position and dimensions (derived from right edge to align with clip boundaries)
   const left = timeToPixel(gap.startTime, pixelsPerSecond);
-  const width = timeToPixel(gap.duration, pixelsPerSecond);
+  const right = timeToPixel(gap.startTime + gap.duration, pixelsPerSecond);
+  const width = right - left;
+
 
 
   // Format duration for display

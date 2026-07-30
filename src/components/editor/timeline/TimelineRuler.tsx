@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
-import { timeToPixel } from "@/lib/timeline/timelineViewport";
+import { timeToPixel, getTimelineCanvasDuration } from "@/lib/timeline/timelineViewport";
 import type { TimelineMarker } from "@/types";
 
 interface TimelineRulerProps {
@@ -344,8 +344,10 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
 
     const minorInterval = majorInterval / minorDivisions;
     const padPx = 60;
+    const canvasDuration = getTimelineCanvasDuration(sequenceDuration ?? 0);
     const startTime = Math.max(0, (validScrollLeft - padPx) / validPPS);
-    const endTime = (validScrollLeft + validViewportWidth + padPx) / validPPS;
+    const rawEndTime = (validScrollLeft + validViewportWidth + padPx) / validPPS;
+    const endTime = Math.min(canvasDuration, rawEndTime);
 
     const result: { time: number; isMajor: boolean }[] = [];
     const firstTick = Math.floor(startTime / minorInterval) * minorInterval;
@@ -364,7 +366,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
     }
 
     return result;
-  }, [pixelsPerSecond, scrollLeft, viewportWidth]);
+  }, [pixelsPerSecond, scrollLeft, viewportWidth, sequenceDuration]);
 
   // ── Double-click ruler to add marker ────────────────────────────────────
   const handleDoubleClick = useCallback(
@@ -413,7 +415,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
             <div
               style={{
                 width: 1,
-                height: isMajor ? 10 : 5,
+                height: isMajor ? 6 : 4,
                 backgroundColor: isMajor ? "var(--color-timeline-ruler-tick-major)" : "var(--color-timeline-ruler-tick-minor)",
               }}
             />
@@ -421,10 +423,10 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
               <span
                 style={{
                   position: "absolute",
-                  top: 3,
+                  top: 8,
                   left: 0,
                   transform: "translateX(-50%)",
-                  fontSize: 10,
+                  fontSize: 9,
                   lineHeight: 1,
                   color: "var(--color-timeline-ruler-text)",
                   whiteSpace: "nowrap",
@@ -465,19 +467,21 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
               transform: "translateX(-50%)",
               fontSize: 8,
               fontWeight: 700,
-              lineHeight: "10px",
+              lineHeight: "1",
               padding: "1px 3px",
               borderRadius: 2,
               backgroundColor: "#ef4444",
               color: "#ffffff",
               whiteSpace: "nowrap",
               letterSpacing: "0.05em",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.5)",
             }}
           >
             END
           </div>
         </div>
       )}
+
 
       {/* ── Marker pins ── */}
       {markers.map((marker) => (

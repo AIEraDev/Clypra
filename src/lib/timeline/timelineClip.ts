@@ -52,8 +52,16 @@ export function getTimelineContentEnd(clips: Pick<Clip, "startTime" | "trimIn" |
   return ends.length > 0 ? Math.max(...ends, 0) : 0;
 }
 
+export const TIMELINE_MIN_CANVAS_DURATION_SECONDS = 5;
+export const TIMELINE_CANVAS_PADDING_SECONDS = 2;
+
+export function getTimelineCanvasDuration(sequenceDuration: number): number {
+  const validDuration = typeof sequenceDuration === "number" && !isNaN(sequenceDuration) ? sequenceDuration : 0;
+  return Math.max(validDuration + TIMELINE_CANVAS_PADDING_SECONDS, TIMELINE_MIN_CANVAS_DURATION_SECONDS);
+}
+
 export function getTimelineViewportEnd(contentEnd: number): number {
-  return contentEnd > 0 ? contentEnd : 10;
+  return getTimelineCanvasDuration(contentEnd);
 }
 
 interface CreateClipFromAssetParams {

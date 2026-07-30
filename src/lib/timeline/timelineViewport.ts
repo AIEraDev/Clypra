@@ -1,5 +1,7 @@
-import { getTimelineViewportEnd } from "./timelineClip";
+import { getTimelineViewportEnd, getTimelineCanvasDuration, TIMELINE_MIN_CANVAS_DURATION_SECONDS, TIMELINE_CANVAS_PADDING_SECONDS } from "./timelineClip";
 import { TIMELINE_PPS_PER_ZOOM, clampTimelinePixelsPerSecond, clampTimelineZoom } from "./timelineZoom";
+
+export { getTimelineCanvasDuration, TIMELINE_MIN_CANVAS_DURATION_SECONDS, TIMELINE_CANVAS_PADDING_SECONDS };
 
 export const TIMELINE_TRACK_LABEL_WIDTH_PX = 160;
 

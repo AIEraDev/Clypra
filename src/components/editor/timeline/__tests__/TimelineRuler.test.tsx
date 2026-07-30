@@ -31,14 +31,14 @@ describe("TimelineRuler coordinate mapping", () => {
   });
 
   it("positions tick labels in content coordinates without subtracting scroll twice", () => {
-    render(<TimelineRuler pixelsPerSecond={100} scrollLeft={100} />);
+    render(<TimelineRuler pixelsPerSecond={100} scrollLeft={100} sequenceDuration={20} />);
 
     const tenSecondLabel = screen.getByText("00:10");
     expect(tenSecondLabel.parentElement?.style.left).toBe("1000px");
   });
 
   it("adds markers using ruler-local content coordinates", () => {
-    const { container } = render(<TimelineRuler pixelsPerSecond={100} scrollLeft={100} />);
+    const { container } = render(<TimelineRuler pixelsPerSecond={100} scrollLeft={100} sequenceDuration={20} />);
     const ruler = container.firstElementChild as HTMLDivElement;
     ruler.getBoundingClientRect = () =>
       ({

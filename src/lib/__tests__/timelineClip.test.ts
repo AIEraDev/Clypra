@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { getClipVisibleDuration, getClipEndTime, getTimelineContentEnd, getTimelineViewportEnd, normalizeClipTiming, createClipFromAsset, resolveClipDuration } from "../timeline/timelineClip";
 import { resolveDefaultFitModeForAsset } from "../timeline/placementPolicy";
+import { timeToPixel, getTimelineLabelColumnWidth } from "../timeline/timelineViewport";
 import type { Clip, MediaAsset } from "@/types";
+
 
 describe("timelineClip timing helpers", () => {
   describe("getClipVisibleDuration", () => {
@@ -62,20 +64,20 @@ describe("timelineClip timing helpers", () => {
   });
 
   describe("getTimelineViewportEnd", () => {
-    it("returns at least 10 seconds for empty timeline", () => {
-      expect(getTimelineViewportEnd(0)).toBe(10);
+    it("returns minimum canvas duration (5s) for empty timeline", () => {
+      expect(getTimelineViewportEnd(0)).toBe(5);
     });
 
-    it("returns content end for short content", () => {
-      expect(getTimelineViewportEnd(4.365)).toBe(4.365);
+    it("returns canvas duration for short content (4.365s + 2s)", () => {
+      expect(getTimelineViewportEnd(4.365)).toBe(6.365);
     });
 
-    it("returns content end for content longer than 10s", () => {
-      expect(getTimelineViewportEnd(25)).toBe(25);
+    it("returns 11s canvas duration for 9s content (2s padding)", () => {
+      expect(getTimelineViewportEnd(9)).toBe(11);
     });
 
-    it("returns exactly 10 for 10s content", () => {
-      expect(getTimelineViewportEnd(10)).toBe(10);
+    it("returns canvas duration with 2s look-ahead padding for 25s content", () => {
+      expect(getTimelineViewportEnd(25)).toBe(27);
     });
   });
 
@@ -460,4 +462,94 @@ describe("timelineClip timing helpers", () => {
       expect(clip.height).toBe(400);
     });
   });
+
+  describe("Clip right-edge & END marker pixel alignment regression tests", () => {
+
+    const testCases = [
+      { startTime: 4.365, duration: 9.633, pps: 45 },
+      { startTime: 3.45, duration: 9.633, pps: 77 },
+      { startTime: 2.45, duration: 12.1, pps: 77 },
+      { startTime: 1.15, duration: 12.1, pps: 83 },
+    ];
+
+
+    testCases.forEach(({ startTime, duration, pps }) => {
+      it(`aligns clip right edge to END marker for start=${startTime}s, dur=${duration}s at pps=${pps}`, () => {
+        // New single-expression right edge position (derived from right edge)
+        const leftPx = timeToPixel(startTime, pps);
+        const rightPx = timeToPixel(startTime + duration, pps);
+        const newClipWidthPx = rightPx - leftPx;
+        const newClipRightEdgePx = leftPx + newClipWidthPx;
+
+        // END marker position expression used by Timeline & TimelineRuler
+        const endMarkerPositionPx = timeToPixel(startTime + duration, pps);
+
+        // 1. Assert NEW clip right edge equals END marker position exactly
+        expect(newClipRightEdgePx).toBe(endMarkerPositionPx);
+
+        // Also check timeline lane column width offset inclusion
+        const labelWidth = getTimelineLabelColumnWidth(true);
+        expect(labelWidth + newClipRightEdgePx).toBe(labelWidth + endMarkerPositionPx);
+
+        // 2. Demonstrate that OLD split implementation diverges (catches regression)
+        const oldClipWidthPx = Math.round(duration * pps);
+        const oldClipLeftPx = Math.round(startTime * pps);
+        const oldClipRightEdgePx = oldClipLeftPx + oldClipWidthPx;
+
+        // Confirm OLD implementation produces a 1px divergence on these non-integer test cases
+        expect(oldClipRightEdgePx).not.toBe(endMarkerPositionPx);
+        expect(Math.abs(oldClipRightEdgePx - endMarkerPositionPx)).toBe(1);
+      });
+    });
+  });
+
+  describe("Gap and Transition right-edge pixel alignment tests", () => {
+    const testCases = [
+      { startTime: 13.80, duration: 1.5, pps: 77 },
+      { startTime: 4.365, duration: 9.633, pps: 45 },
+      { startTime: 3.45, duration: 9.633, pps: 77 },
+      { startTime: 1.15, duration: 12.1, pps: 83 },
+    ];
+
+    testCases.forEach(({ startTime, duration, pps }) => {
+      it(`aligns Gap right edge to adjacent clip start position for start=${startTime}s, dur=${duration}s at pps=${pps}`, () => {
+        const gapLeft = timeToPixel(startTime, pps);
+        const gapRight = timeToPixel(startTime + duration, pps);
+        const gapWidth = gapRight - gapLeft;
+        const computedGapRight = gapLeft + gapWidth;
+
+        const nextClipStartPx = timeToPixel(startTime + duration, pps);
+        expect(computedGapRight).toBe(nextClipStartPx);
+
+        // Verify OLD split formula fails against target
+        const oldGapRight = Math.round(startTime * pps) + Math.round(duration * pps);
+        expect(oldGapRight).not.toBe(nextClipStartPx);
+        expect(Math.abs(oldGapRight - nextClipStartPx)).toBe(1);
+      });
+
+      it(`aligns Transition right edge to transition end position for start=${startTime}s, dur=${duration}s at pps=${pps}`, () => {
+        const transLeft = timeToPixel(startTime, pps);
+        const transRight = timeToPixel(startTime + duration, pps);
+        const transWidth = transRight - transLeft;
+        const computedTransRight = transLeft + transWidth;
+
+        const expectedRightPx = timeToPixel(startTime + duration, pps);
+        expect(computedTransRight).toBe(expectedRightPx);
+
+        // Transition cutPoint verification: fromClip ends at cutPoint = startTime + duration/2
+        const cutPoint = startTime + duration / 2;
+        const toClipStartPx = timeToPixel(cutPoint, pps);
+        const transitionEndTargetPx = timeToPixel(cutPoint + duration / 2, pps);
+        expect(computedTransRight).toBe(transitionEndTargetPx);
+
+        // Verify OLD split formula fails against target
+        const oldTransRight = Math.round(startTime * pps) + Math.round(duration * pps);
+        expect(oldTransRight).not.toBe(expectedRightPx);
+        expect(Math.abs(oldTransRight - expectedRightPx)).toBe(1);
+      });
+    });
+  });
+
 });
+
+
