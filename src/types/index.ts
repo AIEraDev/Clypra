@@ -247,6 +247,7 @@ export interface Clip {
   markers?: ClipMarker[];
   /** Visual property animation keyframes */
   visualKeyframes?: Partial<Record<VisualPropertyKey, VisualPropertyKeyframe[]>>;
+  audioPath?: string;
 }
 
 export type EasingType = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bezier";
