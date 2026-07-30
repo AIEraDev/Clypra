@@ -245,7 +245,24 @@ export interface Clip {
   adjustments?: import("@clypra-studio/engine").ColorAdjustments;
   /** Clip-level markers pinned to local clip time */
   markers?: ClipMarker[];
+  /** Visual property animation keyframes */
+  visualKeyframes?: Partial<Record<VisualPropertyKey, VisualPropertyKeyframe[]>>;
 }
+
+export type EasingType = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bezier";
+
+export interface VisualPropertyKeyframe {
+  id: string;
+  /** Relative time inside the clip (seconds) */
+  time: number;
+  /** Property value */
+  value: number;
+  easing?: EasingType;
+  /** Bezier control points [x1, y1, x2, y2] for custom curve */
+  controlPoints?: [number, number, number, number];
+}
+
+export type VisualPropertyKey = "x" | "y" | "width" | "height" | "rotation" | "opacity";
 
 /** Video overlay applied to a clip (actual video file) */
 export interface ClipOverlay {
