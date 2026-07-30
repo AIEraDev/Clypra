@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment jsdom
+ */
+/**
  * Z-Order Regression Test — Verification of Fix
  *
  * This test specifically verifies that the role inference fix resolves

@@ -14,6 +14,16 @@ describe("Project Serialization Layer", () => {
       canvasHeight: 1080,
       frameRate: 30,
       duration: 12.5,
+      canvasBackground: {
+        type: "shader",
+        opacity: 0.65,
+        isTransparent: false,
+        shader: {
+          presetId: "liquid_aurora",
+          speed: 1.4,
+          intensity: 0.8,
+        },
+      },
       timelineSchemaVersion: 1,
     };
 
@@ -89,6 +99,7 @@ describe("Project Serialization Layer", () => {
     expect(rustProject.canvas_height).toBe(1080);
     expect(rustProject.frame_rate).toBe(30);
     expect(rustProject.duration).toBe(12.5);
+    expect(rustProject.canvas_background).toEqual(frontendProject.canvasBackground);
     expect(rustProject.timeline_schema_version).toBe(1);
 
     // Verify tracks serialization
@@ -152,6 +163,7 @@ describe("Project Serialization Layer", () => {
     const deserializedMediaAsset = fromRustMediaAsset(rustProject.media_assets![0]);
     const deserializedClip = fromRustClip(rustProject.clips![0]);
 
+    expect(deserializedProject.canvasBackground).toEqual(frontendProject.canvasBackground);
     expect(deserializedMediaAsset.rotation).toBe(90);
     expect(deserializedMediaAsset.contentBounds).toEqual({
       x: 10,

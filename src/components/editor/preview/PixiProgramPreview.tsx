@@ -25,6 +25,7 @@ import { AspectSelector } from "./AspectSelector";
 import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
 import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
 import { VolumeControl } from "./VolumeControl";
+import { getCanvasBackgroundLayer } from "./canvasBackground";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
@@ -34,6 +35,8 @@ const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: numbe
   "9:16": { width: 1080, height: 1920 },
   "1:1": { width: 1080, height: 1080 },
   "4:5": { width: 1080, height: 1350 },
+  "21:9": { width: 2520, height: 1080 },
+  "4:3": { width: 1440, height: 1080 },
 };
 
 export const PixiProgramPreview: React.FC = () => {
@@ -148,6 +151,9 @@ export const PixiProgramPreview: React.FC = () => {
   }, [canvasWidth, canvasHeight, viewport.panX, viewport.panY, viewport.zoom, dimensions.width, dimensions.height, previewScaleMode]);
 
   const { scale, offsetX, offsetY, displayWidth, displayHeight } = displayTransform;
+  const previewBackgroundLayer = useMemo(() => {
+    return getCanvasBackgroundLayer(project?.canvasBackground);
+  }, [project?.canvasBackground]);
 
   renderStateRef.current.displayWidth = displayWidth;
   renderStateRef.current.displayHeight = displayHeight;
@@ -578,15 +584,24 @@ export const PixiProgramPreview: React.FC = () => {
         <div ref={previewContainerCallback} onPointerDownCapture={handlePreviewPointerDownCapture} className={cn("w-full h-full flex items-center justify-center relative z-10 overflow-hidden", isPanning && "cursor-grabbing", spacePressed && !isPanning && "cursor-grab")}>
           <div data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]" style={{ width: displayWidth, height: displayHeight }}>
             <>
+              {previewBackgroundLayer && (
+                <div
+                  data-testid="program-preview-background"
+                  className={cn("absolute inset-0 z-0 pointer-events-none overflow-hidden", previewBackgroundLayer.className)}
+                  style={previewBackgroundLayer.style}
+                />
+              )}
               <canvas
                 ref={canvasRef}
                 data-testid="program-preview-canvas"
                 style={{
+                  position: "relative",
+                  zIndex: 1,
                   width: displayWidth,
                   height: displayHeight,
                   imageRendering: "auto",
+                  background: "transparent",
                 }}
-                className="bg-black"
               />
 
               <TransformOverlay canvasWidth={canvasWidth} canvasHeight={canvasHeight} scale={scale} viewport={viewport} displayOffset={{ x: offsetX, y: offsetY }} displayWidth={displayWidth} displayHeight={displayHeight} currentTime={currentTime} visible={!isPlaying} />

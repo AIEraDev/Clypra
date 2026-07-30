@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy } from "lucide-react";
 import { Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/Tooltip";
@@ -13,6 +14,7 @@ import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimeline
 import { useSplitMode } from "@/hooks/useSplitMode";
 import { EditingActions } from "@/core/interactions";
 import { useAnchoredTimelineZoom, type TimelineZoomAnchor } from "@/hooks/useAnchoredTimelineZoom";
+import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
 
 export const TimelineToolbar: React.FC = () => {
   const { zoomLevel, pixelsPerSecond, swapClips, tracks, normalizeTrack } = useTimelineStore();
@@ -264,6 +266,8 @@ export const TimelineToolbar: React.FC = () => {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <VoiceoverRecorderButton />
+
           <span className="inline-flex items-center gap-1">
             <Button title="Fit sequence (Shift+Z)" variant="ghost" size="icon-sm" className={zoomButton} onClick={fitSequence} aria-label="Fit sequence">
               <Maximize2 className="w-3.5 h-3.5" strokeWidth={2} />

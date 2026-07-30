@@ -387,10 +387,24 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       // Convert screen coordinates to canvas coordinates using overlay-local mapping
       const canvasCoords = mouseToCanvas(e.clientX, e.clientY, rect, viewport, canvasWidth, canvasHeight, scale);
 
+      // Resolve actual rendered dimensions (accounting for conform if present)
+      let actualWidth = selectedClip.width;
+      let actualHeight = selectedClip.height;
+      let actualX = selectedClip.x;
+      let actualY = selectedClip.y;
+
+      if (selectedClip.conform && selectedClip.conform.sourceWidth && selectedClip.conform.sourceHeight) {
+        const resolved = resolveConform(selectedClip.conform, canvasWidth, canvasHeight);
+        actualWidth = resolved.width;
+        actualHeight = resolved.height;
+        actualX = resolved.x;
+        actualY = resolved.y;
+      }
+
       // Capture start angle for rotation handle
       if (handle === "rotate") {
-        const centerX = selectedClip.x + selectedClip.width / 2;
-        const centerY = selectedClip.y + selectedClip.height / 2;
+        const centerX = actualX + actualWidth / 2;
+        const centerY = actualY + actualHeight / 2;
         startAngleRef.current = Math.atan2(canvasCoords.y - centerY, canvasCoords.x - centerX);
       } else {
         startAngleRef.current = undefined;
@@ -427,16 +441,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         clipId: selectedClip.id,
         handle,
         startTransform: {
-          x: selectedClip.x,
-          y: selectedClip.y,
-          width: selectedClip.width,
-          height: selectedClip.height,
+          x: actualX,
+          y: actualY,
+          width: actualWidth,
+          height: actualHeight,
           rotation: selectedClip.rotation,
           conform: selectedClip.conform ? { ...selectedClip.conform } : undefined,
         },
         startMousePos: canvasCoords,
         aspectRatioLocked: selectedClip.aspectRatioLocked ?? true,
-        sourceAspectRatio: selectedClip.sourceAspectRatio ?? selectedClip.width / selectedClip.height,
+        sourceAspectRatio: selectedClip.sourceAspectRatio ?? (actualWidth / Math.max(1, actualHeight)),
       });
     },
     [selectedClip, scale, viewport, canvasWidth, canvasHeight, transformController],

@@ -3,14 +3,77 @@ import { AdjustmentFilter } from "pixi-filters";
 import { resolveFilterToIR } from "./filterIR.js";
 import { createGPUPixelateFilter, createGPUScanlinesFilter, createGPURGBSplitFilter, createGPUFilmGrainFilter, createGPUVignetteFilter } from "./gpuFilters.js";
 
-import { applyMediaTransform as engineApplyTransform, releaseMediaSprite as engineReleaseSprite, getOrCreateMediaSprite as engineGetOrCreateSprite, getActiveMediaSpriteKeys, getMediaSpriteRecord, createGPUBodyOutlineFilter, createGPUBodyGlowFilter, createGPUBodyParticlesFilter, type MediaSpriteRecord, type RenderViewport } from "@clypra-studio/engine";
+import { applyMediaTransform as engineApplyTransform, releaseMediaSprite as engineReleaseSprite, getOrCreateMediaSprite as engineGetOrCreateSprite, getActiveMediaSpriteKeys, getMediaSpriteRecord, createGPUBodyOutlineFilter, createGPUBodyGlowFilter, createGPUBodyParticlesFilter, resolveConform, type MediaSpriteRecord, type RenderViewport } from "@clypra-studio/engine";
 
 export type { MediaSpriteRecord, RenderViewport };
 
 const RELEASE_AFTER_INACTIVE_FRAMES = 180; // ~3 seconds at 60 FPS
 
 export function applyMediaTransform(sprite: Sprite, layer: any, viewport: RenderViewport): void {
-  engineApplyTransform(sprite, layer, viewport);
+  if (!sprite || sprite.destroyed || !sprite.anchor) return;
+
+  const { projectWidth, projectHeight } = viewport;
+  const conform = layer.conform || {
+    mode: "fit",
+    sourceWidth: layer.width || 0,
+    sourceHeight: layer.height || 0,
+    userScale: 1,
+    userOffsetX: 0,
+    userOffsetY: 0,
+  };
+  const { x, y, width, height } = resolveConform(conform, projectWidth || 1920, projectHeight || 1080);
+
+  // Use resolveConform output directly — no transposition needed.
+  // The browser's <video> element already corrects for source rotation in
+  // videoWidth/videoHeight, and resolveConform's sourceWidth/sourceHeight
+  // are captured from those corrected values. Transposing here would
+  // double-correct, causing the sprite to diverge from the TransformOverlay.
+  const renderWidth = width;
+  const renderHeight = height;
+
+  const sw = sprite.texture?.source?.width;
+  const sh = sprite.texture?.source?.height;
+  if (sw && sh) {
+    const currFrame = sprite.texture.frame;
+    if (currFrame && (currFrame.x !== 0 || currFrame.y !== 0 || currFrame.width !== sw || currFrame.height !== sh)) {
+      sprite.texture.frame.x = 0;
+      sprite.texture.frame.y = 0;
+      sprite.texture.frame.width = sw;
+      sprite.texture.frame.height = sh;
+      sprite.texture.orig.x = 0;
+      sprite.texture.orig.y = 0;
+      sprite.texture.orig.width = sw;
+      sprite.texture.orig.height = sh;
+      if (typeof sprite.texture.updateUvs === "function") {
+        sprite.texture.updateUvs();
+      }
+      if (typeof (sprite as any).onViewUpdate === "function") {
+        (sprite as any).onViewUpdate();
+      }
+    }
+  }
+
+  // Center anchor for accurate rotation around clip center (matching TransformOverlay)
+  sprite.anchor.set(0.5, 0.5);
+  sprite.position.set(x + renderWidth / 2, y + renderHeight / 2);
+
+  // Set scale based on unrotated texture dimensions to prevent PixiJS AABB rotation distortion
+  const texW = sprite.texture?.orig?.width || sprite.texture?.source?.width || renderWidth;
+  const texH = sprite.texture?.orig?.height || sprite.texture?.source?.height || renderHeight;
+
+  if (texW > 0 && texH > 0) {
+    sprite.scale.set(renderWidth / texW, renderHeight / texH);
+  } else {
+    sprite.width = renderWidth;
+    sprite.height = renderHeight;
+  }
+
+  // Only use the user's clip rotation — NOT sourceRotation.
+  // The browser's <video> element already displays video content upright
+  // (accounting for container metadata rotation), so adding sourceRotation
+  // here would double-rotate the content.
+  sprite.rotation = ((layer.rotation || 0) * Math.PI) / 180;
+  sprite.alpha = layer.opacity;
 }
 
 export function releaseMediaSprite(clipId: string, container: import("pixi.js").Container): void {

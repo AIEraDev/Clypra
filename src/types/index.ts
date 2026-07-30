@@ -1,4 +1,4 @@
-export type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5";
+export type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5" | "21:9" | "4:3";
 
 /**
  * Maximum project name length.
@@ -12,6 +12,8 @@ export const PREVIEW_ASPECT_LABEL: Record<AspectRatio, string> = {
   "9:16": "9:16 (Reels/Shorts)",
   "1:1": "1:1 (Instagram)",
   "4:5": "4:5 (Instagram)",
+  "21:9": "21:9 (Cinematic)",
+  "4:3": "4:3 (Standard/Tablet)",
 };
 
 export enum DensityLevel {
@@ -75,6 +77,25 @@ export interface VideoMetadata {
   has_alpha?: boolean;
 }
 
+export interface CanvasBackgroundConfig {
+  type: "solid" | "gradient" | "shader" | "media";
+  color?: string; // HEX/RGBA color
+  gradient?: {
+    type: "linear" | "radial";
+    stops: Array<{ color: string; offset: number }>;
+    angle?: number;
+  };
+  shader?: {
+    presetId: "liquid_aurora" | "neon_grid" | "particle_dust" | "gradient_wave";
+    speed?: number;
+    intensity?: number;
+    colors?: string[];
+  };
+  mediaUrl?: string;
+  opacity?: number;
+  isTransparent?: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -85,6 +106,7 @@ export interface Project {
   canvasHeight: number;
   frameRate: 24 | 30 | 60;
   duration: number;
+  canvasBackground?: CanvasBackgroundConfig;
   mediaAssets?: MediaAsset[];
   markers?: TimelineMarker[];
   /** Timeline schema version for forward-compatible project migrations. */
@@ -158,6 +180,37 @@ export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { 
 
 export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay";
 
+/** Audio automation keyframe point */
+export interface AudioKeyframe {
+  id: string;
+  time: number; // relative time within clip duration (0 to duration)
+  gain: number; // volume multiplier 0.0 to 2.0
+  easing?: "linear" | "exponential" | "bezier";
+}
+
+/** Easing curve types for audio fade transitions */
+export type AudioFadeCurve = "linear" | "exponential" | "logarithmic" | "s-curve";
+
+/** Audio FX processing configuration for clip */
+export interface AudioFXConfig {
+  eq?: {
+    low: number;  // Bass gain (-12dB to +12dB)
+    mid: number;  // Mid gain (-12dB to +12dB)
+    high: number; // Treble gain (-12dB to +12dB)
+  };
+  noiseSuppression?: number; // 0.0 to 1.0 noise reduction
+  compressor?: {
+    threshold: number; // -60 to 0 dB
+    ratio: number;     // 1 to 20
+  };
+  pan?: number; // Stereo panning: -1.0 (Left) to +1.0 (Right)
+  ducking?: {
+    enabled: boolean;
+    duckingAmount: number; // -30dB to -3dB
+    threshold: number;
+  };
+}
+
 export interface Clip {
   id: string;
   name?: string;
@@ -186,6 +239,14 @@ export interface Clip {
   fadeIn?: number;
   /** Audio fade out duration in seconds */
   fadeOut?: number;
+  /** Audio fade in curve profile */
+  fadeInCurve?: AudioFadeCurve;
+  /** Audio fade out curve profile */
+  fadeOutCurve?: AudioFadeCurve;
+  /** Audio volume automation keyframe points */
+  volumeKeyframes?: AudioKeyframe[];
+  /** Audio FX processing configuration (EQ, Noise, Compressor, Pan) */
+  audioFX?: AudioFXConfig;
   kind?: ClipKind; // Optional for backward compatibility
   /** Video overlays (actual video files like smoke, fire, light leaks) */
   overlays?: ClipOverlay[];
@@ -204,7 +265,27 @@ export interface Clip {
   /** Text template ID for text clips */
   templateId?: string;
   adjustments?: import("@clypra-studio/engine").ColorAdjustments;
+  /** Clip-level markers pinned to local clip time */
+  markers?: ClipMarker[];
+  /** Visual property animation keyframes */
+  visualKeyframes?: Partial<Record<VisualPropertyKey, VisualPropertyKeyframe[]>>;
+  audioPath?: string;
 }
+
+export type EasingType = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bezier";
+
+export interface VisualPropertyKeyframe {
+  id: string;
+  /** Relative time inside the clip (seconds) */
+  time: number;
+  /** Property value */
+  value: number;
+  easing?: EasingType;
+  /** Bezier control points [x1, y1, x2, y2] for custom curve */
+  controlPoints?: [number, number, number, number];
+}
+
+export type VisualPropertyKey = "x" | "y" | "width" | "height" | "rotation" | "opacity";
 
 /** Video overlay applied to a clip (actual video file) */
 export interface ClipOverlay {
@@ -494,6 +575,13 @@ export interface TransformConstraints {
 export interface TimelineMarker {
   id: string;
   time: number;
+  name: string;
+  color: string;
+}
+
+export interface ClipMarker {
+  id: string;
+  localTime: number; // Time relative to clip start
   name: string;
   color: string;
 }

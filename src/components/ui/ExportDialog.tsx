@@ -382,10 +382,10 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
         // FIX (BUG-5): Explicitly pass frameRate from project settings
         // so the user knows exactly what fps the export uses
         frameRate: project.frameRate,
-        codec: selectedPreset.codecValue,
+        codec: selectedPreset.codecValue as any,
         preset: selectedPreset.preset,
         crf: selectedPreset.crf,
-        pixelFormat: selectedPreset.pixelFormat,
+        pixelFormat: selectedPreset.pixelFormat as any,
         onProgress: (p) => setProgress(p),
         // FIX (BUG-C2): Receive the live cancel function as soon as FFmpeg starts.
         // Storing it in a ref lets handleCancelExport call it at any time.

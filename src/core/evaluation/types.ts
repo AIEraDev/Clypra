@@ -14,7 +14,7 @@
 
 import type { ClipRole } from "../compositor/types";
 import type { RenderResourceHandle } from "../resources/types";
-import type { ClipKind } from "@/types";
+import type { CanvasBackgroundConfig, ClipKind } from "@/types";
 
 /**
  * Base properties shared by all visual layers.
@@ -346,6 +346,9 @@ export interface SceneMetadata {
 
   /** Hash of currently active media clips (for sync effect triggering) */
   readonly activeMediaHash?: string;
+
+  /** Project-level canvas background used by preview and export renderers. */
+  readonly canvasBackground?: CanvasBackgroundConfig;
 }
 
 /**

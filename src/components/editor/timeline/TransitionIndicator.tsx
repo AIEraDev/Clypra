@@ -3,6 +3,7 @@ import { GripVertical } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import type { TransitionTimelineItem } from "@/types";
+import { timeToPixel } from "@/lib/timeline/timelineViewport";
 
 interface TransitionIndicatorProps {
   transition: TransitionTimelineItem;
@@ -28,11 +29,13 @@ export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transi
   // If clips are missing, don't render (edge case safety)
   if (!fromClip || !toClip) return null;
 
-  const left = transition.placement.startTime * pixelsPerSecond;
-  const width = transition.placement.duration * pixelsPerSecond;
+  const left = timeToPixel(transition.placement.startTime, pixelsPerSecond);
+  const right = timeToPixel(transition.placement.startTime + transition.placement.duration, pixelsPerSecond);
+  const width = right - left;
 
   // Calculate the cut point (where clips meet)
   const cutPoint = fromClip.startTime + fromClip.duration;
+
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.pointerType === "mouse") return;

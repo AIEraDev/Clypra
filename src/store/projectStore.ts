@@ -25,7 +25,8 @@
 
 import { create } from "zustand";
 import { platform } from "@/core/platform";
-import type { Project, MediaAsset, TransitionTimelineItem } from "@/types";
+import type { Project, MediaAsset, TransitionTimelineItem, TimelineMarker } from "@/types";
+import type { Gap } from "@/types/gap";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toRustProject } from "@/types/serialization";
 import { generateId } from "@/lib/utils/id";
@@ -47,7 +48,18 @@ interface ProjectStore {
   /** Convenience: show toast with variant and auto-dismiss. */
   showToast: (message: string, variant?: "success" | "error" | "warning", durationMs?: number) => void;
   createProject: (name: string, aspectRatio: string, frameRate: 24 | 30 | 60) => void;
-  loadProject: (project: Project, payload?: { tracks?: any[]; clips?: any[]; transitions?: TransitionTimelineItem[]; mediaAssets?: MediaAsset[] }) => Promise<void> | void;
+  createProjectFromTemplate: (templateId: string, customName?: string) => Promise<void>;
+  loadProject: (
+    project: Project,
+    payload?: {
+      tracks?: any[];
+      clips?: any[];
+      transitions?: TransitionTimelineItem[];
+      gaps?: Gap[];
+      markers?: TimelineMarker[];
+      mediaAssets?: MediaAsset[];
+    },
+  ) => Promise<void> | void;
   addMediaAsset: (asset: MediaAsset) => void;
   removeMediaAsset: (assetId: string) => void;
   updateProject: (updates: Partial<Project>) => void;
@@ -274,6 +286,42 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     console.log("✅ [PROJECT STORE] New project created successfully");
   },
 
+  createProjectFromTemplate: async (templateId, customName) => {
+    const { getTemplateById } = await import("@/features/templates/projectTemplates");
+    const template = getTemplateById(templateId);
+    if (!template) {
+      console.error(`[ProjectStore] Template not found: ${templateId}`);
+      return;
+    }
+
+    const name = customName || template.name;
+    await get().createProject(name, template.aspectRatio, template.frameRate);
+
+    const currentProj = get().project;
+    if (currentProj) {
+      const updatedProj = { ...currentProj, canvasWidth: template.width, canvasHeight: template.height };
+      set({ project: updatedProj });
+    }
+
+    const { useTimelineStore } = await import("./timelineStore");
+    const initialTracks = template.initialTracks.map((t) => ({
+      id: generateId("track"),
+      type: t.type as any,
+      name: t.name,
+      muted: false,
+      locked: false,
+      visible: true,
+      height: t.type === "video" ? 68 : t.type === "audio" ? 52 : 30,
+    }));
+
+    useTimelineStore.getState().hydrateFromProject({
+      tracks: initialTracks,
+      clips: [],
+      transitions: [],
+      gaps: [],
+    });
+  },
+
   loadProject: async (project, payload) => {
     console.trace("[ProjectLifecycle] loadProject invoked", { projectId: project.id, projectName: project.name });
     const loadId = ++currentLoadId;
@@ -395,8 +443,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             tracks: payload?.tracks ?? [],
             clips: normalizedClips,
             transitions: payload?.transitions ?? [],
-            gaps: (payload as any)?.gaps ?? [],
-            markers: (payload as any)?.markers ?? [],
+            gaps: payload?.gaps ?? [],
+            markers: payload?.markers ?? [],
             cleanEmptyTracks: true,
           });
           console.log("  ✅ Timeline hydrated");

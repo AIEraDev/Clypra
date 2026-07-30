@@ -37,6 +37,30 @@ export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip
   const isFlippedV = selectedClip.height < 0;
   const opacityPercent = getOpacityPercent(selectedClip.opacity);
 
+  const isRotationKeyframed = (selectedClip.visualKeyframes?.rotation?.length || 0) > 0;
+  const isOpacityKeyframed = (selectedClip.visualKeyframes?.opacity?.length || 0) > 0;
+
+  const handleToggleVisualKeyframe = useCallback(
+    (prop: "x" | "y" | "width" | "height" | "rotation" | "opacity", value: number) => {
+      const currentKfs = selectedClip.visualKeyframes?.[prop] || [];
+      const localTime = 0;
+      const existingIdx = currentKfs.findIndex((kf) => Math.abs(kf.time - localTime) < 0.05);
+
+      let nextKfs: any[];
+      if (existingIdx >= 0) {
+        nextKfs = currentKfs.filter((_, idx) => idx !== existingIdx);
+      } else {
+        nextKfs = [...currentKfs, { id: `kf-${Date.now()}`, time: localTime, value, easing: "easeInOut" }].sort((a, b) => a.time - b.time);
+      }
+
+      handleUpdate("visualKeyframes", {
+        ...(selectedClip.visualKeyframes || {}),
+        [prop]: nextKfs,
+      });
+    },
+    [selectedClip.visualKeyframes, handleUpdate],
+  );
+
   const handleCenterOnCanvas = useCallback(() => {
     const w = Math.abs(selectedClip.width);
     const h = Math.abs(selectedClip.height);
@@ -217,7 +241,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[10px] font-medium text-text-muted select-none">Size</span>
-              <button onClick={() => handleUpdate("aspectRatioLocked", !isAspectLocked)} className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${isAspectLocked ? "text-accent bg-accent/10" : "text-text-muted hover:text-text-primary hover:bg-white/[0.04]"}`} title={isAspectLocked ? "Unlock aspect ratio" : "Lock aspect ratio"}>
+              <button onClick={() => handleUpdate("aspectRatioLocked", !isAspectLocked)} className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded transition-all cursor-pointer ${isAspectLocked ? "text-accent bg-accent/10" : "text-text-muted hover:text-text-primary hover:bg-surface-raised"}`} title={isAspectLocked ? "Unlock aspect ratio" : "Lock aspect ratio"}>
                 {isAspectLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
                 {isAspectLocked ? "Locked" : "Free"}
               </button>
@@ -237,7 +261,17 @@ export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip
           {/* Rotation */}
           <div className="flex items-end gap-2">
             <div className="flex-1">
-              <PropertySlider label="Rotation" value={selectedClip.rotation} min={-180} max={180} step={1} suffix="°" onChange={(v) => handleUpdate("rotation", v)} />
+              <PropertySlider
+                label="Rotation"
+                value={selectedClip.rotation}
+                min={-180}
+                max={180}
+                step={1}
+                suffix="°"
+                onChange={(v) => handleUpdate("rotation", v)}
+                keyframeActive={isRotationKeyframed}
+                onToggleKeyframe={() => handleToggleVisualKeyframe("rotation", selectedClip.rotation)}
+              />
             </div>
             {selectedClip.rotation !== 0 && (
               <button onClick={() => handleUpdate("rotation", 0)} className="p-1 text-text-muted hover:text-accent hover:bg-accent/10 rounded transition-all cursor-pointer mb-0.5" title="Reset rotation">
@@ -247,17 +281,27 @@ export const TransformSection: React.FC<TransformSectionProps> = ({ selectedClip
           </div>
 
           {/* Opacity */}
-          <PropertySlider label="Opacity" value={opacityPercent} min={0} max={100} step={1} suffix="%" onChange={(v) => handleUpdate("opacity", v / 100)} />
+          <PropertySlider
+            label="Opacity"
+            value={opacityPercent}
+            min={0}
+            max={100}
+            step={1}
+            suffix="%"
+            onChange={(v) => handleUpdate("opacity", v / 100)}
+            keyframeActive={isOpacityKeyframed}
+            onToggleKeyframe={() => handleToggleVisualKeyframe("opacity", opacityPercent / 100)}
+          />
 
           {/* Flip buttons */}
           <div>
             <span className="text-[10px] font-medium text-text-muted select-none block mb-1.5">Flip</span>
             <div className="flex gap-2">
-              <button onClick={() => handleUpdate("width", -selectedClip.width)} className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium rounded-md border transition-all cursor-pointer ${isFlippedH ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-white/[0.06]"}`} title="Flip Horizontal">
+              <button onClick={() => handleUpdate("width", -selectedClip.width)} className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium rounded-md border transition-all cursor-pointer ${isFlippedH ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-surface-raised/80"}`} title="Flip Horizontal">
                 <FlipHorizontal2 className="w-3.5 h-3.5" />
                 Horizontal
               </button>
-              <button onClick={() => handleUpdate("height", -selectedClip.height)} className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium rounded-md border transition-all cursor-pointer ${isFlippedV ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-white/[0.06]"}`} title="Flip Vertical">
+              <button onClick={() => handleUpdate("height", -selectedClip.height)} className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium rounded-md border transition-all cursor-pointer ${isFlippedV ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-raised text-text-muted border-border/60 hover:text-text-primary hover:bg-surface-raised/80"}`} title="Flip Vertical">
                 <FlipVertical2 className="w-3.5 h-3.5" />
                 Vertical
               </button>

@@ -52,8 +52,16 @@ export function getTimelineContentEnd(clips: Pick<Clip, "startTime" | "trimIn" |
   return ends.length > 0 ? Math.max(...ends, 0) : 0;
 }
 
+export const TIMELINE_MIN_CANVAS_DURATION_SECONDS = 5;
+export const TIMELINE_CANVAS_PADDING_SECONDS = 2;
+
+export function getTimelineCanvasDuration(sequenceDuration: number): number {
+  const validDuration = typeof sequenceDuration === "number" && !isNaN(sequenceDuration) ? sequenceDuration : 0;
+  return Math.max(validDuration + TIMELINE_CANVAS_PADDING_SECONDS, TIMELINE_MIN_CANVAS_DURATION_SECONDS);
+}
+
 export function getTimelineViewportEnd(contentEnd: number): number {
-  return contentEnd > 0 ? contentEnd : 10;
+  return getTimelineCanvasDuration(contentEnd);
 }
 
 interface CreateClipFromAssetParams {
@@ -218,3 +226,36 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height, 
     ...(audioPath && asset.type === "audio" && { audioPath }), // Include audioPath for audio clips
   } as any;
 };
+
+export function createAudioClip(params: {
+  id?: string;
+  name?: string;
+  trackId: string;
+  mediaId?: string;
+  audioPath?: string;
+  path?: string;
+  startTime: number;
+  duration: number;
+  volume?: number;
+}): Clip {
+  const finalAudioPath = params.audioPath || params.path;
+  return {
+    id: params.id || generateId("clip"),
+    kind: "audio",
+    name: params.name || "Audio Track",
+    trackId: params.trackId,
+    mediaId: params.mediaId || "voiceover-audio",
+    audioPath: params.audioPath,
+    startTime: params.startTime,
+    duration: params.duration,
+    trimIn: 0,
+    trimOut: params.duration,
+    volume: params.volume ?? 1,
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    rotation: 0,
+    opacity: 1,
+  };
+}

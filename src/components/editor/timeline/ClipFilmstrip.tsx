@@ -32,7 +32,8 @@ export function clearFilmstripFrameCache(): void {}
 
 /** Resolve a media source path without double-converting already-converted URLs. */
 function resolveMediaSrc(path: string): string {
-  if (path.startsWith("data:") || path.startsWith("asset://") || path.startsWith("http://") || path.startsWith("https://")) {
+  if (!path) return "";
+  if (path.startsWith("data:") || path.startsWith("asset://") || path.startsWith("http://") || path.startsWith("https://") || path.startsWith("blob:")) {
     return path;
   }
   return platform.convertFileSrc(path);

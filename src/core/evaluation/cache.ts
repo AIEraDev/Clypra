@@ -8,7 +8,7 @@
  * Cache Strategy: LRU (Least Recently Used)
  */
 
-import type { MediaAsset } from "@/types";
+import type { CanvasBackgroundConfig, MediaAsset } from "@/types";
 import type { EvaluatedScene } from "./types";
 
 /**
@@ -32,6 +32,9 @@ interface CacheKey {
 
   /** Canvas height in pixels */
   canvasHeight?: number;
+
+  /** Project canvas background version */
+  backgroundVersion?: string;
 }
 
 /**
@@ -211,7 +214,8 @@ export class EvaluationCache {
     const w = key.canvasWidth ?? 1920;
     const h = key.canvasHeight ?? 1080;
     const assetsVer = key.assetsVersion ?? "";
-    return `${roundedTime}:${key.epoch}:${w}x${h}:${key.clipVersion}:${assetsVer}`;
+    const bgVer = key.backgroundVersion ?? "";
+    return `${roundedTime}:${key.epoch}:${w}x${h}:${key.clipVersion}:${assetsVer}:${bgVer}`;
   }
 }
 
@@ -338,6 +342,10 @@ export function computeAssetsVersion(assets: MediaAsset[]): string {
     .join("|");
 
   return hashString(signature);
+}
+
+export function computeCanvasBackgroundVersion(background?: CanvasBackgroundConfig): string {
+  return hashString(JSON.stringify(background ?? null));
 }
 
 /**

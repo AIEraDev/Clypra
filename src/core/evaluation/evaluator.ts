@@ -25,7 +25,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { resolveConform } from "@clypra-studio/engine";
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
-import { getEvaluationCache, computeClipVersion, computeAssetsVersion } from "./cache";
+import { getEvaluationCache, computeClipVersion, computeAssetsVersion, computeCanvasBackgroundVersion } from "./cache";
 import { evaluateProperty } from "./animation";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
@@ -366,6 +366,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     isGap: visualLayers.length === 0,
     fallbackStrategy: visualLayers.length === 0 ? "black" : undefined,
     activeMediaHash,
+    canvasBackground: project?.canvasBackground,
   };
 
   const activeFilter = activeFilterClip
@@ -463,7 +464,8 @@ export function evaluateTimelineSceneCached(time: number, clips: Clip[], tracks:
   const assetsVersion = computeAssetsVersion(assets);
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
-  const cacheKey = { time, epoch, clipVersion, assetsVersion, canvasWidth, canvasHeight };
+  const backgroundVersion = computeCanvasBackgroundVersion(project?.canvasBackground);
+  const cacheKey = { time, epoch, clipVersion, assetsVersion, canvasWidth, canvasHeight, backgroundVersion };
 
   const cached = cache.get(cacheKey);
   if (cached) {

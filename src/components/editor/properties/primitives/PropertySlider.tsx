@@ -1,4 +1,5 @@
 import React, { useCallback } from "react";
+import { KeyframeToggleButton } from "./KeyframeToggleButton";
 
 interface PropertySliderProps {
   label: string;
@@ -17,6 +18,9 @@ interface PropertySliderProps {
   /** Compact mode: single row with no wrapping */
   compact?: boolean;
   disabled?: boolean;
+  /** Keyframe state & toggle callback */
+  keyframeActive?: boolean;
+  onToggleKeyframe?: () => void;
 }
 
 export const PropertySlider: React.FC<PropertySliderProps> = ({
@@ -32,6 +36,8 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
   decimals,
   compact = false,
   disabled = false,
+  keyframeActive = false,
+  onToggleKeyframe,
 }) => {
   const resolvedDecimals = decimals ?? (step < 1 ? Math.max(1, -Math.floor(Math.log10(step))) : 0);
   const displayValue = resolvedDecimals > 0 ? value.toFixed(resolvedDecimals) : Math.round(value);
@@ -103,6 +109,9 @@ export const PropertySlider: React.FC<PropertySliderProps> = ({
         <div className="flex items-center gap-1.5">
           {icon && <span className="text-text-muted">{icon}</span>}
           <span className="text-[10px] font-medium text-text-muted select-none">{label}</span>
+          {onToggleKeyframe && (
+            <KeyframeToggleButton active={keyframeActive} onToggle={onToggleKeyframe} title={`Toggle keyframe for ${label}`} />
+          )}
         </div>
         <span className="text-[10px] text-text-primary tabular-nums select-none">
           {displayValue}

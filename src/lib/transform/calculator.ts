@@ -83,26 +83,36 @@ export function calculateTransform(
   constraints: TransformConstraints,
   startAngle?: number,
 ): Partial<Clip> {
-  const delta = {
+  const rawDelta = {
     x: currentMousePos.x - startMousePos.x,
     y: currentMousePos.y - startMousePos.y,
   };
 
+  const rotationRad = ((clip.rotation || 0) * Math.PI) / 180;
+  const cosTheta = Math.cos(rotationRad);
+  const sinTheta = Math.sin(rotationRad);
+
+  // Project mouse delta into clip's rotated local coordinate system
+  const localDelta = {
+    x: rawDelta.x * cosTheta + rawDelta.y * sinTheta,
+    y: -rawDelta.x * sinTheta + rawDelta.y * cosTheta,
+  };
+
   switch (handle) {
     case "move":
-      return handleMove(clip, delta, constraints);
+      return handleMove(clip, rawDelta, constraints);
 
     case "nw":
     case "ne":
     case "sw":
     case "se":
-      return handleCornerDrag(clip, handle, delta, constraints);
+      return handleCornerDrag(clip, handle, localDelta, constraints);
 
     case "n":
     case "s":
     case "e":
     case "w":
-      return handleEdgeDrag(clip, handle, delta, constraints);
+      return handleEdgeDrag(clip, handle, localDelta, constraints, cosTheta, sinTheta);
 
     case "rotate":
       return handleRotation(clip, currentMousePos, constraints, startAngle);
@@ -193,31 +203,45 @@ function handleCornerDrag(clip: Clip, handle: "nw" | "ne" | "sw" | "se", delta: 
  * Handle edge drag for single-axis scaling.
  * Enforces aspect ratio when locked (adjusts the perpendicular axis proportionally).
  */
-function handleEdgeDrag(clip: Clip, handle: "n" | "s" | "e" | "w", delta: { x: number; y: number }, constraints: TransformConstraints): Partial<Clip> {
-  const aspectRatio = clip.sourceAspectRatio ?? clip.width / clip.height;
-  // Side handles always adjust a single axis. Aspect ratio lock is not enforced on edges.
+function handleEdgeDrag(
+  clip: Clip,
+  handle: "n" | "s" | "e" | "w",
+  delta: { x: number; y: number },
+  constraints: TransformConstraints,
+  cosTheta: number = 1,
+  sinTheta: number = 0
+): Partial<Clip> {
   const isLocked = false;
 
-  let newX = clip.x;
-  let newY = clip.y;
   let newWidth = clip.width;
   let newHeight = clip.height;
+  const centerX = clip.x + clip.width / 2;
+  const centerY = clip.y + clip.height / 2;
+  let newCenterX = centerX;
+  let newCenterY = centerY;
 
   switch (handle) {
-    case "n":
-      newHeight = clip.height - delta.y;
-      newHeight = Math.max(constraints.minHeight, newHeight);
-      newY = clip.y + (clip.height - newHeight);
+    case "n": {
+      newHeight = Math.max(constraints.minHeight, clip.height - delta.y);
+      const dh = newHeight - clip.height;
+      newCenterX = centerX + (dh / 2) * sinTheta;
+      newCenterY = centerY - (dh / 2) * cosTheta;
       break;
+    }
 
-    case "s":
-      newHeight = clip.height + delta.y;
-      newHeight = Math.max(constraints.minHeight, newHeight);
+    case "s": {
+      newHeight = Math.max(constraints.minHeight, clip.height + delta.y);
+      const dh = newHeight - clip.height;
+      newCenterX = centerX - (dh / 2) * sinTheta;
+      newCenterY = centerY + (dh / 2) * cosTheta;
       break;
+    }
 
-    case "e":
-      newWidth = clip.width + delta.x;
-      newWidth = Math.max(constraints.minWidth, newWidth);
+    case "e": {
+      newWidth = Math.max(constraints.minWidth, clip.width + delta.x);
+      const dw = newWidth - clip.width;
+      newCenterX = centerX + (dw / 2) * cosTheta;
+      newCenterY = centerY + (dw / 2) * sinTheta;
       if (clip.kind === "text") {
         const textClip = clip as any;
         const isBold = textClip.fontWeight === "bold" || textClip.bold === true;
@@ -229,14 +253,15 @@ function handleEdgeDrag(clip: Clip, handle: "n" | "s" | "e" | "w", delta: { x: n
           newWidth,
           textClip.lineHeight || 1.2
         );
-        newY = clip.y + (clip.height - newHeight) / 2;
       }
       break;
+    }
 
-    case "w":
-      newWidth = clip.width - delta.x;
-      newWidth = Math.max(constraints.minWidth, newWidth);
-      newX = clip.x + (clip.width - newWidth);
+    case "w": {
+      newWidth = Math.max(constraints.minWidth, clip.width - delta.x);
+      const dw = newWidth - clip.width;
+      newCenterX = centerX - (dw / 2) * cosTheta;
+      newCenterY = centerY - (dw / 2) * sinTheta;
       if (clip.kind === "text") {
         const textClip = clip as any;
         const isBold = textClip.fontWeight === "bold" || textClip.bold === true;
@@ -248,16 +273,17 @@ function handleEdgeDrag(clip: Clip, handle: "n" | "s" | "e" | "w", delta: { x: n
           newWidth,
           textClip.lineHeight || 1.2
         );
-        // Center Y relative to original clip center to prevent vertical jump during reflow
-        const clipCenterY = clip.y + clip.height / 2;
-        newY = clipCenterY - newHeight / 2;
       }
       break;
+    }
   }
 
   const clamped = clampDimensions(newWidth, newHeight, clip, constraints, isLocked);
   newWidth = clamped.width;
   newHeight = clamped.height;
+
+  const newX = newCenterX - newWidth / 2;
+  const newY = newCenterY - newHeight / 2;
 
   return {
     x: newX,

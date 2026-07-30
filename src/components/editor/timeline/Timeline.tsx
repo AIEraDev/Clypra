@@ -5,12 +5,13 @@ import { GapManager } from "@/lib/timeline/gapManager";
 import { EditingActions } from "@/core/interactions";
 import { usePreviewMode } from "@/hooks/usePreviewMode";
 import { usePlaybackClock, usePlaybackControls, getPlaybackClock } from "@/hooks/usePlaybackClock";
-import { getTimelineViewportEnd } from "@/lib/timeline/timelineClip";
+import { getTimelineViewportEnd, getTimelineCanvasDuration } from "@/lib/timeline/timelineClip";
 import { useTimelineDrag } from "@/hooks/useTimelineDrag";
 import { useTimelineTauriDrop } from "@/hooks/useTimelineTauriDrop";
 import { useTimelineZoom } from "@/hooks/useTimelineZoom";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
-import { TIMELINE_TRACK_LABEL_WIDTH_PX, getTimelineLabelColumnWidth, getTimelineLaneWidth } from "@/lib/timeline/timelineViewport";
+import { TIMELINE_TRACK_LABEL_WIDTH_PX, getTimelineLabelColumnWidth, getTimelineLaneWidth, getTimelineMaxScrollLeft, timeToPixel } from "@/lib/timeline/timelineViewport";
+
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -117,7 +118,8 @@ export const Timeline: React.FC = () => {
       const playheadX = Math.round(currentTime * pixelsPerSecond);
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
-      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+      const canvasDuration = getTimelineCanvasDuration(duration);
+      const maxScrollLeft = getTimelineMaxScrollLeft(container.clientWidth, canvasDuration, pixelsPerSecond, hasClips);
 
       if (playheadX < leftEdge || playheadX > rightEdge) {
         // Place playhead at 15% from left edge ("look-ahead" position)
@@ -136,7 +138,8 @@ export const Timeline: React.FC = () => {
       // SMOOTH-2: Read live clock inside tick instead of closing over stale currentTime
       const liveTime = getPlaybackClock().time;
       const playheadX = Math.round(liveTime * pixelsPerSecond);
-      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+      const canvasDuration = getTimelineCanvasDuration(duration);
+      const maxScrollLeft = getTimelineMaxScrollLeft(container.clientWidth, canvasDuration, pixelsPerSecond, hasClips);
       let newScrollLeft = container.scrollLeft;
 
       const isAtAbsoluteEnd = liveTime >= duration - 0.01;
@@ -288,8 +291,8 @@ export const Timeline: React.FC = () => {
   );
 
   const contentEnd = duration;
-  const viewportEnd = getTimelineViewportEnd(contentEnd);
-  const contentWidth = Math.round(viewportEnd * pixelsPerSecond);
+  const canvasDuration = getTimelineCanvasDuration(contentEnd);
+  const contentWidth = Math.round(canvasDuration * pixelsPerSecond);
 
   const seekFromPointer = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -367,7 +370,7 @@ export const Timeline: React.FC = () => {
           )}
 
           <div
-            className="bg-timeline-bg"
+            className="bg-timeline-bg overflow-hidden"
             style={{
               position: "sticky",
               top: 0,
@@ -377,8 +380,9 @@ export const Timeline: React.FC = () => {
               borderBottom: "1px solid var(--color-timeline-track-border)",
             }}
           >
-            <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} />
+            <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} sequenceDuration={contentEnd} />
           </div>
+
 
           {/* ── Row 2+: Track labels (sticky left) + Track clips ─────── */}
           {!hasClips ? (
@@ -507,7 +511,21 @@ export const Timeline: React.FC = () => {
                 <Playhead pixelsPerSecond={pixelsPerSecond} duration={duration} containerRef={containerRef} />
               </div>
 
+              {/* Sequence End Line across track area */}
+              {contentEnd > 0 && (
+                <div
+                  className="pointer-events-none absolute top-0 bottom-0 z-40"
+                  style={{
+                    left: `${getTimelineLabelColumnWidth(hasClips) + timeToPixel(contentEnd, pixelsPerSecond)}px`,
+                    width: "2px",
+                    background: "rgba(239, 68, 68, 0.4)",
+                    borderRight: "1px dashed rgba(239, 68, 68, 0.7)",
+                  }}
+                />
+              )}
+
               {/* Snap Guides - Vertical alignment indicators */}
+
               {snapGuides.map((guide, index) => {
                 const guideLeft = guide.time * pixelsPerSecond + getTimelineLabelColumnWidth(hasClips);
                 const guideColor = guide.type === "playhead" ? "var(--color-timeline-drop-indicator)" : "var(--color-snap-guide-clip)";

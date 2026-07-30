@@ -9,6 +9,8 @@ vi.mock("@/hooks/usePlaybackClock", () => ({
   getPlaybackClock: () => ({
     time: 2,
   }),
+  usePlaybackClock: () => ({ currentTime: 2, isPlaying: false }),
+  useTransportControls: () => ({ play: vi.fn(), pause: vi.fn(), seek: vi.fn() }),
 }));
 
 describe("TimelineToolbar zoom controls", () => {

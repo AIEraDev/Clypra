@@ -1,9 +1,8 @@
 import React, { useState, lazy, Suspense } from "react";
-import { Film, Upload, Home, Settings, Undo2, Redo2 } from "lucide-react";
+import { Upload, Home, Settings } from "lucide-react";
 import { Button } from "../ui/Button";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
-import { useHistoryStore } from "@/store/historyStore";
 import { useTauriFullscreen } from "@/hooks/useTauriFullscreen";
 import { platform } from "@/core/platform";
 
@@ -17,9 +16,6 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const { project, closeProject } = useProjectStore();
   const { toggleSettingsModal } = useUIStore();
-  const historyState = useHistoryStore((s) => s.state);
-  const undo = useHistoryStore((s) => s.undo);
-  const redo = useHistoryStore((s) => s.redo);
   const [showExportDialog, setShowExportDialog] = useState(false);
 
   const { isFullscreen } = useTauriFullscreen();
@@ -52,18 +48,6 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
         {/* Right side - actions */}
         <div className="flex items-center gap-1.5">
-          {/* Undo/Redo buttons with action-specific tooltips */}
-          {historyState.canUndo && (
-            <Button variant="ghost" size="icon-sm" onClick={undo} title={historyState.undoLabel ? `Undo ${historyState.undoLabel}` : "Undo"} style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
-              <Undo2 className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          {historyState.canRedo && (
-            <Button variant="ghost" size="icon-sm" onClick={redo} title={historyState.redoLabel ? `Redo ${historyState.redoLabel}` : "Redo"} style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
-              <Redo2 className="w-3.5 h-3.5" />
-            </Button>
-          )}
-
           <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
             <Settings className="w-3.5 h-3.5" />
           </Button>

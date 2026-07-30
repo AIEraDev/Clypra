@@ -9,7 +9,10 @@ import { TimelineWaveform } from "./TimelineWaveform";
 import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
+import { timeToPixel } from "@/lib/timeline/timelineViewport";
+
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
+
 
 const resolveMediaSrc = (path: string) => {
   if (!path) return "";
@@ -70,9 +73,12 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     return Boolean(el.closest("[data-clip-resize-handle='true']"));
   };
 
-  // Calculate position
-  const left = Math.round(clip.startTime * pixelsPerSecond);
-  const width = Math.round(clip.duration * pixelsPerSecond);
+  // Calculate position (derived from right edge to align with END marker)
+  const left = timeToPixel(clip.startTime, pixelsPerSecond);
+  const right = timeToPixel(clip.startTime + clip.duration, pixelsPerSecond);
+  const width = right - left;
+
+
 
   // Log clip renders during resize for debugging
   useEffect(() => {

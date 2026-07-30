@@ -805,9 +805,15 @@ export function applyTheme(theme: Theme, customColors?: Record<string, string> |
 
 export function applyFontFamily(fontFamily: FontFamily) {
   const root = document.documentElement;
-  root.style.setProperty("--font-sans", fontFamilies[fontFamily]);
+  const fontStack = fontFamilies[fontFamily] || fontFamilies.inter;
+  root.style.setProperty("--font-sans", fontStack);
+  root.style.fontFamily = fontStack;
   if (document.body) {
-    document.body.style.fontFamily = fontFamilies[fontFamily];
+    document.body.style.fontFamily = fontStack;
+  }
+  const rootEl = document.getElementById("root");
+  if (rootEl) {
+    rootEl.style.fontFamily = fontStack;
   }
 }
 

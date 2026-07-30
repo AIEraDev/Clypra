@@ -8,11 +8,13 @@ import { Clip } from "./Clip";
 import { GapIndicator } from "./GapIndicator";
 import { TransitionIndicator } from "./TransitionIndicator";
 import { handleDropOnTrack } from "@/lib/timeline/timelineUtils";
+import { timeToPixel } from "@/lib/timeline/timelineViewport";
 import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
 import { getTimelineLaneClientX } from "@/lib/timeline/timelineViewport";
 import { resolveClipDuration } from "@/lib/timeline/timelineClip";
 import { useProjectStore } from "@/store/projectStore";
 import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
+
 
 interface TrackProps {
   track: TrackType;
@@ -283,19 +285,25 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
       {track.visible && !(dragState && (dragState.targetTrackId === track.id || dragState.draggedClipIds?.some((id) => sortedTrackClips.some((c) => c.id === id)))) && trackGaps.map((gap) => <GapIndicator key={gap.id} gap={gap} pixelsPerSecond={pixelsPerSecond} selected={selectedGapId === gap.id} locked={track.locked} />)}
 
       {/* Gap indicator (blue dashed background) - temporary drag preview */}
-      {gapIndicator && (
-        <div
-          className="absolute top-0 pointer-events-none z-5"
-          style={{
-            left: `${Math.round(gapIndicator.startTime * pixelsPerSecond)}px`,
-            width: `${Math.round(gapIndicator.duration * pixelsPerSecond)}px`,
-            height: "100%",
-            background: "rgba(96, 165, 250, 0.25)",
-            border: "2px dashed rgba(96, 165, 250, 0.6)",
-            borderRadius: "4px",
-          }}
-        />
-      )}
+      {gapIndicator && (() => {
+        const gapLeft = timeToPixel(gapIndicator.startTime, pixelsPerSecond);
+        const gapRight = timeToPixel(gapIndicator.startTime + gapIndicator.duration, pixelsPerSecond);
+        const gapWidth = gapRight - gapLeft;
+        return (
+          <div
+            className="absolute top-0 pointer-events-none z-5"
+            style={{
+              left: `${gapLeft}px`,
+              width: `${gapWidth}px`,
+              height: "100%",
+              background: "rgba(96, 165, 250, 0.25)",
+              border: "2px dashed rgba(96, 165, 250, 0.6)",
+              borderRadius: "4px",
+            }}
+          />
+        );
+      })()}
+
 
       {track.locked && (
         <div className="pointer-events-none absolute inset-0 z-40 bg-[repeating-linear-gradient(135deg,rgba(148,163,184,0.08)_0px,rgba(148,163,184,0.08)_8px,rgba(15,23,42,0.08)_8px,rgba(15,23,42,0.08)_16px)]">

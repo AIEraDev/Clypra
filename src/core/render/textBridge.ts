@@ -79,9 +79,19 @@ export async function renderTextLayerBridged(
   // Override engine position/scale to conform to project space layout contract
   const centerX = layer.x + layer.width / 2;
   const centerY = layer.y + layer.height / 2;
+  const targetW = layer.width + bleed.x * 2;
+  const targetH = layer.height + bleed.y * 2;
+  const texW = sprite.texture?.orig?.width || sprite.texture?.source?.width || targetW;
+  const texH = sprite.texture?.orig?.height || sprite.texture?.source?.height || targetH;
+
   sprite.position.set(centerX, centerY);
-  sprite.width = layer.width + bleed.x * 2;
-  sprite.height = layer.height + bleed.y * 2;
+  if (texW > 0 && texH > 0) {
+    sprite.scale.set(targetW / texW, targetH / texH);
+  } else {
+    sprite.width = targetW;
+    sprite.height = targetH;
+  }
+  sprite.rotation = (((layer as any).rotation || 0) * Math.PI) / 180;
 
   sprite.zIndex = renderOrder;
   return sprite;

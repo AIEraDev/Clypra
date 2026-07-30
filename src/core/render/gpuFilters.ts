@@ -1,33 +1,10 @@
 import { Filter, Texture } from "pixi.js";
 import { AdjustmentFilter } from "pixi-filters";
 import { createGPUBodyOutlineFilter, createGPUBodyGlowFilter, createGPUBodyParticlesFilter } from "@clypra-studio/engine";
+import { PIXI_STANDARD_VERTEX_SHADER } from "./shaders/standardVertex";
 
-
-// Standard vertex shader for PixiJS v8 filters
-const VERTEX_SHADER = `
-  in vec2 aPosition;
-  out vec2 vTextureCoord;
-
-  uniform vec4 uInputSize;
-  uniform vec4 uOutputFrame;
-  uniform vec4 uOutputTexture;
-
-  vec4 filterVertexPosition(void) {
-    vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;
-    position.x = position.x * (2.0 / uOutputTexture.x) - 1.0;
-    position.y = position.y * (2.0 * uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z;
-    return vec4(position, 0.0, 1.0);
-  }
-
-  vec2 filterTextureCoord(void) {
-    return aPosition * (uOutputFrame.zw * uInputSize.zw);
-  }
-
-  void main(void) {
-    gl_Position = filterVertexPosition();
-    vTextureCoord = filterTextureCoord();
-  }
-`;
+// Consolidated vertex shader reference
+const VERTEX_SHADER = PIXI_STANDARD_VERTEX_SHADER;
 
 /**
  * Creates a GPU-accelerated Pixelate Filter
@@ -98,7 +75,7 @@ export function createGPUScanlinesFilter(count: number, intensity: number): Filt
 /**
  * Creates a GPU-accelerated Chromatic Aberration (RGB Split) Filter
  */
-export function createGPURGBSplitFilter(shiftX: number, shiftY: number, width: number, height: number): Filter {
+export function createGPURGBSplitFilter(shiftX: number, shiftY: number, width: number = 1920, height: number = 1080): Filter {
   const fragmentShader = `
     precision mediump float;
     in vec2 vTextureCoord;
@@ -198,6 +175,62 @@ export function createGPUVignetteFilter(radius: number, intensity: number): Filt
       customUniforms: {
         uRadius: { value: radius * 0.5, type: "f32" },
         uIntensity: { value: intensity, type: "f32" },
+      },
+    },
+  });
+}
+
+/**
+ * Creates a GPU-accelerated Chroma Key (Green Screen) Filter
+ * @param keyColor RGB float array normalized [r, g, b] (e.g. [0.0, 1.0, 0.0] for green)
+ * @param similarity Distance threshold for keying (0.0 to 1.0)
+ * @param smoothness Edge softness blending (0.0 to 1.0)
+ * @param spill Green/Blue spill suppression factor (0.0 to 1.0)
+ */
+export function createGPUChromaKeyFilter(
+  keyColor: [number, number, number] = [0.0, 1.0, 0.0],
+  similarity: number = 0.4,
+  smoothness: number = 0.1,
+  spill: number = 0.2
+): Filter {
+  const fragmentShader = `
+    precision mediump float;
+    in vec2 vTextureCoord;
+    out vec4 fragColor;
+    uniform sampler2D uSampler;
+    uniform vec3 uKeyColor;
+    uniform float uSimilarity;
+    uniform float uSmoothness;
+    uniform float uSpill;
+
+    void main(void) {
+      vec4 color = texture(uSampler, vTextureCoord);
+      if (color.a == 0.0) {
+        fragColor = color;
+        return;
+      }
+
+      float dist = distance(color.rgb, uKeyColor);
+      float alpha = smoothstep(uSimilarity, uSimilarity + uSmoothness, dist);
+
+      vec3 desat = vec3(dot(color.rgb, vec3(0.299, 0.587, 0.114)));
+      vec3 finalRGB = mix(desat, color.rgb, clamp(dist / max(uSimilarity, 0.01), 0.0, 1.0));
+
+      fragColor = vec4(finalRGB, color.a * alpha);
+    }
+  `;
+
+  return Filter.from({
+    gl: {
+      vertex: VERTEX_SHADER,
+      fragment: fragmentShader,
+    },
+    resources: {
+      customUniforms: {
+        uKeyColor: { value: keyColor, type: "vec3<f32>" },
+        uSimilarity: { value: Math.max(0.01, similarity), type: "f32" },
+        uSmoothness: { value: Math.max(0.001, smoothness), type: "f32" },
+        uSpill: { value: Math.max(0.0, spill), type: "f32" },
       },
     },
   });

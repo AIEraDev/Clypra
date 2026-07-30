@@ -433,6 +433,11 @@ export class PreviewMediaPool {
           if (existingRemoval && !existingRemoval.clipIds.includes(clip.id)) {
             existingRemoval.clipIds.push(clip.id);
           }
+
+          // Video clips also get a managed <audio> element for preview sound.
+          // Keep its key in the desired set so it is not disposed and recreated
+          // on every sync tick.
+          desiredAudioKeys.add(clip.id);
         } else if (asset?.type === "audio" || (clip.kind === "audio" && (clip as any).audioPath)) {
           const key = clip.id;
           desiredAudioKeys.add(key);
@@ -495,13 +500,7 @@ export class PreviewMediaPool {
           // CRITICAL: Also update audio routing so element is ready when it becomes active
           const track = this.trackMap.get(clip.trackId);
           const isTrackMuted = track?.muted === true;
-          const clipVolume = clip.volume ?? 1.0;
-          const combinedVolume = (syncState.volume / 100) * clipVolume;
-
-          // Pre-configure audio for when element becomes active
-          // This prevents "no sound" issues when clips are activated
-          managed.element.muted = syncState.muted || isTrackMuted || clipVolume === 0;
-          managed.element.volume = managed.element.muted ? 0 : Math.max(0, Math.min(1, combinedVolume));
+          this.configureVideoAsFrameOnly(managed.element);
 
           if (!managed.element.paused && !managed.element.seeking) {
             managed.element.pause();
@@ -611,7 +610,8 @@ export class PreviewMediaPool {
         const track = this.trackMap.get(clip.trackId);
         if (track?.visible === false) continue;
 
-        const rawPath = asset ? asset.path : directAudioPath!;
+        const rawPath = (asset ? asset.path : directAudioPath) || (clip as any).path;
+        if (!rawPath) continue;
         const sourcePath = isWebviewOrExternalUrl(rawPath) ? rawPath : convertFileSrc(rawPath);
         const key = clip.id;
 
@@ -1080,23 +1080,22 @@ export class PreviewMediaPool {
       managed.autoplayBlocked = false;
 
       const video = managed.element;
-      const wasMuted = video.muted;
       video.muted = true;
       const promise = video.play();
       if (promise !== undefined) {
         promise
           .then(() => {
             video.pause();
-            video.muted = wasMuted;
+            video.muted = true;
           })
           .catch(() => {
             // Promise might be aborted, but user activation is registered anyway
             video.pause();
-            video.muted = wasMuted;
+            video.muted = true;
           });
       } else {
         video.pause();
-        video.muted = wasMuted;
+        video.muted = true;
       }
     }
 
@@ -1128,7 +1127,7 @@ export class PreviewMediaPool {
     const video = document.createElement("video");
     video.preload = "auto";
     video.crossOrigin = "anonymous";
-    video.muted = true; // Always muted — audio is handled separately by ManagedAudio
+    this.configureVideoAsFrameOnly(video);
     video.playsInline = true;
     // Browsers aggressively throttle decoding for tiny videos. Use a larger size (256x256)
     // to ensure the hardware decoder remains active.
@@ -1272,8 +1271,8 @@ export class PreviewMediaPool {
       }
     });
 
-    const separator = sourcePath.includes("?") ? "&" : "?";
-    video.src = `${sourcePath}${separator}clipId=${clipId}`;
+    const isSpecialUrl = sourcePath.startsWith("blob:") || sourcePath.startsWith("data:");
+    video.src = isSpecialUrl ? sourcePath : `${sourcePath}${sourcePath.includes("?") ? "&" : "?"}clipId=${clipId}`;
 
     // Explicitly trigger video load
     video.load();
@@ -1293,6 +1292,19 @@ export class PreviewMediaPool {
     });
 
     return managed;
+  }
+
+  private configureVideoAsFrameOnly(video: HTMLVideoElement): void {
+    if ((video as any).__clypraFrameOnlyAudio === true) {
+      return;
+    }
+    if (video.muted !== true) {
+      video.muted = true;
+    }
+    if (Math.abs(video.volume - 0) > 0.01) {
+      video.volume = 0;
+    }
+    (video as any).__clypraFrameOnlyAudio = true;
   }
 
   private disposeVideo(key: string, managed: ManagedVideo): void {
@@ -1347,23 +1359,13 @@ export class PreviewMediaPool {
     const video = managed.element;
     const sourceTime = getClipSourceTime(clip, syncState.time, syncState.frameRate, transitions);
 
-    // Combine global preview volume with per-clip volume
-    const clipVolume = clip.volume ?? 1.0;
-    const combinedVolume = (syncState.volume / 100) * clipVolume;
-
-    // Allow audio from all active visible video tracks unless explicitly muted
-    const shouldMute = syncState.muted || syncState.volume === 0 || isTrackMuted || clipVolume === 0;
-    const targetVolume = shouldMute ? 0 : Math.max(0, Math.min(1, combinedVolume));
+    // Video elements are frame-only. ManagedAudio owns audible playback so the
+    // browser never outputs both the video element and the paired audio element.
+    this.configureVideoAsFrameOnly(video);
 
     // ───  Conditional property updates ─────────────────────────────
     // Only set properties when values actually change to avoid unnecessary
     // DOM updates and audio routing recalculations (saves ~0.1-0.3ms per element × 60fps)
-    if (video.muted !== shouldMute) {
-      video.muted = shouldMute;
-    }
-    if (Math.abs(video.volume - targetVolume) > 0.01) {
-      video.volume = targetVolume;
-    }
     if (video.playbackRate !== syncState.speed) {
       video.playbackRate = syncState.speed;
     }
@@ -1730,8 +1732,8 @@ export class PreviewMediaPool {
       { once: true },
     );
 
-    const separator = sourcePath.includes("?") ? "&" : "?";
-    audio.src = `${sourcePath}${separator}clipId=${clipId}`;
+    const isSpecialUrl = sourcePath.startsWith("blob:") || sourcePath.startsWith("data:");
+    audio.src = isSpecialUrl ? sourcePath : `${sourcePath}${sourcePath.includes("?") ? "&" : "?"}clipId=${clipId}`;
     this.container.appendChild(audio);
     this.audios.set(key, managed);
 

@@ -3,6 +3,7 @@ import { usePlaybackClock, usePlaybackControls } from "@/hooks/usePlaybackClock"
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import { timeToPixel } from "@/lib/timeline/timelineViewport";
 
 interface PlayheadProps {
   pixelsPerSecond: number;
@@ -29,8 +30,9 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
 
   const currentTime = clockState.time;
 
-  // ✅ Use same pixel mapping as Timeline scroll logic (rounded to avoid subpixel issues)
-  const left = Math.max(0, Math.round(currentTime * pixelsPerSecond));
+  // ✅ Use canonical timeToPixel helper for playhead left calculation
+  const left = Math.max(0, timeToPixel(currentTime, pixelsPerSecond));
+
 
   // ✅ PERFORMANCE OPTIMIZED: Throttled state updates to reduce React render storms
   const lastScrollUpdateRef = useRef(0);
