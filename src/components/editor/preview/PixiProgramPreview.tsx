@@ -587,8 +587,16 @@ export const PixiProgramPreview: React.FC = () => {
                   width: displayWidth,
                   height: displayHeight,
                   imageRendering: "auto",
+                  background: project?.canvasBackground?.isTransparent
+                    ? `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect width="8" height="8" fill="%231a1a24"/><rect x="8" width="8" height="8" fill="%2312121a"/><rect y="8" width="8" height="8" fill="%2312121a"/><rect x="8" y="8" width="8" height="8" fill="%231a1a24"/></svg>')`
+                    : project?.canvasBackground?.type === "solid"
+                    ? project.canvasBackground.color || "#000000"
+                    : project?.canvasBackground?.type === "gradient"
+                    ? project.canvasBackground.gradient?.type === "radial"
+                      ? `radial-gradient(circle, ${project.canvasBackground.gradient.stops?.[0]?.color || "#1e1e2d"}, ${project.canvasBackground.gradient.stops?.[1]?.color || "#000000"})`
+                      : `linear-gradient(${project.canvasBackground.gradient?.angle ?? 135}deg, ${project.canvasBackground.gradient?.stops?.[0]?.color || "#1e1e2d"}, ${project.canvasBackground.gradient?.stops?.[1]?.color || "#000000"})`
+                    : "#000000",
                 }}
-                className="bg-black"
               />
 
               <TransformOverlay canvasWidth={canvasWidth} canvasHeight={canvasHeight} scale={scale} viewport={viewport} displayOffset={{ x: offsetX, y: offsetY }} displayWidth={displayWidth} displayHeight={displayHeight} currentTime={currentTime} visible={!isPlaying} />
