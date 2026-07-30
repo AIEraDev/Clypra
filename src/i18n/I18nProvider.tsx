@@ -195,13 +195,31 @@ const ZH_TW: Record<string, string> = {
   "— WebGL Pipeline": "— WebGL 管線", "● Live Testing": "● 即時測試", "✂ Trimmed": "✂ 已修剪",
 };
 
+const EN_FROM_ZH_TW: Record<string, string> = Object.fromEntries(
+  Object.entries(ZH_TW).map(([en, zh]) => [zh, en])
+);
+
 const ATTRIBUTES = ["title", "placeholder", "aria-label"] as const;
 const originalText = new WeakMap<Text, string>();
 const originalAttrs = new WeakMap<Element, Map<string, string>>();
 
 function translateText(value: string, language: AppLanguage): string {
-  if (language === "en") return value;
   const trimmed = value.trim();
+  if (!trimmed) return value;
+
+  if (language === "en") {
+    const english = EN_FROM_ZH_TW[trimmed];
+    if (english) return value.replace(trimmed, english);
+    return value
+      .replace(/未命名專案/g, "Untitled Project")
+      .replace(/今天/g, "Today")
+      .replace(/昨天/g, "Yesterday")
+      .replace(/標準/g, "Standard")
+      .replace(/可讀節奏/g, "Readable cadence")
+      .replace(/倍/g, "times")
+      .replace(/樣本/g, "samples");
+  }
+
   const translated = ZH_TW[trimmed];
   if (translated) return value.replace(trimmed, translated);
   return value
@@ -220,23 +238,61 @@ function localizeTree(root: Node, language: AppLanguage) {
       const text = node as Text;
       if (!text.data.trim()) return;
       const previous = originalText.get(text);
-      if (previous === undefined || (text.data !== previous && text.data !== translateText(previous, language))) originalText.set(text, text.data);
-      const next = translateText(originalText.get(text)!, language);
-      if (text.data !== next) text.data = next;
+      if (previous === undefined) {
+        const trimmed = text.data.trim();
+        const origEn = EN_FROM_ZH_TW[trimmed];
+        const initialText = origEn ? text.data.replace(trimmed, origEn) : text.data;
+        originalText.set(text, initialText);
+      } else {
+        const zhVersion = translateText(previous, "zh-TW");
+        const enVersion = translateText(previous, "en");
+        if (text.data !== previous && text.data !== zhVersion && text.data !== enVersion) {
+          originalText.set(text, text.data);
+        }
+      }
+
+      const source = originalText.get(text)!;
+      const next = translateText(source, language);
+      if (text.data !== next) {
+        text.data = next;
+      }
       return;
     }
+
     if (!(node instanceof Element) || ["SCRIPT", "STYLE", "TEXTAREA"].includes(node.tagName) || node.closest("[data-no-i18n], [contenteditable='true']")) return;
+
     let saved = originalAttrs.get(node);
-    if (!saved) { saved = new Map(); originalAttrs.set(node, saved); }
+    if (!saved) {
+      saved = new Map();
+      originalAttrs.set(node, saved);
+    }
+
     for (const attr of ATTRIBUTES) {
       const value = node.getAttribute(attr);
+      if (value === null) continue;
       const previous = saved.get(attr);
-      if (value !== null && (previous === undefined || (value !== previous && value !== translateText(previous, language)))) saved.set(attr, value);
-      const source = saved.get(attr);
-      if (source !== undefined) node.setAttribute(attr, translateText(source, language));
+      if (previous === undefined) {
+        const trimmed = value.trim();
+        const origEn = EN_FROM_ZH_TW[trimmed];
+        const initialValue = origEn ? value.replace(trimmed, origEn) : value;
+        saved.set(attr, initialValue);
+      } else {
+        const zhVersion = translateText(previous, "zh-TW");
+        const enVersion = translateText(previous, "en");
+        if (value !== previous && value !== zhVersion && value !== enVersion) {
+          saved.set(attr, value);
+        }
+      }
+      const source = saved.get(attr)!;
+      const next = translateText(source, language);
+      if (value !== next) {
+        node.setAttribute(attr, next);
+      }
     }
+
     node.childNodes.forEach(visit);
   };
+
   visit(root);
 }
 
