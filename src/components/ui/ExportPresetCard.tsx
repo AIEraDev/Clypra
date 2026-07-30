@@ -1,7 +1,7 @@
 import React from "react";
 import { Zap, Sparkles, Gem } from "lucide-react";
 
-export type ExportPreset = "1080p-fast" | "1080p-quality" | "720p-fast" | "4k-quality" | "prores-422hq";
+export type ExportPreset = "1080p-fast" | "1080p-quality" | "720p-fast" | "4k-quality" | "prores-422hq" | "gif-animated" | "webm-vp9";
 
 export interface PresetConfig {
   label: string;
@@ -13,10 +13,10 @@ export interface PresetConfig {
   tierLabel: string;
   width: number;
   height: number;
-  codecValue: "h264" | "h265" | "prores";
+  codecValue: "h264" | "h265" | "prores" | "gif" | "vp9";
   preset: "ultrafast" | "fast" | "medium" | "slow" | "veryslow";
   crf: number;
-  pixelFormat: "yuv420p" | "yuv444p" | "yuv422p10le";
+  pixelFormat: "yuv420p" | "yuv444p" | "yuv422p10le" | "rgb24";
   estimatedBitrateMbps: number;
 }
 
