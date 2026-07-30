@@ -55,7 +55,6 @@ function formatTime(seconds: number): string {
 interface MarkerPinProps {
   marker: TimelineMarker;
   pixelsPerSecond: number;
-  scrollLeft: number;
   onSelect: (markerId: string) => void;
   onDragEnd: (markerId: string, newTime: number) => void;
   selected: boolean;
@@ -64,13 +63,12 @@ interface MarkerPinProps {
 const MarkerPin: React.FC<MarkerPinProps> = ({
   marker,
   pixelsPerSecond,
-  scrollLeft,
   onSelect,
   onDragEnd,
   selected,
 }) => {
   const color = markerCss(marker.color);
-  const x = Math.round(marker.time * pixelsPerSecond) - scrollLeft;
+  const x = Math.round(marker.time * pixelsPerSecond);
 
   // Drag logic
   const dragging = useRef(false);
@@ -91,7 +89,7 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
         const dt = dx / pixelsPerSecond;
         const newTime = Math.max(0, dragStartTime.current + dt);
         // Live visual update via a CSS custom property on the element
-        pin.current?.style.setProperty("--dx", `${Math.round(newTime * pixelsPerSecond) - scrollLeft}px`);
+        pin.current?.style.setProperty("--dx", `${Math.round(newTime * pixelsPerSecond)}px`);
       };
 
       const onUp = (ev: MouseEvent) => {
@@ -108,7 +106,7 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [marker.id, marker.time, pixelsPerSecond, scrollLeft, onDragEnd],
+    [marker.id, marker.time, pixelsPerSecond, onDragEnd],
   );
 
   const pin = useRef<HTMLDivElement>(null);
@@ -370,11 +368,11 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
     (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const clickX = e.clientX - rect.left + scrollLeft;
+      const clickX = e.clientX - rect.left;
       const time = Math.max(0, clickX / pixelsPerSecond);
       addMarker(time);
     },
-    [pixelsPerSecond, scrollLeft, addMarker],
+    [pixelsPerSecond, addMarker],
   );
 
   // ── Close popover when clicking background ────────────────────────────────
@@ -398,7 +396,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
     >
       {/* ── Tick marks ── */}
       {ticks.map(({ time, isMajor }) => {
-        const x = Math.round(time * pixelsPerSecond) - scrollLeft;
+        const x = Math.round(time * pixelsPerSecond);
         return (
           <div
             key={time}
@@ -446,7 +444,6 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
           key={marker.id}
           marker={marker}
           pixelsPerSecond={pixelsPerSecond}
-          scrollLeft={scrollLeft}
           selected={selectedMarkerId === marker.id}
           onSelect={(id) => setSelectedMarkerId((prev) => (prev === id ? null : id))}
           onDragEnd={(id, newTime) => updateMarker(id, { time: newTime })}
@@ -458,7 +455,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
         <MarkerPopover
           key={selectedMarker.id}
           marker={selectedMarker}
-          x={Math.round(selectedMarker.time * pixelsPerSecond) - scrollLeft}
+          x={Math.round(selectedMarker.time * pixelsPerSecond)}
           onClose={() => setSelectedMarkerId(null)}
           onUpdate={(updates) => updateMarker(selectedMarker.id, updates)}
           onDelete={() => {
