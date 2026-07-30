@@ -22,9 +22,14 @@ export function applyMediaTransform(sprite: Sprite, layer: any, viewport: Render
     userOffsetY: 0,
   };
   const { x, y, width, height } = resolveConform(conform, projectWidth || 1920, projectHeight || 1080);
-  const isTransposed = layer.sourceRotation === 90 || layer.sourceRotation === 270;
-  const renderWidth = isTransposed ? height : width;
-  const renderHeight = isTransposed ? width : height;
+
+  // Use resolveConform output directly — no transposition needed.
+  // The browser's <video> element already corrects for source rotation in
+  // videoWidth/videoHeight, and resolveConform's sourceWidth/sourceHeight
+  // are captured from those corrected values. Transposing here would
+  // double-correct, causing the sprite to diverge from the TransformOverlay.
+  const renderWidth = width;
+  const renderHeight = height;
 
   const sw = sprite.texture?.source?.width;
   const sh = sprite.texture?.source?.height;
@@ -63,7 +68,11 @@ export function applyMediaTransform(sprite: Sprite, layer: any, viewport: Render
     sprite.height = renderHeight;
   }
 
-  sprite.rotation = (((layer.rotation || 0) + (layer.sourceRotation || 0)) * Math.PI) / 180;
+  // Only use the user's clip rotation — NOT sourceRotation.
+  // The browser's <video> element already displays video content upright
+  // (accounting for container metadata rotation), so adding sourceRotation
+  // here would double-rotate the content.
+  sprite.rotation = ((layer.rotation || 0) * Math.PI) / 180;
   sprite.alpha = layer.opacity;
 }
 
