@@ -1,12 +1,15 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
+import { timeToPixel } from "@/lib/timeline/timelineViewport";
 import type { TimelineMarker } from "@/types";
 
 interface TimelineRulerProps {
   pixelsPerSecond: number;
   scrollLeft: number;
+  sequenceDuration?: number;
 }
+
 
 /**
  * CapCut-style timeline ruler with Timeline Marker support.
@@ -295,7 +298,7 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({ marker, x, onClose, onUpd
 
 // ── Main component ──────────────────────────────────────────────────────
 
-export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, scrollLeft }) => {
+export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, scrollLeft, sequenceDuration }) => {
   const clockState = usePlaybackClock();
   const frameRate = clockState.frameRate;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -396,7 +399,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
     >
       {/* ── Tick marks ── */}
       {ticks.map(({ time, isMajor }) => {
-        const x = Math.round(time * pixelsPerSecond);
+        const x = timeToPixel(time, pixelsPerSecond);
         return (
           <div
             key={time}
@@ -419,7 +422,8 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
                 style={{
                   position: "absolute",
                   top: 3,
-                  left: 3,
+                  left: 0,
+                  transform: "translateX(-50%)",
                   fontSize: 10,
                   lineHeight: 1,
                   color: "var(--color-timeline-ruler-text)",
@@ -438,6 +442,43 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
         );
       })}
 
+      {/* ── Sequence End Marker (Ruler Header) ── */}
+      {typeof sequenceDuration === "number" && sequenceDuration > 0 && (
+        <div
+          title={`End of sequence: ${formatLabel(sequenceDuration)}`}
+          style={{
+            position: "absolute",
+            left: timeToPixel(sequenceDuration, pixelsPerSecond),
+            top: 0,
+            bottom: 0,
+            width: 2,
+            backgroundColor: "rgba(239, 68, 68, 0.8)",
+            zIndex: 15,
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: 1,
+              left: "50%",
+              transform: "translateX(-50%)",
+              fontSize: 8,
+              fontWeight: 700,
+              lineHeight: "10px",
+              padding: "1px 3px",
+              borderRadius: 2,
+              backgroundColor: "#ef4444",
+              color: "#ffffff",
+              whiteSpace: "nowrap",
+              letterSpacing: "0.05em",
+            }}
+          >
+            END
+          </div>
+        </div>
+      )}
+
       {/* ── Marker pins ── */}
       {markers.map((marker) => (
         <MarkerPin
@@ -455,7 +496,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
         <MarkerPopover
           key={selectedMarker.id}
           marker={selectedMarker}
-          x={Math.round(selectedMarker.time * pixelsPerSecond)}
+          x={timeToPixel(selectedMarker.time, pixelsPerSecond)}
           onClose={() => setSelectedMarkerId(null)}
           onUpdate={(updates) => updateMarker(selectedMarker.id, updates)}
           onDelete={() => {
@@ -467,3 +508,4 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({ pixelsPerSecond, s
     </div>
   );
 };
+
