@@ -47,3 +47,14 @@ export function getAnchoredZoomScrollLeft(input: {
 export function getTimelineViewportEndForDuration(contentEndSeconds: number): number {
   return getTimelineViewportEnd(contentEndSeconds);
 }
+
+/**
+ * Canonical helper for converting time in seconds to timeline pixel offset.
+ * Ensures consistent pixel rounding across Ruler, Clips, Playhead, and Gaps.
+ */
+export function timeToPixel(timeInSeconds: number, pixelsPerSecond: number): number {
+  const validPPS = typeof pixelsPerSecond === "number" && !isNaN(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
+  const validTime = typeof timeInSeconds === "number" && !isNaN(timeInSeconds) ? timeInSeconds : 0;
+  return Math.round(validTime * validPPS);
+}
+
