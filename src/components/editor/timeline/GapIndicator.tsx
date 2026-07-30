@@ -3,6 +3,7 @@ import { Lock, Trash2 } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
 import type { Gap } from "@/types/gap";
+import { timeToPixel } from "@/lib/timeline/timelineViewport";
 
 interface GapIndicatorProps {
   gap: Gap;
@@ -30,8 +31,9 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({ gap, pixelsPerSecond
   const gapRef = useRef<HTMLDivElement>(null);
 
   // Calculate position and dimensions
-  const left = Math.round(gap.startTime * pixelsPerSecond);
-  const width = Math.round(gap.duration * pixelsPerSecond);
+  const left = timeToPixel(gap.startTime, pixelsPerSecond);
+  const width = timeToPixel(gap.duration, pixelsPerSecond);
+
 
   // Format duration for display
   const formatDuration = (seconds: number): string => {

@@ -9,7 +9,10 @@ import { TimelineWaveform } from "./TimelineWaveform";
 import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
+import { timeToPixel } from "@/lib/timeline/timelineViewport";
+
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
+
 
 const resolveMediaSrc = (path: string) => {
   if (!path) return "";
@@ -71,8 +74,9 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
   };
 
   // Calculate position
-  const left = Math.round(clip.startTime * pixelsPerSecond);
-  const width = Math.round(clip.duration * pixelsPerSecond);
+  const left = timeToPixel(clip.startTime, pixelsPerSecond);
+  const width = timeToPixel(clip.duration, pixelsPerSecond);
+
 
   // Log clip renders during resize for debugging
   useEffect(() => {
