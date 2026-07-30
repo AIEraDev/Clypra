@@ -12,7 +12,8 @@ import { useTimelineDrag } from "@/hooks/useTimelineDrag";
 import { useTimelineTauriDrop } from "@/hooks/useTimelineTauriDrop";
 import { useTimelineZoom } from "@/hooks/useTimelineZoom";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
-import { TIMELINE_TRACK_LABEL_WIDTH_PX, getTimelineLabelColumnWidth, getTimelineLaneWidth } from "@/lib/timeline/timelineViewport";
+import { TIMELINE_TRACK_LABEL_WIDTH_PX, getTimelineLabelColumnWidth, getTimelineLaneWidth, timeToPixel } from "@/lib/timeline/timelineViewport";
+
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -406,8 +407,9 @@ export const Timeline: React.FC = () => {
               borderBottom: "1px solid var(--color-timeline-track-border)",
             }}
           >
-            <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} />
+            <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} sequenceDuration={contentEnd} />
           </div>
+
 
           {/* ── Row 2+: Track labels (sticky left) + Track clips ─────── */}
           {!hasClips ? (
@@ -536,7 +538,21 @@ export const Timeline: React.FC = () => {
                 <Playhead pixelsPerSecond={pixelsPerSecond} duration={duration} containerRef={containerRef} />
               </div>
 
+              {/* Sequence End Line across track area */}
+              {contentEnd > 0 && (
+                <div
+                  className="pointer-events-none absolute top-0 bottom-0 z-40"
+                  style={{
+                    left: `${getTimelineLabelColumnWidth(hasClips) + timeToPixel(contentEnd, pixelsPerSecond)}px`,
+                    width: "2px",
+                    background: "rgba(239, 68, 68, 0.4)",
+                    borderRight: "1px dashed rgba(239, 68, 68, 0.7)",
+                  }}
+                />
+              )}
+
               {/* Snap Guides - Vertical alignment indicators */}
+
               {snapGuides.map((guide, index) => {
                 const guideLeft = guide.time * pixelsPerSecond + getTimelineLabelColumnWidth(hasClips);
                 const guideColor = guide.type === "playhead" ? "var(--color-timeline-drop-indicator)" : "var(--color-snap-guide-clip)";
