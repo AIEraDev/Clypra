@@ -90,6 +90,13 @@ export function toNativePath(inputPath: string): string {
 /**
  * Check if path is already a webview URL or external resource
  */
-export function isWebviewOrExternalUrl(path: string): boolean {
-  return path.startsWith("data:") || path.startsWith("http://") || path.startsWith("https://") || path.startsWith("asset://");
+export function isWebviewOrExternalUrl(path: string | null | undefined): boolean {
+  if (!path || typeof path !== "string") return false;
+  return (
+    path.startsWith("data:") ||
+    path.startsWith("http://") ||
+    path.startsWith("https://") ||
+    path.startsWith("asset://") ||
+    path.startsWith("blob:")
+  );
 }
