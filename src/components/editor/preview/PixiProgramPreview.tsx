@@ -25,6 +25,7 @@ import { AspectSelector } from "./AspectSelector";
 import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
 import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
 import { VolumeControl } from "./VolumeControl";
+import { getCanvasBackgroundLayer } from "./canvasBackground";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
@@ -150,6 +151,9 @@ export const PixiProgramPreview: React.FC = () => {
   }, [canvasWidth, canvasHeight, viewport.panX, viewport.panY, viewport.zoom, dimensions.width, dimensions.height, previewScaleMode]);
 
   const { scale, offsetX, offsetY, displayWidth, displayHeight } = displayTransform;
+  const previewBackgroundLayer = useMemo(() => {
+    return getCanvasBackgroundLayer(project?.canvasBackground);
+  }, [project?.canvasBackground]);
 
   renderStateRef.current.displayWidth = displayWidth;
   renderStateRef.current.displayHeight = displayHeight;
@@ -580,22 +584,23 @@ export const PixiProgramPreview: React.FC = () => {
         <div ref={previewContainerCallback} onPointerDownCapture={handlePreviewPointerDownCapture} className={cn("w-full h-full flex items-center justify-center relative z-10 overflow-hidden", isPanning && "cursor-grabbing", spacePressed && !isPanning && "cursor-grab")}>
           <div data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]" style={{ width: displayWidth, height: displayHeight }}>
             <>
+              {previewBackgroundLayer && (
+                <div
+                  data-testid="program-preview-background"
+                  className={cn("absolute inset-0 z-0 pointer-events-none overflow-hidden", previewBackgroundLayer.className)}
+                  style={previewBackgroundLayer.style}
+                />
+              )}
               <canvas
                 ref={canvasRef}
                 data-testid="program-preview-canvas"
                 style={{
+                  position: "relative",
+                  zIndex: 1,
                   width: displayWidth,
                   height: displayHeight,
                   imageRendering: "auto",
-                  background: project?.canvasBackground?.isTransparent
-                    ? `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect width="8" height="8" fill="%231a1a24"/><rect x="8" width="8" height="8" fill="%2312121a"/><rect y="8" width="8" height="8" fill="%2312121a"/><rect x="8" y="8" width="8" height="8" fill="%231a1a24"/></svg>')`
-                    : project?.canvasBackground?.type === "solid"
-                    ? project.canvasBackground.color || "#000000"
-                    : project?.canvasBackground?.type === "gradient"
-                    ? project.canvasBackground.gradient?.type === "radial"
-                      ? `radial-gradient(circle, ${project.canvasBackground.gradient.stops?.[0]?.color || "#1e1e2d"}, ${project.canvasBackground.gradient.stops?.[1]?.color || "#000000"})`
-                      : `linear-gradient(${project.canvasBackground.gradient?.angle ?? 135}deg, ${project.canvasBackground.gradient?.stops?.[0]?.color || "#1e1e2d"}, ${project.canvasBackground.gradient?.stops?.[1]?.color || "#000000"})`
-                    : "#000000",
+                  background: "transparent",
                 }}
               />
 

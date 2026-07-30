@@ -167,6 +167,99 @@ input[type="range"]:focus-visible {
     margin: 0 1px;
   }
 
+  .clypra-canvas-bg-shader {
+    --clypra-bg-intensity: 1;
+    animation-name: clypra-canvas-bg-pan;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
+    filter: saturate(calc(0.75 + var(--clypra-bg-intensity) * 0.55)) brightness(calc(0.8 + var(--clypra-bg-intensity) * 0.25));
+    transform: translateZ(0);
+  }
+
+  .clypra-canvas-bg-shader-liquid_aurora {
+    background:
+      radial-gradient(circle at 18% 24%, rgba(34, 211, 238, 0.95), transparent 34%),
+      radial-gradient(circle at 82% 22%, rgba(244, 114, 182, 0.88), transparent 32%),
+      radial-gradient(circle at 55% 78%, rgba(132, 204, 22, 0.62), transparent 36%),
+      linear-gradient(135deg, #050816 0%, #111827 42%, #07111f 100%);
+    background-size:
+      135% 135%,
+      145% 145%,
+      120% 120%,
+      100% 100%;
+  }
+
+  .clypra-canvas-bg-shader-neon_grid {
+    background:
+      linear-gradient(rgba(34, 211, 238, 0.28) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(236, 72, 153, 0.26) 1px, transparent 1px),
+      radial-gradient(circle at 50% 24%, rgba(245, 158, 11, 0.72), transparent 24%),
+      linear-gradient(180deg, #12071f 0%, #1f1235 45%, #05070d 100%);
+    background-size:
+      42px 42px,
+      42px 42px,
+      120% 120%,
+      100% 100%;
+    background-position:
+      0 0,
+      0 0,
+      50% 50%,
+      0 0;
+  }
+
+  .clypra-canvas-bg-shader-particle_dust {
+    background:
+      radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.75) 0 1px, transparent 2px),
+      radial-gradient(circle at 76% 34%, rgba(125, 211, 252, 0.78) 0 1px, transparent 2px),
+      radial-gradient(circle at 44% 72%, rgba(251, 191, 36, 0.72) 0 1px, transparent 2px),
+      radial-gradient(circle at 60% 42%, rgba(59, 130, 246, 0.42), transparent 34%),
+      linear-gradient(145deg, #09090b 0%, #172033 55%, #050814 100%);
+    background-size:
+      90px 90px,
+      130px 130px,
+      170px 170px,
+      120% 120%,
+      100% 100%;
+  }
+
+  .clypra-canvas-bg-shader-gradient_wave {
+    background:
+      linear-gradient(115deg, rgba(14, 165, 233, 0.86), transparent 34%),
+      linear-gradient(235deg, rgba(249, 115, 22, 0.78), transparent 38%),
+      radial-gradient(circle at 68% 58%, rgba(168, 85, 247, 0.76), transparent 34%),
+      linear-gradient(160deg, #06131f 0%, #111827 50%, #1b1022 100%);
+    background-size:
+      170% 170%,
+      150% 150%,
+      125% 125%,
+      100% 100%;
+  }
+
+  @keyframes clypra-canvas-bg-pan {
+    0% {
+      background-position:
+        0% 50%,
+        100% 50%,
+        50% 100%,
+        0 0;
+    }
+    50% {
+      background-position:
+        50% 0%,
+        40% 60%,
+        80% 35%,
+        0 0;
+    }
+    100% {
+      background-position:
+        100% 50%,
+        0% 50%,
+        50% 0%,
+        0 0;
+    }
+  }
+
   /*------------------------------------------------- TIMELINE COORDINATE SYSTEM -------------------------------------------------*/
   /* Ensure timeline container uses border-box to avoid padding/border affecting scroll measurements */
   #timeline-tracks-container {
