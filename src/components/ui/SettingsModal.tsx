@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Captions, RefreshCw, Keyboard } from "lucide-react";
 import { platform } from "@/core/platform";
 import { Modal } from "./Modal";
@@ -11,6 +11,7 @@ import { KeyboardShortcutsSettings } from "@/components/settings/KeyboardShortcu
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { checkAppUpdate, installAndRelaunchUpdate, isTauriDesktop } from "@/services/updaterService";
 import { useI18n } from "@/i18n/I18nProvider";
+import { getVersion } from "@tauri-apps/api/app";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -54,19 +55,19 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: T
       <div className="rounded-[10px] overflow-hidden w-full" style={{ background: bg }}>
         {/* Fake topbar */}
         <div className="h-4 flex items-center px-2 gap-1" style={{ background: surface, borderBottom: `1px solid ${border}` }}>
-          <div className="w-[4px] h-[4px] rounded-full" style={{ background: textMuted }} />
-          <div className="w-[4px] h-[4px] rounded-full" style={{ background: textMuted }} />
-          <div className="w-[4px] h-[4px] rounded-full" style={{ background: textMuted }} />
+          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
+          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
+          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
           <div className="flex-1" />
-          <div className="w-8 h-[5px] rounded-sm" style={{ background: accent }} />
+          <div className="w-8 h-1.25 rounded-sm" style={{ background: accent }} />
         </div>
         {/* Fake editor layout */}
-        <div className="flex h-[38px]">
+        <div className="flex h-9.5">
           {/* Sidebar */}
           <div className="w-[28%] p-1.5 flex flex-col gap-1" style={{ background: surface, borderRight: `1px solid ${border}` }}>
-            <div className="h-[4px] w-[70%] rounded-sm" style={{ background: textMuted, opacity: 0.4 }} />
-            <div className="h-[4px] w-[50%] rounded-sm" style={{ background: textMuted, opacity: 0.3 }} />
-            <div className="h-[4px] w-[60%] rounded-sm" style={{ background: textMuted, opacity: 0.25 }} />
+            <div className="h-1 w-[70%] rounded-sm" style={{ background: textMuted, opacity: 0.4 }} />
+            <div className="h-1 w-[50%] rounded-sm" style={{ background: textMuted, opacity: 0.3 }} />
+            <div className="h-1 w-[60%] rounded-sm" style={{ background: textMuted, opacity: 0.25 }} />
           </div>
           {/* Preview area */}
           <div className="flex-1 flex items-center justify-center">
@@ -104,7 +105,7 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: T
               </div>
               {/* Audio track with clip */}
               <div className="h-[8px] flex items-center gap-[2px] px-1" style={{ background: timelineTrackBg }}>
-                <div className="h-[4px] w-[55%] rounded-px" style={{ background: timelineClipAudio, opacity: 0.8 }} />
+                <div className="h-1 w-[55%] rounded-px" style={{ background: timelineClipAudio, opacity: 0.8 }} />
               </div>
             </div>
           </div>
@@ -325,12 +326,7 @@ function AppearanceTab() {
       <section>
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Language</h3>
         <SettingRow label="Interface language" description="Choose the language used throughout Clypra">
-          <select
-            value={language}
-            onChange={(event) => setLanguage(event.target.value as "en" | "zh-TW")}
-            aria-label="Interface language"
-            className="px-3 py-1.5 text-[11px] rounded-lg bg-surface-raised border border-white/6 text-text-primary focus:outline-none focus:border-accent/40"
-          >
+          <select value={language} onChange={(event) => setLanguage(event.target.value as "en" | "zh-TW")} aria-label="Interface language" className="px-3 py-1.5 text-[11px] rounded-lg bg-surface-raised border border-white/6 text-text-primary focus:outline-none focus:border-accent/40">
             <option value="en">English</option>
             <option value="zh-TW">Traditional Chinese</option>
           </select>
@@ -551,6 +547,7 @@ const openExternalUrl = async (url: string) => {
 
 // ─── About Tab ───────────────────────────────────────────────────────────
 function AboutTab() {
+  const [appVersion, setAppVersion] = useState<string>("...");
   const [updateStatus, setUpdateStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "downloading" | "error">("idle");
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; body?: string } | null>(null);
@@ -558,6 +555,16 @@ function AboutTab() {
   const [updateObject, setUpdateObject] = useState<any>(null);
 
   const isDesktop = isTauriDesktop();
+
+  useEffect(() => {
+    if (isDesktop) {
+      getVersion()
+        .then(setAppVersion)
+        .catch(() => setAppVersion("Unknown"));
+    } else {
+      setAppVersion("Web");
+    }
+  }, [isDesktop]);
 
   const handleCheckUpdate = async () => {
     setUpdateStatus("checking");
@@ -600,7 +607,7 @@ function AboutTab() {
       </div>
       <div>
         <h3 className="text-lg font-bold text-text-primary">Clypra</h3>
-        <p className="text-xs text-text-muted mt-1">Version 1.0.1</p>
+        <p className="text-xs text-text-muted mt-1">Version {appVersion}</p>
       </div>
       <p className="text-xs text-text-muted max-w-[280px] leading-relaxed">A modern, native video editor built with Tauri, React, and FFmpeg. Designed for speed and creative freedom.</p>
 
@@ -715,36 +722,22 @@ function AboutTab() {
           <span className="text-xs font-semibold text-text-primary tracking-wide uppercase">Support the Project</span>
           <span className="text-[10px] text-text-muted">Free &amp; open-source ♥</span>
         </div>
-        <p className="text-[11px] text-text-muted text-center leading-relaxed">
-          Clypra is built with love and released for free. If it saves you time, consider supporting its development.
-        </p>
+        <p className="text-[11px] text-text-muted text-center leading-relaxed">Clypra is built with love and released for free. If it saves you time, consider supporting its development.</p>
         <div className="flex flex-col gap-2.5 w-full">
           {/* GitHub Sponsors */}
-          <button
-            onClick={() => openExternalUrl("https://github.com/sponsors/AIEraDev")}
-            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
-            style={{ background: "linear-gradient(135deg, #238636 0%, #1a6e2b 100%)" }}
-          >
+          <button onClick={() => openExternalUrl("https://github.com/sponsors/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #238636 0%, #1a6e2b 100%)" }}>
             <GithubIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">GitHub Sponsors</span>
             <span className="text-white/60 text-[10px] font-normal">Tiered</span>
           </button>
           {/* Patreon */}
-          <button
-            onClick={() => openExternalUrl("https://www.patreon.com/AIEraDev")}
-            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
-            style={{ background: "linear-gradient(135deg, #FF424D 0%, #e8374a 100%)" }}
-          >
+          <button onClick={() => openExternalUrl("https://www.patreon.com/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #FF424D 0%, #e8374a 100%)" }}>
             <PatreonIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">Support on Patreon</span>
             <span className="text-white/60 text-[10px] font-normal">Monthly</span>
           </button>
           {/* Buy Me a Coffee */}
-          <button
-            onClick={() => openExternalUrl("https://buymeacoffee.com/AIEraDev")}
-            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#1a1a1a] text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
-            style={{ background: "linear-gradient(135deg, #FFDD00 0%, #f5c800 100%)" }}
-          >
+          <button onClick={() => openExternalUrl("https://buymeacoffee.com/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#1a1a1a] text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #FFDD00 0%, #f5c800 100%)" }}>
             <BuyMeCoffeeIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">Buy Me a Coffee</span>
             <span className="text-[#1a1a1a]/50 text-[10px] font-normal">One-time</span>
@@ -805,19 +798,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           {activeTab === "appearance" && <AppearanceTab />}
           {activeTab === "editor" && <EditorTab />}
           {activeTab === "shortcuts" && !platform.isCapacitor() && <KeyboardShortcutsSettings />}
-          {activeTab === "captions" && (
-            platform.isCapacitor() ? (
+          {activeTab === "captions" &&
+            (platform.isCapacitor() ? (
               <div className="flex flex-col items-center justify-center p-8 text-center h-[300px]">
                 <Captions className="w-12 h-12 text-accent/60 mb-4" />
                 <h3 className="text-base font-semibold text-text-primary mb-2">Local Auto-Captions</h3>
-                <p className="text-xs text-text-muted max-w-[320px] leading-relaxed">
-                  Local speech-to-text model downloading and transcription are currently desktop-only features due to system resource requirements.
-                </p>
+                <p className="text-xs text-text-muted max-w-[320px] leading-relaxed">Local speech-to-text model downloading and transcription are currently desktop-only features due to system resource requirements.</p>
               </div>
             ) : (
               <WhisperSettings />
-            )
-          )}
+            ))}
           {activeTab === "cache" && <CacheSettings />}
           {activeTab === "about" && <AboutTab />}
         </main>
