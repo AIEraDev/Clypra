@@ -218,3 +218,34 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height, 
     ...(audioPath && asset.type === "audio" && { audioPath }), // Include audioPath for audio clips
   } as any;
 };
+
+export function createAudioClip(params: {
+  id?: string;
+  name?: string;
+  trackId: string;
+  mediaId?: string;
+  audioPath?: string;
+  startTime: number;
+  duration: number;
+  volume?: number;
+}): Clip {
+  return {
+    id: params.id || generateId("clip"),
+    kind: "audio",
+    name: params.name || "Audio Track",
+    trackId: params.trackId,
+    mediaId: params.mediaId || "voiceover-audio",
+    audioPath: params.audioPath,
+    startTime: params.startTime,
+    duration: params.duration,
+    trimIn: 0,
+    trimOut: params.duration,
+    volume: params.volume ?? 1,
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    rotation: 0,
+    opacity: 1,
+  };
+}
