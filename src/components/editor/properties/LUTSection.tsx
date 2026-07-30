@@ -63,7 +63,7 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
   };
 
   const removeLut = () => {
-    const nextAdjustments = { ...adjustments };
+    const nextAdjustments = { ...adjustments } as any;
     delete nextAdjustments.lut;
     handleUpdate("adjustments", nextAdjustments);
   };
