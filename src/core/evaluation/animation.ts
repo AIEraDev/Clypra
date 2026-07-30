@@ -227,3 +227,51 @@ export function evaluateProperty<T>(
   // Fallback to step value
   return (easedProgress >= 0.5 ? right.value : left.value) as T;
 }
+
+import type { VisualPropertyKeyframe } from "@/types";
+
+/**
+ * Evaluates a visual property keyframe track at a given clip time offset (seconds)
+ */
+export function evaluateVisualPropertyKeyframes(
+  keyframes: VisualPropertyKeyframe[] | undefined,
+  timeOffset: number,
+  defaultValue: number
+): number {
+  if (!keyframes || keyframes.length === 0) return defaultValue;
+
+  const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+  if (timeOffset <= sorted[0].time) return sorted[0].value;
+  if (timeOffset >= sorted[sorted.length - 1].time) return sorted[sorted.length - 1].value;
+
+  let left = sorted[0];
+  let right = sorted[sorted.length - 1];
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (timeOffset >= sorted[i].time && timeOffset <= sorted[i + 1].time) {
+      left = sorted[i];
+      right = sorted[i + 1];
+      break;
+    }
+  }
+
+  const range = right.time - left.time;
+  const progress = range === 0 ? 0 : (timeOffset - left.time) / range;
+
+  let easedProgress = progress;
+  const easing = left.easing || "linear";
+
+  if (easing === "linear") {
+    easedProgress = progress;
+  } else if (easing === "easeIn" || (easing as any) === "ease-in") {
+    easedProgress = solveCubicBezier(0.42, 0.0, 1.0, 1.0, progress);
+  } else if (easing === "easeOut" || (easing as any) === "ease-out") {
+    easedProgress = solveCubicBezier(0.0, 0.0, 0.58, 1.0, progress);
+  } else if (easing === "easeInOut" || (easing as any) === "ease-in-out") {
+    easedProgress = solveCubicBezier(0.42, 0.0, 0.58, 1.0, progress);
+  } else if (easing === "bezier" && left.controlPoints) {
+    easedProgress = solveCubicBezier(left.controlPoints[0], left.controlPoints[1], left.controlPoints[2], left.controlPoints[3], progress);
+  }
+
+  return left.value + (right.value - left.value) * easedProgress;
+}
