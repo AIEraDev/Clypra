@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/Tooltip";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
 import type { Project, AspectRatio } from "@/types";
-import { fromRustProject, fromRustTrack, fromRustClip, type RustProject } from "@/types/serialization";
+import { fromRustProject, fromRustTrack, fromRustClip, fromRustGap, type RustProject } from "@/types/serialization";
 import { platform } from "@/core/platform";
 import { SettingsModal } from "./components/ui/SettingsModal";
 import { ClosingProjectModal } from "./components/ui/ClosingProjectModal";
@@ -337,6 +337,8 @@ const App = () => {
       const tracksPayload = rustProject.tracks?.map(fromRustTrack) ?? [];
       const clipsPayload = rustProject.clips?.map(fromRustClip) ?? [];
       const transitionsPayload = rustProject.transitions ?? [];
+      const gapsPayload = rustProject.gaps?.map(fromRustGap) ?? [];
+      const markersPayload = rustProject.markers ?? [];
 
       // Resolve kind for legacy projects
       const assetMap = new Map(mediaAssetsPayload.map((a) => [a.id, a]));
@@ -357,7 +359,14 @@ const App = () => {
         }
       }
 
-      await loadProject(project, { mediaAssets: mediaAssetsPayload, tracks: tracksPayload, clips: clipsPayload, transitions: transitionsPayload });
+      await loadProject(project, {
+        mediaAssets: mediaAssetsPayload,
+        tracks: tracksPayload,
+        clips: clipsPayload,
+        transitions: transitionsPayload,
+        gaps: gapsPayload,
+        markers: markersPayload,
+      });
 
       setTimeout(async () => {
         const { useTimelineStore } = await import("./store/timelineStore");

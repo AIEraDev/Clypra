@@ -1,9 +1,8 @@
 import React, { useState, lazy, Suspense } from "react";
-import { Film, Upload, Home, Settings, Undo2, Redo2 } from "lucide-react";
+import { Upload, Home, Settings } from "lucide-react";
 import { Button } from "../ui/Button";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
-import { useHistoryStore } from "@/store/historyStore";
 import { useTauriFullscreen } from "@/hooks/useTauriFullscreen";
 import { platform } from "@/core/platform";
 
@@ -17,9 +16,6 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
   const { project, closeProject } = useProjectStore();
   const { toggleSettingsModal } = useUIStore();
-  const historyState = useHistoryStore((s) => s.state);
-  const undo = useHistoryStore((s) => s.undo);
-  const redo = useHistoryStore((s) => s.redo);
   const [showExportDialog, setShowExportDialog] = useState(false);
 
   const { isFullscreen } = useTauriFullscreen();
@@ -52,30 +48,6 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
         {/* Right side - actions */}
         <div className="flex items-center gap-1.5">
-          {/* Undo/Redo buttons with action-specific tooltips */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={undo}
-            disabled={!historyState.canUndo}
-            title={historyState.canUndo ? (historyState.undoLabel ? `Undo ${historyState.undoLabel}` : "Undo (Cmd+Z)") : "Nothing to undo"}
-            className={!historyState.canUndo ? "opacity-30 pointer-events-none" : ""}
-            style={{ WebkitAppRegion: "no-drag", cursor: historyState.canUndo ? "pointer" : "default" } as React.CSSProperties}
-          >
-            <Undo2 className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={redo}
-            disabled={!historyState.canRedo}
-            title={historyState.canRedo ? (historyState.redoLabel ? `Redo ${historyState.redoLabel}` : "Redo (Cmd+Shift+Z)") : "Nothing to redo"}
-            className={!historyState.canRedo ? "opacity-30 pointer-events-none" : ""}
-            style={{ WebkitAppRegion: "no-drag", cursor: historyState.canRedo ? "pointer" : "default" } as React.CSSProperties}
-          >
-            <Redo2 className="w-3.5 h-3.5" />
-          </Button>
-
           <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
             <Settings className="w-3.5 h-3.5" />
           </Button>

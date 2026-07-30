@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Link2, Mic, Search, ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy } from "lucide-react";
+import { ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useTimelineStore } from "@/store/timelineStore";
