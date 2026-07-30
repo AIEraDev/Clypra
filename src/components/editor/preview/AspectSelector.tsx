@@ -83,7 +83,7 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
           </div>
           <div className="my-1 h-px bg-border" />
           <div className="px-1">
-            {(["16:9", "9:16", "1:1", "4:5"] as const).map((p) => (
+            {(["16:9", "9:16", "1:1", "4:5", "21:9", "4:3"] as const).map((p) => (
               <AspectMenuRow
                 key={p}
                 preset={p}
