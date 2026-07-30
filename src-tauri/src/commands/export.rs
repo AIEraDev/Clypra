@@ -72,6 +72,27 @@ pub struct ExportAudioClip {
 
     /// Fade-out duration in seconds
     pub fade_out: Option<f64>,
+
+    /// Fade-in curve profile ("linear", "exponential", "logarithmic", "s-curve")
+    pub fade_in_curve: Option<String>,
+
+    /// Fade-out curve profile ("linear", "exponential", "logarithmic", "s-curve")
+    pub fade_out_curve: Option<String>,
+
+    /// Stereo pan (-1.0 to 1.0)
+    pub pan: Option<f64>,
+
+    /// Equalizer low gain (dB)
+    pub eq_low: Option<f64>,
+
+    /// Equalizer mid gain (dB)
+    pub eq_mid: Option<f64>,
+
+    /// Equalizer high gain (dB)
+    pub eq_high: Option<f64>,
+
+    /// Noise suppression level (0.0 to 1.0)
+    pub noise_suppression: Option<f64>,
 }
 
 /// Export configuration.
@@ -295,13 +316,53 @@ pub async fn start_video_export(
                 input_idx, clip.trim_in, end_time
             );
             
+            let in_curve = match clip.fade_in_curve.as_deref() {
+                Some("exponential") => ":curve=exp",
+                Some("logarithmic") => ":curve=log",
+                Some("s-curve") => ":curve=qsin",
+                _ => ":curve=tri",
+            };
+            let out_curve = match clip.fade_out_curve.as_deref() {
+                Some("exponential") => ":curve=exp",
+                Some("logarithmic") => ":curve=log",
+                Some("s-curve") => ":curve=qsin",
+                _ => ":curve=tri",
+            };
+
             if fade_in > 0.001 {
-                chain.push_str(&format!(",afade=t=in:st=0:d={:.3}", fade_in));
+                chain.push_str(&format!(",afade=t=in:st=0:d={:.3}{}", fade_in, in_curve));
             }
             if fade_out > 0.001 {
                 let fade_start = (clip.duration - fade_out).max(0.0);
-                chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", fade_start, fade_out));
+                chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}{}", fade_start, fade_out, out_curve));
             }
+
+            // Apply 3-Band Equalizer if configured
+            if let (Some(low), Some(mid), Some(high)) = (clip.eq_low, clip.eq_mid, clip.eq_high) {
+                if low.abs() > 0.1 || mid.abs() > 0.1 || high.abs() > 0.1 {
+                    chain.push_str(&format!(
+                        ",equalizer=f=100:t=q:w=1:g={:.1},equalizer=f=1000:t=q:w=1:g={:.1},equalizer=f=8000:t=q:w=1:g={:.1}",
+                        low, mid, high
+                    ));
+                }
+            }
+
+            // Apply Stereo Panning if configured
+            if let Some(pan_val) = clip.pan {
+                if pan_val.abs() > 0.01 {
+                    let left_gain = (1.0 - pan_val).min(1.0).max(0.0);
+                    let right_gain = (1.0 + pan_val).min(1.0).max(0.0);
+                    chain.push_str(&format!(",pan=stereo|c0={:.2}*c0|c1={:.2}*c1", left_gain, right_gain));
+                }
+            }
+
+            // Apply Noise Suppression if configured
+            if let Some(ns) = clip.noise_suppression {
+                if ns > 0.05 {
+                    chain.push_str(&format!(",highpass=f=80,afftdn=nr={:.0}", ns * 30.0));
+                }
+            }
+
             chain.push_str(&format!(",adelay={}:all=1,volume={:.3}[a{}];", delay_ms, clip.volume, input_idx));
             filter_complex.push_str(&chain);
         }
@@ -377,14 +438,25 @@ pub async fn start_video_export(
             // Previously hardcoded to profile 3 / yuv422p10le, making ProRes 4444,
             // LT, and Proxy unreachable even when requested via config.pixel_format.
             let (prores_profile, prores_pix_fmt) = match config.pixel_format.as_str() {
-                "yuv422p10le" => ("3", "yuv422p10le"), // ProRes 422 HQ (profile 3)
-                "yuva444p10le" => ("4", "yuva444p10le"), // ProRes 4444
-                "yuv422p"     => ("1", "yuv422p"),      // ProRes 422 LT (profile 1)
-                _ => ("3", "yuv422p10le"),               // Default: ProRes 422 HQ
+                "yuva444p10le" => ("4444", "yuva444p10le"),
+                "yuv444p10le"  => ("4444", "yuv444p10le"),
+                "yuv422p10le"  => ("hq",   "yuv422p10le"),
+                "yuv422p"      => ("standard", "yuv422p10le"),
+                _              => ("hq",   "yuv422p10le"),
             };
             cmd.arg("-profile:v").arg(prores_profile);
             cmd.arg("-pix_fmt").arg(prores_pix_fmt);
             // ProRes is all-intra (every frame is a keyframe), no GOP setting needed
+        }
+        "vp9" | "webm" => {
+            cmd.arg("-c:v").arg("libvpx-vp9");
+            cmd.arg("-crf").arg(config.crf.to_string());
+            cmd.arg("-b:v").arg("0");
+            cmd.arg("-pix_fmt").arg("yuv420p");
+        }
+        "gif" => {
+            cmd.arg("-c:v").arg("gif");
+            cmd.arg("-loop").arg("0");
         }
         _ => {
             return Err(format!("Unsupported codec: {}", config.codec));
