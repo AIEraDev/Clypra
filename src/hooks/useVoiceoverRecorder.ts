@@ -11,7 +11,7 @@ export function useVoiceoverRecorder() {
   const startTimeRef = useRef<number>(0);
 
   const { voiceoverActive, setVoiceoverActive, setVoiceoverAudioBlob, setRecordingError } = useRecordingStore();
-  const { currentTime } = usePlaybackClock();
+  const { time: currentTime } = usePlaybackClock();
 
   const startVoiceover = useCallback(async () => {
     try {
