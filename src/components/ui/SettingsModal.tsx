@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Captions, RefreshCw, Keyboard } from "lucide-react";
 import { platform } from "@/core/platform";
 import { Modal } from "./Modal";
@@ -11,6 +11,7 @@ import { KeyboardShortcutsSettings } from "@/components/settings/KeyboardShortcu
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { checkAppUpdate, installAndRelaunchUpdate, isTauriDesktop } from "@/services/updaterService";
 import { useI18n } from "@/i18n/I18nProvider";
+import { getVersion } from "@tauri-apps/api/app";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -49,62 +50,62 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: T
   const timelineRulerBg = colors["--color-timeline-ruler-bg"] || surface;
 
   return (
-    <button onClick={onSelect} className={`relative rounded-xl p-[2px] transition-all duration-200 ${selected ? "ring-2 ring-accent ring-offset-2 ring-offset-bg" : "ring-1 ring-white/6 hover:ring-white/12"}`}>
+    <button onClick={onSelect} className={`relative rounded-xl p-0.5 transition-all duration-200 ${selected ? "ring-2 ring-accent ring-offset-2 ring-offset-bg" : "ring-1 ring-white/6 hover:ring-white/12"}`}>
       {/* Live mini-preview */}
       <div className="rounded-[10px] overflow-hidden w-full" style={{ background: bg }}>
         {/* Fake topbar */}
         <div className="h-4 flex items-center px-2 gap-1" style={{ background: surface, borderBottom: `1px solid ${border}` }}>
-          <div className="w-[4px] h-[4px] rounded-full" style={{ background: textMuted }} />
-          <div className="w-[4px] h-[4px] rounded-full" style={{ background: textMuted }} />
-          <div className="w-[4px] h-[4px] rounded-full" style={{ background: textMuted }} />
+          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
+          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
+          <div className="w-1 h-1 rounded-full" style={{ background: textMuted }} />
           <div className="flex-1" />
-          <div className="w-8 h-[5px] rounded-sm" style={{ background: accent }} />
+          <div className="w-8 h-1.25 rounded-sm" style={{ background: accent }} />
         </div>
         {/* Fake editor layout */}
-        <div className="flex h-[38px]">
+        <div className="flex h-9.5">
           {/* Sidebar */}
           <div className="w-[28%] p-1.5 flex flex-col gap-1" style={{ background: surface, borderRight: `1px solid ${border}` }}>
-            <div className="h-[4px] w-[70%] rounded-sm" style={{ background: textMuted, opacity: 0.4 }} />
-            <div className="h-[4px] w-[50%] rounded-sm" style={{ background: textMuted, opacity: 0.3 }} />
-            <div className="h-[4px] w-[60%] rounded-sm" style={{ background: textMuted, opacity: 0.25 }} />
+            <div className="h-1 w-[70%] rounded-sm" style={{ background: textMuted, opacity: 0.4 }} />
+            <div className="h-1 w-[50%] rounded-sm" style={{ background: textMuted, opacity: 0.3 }} />
+            <div className="h-1 w-[60%] rounded-sm" style={{ background: textMuted, opacity: 0.25 }} />
           </div>
           {/* Preview area */}
           <div className="flex-1 flex items-center justify-center">
-            <div className="w-[36px] h-[22px] rounded-[3px]" style={{ background: surfaceRaised, border: `1px solid ${border}` }} />
+            <div className="w-9 h-5.5 rounded-[3px]" style={{ background: surfaceRaised, border: `1px solid ${border}` }} />
           </div>
         </div>
         {/* Enhanced timeline preview */}
         <div style={{ background: timelineBg, borderTop: `1px solid ${timelineTrackBorder}` }}>
           {/* Timeline ruler */}
-          <div className="h-[6px] flex items-center px-1" style={{ background: timelineRulerBg }}>
-            <div className="flex-1 flex gap-[6px]">
-              <div className="w-px h-[3px]" style={{ background: textMuted, opacity: 0.4 }} />
-              <div className="w-px h-[2px]" style={{ background: textMuted, opacity: 0.25 }} />
-              <div className="w-px h-[2px]" style={{ background: textMuted, opacity: 0.25 }} />
-              <div className="w-px h-[3px]" style={{ background: textMuted, opacity: 0.4 }} />
+          <div className="h-1.5 flex items-center px-1" style={{ background: timelineRulerBg }}>
+            <div className="flex-1 flex gap-1.5">
+              <div className="w-px h-0.75" style={{ background: textMuted, opacity: 0.4 }} />
+              <div className="w-px h-0.5" style={{ background: textMuted, opacity: 0.25 }} />
+              <div className="w-px h-0.5" style={{ background: textMuted, opacity: 0.25 }} />
+              <div className="w-px h-0.75" style={{ background: textMuted, opacity: 0.4 }} />
             </div>
           </div>
           {/* Timeline tracks with clips */}
           <div className="flex">
             {/* Track labels */}
             <div className="w-[28%] flex flex-col" style={{ borderRight: `1px solid ${timelineTrackBorder}` }}>
-              <div className="h-[10px] flex items-center px-1" style={{ background: timelineTrackBg, borderBottom: `1px solid ${timelineTrackBorder}` }}>
-                <div className="w-[2px] h-[2px] rounded-full" style={{ background: textMuted, opacity: 0.5 }} />
+              <div className="h-2.5 flex items-center px-1" style={{ background: timelineTrackBg, borderBottom: `1px solid ${timelineTrackBorder}` }}>
+                <div className="w-0.5 h-0.5 rounded-full" style={{ background: textMuted, opacity: 0.5 }} />
               </div>
-              <div className="h-[8px] flex items-center px-1" style={{ background: timelineTrackBg }}>
-                <div className="w-[2px] h-[2px] rounded-full" style={{ background: textMuted, opacity: 0.5 }} />
+              <div className="h-2 flex items-center px-1" style={{ background: timelineTrackBg }}>
+                <div className="w-0.5 h-0.5 rounded-full" style={{ background: textMuted, opacity: 0.5 }} />
               </div>
             </div>
             {/* Track content */}
             <div className="flex-1 flex flex-col">
               {/* Video track with clip */}
-              <div className="h-[10px] flex items-center gap-[2px] px-1" style={{ background: timelineTrackBg, borderBottom: `1px solid ${timelineTrackBorder}` }}>
-                <div className="h-[6px] w-[45%] rounded-px" style={{ background: timelineClipVideo, opacity: 0.9 }} />
-                <div className="h-[6px] w-[30%] rounded-px" style={{ background: timelineClipVideo, opacity: 0.9 }} />
+              <div className="h-2.5 flex items-center gap-0.5 px-1" style={{ background: timelineTrackBg, borderBottom: `1px solid ${timelineTrackBorder}` }}>
+                <div className="h-1.5 w-[45%] rounded-px" style={{ background: timelineClipVideo, opacity: 0.9 }} />
+                <div className="h-1.5 w-[30%] rounded-px" style={{ background: timelineClipVideo, opacity: 0.9 }} />
               </div>
               {/* Audio track with clip */}
-              <div className="h-[8px] flex items-center gap-[2px] px-1" style={{ background: timelineTrackBg }}>
-                <div className="h-[4px] w-[55%] rounded-px" style={{ background: timelineClipAudio, opacity: 0.8 }} />
+              <div className="h-2 flex items-center gap-0.5 px-1" style={{ background: timelineTrackBg }}>
+                <div className="h-1 w-[55%] rounded-px" style={{ background: timelineClipAudio, opacity: 0.8 }} />
               </div>
             </div>
           </div>
@@ -118,8 +119,8 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: T
           <div className="text-[9px] text-text-muted leading-tight">{meta.description}</div>
         </div>
         {selected && (
-          <div className="w-[16px] h-[16px] rounded-full bg-accent flex items-center justify-center shrink-0">
-            <Check className="w-[10px] h-[10px] text-white" />
+          <div className="w-4 h-4 rounded-full bg-accent flex items-center justify-center shrink-0">
+            <Check className="w-2.5 h-2.5 text-white" />
           </div>
         )}
       </div>
@@ -281,7 +282,7 @@ function CustomThemeEditor() {
       <input type="text" placeholder="Search colors..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40" />
 
       {/* Color groups */}
-      <div className="max-h-[400px] overflow-y-auto space-y-4 pr-2 scrollbar-thin">
+      <div className="max-h-100 overflow-y-auto space-y-4 pr-2 scrollbar-thin">
         {Object.entries(colorGroups).map(([groupName, keys]) => {
           if (keys.length === 0) return null;
           return (
@@ -325,12 +326,7 @@ function AppearanceTab() {
       <section>
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Language</h3>
         <SettingRow label="Interface language" description="Choose the language used throughout Clypra">
-          <select
-            value={language}
-            onChange={(event) => setLanguage(event.target.value as "en" | "zh-TW")}
-            aria-label="Interface language"
-            className="px-3 py-1.5 text-[11px] rounded-lg bg-surface-raised border border-white/6 text-text-primary focus:outline-none focus:border-accent/40"
-          >
+          <select value={language} onChange={(event) => setLanguage(event.target.value as "en" | "zh-TW")} aria-label="Interface language" className="px-3 py-1.5 text-[11px] rounded-lg bg-surface-raised border border-white/6 text-text-primary focus:outline-none focus:border-accent/40">
             <option value="en">English</option>
             <option value="zh-TW">Traditional Chinese</option>
           </select>
@@ -502,7 +498,7 @@ function SettingRow({ label, description, children }: { label: string; descripti
 function ToggleSwitch({ checked, onChange, disabled }: { checked: boolean; onChange?: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange?.(!checked)} className={`w-9 h-5 rounded-full relative shrink-0 transition-colors ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${checked ? "bg-accent" : "bg-white/1"}`}>
-      <div className={`absolute top-[3px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${checked ? "left-[18px]" : "left-[3px]"}`} />
+      <div className={`absolute top-0.75 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${checked ? "left-4.5" : "left-0.75"}`} />
     </button>
   );
 }
@@ -551,6 +547,7 @@ const openExternalUrl = async (url: string) => {
 
 // ─── About Tab ───────────────────────────────────────────────────────────
 function AboutTab() {
+  const [appVersion, setAppVersion] = useState<string>("...");
   const [updateStatus, setUpdateStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "downloading" | "error">("idle");
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; body?: string } | null>(null);
@@ -558,6 +555,16 @@ function AboutTab() {
   const [updateObject, setUpdateObject] = useState<any>(null);
 
   const isDesktop = isTauriDesktop();
+
+  useEffect(() => {
+    if (isDesktop) {
+      getVersion()
+        .then(setAppVersion)
+        .catch(() => setAppVersion("Unknown"));
+    } else {
+      setAppVersion("Web");
+    }
+  }, [isDesktop]);
 
   const handleCheckUpdate = async () => {
     setUpdateStatus("checking");
@@ -600,12 +607,12 @@ function AboutTab() {
       </div>
       <div>
         <h3 className="text-lg font-bold text-text-primary">Clypra</h3>
-        <p className="text-xs text-text-muted mt-1">Version 1.0.1</p>
+        <p className="text-xs text-text-muted mt-1">Version {appVersion}</p>
       </div>
-      <p className="text-xs text-text-muted max-w-[280px] leading-relaxed">A modern, native video editor built with Tauri, React, and FFmpeg. Designed for speed and creative freedom.</p>
+      <p className="text-xs text-text-muted max-w-70 leading-relaxed">A modern, native video editor built with Tauri, React, and FFmpeg. Designed for speed and creative freedom.</p>
 
       {/* Auto-updater card */}
-      <div className="w-full max-w-[340px] bg-linear-to-b from-white/4 to-white/1 border border-white/10 rounded-2xl p-5 flex flex-col items-center gap-4 shadow-xl backdrop-blur-md">
+      <div className="w-full max-w-85 bg-linear-to-b from-white/4 to-white/1 border border-white/10 rounded-2xl p-5 flex flex-col items-center gap-4 shadow-xl backdrop-blur-md">
         <div className="flex items-center gap-2 w-full justify-between pb-3 border-b border-white/5">
           <span className="text-xs font-semibold text-text-primary tracking-wide uppercase">Software Update</span>
           {updateStatus === "up-to-date" ? (
@@ -697,7 +704,7 @@ function AboutTab() {
                     <span className="text-red-400 text-sm font-bold">!</span>
                   </div>
                   <p className="text-xs text-red-400 font-medium">Update Check Failed</p>
-                  <p className="text-[10px] text-text-muted max-w-[260px] leading-normal line-clamp-2">{updateError || "An unknown error occurred."}</p>
+                  <p className="text-[10px] text-text-muted max-w-65 leading-normal line-clamp-2">{updateError || "An unknown error occurred."}</p>
                   <button onClick={handleCheckUpdate} className="mt-1 flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-text-primary rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-95">
                     <RefreshCw className="w-3 h-3" />
                     Try Again
@@ -710,44 +717,30 @@ function AboutTab() {
       </div>
 
       {/* Support the Project card */}
-      <div className="w-full max-w-[340px] bg-linear-to-b from-white/4 to-white/1 border border-white/10 rounded-2xl p-5 flex flex-col items-center gap-4 shadow-xl backdrop-blur-md">
+      <div className="w-full max-w-85 bg-linear-to-b from-white/4 to-white/1 border border-white/10 rounded-2xl p-5 flex flex-col items-center gap-4 shadow-xl backdrop-blur-md">
         <div className="flex items-center gap-2 w-full justify-between pb-3 border-b border-white/5">
           <span className="text-xs font-semibold text-text-primary tracking-wide uppercase">Support the Project</span>
           <span className="text-[10px] text-text-muted">Free &amp; open-source ♥</span>
         </div>
-        <p className="text-[11px] text-text-muted text-center leading-relaxed">
-          Clypra is built with love and released for free. If it saves you time, consider supporting its development.
-        </p>
+        <p className="text-[11px] text-text-muted text-center leading-relaxed">Clypra is built with love and released for free. If it saves you time, consider supporting its development.</p>
         <div className="flex flex-col gap-2.5 w-full">
           {/* GitHub Sponsors */}
-          <button
-            onClick={() => openExternalUrl("https://github.com/sponsors/AIEraDev")}
-            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
-            style={{ background: "linear-gradient(135deg, #238636 0%, #1a6e2b 100%)" }}
-          >
+          <button onClick={() => openExternalUrl("https://github.com/sponsors/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #238636 0%, #1a6e2b 100%)" }}>
             <GithubIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">GitHub Sponsors</span>
             <span className="text-white/60 text-[10px] font-normal">Tiered</span>
           </button>
           {/* Patreon */}
-          <button
-            onClick={() => openExternalUrl("https://www.patreon.com/AIEraDev")}
-            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
-            style={{ background: "linear-gradient(135deg, #FF424D 0%, #e8374a 100%)" }}
-          >
+          <button onClick={() => openExternalUrl("https://www.patreon.com/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #FF424D 0%, #e8374a 100%)" }}>
             <PatreonIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">Support on Patreon</span>
             <span className="text-white/60 text-[10px] font-normal">Monthly</span>
           </button>
           {/* Buy Me a Coffee */}
-          <button
-            onClick={() => openExternalUrl("https://buymeacoffee.com/AIEraDev")}
-            className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#1a1a1a] text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md"
-            style={{ background: "linear-gradient(135deg, #FFDD00 0%, #f5c800 100%)" }}
-          >
+          <button onClick={() => openExternalUrl("https://buymeacoffee.com/AIEraDev")} className="group flex items-center gap-3 w-full px-4 py-3 rounded-xl text-surface text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98] shadow-md" style={{ background: "linear-gradient(135deg, #FFDD00 0%, #f5c800 100%)" }}>
             <BuyMeCoffeeIcon className="w-4 h-4 shrink-0" />
             <span className="flex-1 text-left">Buy Me a Coffee</span>
-            <span className="text-[#1a1a1a]/50 text-[10px] font-normal">One-time</span>
+            <span className="text-surface/50 text-[10px] font-normal">One-time</span>
           </button>
         </div>
       </div>
@@ -787,7 +780,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     <Modal isOpen={isOpen} onClose={onClose} title="Settings" size="lg">
       <div className="flex flex-col h-full md:flex-row overflow-hidden min-h-0">
         {/* Sidebar */}
-        <aside className="w-full md:w-[160px] border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible md:overflow-y-auto scrollbar-thin shrink-0">
+        <aside className="w-full md:w-40 border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible md:overflow-y-auto scrollbar-thin shrink-0">
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -805,19 +798,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           {activeTab === "appearance" && <AppearanceTab />}
           {activeTab === "editor" && <EditorTab />}
           {activeTab === "shortcuts" && !platform.isCapacitor() && <KeyboardShortcutsSettings />}
-          {activeTab === "captions" && (
-            platform.isCapacitor() ? (
-              <div className="flex flex-col items-center justify-center p-8 text-center h-[300px]">
+          {activeTab === "captions" &&
+            (platform.isCapacitor() ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center h-75">
                 <Captions className="w-12 h-12 text-accent/60 mb-4" />
                 <h3 className="text-base font-semibold text-text-primary mb-2">Local Auto-Captions</h3>
-                <p className="text-xs text-text-muted max-w-[320px] leading-relaxed">
-                  Local speech-to-text model downloading and transcription are currently desktop-only features due to system resource requirements.
-                </p>
+                <p className="text-xs text-text-muted max-w-[320px] leading-relaxed">Local speech-to-text model downloading and transcription are currently desktop-only features due to system resource requirements.</p>
               </div>
             ) : (
               <WhisperSettings />
-            )
-          )}
+            ))}
           {activeTab === "cache" && <CacheSettings />}
           {activeTab === "about" && <AboutTab />}
         </main>
