@@ -45,10 +45,10 @@ const AdjustmentSlider: React.FC<SliderProps> = ({
         onDoubleClick={onReset}
         title="Double-click to reset"
       >
-        <span className={`text-[10px] font-medium transition-colors ${isOverridden ? "text-purple-400 font-semibold" : "text-text-muted"}`}>
+        <span className={`text-[10px] font-medium transition-colors ${isOverridden ? "text-accent font-semibold" : "text-text-muted"}`}>
           {label} {isAuto && <span className="opacity-60 text-[8px]">(auto)</span>}
         </span>
-        <span className={`text-[10px] tabular-nums ${isOverridden ? "text-purple-400 font-medium" : "text-text-primary"}`}>
+        <span className={`text-[10px] tabular-nums ${isOverridden ? "text-accent font-medium" : "text-text-primary"}`}>
           {value.toFixed(step < 0.1 ? 2 : 0)}
         </span>
       </div>
@@ -62,10 +62,10 @@ const AdjustmentSlider: React.FC<SliderProps> = ({
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
           onDoubleClick={onReset}
-          className="flex-1 h-1 rounded-full appearance-none outline-none cursor-pointer bg-border/60 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-2.5 [&::-moz-range-thumb]:h-2.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+          className="flex-1 h-1 rounded-full appearance-none outline-none cursor-pointer bg-border/60 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-2.5 [&::-moz-range-thumb]:h-2.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-text-primary [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
           style={{
             background: isOverridden
-              ? `linear-gradient(to right, #a855f7 0%, #a855f7 ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`
+              ? `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`
               : isAuto
                 ? `linear-gradient(to right, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.3) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`
                 : `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${fillPercent}%, var(--color-border) ${fillPercent}%, var(--color-border) 100%)`
@@ -74,7 +74,7 @@ const AdjustmentSlider: React.FC<SliderProps> = ({
         {isOverridden && (
           <button
             onClick={onReset}
-            className="text-purple-400 hover:text-purple-300 transition-colors p-0.5 shrink-0"
+            className="text-accent hover:opacity-80 transition-colors p-0.5 shrink-0 cursor-pointer"
             title="Reset override"
           >
             <Undo2 className="w-3 h-3" />
