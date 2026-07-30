@@ -9,6 +9,8 @@ const PREVIEW_ASPECT_RATIO: Record<AspectRatio, number | null> = {
   "9:16": 9 / 16,
   "1:1": 1,
   "4:5": 4 / 5,
+  "21:9": 21 / 9,
+  "4:3": 4 / 3,
 };
 
 function PreviewAspectShapeIcon({ widthOverHeight }: { widthOverHeight: number }) {

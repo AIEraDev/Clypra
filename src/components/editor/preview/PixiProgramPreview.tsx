@@ -34,6 +34,8 @@ const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: numbe
   "9:16": { width: 1080, height: 1920 },
   "1:1": { width: 1080, height: 1080 },
   "4:5": { width: 1080, height: 1350 },
+  "21:9": { width: 2520, height: 1080 },
+  "4:3": { width: 1440, height: 1080 },
 };
 
 export const PixiProgramPreview: React.FC = () => {
