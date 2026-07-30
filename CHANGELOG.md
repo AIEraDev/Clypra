@@ -6,15 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-30
+
+### 🐛 Bug Fixes
+
+- **Rust Clippy Lint**: Resolved `manual_clamp` clippy lint in export.rs by replacing `.min(1.0).max(0.0)` with `.clamp(0.0, 1.0)` for audio panning calculations
+- **CI Syntax and Type Errors**: Fixed syntax and type errors in export renderers and timeline toolbar to ensure clean CI builds
+
+### ♻️ Refactoring
+
+- **NPM Package Migration**: Updated from local file references to published NPM packages (`@clypra-studio/engine@^1.1.0`, `@clypra-studio/shaders@^0.1.5`)
+- **Build System**: Removed dependency on local clypra-studio source, now using official NPM registry for engine packages
+
 ## [1.2.0] - 2026-07-30
 
 ### 📺 Window Preview & WebGL Engine Fixes
+
 - **Blank Window Preview Prevention**: Enforced positive viewport dimensions to prevent WebGL context loss and black/blank preview screens on resize or initialization.
 - **Tauri v2 Asset Protocol & CORS**: Resolved `convertFileSrc` double-conversion issues and added CORS headers for WebGL asset loading.
 - **Preview Media Pool Isolation**: Prevented query string pollution on Blob URLs in `PreviewMediaPool` and handled benign `AbortError` signals during video play operations gracefully.
 - **Canvas & Viewport Background**: Restored Pixi canvas background rendering layer with full aspect ratio support and integrated Background & Canvas Inspector controls.
 
 ### 🎙️ Dual-Stream Recording Engine & Hardware Isolation
+
 - **Dual-Buffering Strategy & RAM Optimization**: Implemented streaming disk writes and guaranteed dual-buffering to prevent 0-byte recording outputs and RAM overflow during long sessions.
 - **WebAudio Hardware Isolation**: Routed microphone capture through a dedicated WebAudio graph for hardware isolation and unmuted preview playback.
 - **WebM Duration & Metadata Prober**: Added HTML5 video metadata prober and seek-based duration detection to resolve infinite WebM duration issues.
@@ -22,17 +36,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **macOS Fullscreen Space Handling**: Handled native macOS Space switching during active recording and added window management capabilities.
 
 ### ⚡ Export Engine & WebGL PBO Readback
+
 - **WebGL2 PBO Async Readback**: Implemented Pixel Buffer Objects (PBO) async readback, direct WebGL readback, parallel seeks, and double buffering for high-throughput video export.
 - **Animated GIF & WebM/VP9 Export Presets**: Added high-quality GIF palette generation and WebM/VP9 output options.
 - **Complex Filtergraph Audio Mixing**: Added multi-track audio mixing subsystem with complex filtergraph rendering in FFmpeg exports.
 - **Transition Frame Export**: Included transition windows in single-frame, image sequence, WebCodecs mobile, and desktop FFmpeg exports.
 
 ### 🎨 Color, GPU Filters & Keyframing
+
 - **Visual Property Keyframing Engine**: Added visual property keyframing types, evaluation engine, and UI toggle controls to `TransformSection` and `PropertySlider`.
 - **GPU Chroma Key & Shader Consolidation**: Added WebGL2 GPU chroma key filter and consolidated redundant vertex shader pipelines across effects.
 - **3-Way Color Wheels & 3D LUT Importer**: Added professional 3-way color grading wheels and custom 3D LUT file import.
 
 ### 🎬 Timeline Precision & Subsystems
+
 - **Sequence End Marker & Boundary Line**: Added sequence end marker and boundary indicator line on the timeline ruler.
 - **Unified Coordinate Calculation**: Replaced split pixel calculations in Clip, Gap, and Transition components with single-expression right-edge calculations (`timeToPixel(startTime + duration, pps)`) eliminating 1px boundary drift.
 - **Dynamic Viewport Canvas Padding**: Updated timeline canvas duration calculations to include a 5s minimum canvas baseline with 2s look-ahead padding (`getTimelineCanvasDuration`).
@@ -42,10 +59,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Batch Subtitles & Presets**: Added batch subtitle formatting with custom style presets.
 
 ### 🌐 Internationalization (i18n)
+
 - **Multi-Language Support**: Added I18nProvider into root with Traditional Chinese and bidirectional translation support.
 - **Native Menu Integration**: Added native menu language commands in Tauri.
 
 ### 🧪 Back-to-Back Quality & Test Verification
+
 - **100% Test Pass Rate**: Verified back-to-back testing passes across all 139 frontend test files (1,451 tests) and 77 Rust backend unit tests.
 - **Zero Type Errors**: Verified TypeScript compilation clean across all modules (`npx tsc --noEmit`).
 
