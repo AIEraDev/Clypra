@@ -33,11 +33,17 @@ pub struct Project {
     #[serde(default)]
     pub duration: Option<f64>,
     #[serde(default)]
+    pub canvas_background: Option<serde_json::Value>,
+    #[serde(default)]
     pub tracks: Vec<serde_json::Value>,
     #[serde(default)]
     pub clips: Vec<serde_json::Value>,
     #[serde(default)]
     pub transitions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub gaps: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub markers: Vec<serde_json::Value>,
     #[serde(default)]
     pub timeline_schema_version: Option<u32>,
     #[serde(default)]

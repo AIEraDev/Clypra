@@ -15,7 +15,7 @@
  * - Easy to maintain when schema changes
  */
 
-import type { Project, MediaAsset, Track, Clip, AspectRatio, TransitionTimelineItem, TimelineMarker } from "./index";
+import type { Project, MediaAsset, Track, Clip, AspectRatio, TransitionTimelineItem, TimelineMarker, CanvasBackgroundConfig } from "./index";
 import type { Gap } from "./gap";
 
 // ============================================================================
@@ -40,6 +40,7 @@ export interface RustProject {
   frame_rate?: number | null; // Optional in Rust
   duration?: number | null; // Optional in Rust
   media_assets?: RustMediaAsset[];
+  canvas_background?: CanvasBackgroundConfig | null;
   tracks?: RustTrack[];
   clips?: RustClip[];
   transitions?: TransitionTimelineItem[];
@@ -161,6 +162,8 @@ export function fromRustProject(rust: RustProject): Project {
     frameRate: (rust.frame_rate ?? 30) as 24 | 30 | 60,
     duration: rust.duration ?? 0,
     mediaAssets: rust.media_assets?.map(fromRustMediaAsset),
+    canvasBackground: rust.canvas_background ?? undefined,
+    markers: rust.markers ?? undefined,
     timelineSchemaVersion: rust.timeline_schema_version ?? 1,
   };
 }
@@ -351,6 +354,7 @@ export function toRustProject(
     canvas_height: frontend.canvasHeight,
     frame_rate: frontend.frameRate,
     duration: frontend.duration,
+    canvas_background: frontend.canvasBackground,
     media_assets: options?.mediaAssets?.map(toRustMediaAsset) ?? [],
     tracks: options?.tracks?.map(toRustTrack) ?? [],
     clips: options?.clips?.map(toRustClip) ?? [],
