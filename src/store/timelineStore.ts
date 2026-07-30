@@ -29,6 +29,7 @@ import { detectGaps, createGap, insertGapWithRipple, removeGapWithRipple, resize
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import { useUIStore } from "./uiStore";
 import { useProjectStore } from "./projectStore";
+import { usePlaybackStore } from "./playbackStore";
 import { clampTimelinePixelsPerSecond, clampTimelineZoom, TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "../lib/timeline/timelineZoom";
 import { getTimelineContentEnd, normalizeClipTiming } from "@/lib/timeline/timelineClip";
 import { autoSaveMiddleware } from "./middleware/autoSaveMiddleware";
@@ -112,6 +113,15 @@ interface TimelineStore {
   addMarker: (time: number, name?: string, color?: string) => string;
   removeMarker: (markerId: string) => void;
   updateMarker: (markerId: string, updates: Partial<TimelineMarker>) => void;
+  addClipMarker: (clipId: string, localTime: number, name?: string, color?: string) => string;
+  removeClipMarker: (clipId: string, markerId: string) => void;
+  jumpToNextMarker: () => void;
+  jumpToPrevMarker: () => void;
+  // Audio Automation & FX operations
+  addAudioKeyframe: (clipId: string, time: number, gain: number, easing?: "linear" | "exponential" | "bezier") => string;
+  removeAudioKeyframe: (clipId: string, keyframeId: string) => void;
+  updateAudioKeyframe: (clipId: string, keyframeId: string, updates: Partial<import("@/types").AudioKeyframe>) => void;
+  updateClipAudioFX: (clipId: string, fxUpdates: Partial<import("@/types").AudioFXConfig>) => void;
 }
 
 const trackHeights: Record<string, number> = {
@@ -1408,6 +1418,195 @@ export const useTimelineStore = create<TimelineStore>(
         }
         return next;
       });
+    },
+
+    addAudioKeyframe: (clipId, time, gain, easing = "linear") => {
+      const id = generateId("akf");
+      set((state) => {
+        const clip = state.clips.find((c) => c.id === clipId);
+        if (!clip) return state;
+
+        const keyframes = clip.volumeKeyframes ? [...clip.volumeKeyframes] : [];
+        const newKf: import("@/types").AudioKeyframe = { id, time, gain, easing };
+        keyframes.push(newKf);
+        keyframes.sort((a, b) => a.time - b.time);
+
+        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const next: Partial<TimelineStore> = { clips: updatedClips };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+      return id;
+    },
+
+    removeAudioKeyframe: (clipId, keyframeId) => {
+      set((state) => {
+        const clip = state.clips.find((c) => c.id === clipId);
+        if (!clip || !clip.volumeKeyframes) return state;
+
+        const keyframes = clip.volumeKeyframes.filter((kf) => kf.id !== keyframeId);
+        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const next: Partial<TimelineStore> = { clips: updatedClips };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
+    updateAudioKeyframe: (clipId, keyframeId, updates) => {
+      set((state) => {
+        const clip = state.clips.find((c) => c.id === clipId);
+        if (!clip || !clip.volumeKeyframes) return state;
+
+        const keyframes = clip.volumeKeyframes
+          .map((kf) => (kf.id === keyframeId ? { ...kf, ...updates } : kf))
+          .sort((a, b) => a.time - b.time);
+
+        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const next: Partial<TimelineStore> = { clips: updatedClips };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
+    updateClipAudioFX: (clipId, fxUpdates) => {
+      set((state) => {
+        const clip = state.clips.find((c) => c.id === clipId);
+        if (!clip) return state;
+
+        const currentFX = clip.audioFX || {};
+        const newFX = { ...currentFX, ...fxUpdates };
+
+        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, audioFX: newFX } : c));
+        const next: Partial<TimelineStore> = { clips: updatedClips };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
+    addClipMarker: (clipId, localTime, name, color) => {
+      const markerId = generateId("clipmarker");
+      set((state) => {
+        const clip = state.clips.find((c) => c.id === clipId);
+        if (!clip) return state;
+
+        const newMarker: import("@/types").ClipMarker = {
+          id: markerId,
+          localTime,
+          name: name || "Clip Marker",
+          color: color || "cyan",
+        };
+
+        const currentMarkers = clip.markers || [];
+        const updatedMarkers = [...currentMarkers, newMarker].sort((a, b) => a.localTime - b.localTime);
+        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, markers: updatedMarkers } : c));
+
+        const next: Partial<TimelineStore> = { clips: updatedClips };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+      return markerId;
+    },
+
+    removeClipMarker: (clipId, markerId) => {
+      set((state) => {
+        const clip = state.clips.find((c) => c.id === clipId);
+        if (!clip || !clip.markers) return state;
+
+        const updatedMarkers = clip.markers.filter((m) => m.id !== markerId);
+        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, markers: updatedMarkers } : c));
+
+        const next: Partial<TimelineStore> = { clips: updatedClips };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
+    jumpToNextMarker: async () => {
+      const state = get();
+      let currentTime = 0;
+      let playbackClock: any = null;
+
+      try {
+        const { getActiveSession } = await import("@/core/runtime/ProjectSession");
+        const session = getActiveSession();
+        if (session) {
+          playbackClock = session.playback;
+          currentTime = playbackClock.time;
+        }
+      } catch {
+        currentTime = 0;
+      }
+
+      const allTimes: number[] = [...state.markers.map((m) => m.time)];
+      state.clips.forEach((clip) => {
+        if (clip.markers) {
+          clip.markers.forEach((cm) => {
+            const absTime = clip.startTime + cm.localTime;
+            allTimes.push(absTime);
+          });
+        }
+      });
+
+      const nextTimes = allTimes.filter((t) => t > currentTime + 0.01).sort((a, b) => a - b);
+      if (nextTimes.length > 0 && playbackClock) {
+        playbackClock.setTime(nextTimes[0]);
+      }
+    },
+
+    jumpToPrevMarker: async () => {
+      const state = get();
+      let currentTime = 0;
+      let playbackClock: any = null;
+
+      try {
+        const { getActiveSession } = await import("@/core/runtime/ProjectSession");
+        const session = getActiveSession();
+        if (session) {
+          playbackClock = session.playback;
+          currentTime = playbackClock.time;
+        }
+      } catch {
+        currentTime = 0;
+      }
+
+      const allTimes: number[] = [...state.markers.map((m) => m.time)];
+      state.clips.forEach((clip) => {
+        if (clip.markers) {
+          clip.markers.forEach((cm) => {
+            const absTime = clip.startTime + cm.localTime;
+            allTimes.push(absTime);
+          });
+        }
+      });
+
+      const prevTimes = allTimes.filter((t) => t < currentTime - 0.01).sort((a, b) => b - a);
+      if (prevTimes.length > 0 && playbackClock) {
+        playbackClock.setTime(prevTimes[0]);
+      }
     },
   })),
 );

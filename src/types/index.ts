@@ -158,6 +158,37 @@ export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { 
 
 export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay";
 
+/** Audio automation keyframe point */
+export interface AudioKeyframe {
+  id: string;
+  time: number; // relative time within clip duration (0 to duration)
+  gain: number; // volume multiplier 0.0 to 2.0
+  easing?: "linear" | "exponential" | "bezier";
+}
+
+/** Easing curve types for audio fade transitions */
+export type AudioFadeCurve = "linear" | "exponential" | "logarithmic" | "s-curve";
+
+/** Audio FX processing configuration for clip */
+export interface AudioFXConfig {
+  eq?: {
+    low: number;  // Bass gain (-12dB to +12dB)
+    mid: number;  // Mid gain (-12dB to +12dB)
+    high: number; // Treble gain (-12dB to +12dB)
+  };
+  noiseSuppression?: number; // 0.0 to 1.0 noise reduction
+  compressor?: {
+    threshold: number; // -60 to 0 dB
+    ratio: number;     // 1 to 20
+  };
+  pan?: number; // Stereo panning: -1.0 (Left) to +1.0 (Right)
+  ducking?: {
+    enabled: boolean;
+    duckingAmount: number; // -30dB to -3dB
+    threshold: number;
+  };
+}
+
 export interface Clip {
   id: string;
   name?: string;
@@ -186,6 +217,14 @@ export interface Clip {
   fadeIn?: number;
   /** Audio fade out duration in seconds */
   fadeOut?: number;
+  /** Audio fade in curve profile */
+  fadeInCurve?: AudioFadeCurve;
+  /** Audio fade out curve profile */
+  fadeOutCurve?: AudioFadeCurve;
+  /** Audio volume automation keyframe points */
+  volumeKeyframes?: AudioKeyframe[];
+  /** Audio FX processing configuration (EQ, Noise, Compressor, Pan) */
+  audioFX?: AudioFXConfig;
   kind?: ClipKind; // Optional for backward compatibility
   /** Video overlays (actual video files like smoke, fire, light leaks) */
   overlays?: ClipOverlay[];
@@ -204,6 +243,8 @@ export interface Clip {
   /** Text template ID for text clips */
   templateId?: string;
   adjustments?: import("@clypra-studio/engine").ColorAdjustments;
+  /** Clip-level markers pinned to local clip time */
+  markers?: ClipMarker[];
 }
 
 /** Video overlay applied to a clip (actual video file) */
@@ -494,6 +535,13 @@ export interface TransformConstraints {
 export interface TimelineMarker {
   id: string;
   time: number;
+  name: string;
+  color: string;
+}
+
+export interface ClipMarker {
+  id: string;
+  localTime: number; // Time relative to clip start
   name: string;
   color: string;
 }
