@@ -53,16 +53,28 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
         {/* Right side - actions */}
         <div className="flex items-center gap-1.5">
           {/* Undo/Redo buttons with action-specific tooltips */}
-          {historyState.canUndo && (
-            <Button variant="ghost" size="icon-sm" onClick={undo} title={historyState.undoLabel ? `Undo ${historyState.undoLabel}` : "Undo"} style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
-              <Undo2 className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          {historyState.canRedo && (
-            <Button variant="ghost" size="icon-sm" onClick={redo} title={historyState.redoLabel ? `Redo ${historyState.redoLabel}` : "Redo"} style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
-              <Redo2 className="w-3.5 h-3.5" />
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={undo}
+            disabled={!historyState.canUndo}
+            title={historyState.canUndo ? (historyState.undoLabel ? `Undo ${historyState.undoLabel}` : "Undo (Cmd+Z)") : "Nothing to undo"}
+            className={!historyState.canUndo ? "opacity-30 pointer-events-none" : ""}
+            style={{ WebkitAppRegion: "no-drag", cursor: historyState.canUndo ? "pointer" : "default" } as React.CSSProperties}
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={redo}
+            disabled={!historyState.canRedo}
+            title={historyState.canRedo ? (historyState.redoLabel ? `Redo ${historyState.redoLabel}` : "Redo (Cmd+Shift+Z)") : "Nothing to redo"}
+            className={!historyState.canRedo ? "opacity-30 pointer-events-none" : ""}
+            style={{ WebkitAppRegion: "no-drag", cursor: historyState.canRedo ? "pointer" : "default" } as React.CSSProperties}
+          >
+            <Redo2 className="w-3.5 h-3.5" />
+          </Button>
 
           <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
             <Settings className="w-3.5 h-3.5" />
