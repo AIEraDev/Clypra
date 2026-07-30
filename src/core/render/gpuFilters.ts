@@ -75,7 +75,7 @@ export function createGPUScanlinesFilter(count: number, intensity: number): Filt
 /**
  * Creates a GPU-accelerated Chromatic Aberration (RGB Split) Filter
  */
-export function createGPURGBSplitFilter(shiftX: number, shiftY: number, width: number, height: number): Filter {
+export function createGPURGBSplitFilter(shiftX: number, shiftY: number, width: number = 1920, height: number = 1080): Filter {
   const fragmentShader = `
     precision mediump float;
     in vec2 vTextureCoord;
