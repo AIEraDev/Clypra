@@ -98,14 +98,14 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
   const isOverridden = r !== 0 || g !== 0 || b !== 0 || y !== 0;
 
   return (
-    <div className="flex flex-col items-center gap-1.5 p-2 bg-surface-raised/60 border border-white/6 rounded-lg select-none">
+    <div className="flex flex-col items-center gap-1.5 p-2 bg-surface-raised/80 border border-border/50 rounded-xl select-none shadow-xs">
       {/* Header Label & Reset */}
       <div className="w-full flex items-center justify-between px-0.5">
-        <span className="text-[10px] font-semibold text-text-secondary">{label}</span>
+        <span className="text-[10px] font-semibold text-text-primary">{label}</span>
         {isOverridden && (
           <button
             onClick={handleResetPuck}
-            className="text-accent hover:text-accent-hover transition-colors p-0.5"
+            className="text-accent hover:opacity-80 transition-colors p-0.5"
             title="Reset color wheel"
           >
             <Undo2 className="w-3 h-3" />
@@ -118,7 +118,7 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
         ref={wheelRef}
         onPointerDown={handlePointerDown}
         onDoubleClick={handleResetPuck}
-        className="relative w-20 h-20 rounded-full border border-white/20 cursor-crosshair shadow-inner overflow-hidden flex items-center justify-center"
+        className="relative w-20 h-20 rounded-full border border-border/80 cursor-crosshair shadow-inner overflow-hidden flex items-center justify-center"
         style={{
           background: `conic-gradient(
             from 90deg,
@@ -127,11 +127,11 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
         }}
       >
         {/* Radial overlay gradient for center saturation blend */}
-        <div className="absolute inset-0 rounded-full bg-radial from-slate-900/90 via-slate-900/40 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 rounded-full bg-radial from-surface-panel/90 via-surface-panel/40 to-transparent pointer-events-none" />
 
         {/* Center alignment crosshairs */}
-        <div className="absolute w-full h-[1px] bg-white/20 pointer-events-none" />
-        <div className="absolute h-full w-[1px] bg-white/20 pointer-events-none" />
+        <div className="absolute w-full h-[1px] bg-border/60 pointer-events-none" />
+        <div className="absolute h-full w-[1px] bg-border/60 pointer-events-none" />
 
         {/* Draggable Puck Indicator */}
         <div
