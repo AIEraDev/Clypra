@@ -4,14 +4,14 @@ import { ChevronDown } from "lucide-react";
 interface PropertySectionProps {
   title: string;
   icon?: React.ReactNode;
-  /** Start collapsed (default: false — sections start open) */
+  /** Start collapsed (default: true) */
   defaultCollapsed?: boolean;
   children: React.ReactNode;
   /** Optional action element rendered on the right side of the header */
   action?: React.ReactNode;
 }
 
-export const PropertySection: React.FC<PropertySectionProps> = ({ title, icon, defaultCollapsed = false, children, action }) => {
+export const PropertySection: React.FC<PropertySectionProps> = ({ title, icon, defaultCollapsed = true, children, action }) => {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   return (
