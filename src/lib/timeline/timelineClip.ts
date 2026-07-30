@@ -225,10 +225,12 @@ export function createAudioClip(params: {
   trackId: string;
   mediaId?: string;
   audioPath?: string;
+  path?: string;
   startTime: number;
   duration: number;
   volume?: number;
 }): Clip {
+  const finalAudioPath = params.audioPath || params.path;
   return {
     id: params.id || generateId("clip"),
     kind: "audio",
