@@ -1,4 +1,4 @@
-export type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5";
+export type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5" | "21:9" | "4:3";
 
 /**
  * Maximum project name length.
@@ -12,6 +12,8 @@ export const PREVIEW_ASPECT_LABEL: Record<AspectRatio, string> = {
   "9:16": "9:16 (Reels/Shorts)",
   "1:1": "1:1 (Instagram)",
   "4:5": "4:5 (Instagram)",
+  "21:9": "21:9 (Cinematic)",
+  "4:3": "4:3 (Standard/Tablet)",
 };
 
 export enum DensityLevel {

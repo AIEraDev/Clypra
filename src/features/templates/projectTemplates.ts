@@ -77,7 +77,7 @@ export const BUILTIN_PROJECT_TEMPLATES: ProjectTemplate[] = [
     id: "cinematic-ultrawide",
     name: "Cinematic Ultra-Wide",
     description: "21:9 anamorphic widescreen aspect ratio at 24fps cinematic frame rate.",
-    aspectRatio: "16:9", // Aspect ratio canvas scaling
+    aspectRatio: "21:9", // Aspect ratio canvas scaling
     resolution: "2520×1080",
     width: 2520,
     height: 1080,
