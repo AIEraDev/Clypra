@@ -53,12 +53,7 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family:
-    "Inter",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--font-sans, "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   background: var(--color-bg);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
