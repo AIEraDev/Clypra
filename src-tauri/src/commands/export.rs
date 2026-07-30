@@ -350,8 +350,8 @@ pub async fn start_video_export(
             // Apply Stereo Panning if configured
             if let Some(pan_val) = clip.pan {
                 if pan_val.abs() > 0.01 {
-                    let left_gain = (1.0 - pan_val).min(1.0).max(0.0);
-                    let right_gain = (1.0 + pan_val).min(1.0).max(0.0);
+                    let left_gain = (1.0 - pan_val).clamp(0.0, 1.0);
+                    let right_gain = (1.0 + pan_val).clamp(0.0, 1.0);
                     chain.push_str(&format!(",pan=stereo|c0={:.2}*c0|c1={:.2}*c1", left_gain, right_gain));
                 }
             }
