@@ -10,6 +10,8 @@ A modern video editor built on Tauri v2, React 19, and Rust. Hardware-accelerate
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md) [![GitHub issues](https://img.shields.io/github/issues/AIEraDev/clypra)](https://github.com/AIEraDev/clypra/issues) [![GitHub stars](https://img.shields.io/github/stars/AIEraDev/clypra)](https://github.com/AIEraDev/clypra/stargazers) [![GitHub Sponsors](https://img.shields.io/github/sponsors/AIEraDev?label=Sponsors&logo=githubsponsors&color=EA4AAA)](https://github.com/sponsors/AIEraDev)
 
+<a href="https://trendshift.io/repositories/35359?utm_source=trendshift-badge&utm_medium=badge&utm_campaign=badge-trendshift-35359" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/35359/daily?language=TypeScript" alt="AIEraDev%2FClypra | Trendshift" width="250" height="55"/></a> <a href="https://trendshift.io/repositories/35359?utm_source=trendshift-badge&utm_medium=badge&utm_campaign=badge-trendshift-35359" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/35359/daily" alt="AIEraDev%2FClypra | Trendshift" width="250" height="55"/></a> <a href="https://trendshift.io/repositories/35359?utm_source=trendshift-badge&utm_medium=badge&utm_campaign=badge-trendshift-35359" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/35359/weekly?language=TypeScript" alt="AIEraDev%2FClypra | Trendshift" width="250" height="55"/></a> <a href="https://trendshift.io/repositories/35359?utm_source=repository-badge&utm_medium=badge&utm_campaign=badge-repository-35359" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/35359" alt="AIEraDev%2FClypra | Trendshift" width="250" height="55"/></a>
+
 [Features](#features) • [Architecture](#architecture) • [Installation](#installation) • [Development](#development) • [Contributing](#contributing) • [Open Core](#open-core-model)
 
 </div>
@@ -448,19 +450,19 @@ Clypra is **free and open-source forever**. Sponsorship is what makes that susta
 
 ### Sponsorship Tiers
 
-| Tier | Price | Perks |
-|---|---|---|
-| ☕ **Supporter** | $5 / mo | Name in contributors list, sponsors Discord channel |
-| 🚀 **Backer** | $20 / mo | Name in README, priority issue responses, beta access, roadmap vote |
-| 🏢 **Bronze Sponsor** | $50 / mo | Logo in README + website, release note mention |
-| 💎 **Silver Sponsor** | $200 / mo | Larger logo placement, monthly mentions, direct feedback channel |
-| 🌟 **Gold / Enterprise** | Custom | Custom placement, dedicated support, invoice billing, co-design sessions |
+| Tier                     | Price     | Perks                                                                    |
+| ------------------------ | --------- | ------------------------------------------------------------------------ |
+| ☕ **Supporter**         | $5 / mo   | Name in contributors list, sponsors Discord channel                      |
+| 🚀 **Backer**            | $20 / mo  | Name in README, priority issue responses, beta access, roadmap vote      |
+| 🏢 **Bronze Sponsor**    | $50 / mo  | Logo in README + website, release note mention                           |
+| 💎 **Silver Sponsor**    | $200 / mo | Larger logo placement, monthly mentions, direct feedback channel         |
+| 🌟 **Gold / Enterprise** | Custom    | Custom placement, dedicated support, invoice billing, co-design sessions |
 
 > See [SPONSORS.md](./SPONSORS.md) for full details and perks.
 
 ### 🏅 Current Sponsors
 
-*Be the first! [Sponsor Clypra →](https://github.com/sponsors/AIEraDev)*
+_Be the first! [Sponsor Clypra →](https://github.com/sponsors/AIEraDev)_
 
 ---
 
