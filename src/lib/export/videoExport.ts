@@ -271,7 +271,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       audioCtx = new AudioContextClass();
       oscillator = audioCtx.createOscillator();
       gainNode = audioCtx.createGain();
-      gainNode.gain.value = 0.001; // Extremely quiet but active to register as audio activity
+      gainNode.gain.value = 0; // 100% silent (zero amplitude) keepalive
       oscillator.connect(gainNode);
       gainNode.connect(audioCtx.destination);
       oscillator.start();
