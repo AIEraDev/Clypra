@@ -5,7 +5,7 @@ export { useRenderStack, useTimelineValidation } from "./useCompositor";
 export { useFileDrop } from "./useFileDrop";
 export { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 export { useMediaImport } from "./useMediaImport";
-export { useWhyDidYouUpdate, useComponentLifecycle, useRenderCounter } from "./usePerformanceTest";
+export { useWhyDidYouUpdate, useComponentLifecycle } from "./usePerformanceTest";
 export { usePlayback } from "./usePlayback";
 export { usePlaybackClock, usePlaybackControls, useTransportControls, getPlaybackClock } from "./usePlaybackClock";
 export { usePreviewMode } from "./usePreviewMode";

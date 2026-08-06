@@ -35,15 +35,15 @@ describe("Track timeline behavior", () => {
   });
 
   it("does not render clips when track is invisible", () => {
-    render(<Track track={{ id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: false, height: 68 }} pixelsPerSecond={100} clips={[{ id: "clip-1", trackId: "track-1", mediaId: "asset-1", startTime: 0, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 }]} />);
+    render(<Track track={{ id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: false, height: 68 }} pixelsPerSecond={100} clips={[{ id: "clip-1", trackId: "track-1", mediaId: "asset-1", name: "Clip A", startTime: 0, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 }]} />);
 
     expect(screen.queryByText("Clip A")).not.toBeInTheDocument();
   });
 
   it("prevents clip selection when track is locked", () => {
-    render(<Track track={{ id: "track-1", type: "video", name: "Video", muted: false, locked: true, visible: true, height: 68 }} pixelsPerSecond={100} clips={[{ id: "clip-1", trackId: "track-1", mediaId: "asset-1", startTime: 0, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 }]} />);
+    render(<Track track={{ id: "track-1", type: "video", name: "Video", muted: false, locked: true, visible: true, height: 68 }} pixelsPerSecond={100} clips={[{ id: "clip-1", trackId: "track-1", mediaId: "asset-1", name: "Clip A", startTime: 0, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 }]} />);
 
-    fireEvent.click(screen.getByText("Clip A"));
+    fireEvent.click(screen.getByTestId("clip-clip-1"));
     expect(useUIStore.getState().selectedClipIds).toHaveLength(0);
   });
 });
