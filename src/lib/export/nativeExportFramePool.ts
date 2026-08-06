@@ -86,21 +86,40 @@ export class NativeExportFramePool {
     }
 
     this.videoPaths.add(request.videoPath);
-    const response = await invoke<ArrayBuffer | Uint8Array | number[]>(
-      "decode_export_frame",
-      {
-        videoPath: request.videoPath,
-        timeSecs: request.timeSecs,
-        width,
-        height,
-      },
-    );
-    const rgba = toUint8Array(response);
     const expectedBytes = width * height * 4;
+    let rgba: Uint8Array | null = null;
+    let lastError: any = null;
 
-    if (rgba.byteLength !== expectedBytes) {
+    const backoffs = [10, 25, 50];
+    for (let attempt = 0; attempt <= backoffs.length; attempt++) {
+      try {
+        const response = await invoke<ArrayBuffer | Uint8Array | number[]>(
+          "decode_export_frame",
+          {
+            videoPath: request.videoPath,
+            timeSecs: request.timeSecs,
+            width,
+            height,
+          },
+        );
+        const candidate = toUint8Array(response);
+        if (candidate.byteLength === expectedBytes) {
+          rgba = candidate;
+          break;
+        }
+        lastError = new Error(`Byte length mismatch: expected ${expectedBytes} bytes, got ${candidate.byteLength}`);
+      } catch (err) {
+        lastError = err;
+      }
+
+      if (attempt < backoffs.length) {
+        await new Promise((r) => setTimeout(r, backoffs[attempt]));
+      }
+    }
+
+    if (!rgba) {
       throw new Error(
-        `Native export frame size mismatch: expected ${expectedBytes} bytes, got ${rgba.byteLength}`,
+        `Failed to decode frame at timestamp ${request.timeSecs}s for video ${request.videoPath}: ${lastError?.message || lastError}. Export aborted to prevent output corruption.`,
       );
     }
 

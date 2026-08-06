@@ -273,17 +273,26 @@ export class PixiSceneCompositor {
             record.lastSeenFrame = frameId;
             record.sprite.visible = true;
 
-            // Update video texture using VideoTextureManager from PreviewMediaPool
-            if (mediaLayer.mediaType === "video" && sourceElement instanceof HTMLVideoElement) {
-              if (this.mediaPool.shouldUpdateTexture(mediaLayer.clipId, sourceElement)) {
+            // Update video texture using VideoTextureManager from PreviewMediaPool or canvas surface
+            if (mediaLayer.mediaType === "video") {
+              if (sourceElement instanceof HTMLVideoElement) {
+                if (this.mediaPool.shouldUpdateTexture(mediaLayer.clipId, sourceElement)) {
+                  record.texture.source.update();
+                  this.mediaPool.markTextureClean(mediaLayer.clipId);
+                }
+              } else if (sourceElement instanceof HTMLCanvasElement) {
+                // For native export frame surfaces (HTMLCanvasElement), always update texture source
                 record.texture.source.update();
-                this.mediaPool.markTextureClean(mediaLayer.clipId);
               }
             }
 
             // Capture video source dimensions using conform capture service
-            if (mediaLayer.mediaType === "video" && sourceElement instanceof HTMLVideoElement && mediaLayer.conform) {
-              this.conformCapture.captureVideoDimensions(mediaLayer.clipId, sourceElement, mediaLayer.conform);
+            if (mediaLayer.mediaType === "video" && mediaLayer.conform && sourceElement) {
+              const vW = (sourceElement as any).videoWidth || (sourceElement as any).width || 0;
+              const vH = (sourceElement as any).videoHeight || (sourceElement as any).height || 0;
+              if (vW > 0 && vH > 0) {
+                this.conformCapture.captureVideoDimensions(mediaLayer.clipId, { videoWidth: vW, videoHeight: vH } as any, mediaLayer.conform);
+              }
             }
 
             applyMediaTransform(record.sprite, mediaLayer, viewport);
@@ -520,11 +529,15 @@ export class PixiSceneCompositor {
 
       record.lastSeenFrame = this.currentFrameId;
 
-      // Update video texture using VideoTextureManager from PreviewMediaPool
-      if (layer.mediaType === "video" && sourceElement instanceof HTMLVideoElement) {
-        if (this.mediaPool.shouldUpdateTexture(layer.clipId, sourceElement)) {
+      // Update video texture using VideoTextureManager from PreviewMediaPool or canvas surface
+      if (layer.mediaType === "video") {
+        if (sourceElement instanceof HTMLVideoElement) {
+          if (this.mediaPool.shouldUpdateTexture(layer.clipId, sourceElement)) {
+            record.texture.source.update();
+            this.mediaPool.markTextureClean(layer.clipId);
+          }
+        } else if (sourceElement instanceof HTMLCanvasElement) {
           record.texture.source.update();
-          this.mediaPool.markTextureClean(layer.clipId);
         }
       }
 

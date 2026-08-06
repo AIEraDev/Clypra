@@ -1,6 +1,9 @@
 import { Sprite } from "pixi.js";
 import type { EvaluatedMediaLayer } from "../evaluation/types.js";
 import { useStickersStore } from "../../features/stickers/store/stickersStore.js";
+import { normalizeIconSize } from "../../lib/utils/fixedSizing.js";
+
+
 import {
   beginStickerFrame as engineBeginStickerFrame,
   renderStickerLayerBridged as engineRenderStickerLayerBridged,
@@ -41,8 +44,15 @@ export async function renderStickerLayerBridged(
 
   const lottieData = await stickerCacheManager.readLottieJson(absoluteLottiePath);
 
+  const normalizedBounds = normalizeIconSize(layer.width, layer.height);
+  const normalizedLayer = {
+    ...layer,
+    width: normalizedBounds.width,
+    height: normalizedBounds.height,
+  };
+
   return engineRenderStickerLayerBridged(
-    layer,
+    normalizedLayer,
     lottieData,
     frameId,
     container,
@@ -50,6 +60,7 @@ export async function renderStickerLayerBridged(
     renderOrder,
     stickerId
   );
+
 }
 
 export function unmountStickerLayerBridge(layerId: string, container: import("pixi.js").Container): void {

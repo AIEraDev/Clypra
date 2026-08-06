@@ -5,6 +5,9 @@ import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
 import { effectBleed } from "../../lib/text/textClip";
 import { performanceMonitor } from "@/core/monitoring/PerformanceMonitor";
+import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
+
+
 
 function hasVisibleAlpha(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number): boolean | null {
   try {
@@ -222,7 +225,8 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
   // CRITICAL: Calculate UNSCALED dimensions for _buildConfig()
   // The effect must be rendered at original canvas resolution, then scaled for preview quality.
   // Otherwise text appears at wrong size during playback (e.g., 50% quality makes text 2x larger).
-  const unscaledFontSize = layer.fontSize;
+  const unscaledFontSize = normalizeFontSize(layer.fontSize);
+  const textMetrics = getTextRenderMetrics(unscaledFontSize);
   const unscaledBleed = effectBleed({
     styleId: layer.styleId,
     effectDefinition: effectDef,
@@ -230,8 +234,9 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
     shadow: layer.shadow,
     background: layer.background,
   });
-  const unscaledPaddingX = Math.max(unscaledFontSize * 0.25, unscaledBleed.x);
-  const unscaledPaddingY = Math.max(unscaledFontSize * 0.25, unscaledBleed.y);
+  const unscaledPaddingX = Math.max(textMetrics.paddingX, unscaledBleed.x);
+  const unscaledPaddingY = Math.max(textMetrics.paddingY, unscaledBleed.y);
+
   const effectPaddingX = unscaledPaddingX * scaleX;
   const effectPaddingY = unscaledPaddingY * scaleY;
   const offW = Math.max(1, Math.ceil(width + effectPaddingX * 2));

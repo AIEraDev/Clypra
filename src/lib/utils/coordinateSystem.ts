@@ -365,3 +365,14 @@ export function inverseTransformPoint(pointX: number, pointY: number, transform:
 
   return makeCanvasPoint(x, y);
 }
+
+export {
+  REFERENCE_CANVAS,
+  getFixedScaleFactor,
+  normalizeFontSize,
+  normalizeIconSize,
+  getTextRenderMetrics,
+  getFixedSizingConfig,
+} from "./fixedSizing";
+export type { CanvasDimensions, NormalizedFontSizeOptions, NormalizedIconSizeOptions, TextRenderMetrics } from "./fixedSizing";
+
