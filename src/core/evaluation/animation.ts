@@ -115,7 +115,9 @@ export function parseColor(colorStr: string): [number, number, number, number] {
       b = parseInt(hex.slice(4, 6), 16);
       if (hex.length === 8) a = parseInt(hex.slice(6, 8), 16) / 255;
     }
-    return [r, g, b, a];
+    if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b) && !Number.isNaN(a)) {
+      return [r, g, b, a];
+    }
   }
 
   // Handle rgb / rgba formats
@@ -125,7 +127,9 @@ export function parseColor(colorStr: string): [number, number, number, number] {
     const g = parseInt(match[2], 10);
     const b = parseInt(match[3], 10);
     const a = match[4] !== undefined ? parseFloat(match[4]) : 1.0;
-    return [r, g, b, a];
+    if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b) && !Number.isNaN(a)) {
+      return [r, g, b, a];
+    }
   }
 
   // Fallback

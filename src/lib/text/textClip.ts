@@ -4,8 +4,14 @@
  * Helpers for creating text clips with sensible defaults.
  */
 
+const name = "Musa";
+
 import type { TextClip } from "../../types";
-import { TemplateRenderer, type TextEffectDefinition, type TextTemplate } from "@clypra-studio/engine";
+import {
+  TemplateRenderer,
+  type TextEffectDefinition,
+  type TextTemplate,
+} from "@clypra-studio/engine";
 import { generateId } from "../utils/id";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { useTemplateStore } from "../../features/text-templates/templateStore";
@@ -49,7 +55,14 @@ export interface CreateTextClipOptions {
   italic?: boolean;
 
   /** Position preset */
-  position?: "center" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  position?:
+    | "center"
+    | "top"
+    | "bottom"
+    | "top-left"
+    | "top-right"
+    | "bottom-left"
+    | "bottom-right";
 
   /** Text role: caption for subtitles, title for decorative text */
   textRole?: "caption" | "title";
@@ -92,20 +105,42 @@ export interface TextEffectBounds {
   selectionInset: number;
 }
 
-function measureTextInk(text: string, fontFamily: string, fontSize: number, bold: boolean, letterSpacing = 0): { width: number; height: number } {
+function measureTextInk(
+  text: string,
+  fontFamily: string,
+  fontSize: number,
+  bold: boolean,
+  letterSpacing = 0,
+): { width: number; height: number } {
   try {
-    const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(1, 1) : document.createElement("canvas");
+    const canvas =
+      typeof OffscreenCanvas !== "undefined"
+        ? new OffscreenCanvas(1, 1)
+        : document.createElement("canvas");
     const ctx = canvas.getContext("2d") as any;
-    if (!ctx) return { width: text.length * fontSize * 0.6 + Math.max(0, text.length - 1) * letterSpacing, height: fontSize * 0.82 };
+    if (!ctx)
+      return {
+        width:
+          text.length * fontSize * 0.6 +
+          Math.max(0, text.length - 1) * letterSpacing,
+        height: fontSize * 0.82,
+      };
     ctx.font = `${bold ? "bold" : "normal"} ${fontSize}px ${fontFamily}`;
     const metrics = ctx.measureText(text);
-    const metricsHeight = Number(metrics.actualBoundingBoxAscent ?? 0) + Number(metrics.actualBoundingBoxDescent ?? 0);
+    const metricsHeight =
+      Number(metrics.actualBoundingBoxAscent ?? 0) +
+      Number(metrics.actualBoundingBoxDescent ?? 0);
     return {
       width: metrics.width + Math.max(0, text.length - 1) * letterSpacing,
       height: metricsHeight > 0 ? metricsHeight : fontSize * 0.82,
     };
   } catch (e) {
-    return { width: text.length * fontSize * 0.6 + Math.max(0, text.length - 1) * letterSpacing, height: fontSize * 0.82 };
+    return {
+      width:
+        text.length * fontSize * 0.6 +
+        Math.max(0, text.length - 1) * letterSpacing,
+      height: fontSize * 0.82,
+    };
   }
 }
 
@@ -122,7 +157,13 @@ function measureTextInk(text: string, fontFamily: string, fontSize: number, bold
  *
  * @returns Padding to add on each side (x = horizontal per side, y = vertical per side)
  */
-export function effectBleed(options: { styleId?: string; effectDefinition?: TextEffectDefinition; stroke?: { width: number }; shadow?: { blur: number; offsetX: number; offsetY: number }; background?: { padding: number; color?: string; borderRadius?: number } }): { x: number; y: number } {
+export function effectBleed(options: {
+  styleId?: string;
+  effectDefinition?: TextEffectDefinition;
+  stroke?: { width: number };
+  shadow?: { blur: number; offsetX: number; offsetY: number };
+  background?: { padding: number; color?: string; borderRadius?: number };
+}): { x: number; y: number } {
   let x = 0;
   let y = 0;
   const definition = options.effectDefinition as any;
@@ -131,7 +172,9 @@ export function effectBleed(options: { styleId?: string; effectDefinition?: Text
     x += options.stroke.width;
     y += options.stroke.width;
   }
-  const definitionStrokes = Array.isArray(definition?.strokes) ? definition.strokes : [];
+  const definitionStrokes = Array.isArray(definition?.strokes)
+    ? definition.strokes
+    : [];
   for (const stroke of definitionStrokes) {
     const strokeWidth = Number(stroke?.width ?? 0);
     const strokeBlur = Number(stroke?.blur ?? 0);
@@ -144,7 +187,9 @@ export function effectBleed(options: { styleId?: string; effectDefinition?: Text
     x += Math.abs(options.shadow.offsetX) + options.shadow.blur;
     y += Math.abs(options.shadow.offsetY) + options.shadow.blur;
   }
-  const definitionShadows = Array.isArray(definition?.shadows) ? definition.shadows : [];
+  const definitionShadows = Array.isArray(definition?.shadows)
+    ? definition.shadows
+    : [];
   for (const shadow of definitionShadows) {
     const shadowBlur = Number(shadow?.blur ?? 0);
     const offsetX = Number(shadow?.offset?.x ?? shadow?.offsetX ?? 0);
@@ -152,21 +197,33 @@ export function effectBleed(options: { styleId?: string; effectDefinition?: Text
     x = Math.max(x, Math.abs(offsetX) + shadowBlur);
     y = Math.max(y, Math.abs(offsetY) + shadowBlur);
   }
-  const glows = Array.isArray(definition?.glows) ? definition.glows : Array.isArray(definition?.glowLayers) ? definition.glowLayers : definition?.glow ? [definition.glow] : [];
+  const glows = Array.isArray(definition?.glows)
+    ? definition.glows
+    : Array.isArray(definition?.glowLayers)
+      ? definition.glowLayers
+      : definition?.glow
+        ? [definition.glow]
+        : [];
   for (const glow of glows) {
     if (glow?.enabled === false) continue;
     const glowPadding = Number(glow?.blur ?? 0) + Number(glow?.spread ?? 0);
     x = Math.max(x, glowPadding);
     y = Math.max(y, glowPadding);
   }
-  const bevelDepth = Number(definition?.bevel?.depth ?? definition?.bevelDepth ?? 0);
-  const bevelBlur = Number(definition?.bevel?.blur ?? definition?.bevelBlur ?? 0);
+  const bevelDepth = Number(
+    definition?.bevel?.depth ?? definition?.bevelDepth ?? 0,
+  );
+  const bevelBlur = Number(
+    definition?.bevel?.blur ?? definition?.bevelBlur ?? 0,
+  );
   if (bevelDepth > 0 || bevelBlur > 0) {
     x = Math.max(x, bevelDepth + bevelBlur);
     y = Math.max(y, bevelDepth + bevelBlur);
   }
   const stack = definition?.stack;
-  const stackEnabled = stack ? stack.enabled !== false : !!definition?.stackEnabled;
+  const stackEnabled = stack
+    ? stack.enabled !== false
+    : !!definition?.stackEnabled;
   const stackCount = Number(stack?.count ?? definition?.stackCount ?? 0);
   if (stackEnabled && stackCount > 0) {
     const offsetX = Number(stack?.offsetX ?? definition?.stackOffsetX ?? 0);
@@ -188,7 +245,8 @@ export function effectBleed(options: { styleId?: string; effectDefinition?: Text
     y = Math.max(y, 15);
   }
 
-  const hasDeclaredInkBounds = !!options.effectDefinition?.boundingBox && mode !== "panel";
+  const hasDeclaredInkBounds =
+    !!options.effectDefinition?.boundingBox && mode !== "panel";
   if (!hasDeclaredInkBounds && (x > 0 || y > 0)) {
     x = Math.ceil(x * 1.15);
     y = Math.ceil(y * 1.15);
@@ -197,23 +255,39 @@ export function effectBleed(options: { styleId?: string; effectDefinition?: Text
   return { x, y };
 }
 
-function getPanelContentPadding(effectDefinition?: TextEffectDefinition, background?: { padding: number; color?: string; borderRadius?: number }, fontSize = 100): { x: number; y: number } {
-  const panel = effectDefinition?.panel as { paddingX?: number; paddingY?: number; stroke?: { width?: number } } | undefined;
+function getPanelContentPadding(
+  effectDefinition?: TextEffectDefinition,
+  background?: { padding: number; color?: string; borderRadius?: number },
+  fontSize = 100,
+): { x: number; y: number } {
+  const panel = effectDefinition?.panel as
+    | { paddingX?: number; paddingY?: number; stroke?: { width?: number } }
+    | undefined;
   const ratio = fontSize / 100;
   const backgroundPadding = background ? Math.max(0, background.padding) : 0;
   if (panel) {
     const strokeWidth = (panel.stroke?.width ?? 0) * ratio;
     return {
-      x: Math.max(Math.max(0, panel.paddingX ?? 0) * ratio, backgroundPadding) + strokeWidth,
-      y: Math.max(Math.max(0, panel.paddingY ?? 0) * ratio, backgroundPadding) + strokeWidth,
+      x:
+        Math.max(Math.max(0, panel.paddingX ?? 0) * ratio, backgroundPadding) +
+        strokeWidth,
+      y:
+        Math.max(Math.max(0, panel.paddingY ?? 0) * ratio, backgroundPadding) +
+        strokeWidth,
     };
   }
   if (background) return { x: backgroundPadding, y: backgroundPadding };
   return { x: 0, y: 0 };
 }
 
-function getPanelTrace(effectDefinition?: TextEffectDefinition, background?: { padding: number; color?: string; borderRadius?: number }, fontSize = 100): Record<string, unknown> {
-  const panel = effectDefinition?.panel as { paddingX?: number; paddingY?: number; stroke?: { width?: number } } | undefined;
+function getPanelTrace(
+  effectDefinition?: TextEffectDefinition,
+  background?: { padding: number; color?: string; borderRadius?: number },
+  fontSize = 100,
+): Record<string, unknown> {
+  const panel = effectDefinition?.panel as
+    | { paddingX?: number; paddingY?: number; stroke?: { width?: number } }
+    | undefined;
   const ratio = fontSize / 100;
   return {
     effectId: effectDefinition?.id,
@@ -233,10 +307,36 @@ function getPanelTrace(effectDefinition?: TextEffectDefinition, background?: { p
   };
 }
 
-export function measureTextEffectContentBounds(options: { text: string; fontFamily: string; fontSize: number; bold?: boolean; fontWeight?: string | number; letterSpacing?: number; lineHeight?: number; styleId?: string; effectDefinition?: TextEffectDefinition; stroke?: { width: number }; shadow?: { blur: number; offsetX: number; offsetY: number }; background?: { padding: number; color?: string; borderRadius?: number }; canvasWidth: number; textRole?: "caption" | "title"; maxWidth?: number }): TextEffectBounds {
-  const isBold = options.bold || options.fontWeight === "bold" || (typeof options.fontWeight === "number" && options.fontWeight >= 700);
-  const letterSpacing = options.letterSpacing ?? options.effectDefinition?.font?.letterSpacing ?? 0;
-  const measured = measureTextInk(options.text, options.fontFamily, options.fontSize, !!isBold, letterSpacing);
+export function measureTextEffectContentBounds(options: {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  bold?: boolean;
+  fontWeight?: string | number;
+  letterSpacing?: number;
+  lineHeight?: number;
+  styleId?: string;
+  effectDefinition?: TextEffectDefinition;
+  stroke?: { width: number };
+  shadow?: { blur: number; offsetX: number; offsetY: number };
+  background?: { padding: number; color?: string; borderRadius?: number };
+  canvasWidth: number;
+  textRole?: "caption" | "title";
+  maxWidth?: number;
+}): TextEffectBounds {
+  const isBold =
+    options.bold ||
+    options.fontWeight === "bold" ||
+    (typeof options.fontWeight === "number" && options.fontWeight >= 700);
+  const letterSpacing =
+    options.letterSpacing ?? options.effectDefinition?.font?.letterSpacing ?? 0;
+  const measured = measureTextInk(
+    options.text,
+    options.fontFamily,
+    options.fontSize,
+    !!isBold,
+    letterSpacing,
+  );
   const renderBleed = effectBleed(options);
   const hasDeclaredBounds = !!options.effectDefinition?.boundingBox;
   const isPanelEffect = options.effectDefinition?.boundingBox?.mode === "panel";
@@ -245,20 +345,33 @@ export function measureTextEffectContentBounds(options: { text: string; fontFami
   // Dynamic maxWidth based on text role:
   // - Captions (subtitles) should wrap within screen safe area (95% of canvas width)
   // - Titles and text effects can overflow beyond screen (10x canvas width for point text behavior)
-  const defaultMaxWidth = options.textRole === "caption" ? options.canvasWidth * 0.95 : options.canvasWidth * 10.0;
+  const defaultMaxWidth =
+    options.textRole === "caption"
+      ? options.canvasWidth * 0.95
+      : options.canvasWidth * 10.0;
   const maxWidth = options.maxWidth ?? defaultMaxWidth;
 
-  let source: TextEffectBounds["source"] = options.background ? "panel" : "plain";
+  let source: TextEffectBounds["source"] = options.background
+    ? "panel"
+    : "plain";
   let contentPaddingX = options.fontSize * 0.4;
   let contentPaddingY = options.fontSize * 0.25;
 
   if (isPanelEffect) {
     source = "panel";
-    const panelPadding = getPanelContentPadding(options.effectDefinition, options.background, options.fontSize);
+    const panelPadding = getPanelContentPadding(
+      options.effectDefinition,
+      options.background,
+      options.fontSize,
+    );
     contentPaddingX = panelPadding.x;
     contentPaddingY = panelPadding.y;
   } else if (options.background) {
-    const backgroundPadding = getPanelContentPadding(undefined, options.background, options.fontSize);
+    const backgroundPadding = getPanelContentPadding(
+      undefined,
+      options.background,
+      options.fontSize,
+    );
     contentPaddingX = backgroundPadding.x;
     contentPaddingY = backgroundPadding.y;
   } else if (hasDeclaredBounds || isStyled) {
@@ -267,13 +380,27 @@ export function measureTextEffectContentBounds(options: { text: string; fontFami
     contentPaddingY = Math.max(6, options.fontSize * 0.08);
   }
 
-  const selectionInset = source === "panel" ? Math.max(4, Math.min(12, options.fontSize * 0.04)) : 0;
-  const singleLineWidth = measured.width + contentPaddingX * 2 + selectionInset * 2;
+  const selectionInset =
+    source === "panel" ? Math.max(4, Math.min(12, options.fontSize * 0.04)) : 0;
+  const singleLineWidth =
+    measured.width + contentPaddingX * 2 + selectionInset * 2;
   const width = Math.min(maxWidth, Math.max(48, singleLineWidth));
-  const contentInnerWidth = Math.max(1, width - contentPaddingX * 2 - selectionInset * 2);
-  const wrappedLineCount = Math.max(1, Math.ceil(measured.width / contentInnerWidth));
-  const textHeight = source === "panel" ? options.fontSize * wrappedLineCount : measured.height * wrappedLineCount;
-  const height = Math.max(24, textHeight + contentPaddingY * 2 + selectionInset * 2);
+  const contentInnerWidth = Math.max(
+    1,
+    width - contentPaddingX * 2 - selectionInset * 2,
+  );
+  const wrappedLineCount = Math.max(
+    1,
+    Math.ceil(measured.width / contentInnerWidth),
+  );
+  const textHeight =
+    source === "panel"
+      ? options.fontSize * wrappedLineCount
+      : measured.height * wrappedLineCount;
+  const height = Math.max(
+    24,
+    textHeight + contentPaddingY * 2 + selectionInset * 2,
+  );
 
   return {
     contentWidth: width,
@@ -289,22 +416,52 @@ export function measureTextEffectContentBounds(options: { text: string; fontFami
   };
 }
 
-export function calculateTextClipSize(options: { text: string; fontFamily: string; fontSize: number; bold?: boolean; fontWeight?: string | number; letterSpacing?: number; lineHeight?: number; styleId?: string; effectDefinition?: TextEffectDefinition; stroke?: { width: number }; shadow?: { blur: number; offsetX: number; offsetY: number }; background?: { padding: number; color?: string; borderRadius?: number }; canvasWidth: number; textRole?: "caption" | "title"; maxWidth?: number }): { width: number; height: number; bleed: { x: number; y: number }; measuredWidth: number; bounds: TextEffectBounds } {
+export function calculateTextClipSize(options: {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  bold?: boolean;
+  fontWeight?: string | number;
+  letterSpacing?: number;
+  lineHeight?: number;
+  styleId?: string;
+  effectDefinition?: TextEffectDefinition;
+  stroke?: { width: number };
+  shadow?: { blur: number; offsetX: number; offsetY: number };
+  background?: { padding: number; color?: string; borderRadius?: number };
+  canvasWidth: number;
+  textRole?: "caption" | "title";
+  maxWidth?: number;
+}): {
+  width: number;
+  height: number;
+  bleed: { x: number; y: number };
+  measuredWidth: number;
+  bounds: TextEffectBounds;
+} {
   const bounds = measureTextEffectContentBounds(options);
 
   return {
     width: bounds.contentWidth,
     height: bounds.contentHeight,
-    bleed: { x: Math.max(bounds.bleedLeft, bounds.bleedRight), y: Math.max(bounds.bleedTop, bounds.bleedBottom) },
+    bleed: {
+      x: Math.max(bounds.bleedLeft, bounds.bleedRight),
+      y: Math.max(bounds.bleedTop, bounds.bleedBottom),
+    },
     measuredWidth: bounds.measuredTextWidth,
     bounds,
   };
 }
 
-function resolveTextEffectDefinition(styleId?: string, effectDefinition?: TextEffectDefinition): TextEffectDefinition | undefined {
+function resolveTextEffectDefinition(
+  styleId?: string,
+  effectDefinition?: TextEffectDefinition,
+): TextEffectDefinition | undefined {
   if (effectDefinition) return effectDefinition;
   if (!styleId) return undefined;
-  return useEffectsStore.getState().definitions[styleId] as TextEffectDefinition | undefined;
+  return useEffectsStore.getState().definitions[styleId] as
+    | TextEffectDefinition
+    | undefined;
 }
 
 export interface TextTemplateContentSize {
@@ -315,19 +472,28 @@ export interface TextTemplateContentSize {
   source: "template" | "fallback";
 }
 
-function resolveTextTemplateDefinition(templateId?: string, templateDefinition?: TextTemplate): TextTemplate | undefined {
+function resolveTextTemplateDefinition(
+  templateId?: string,
+  templateDefinition?: TextTemplate,
+): TextTemplate | undefined {
   if (templateDefinition?.layers?.length) return templateDefinition;
   if (!templateId) return undefined;
-  const rawTemplate = useTemplateStore.getState().templates.find((template) => template.id === templateId);
+  const rawTemplate = useTemplateStore
+    .getState()
+    .templates.find((template) => template.id === templateId);
   const templateData = rawTemplate?.templateData || rawTemplate?.lottieData;
   if (templateData?.layers?.length) return templateData as TextTemplate;
   if (rawTemplate?.layers?.length) return rawTemplate as TextTemplate;
   return undefined;
 }
 
-function createMeasurementCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas | null {
+function createMeasurementCanvas(
+  width: number,
+  height: number,
+): HTMLCanvasElement | OffscreenCanvas | null {
   try {
-    if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(width, height);
+    if (typeof OffscreenCanvas !== "undefined")
+      return new OffscreenCanvas(width, height);
     if (typeof document !== "undefined") {
       const canvas = document.createElement("canvas");
       canvas.width = width;
@@ -340,23 +506,37 @@ function createMeasurementCanvas(width: number, height: number): HTMLCanvasEleme
   return null;
 }
 
-function applyTemplateCustomization(renderer: TemplateRenderer, template: TextTemplate, text: string, customization?: any): void {
+function applyTemplateCustomization(
+  renderer: TemplateRenderer,
+  template: TextTemplate,
+  text: string,
+  customization?: any,
+): void {
   for (const layer of template.layers ?? []) {
     if (layer.kind !== "text" && layer.kind !== "shape") continue;
     const changes: Record<string, unknown> = {};
 
     if (layer.kind === "text") {
-      if (customization?.layerTexts?.[layer.id] !== undefined) changes.content = customization.layerTexts[layer.id];
-      else if (layer.role === "primary") changes.content = customization?.primaryText ?? text;
-      else if (layer.role === "secondary") changes.content = customization?.secondaryText ?? "";
-      else if (layer.role === "accent") changes.content = customization?.accentText ?? "";
+      if (customization?.layerTexts?.[layer.id] !== undefined)
+        changes.content = customization.layerTexts[layer.id];
+      else if (layer.role === "primary")
+        changes.content = customization?.primaryText ?? text;
+      else if (layer.role === "secondary")
+        changes.content = customization?.secondaryText ?? "";
+      else if (layer.role === "accent")
+        changes.content = customization?.accentText ?? "";
 
-      if (customization?.layerColors?.[layer.id] !== undefined) changes.color = customization.layerColors[layer.id];
-      else if (layer.role === "primary" && customization?.primaryColor) changes.color = customization.primaryColor;
-      else if (layer.role === "secondary" && customization?.secondaryColor) changes.color = customization.secondaryColor;
+      if (customization?.layerColors?.[layer.id] !== undefined)
+        changes.color = customization.layerColors[layer.id];
+      else if (layer.role === "primary" && customization?.primaryColor)
+        changes.color = customization.primaryColor;
+      else if (layer.role === "secondary" && customization?.secondaryColor)
+        changes.color = customization.secondaryColor;
 
-      if (customization?.layerFontSizes?.[layer.id] !== undefined) changes.fontSize = customization.layerFontSizes[layer.id];
-      if (customization?.layerFontWeights?.[layer.id] !== undefined) changes.fontWeight = customization.layerFontWeights[layer.id];
+      if (customization?.layerFontSizes?.[layer.id] !== undefined)
+        changes.fontSize = customization.layerFontSizes[layer.id];
+      if (customization?.layerFontWeights?.[layer.id] !== undefined)
+        changes.fontWeight = customization.layerFontWeights[layer.id];
     } else if (customization?.layerColors?.[layer.id] !== undefined) {
       changes.fill = customization.layerColors[layer.id];
     }
@@ -367,26 +547,57 @@ function applyTemplateCustomization(renderer: TemplateRenderer, template: TextTe
   }
 }
 
-export function measureTextTemplateContentSize(options: { templateId?: string; templateDefinition?: TextTemplate; text?: string; customization?: any }): TextTemplateContentSize | null {
-  const template = resolveTextTemplateDefinition(options.templateId, options.templateDefinition);
+export function measureTextTemplateContentSize(options: {
+  templateId?: string;
+  templateDefinition?: TextTemplate;
+  text?: string;
+  customization?: any;
+}): TextTemplateContentSize | null {
+  const template = resolveTextTemplateDefinition(
+    options.templateId,
+    options.templateDefinition,
+  );
   if (!template?.layers?.length) {
     return null;
   }
 
-  const legacyTemplate = template as TextTemplate & { width?: number; height?: number };
-  const templateWidth = Math.max(1, Number(legacyTemplate.canvasWidth ?? legacyTemplate.width ?? 800));
-  const templateHeight = Math.max(1, Number(legacyTemplate.canvasHeight ?? legacyTemplate.height ?? 450));
+  const legacyTemplate = template as TextTemplate & {
+    width?: number;
+    height?: number;
+  };
+  const templateWidth = Math.max(
+    1,
+    Number(legacyTemplate.canvasWidth ?? legacyTemplate.width ?? 800),
+  );
+  const templateHeight = Math.max(
+    1,
+    Number(legacyTemplate.canvasHeight ?? legacyTemplate.height ?? 450),
+  );
   const fallbackAspect = templateWidth / templateHeight;
 
   try {
     const canvas = createMeasurementCanvas(templateWidth, templateHeight);
-    const ctx = canvas?.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    const ctx = canvas?.getContext("2d") as
+      | CanvasRenderingContext2D
+      | OffscreenCanvasRenderingContext2D
+      | null;
     if (!ctx) {
-      return { width: templateWidth, height: templateHeight, aspectRatio: fallbackAspect, bounds: null, source: "fallback" };
+      return {
+        width: templateWidth,
+        height: templateHeight,
+        aspectRatio: fallbackAspect,
+        bounds: null,
+        source: "fallback",
+      };
     }
 
     const renderer = new TemplateRenderer(template);
-    applyTemplateCustomization(renderer, template, options.text ?? "Text", options.customization);
+    applyTemplateCustomization(
+      renderer,
+      template,
+      options.text ?? "Text",
+      options.customization,
+    );
 
     const drawStart = performance.now();
     renderer.drawFrame(ctx, 0, { skipClear: true });
@@ -395,7 +606,13 @@ export function measureTextTemplateContentSize(options: { templateId?: string; t
     const bounds = renderer.getContentBounds();
 
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-      return { width: templateWidth, height: templateHeight, aspectRatio: fallbackAspect, bounds: null, source: "fallback" };
+      return {
+        width: templateWidth,
+        height: templateHeight,
+        aspectRatio: fallbackAspect,
+        bounds: null,
+        source: "fallback",
+      };
     }
 
     // Calculate bounds position relative to template canvas
@@ -420,15 +637,33 @@ export function measureTextTemplateContentSize(options: { templateId?: string; t
       source: "template",
     };
   } catch (error) {
-    return { width: templateWidth, height: templateHeight, aspectRatio: fallbackAspect, bounds: null, source: "fallback" };
+    return {
+      width: templateWidth,
+      height: templateHeight,
+      aspectRatio: fallbackAspect,
+      bounds: null,
+      source: "fallback",
+    };
   }
 }
 
-export function calculateTextTemplateClipSize(options: { canvasWidth: number; canvasHeight: number; templateId?: string; templateDefinition?: TextTemplate; text?: string; customization?: any }): { width: number; height: number; content: TextTemplateContentSize | null } {
+export function calculateTextTemplateClipSize(options: {
+  canvasWidth: number;
+  canvasHeight: number;
+  templateId?: string;
+  templateDefinition?: TextTemplate;
+  text?: string;
+  customization?: any;
+}): { width: number; height: number; content: TextTemplateContentSize | null } {
   const content = measureTextTemplateContentSize(options);
 
   // If we successfully measured content bounds, use them
-  if (content?.source === "template" && content.bounds && content.bounds.width > 0 && content.bounds.height > 0) {
+  if (
+    content?.source === "template" &&
+    content.bounds &&
+    content.bounds.width > 0 &&
+    content.bounds.height > 0
+  ) {
     // Use the actual content bounds dimensions - this is the tight bounding box
     // of visible text content from the template renderer
     const contentWidth = content.bounds.width;
@@ -464,7 +699,12 @@ export function calculateTextTemplateClipSize(options: { canvasWidth: number; ca
   }
 
   // Fallback to aspect-based sizing if measurement failed or returned fallback
-  const templateAspect = content?.aspectRatio && Number.isFinite(content.aspectRatio) && content.aspectRatio > 0 ? content.aspectRatio : 16 / 9;
+  const templateAspect =
+    content?.aspectRatio &&
+    Number.isFinite(content.aspectRatio) &&
+    content.aspectRatio > 0
+      ? content.aspectRatio
+      : 16 / 9;
   const maxWidth = options.canvasWidth * 0.5;
   const maxHeight = options.canvasHeight * 0.25;
 
@@ -485,7 +725,28 @@ export function calculateTextTemplateClipSize(options: { canvasWidth: number; ca
  * Create a text clip with sensible defaults.
  */
 export function createTextClip(options: CreateTextClipOptions): TextClip {
-  const { trackId, startTime, duration = 5.0, text = "Text", canvasWidth, canvasHeight, color = "#ffffff", bold = false, italic = false, position = "center", textRole, words, styleId, templateId, customization, stroke, shadow, background, effectDefinition, templateDefinition } = options;
+  const {
+    trackId,
+    startTime,
+    duration = 5.0,
+    text = "Text",
+    canvasWidth,
+    canvasHeight,
+    color = "#ffffff",
+    bold = false,
+    italic = false,
+    position = "center",
+    textRole,
+    words,
+    styleId,
+    templateId,
+    customization,
+    stroke,
+    shadow,
+    background,
+    effectDefinition,
+    templateDefinition,
+  } = options;
 
   // For templates, calculate dimensions based on template's native aspect ratio
   // instead of text measurements to ensure professional full-canvas rendering
@@ -506,7 +767,13 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     sourceAspectRatio = width / Math.max(1, height);
 
     // Position based on preset
-    const templatePosition = calculateTextPosition(position, canvasWidth, canvasHeight, width, height);
+    const templatePosition = calculateTextPosition(
+      position,
+      canvasWidth,
+      canvasHeight,
+      width,
+      height,
+    );
     x = templatePosition.x;
     y = templatePosition.y;
 
@@ -532,15 +799,31 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     };
   } else {
     // Regular text clips use text measurement
-    const resolvedEffectDefinition = resolveTextEffectDefinition(styleId, effectDefinition);
-    const definitionFontSize = (resolvedEffectDefinition as (TextEffectDefinition & { fontSize?: number }) | undefined)?.fontSize;
+    const resolvedEffectDefinition = resolveTextEffectDefinition(
+      styleId,
+      effectDefinition,
+    );
+    const definitionFontSize = (
+      resolvedEffectDefinition as
+        | (TextEffectDefinition & { fontSize?: number })
+        | undefined
+    )?.fontSize;
     const defaultFontSize = definitionFontSize ?? (options.styleId ? 96 : 100);
     const fontSize = options.fontSize ?? defaultFontSize;
-    const fontFamily = options.fontFamily ?? resolvedEffectDefinition?.font?.family ?? "Inter, system-ui, sans-serif";
-    const fontWeight = options.fontWeight ?? resolvedEffectDefinition?.font?.weight;
-    const fontStyle = options.fontStyle ?? resolvedEffectDefinition?.font?.style;
-    const lineHeight = options.lineHeight ?? resolvedEffectDefinition?.font?.lineHeight ?? 1.2;
-    const letterSpacing = options.letterSpacing ?? resolvedEffectDefinition?.font?.letterSpacing ?? 0;
+    const fontFamily =
+      options.fontFamily ??
+      resolvedEffectDefinition?.font?.family ??
+      "Inter, system-ui, sans-serif";
+    const fontWeight =
+      options.fontWeight ?? resolvedEffectDefinition?.font?.weight;
+    const fontStyle =
+      options.fontStyle ?? resolvedEffectDefinition?.font?.style;
+    const lineHeight =
+      options.lineHeight ?? resolvedEffectDefinition?.font?.lineHeight ?? 1.2;
+    const letterSpacing =
+      options.letterSpacing ??
+      resolvedEffectDefinition?.font?.letterSpacing ??
+      0;
 
     sizing = calculateTextClipSize({
       text,
@@ -560,22 +843,41 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     });
 
     // Calculate position based on preset using the dynamic box sizes
-    const textPosition = calculateTextPosition(position, canvasWidth, canvasHeight, sizing.width, sizing.height);
+    const textPosition = calculateTextPosition(
+      position,
+      canvasWidth,
+      canvasHeight,
+      sizing.width,
+      sizing.height,
+    );
     x = textPosition.x;
     y = textPosition.y;
     width = textPosition.width;
     height = textPosition.height;
   }
 
-  const resolvedEffectDefinition = resolveTextEffectDefinition(styleId, effectDefinition);
-  const definitionFontSize = (resolvedEffectDefinition as (TextEffectDefinition & { fontSize?: number }) | undefined)?.fontSize;
+  const resolvedEffectDefinition = resolveTextEffectDefinition(
+    styleId,
+    effectDefinition,
+  );
+  const definitionFontSize = (
+    resolvedEffectDefinition as
+      | (TextEffectDefinition & { fontSize?: number })
+      | undefined
+  )?.fontSize;
   const defaultFontSize = definitionFontSize ?? (options.styleId ? 96 : 100);
   const fontSize = options.fontSize ?? defaultFontSize;
-  const fontFamily = options.fontFamily ?? resolvedEffectDefinition?.font?.family ?? "Inter, system-ui, sans-serif";
-  const fontWeight = options.fontWeight ?? resolvedEffectDefinition?.font?.weight;
+  const fontFamily =
+    options.fontFamily ??
+    resolvedEffectDefinition?.font?.family ??
+    "Inter, system-ui, sans-serif";
+  const fontWeight =
+    options.fontWeight ?? resolvedEffectDefinition?.font?.weight;
   const fontStyle = options.fontStyle ?? resolvedEffectDefinition?.font?.style;
-  const lineHeight = options.lineHeight ?? resolvedEffectDefinition?.font?.lineHeight ?? 1.2;
-  const letterSpacing = options.letterSpacing ?? resolvedEffectDefinition?.font?.letterSpacing ?? 0;
+  const lineHeight =
+    options.lineHeight ?? resolvedEffectDefinition?.font?.lineHeight ?? 1.2;
+  const letterSpacing =
+    options.letterSpacing ?? resolvedEffectDefinition?.font?.letterSpacing ?? 0;
 
   const clip: TextClip = {
     id: generateId("text-clip"),
@@ -623,7 +925,20 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
 /**
  * Calculate text position based on preset.
  */
-function calculateTextPosition(position: "center" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right", canvasWidth: number, canvasHeight: number, boxWidth: number, boxHeight: number): { x: number; y: number; width: number; height: number } {
+function calculateTextPosition(
+  position:
+    | "center"
+    | "top"
+    | "bottom"
+    | "top-left"
+    | "top-right"
+    | "bottom-left"
+    | "bottom-right",
+  canvasWidth: number,
+  canvasHeight: number,
+  boxWidth: number,
+  boxHeight: number,
+): { x: number; y: number; width: number; height: number } {
   const margin = 40; // Margin from edges
 
   switch (position) {
@@ -729,16 +1044,39 @@ export const TEXT_PRESETS = {
   },
 } as const;
 
-function calculateTextClipContentTransform(clip: TextClip, updates: Partial<TextClip>, canvasWidth: number, canvasHeight: number): { merged: TextClip; sizing: any; transform: Pick<TextClip, "x" | "y" | "width" | "height" | "sourceAspectRatio"> } {
+function calculateTextClipContentTransform(
+  clip: TextClip,
+  updates: Partial<TextClip>,
+  canvasWidth: number,
+  canvasHeight: number,
+): {
+  merged: TextClip;
+  sizing: any;
+  transform: Pick<
+    TextClip,
+    "x" | "y" | "width" | "height" | "sourceAspectRatio"
+  >;
+} {
   const merged = { ...clip, ...updates };
-  const { text = "Text", fontSize = 48, styleId, stroke, shadow, background } = merged;
+  const {
+    text = "Text",
+    fontSize = 48,
+    styleId,
+    stroke,
+    shadow,
+    background,
+  } = merged;
   const oldCenterX = clip.x + clip.width / 2;
   const oldCenterY = clip.y + clip.height / 2;
 
   // Templates maintain their current dimensions - don't recalculate automatically
   // However, allow manual transforms (drag/resize) to update position/size
   if (merged.templateId) {
-    const hasManualTransform = updates.x !== undefined || updates.y !== undefined || updates.width !== undefined || updates.height !== undefined;
+    const hasManualTransform =
+      updates.x !== undefined ||
+      updates.y !== undefined ||
+      updates.width !== undefined ||
+      updates.height !== undefined;
 
     return {
       merged,
@@ -754,13 +1092,17 @@ function calculateTextClipContentTransform(clip: TextClip, updates: Partial<Text
         y: hasManualTransform ? merged.y : clip.y,
         width: hasManualTransform ? merged.width : clip.width,
         height: hasManualTransform ? merged.height : clip.height,
-        sourceAspectRatio: clip.sourceAspectRatio ?? clip.width / Math.max(1, clip.height),
+        sourceAspectRatio:
+          clip.sourceAspectRatio ?? clip.width / Math.max(1, clip.height),
       },
     };
   }
 
   const effectDefinition = resolveTextEffectDefinition(styleId);
-  const fontFamily = merged.fontFamily ?? effectDefinition?.font?.family ?? "Inter, system-ui, sans-serif";
+  const fontFamily =
+    merged.fontFamily ??
+    effectDefinition?.font?.family ??
+    "Inter, system-ui, sans-serif";
   const fontWeight = merged.fontWeight ?? effectDefinition?.font?.weight;
 
   const sizing = calculateTextClipSize({
@@ -796,11 +1138,25 @@ function calculateTextClipContentTransform(clip: TextClip, updates: Partial<Text
  * Recalculate the bounding box of a text clip when text content or styling changes.
  * Keeps the center of the clip fixed on the canvas.
  */
-export function recalculateTextClipBounds(clip: TextClip, updates: Partial<TextClip>, canvasWidth: number, _canvasHeight: number): TextClip {
-  const traceReason = (updates as Partial<TextClip> & { _boundsReason?: string })._boundsReason;
-  const cleanUpdates = { ...updates } as Partial<TextClip> & { _boundsReason?: string };
+export function recalculateTextClipBounds(
+  clip: TextClip,
+  updates: Partial<TextClip>,
+  canvasWidth: number,
+  _canvasHeight: number,
+): TextClip {
+  const traceReason = (
+    updates as Partial<TextClip> & { _boundsReason?: string }
+  )._boundsReason;
+  const cleanUpdates = { ...updates } as Partial<TextClip> & {
+    _boundsReason?: string;
+  };
   delete cleanUpdates._boundsReason;
-  const { merged, sizing, transform } = calculateTextClipContentTransform(clip, cleanUpdates, canvasWidth, _canvasHeight);
+  const { merged, sizing, transform } = calculateTextClipContentTransform(
+    clip,
+    cleanUpdates,
+    canvasWidth,
+    _canvasHeight,
+  );
 
   return {
     ...merged,
@@ -808,10 +1164,27 @@ export function recalculateTextClipBounds(clip: TextClip, updates: Partial<TextC
   };
 }
 
-const TEXT_STYLE_KEYS: (keyof TextClip)[] = ["text", "fontSize", "fontFamily", "fontWeight", "fontStyle", "styleId", "templateId", "customization", "stroke", "shadow", "background", "letterSpacing", "lineHeight"];
+const TEXT_STYLE_KEYS: (keyof TextClip)[] = [
+  "text",
+  "fontSize",
+  "fontFamily",
+  "fontWeight",
+  "fontStyle",
+  "styleId",
+  "templateId",
+  "customization",
+  "stroke",
+  "shadow",
+  "background",
+  "letterSpacing",
+  "lineHeight",
+];
 const MANUAL_BOUNDS_KEYS: (keyof TextClip)[] = ["x", "y", "width", "height"];
 
-export function shouldRecalculateTextClipBounds(clip: TextClip, updates: Partial<TextClip>): boolean {
+export function shouldRecalculateTextClipBounds(
+  clip: TextClip,
+  updates: Partial<TextClip>,
+): boolean {
   // Templates never recalculate bounds
   if (clip.templateId) return false;
 
@@ -820,9 +1193,19 @@ export function shouldRecalculateTextClipBounds(clip: TextClip, updates: Partial
   return hasStyleChange && !hasManualBounds;
 }
 
-export function resolveTextClipStyleUpdate(clip: TextClip, updates: Partial<TextClip>, canvasWidth: number, canvasHeight: number): Partial<TextClip> {
+export function resolveTextClipStyleUpdate(
+  clip: TextClip,
+  updates: Partial<TextClip>,
+  canvasWidth: number,
+  canvasHeight: number,
+): Partial<TextClip> {
   if (!shouldRecalculateTextClipBounds(clip, updates)) return updates;
-  const recalculated = recalculateTextClipBounds(clip, updates, canvasWidth, canvasHeight);
+  const recalculated = recalculateTextClipBounds(
+    clip,
+    updates,
+    canvasWidth,
+    canvasHeight,
+  );
   return {
     ...updates,
     x: recalculated.x,
@@ -833,8 +1216,18 @@ export function resolveTextClipStyleUpdate(clip: TextClip, updates: Partial<Text
   };
 }
 
-export function resolveTextClipContentTransform(clip: TextClip, canvasWidth: number, canvasHeight: number, reason = "content-transform"): Pick<TextClip, "x" | "y" | "width" | "height" | "sourceAspectRatio"> {
-  const recalculated = recalculateTextClipBounds(clip, { _boundsReason: reason } as Partial<TextClip>, canvasWidth, canvasHeight);
+export function resolveTextClipContentTransform(
+  clip: TextClip,
+  canvasWidth: number,
+  canvasHeight: number,
+  reason = "content-transform",
+): Pick<TextClip, "x" | "y" | "width" | "height" | "sourceAspectRatio"> {
+  const recalculated = recalculateTextClipBounds(
+    clip,
+    { _boundsReason: reason } as Partial<TextClip>,
+    canvasWidth,
+    canvasHeight,
+  );
   return {
     x: recalculated.x,
     y: recalculated.y,
@@ -844,7 +1237,22 @@ export function resolveTextClipContentTransform(clip: TextClip, canvasWidth: num
   };
 }
 
-export function hasTextClipContentTransformDrift(clip: TextClip, canvasWidth: number, _canvasHeight: number, epsilon = 1): boolean {
-  const resolved = calculateTextClipContentTransform(clip, {}, canvasWidth, _canvasHeight).transform;
-  return Math.abs(resolved.x - clip.x) > epsilon || Math.abs(resolved.y - clip.y) > epsilon || Math.abs(resolved.width - clip.width) > epsilon || Math.abs(resolved.height - clip.height) > epsilon;
+export function hasTextClipContentTransformDrift(
+  clip: TextClip,
+  canvasWidth: number,
+  _canvasHeight: number,
+  epsilon = 1,
+): boolean {
+  const resolved = calculateTextClipContentTransform(
+    clip,
+    {},
+    canvasWidth,
+    _canvasHeight,
+  ).transform;
+  return (
+    Math.abs(resolved.x - clip.x) > epsilon ||
+    Math.abs(resolved.y - clip.y) > epsilon ||
+    Math.abs(resolved.width - clip.width) > epsilon ||
+    Math.abs(resolved.height - clip.height) > epsilon
+  );
 }

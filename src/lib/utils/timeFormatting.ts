@@ -34,10 +34,12 @@ export function formatTimecode(seconds: number, frameRate: number): string {
   if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
     seconds = 0;
   }
-  const safeFps = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
+  const rawFps = Number.isFinite(frameRate) && frameRate > 0 ? frameRate : 30;
+  const safeFps = Math.min(1000, Math.max(1, rawFps));
   const totalFrames = Math.round(seconds * safeFps);
-  const totalSeconds = Math.floor(totalFrames / safeFps);
-  const frames = totalFrames % safeFps;
+  const totalSeconds = Number.isFinite(totalFrames) ? Math.floor(totalFrames / safeFps) : 0;
+  const rawFrames = Number.isFinite(totalFrames) ? totalFrames % safeFps : 0;
+  const frames = Number.isFinite(rawFrames) ? Math.floor(rawFrames) : 0;
 
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -54,6 +56,9 @@ export function formatTimecode(seconds: number, frameRate: number): string {
  * Used for less precise displays
  */
 export function formatTimeWithDeciseconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
+    seconds = 0;
+  }
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   const ms = Math.floor((seconds % 1) * 10);

@@ -21,9 +21,14 @@ export function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: num
   ctx.fill();
 }
 
-/** Parse hex color to RGB object */
 export function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!hex || typeof hex !== "string") return null;
+  let cleanHex = hex.trim();
+  if (/^#?[a-f\d]{3}$/i.test(cleanHex)) {
+    const raw = cleanHex.replace("#", "");
+    cleanHex = `#${raw[0]}${raw[0]}${raw[1]}${raw[1]}${raw[2]}${raw[2]}`;
+  }
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(cleanHex);
   return result
     ? {
         r: parseInt(result[1], 16),
@@ -52,7 +57,7 @@ export function getThemeAccentRgb(): { r: number; g: number; b: number } {
  */
 export function drawProfessionalWaveform(canvas: HTMLCanvasElement, buckets: { peak: number; rms: number }[], color: string, logicalWidth?: number, logicalHeight?: number): void {
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx || !buckets || buckets.length === 0) return;
 
   // Use logical dimensions if provided, otherwise use canvas dimensions
   const width = logicalWidth || canvas.width;

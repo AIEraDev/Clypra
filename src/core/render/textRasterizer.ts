@@ -4,7 +4,6 @@ import { useEffectsStore } from "../../features/text-effects/store/effectsStore"
 import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
 import { effectBleed } from "../../lib/text/textClip";
-import { performanceMonitor } from "@/core/monitoring/PerformanceMonitor";
 import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
 
 
@@ -61,9 +60,6 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
  * respects the same baseline alignment as the engine (fontSize * 0.82).
  */
 export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layer: EvaluatedTextLayer, width: number, height: number, scaleX: number, scaleY: number): Promise<void> {
-  performanceMonitor.startTimer("rasterizer.text_layer");
-  performanceMonitor.increment("rasterizer.text_renders");
-
   if (layer.templateId) {
     const { useTemplateStore } = await import("@/features/text-templates/templateStore");
     let templates = useTemplateStore.getState().templates;
@@ -365,8 +361,6 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
   Promise.resolve().then(() => {
     CanvasDevice.release(offscreen);
   });
-
-  performanceMonitor.endTimer("rasterizer.text_layer");
 }
 
 /**

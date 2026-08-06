@@ -55,12 +55,13 @@ export async function generateAudioWaveform(audioPath: string, options: Waveform
         const sampleRate = audioBuffer.sampleRate;
 
         // Calculate sample range for trimmed region
-        const startSample = Math.floor(trimIn * sampleRate);
-        const endSample = trimOut ? Math.floor(trimOut * sampleRate) : channelData.length;
-        const trimmedLength = Math.min(endSample - startSample, channelData.length - startSample);
+        const startSample = Math.max(0, Math.min(channelData.length, Math.floor(trimIn * sampleRate)));
+        const rawEndSample = trimOut ? Math.floor(trimOut * sampleRate) : channelData.length;
+        const endSample = Math.max(startSample, Math.min(channelData.length, rawEndSample));
+        const trimmedLength = endSample - startSample;
 
         // Calculate samples per bar in the TRIMMED region
-        const samplesPerBar = Math.floor(trimmedLength / barCount);
+        const samplesPerBar = Math.max(1, Math.floor(trimmedLength / barCount));
 
         // Calculate bar amplitudes from TRIMMED region only
         const barAmplitudes: number[] = [];
@@ -77,9 +78,9 @@ export async function generateAudioWaveform(audioPath: string, options: Waveform
           barAmplitudes.push(rms);
         }
 
-        // Normalize amplitudes to 0-1 range
+        // Normalize amplitudes to 0-1 range (prevent divide-by-zero on silent audio)
         const maxAmplitude = Math.max(...barAmplitudes);
-        const normalizedAmplitudes = barAmplitudes.map((amp) => amp / maxAmplitude);
+        const normalizedAmplitudes = barAmplitudes.map((amp) => (maxAmplitude > 0 ? amp / maxAmplitude : 0));
 
         // Create canvas
         const canvas = document.createElement("canvas");

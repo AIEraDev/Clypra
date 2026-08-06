@@ -46,6 +46,7 @@ export interface RustProject {
   transitions?: TransitionTimelineItem[];
   gaps?: RustGap[];
   markers?: TimelineMarker[];
+  thumbnail?: string | null;
   timeline_schema_version?: number | null;
 }
 
@@ -164,6 +165,7 @@ export function fromRustProject(rust: RustProject): Project {
     mediaAssets: rust.media_assets?.map(fromRustMediaAsset),
     canvasBackground: rust.canvas_background ?? undefined,
     markers: rust.markers ?? undefined,
+    thumbnail: rust.thumbnail ?? undefined,
     timelineSchemaVersion: rust.timeline_schema_version ?? 1,
   };
 }
@@ -361,6 +363,7 @@ export function toRustProject(
     transitions: options?.transitions ?? [],
     gaps: options?.gaps?.map(toRustGap) ?? [],
     markers: options?.markers ?? [],
+    thumbnail: frontend.thumbnail,
     timeline_schema_version: frontend.timelineSchemaVersion ?? 1,
   };
 }

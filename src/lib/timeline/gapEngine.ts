@@ -295,8 +295,8 @@ export function mergeAdjacentGaps(gaps: Gap[]): Gap[] {
     const next = sorted[i];
     const currentEnd = current.startTime + current.duration;
 
-    // Check if gaps are adjacent or overlapping
-    if (Math.abs(currentEnd - next.startTime) < 0.001 || currentEnd > next.startTime) {
+    // Check if gaps are on the same track and are adjacent or overlapping
+    if (current.trackId === next.trackId && (Math.abs(currentEnd - next.startTime) < 0.001 || currentEnd > next.startTime)) {
       // Merge gaps
       const mergedEnd = Math.max(currentEnd, next.startTime + next.duration);
       current = {

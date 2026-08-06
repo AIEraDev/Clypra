@@ -6,8 +6,6 @@
  * Enable: localStorage.setItem("clypra.debug.projectLoad", "1")
  */
 
-import { performanceMonitor } from "./PerformanceMonitor";
-
 const DEBUG_KEY = "clypra.debug.projectLoad";
 
 export function isProjectLoadDiagnosticsEnabled(): boolean {

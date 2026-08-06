@@ -146,7 +146,7 @@ export function findInsertionIndex(input: {
   // Calculate gap centers between adjacent clips
   const gapCenters: number[] = [];
   for (let i = 0; i < positionsPx.length - 1; i++) {
-    const leftEdge = positionsPx[i] + (i > 0 ? restClips[i - 1].duration * pixelsPerSecond : 0);
+    const leftEdge = positionsPx[i];
     const rightEdge = positionsPx[i + 1];
     gapCenters.push((leftEdge + rightEdge) / 2);
   }

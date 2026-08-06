@@ -19,13 +19,25 @@ export interface ResolvedFit {
  * depending on the chosen fit mode (cover, contain, stretch, original).
  */
 export function calculateMediaFit(source: Size, target: Size, mode: MediaFitMode): ResolvedFit {
-  // Guard against invalid or empty dimensions
-  if (source.width <= 0 || source.height <= 0 || target.width <= 0 || target.height <= 0) {
+  const safeTargetW = Number.isFinite(target.width) && target.width > 0 ? target.width : 1;
+  const safeTargetH = Number.isFinite(target.height) && target.height > 0 ? target.height : 1;
+
+  // Guard against invalid, NaN, non-finite, subnormal, or empty dimensions (< 0.001px)
+  if (
+    !Number.isFinite(source.width) ||
+    source.width < 0.001 ||
+    !Number.isFinite(source.height) ||
+    source.height < 0.001 ||
+    !Number.isFinite(target.width) ||
+    target.width < 0.001 ||
+    !Number.isFinite(target.height) ||
+    target.height < 0.001
+  ) {
     return {
       scaleX: 1,
       scaleY: 1,
-      width: target.width,
-      height: target.height,
+      width: safeTargetW,
+      height: safeTargetH,
       x: 0,
       y: 0,
     };

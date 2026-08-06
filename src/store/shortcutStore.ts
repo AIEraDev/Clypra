@@ -402,7 +402,7 @@ export const useShortcutStore = create<ShortcutStore>()(
         const isMeta = e.ctrlKey || e.metaKey;
         for (const action of Object.values(shortcuts)) {
           const b = action.binding;
-          if (b.key !== e.key) continue;
+          if (b.key.toLowerCase() !== e.key.toLowerCase()) continue;
           if (!!b.ctrl !== isMeta) continue;
           if (!!b.shift !== e.shiftKey) continue;
           if (!!b.alt !== e.altKey) continue;
