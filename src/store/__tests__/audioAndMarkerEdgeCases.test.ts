@@ -89,6 +89,47 @@ describe("Audio Automation & Marker Edge Cases", () => {
         store.updateAudioKeyframe("non-existent-clip", "kf-99", { gain: 0.5 });
       }).not.toThrow();
     });
+
+    it("deduplicates audio keyframes at identical timestamps and clamps time to clip duration", () => {
+      const store = useTimelineStore.getState();
+
+      // Add first keyframe at 4.0s
+      const kf1 = store.addAudioKeyframe("audio-clip-1", 4.0, 0.5);
+      // Add second keyframe at 4.0001s (duplicate threshold)
+      const kf2 = store.addAudioKeyframe("audio-clip-1", 4.0001, 1.2);
+
+      let clip = useTimelineStore.getState().clips.find((c) => c.id === "audio-clip-1");
+      expect(clip?.volumeKeyframes).toHaveLength(1);
+      expect(clip?.volumeKeyframes?.[0].gain).toBe(1.2);
+
+      // Add keyframe beyond clip duration (clip duration = 10s)
+      const kf3 = store.addAudioKeyframe("audio-clip-1", 15.0, 0.8);
+      clip = useTimelineStore.getState().clips.find((c) => c.id === "audio-clip-1");
+      const kf3Obj = clip?.volumeKeyframes?.find((k) => k.id === kf3);
+      expect(kf3Obj?.time).toBe(10.0);
+    });
+
+    it("populates trimOut by default when adding a new clip without trimOut", () => {
+      const store = useTimelineStore.getState();
+      const newClip: Clip = {
+        id: "clip-no-trimout",
+        trackId: "audio-track-1",
+        mediaId: "media-1",
+        startTime: 0,
+        duration: 5,
+        trimIn: 2,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 52,
+        opacity: 1,
+        rotation: 0,
+      } as Clip;
+
+      store.addClip(newClip);
+      const added = useTimelineStore.getState().clips.find((c) => c.id === "clip-no-trimout");
+      expect(added?.trimOut).toBe(7); // 2 + 5
+    });
   });
 
   describe("Audio FX Processing", () => {

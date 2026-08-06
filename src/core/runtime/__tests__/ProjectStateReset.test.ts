@@ -81,13 +81,6 @@ vi.mock("@/core/playback/PlaybackClock", () => ({
 }));
 
 
-
-vi.mock("@/lib/monitoring/PerformanceMonitor", () => ({
-  performanceMonitor: {
-    reset: vi.fn(),
-  },
-}));
-
 vi.mock("@/store/middleware/autoSaveMiddleware", () => ({
   resumeAutoSave: vi.fn(),
   suspendAutoSave: vi.fn(),
@@ -133,7 +126,7 @@ describe("ProjectStateReset", () => {
       expect(result.resetSubsystems).toContain("UIStore");
       expect(result.resetSubsystems).toContain("ViewportController");
       expect(result.resetSubsystems).toContain("HistoryStore");
-      expect(result.resetSubsystems).toContain("PerformanceMonitor");
+      expect(result.resetSubsystems).toContain("Monitoring");
       expect(result.resetSubsystems).toContain("TemplateStore");
       expect(result.resetSubsystems).toContain("FavoritesStore");
       expect(result.resetSubsystems).toContain("BodyMaskCache");

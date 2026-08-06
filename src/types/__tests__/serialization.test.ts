@@ -24,6 +24,7 @@ describe("Project Serialization Layer", () => {
           intensity: 0.8,
         },
       },
+      thumbnail: "data:image/jpeg;base64,samplethumbnail",
       timelineSchemaVersion: 1,
     };
 
@@ -164,6 +165,8 @@ describe("Project Serialization Layer", () => {
     const deserializedClip = fromRustClip(rustProject.clips![0]);
 
     expect(deserializedProject.canvasBackground).toEqual(frontendProject.canvasBackground);
+    expect(rustProject.thumbnail).toBe("data:image/jpeg;base64,samplethumbnail");
+    expect(deserializedProject.thumbnail).toBe("data:image/jpeg;base64,samplethumbnail");
     expect(deserializedMediaAsset.rotation).toBe(90);
     expect(deserializedMediaAsset.contentBounds).toEqual({
       x: 10,

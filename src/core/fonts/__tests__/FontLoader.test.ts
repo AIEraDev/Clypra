@@ -12,10 +12,16 @@ const mockFonts = {
   ready: Promise.resolve(),
 };
 
-// @ts-ignore
-global.document = {
-  fonts: mockFonts,
-};
+if (typeof document !== "undefined") {
+  Object.defineProperty(document, "fonts", {
+    value: mockFonts,
+    writable: true,
+    configurable: true,
+  });
+} else {
+  // @ts-ignore
+  global.document = { fonts: mockFonts };
+}
 
 describe("FontLoader", () => {
   let loader: FontLoader;
