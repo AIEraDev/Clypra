@@ -11,7 +11,7 @@ import { AddTrackCommand, AddClipCommand, DeleteClipCommand, InsertEditCommand }
 import { capitalize } from "../utils";
 import { DensityLevel as DensityLevelEnum } from "../../types";
 import { createClipFromAsset } from "./timelineClip";
-import { autoAdaptSequenceForFirstVisualClip } from "../sequence/sequenceAutoAspect";
+import { autoAdaptSequenceForFirstVisualClip } from "./sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime } from "./placementPolicy";
 import { generateId } from "@/lib/utils/id";
 import { resolveInsertEdit } from "./insertEdit";

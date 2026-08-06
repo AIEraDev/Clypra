@@ -13,7 +13,7 @@ import { TransformOverlayMemoized as TransformOverlay } from "../transform/Trans
 import { SafeOverlay } from "../viewport/SafeOverlay";
 import { useViewportKeyboardShortcuts, useViewportWheelZoom, useViewportPan } from "../viewport/ViewportControls";
 import { calculateDisplayTransform } from "@/lib/utils/coordinateSystem";
-import { PreviewQualityManager, PreviewQualityTier } from "@/lib/preview/PreviewQualityManager";
+import { PreviewQualityManager, PreviewQualityTier } from "./PreviewQualityManager";
 import { cn } from "@/lib/utils";
 import { AspectRatio } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";

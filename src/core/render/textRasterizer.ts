@@ -4,7 +4,7 @@ import { useEffectsStore } from "../../features/text-effects/store/effectsStore"
 import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
 import { effectBleed } from "../../lib/text/textClip";
-import { performanceMonitor } from "@/lib/monitoring/PerformanceMonitor";
+import { performanceMonitor } from "@/core/monitoring/PerformanceMonitor";
 
 function hasVisibleAlpha(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number): boolean | null {
   try {

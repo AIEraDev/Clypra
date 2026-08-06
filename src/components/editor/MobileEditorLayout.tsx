@@ -14,7 +14,7 @@ import { useHistoryStore } from "@/store/historyStore";
 import { useMediaImport } from "@/hooks/useMediaImport";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
 import { createTextClip, TEXT_PRESETS } from "@/lib/text/textClip";
-import { autoAdaptSequenceForFirstVisualClip } from "@/lib/sequence/sequenceAutoAspect";
+import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefaultFitModeForAsset } from "@/lib/timeline/placementPolicy";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { MediaAsset } from "@/types";

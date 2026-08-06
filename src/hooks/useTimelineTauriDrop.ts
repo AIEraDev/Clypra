@@ -7,7 +7,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { generateId } from "@/lib/utils/id";
 import type { VideoMetadata } from "@/types";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
-import { autoAdaptSequenceForFirstVisualClip } from "@/lib/sequence/sequenceAutoAspect";
+import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime, resolvePreferredTrackId, resolveTargetTrackType } from "@/lib/timeline/placementPolicy";
 
 const getMediaType = (path: string): "video" | "audio" | "image" => {

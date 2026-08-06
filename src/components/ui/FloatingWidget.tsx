@@ -78,7 +78,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
         const { filePaths } = await DualRecordService.getInstance().stopRecording();
         if (isTauri) {
           try {
-            const { restorePreRecordingWindowGeometry } = await import("@/lib/window/windowState");
+            const { restorePreRecordingWindowGeometry } = await import("@/lib/platform/windowState");
             await restorePreRecordingWindowGeometry();
           } catch (winErr) {
             console.error("[FloatingWidget] Failed to restore window geometry:", winErr);
@@ -144,7 +144,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
 
       if (isTauri) {
         try {
-          const { restorePreRecordingWindowGeometry } = await import("@/lib/window/windowState");
+          const { restorePreRecordingWindowGeometry } = await import("@/lib/platform/windowState");
           await restorePreRecordingWindowGeometry();
         } catch (winErr) {
           console.error("[FloatingWidget] Failed to restore window geometry:", winErr);
@@ -164,7 +164,7 @@ export const FloatingWidget: React.FC<FloatingWidgetProps> = ({ onProjectCreate 
 
       if (isTauri) {
         try {
-          const { restorePreRecordingWindowGeometry } = await import("@/lib/window/windowState");
+          const { restorePreRecordingWindowGeometry } = await import("@/lib/platform/windowState");
           await restorePreRecordingWindowGeometry();
         } catch {
           // Best effort
