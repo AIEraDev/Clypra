@@ -123,7 +123,7 @@ export function isEpochStillValid(epochId: RenderEpochId, clipId?: string): bool
 
 // ─── RGBA → ImageBitmap ───────────────────────────────────────────────────────
 
-import { ThumbnailWorkerPool } from "../workers/ThumbnailWorkerPool";
+import { ThumbnailWorkerPool } from "@/workers";
 
 /**
  * Convert raw RGBA bytes to an ImageBitmap.
