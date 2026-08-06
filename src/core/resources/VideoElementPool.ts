@@ -135,6 +135,7 @@ export class VideoElementPool {
         const video = document.createElement("video");
         video.preload = "auto";
         video.crossOrigin = "anonymous";
+        video.setAttribute("playsinline", "");
         video.muted = true; // Muted for export (no audio in frame extraction)
 
         // Style and add to DOM to ensure the browser composites the frames
