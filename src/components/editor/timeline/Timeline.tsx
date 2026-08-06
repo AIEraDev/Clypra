@@ -6,9 +6,7 @@ import { EditingActions } from "@/core/interactions";
 import { usePreviewMode } from "@/hooks/usePreviewMode";
 import { usePlaybackClock, usePlaybackControls, getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { getTimelineViewportEnd, getTimelineCanvasDuration } from "@/lib/timeline/timelineClip";
-import { useTimelineDrag } from "@/hooks/useTimelineDrag";
-import { useTimelineTauriDrop } from "@/hooks/useTimelineTauriDrop";
-import { useTimelineZoom } from "@/hooks/useTimelineZoom";
+import { useTimelineDrag, useTimelineTauriDrop, useTimelineZoom } from "@/hooks";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
 import { TIMELINE_TRACK_LABEL_WIDTH_PX, getTimelineLabelColumnWidth, getTimelineLaneWidth, getTimelineMaxScrollLeft, timeToPixel } from "@/lib/timeline/timelineViewport";
 

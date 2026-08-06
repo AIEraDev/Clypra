@@ -9,7 +9,7 @@ import { useHistoryStore } from "@/store/historyStore";
 import { useShortcutStore } from "@/store/shortcutStore";
 import { EditingActions } from "@/core/interactions";
 import { generateId } from "@/lib/utils/id";
-import { useAnchoredTimelineZoom } from "./useAnchoredTimelineZoom";
+import { useAnchoredTimelineZoom } from "./timeline/useAnchoredTimelineZoom";
 
 let copiedClipsClipboard: Array<{
   trackId: string;

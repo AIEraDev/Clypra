@@ -9,10 +9,8 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { DEFAULT_SRP_CONFIG, SpatialTier } from "@/lib/renderEngine/types";
-import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimelineTemporalDetail, getZoomFromRatio, getZoomRatio, snapTimelineZoomToTierAnchors, TIMELINE_TIER_LABELS, TIMELINE_ZOOM_MAX, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_STEP } from "@/lib/timeline/timelineZoom";
-import { useSplitMode } from "@/hooks/useSplitMode";
-import { EditingActions } from "@/core/interactions";
-import { useAnchoredTimelineZoom, type TimelineZoomAnchor } from "@/hooks/useAnchoredTimelineZoom";
+import { useSplitMode, useAnchoredTimelineZoom } from "@/hooks";
+import type { TimelineZoomAnchor } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
 
 export const TimelineToolbar: React.FC = () => {
