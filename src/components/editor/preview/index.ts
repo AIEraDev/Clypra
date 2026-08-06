@@ -7,7 +7,6 @@
 
 export { PreviewPanel } from "./PreviewPanel";
 export { PreviewTransport } from "./PreviewTransport";
-export { GPUPreview } from "./GPUPreview";
 export { SourcePreview } from "./SourcePreview";
 export { TextSourcePreview } from "./TextSourcePreview";
 export { VideoSourcePreview } from "./VideoSourcePreview";
