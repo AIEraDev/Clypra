@@ -123,6 +123,8 @@ export interface Track {
   locked: boolean;
   visible: boolean;
   height: number;
+  /** Optional track volume multiplier (0.0 to 2.0, default 1.0) */
+  volume?: number;
 }
 
 /** Waveform bucket containing peak and RMS amplitude data */
