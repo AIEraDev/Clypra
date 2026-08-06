@@ -109,6 +109,8 @@ export interface Project {
   canvasBackground?: CanvasBackgroundConfig;
   mediaAssets?: MediaAsset[];
   markers?: TimelineMarker[];
+  /** Optional live preview snapshot / cover image data URL */
+  thumbnail?: string;
   /** Timeline schema version for forward-compatible project migrations. */
   timelineSchemaVersion?: number;
 }

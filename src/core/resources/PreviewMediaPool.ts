@@ -32,12 +32,10 @@ import type { Clip, MediaAsset, TransitionTimelineItem } from "@/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
-import { performanceMonitor } from "@/core/monitoring/PerformanceMonitor";
 import { resourceTracker } from "@/core/monitoring/ResourceTracker";
 import { useTimelineStore } from "../../store/timelineStore";
 import { PreviewPlaybackScheduler, type MediaAction, type MediaElementState } from "../playback/PreviewPlaybackScheduler";
 import { VideoTextureManager } from "../render/VideoTextureManager";
-import { getTraceCollector } from "../monitoring/PerformanceTraceCollector";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
 import { resolveTransitionDefinition, mergeTransitionParams } from "../render/utils/transitionResolver";
 
@@ -255,8 +253,6 @@ export class PreviewMediaPool {
   // ─── BOUNDARY COMPONENTS ─────────────────────────────────────────────────
   private scheduler: PreviewPlaybackScheduler;
   private textureManager: VideoTextureManager;
-  private traceCollector = getTraceCollector();
-  private frameStartTime: number = 0;
 
   // Optional compositor reference for transition shader pre-warming.
   // Set via setCompositor() after the PixiSceneCompositor is initialised.
@@ -318,17 +314,11 @@ export class PreviewMediaPool {
       return;
     }
 
-    // MONITORING: Track sync calls
-    performanceMonitor.increment("preview_pool.sync_calls");
-    performanceMonitor.startTimer("preview_pool.sync_duration");
-
     // ─── RE-ENTRANCY GUARD ───────────────────────────────────────────────────
     if (this._syncInProgress) {
       // Already syncing - queue this request and return immediately
       // Only keep the MOST RECENT request (intermediate states don't matter)
       this._queuedSyncRequest = { clips, assets, tracks, syncState };
-      performanceMonitor.increment("preview_pool.sync_reentrant");
-      performanceMonitor.endTimer("preview_pool.sync_duration");
       return;
     }
 
@@ -345,9 +335,6 @@ export class PreviewMediaPool {
       // This prevents skipping the first sync after project load when elements need creation.
       const hasVideoElements = this.videoCache.size > 0;
       if (hasVideoElements && quickHash === this._lastQuickHash) {
-        // Nothing changed - skip reconciliation (saves 0.5-2ms per frame)
-        performanceMonitor.increment("preview_pool.sync_skipped");
-
         // Still run prewarming during playback even when skipping reconciliation
         if (syncState.state === "playing") {
           this.prewarmUpcomingClips(clips, assets, syncState.time, syncState.frameRate);
@@ -362,10 +349,6 @@ export class PreviewMediaPool {
       this.syncCallCount++;
       const currentClipIds = new Set(clips.map((c) => c.id));
       const structuralChange = this.detectStructuralChange(currentClipIds);
-
-      if (structuralChange) {
-        performanceMonitor.increment("preview_pool.structural_changes");
-      }
 
       this.lastSyncClipIds = currentClipIds;
       // ─────────────────────────────────────────────────────────────────────────
@@ -653,16 +636,9 @@ export class PreviewMediaPool {
 
       // ─── END OF ORIGINAL SYNC LOGIC ──────────────────────────────────────────
 
-      // MONITORING: Track pool sizes
-      performanceMonitor.gauge("preview_pool.video_cache_size", this.videoCache.size);
-      performanceMonitor.gauge("preview_pool.audio_cache_size", this.audios.size);
-      performanceMonitor.gauge("preview_pool.active_bindings", this.activeClipBindings.size);
     } finally {
       // Always clear the in-progress flag, even if sync() threw an error
       this._syncInProgress = false;
-
-      // MONITORING: Record sync duration
-      performanceMonitor.endTimer("preview_pool.sync_duration");
 
       // Process queued sync request if one arrived while we were busy
       if (this._queuedSyncRequest) {
@@ -911,10 +887,7 @@ export class PreviewMediaPool {
             managed.lastHardSeekAtMs = performance.now();
             managed.hasBeenSeeked = true; // Mark as seeked to prevent redundant initial seeks
 
-            // Record seek event
-            if (action.reason) {
-              this.traceCollector.recordSeekRequest(action.clipId, clampedTime, action.reason);
-            }
+
           }
           break;
 
@@ -957,11 +930,6 @@ export class PreviewMediaPool {
             }
             managed.rvfcHandle = null;
           }
-          this.traceCollector.recordClipEvent({
-            timestampMs: performance.now(),
-            clipId: action.clipId,
-            event: { type: "pause-requested" },
-          });
           break;
 
         case "setRate":
@@ -1284,12 +1252,7 @@ export class PreviewMediaPool {
     // Attach to texture manager for frame-driven texture updates
     this.textureManager.attachVideo(clipId, video);
 
-    // Record clip attachment event
-    this.traceCollector.recordClipEvent({
-      timestampMs: performance.now(),
-      clipId,
-      event: { type: "clip-attached", mediaId },
-    });
+
 
     return managed;
   }
@@ -1333,12 +1296,7 @@ export class PreviewMediaPool {
     // Detach from texture manager
     this.textureManager.detachVideo(managed.clipId, managed.element);
 
-    // Record clip release event
-    this.traceCollector.recordClipEvent({
-      timestampMs: performance.now(),
-      clipId: managed.clipId,
-      event: { type: "clip-released", reason: "dispose" },
-    });
+
 
     managed.element.pause();
     managed.element.src = "";
@@ -1820,11 +1778,13 @@ export class PreviewMediaPool {
     const activeTransitions = useTimelineStore.getState().transitions;
     const sourceTime = getClipSourceTime(clip, syncState.time, syncState.frameRate, activeTransitions);
 
-    // Combine global preview volume with per-clip volume
+    // Combine global preview volume with per-clip and per-track volume
     const clipVolume = clip.volume ?? 1.0; // Default to 1.0 if not set
-    const combinedVolume = (syncState.volume / 100) * clipVolume;
+    const track = useTimelineStore.getState().tracks.find((t) => t.id === clip.trackId);
+    const trackVolume = track?.volume ?? 1.0;
+    const combinedVolume = (syncState.volume / 100) * clipVolume * trackVolume;
 
-    const shouldMute = syncState.muted || syncState.volume === 0 || isTrackMuted || clipVolume === 0;
+    const shouldMute = syncState.muted || syncState.volume === 0 || isTrackMuted || clipVolume === 0 || trackVolume === 0;
     audio.muted = shouldMute;
     audio.volume = shouldMute ? 0 : Math.max(0, Math.min(1, combinedVolume));
     audio.playbackRate = syncState.speed;

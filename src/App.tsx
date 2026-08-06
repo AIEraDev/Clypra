@@ -11,7 +11,6 @@ import { SettingsModal } from "./components/ui/SettingsModal";
 import { ClosingProjectModal } from "./components/ui/ClosingProjectModal";
 import { CrashRecoveryDialog } from "./components/ui/CrashRecoveryDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary"; // Add root error boundary
-import { initializePerformanceAdapter, shutdownPerformanceAdapter } from "@/lib/platform/performanceAdapter";
 import { hasSnapshot, getSnapshot, clearSnapshot, type RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { useRecordingStore } from "@/store/recordingStore";
@@ -36,9 +35,6 @@ const App = () => {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // Initialize performance adapter for mobile optimizations
-        await initializePerformanceAdapter();
-
         const projects = await platform.getRecentProjects();
         setRecentProjects(projects);
 
@@ -66,9 +62,7 @@ const App = () => {
     initializeApp();
 
     // Cleanup on unmount
-    return () => {
-      shutdownPerformanceAdapter();
-    };
+    return () => {};
   }, [setRecentProjects]);
 
   // ─── DEV MODE: Automated Resource Leak Detection ───────────────────────────

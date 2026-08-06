@@ -13,17 +13,7 @@ const clipFilterCache = new Map<string, Clip[]>();
 const MAX_CACHE_SIZE = 100; // Limit cache growth (100 entries = ~1.67 seconds at 60fps)
 
 export function getPreviewMediaSyncClips(clips: Clip[], time: number, transitions: TransitionTimelineItem[] = []): Clip[] {
-  // Use canonical computeClipVersion to construct a robust cache key that invalidates on any property changes.
-  const clipVersion = computeClipVersion(clips, transitions);
-  const cacheKey = `${time.toFixed(1)}-${clips.length}-${clipVersion}`;
-
-  // Check cache first (hot path - saves ~0.5-1ms per frame × 60fps)
-  if (clipFilterCache.has(cacheKey)) {
-    return clipFilterCache.get(cacheKey)!;
-  }
-
-  // Cache miss - perform filtering
-  const result = clips.filter((clip) => {
+  return clips.filter((clip) => {
     const clipEnd = getClipEndTime(clip);
     const isCurrent = clip.startTime <= time && time < clipEnd;
     const isUpcoming = clip.startTime > time && clip.startTime <= time + PREVIEW_MEDIA_LOOKAHEAD_SECONDS;
@@ -39,21 +29,10 @@ export function getPreviewMediaSyncClips(clips: Clip[], time: number, transition
 
     return isCurrent || isUpcoming || isRecentlyEnded || isInTransition;
   });
-
-  // Store in cache
-  clipFilterCache.set(cacheKey, result);
-
-  // Evict oldest entries if cache grows too large
-  if (clipFilterCache.size > MAX_CACHE_SIZE) {
-    const firstKey = clipFilterCache.keys().next().value;
-    if (firstKey) clipFilterCache.delete(firstKey);
-  }
-
-  return result;
 }
 
-// Export for testing
+// Export for compatibility/testing
 export function clearClipFilterCache(): void {
-  clipFilterCache.clear();
+  // No-op for exact filtering
 }
 // ──────────────────────────────────────────────────────────────────────────────

@@ -316,6 +316,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     const sourcePath = asset.path ? (isExternalOrDataUrl(asset.path) ? asset.path : convertFileSrc(asset.path)) : "";
     if (!sourcePath) continue;
 
+    const clipVolume = clip.volume ?? 1.0;
+    const trackVolume = track?.volume ?? 1.0;
+    const effectiveVolume = Math.max(0, Math.min(3.0, clipVolume * trackVolume));
+
     audioLayers.push({
       layerId: `${clip.id}-audio`,
       clipId: clip.id,
@@ -324,7 +328,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       sourceTime,
       pan: 0.0,
       priority: clip.trackIndex,
-      volume: Math.max(0, Math.min(1, clip.volume ?? 1.0)),
+      volume: effectiveVolume,
       muted: track?.muted ?? false,
     });
   }

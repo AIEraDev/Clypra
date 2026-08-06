@@ -12,11 +12,11 @@ interface TimelineState {
 
 type TimelineSnapshot = Pick<TimelineState, "tracks" | "clips" | "gaps">;
 
-function cloneSnapshot(state: TimelineState): TimelineSnapshot {
+function cloneSnapshot(state: Partial<TimelineState>): TimelineSnapshot {
   return {
-    tracks: state.tracks.map((track) => ({ ...track })),
-    clips: state.clips.map((clip) => ({ ...clip })),
-    gaps: state.gaps.map((gap) => ({ ...gap, metadata: gap.metadata ? { ...gap.metadata } : gap.metadata })),
+    tracks: (state.tracks ?? []).map((track) => ({ ...track })),
+    clips: (state.clips ?? []).map((clip) => ({ ...clip })),
+    gaps: (state.gaps ?? []).map((gap) => ({ ...gap, metadata: gap.metadata ? { ...gap.metadata } : gap.metadata })),
   };
 }
 

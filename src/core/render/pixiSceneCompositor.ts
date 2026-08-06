@@ -277,7 +277,11 @@ export class PixiSceneCompositor {
             // Update video texture using VideoTextureManager from PreviewMediaPool or canvas surface
             if (mediaLayer.mediaType === "video") {
               if (sourceElement instanceof HTMLVideoElement) {
-                if (this.mediaPool.shouldUpdateTexture(mediaLayer.clipId, sourceElement)) {
+                const needsUpdate =
+                  sourceElement.paused ||
+                  sourceElement.seeking ||
+                  this.mediaPool.shouldUpdateTexture(mediaLayer.clipId, sourceElement);
+                if (needsUpdate && sourceElement.readyState >= 2) {
                   record.texture.source.update();
                   this.mediaPool.markTextureClean(mediaLayer.clipId);
                 }
@@ -534,7 +538,11 @@ export class PixiSceneCompositor {
       // Update video texture using VideoTextureManager from PreviewMediaPool or canvas surface
       if (layer.mediaType === "video") {
         if (sourceElement instanceof HTMLVideoElement) {
-          if (this.mediaPool.shouldUpdateTexture(layer.clipId, sourceElement)) {
+          const needsUpdate =
+            sourceElement.paused ||
+            sourceElement.seeking ||
+            this.mediaPool.shouldUpdateTexture(layer.clipId, sourceElement);
+          if (needsUpdate && sourceElement.readyState >= 2) {
             record.texture.source.update();
             this.mediaPool.markTextureClean(layer.clipId);
           }

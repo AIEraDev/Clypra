@@ -11,7 +11,16 @@ export interface FocalPoint {
  * under cover fit mode, ensuring the focal point is centered in the visible area.
  */
 export function calculateCropFromFocalPoint(source: Size, target: Size, focalPoint: FocalPoint): NormalizedCrop {
-  if (source.width <= 0 || source.height <= 0 || target.width <= 0 || target.height <= 0) {
+  if (
+    !Number.isFinite(source.width) ||
+    source.width < 0.001 ||
+    !Number.isFinite(source.height) ||
+    source.height < 0.001 ||
+    !Number.isFinite(target.width) ||
+    target.width < 0.001 ||
+    !Number.isFinite(target.height) ||
+    target.height < 0.001
+  ) {
     return { left: 0, top: 0, right: 0, bottom: 0 };
   }
 

@@ -93,9 +93,22 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       // Calculate trim offset accounting for clip overlap
       const relativeTrimIn = (clip.trimIn || 0) + (overlapStart - clipStart);
 
-      // Clamp fade durations to clip duration
-      const fadeIn = Math.max(0, Math.min(relativeDuration, (clip as any).fadeIn ?? 0));
-      const fadeOut = Math.max(0, Math.min(relativeDuration, (clip as any).fadeOut ?? 0));
+      // Calculate effective slice fade-in and fade-out relative to export overlap range
+      const rawFadeIn = Math.max(0, (clip as any).fadeIn ?? 0);
+      const rawFadeOut = Math.max(0, (clip as any).fadeOut ?? 0);
+
+      const originalFadeInEnd = clipStart + rawFadeIn;
+      let fadeIn = Math.max(0, Math.min(relativeDuration, originalFadeInEnd - overlapStart));
+
+      const originalFadeOutStart = clipEnd - rawFadeOut;
+      let fadeOut = Math.max(0, Math.min(relativeDuration, overlapEnd - Math.max(overlapStart, originalFadeOutStart)));
+
+      // Ensure combined fade duration does not exceed slice duration
+      if (fadeIn + fadeOut > relativeDuration && relativeDuration > 0) {
+        const scale = relativeDuration / (fadeIn + fadeOut);
+        fadeIn *= scale;
+        fadeOut *= scale;
+      }
 
       // Calculate combined effective volume (clip.volume * track.volume), allowing boost up to 300% (3.0)
       const clipVolume = clip.volume ?? 1.0;

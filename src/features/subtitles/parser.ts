@@ -17,15 +17,16 @@ export function parseSubtitleTime(timeStr: string): number {
   let seconds = 0;
 
   if (parts.length === 3) {
-    hours = parseFloat(parts[0]);
-    minutes = parseFloat(parts[1]);
-    seconds = parseFloat(parts[2]);
+    hours = parseFloat(parts[0]) || 0;
+    minutes = parseFloat(parts[1]) || 0;
+    seconds = parseFloat(parts[2]) || 0;
   } else {
-    minutes = parseFloat(parts[0]);
-    seconds = parseFloat(parts[1]);
+    minutes = parseFloat(parts[0]) || 0;
+    seconds = parseFloat(parts[1]) || 0;
   }
 
-  return hours * 3600 + minutes * 60 + seconds;
+  const total = hours * 3600 + minutes * 60 + seconds;
+  return Number.isFinite(total) && total >= 0 ? total : 0;
 }
 
 /**
@@ -34,6 +35,9 @@ export function parseSubtitleTime(timeStr: string): number {
  * @param format - 'srt' uses comma, 'vtt' uses dot
  */
 export function formatSubtitleTime(seconds: number, format: "srt" | "vtt" = "srt"): string {
+  if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
+    seconds = 0;
+  }
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);

@@ -478,8 +478,14 @@ export const useTimelineStore = create<TimelineStore>(
           }
         }
 
-        // Create clip with safe position
-        const safeClip = { ...clip, startTime: finalStartTime };
+        // Create clip with safe position & guaranteed trimOut
+        const trimIn = clip.trimIn ?? 0;
+        const safeClip = {
+          ...clip,
+          startTime: finalStartTime,
+          trimIn,
+          trimOut: clip.trimOut ?? (trimIn + clip.duration),
+        };
 
         // If timeline was empty, switch to program preview and seek to first clip's start time
         if (wasEmpty) {
@@ -1425,9 +1431,15 @@ export const useTimelineStore = create<TimelineStore>(
         const clip = state.clips.find((c) => c.id === clipId);
         if (!clip) return state;
 
+        const clampedTime = Math.max(0, Math.min(clip.duration, time));
         const keyframes = clip.volumeKeyframes ? [...clip.volumeKeyframes] : [];
-        const newKf: import("@/types").AudioKeyframe = { id, time, gain, easing };
-        keyframes.push(newKf);
+        const existingIdx = keyframes.findIndex((kf) => Math.abs(kf.time - clampedTime) < 0.001);
+
+        if (existingIdx >= 0) {
+          keyframes[existingIdx] = { ...keyframes[existingIdx], gain, easing };
+        } else {
+          keyframes.push({ id, time: clampedTime, gain, easing });
+        }
         keyframes.sort((a, b) => a.time - b.time);
 
         const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
@@ -1465,7 +1477,14 @@ export const useTimelineStore = create<TimelineStore>(
         if (!clip || !clip.volumeKeyframes) return state;
 
         const keyframes = clip.volumeKeyframes
-          .map((kf) => (kf.id === keyframeId ? { ...kf, ...updates } : kf))
+          .map((kf) => {
+            if (kf.id !== keyframeId) return kf;
+            const updated = { ...kf, ...updates };
+            if (updated.time !== undefined) {
+              updated.time = Math.max(0, Math.min(clip.duration, updated.time));
+            }
+            return updated;
+          })
           .sort((a, b) => a.time - b.time);
 
         const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));

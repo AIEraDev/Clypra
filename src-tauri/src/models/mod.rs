@@ -47,5 +47,7 @@ pub struct Project {
     #[serde(default)]
     pub timeline_schema_version: Option<u32>,
     #[serde(default)]
+    pub thumbnail: Option<String>,
+    #[serde(default)]
     pub media_assets: Vec<serde_json::Value>,
 }

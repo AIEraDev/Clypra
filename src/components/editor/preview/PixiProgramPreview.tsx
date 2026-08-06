@@ -26,6 +26,7 @@ import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
 import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
 import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
+import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
@@ -516,6 +517,18 @@ export const PixiProgramPreview: React.FC = () => {
           if (state.clock.isSeeking) {
             state.clock.completeSeek();
           }
+
+          // Live program preview thumbnail sync: capture frame snapshot when paused / seeking finished
+          if (!playbackState) {
+            if (thumbnailDebounceTimer) clearTimeout(thumbnailDebounceTimer);
+            thumbnailDebounceTimer = setTimeout(() => {
+              if (!isActive || !canvasEl) return;
+              const thumbnailDataUrl = captureCanvasThumbnail(canvasEl, 640, 0.85);
+              if (thumbnailDataUrl && thumbnailDataUrl !== useProjectStore.getState().project?.thumbnail) {
+                useProjectStore.getState().updateProject({ thumbnail: thumbnailDataUrl });
+              }
+            }, 500);
+          }
         } catch (err) {
           console.error("[PixiProgramPreview] composeFrame error:", err);
         }
@@ -523,6 +536,8 @@ export const PixiProgramPreview: React.FC = () => {
 
       rafId = requestAnimationFrame(renderLoop);
     };
+
+    let thumbnailDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const unsubscribeClock = clock.subscribe(() => {
       forceRenderNeeded = true;
@@ -532,6 +547,13 @@ export const PixiProgramPreview: React.FC = () => {
     return () => {
       isActive = false;
       unsubscribeClock();
+      if (thumbnailDebounceTimer) clearTimeout(thumbnailDebounceTimer);
+      if (canvasEl) {
+        const finalDataUrl = captureCanvasThumbnail(canvasEl, 640, 0.85);
+        if (finalDataUrl && finalDataUrl !== useProjectStore.getState().project?.thumbnail) {
+          useProjectStore.getState().updateProject({ thumbnail: finalDataUrl });
+        }
+      }
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
     // Bug 3 fix: viewport values (scale, offsetX, offsetY, canvasWidth, canvasHeight) are

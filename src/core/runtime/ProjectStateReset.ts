@@ -33,7 +33,6 @@
  */
 
 import { getPlaybackClock } from "../playback/PlaybackClock";
-import { performanceMonitor } from "@/core/monitoring/PerformanceMonitor";
 
 /**
  * Reset options - allows selective reset for testing
@@ -246,17 +245,16 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
         console.error("  ❌ FavoritesStore reset failed:", error);
       }),
 
-    // PerformanceMonitor + previewMediaSync filter cache
+    // previewMediaSync filter cache
     opts.resetMonitoring
       ? import("@/components/editor/preview/previewMediaSync")
           .then(({ clearClipFilterCache }) => {
-            performanceMonitor.reset();
             clearClipFilterCache();
-            resetSubsystems.push("PerformanceMonitor");
+            resetSubsystems.push("Monitoring");
           })
           .catch((error) => {
-            errors.push({ subsystem: "PerformanceMonitor", error: error as Error });
-            console.error("  ❌ PerformanceMonitor reset failed:", error);
+            errors.push({ subsystem: "Monitoring", error: error as Error });
+            console.error("  ❌ Monitoring reset failed:", error);
           })
       : Promise.resolve(),
 

@@ -65,8 +65,11 @@ function getQualityTierForPreset(presetKey: ExportPreset) {
   if (presetKey.startsWith("720p")) {
     return QUALITY_TIERS[0]; // 720p
   }
-  if (presetKey.startsWith("1080p") || presetKey.startsWith("prores")) {
+  if (presetKey.startsWith("1080p") || presetKey.startsWith("prores") || presetKey.startsWith("webm")) {
     return QUALITY_TIERS[1]; // 1080p
+  }
+  if (presetKey === "gif-animated") {
+    return { id: "gif", label: "GIF", longEdge: 480 };
   }
   return QUALITY_TIERS[2]; // 4k
 }

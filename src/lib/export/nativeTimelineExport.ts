@@ -165,6 +165,11 @@ export function analyzeNativeTimelineExport(
     const firstFrame = Math.round((overlapStart - startTime) * input.frameRate);
     const endFrame = Math.round((overlapEnd - startTime) * input.frameRate);
 
+    const track = input.tracks.find((candidate) => candidate.id === clip.trackId);
+    const clipVolume = clip.volume ?? 1.0;
+    const trackVolume = track?.volume ?? 1.0;
+    const volume = Math.max(0, Math.min(3.0, clipVolume * trackVolume));
+
     return {
       path: toNativePath(asset.path),
       trimIn: clip.trimIn + overlapStart - clip.startTime,
@@ -174,7 +179,7 @@ export function analyzeNativeTimelineExport(
       y: roundPlacement(clip.y * scaleY),
       width: Math.max(1, roundPlacement(clip.width * scaleX)),
       height: Math.max(1, roundPlacement(clip.height * scaleY)),
-      volume: Math.max(0, Math.min(1, clip.volume ?? 1)),
+      volume,
     };
   });
 
