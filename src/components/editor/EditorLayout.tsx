@@ -491,6 +491,49 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
     }
   };
 
+  const DEFAULT_TIMELINE_HEIGHT = 300;
+  const MIN_TIMELINE_HEIGHT = 160;
+
+  const [timelineHeight, setTimelineHeight] = React.useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("clypra_timeline_height");
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val >= MIN_TIMELINE_HEIGHT) return val;
+      }
+    }
+    return DEFAULT_TIMELINE_HEIGHT;
+  });
+
+  const isDraggingRef = React.useRef(false);
+  const startYRef = React.useRef(0);
+  const startHeightRef = React.useRef(0);
+
+  const handleMouseDownResizer = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    startYRef.current = e.clientY;
+    startHeightRef.current = timelineHeight;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const deltaY = startYRef.current - moveEvent.clientY;
+      const maxH = window.innerHeight * 0.55;
+      const newHeight = Math.max(MIN_TIMELINE_HEIGHT, Math.min(maxH, startHeightRef.current + deltaY));
+      setTimelineHeight(newHeight);
+      localStorage.setItem("clypra_timeline_height", newHeight.toString());
+    };
+
+    const handleMouseUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
   // Mobile check after all hooks are called (Rules of Hooks)
   if (width < 768) {
     return <MobileEditorLayout />;
@@ -500,7 +543,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
     <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0">
       <TopBar onRequestClose={onRequestClose} />
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-1">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-0.5">
         <div className="flex-1 min-h-0 flex overflow-hidden gap-1">
           <EnhancedMediaPanel onAddToTimeline={handleAddToTimeline} />
 
@@ -511,7 +554,16 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) =>
           <PropertiesPanel />
         </div>
 
-        <div className="h-80 panel-shell overflow-hidden">
+        {/* CapCut-style Vertical Drag Resizer */}
+        <div
+          onMouseDown={handleMouseDownResizer}
+          className="h-1.5 w-full cursor-row-resize hover:bg-accent-primary/60 active:bg-accent-primary transition-colors flex items-center justify-center group my-0.5 rounded-full select-none"
+          title="Drag to resize timeline"
+        >
+          <div className="w-12 h-1 bg-white/20 group-hover:bg-accent-primary rounded-full transition-colors" />
+        </div>
+
+        <div className="panel-shell overflow-hidden flex-shrink-0" style={{ height: `${timelineHeight}px` }}>
           <Timeline />
         </div>
       </div>
