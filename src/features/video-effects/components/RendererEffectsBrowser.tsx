@@ -9,7 +9,7 @@ import { Download, Plus, Loader2, Smile, Star } from "lucide-react";
 import { VideoEffectsApi } from "../api/videoEffectsApi";
 import { type EffectMetadata } from "@clypra-studio/engine";
 import type { EffectRenderer as EffectRendererType } from "@clypra-studio/engine";
-import type { TabType } from "@/components/editor/media-tabs/types";
+import type { TabType } from "@/components/editor/sidebar";
 import { useFavoritesStore } from "@/store/favoritesStore";
 
 interface RendererEffectsBrowserProps {

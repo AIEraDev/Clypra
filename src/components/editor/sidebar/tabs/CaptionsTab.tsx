@@ -11,7 +11,7 @@ import { parseSubtitles, serializeSubtitles, formatSubtitleTime } from "@/featur
 import { CAPTION_STYLE_PRESETS, getCaptionPresetById } from "@/features/subtitles/captionPresets";
 import { invoke } from "@tauri-apps/api/core";
 import { platform } from "@/core/platform";
-import type { TabProps } from "./types";
+import type { TabProps } from "../types";
 import type { TextClip } from "@/types";
 
 export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {

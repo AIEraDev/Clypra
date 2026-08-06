@@ -8,7 +8,7 @@ import { EffectPicker } from "./EffectPicker";
 import { RendererEffectsBrowser } from "./RendererEffectsBrowser";
 import type { EffectPreset } from "../types";
 import type { EffectRenderer as EffectRendererType } from "@clypra-studio/engine";
-import type { TabType } from "@/components/editor/media-tabs/types";
+import type { TabType } from "@/components/editor/sidebar";
 
 const VIDEO_EFFECT_CATEGORIES = [
   { id: "essentials", name: "Essentials" },

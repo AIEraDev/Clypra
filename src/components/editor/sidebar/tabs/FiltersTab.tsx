@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { Filter, Grid3X3, Plus, Search, SlidersHorizontal, Sparkles, Sun, Palette, Droplets, Camera, AlertCircle, Download, Loader2, Star, type LucideIcon } from "lucide-react";
-import type { TabProps } from "./types";
+import type { TabProps } from "../types";
 import { useProjectStore } from "@/store/projectStore";
 import { FiltersApi } from "@/features/filters/api/filtersApi";
 import { filterCacheManager } from "@/features/filters/cache/filterCache";

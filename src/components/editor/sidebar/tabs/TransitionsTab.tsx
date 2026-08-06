@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Wand2, Plus, AlertCircle } from "lucide-react";
-import type { TabProps } from "./types";
+import type { TabProps } from "../types";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";

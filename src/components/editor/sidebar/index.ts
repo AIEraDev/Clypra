@@ -1,0 +1,10 @@
+export { Sidebar } from "./Sidebar";
+export { AudioWaveform } from "./AudioWaveform";
+export { MediaTab } from "./tabs/MediaTab";
+export { TextTab } from "./tabs/TextTab";
+export { AudioTab } from "./tabs/AudioTab";
+export { StickersTab } from "./tabs/StickersTab";
+export { TransitionsTab } from "./tabs/TransitionsTab";
+export { FiltersTab } from "./tabs/FiltersTab";
+export { CaptionsTab } from "./tabs/CaptionsTab";
+export * from "./types";

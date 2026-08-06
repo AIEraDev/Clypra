@@ -4,7 +4,7 @@ import { NetworkError } from "@/components/ui/NetworkError";
 import { useStickersStore } from "@/features/stickers/store/stickersStore";
 import { useUIStore } from "@/store/uiStore";
 import type { MediaAsset } from "@/types";
-import type { TabProps } from "./types";
+import type { TabProps } from "../types";
 import { STICKER_CATEGORIES, StickersApi, type StickerCategory, type StickerItem } from "@/features/stickers/api/stickersApi";
 import { platform } from "@/core/platform";
 

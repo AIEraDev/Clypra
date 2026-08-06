@@ -15,7 +15,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { RippleDeleteCommand } from "@/core/history/commands/RippleDeleteCommand";
 import { DeleteClipCommand } from "@/core/history/commands/DeleteClipCommand";
 import type { VideoMetadata } from "@/types";
-import type { MediaTabProps } from "./types";
+import type { MediaTabProps } from "../types";
 import { generateId } from "@/lib/utils/id";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { MediaCard } from "@/components/ui/MediaCard";

@@ -53,7 +53,7 @@ export const SourcePreview: React.FC = () => {
     // Bind appropriate media element
     if (sourceAsset?.type === "audio" && audioRef.current) {
       ctx.setMediaElement(audioRef.current);
-    } else if (sourceAsset?.type === "video" && videoRef.current && !useGPU) {
+    } else if (sourceAsset?.type === "video" && videoRef.current) {
       ctx.setMediaElement(videoRef.current);
     } else {
       ctx.setMediaElement(null);
@@ -71,7 +71,7 @@ export const SourcePreview: React.FC = () => {
       ctx.setMediaElement(null);
       sourceCtxRef.current = null;
     };
-  }, [sourceAsset?.id, sourceAsset?.type, useGPU]);
+  }, [sourceAsset?.id, sourceAsset?.type]);
 
   // Virtual clock for text preview
   useEffect(() => {
@@ -150,8 +150,6 @@ export const SourcePreview: React.FC = () => {
 
   // Reset when asset changes
   useEffect(() => {
-    setUseGPU(USE_GPU_PREVIEW && sourceAsset?.type === "video");
-    setGpuFailed(false);
     const isLottie = sourceAsset && sourceAsset.type === "image" && (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json"));
     if (isLottie) {
       setDuration(lottieDuration);

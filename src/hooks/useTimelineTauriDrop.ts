@@ -54,7 +54,7 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
           if (!asset) {
             // Import new asset
             if (type === "video" || type === "audio") {
-              const metadata: VideoMetadata = await invoke("get_video_metadata", { path: filePath });
+              const metadata: VideoMetadata = await invoke("get_media_metadata", { path: filePath });
               const posterFrame: string | undefined = type === "video" ? ((await invoke("extract_poster_frame", { path: filePath, time: 0.0 }).catch(() => undefined)) as string | undefined) : undefined;
 
               asset = {
