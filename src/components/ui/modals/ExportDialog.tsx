@@ -20,17 +20,17 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AlertCircle, Film, Clock, Monitor, HardDrive, FolderOpen, RotateCcw, X, Pencil, Check, XCircle, Download, CheckCircle2, Cloud } from "lucide-react";
-import { Modal } from "./Modal";
-import { Button } from "./Button";
+import { Modal } from "../primitives/Modal";
+import { Button } from "../primitives/Button";
 import { platform } from "@/core/platform";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 
 // Import extracted components
-import { ProgressRing } from "./ProgressRing";
-import { SuccessCheck } from "./SuccessCheck";
-import { ExportPresetCard, type ExportPreset, type PresetConfig } from "./ExportPresetCard";
+import { ProgressRing } from "../primitives/ProgressRing";
+import { SuccessCheck } from "../primitives/SuccessCheck";
+import { ExportPresetCard, type ExportPreset, type PresetConfig } from "../cards/ExportPresetCard";
 import { QUALITY_TIERS, resolveExportDimensions } from "@/lib/export/exportDimensions";
 import { PRESET_CONFIGS, PRESET_ORDER } from "@/lib/export/exportPresets";
 
