@@ -2,8 +2,8 @@
 //!
 //! Tests are organized in a separate file for better code organization.
 
-use crate::thumbnail_engine::*;
-use crate::thumbnail_engine::decoder::VideoDecoder;
+use super::*;
+use super::decoder::VideoDecoder;
 use std::path::PathBuf;
 
 #[test]

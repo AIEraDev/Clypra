@@ -7,14 +7,7 @@ pub mod models;
 use thumbnail_engine::init_thumbnail_engine;
 use commands::*;
 
-#[cfg(test)]
-mod thumbnail_engine_tests;
 
-#[cfg(test)]
-mod thumbnail_engine_proptest;
-
-#[cfg(test)]
-mod decoder_pool_stress_test;
 
 #[tauri::command]
 fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), String> {

@@ -11,7 +11,7 @@
  */
 
 import { getPerformanceProfile, monitorDeviceState, type DeviceCapabilities, logDeviceCapabilities } from "./deviceCapabilities";
-import { ThumbnailWorkerPool } from "../workers/ThumbnailWorkerPool";
+import { ThumbnailWorkerPool } from "@/workers";
 
 interface PerformanceSettings {
   workerCount: number;

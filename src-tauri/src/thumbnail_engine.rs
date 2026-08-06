@@ -10,6 +10,13 @@ pub mod cache;
 pub mod queue;
 pub mod retry;
 
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod proptest;
+#[cfg(test)]
+mod stress_test;
+
 // Re-export pyramid types at crate level for convenience
 pub use pyramid::{
     SpatialTier, FrameContentHash, TierCacheKey, RenderArtifact, ArtifactSource,
