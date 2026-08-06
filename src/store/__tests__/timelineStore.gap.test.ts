@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { useTimelineStore } from "./timelineStore";
+import { useTimelineStore } from "../timelineStore";
 
 describe("Timeline Store - Gap Operations", () => {
   let trackId: string;

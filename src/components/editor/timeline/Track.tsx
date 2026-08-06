@@ -3,7 +3,7 @@ import { Lock } from "lucide-react";
 import { useDrop } from "react-dnd";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
-import { useTimeline } from "@/hooks/useTimeline";
+import { useTimeline } from "@/hooks";
 import { Clip } from "./Clip";
 import { GapIndicator } from "./GapIndicator";
 import { TransitionIndicator } from "./TransitionIndicator";
