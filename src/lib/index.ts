@@ -46,11 +46,11 @@ export * from "./filmstrip/useFilmstrip";
 // Media
 export * from "./media/thumbnailHeuristic";
 
-// Preview
-export * from "./preview/PreviewQualityManager";
+// Preview Quality
+export * from "../components/editor/preview/PreviewQualityManager";
 
 // Sequence
-export * from "./sequence/sequenceAutoAspect";
+export * from "./timeline/sequenceAutoAspect";
 
 // Utils
 export * from "./utils/id";
@@ -61,7 +61,7 @@ export * from "./utils/canvasUtils";
 export * from "./utils/performanceMetrics";
 
 // Transform
-export * from "./transform/calculator";
+export * from "../components/editor/transform/calculator";
 
 // Render Engine
 export * from "./renderEngine/types";

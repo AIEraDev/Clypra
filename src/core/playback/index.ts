@@ -18,3 +18,4 @@ export { TransportAuthority } from "./TransportAuthority";
 export type { AuthorityContextSwitchListener, AuthorityStateListener } from "./TransportAuthority";
 export { ProgramPlaybackContext } from "./ProgramPlaybackContext";
 export { SourcePlaybackContext } from "./SourcePlaybackContext";
+export * from "./frameSkipping";

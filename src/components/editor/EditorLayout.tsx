@@ -9,7 +9,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { generateId } from "@/lib/utils/id";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
 import { createTextClip, TEXT_PRESETS } from "@/lib/text/textClip";
-import { autoAdaptSequenceForFirstVisualClip } from "@/lib/sequence/sequenceAutoAspect";
+import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefaultFitModeForAsset } from "@/lib/timeline/placementPolicy";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useWindowSize } from "@/hooks/useWindowSize";

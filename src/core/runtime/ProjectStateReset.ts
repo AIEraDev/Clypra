@@ -33,7 +33,7 @@
  */
 
 import { getPlaybackClock } from "../playback/PlaybackClock";
-import { performanceMonitor } from "@/lib/monitoring/PerformanceMonitor";
+import { performanceMonitor } from "@/core/monitoring/PerformanceMonitor";
 
 /**
  * Reset options - allows selective reset for testing

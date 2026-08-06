@@ -54,8 +54,8 @@ import { RenderEngine } from "@/lib/renderEngine/renderEngine";
 import { QualityPreset, RendererMode, type SrpConfig } from "@/lib/renderEngine/types";
 import { PreviewMediaPool, type PreviewSyncState } from "../resources/PreviewMediaPool";
 import type { Clip, MediaAsset } from "@/types";
-import { lifecycleMonitor } from "@/lib/monitoring/LifecycleMonitor";
-import { resourceTracker, installDiagnostics } from "@/lib/monitoring/ResourceTracker";
+import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
+import { resourceTracker, installDiagnostics } from "@/core/monitoring/ResourceTracker";
 
 /**
  * Project Session State

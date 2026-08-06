@@ -18,7 +18,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { getTransformController } from "@/core/interactions";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
-import { calculateTransform, getDefaultConstraints, getCursorForHandle } from "@/lib/transform/calculator";
+import { calculateTransform, getDefaultConstraints, getCursorForHandle } from "./calculator";
 import { screenToCanvas, canvasToScreen, hitTestClip, type ViewportTransform } from "@/lib/utils/coordinateSystem";
 import { hasTextClipContentTransformDrift, resolveTextClipContentTransform } from "@/lib/text/textClip";
 import type { Clip, TextClip, TransformHandle, TransformState } from "@/types";

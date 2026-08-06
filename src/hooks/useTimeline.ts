@@ -3,7 +3,7 @@ import { useTimelineStore } from "../store/timelineStore";
 import { useProjectStore } from "../store/projectStore";
 import type { Clip, MediaAsset } from "../types";
 import { createClipFromAsset } from "../lib/timeline/timelineClip";
-import { autoAdaptSequenceForFirstVisualClip } from "../lib/sequence/sequenceAutoAspect";
+import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveDefaultFitModeForAsset } from "../lib/timeline/placementPolicy";
 
 export const useTimeline = () => {

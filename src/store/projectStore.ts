@@ -35,7 +35,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { calculateTextClipSize } from "@/lib/text/textClip";
 import { useSettingsStore } from "./settingsStore";
 import { saveSnapshot, clearSnapshot } from "@/core/runtime/CrashRecoveryService";
-import { lifecycleMonitor } from "@/lib/monitoring/LifecycleMonitor";
+import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
 interface ProjectStore {
@@ -115,7 +115,7 @@ const AUTO_SAVE_DELAY = 500; // ms
 // queueMicrotask ensures this runs after all static imports are resolved (avoids TDZ issues).
 // The resolver lets findLeaks() classify which tracked resources belong to a stale project.
 queueMicrotask(() => {
-  import("@/lib/monitoring/ResourceTracker").then(({ resourceTracker }) => {
+  import("@/core/monitoring/ResourceTracker").then(({ resourceTracker }) => {
     resourceTracker.setActiveProjectIdResolver(() => useProjectStore.getState().project?.id ?? null);
   });
 });

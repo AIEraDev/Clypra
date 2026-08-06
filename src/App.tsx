@@ -13,7 +13,7 @@ import { CrashRecoveryDialog } from "./components/ui/CrashRecoveryDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary"; // Add root error boundary
 import { initializePerformanceAdapter, shutdownPerformanceAdapter } from "@/lib/platform/performanceAdapter";
 import { hasSnapshot, getSnapshot, clearSnapshot, type RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
-import { lifecycleMonitor } from "@/lib/monitoring/LifecycleMonitor";
+import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { useRecordingStore } from "@/store/recordingStore";
 import { FloatingWidget } from "@/components/ui/FloatingWidget";
 import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPreviewModal";
@@ -78,7 +78,7 @@ const App = () => {
     // Periodic leak check every 30 seconds in dev mode
     const leakCheckInterval = setInterval(() => {
       // Dynamically import to avoid bundling in production
-      import("@/lib/monitoring/ResourceTracker")
+      import("@/core/monitoring/ResourceTracker")
         .then(({ resourceTracker }) => {
           const report = resourceTracker.findLeaks();
 

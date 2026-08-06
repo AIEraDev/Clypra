@@ -23,7 +23,7 @@
  */
 
 import type { ThumbnailDecodeRequest, ThumbnailWorkerResponse } from "@/workers/thumbnailWorker";
-import { performanceMonitor } from "../monitoring/PerformanceMonitor";
+import { performanceMonitor } from "@/core/monitoring/PerformanceMonitor";
 
 interface PendingRequest {
   requestId: number;

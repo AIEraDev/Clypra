@@ -259,7 +259,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       // 2. Save window geometry snapshot and resize window to float layout
       if (isTauri) {
         try {
-          const { savePreRecordingWindowGeometry } = await import("@/lib/window/windowState");
+          const { savePreRecordingWindowGeometry } = await import("@/lib/platform/windowState");
           await savePreRecordingWindowGeometry();
 
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
