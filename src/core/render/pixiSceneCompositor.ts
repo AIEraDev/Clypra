@@ -263,7 +263,8 @@ export class PixiSceneCompositor {
           }
 
           if (sourceElement) {
-            const record = getOrCreateMediaSprite(mediaLayer.clipId, mediaLayer.mediaType, sourceElement as any, baseMediaContainer);
+            const kind = sourceElement instanceof HTMLCanvasElement ? "image" : mediaLayer.mediaType;
+            const record = getOrCreateMediaSprite(mediaLayer.clipId, kind, sourceElement as any, baseMediaContainer);
 
             // Skip this layer if sprite creation was deferred (video metadata not ready yet)
             if (!record) {
@@ -524,7 +525,8 @@ export class PixiSceneCompositor {
     const sourceElement = resolveMediaSource(layer, videoElements, resourceHandleMap);
 
     if (sourceElement) {
-      const record = getOrCreateMediaSprite(layer.clipId, layer.mediaType, sourceElement as any, container);
+      const kind = sourceElement instanceof HTMLCanvasElement ? "image" : layer.mediaType;
+      const record = getOrCreateMediaSprite(layer.clipId, kind, sourceElement as any, container);
       if (!record) return texture;
 
       record.lastSeenFrame = this.currentFrameId;

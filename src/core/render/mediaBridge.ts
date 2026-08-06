@@ -81,7 +81,8 @@ export function releaseMediaSprite(clipId: string, container: import("pixi.js").
 }
 
 export function getOrCreateMediaSprite(clipId: string, kind: "video" | "image", sourceElement: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement, container: import("pixi.js").Container): MediaSpriteRecord | null {
-  return engineGetOrCreateSprite(clipId, kind, sourceElement as any, container);
+  const effectiveKind = (typeof HTMLCanvasElement !== "undefined" && sourceElement instanceof HTMLCanvasElement) ? "image" : kind;
+  return engineGetOrCreateSprite(clipId, effectiveKind, sourceElement as any, container);
 }
 
 /**
