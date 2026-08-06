@@ -150,12 +150,10 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     throw new Error("No frames to export");
   }
 
-  // Create headless video element pool for export
-  const videoPool = new VideoElementPool({
-    maxConcurrent: 10,
-    debug: false,
-    isExport: true,
-  });
+  // Create native frame surface pool (bypasses browser DOM video element seeking)
+  const { NativeExportFramePool } = await import("./nativeExportFramePool");
+  const { toNativePath } = await import("../platform/pathConversion");
+  const nativeFramePool = new NativeExportFramePool();
 
   // Create headless Pixi compositor for this export session.
   // All 21 GPU transitions render correctly on this path.
@@ -201,7 +199,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   // Start FFmpeg export session
   const sessionId = await invoke<string>("start_video_export", {
     config: {
-      outputPath,
+      outputPath: toNativePath(outputPath),
       width,
       height,
       frameRate,
@@ -273,7 +271,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       audioCtx = new AudioContextClass();
       oscillator = audioCtx.createOscillator();
       gainNode = audioCtx.createGain();
-      gainNode.gain.value = 0.001; // Extremely quiet but active to register as audio activity
+      gainNode.gain.value = 0; // 100% silent (zero amplitude) keepalive
       oscillator.connect(gainNode);
       gainNode.connect(audioCtx.destination);
       oscillator.start();
@@ -305,72 +303,63 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
       const time = frameTimes[i];
 
-      // Track ALL acquired video elements for this frame (released in finally)
-      const frameVideoElements: HTMLVideoElement[] = [];
+      // Pre-load frames for all active video clips via NativeExportFramePool (Rust C++/FFmpeg decoder)
+      const videoElements = new Map<string, HTMLCanvasElement>();
 
-      try {
-        // Pre-load and seek all video elements for this frame
-        const videoElements = new Map<string, HTMLVideoElement>();
+      // Find all active video clips at this time (including clips in active transition windows)
+      const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
 
-        // Find all active video clips at this time (including clips in active transition windows)
-        const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
-
-        // Seek all active video elements in parallel
-        const acquirePromises = activeVideoClips.map(async (clip) => {
-          const asset = assets.find((a) => a.id === clip.mediaId)!;
-          const { sourceTime } = resolveClipSourceTime(clip, time, {
-            clampToRange: true,
-            frameRate,
-          });
-
-          const resolvedPath = isWebviewOrExternalUrl(asset.path) ? asset.path : platform.convertFileSrc(asset.path);
-          const key = `${clip.id}-${clip.mediaId}`;
-
-          const video = await videoPool.acquire(resolvedPath, sourceTime);
-          frameVideoElements.push(video); // Ensure it is tracked immediately for cleanup
-          return { key, video };
+      // Acquire native frame canvas surfaces in parallel (zero DOM video seeking)
+      const acquirePromises = activeVideoClips.map(async (clip) => {
+        const asset = assets.find((a) => a.id === clip.mediaId)!;
+        const { sourceTime } = resolveClipSourceTime(clip, time, {
+          clampToRange: true,
+          frameRate,
         });
 
-        try {
-          const acquired = await Promise.all(acquirePromises);
-          for (const { key, video } of acquired) {
-            videoElements.set(key, video);
-          }
-        } catch (error) {
-          // Releasing already-acquired elements before throwing
-          for (const vid of frameVideoElements) {
-            videoPool.releaseElement(vid);
-          }
-          throw new Error(`Failed to acquire video for clip at time ${time}s: ${error}. Export aborted to prevent corrupted output.`);
+        const nativePath = toNativePath(asset.path);
+        const key = `${clip.id}-${clip.mediaId}`;
+
+        const canvas = await nativeFramePool.acquire({
+          key,
+          videoPath: nativePath,
+          timeSecs: sourceTime,
+          width: clip.width || width,
+          height: clip.height || height,
+        });
+        return { key, canvas };
+      });
+
+      try {
+        const acquired = await Promise.all(acquirePromises);
+        for (const { key, canvas } of acquired) {
+          videoElements.set(key, canvas);
+        }
+      } catch (error) {
+        throw new Error(`Failed to acquire frame for clip at time ${time}s: ${error}. Export aborted to prevent output corruption.`);
+      }
+
+      // Evaluate scene for this frame using the canonical evaluator
+      const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
+
+      // Render frame through the Pixi WebGL compositor.
+      // Direct WebGL readback: true. Returns a Uint8Array with raw pixel bytes directly.
+      const frameBytes = await renderFrameWithPixi(pixiHandle, scene, videoElements as any, true) as Uint8Array;
+      frameBuffer.push(frameBytes);
+
+      completedFrames++;
+
+      // Flush batch when full or at end of export (double-buffering)
+      if (frameBuffer.length >= BATCH_SIZE || i === frameTimes.length - 1) {
+        const batchToFlush = [...frameBuffer];
+        frameBuffer.length = 0;
+
+        // Await previous in-flight write batch to complete before launching the next one
+        if (inFlightWritePromise) {
+          await inFlightWritePromise;
         }
 
-        // Evaluate scene for this frame using the canonical evaluator
-        const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
-
-        // Render frame through the Pixi WebGL compositor.
-        // Direct WebGL readback: true. Returns a Uint8Array with raw pixel bytes directly.
-        const frameBytes = await renderFrameWithPixi(pixiHandle, scene, videoElements, true) as Uint8Array;
-        frameBuffer.push(frameBytes);
-
-        completedFrames++;
-
-        // Flush batch when full or at end of export (double-buffering)
-        if (frameBuffer.length >= BATCH_SIZE || i === frameTimes.length - 1) {
-          const batchToFlush = [...frameBuffer];
-          frameBuffer.length = 0;
-
-          // Await previous in-flight write batch to complete before launching the next one
-          if (inFlightWritePromise) {
-            await inFlightWritePromise;
-          }
-
-          inFlightWritePromise = flushFrameBatch(batchToFlush);
-        }
-      } finally {
-        // This prevents resource leaks when export fails mid-frame
-        for (const video of frameVideoElements) {
-          videoPool.releaseElement(video);
-        }
+        inFlightWritePromise = flushFrameBatch(batchToFlush);
       }
     }
 
@@ -413,8 +402,8 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       }
     }
 
-    // Always clean up video pool and Pixi compositor
-    videoPool.clear();
+    // Always clean up native frame pool decoders and Pixi compositor
+    await nativeFramePool.clear();
     destroyPixiExportCompositor(pixiHandle);
 
     // Release global image bitmaps and evaluated frames to free up memory

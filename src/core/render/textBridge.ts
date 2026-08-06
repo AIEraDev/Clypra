@@ -3,6 +3,9 @@ import type { EvaluatedTextLayer } from "../evaluation/types.js";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore.js";
 import { effectBleed } from "../../lib/text/textClip.js";
 import { rasterizeTextLayer } from "./textRasterizer.js";
+import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing.js";
+
+
 
 import {
   beginTextFrame as engineBeginTextFrame,
@@ -49,9 +52,11 @@ export async function renderTextLayerBridged(
     background: layer.background,
   });
 
-  const unscaledFontSize = layer.fontSize;
-  const unscaledPaddingX = Math.max(unscaledFontSize * 0.25, declaredBleed.x);
-  const unscaledPaddingY = Math.max(unscaledFontSize * 0.25, declaredBleed.y);
+  const unscaledFontSize = normalizeFontSize(layer.fontSize);
+  const textMetrics = getTextRenderMetrics(unscaledFontSize);
+  const unscaledPaddingX = Math.max(textMetrics.paddingX, declaredBleed.x);
+  const unscaledPaddingY = Math.max(textMetrics.paddingY, declaredBleed.y);
+
   
   const isTemplate = !!layer.templateId;
   const isAnimated = !!(effectDef?.animation && effectDef.animation.type !== "none");

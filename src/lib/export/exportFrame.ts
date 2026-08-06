@@ -80,16 +80,12 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
   // Without this, composeFrame() returns early (isReady=false) producing a blank PNG.
   await pixiHandle.compositor.waitForReady();
 
-  const videoPool = new VideoElementPool({
-    maxConcurrent: 10,
-    debug: false,
-    isExport: true,
-  });
-
-  const frameVideoElements: HTMLVideoElement[] = [];
+  const { NativeExportFramePool } = await import("./nativeExportFramePool");
+  const { toNativePath } = await import("../platform/pathConversion");
+  const nativeFramePool = new NativeExportFramePool();
 
   try {
-    const videoElements = new Map<string, HTMLVideoElement>();
+    const videoElements = new Map<string, HTMLCanvasElement>();
 
     // Find all video clips active at this time (including transition windows) and acquire them
     const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
@@ -101,15 +97,20 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
         frameRate: project?.frameRate || 30,
       });
 
-      const resolvedPath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
+      const nativePath = toNativePath(asset.path);
       const key = `${clip.id}-${clip.mediaId}`;
-      const video = await videoPool.acquire(resolvedPath, sourceTime);
-      videoElements.set(key, video);
-      frameVideoElements.push(video);
+      const canvas = await nativeFramePool.acquire({
+        key,
+        videoPath: nativePath,
+        timeSecs: sourceTime,
+        width: clip.width || width,
+        height: clip.height || height,
+      });
+      videoElements.set(key, canvas);
     }
 
     const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
-    await renderFrameWithPixi(pixiHandle, scene, videoElements);
+    await renderFrameWithPixi(pixiHandle, scene, videoElements as any);
 
     // Convert canvas to Blob
     return await new Promise<Blob>((resolve, reject) => {
@@ -123,12 +124,7 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
       );
     });
   } finally {
-    // FIX (BUG-H5): Release all video elements in finally only — prevents double-release
-    // that occurred when release was duplicated in try (success path) and catch (error path).
-    for (const vid of frameVideoElements) {
-      videoPool.releaseElement(vid);
-    }
-    videoPool.clear();
+    await nativeFramePool.clear();
     destroyPixiExportCompositor(pixiHandle);
   }
 }
