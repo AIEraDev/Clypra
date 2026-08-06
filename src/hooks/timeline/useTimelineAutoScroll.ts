@@ -1,7 +1,7 @@
 import { useEffect, useRef, RefObject } from "react";
 // @ts-ignore - react-dnd types issue
 import { useDragLayer } from "react-dnd";
-import { useTimelineStore } from "../store/timelineStore";
+import { useTimelineStore } from "@/store/timelineStore";
 
 export function useTimelineAutoScroll(containerRef: RefObject<HTMLDivElement | null>) {
   const rafRef = useRef<number | null>(null);

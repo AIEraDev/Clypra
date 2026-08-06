@@ -13,7 +13,7 @@
  */
 
 import { useEffect } from "react";
-import { EditingActions } from "../core/interactions";
+import { EditingActions } from "@/core/interactions";
 
 interface UseSplitModeOptions {
   /** Whether split mode is active */

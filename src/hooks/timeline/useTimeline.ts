@@ -1,10 +1,10 @@
 import { useCallback, useMemo } from "react";
-import { useTimelineStore } from "../store/timelineStore";
-import { useProjectStore } from "../store/projectStore";
-import type { Clip, MediaAsset } from "../types";
-import { createClipFromAsset } from "../lib/timeline/timelineClip";
+import { useTimelineStore } from "@/store/timelineStore";
+import { useProjectStore } from "@/store/projectStore";
+import type { Clip, MediaAsset } from "@/types";
+import { createClipFromAsset } from "@/lib/timeline/timelineClip";
 import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAutoAspect";
-import { DEFAULT_PLACEMENT_POLICY, resolveDefaultFitModeForAsset } from "../lib/timeline/placementPolicy";
+import { DEFAULT_PLACEMENT_POLICY, resolveDefaultFitModeForAsset } from "@/lib/timeline/placementPolicy";
 
 export const useTimeline = () => {
   const { tracks, clips, zoomLevel, scrollLeft, pixelsPerSecond, addClip, removeClip, updateClip, moveClip, setZoom, setScrollLeft } = useTimelineStore();
