@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-06
+
+### ♻️ Refactoring
+
+- **Codebase Restructuring**: Consolidated `media-panel/` and `media-tabs/` into unified `sidebar/` module with clean `tabs/` submodules
+- **Utility Consolidation**: Merged `src/lib/utils.ts` into `src/lib/utils/` with full barrel exports
+- **Core Domain Unification**: Relocated playback and monitoring modules into `src/core/`; eliminated single-file folders (`lib/preview`, `lib/window`, `lib/transform`, `lib/sequence`, `lib/video`, `lib/debug`)
+- **Hooks Organization**: Grouped timeline hooks into `src/hooks/timeline/` submodule with barrel exports
+- **UI Component Hierarchy**: Categorized UI components into `modals/`, `cards/`, and `primitives/` submodules
+- **Rust Test Organization**: Moved test files into `thumbnail_engine/` submodules (`tests.rs`, `proptest.rs`, `stress_test.rs`)
+- **Worker Consolidation**: Moved `ThumbnailWorkerPool` into `src/workers/` with barrel export
+- **Barrel Export Standardization**: Added `index.ts` barrel exports across all top-level `src/` directories (`components`, `constants`, `core`, `features`, `hooks`, `i18n`, `lib`, `services`, `store`, `types`, `workers`)
+- **Debug Component Relocation**: Moved `PerformanceOverlay` into `src/components/editor/viewport/`
+
+### 🐛 Bug Fixes
+
+- **Windows Blank Video Preview**: Added `--allow-file-access-from-files` to WebView2 browser arguments and enforced `playsinline` + `crossOrigin=anonymous` on video elements to fix blank preview on Windows
+- **Windows GPU Acceleration**: Enabled ANGLE D3D11 rendering and GPU rasterization flags for WebView2 on startup
+
 ## [1.2.1] - 2026-07-30
 
 ### 🐛 Bug Fixes
