@@ -6,7 +6,6 @@ export * from "./filmstrip";
 export * from "./media/thumbnailHeuristic";
 export * from "./platform/deviceCapabilities";
 export * from "./platform/pathConversion";
-export * from "./platform/performanceAdapter";
 export * from "./platform/tauri";
 export * from "./platform/windowState";
 export * from "./renderEngine";
