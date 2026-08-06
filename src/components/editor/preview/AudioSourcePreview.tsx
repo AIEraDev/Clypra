@@ -1,5 +1,5 @@
 import React from "react";
-import { AudioWaveform } from "../media-panel/AudioWaveform";
+import { AudioWaveform } from "../sidebar/AudioWaveform";
 import { cn } from "@/lib/utils";
 
 interface AudioSourcePreviewProps {

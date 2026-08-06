@@ -14,18 +14,13 @@ export function clamp(value: number, min: number, max: number): number {
 
 export function fileBasename(path: string | null | undefined): string {
   if (!path) return "clip";
-
   if (path.endsWith("/") || path.endsWith("\\")) return "clip";
-
   let cleanPath = path;
   if (cleanPath === "/" || cleanPath === "\\") return "clip";
-
   while (cleanPath.length > 0 && (cleanPath.endsWith("/") || cleanPath.endsWith("\\"))) {
     cleanPath = cleanPath.slice(0, -1);
   }
-
   if (!cleanPath) return "clip";
-
   if (cleanPath.startsWith("asset://localhost/")) {
     cleanPath = cleanPath.replace("asset://localhost/", "");
   } else if (cleanPath.startsWith("file:///")) {
@@ -33,30 +28,21 @@ export function fileBasename(path: string | null | undefined): string {
   } else if (cleanPath.startsWith("file://")) {
     cleanPath = cleanPath.replace("file://", "");
   }
-
   const lastSlash = Math.max(cleanPath.lastIndexOf("/"), cleanPath.lastIndexOf("\\"));
-
   if (lastSlash !== -1) {
     return cleanPath.slice(lastSlash + 1);
   }
-
   return cleanPath;
 }
 
 export function isFormElement(target: EventTarget | null): boolean {
   if (!target || !(target instanceof HTMLElement)) return false;
-
   const formElements = ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A", "FORM"];
   if (formElements.includes(target.tagName)) return true;
-
   if (target.getAttribute("role") === "button") return true;
-
   if (target.isContentEditable) return true;
-
   if (target.closest('[contenteditable="true"]')) return true;
-
   if (target.closest("form")) return true;
-
   return false;
 }
 

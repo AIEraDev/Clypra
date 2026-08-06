@@ -19,11 +19,8 @@ export * from "./properties";
 // Timeline Components
 export * from "./timeline";
 
-// Media Panel
-export * from "./media-panel";
-
-// Media Tabs
-export * from "./media-tabs";
+// Sidebar Components (Media, Audio, Text, Stickers, Transitions, Filters)
+export * from "./sidebar";
 
 // Viewport Components
 export * from "./viewport";

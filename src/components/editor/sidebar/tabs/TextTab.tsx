@@ -3,7 +3,7 @@ import { Sparkles, MessageSquare, Loader2, CheckCircle2, AlertCircle, Cloud, Clo
 
 import { Button } from "@/components/ui/Button";
 import { TemplateDefinition, TemplateCustomization, TEMPLATE_CATEGORIES } from "@/features/text-templates/types";
-import type { TabProps } from "./types";
+import type { TabProps } from "../types";
 import { TemplateCard } from "@/components/ui/TemplateCard";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useUIStore } from "@/store/uiStore";

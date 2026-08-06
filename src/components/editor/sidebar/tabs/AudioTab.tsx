@@ -5,7 +5,7 @@ import { NetworkError } from "@/components/ui/NetworkError";
 import { AUDIO_LIBRARY_CATEGORIES, AudioLibraryApi, type AudioLibraryCategory, type AudioLibraryItem } from "@/features/audio-library/api/audioLibraryApi";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
 import { useUIStore } from "@/store/uiStore";
-import type { TabProps } from "./types";
+import type { TabProps } from "../types";
 import type { MediaAsset } from "@/types";
 import { platform } from "@/core/platform";
 

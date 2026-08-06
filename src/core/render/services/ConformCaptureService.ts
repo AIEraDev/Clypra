@@ -56,7 +56,7 @@ export class ConformCaptureService {
    * @param currentConform - Current conform settings
    */
   private async updateClipConform(clipId: string, dimensions: { sourceWidth: number; sourceHeight: number }, currentConform?: ClipConform): Promise<void> {
-    const { useTimelineStore } = await import("../../../store/timelineStore");
+    const { useTimelineStore } = await import("@/store/timelineStore");
     const store = useTimelineStore.getState();
     const clip = store.clips.find((c) => c.id === clipId);
 

@@ -1,6 +1,6 @@
 import React from "react";
 import { TopBar } from "./TopBar";
-import { EnhancedMediaPanel } from "./media-panel/EnhancedMediaPanel";
+import { Sidebar as EnhancedMediaPanel } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";

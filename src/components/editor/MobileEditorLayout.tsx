@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Plus, Library as LibraryIcon, Type, Music, Sliders, Undo2, Redo2, Shuffle } from "lucide-react";
 import { TopBar } from "./TopBar";
-import { EnhancedMediaPanel } from "./media-panel/EnhancedMediaPanel";
+import { Sidebar as EnhancedMediaPanel, type TabType } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
@@ -17,7 +17,6 @@ import { createTextClip, TEXT_PRESETS } from "@/lib/text/textClip";
 import { autoAdaptSequenceForFirstVisualClip } from "@/lib/sequence/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefaultFitModeForAsset } from "@/lib/timeline/placementPolicy";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
-import type { TabType } from "./media-tabs";
 import type { MediaAsset } from "@/types";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
 import { platform } from "@/core/platform";

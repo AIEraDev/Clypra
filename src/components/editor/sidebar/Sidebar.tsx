@@ -1,10 +1,17 @@
 import React, { useState } from "react";
 import { Music, Smile, Wand2, MessageSquare, Filter, Shuffle } from "lucide-react";
-import { MediaTab, AudioTab, TextTab, StickersTab, FiltersTab, TransitionsTab, CaptionsTab, type TabType, MediaTabProps } from "../media-tabs";
+import { MediaTab } from "./tabs/MediaTab";
+import { AudioTab } from "./tabs/AudioTab";
+import { TextTab } from "./tabs/TextTab";
+import { StickersTab } from "./tabs/StickersTab";
+import { FiltersTab } from "./tabs/FiltersTab";
+import { TransitionsTab } from "./tabs/TransitionsTab";
+import { CaptionsTab } from "./tabs/CaptionsTab";
+import { type TabType, type MediaTabProps } from "./types";
 import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
-import { TextIcon, YouTubeIcon } from "../../ui/icons";
+import { TextIcon, YouTubeIcon } from "@/components/ui/icons";
 
-export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab = "media" }) => {
+export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab = "media" }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
 
   React.useEffect(() => {
@@ -60,3 +67,6 @@ export const EnhancedMediaPanel: React.FC<MediaTabProps> = ({ onAddToTimeline, i
     </div>
   );
 };
+
+export const EnhancedMediaPanel = Sidebar;
+
