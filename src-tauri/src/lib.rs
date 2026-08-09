@@ -12,8 +12,10 @@ use commands::*;
 #[tauri::command]
 fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
     if let Some(menu) = app.menu() {
-        let labels = if language == "zh-TW" {
+        let labels: [&str; 6] = if language == "zh-TW" {
             ["Clypra", "檔案", "編輯", "顯示方式", "視窗", "輔助說明"]
+        } else if language == "zh-CN" {
+            ["Clypra", "文件", "编辑", "显示", "窗口", "帮助"]
         } else {
             ["Clypra", "File", "Edit", "View", "Window", "Help"]
         };
