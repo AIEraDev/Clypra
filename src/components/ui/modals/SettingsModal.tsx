@@ -326,9 +326,10 @@ function AppearanceTab() {
       <section>
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Language</h3>
         <SettingRow label="Interface language" description="Choose the language used throughout Clypra">
-          <select value={language} onChange={(event) => setLanguage(event.target.value as "en" | "zh-TW")} aria-label="Interface language" className="px-3 py-1.5 text-[11px] rounded-lg bg-surface-raised border border-white/6 text-text-primary focus:outline-none focus:border-accent/40">
+          <select value={language} onChange={(event) => setLanguage(event.target.value as "en" | "zh-TW" | "zh-CN")} aria-label="Interface language" className="px-3 py-1.5 text-[11px] rounded-lg bg-surface-raised border border-white/6 text-text-primary focus:outline-none focus:border-accent/40">
             <option value="en">English</option>
             <option value="zh-TW">Traditional Chinese</option>
+            <option value="zh-CN">Simplified Chinese</option>
           </select>
         </SettingRow>
       </section>
