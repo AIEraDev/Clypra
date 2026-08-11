@@ -33,7 +33,6 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "check": "npm run typecheck && npm run test",
-
     "mobile:sync": "npm run build && npx cap sync",
     "mobile:live": "CAPACITOR_LIVE_RELOAD=true npx cap sync"
   },

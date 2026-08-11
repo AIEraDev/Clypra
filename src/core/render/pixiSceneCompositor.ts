@@ -277,12 +277,17 @@ export class PixiSceneCompositor {
             // Update video texture using VideoTextureManager from PreviewMediaPool or canvas surface
             if (mediaLayer.mediaType === "video") {
               if (sourceElement instanceof HTMLVideoElement) {
+                const isReady = sourceElement.readyState >= 2 && sourceElement.videoWidth > 0 && sourceElement.videoHeight > 0;
+                const hasValidFrame = Boolean((record as any).hasValidTextureFrame);
                 const needsUpdate =
+                  !hasValidFrame ||
                   sourceElement.paused ||
                   sourceElement.seeking ||
                   this.mediaPool.shouldUpdateTexture(mediaLayer.clipId, sourceElement);
-                if (needsUpdate && sourceElement.readyState >= 2) {
+
+                if (needsUpdate && isReady) {
                   record.texture.source.update();
+                  (record as any).hasValidTextureFrame = true;
                   this.mediaPool.markTextureClean(mediaLayer.clipId);
                 }
               } else if (sourceElement instanceof HTMLCanvasElement) {
@@ -290,6 +295,7 @@ export class PixiSceneCompositor {
                 record.texture.source.update();
               }
             }
+
 
             // Capture video source dimensions using conform capture service
             if (mediaLayer.mediaType === "video" && mediaLayer.conform && sourceElement) {
@@ -538,18 +544,24 @@ export class PixiSceneCompositor {
       // Update video texture using VideoTextureManager from PreviewMediaPool or canvas surface
       if (layer.mediaType === "video") {
         if (sourceElement instanceof HTMLVideoElement) {
+          const isReady = sourceElement.readyState >= 2 && sourceElement.videoWidth > 0 && sourceElement.videoHeight > 0;
+          const hasValidFrame = Boolean((record as any).hasValidTextureFrame);
           const needsUpdate =
+            !hasValidFrame ||
             sourceElement.paused ||
             sourceElement.seeking ||
             this.mediaPool.shouldUpdateTexture(layer.clipId, sourceElement);
-          if (needsUpdate && sourceElement.readyState >= 2) {
+
+          if (needsUpdate && isReady) {
             record.texture.source.update();
+            (record as any).hasValidTextureFrame = true;
             this.mediaPool.markTextureClean(layer.clipId);
           }
         } else if (sourceElement instanceof HTMLCanvasElement) {
           record.texture.source.update();
         }
       }
+
 
       const layersCopy = { ...layer, opacity: 1.0 };
       const internalViewport = {

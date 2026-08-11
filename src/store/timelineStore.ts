@@ -572,19 +572,19 @@ export const useTimelineStore = create<TimelineStore>(
         if (clipToRemove) {
           const trackId = clipToRemove.trackId;
           const hasOtherClips = remainingClips.some((c) => c.trackId === trackId);
+          const primaryVideoTrackId = state.tracks.find((t) => t.type === "video")?.id ?? state.mainVideoTrackId;
+          const isPrimaryVideoTrack = trackId === primaryVideoTrackId;
 
-          // If no other clips on this track, remove the track
-          // TL-06 fix: Don't auto-delete the main video track
-          if (!hasOtherClips && trackId !== state.mainVideoTrackId) {
+          // If no other clips on this track, remove secondary track (preserve primary main video track)
+          if (!hasOtherClips && !isPrimaryVideoTrack) {
             tracksToKeep = state.tracks.filter((t) => t.id !== trackId);
-            // TL- fix: Also cascade-remove gaps for the auto-removed track
             gapsToKeep = state.gaps.filter((g) => g.trackId !== trackId);
             removedTrackIdForCleanup = trackId;
-            // TL- fix: Re-derive mainVideoTrackId if the removed track was the main video track
             if (mainVideoTrackId === trackId) {
               mainVideoTrackId = tracksToKeep.find((t) => t.type === "video")?.id ?? null;
             }
           }
+
         }
 
         const next: Partial<TimelineStore> = {

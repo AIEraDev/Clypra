@@ -48,6 +48,8 @@ export class DeleteClipCommand implements Command {
       }
     }
 
+
+
     if (state.transitions) {
       this.deletedTransitions = state.transitions.filter((t) => t.fromItemId === this.clipId || t.toItemId === this.clipId);
     }
