@@ -99,6 +99,8 @@ interface ManagedAudio {
   autoplayBlocked?: boolean;
   playAttempts?: number;
   lastPlayAttemptMs?: number;
+  lastHardSeekAtMs?: number;
+  hasBeenSeeked?: boolean;
 }
 
 /**
@@ -865,6 +867,33 @@ export class PreviewMediaPool {
       });
     }
 
+    // CRITICAL: Also include audio elements so scheduler monitors audio sync & generates seek/play/pause actions
+    for (const [clipId, managed] of this.audios) {
+      if (states.has(clipId)) continue; // Handled by videoCache
+
+      const audio = managed.element;
+      const clip = clips.find((c) => c.id === clipId);
+      const sourceTime = clip ? getClipSourceTime(clip, syncState.time, syncState.frameRate, activeTransitions) : null;
+      const isActive = sourceTime !== null;
+
+      states.set(clipId, {
+        clipId: managed.clipId,
+        mediaId: managed.mediaId,
+        currentTime: audio.currentTime,
+        paused: audio.paused,
+        seeking: audio.seeking,
+        readyState: audio.readyState,
+        playbackRate: audio.playbackRate,
+        duration: audio.duration,
+        lastSeekTimestamp: managed.lastHardSeekAtMs ?? 0,
+        playPromiseInFlight: managed.playPromiseInFlight ?? false,
+        autoplayBlocked: managed.autoplayBlocked ?? false,
+        isActive,
+        isPrimaryAudible: true,
+        hasBeenSeeked: managed.hasBeenSeeked,
+      });
+    }
+
     return states;
   }
 
@@ -873,21 +902,37 @@ export class PreviewMediaPool {
    */
   private executeSchedulerActions(actions: MediaAction[], syncState: PreviewSyncState, clips: Clip[], tracks: Array<{ id: string; type: string }>, assets: MediaAsset[], activeTransitions: TransitionTimelineItem[]): void {
     for (const action of actions) {
-      const managed = this.findManagedVideoByClipId(action.clipId);
-      if (!managed) continue;
+      const managedVideo = this.findManagedVideoByClipId(action.clipId);
+      const managedAudio = this.audios.get(action.clipId);
 
-      const video = managed.element;
+      if (!managedVideo && !managedAudio) continue;
 
       switch (action.type) {
         case "seek":
-          if (action.time !== undefined && video.readyState >= 1) {
-            const clampedTime = Number.isFinite(video.duration) && video.duration > 0 ? Math.max(0, Math.min(action.time, video.duration - 0.001)) : action.time;
+          if (action.time !== undefined) {
+            if (managedVideo && managedVideo.element.readyState >= 1) {
+              const video = managedVideo.element;
+              const clampedTime = Number.isFinite(video.duration) && video.duration > 0 ? Math.max(0, Math.min(action.time, video.duration - 0.001)) : action.time;
 
-            video.currentTime = clampedTime;
-            managed.lastHardSeekAtMs = performance.now();
-            managed.hasBeenSeeked = true; // Mark as seeked to prevent redundant initial seeks
+              video.currentTime = clampedTime;
+              managedVideo.lastHardSeekAtMs = performance.now();
+              managedVideo.hasBeenSeeked = true; // Mark as seeked to prevent redundant initial seeks
+            }
 
+            if (managedAudio && managedAudio.element.readyState >= 1) {
+              const audio = managedAudio.element;
+              const clampedTime = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.max(0, Math.min(action.time, audio.duration - 0.001)) : action.time;
 
+              const drift = Math.abs(audio.currentTime - clampedTime);
+              const isPlaying = !audio.paused && syncState.state === "playing";
+              const isExplicitSeek = action.reason === "transport-jump" || action.reason === "scrubbing" || action.reason === "post-throttling" || action.reason === "clip-enter";
+
+              if (!isPlaying || isExplicitSeek || drift > 1.0) {
+                audio.currentTime = clampedTime;
+                managedAudio.lastHardSeekAtMs = performance.now();
+                managedAudio.hasBeenSeeked = true;
+              }
+            }
           }
           break;
 
@@ -896,9 +941,6 @@ export class PreviewMediaPool {
             // Find clip for requestPlayback
             const clip = clips.find((c) => c.id === action.clipId);
             if (!clip) break;
-
-            const track = this.trackMap.get(clip.trackId);
-            const isTrackMuted = track?.muted === true;
 
             const activeVisibleVideoClips = clips.filter((c) => {
               const a = assets.find((x) => x.id === c.mediaId);
@@ -910,31 +952,46 @@ export class PreviewMediaPool {
             const primaryVideoClip = findPrimaryVideoClip(activeVisibleVideoClips, tracks);
             const isPrimaryAudibleVideo = primaryVideoClip?.id === clip.id;
 
-            // Delegate to existing requestPlayback method
-            this.requestPlayback(managed, clip, syncState, tracks, isPrimaryAudibleVideo);
+            if (managedVideo) {
+              this.requestPlayback(managedVideo, clip, syncState, tracks, isPrimaryAudibleVideo);
+            }
+            if (managedAudio) {
+              this.requestAudioPlayback(managedAudio, syncState);
+            }
           }
           break;
 
         case "pause":
-          if (!video.paused) {
-            video.pause();
-          }
-          if (managed.playPromiseInFlight) {
-            managed.playCancelRequested = true;
-          }
-          if (managed.rvfcHandle !== null && this.hasRVFC) {
-            try {
-              video.cancelVideoFrameCallback(managed.rvfcHandle);
-            } catch {
-              // ignore
+          if (managedVideo) {
+            const video = managedVideo.element;
+            if (!video.paused) {
+              video.pause();
             }
-            managed.rvfcHandle = null;
+            if (managedVideo.playPromiseInFlight) {
+              managedVideo.playCancelRequested = true;
+            }
+            if (managedVideo.rvfcHandle !== null && this.hasRVFC) {
+              try {
+                video.cancelVideoFrameCallback(managedVideo.rvfcHandle);
+              } catch {
+                // ignore
+              }
+              managedVideo.rvfcHandle = null;
+            }
+          }
+          if (managedAudio) {
+            this.pauseAudio(managedAudio);
           }
           break;
 
         case "setRate":
-          if (action.rate !== undefined && Math.abs(video.playbackRate - action.rate) > 0.01) {
-            video.playbackRate = action.rate;
+          if (action.rate !== undefined) {
+            if (managedVideo && Math.abs(managedVideo.element.playbackRate - action.rate) > 0.01) {
+              managedVideo.element.playbackRate = action.rate;
+            }
+            if (managedAudio && Math.abs(managedAudio.element.playbackRate - action.rate) > 0.01) {
+              managedAudio.element.playbackRate = action.rate;
+            }
           }
           break;
       }
@@ -1801,14 +1858,20 @@ export class PreviewMediaPool {
       return;
     }
 
-    // ✅ BOUNDARY REFACTOR: Audio drift detection and seeking moved to PreviewPlaybackScheduler
-    // This method now only handles audio routing and volume control
-    // All seek decisions are made by scheduler.reconcile() and executed via executeSchedulerActions()
-
-    if (syncState.state === "playing") {
-      this.requestAudioPlayback(managed, syncState);
-    } else {
+    if (syncState.state !== "playing") {
+      // When paused or scrubbing, keep audio currentTime tightly aligned to playhead
+      const currentDrift = Math.abs(audio.currentTime - sourceTime);
+      if (currentDrift > 0.01 && audio.readyState >= 1) {
+        const clampedTime = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.max(0, Math.min(sourceTime, audio.duration - 0.001)) : sourceTime;
+        audio.currentTime = clampedTime;
+        managed.lastHardSeekAtMs = performance.now();
+        managed.hasBeenSeeked = true;
+      }
       this.pauseAudio(managed);
+    } else {
+      // During active playback, PreviewPlaybackScheduler handles drift recovery via executeSchedulerActions
+      // to avoid rapid micro-seeks that cause audio crackling/popping.
+      this.requestAudioPlayback(managed, syncState);
     }
   }
 
