@@ -1,4 +1,6 @@
-export type TabType = "media" | "audio" | "text" | "stickers" | "effects" | "filters" | "transitions" | "captions" | "video-effects" | "body-effects" | "animated-overlays";
+export type TabType = "media" | "audio" | "text" | "stickers" | "effects" | "filters" | "transitions" | "captions" | "video-effects" | "body-effects" | "animated-overlays" | "list-overlays" | "smart-overlays";
+
+
 
 export interface TabProps {
   onAddToTimeline?: (item: any, type: TabType) => void;

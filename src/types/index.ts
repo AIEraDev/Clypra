@@ -182,7 +182,11 @@ export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { 
   return (asset.type === "video" || asset.type === "image") && asset.width !== undefined && asset.height !== undefined;
 }
 
-export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay";
+export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay";
+export type { SmartOverlayClip, SmartOverlayType, SmartOverlayContentUnion, SmartOverlayStyle, SmartOverlayPreset } from "./smartOverlay";
+
+
+
 
 /** Audio automation keyframe point */
 export interface AudioKeyframe {
