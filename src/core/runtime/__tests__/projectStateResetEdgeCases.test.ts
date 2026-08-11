@@ -26,8 +26,8 @@ describe('Project State Reset & Cross-Project Leak Prevention', () => {
         opacity: 1,
         rotation: 0,
       }],
-      currentTime: 5,
     });
+
     useUIStore.setState({ selectedClipIds: ['c1'] });
   });
 

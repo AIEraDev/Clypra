@@ -12,7 +12,7 @@ describe("gapEngine Edge Cases & Property Invariants", () => {
 
     it("detects initial gap when first clip starts after time 0", () => {
       const clips: Clip[] = [
-        { id: "c1", trackId: "t1", name: "C1", type: "video", startTime: 3.5, duration: 5, sourceStartTime: 0 },
+        { id: "c1", trackId: "t1", mediaId: "m1", name: "C1", kind: "video", startTime: 3.5, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 },
       ];
       const detected = detectGaps(clips);
       expect(detected.length).toBe(1);
@@ -22,8 +22,8 @@ describe("gapEngine Edge Cases & Property Invariants", () => {
 
     it("detects gaps between multiple non-overlapping clips on the same track", () => {
       const clips: Clip[] = [
-        { id: "c1", trackId: "t1", name: "C1", type: "video", startTime: 0, duration: 5, sourceStartTime: 0 },
-        { id: "c2", trackId: "t1", name: "C2", type: "video", startTime: 10, duration: 5, sourceStartTime: 0 },
+        { id: "c1", trackId: "t1", mediaId: "m1", name: "C1", kind: "video", startTime: 0, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 },
+        { id: "c2", trackId: "t1", mediaId: "m1", name: "C2", kind: "video", startTime: 10, duration: 5, trimIn: 0, trimOut: 5, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 },
       ];
       const detected = detectGaps(clips);
       expect(detected.length).toBe(1);
@@ -38,11 +38,19 @@ describe("gapEngine Edge Cases & Property Invariants", () => {
             fc.record({
               id: fc.uuid(),
               trackId: fc.constant("t1"),
+              mediaId: fc.constant("m1"),
               name: fc.string(),
-              type: fc.constant<Clip["type"]>("video"),
+              kind: fc.constant<Clip["kind"]>("video"),
               startTime: fc.double({ min: 0, max: 200, noNaN: true }),
               duration: fc.double({ min: 0.1, max: 50, noNaN: true }),
-              sourceStartTime: fc.constant(0),
+              trimIn: fc.constant(0),
+              trimOut: fc.constant(5),
+              x: fc.constant(0),
+              y: fc.constant(0),
+              width: fc.constant(1920),
+              height: fc.constant(1080),
+              opacity: fc.constant(1),
+              rotation: fc.constant(0),
             }),
             { minLength: 1, maxLength: 10 }
           ),
@@ -58,6 +66,7 @@ describe("gapEngine Edge Cases & Property Invariants", () => {
         )
       );
     });
+
   });
 
   describe("mergeAdjacentGaps", () => {

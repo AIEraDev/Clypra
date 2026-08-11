@@ -20,13 +20,14 @@ describe('Sequence Auto Aspect Ratio Edge Cases', () => {
     id: 'asset-1',
     name: 'test_media',
     type,
-    url: '/path/to/file',
+    path: '/path/to/file',
+
     duration: 10,
     width,
     height,
     size: 1024,
-    createdAt: Date.now(),
   });
+
 
   it('auto-adapts 16:9 project to 9:16 when first clip is portrait video (1080x1920)', () => {
     const project = createMockProject();

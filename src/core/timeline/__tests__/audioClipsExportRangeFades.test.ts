@@ -10,6 +10,7 @@ describe("audioClips — getActiveAudioClips range export fades", () => {
     muted: false,
     locked: false,
     visible: true,
+    height: 52,
     volume: 1.0,
   };
 
@@ -19,7 +20,9 @@ describe("audioClips — getActiveAudioClips range export fades", () => {
     path: "/media/song.mp3",
     type: "audio",
     duration: 60,
+    size: 1024,
   };
+
 
   it("should zero out fadeIn when export range starts after the clip's fade-in has finished", () => {
     // Clip starts at t=0, duration 10s, with a 2s fade-in (0s to 2s)

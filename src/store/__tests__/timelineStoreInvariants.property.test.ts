@@ -46,11 +46,19 @@ describe("timelineStore Property Invariants", () => {
           const validClip: Clip = {
             id: clipInput.id,
             trackId: clipInput.trackId,
+            mediaId: "m1",
             name: clipInput.name,
-            type: clipInput.type,
+            kind: clipInput.type === "audio" ? "audio" : "video",
             startTime: Math.max(0, clipInput.startTime),
             duration: Math.max(0.1, clipInput.duration),
-            sourceStartTime: clipInput.sourceStartTime,
+            trimIn: 0,
+            trimOut: Math.max(0.1, clipInput.duration),
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            opacity: 1,
+            rotation: 0,
           };
 
           store.addClip(validClip);
@@ -88,11 +96,19 @@ describe("timelineStore Property Invariants", () => {
             const clip: Clip = {
               id: `${spec.id}-${idx}`,
               trackId: spec.trackId,
+              mediaId: "m1",
               name: `Clip ${idx}`,
-              type: spec.trackId === "video-1" ? "video" : "audio",
+              kind: spec.trackId === "video-1" ? "video" : "audio",
               startTime: spec.startTime,
               duration: spec.duration,
-              sourceStartTime: 0,
+              trimIn: 0,
+              trimOut: spec.duration,
+              x: 0,
+              y: 0,
+              width: 1920,
+              height: 1080,
+              opacity: 1,
+              rotation: 0,
             };
             store.addClip(clip);
           });
@@ -118,12 +134,21 @@ describe("timelineStore Property Invariants", () => {
     const testClip: Clip = {
       id: "clip-epoch-test",
       trackId: "video-1",
+      mediaId: "m1",
       name: "Test",
-      type: "video",
+      kind: "video",
       startTime: 0,
       duration: 5,
-      sourceStartTime: 0,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
     };
+
     store.addClip(testClip);
     const epochAfterAddClip = useTimelineStore.getState().epoch;
     expect(epochAfterAddClip).toBeGreaterThan(epochAfterAddTrack);

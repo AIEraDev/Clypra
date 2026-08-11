@@ -15,27 +15,24 @@ describe('RenderEngine Scheduler Edge Cases & Memory Throttle Invariants', () =>
       const normalJob: RenderJob = {
         jobId: 'job-normal',
         clipId: 'clip-1',
-        epoch: 1,
+        epochId: 'epoch-1',
         priority: Priority.Normal,
-        bytes: 1000,
         execute: vi.fn(),
-      };
+      } as any;
       const highJob: RenderJob = {
         jobId: 'job-high',
         clipId: 'clip-1',
-        epoch: 1,
+        epochId: 'epoch-1',
         priority: Priority.High,
-        bytes: 1000,
         execute: vi.fn(),
-      };
+      } as any;
       const criticalJob: RenderJob = {
         jobId: 'job-critical',
         clipId: 'clip-1',
-        epoch: 1,
+        epochId: 'epoch-1',
         priority: Priority.Critical,
-        bytes: 1000,
         execute: vi.fn(),
-      };
+      } as any;
 
       scheduler.enqueue(normalJob);
       scheduler.enqueue(highJob);
@@ -57,19 +54,17 @@ describe('RenderEngine Scheduler Edge Cases & Memory Throttle Invariants', () =>
       const jobA: RenderJob = {
         jobId: 'job-A',
         clipId: 'clip-deleted',
-        epoch: 1,
+        epochId: 'epoch-1',
         priority: Priority.High,
-        bytes: 2000,
         execute: vi.fn(),
-      };
+      } as any;
       const jobB: RenderJob = {
         jobId: 'job-B',
         clipId: 'clip-kept',
-        epoch: 1,
+        epochId: 'epoch-1',
         priority: Priority.High,
-        bytes: 2000,
         execute: vi.fn(),
-      };
+      } as any;
 
       scheduler.enqueue(jobA);
       scheduler.enqueue(jobB);
@@ -88,11 +83,10 @@ describe('RenderEngine Scheduler Edge Cases & Memory Throttle Invariants', () =>
       const job: RenderJob = {
         jobId: 'job-1',
         clipId: 'clip-1',
-        epoch: 1,
+        epochId: 'epoch-1',
         priority: Priority.Critical,
-        bytes: 500,
         execute: vi.fn(),
-      };
+      } as any;
 
       scheduler.enqueue(job);
       scheduler.suspend();
