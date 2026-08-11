@@ -25,11 +25,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest",
+    "test": "npm run typecheck && vitest run",
+    "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "check": "npm run typecheck && npm run test",
+
     "mobile:sync": "npm run build && npx cap sync",
     "mobile:live": "CAPACITOR_LIVE_RELOAD=true npx cap sync"
   },
