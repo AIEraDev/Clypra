@@ -35,11 +35,13 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       ? SMART_OVERLAY_PRESETS
       : SMART_OVERLAY_PRESETS.filter((p) => p.category === selectedCategory);
 
-  const ensureTrack = (trackId: string, name: string): string => {
-    const existing = tracks.find((t) => t.id === trackId);
+  const ensureTrack = (): string => {
+    // Find existing animated-overlay track by type (not ID — track IDs are generated UUIDs,
+    // never the literal string "animated-overlay"). Reuse if found, otherwise create.
+    const timeline = useTimelineStore.getState();
+    const existing = timeline.tracks.find((t) => t.type === "animated-overlay");
     if (existing) return existing.id;
 
-    const timeline = useTimelineStore.getState();
     const insertIndex = getInsertIndexForNewTrack(timeline.tracks, "animated-overlay");
     const targetTrackId = timeline.insertTrackAt("animated-overlay", insertIndex);
     return targetTrackId;
@@ -47,7 +49,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
   const handleAddPreset = (presetId: string) => {
     const preset = getSmartOverlayPreset(presetId);
-    const trackId = ensureTrack("animated-overlay", "Smart Overlays");
+    const trackId = ensureTrack();
 
     const newClip: SmartOverlayClip = {
       id: `smart-overlay-${Date.now()}`,
@@ -92,10 +94,8 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
       const plan = extractSmartOverlaysFromTranscript(mockTranscript, tracks);
 
-      // Create any required secondary tracks for overlapping clips
-      plan.requiredTracks.forEach((reqTrack) => {
-        ensureTrack(reqTrack.id, reqTrack.name);
-      });
+      // Ensure the shared animated-overlay track exists before adding clips
+      ensureTrack();
 
       // Add all AI-extracted clips
       plan.clips.forEach((clip) => {

@@ -137,7 +137,7 @@ const MIN_TRIM_DURATION_SEC = 1;
 
 /** Where to insert a new row when dropping off-track: video/text at top; audio under first video (or append if no video). */
 export function getInsertIndexForNewTrack(tracks: Track[], trackType: TrackType): number {
-  if (trackType === "video" || trackType === "text" || trackType === "sticker" || trackType === "filter" || trackType === "video-effect" || trackType === "body-effect") {
+  if (trackType === "video" || trackType === "text" || trackType === "sticker" || trackType === "filter" || trackType === "video-effect" || trackType === "body-effect" || trackType === "animated-overlay") {
     return 0;
   }
   const mainIdx = tracks.findIndex((t) => t.type === "video");
