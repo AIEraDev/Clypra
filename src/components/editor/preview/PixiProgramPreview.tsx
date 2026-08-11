@@ -28,8 +28,13 @@ import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 
+import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
+import type { SmartOverlayClip } from "@/types/smartOverlay";
+
+
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
+
 
 const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: number; height: number }> = {
   "16:9": { width: 1920, height: 1080 },
@@ -502,10 +507,34 @@ export const PixiProgramPreview: React.FC = () => {
             viewportParams,
             activeVideoElements,
             undefined, // resourceHandleMap (can be left undefined during preview)
-            new Map(), // bodyMasks map (we call segmentBodyMask directly in compositor)
+
+            new Map()  // bodyMasks map
           );
 
+          // Render active smart-overlay clips if any
+          const currentTime = timeToRenderRounded;
+          const activeSmartClips = state.clips.filter(
+            (c): c is SmartOverlayClip =>
+              c.kind === "smart-overlay" &&
+              currentTime >= c.startTime &&
+              currentTime <= c.startTime + c.duration
+          );
+
+          if (activeSmartClips.length > 0 && canvasEl) {
+            const ctx2d = canvasEl.getContext("2d");
+            if (ctx2d) {
+              for (const smartClip of activeSmartClips) {
+                const renderer = new SmartOverlayRenderer(smartClip);
+                const relTime = currentTime - smartClip.startTime;
+                renderer.draw(ctx2d, relTime, canvasEl.width, canvasEl.height);
+              }
+            }
+          }
+
+
+
           // Bug 5 fix: guard against the compositor being destroyed while composeFrame
+
           // was in-flight (e.g. rapid project switch, React Strict Mode remount).
           // Without this, post-await code would write into a torn-down WebGL context.
           if (!isActive) return;

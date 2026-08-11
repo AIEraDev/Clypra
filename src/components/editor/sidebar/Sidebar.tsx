@@ -7,9 +7,11 @@ import { StickersTab } from "./tabs/StickersTab";
 import { FiltersTab } from "./tabs/FiltersTab";
 import { TransitionsTab } from "./tabs/TransitionsTab";
 import { CaptionsTab } from "./tabs/CaptionsTab";
+import { SmartOverlaysTab } from "./tabs/SmartOverlaysTab";
 import { type TabType, type MediaTabProps } from "./types";
 import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
 import { TextIcon, YouTubeIcon } from "@/components/ui/icons";
+import { Sparkles } from "lucide-react";
 
 export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab = "media" }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
@@ -22,6 +24,7 @@ export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab =
     { id: "media" as const, icon: YouTubeIcon, label: "Media" },
     { id: "audio" as const, icon: Music, label: "Audio" },
     { id: "text" as const, icon: TextIcon, label: "Text" },
+    { id: "smart-overlays" as const, icon: Sparkles, label: "Smart Overlays" },
     { id: "stickers" as const, icon: Smile, label: "Stickers" },
     { id: "effects" as const, icon: Wand2, label: "Effects" },
     { id: "filters" as const, icon: Filter, label: "Filters" },
@@ -58,6 +61,7 @@ export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab =
         {activeTab === "media" && <MediaTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "audio" && <AudioTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "text" && <TextTab onAddToTimeline={onAddToTimeline} />}
+        {activeTab === "smart-overlays" && <SmartOverlaysTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "stickers" && <StickersTab onAddToTimeline={onAddToTimeline} />}
         {activeTab === "effects" && <EffectsPanel onAddToTimeline={onAddToTimeline} />}
         {activeTab === "filters" && <FiltersTab onAddToTimeline={onAddToTimeline} />}
@@ -67,6 +71,9 @@ export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab =
     </div>
   );
 };
+
+
+
 
 export const EnhancedMediaPanel = Sidebar;
 
