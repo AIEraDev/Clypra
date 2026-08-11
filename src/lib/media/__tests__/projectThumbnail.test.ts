@@ -14,6 +14,7 @@ describe("Project Thumbnail & Timecode Utilities", () => {
             path: "/path/video.mp4",
             type: "video",
             duration: 10,
+            size: 1024,
             posterFrame: "/path/poster.jpg",
           },
         ],
@@ -31,6 +32,7 @@ describe("Project Thumbnail & Timecode Utilities", () => {
             path: "/path/video.mp4",
             type: "video",
             duration: 10,
+            size: 1024,
             posterFrame: "/path/poster.jpg",
           },
         ],
@@ -48,6 +50,7 @@ describe("Project Thumbnail & Timecode Utilities", () => {
             path: "/path/video.mp4",
             type: "video",
             duration: 10,
+            size: 1024,
             coverArt: "/path/cover.jpg",
           },
         ],
@@ -65,9 +68,11 @@ describe("Project Thumbnail & Timecode Utilities", () => {
             path: "/path/photo.jpg",
             type: "image",
             duration: 5,
+            size: 1024,
           },
         ],
       };
+
 
       expect(getProjectThumbnail(project)).toBe("/path/photo.jpg");
     });

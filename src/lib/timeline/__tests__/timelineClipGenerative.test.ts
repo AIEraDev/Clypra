@@ -37,13 +37,19 @@ describe("timelineClip Invariants & Generative Tests", () => {
             const mockClip: Clip = {
               id: "c1",
               trackId: "t1",
+              mediaId: "a1",
               name: "Test",
-              type: "video",
+              kind: "video",
               startTime,
               duration: 10,
-              sourceStartTime: 0,
               trimIn,
               trimOut,
+              x: 0,
+              y: 0,
+              width: 1920,
+              height: 1080,
+              opacity: 1,
+              rotation: 0,
             };
             const mockAsset: MediaAsset = {
               id: "a1",
@@ -51,7 +57,9 @@ describe("timelineClip Invariants & Generative Tests", () => {
               path: "/path",
               type: "video",
               duration: assetDuration,
+              size: 1024,
             };
+
 
             const normalized = normalizeClipTiming(mockClip, mockAsset);
 

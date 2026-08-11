@@ -39,8 +39,8 @@ describe('Timeline Store Invariant Assertions & State Edge-Cases', () => {
       tracks: [defaultTrack, lockedTrack],
       clips: [],
       transitions: [],
-      currentTime: 0,
     });
+
   });
 
   // ─── 1. TIMELINE BOUNDARY & DURATION CLAMPING INVARIANTS ───────────────────

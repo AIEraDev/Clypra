@@ -71,9 +71,10 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     addClip(newClip);
     setSelectedClipId(newClip.id);
     if (onAddToTimeline) {
-      onAddToTimeline({ type: "CLIP", clip: newClip });
+      onAddToTimeline(newClip, "smart-overlays");
     }
   };
+
 
   const handleAutoDetectAI = async () => {
     setIsGenerating(true);
@@ -267,37 +268,22 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           )}
 
           {/* Comparison Overlay Controls */}
-          {selectedClip.content.type === "comparison" && (
-            <>
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-text-muted">Comparison Title</label>
-                <input
-                  type="text"
-                  value={selectedClip.content.data.title}
-                  onChange={(e) =>
-                    updateClip(selectedClip.id, {
-                      content: {
-                        ...selectedClip.content,
-                        data: { ...selectedClip.content.data, title: e.target.value },
-                      },
-                    } as any)
-                  }
-                  className="px-2.5 py-1.5 rounded bg-white/5 border border-white/10 text-xs text-white"
-                />
-              </div>
+          {selectedClip.content.type === "comparison" && (() => {
+            const compData = selectedClip.content.data as import("@/types/smartOverlay").ComparisonOverlayContent;
+            return (
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] text-text-muted">Option A</label>
                   <input
                     type="text"
-                    value={selectedClip.content.data.left.title}
+                    value={compData.left.title}
                     onChange={(e) =>
                       updateClip(selectedClip.id, {
                         content: {
                           ...selectedClip.content,
                           data: {
-                            ...selectedClip.content.data,
-                            left: { ...selectedClip.content.data.left, title: e.target.value },
+                            ...compData,
+                            left: { ...compData.left, title: e.target.value },
                           },
                         },
                       } as any)
@@ -309,14 +295,14 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   <label className="text-[11px] text-text-muted">Option B</label>
                   <input
                     type="text"
-                    value={selectedClip.content.data.right.title}
+                    value={compData.right.title}
                     onChange={(e) =>
                       updateClip(selectedClip.id, {
                         content: {
                           ...selectedClip.content,
                           data: {
-                            ...selectedClip.content.data,
-                            right: { ...selectedClip.content.data.right, title: e.target.value },
+                            ...compData,
+                            right: { ...compData.right, title: e.target.value },
                           },
                         },
                       } as any)
@@ -325,8 +311,9 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   />
                 </div>
               </div>
-            </>
-          )}
+            );
+          })()}
+
 
           {/* Code Overlay Controls */}
           {selectedClip.content.type === "code" && (

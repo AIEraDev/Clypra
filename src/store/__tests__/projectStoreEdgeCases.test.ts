@@ -76,6 +76,7 @@ describe("projectStore Edge Cases & Sanitization", () => {
         path: "/path/to/test.mp4",
         type: "video",
         duration: 12.5,
+        size: 1024,
       };
       const asset2: MediaAsset = {
         id: "asset-2",
@@ -83,7 +84,9 @@ describe("projectStore Edge Cases & Sanitization", () => {
         path: "/path/to/audio.mp3",
         type: "audio",
         duration: 45.0,
+        size: 1024,
       };
+
 
       store.addMediaAsset(asset1);
       store.addMediaAsset(asset2);
@@ -116,9 +119,10 @@ describe("projectStore Edge Cases & Sanitization", () => {
         id: "proj-1",
         name: "Project One",
         aspectRatio: "16:9",
-        width: 1920,
-        height: 1080,
+        canvasWidth: 1920,
+        canvasHeight: 1080,
         frameRate: 30,
+        duration: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -126,12 +130,15 @@ describe("projectStore Edge Cases & Sanitization", () => {
         id: "proj-2",
         name: "Project Two",
         aspectRatio: "9:16",
-        width: 1080,
-        height: 1920,
+        canvasWidth: 1080,
+        canvasHeight: 1920,
         frameRate: 60,
+        duration: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
+
+
 
       // Trigger concurrent project loads
       const p1 = useProjectStore.getState().loadProject(proj1, { tracks: [] });

@@ -15,6 +15,12 @@ describe("clipPositions — findInsertionIndex gap center positioning", () => {
         trimIn: 0,
         trimOut: 10,
         kind: "video",
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
       },
       {
         id: "c2",
@@ -26,8 +32,15 @@ describe("clipPositions — findInsertionIndex gap center positioning", () => {
         trimIn: 0,
         trimOut: 5,
         kind: "video",
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
       },
     ];
+
 
     const pixelsPerSecond = 10;
 
