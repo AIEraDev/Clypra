@@ -5,6 +5,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track, TransitionTimelineItem } from "@/types";
+import { shouldAutoPruneTrack } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks?: Track[];
@@ -41,9 +42,11 @@ export class DeleteClipCommand implements Command {
 
     let tracks = state.tracks;
     if (tracks && !hasOtherClips) {
-      this.deletedTrack = tracks.find((t) => t.id === clip.trackId) || null;
-      this.deletedTrackIndex = tracks.findIndex((t) => t.id === clip.trackId);
-      if (this.deletedTrack) {
+      const trackToDelete = tracks.find((t) => t.id === clip.trackId);
+      // Only auto-prune if the track type is configured with autoPrune: true.
+      if (trackToDelete && shouldAutoPruneTrack(trackToDelete, state.tracks)) {
+        this.deletedTrack = trackToDelete;
+        this.deletedTrackIndex = tracks.findIndex((t) => t.id === clip.trackId);
         tracks = tracks.filter((t) => t.id !== clip.trackId);
       }
     }

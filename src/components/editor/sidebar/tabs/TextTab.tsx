@@ -7,7 +7,7 @@ import type { TabProps } from "../types";
 import { TemplateCard } from "@/components/ui/TemplateCard";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useUIStore } from "@/store/uiStore";
-import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineStore";
+import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { createTextClip } from "@/lib/text/textClip";
 import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
@@ -113,8 +113,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       let targetTrackId = textTrack?.id ?? null;
 
       if (!targetTrackId) {
-        const insertIndex = getInsertIndexForNewTrack(timeline.tracks, "text");
-        targetTrackId = timeline.insertTrackAt("text", insertIndex);
+        targetTrackId = timeline.ensureTrackForType("text");
         // Rename target track
         useTimelineStore.setState((state) => ({
           tracks: state.tracks.map((t) => (t.id === targetTrackId ? { ...t, name: "Auto Captions" } : t)),
