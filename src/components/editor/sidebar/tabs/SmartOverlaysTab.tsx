@@ -1,8 +1,9 @@
-import React, { useState } from "react";
-import { Sparkles, Plus, Wand2, Sliders, TrendingUp, Quote, Columns, Code, List, Clock, Share2, User } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { Sparkles, Plus, Wand2, Sliders, TrendingUp, Quote, Columns, Code, List, Clock, Share2, User, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useTimelineStore } from "@/store/timelineStore";
 import { SMART_OVERLAY_PRESETS, getSmartOverlayPreset, type SmartOverlayType, type SmartOverlayClip, type ComparisonOverlayContent } from "@/types/smartOverlay";
+import { smartOverlayCacheManager, type CachedSmartOverlay } from "@/features/smart-overlays/cache/smartOverlayCache";
 
 import { extractSmartOverlaysFromTranscript } from "@/features/smart-overlays/services/smartOverlayExtractor";
 import type { TabProps } from "../types";
@@ -12,6 +13,14 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<SmartOverlayType | "all">("all");
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [cachedItems, setCachedItems] = useState<CachedSmartOverlay[]>([]);
+
+  // Initialize App Cache Manager for Smart Overlays
+  useEffect(() => {
+    void smartOverlayCacheManager.initialize().then(() => {
+      setCachedItems(smartOverlayCacheManager.getAllCached());
+    });
+  }, []);
 
   // Active smart overlay clip for property editing
   const selectedClip = clips.find((c) => c.kind === "smart-overlay" && (selectedClipId ? c.id === selectedClipId : true)) as
@@ -30,14 +39,33 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     { id: "lower-third", label: "Lower 3rd", icon: User },
   ];
 
+  // Merge built-in presets with cached custom overlays from smartOverlayCacheManager
+  const customPresets = useMemo(() => {
+    return cachedItems.map((item) => ({
+      id: item.id,
+      name: item.name,
+      category: item.clipData.overlayType,
+      description: "Custom overlay cached from Clypra Studio",
+      defaultContent: item.clipData.content,
+      style: item.clipData.style,
+      isCustom: true
+    }));
+  }, [cachedItems]);
+
+  const allPresets = useMemo(() => [...SMART_OVERLAY_PRESETS, ...customPresets], [customPresets]);
+
   const filteredPresets =
     selectedCategory === "all"
-      ? SMART_OVERLAY_PRESETS
-      : SMART_OVERLAY_PRESETS.filter((p) => p.category === selectedCategory);
-
+      ? allPresets
+      : allPresets.filter((p) => p.category === selectedCategory);
 
   const handleAddPreset = (presetId: string) => {
-    const preset = getSmartOverlayPreset(presetId);
+    let preset = allPresets.find((p) => p.id === presetId);
+    if (!preset) {
+      preset = getSmartOverlayPreset(presetId);
+    }
+    if (!preset) return;
+
     // ensureTrackForType respects reuseStrategy: "shared" — all overlay clips share one track.
     const trackId = useTimelineStore.getState().ensureTrackForType("animated-overlay");
 
@@ -68,7 +96,6 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     }
   };
 
-
   const handleAutoDetectAI = async () => {
     setIsGenerating(true);
     try {
@@ -76,8 +103,8 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       const mockTranscript = {
         segments: [
           { text: "Our user base grew by 142% to 2.5M users.", start: 1.0, end: 4.5 },
-          { text: "As Steve Jobs said, simplicity is sophistication.", start: 5.0, end: 8.5 }, // Overlaps or follows
-          { text: "Let's compare React versus Vue for latency.", start: 6.0, end: 9.5 },       // Overlaps!
+          { text: "As Steve Jobs said, simplicity is sophistication.", start: 5.0, end: 8.5 },
+          { text: "Let's compare React versus Vue for latency.", start: 6.0, end: 9.5 },
           { text: "Run npm install react to get started.", start: 10.0, end: 13.0 },
         ],
       };
@@ -85,7 +112,6 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       const plan = extractSmartOverlaysFromTranscript(mockTranscript, useTimelineStore.getState().tracks);
 
       // Ensure the shared animated-overlay track exists before adding clips.
-      // ensureTrackForType("animated-overlay") uses reuseStrategy: "shared".
       useTimelineStore.getState().ensureTrackForType("animated-overlay");
 
       // Add all AI-extracted clips
@@ -105,12 +131,22 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     <div className="flex flex-col h-full bg-background text-text-primary p-4 gap-4 overflow-y-auto">
       {/* Header Banner */}
       <div className="flex flex-col gap-2 p-3.5 rounded-lg bg-gradient-to-r from-indigo-950/40 via-purple-900/30 to-violet-950/40 border border-indigo-500/20">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-indigo-400" />
-          <h3 className="font-semibold text-sm text-indigo-200">Universal Smart Overlays</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-indigo-400" />
+            <h3 className="font-semibold text-sm text-indigo-200">Universal Smart Overlays</h3>
+          </div>
+          <a
+            href="/studio/overlays"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-[11px] text-indigo-300 hover:text-white font-medium hover:underline"
+          >
+            Studio Designer <ExternalLink className="w-3 h-3" />
+          </a>
         </div>
         <p className="text-xs text-text-muted">
-          AI speech-intent graphic overlays: stats, quotes, comparisons, code, timelines & lists.
+          AI speech-intent graphic overlays &amp; disk-cached templates designed in Clypra Studio.
         </p>
       </div>
 
@@ -131,7 +167,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             </>
           ) : (
             <>
-              <Sparkles className="w-4 h-4" /> Auto-Detect & Generate Overlays
+              <Sparkles className="w-4 h-4" /> Auto-Detect &amp; Generate Overlays
             </>
           )}
         </Button>
@@ -166,7 +202,14 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               className="flex flex-col p-3 rounded-lg border bg-white/5 border-white/10 hover:border-accent hover:bg-white/8 cursor-pointer transition-all"
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-text-primary">{preset.name}</span>
+                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                  {preset.name}
+                  {preset.isCustom && (
+                    <span className="bg-indigo-500/20 text-indigo-300 text-[9px] px-1.5 py-0.5 rounded font-mono">
+                      Cached Studio
+                    </span>
+                  )}
+                </span>
                 <Plus className="w-3.5 h-3.5 text-text-muted hover:text-white" />
               </div>
               <p className="text-[11px] text-text-muted line-clamp-2">{preset.description}</p>
@@ -200,11 +243,11 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                       },
                     } as any)
                   }
-                  className="px-2.5 py-1.5 rounded bg-white/5 border border-white/10 text-xs text-white"
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent font-bold"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-text-muted">Label Subtitle</label>
+                <label className="text-[11px] text-text-muted">Metric Label</label>
                 <input
                   type="text"
                   value={selectedClip.content.data.label}
@@ -216,7 +259,23 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                       },
                     } as any)
                   }
-                  className="px-2.5 py-1.5 rounded bg-white/5 border border-white/10 text-xs text-white"
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] text-text-muted">Delta Badge</label>
+                <input
+                  type="text"
+                  value={selectedClip.content.data.delta || ""}
+                  onChange={(e) =>
+                    updateClip(selectedClip.id, {
+                      content: {
+                        ...selectedClip.content,
+                        data: { ...selectedClip.content.data, delta: e.target.value },
+                      },
+                    } as any)
+                  }
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
                 />
               </div>
             </>
@@ -229,6 +288,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                 <label className="text-[11px] text-text-muted">Quote Text</label>
                 <textarea
                   value={selectedClip.content.data.quote}
+                  rows={2}
                   onChange={(e) =>
                     updateClip(selectedClip.id, {
                       content: {
@@ -237,11 +297,11 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                       },
                     } as any)
                   }
-                  className="px-2.5 py-1.5 rounded bg-white/5 border border-white/10 text-xs text-white h-16 resize-none"
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent resize-none"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-text-muted">Author Name</label>
+                <label className="text-[11px] text-text-muted">Author</label>
                 <input
                   type="text"
                   value={selectedClip.content.data.author}
@@ -253,84 +313,20 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                       },
                     } as any)
                   }
-                  className="px-2.5 py-1.5 rounded bg-white/5 border border-white/10 text-xs text-white"
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent font-medium"
                 />
               </div>
             </>
           )}
 
-          {/* Comparison Overlay Controls */}
-          {selectedClip.content.type === "comparison" && (() => {
-            const compData = selectedClip.content.data as ComparisonOverlayContent;
-            return (
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] text-text-muted">Option A</label>
-                  <input
-                    type="text"
-                    value={compData.left.title}
-                    onChange={(e) =>
-                      updateClip(selectedClip.id, {
-                        content: {
-                          ...selectedClip.content,
-                          data: {
-                            ...compData,
-                            left: { ...compData.left, title: e.target.value },
-                          },
-                        },
-                      } as any)
-                    }
-                    className="px-2 py-1 rounded bg-white/5 border border-white/10 text-xs text-white"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] text-text-muted">Option B</label>
-                  <input
-                    type="text"
-                    value={compData.right.title}
-                    onChange={(e) =>
-                      updateClip(selectedClip.id, {
-                        content: {
-                          ...selectedClip.content,
-                          data: {
-                            ...compData,
-                            right: { ...compData.right, title: e.target.value },
-                          },
-                        },
-                      } as any)
-                    }
-                    className="px-2 py-1 rounded bg-white/5 border border-white/10 text-xs text-white"
-                  />
-                </div>
-              </div>
-            );
-          })()}
-
-
           {/* Code Overlay Controls */}
           {selectedClip.content.type === "code" && (
             <>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-text-muted">Language</label>
-                <input
-                  type="text"
-                  value={selectedClip.content.data.language}
-                  onChange={(e) =>
-                    updateClip(selectedClip.id, {
-                      content: {
-                        ...selectedClip.content,
-                        data: { ...selectedClip.content.data, language: e.target.value },
-                      },
-                    } as any)
-                  }
-                  className="px-2.5 py-1.5 rounded bg-white/5 border border-white/10 text-xs text-white"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-text-muted">Code Block</label>
+                <label className="text-[11px] text-text-muted">Code Snippet</label>
                 <textarea
                   value={selectedClip.content.data.code}
+                  rows={3}
                   onChange={(e) =>
                     updateClip(selectedClip.id, {
                       content: {
@@ -339,7 +335,45 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                       },
                     } as any)
                   }
-                  className="px-2.5 py-1.5 rounded bg-white/5 border border-white/10 text-xs text-white font-mono h-20 resize-none"
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-1 text-xs font-mono text-text-primary focus:outline-none focus:border-accent resize-none"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Lower Third Controls */}
+          {selectedClip.content.type === "lower-third" && (
+            <>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] text-text-muted">Speaker Name</label>
+                <input
+                  type="text"
+                  value={selectedClip.content.data.name}
+                  onChange={(e) =>
+                    updateClip(selectedClip.id, {
+                      content: {
+                        ...selectedClip.content,
+                        data: { ...selectedClip.content.data, name: e.target.value },
+                      },
+                    } as any)
+                  }
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent font-bold"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] text-text-muted">Speaker Title</label>
+                <input
+                  type="text"
+                  value={selectedClip.content.data.title}
+                  onChange={(e) =>
+                    updateClip(selectedClip.id, {
+                      content: {
+                        ...selectedClip.content,
+                        data: { ...selectedClip.content.data, title: e.target.value },
+                      },
+                    } as any)
+                  }
+                  className="bg-white/5 border border-white/10 rounded px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent"
                 />
               </div>
             </>
