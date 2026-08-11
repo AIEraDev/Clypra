@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { Sparkles, Plus, Wand2, Sliders, TrendingUp, Quote, Columns, Code, List, Clock, Share2, User } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineStore";
+import { useTimelineStore } from "@/store/timelineStore";
 import { SMART_OVERLAY_PRESETS, getSmartOverlayPreset, type SmartOverlayType, type SmartOverlayClip, type ComparisonOverlayContent } from "@/types/smartOverlay";
 
 import { extractSmartOverlaysFromTranscript } from "@/features/smart-overlays/services/smartOverlayExtractor";
 import type { TabProps } from "../types";
 
 export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
-  const { clips, tracks, addClip, updateClip, addTrack } = useTimelineStore();
+  const { clips, addClip, updateClip } = useTimelineStore();
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<SmartOverlayType | "all">("all");
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
@@ -35,21 +35,11 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       ? SMART_OVERLAY_PRESETS
       : SMART_OVERLAY_PRESETS.filter((p) => p.category === selectedCategory);
 
-  const ensureTrack = (): string => {
-    // Find existing animated-overlay track by type (not ID — track IDs are generated UUIDs,
-    // never the literal string "animated-overlay"). Reuse if found, otherwise create.
-    const timeline = useTimelineStore.getState();
-    const existing = timeline.tracks.find((t) => t.type === "animated-overlay");
-    if (existing) return existing.id;
-
-    const insertIndex = getInsertIndexForNewTrack(timeline.tracks, "animated-overlay");
-    const targetTrackId = timeline.insertTrackAt("animated-overlay", insertIndex);
-    return targetTrackId;
-  };
 
   const handleAddPreset = (presetId: string) => {
     const preset = getSmartOverlayPreset(presetId);
-    const trackId = ensureTrack();
+    // ensureTrackForType respects reuseStrategy: "shared" — all overlay clips share one track.
+    const trackId = useTimelineStore.getState().ensureTrackForType("animated-overlay");
 
     const newClip: SmartOverlayClip = {
       id: `smart-overlay-${Date.now()}`,
@@ -92,10 +82,11 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         ],
       };
 
-      const plan = extractSmartOverlaysFromTranscript(mockTranscript, tracks);
+      const plan = extractSmartOverlaysFromTranscript(mockTranscript, useTimelineStore.getState().tracks);
 
-      // Ensure the shared animated-overlay track exists before adding clips
-      ensureTrack();
+      // Ensure the shared animated-overlay track exists before adding clips.
+      // ensureTrackForType("animated-overlay") uses reuseStrategy: "shared".
+      useTimelineStore.getState().ensureTrackForType("animated-overlay");
 
       // Add all AI-extracted clips
       plan.clips.forEach((clip) => {

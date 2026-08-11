@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import { Plus, Download, Upload, Trash2, Play, AlertCircle, Sparkles, Settings } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineStore";
+import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useTransportControls } from "@/hooks/usePlaybackClock";
 import { useCaptionStore } from "@/store/captionStore";
@@ -36,20 +36,21 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   // Get all text clips belonging to the caption track
   const captionClips = captionTrack ? (clips.filter((c) => c.trackId === captionTrack.id) as TextClip[]).sort((a, b) => a.startTime - b.startTime) : [];
 
-  // Ensure a caption track exists and return its ID
+  // Ensure a caption track exists and return its ID.
+  // Delegates to ensureTrackForType("text") for find-or-create;
+  // then renames the track to "Auto Captions" if it was just created.
   const ensureCaptionTrackId = (): string => {
-    if (captionTrack) return captionTrack.id;
+    const previousTrack = captionTrack;
+    const trackId = useTimelineStore.getState().ensureTrackForType("text");
 
-    const timeline = useTimelineStore.getState();
-    const insertIndex = getInsertIndexForNewTrack(timeline.tracks, "text");
-    const targetTrackId = timeline.insertTrackAt("text", insertIndex);
+    // If the track didn't exist before, name it for captions UX.
+    if (!previousTrack) {
+      useTimelineStore.setState((state) => ({
+        tracks: state.tracks.map((t) => (t.id === trackId ? { ...t, name: "Auto Captions" } : t)),
+      }));
+    }
 
-    // Rename to standard Auto Captions track name
-    useTimelineStore.setState((state) => ({
-      tracks: state.tracks.map((t) => (t.id === targetTrackId ? { ...t, name: "Auto Captions" } : t)),
-    }));
-
-    return targetTrackId;
+    return trackId;
   };
 
   // Trigger file import

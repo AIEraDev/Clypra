@@ -2,6 +2,7 @@ import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track } from "@/types";
 import type { Gap } from "@/types/gap";
+import { shouldAutoPruneTrack } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks: Track[];
@@ -89,7 +90,11 @@ export class RippleDeleteRangeCommand implements Command {
       });
 
     const occupiedTrackIds = new Set(clips.map((clip) => clip.trackId));
-    const tracks = state.tracks.filter((track) => occupiedTrackIds.has(track.id) || track.id === state.tracks.find((candidate) => candidate.type === "video")?.id);
+    // Keep a track if it still has clips OR if its type is non-prunable (autoPrune: false).
+    // This is driven purely by TRACK_TYPE_CONFIG — no hardcoded type strings here.
+    const tracks = state.tracks.filter(
+      (track) => occupiedTrackIds.has(track.id) || !shouldAutoPruneTrack(track, state.tracks),
+    );
     const deletedTrackIds = new Set(state.tracks.filter((track) => !tracks.some((candidate) => candidate.id === track.id)).map((track) => track.id));
 
     return {

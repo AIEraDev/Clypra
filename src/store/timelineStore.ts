@@ -32,6 +32,7 @@ import { useProjectStore } from "./projectStore";
 import { clampTimelinePixelsPerSecond, clampTimelineZoom, TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "../lib/timeline/timelineZoom";
 import { getTimelineContentEnd, normalizeClipTiming } from "@/lib/timeline/timelineClip";
 import { autoSaveMiddleware } from "./middleware/autoSaveMiddleware";
+import { TRACK_TYPE_CONFIG, shouldAutoPruneTrack, getTrackInsertionIndex, getTrackInsertionIndexGrouped } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineStore {
   tracks: Track[];
@@ -100,6 +101,18 @@ interface TimelineStore {
   normalizeTrack: (trackId: string) => void;
   getTrackClips: (trackId: string) => Clip[];
   removeEmptyNonMainTracks: (candidateTrackIds?: string[]) => void;
+  /**
+   * Canonical find-or-create for a track of a given type.
+   * Respects the reuseStrategy in TRACK_TYPE_CONFIG:
+   *   "primary"         → returns mainVideoTrackId (never creates)
+   *   "shared"          → reuses the single existing track of this type, or creates one
+   *   "per-clip"        → always creates a new track
+   *   "per-media-group" → reuses a track whose clips share mediaId, or creates one
+   *
+   * This is the ONLY place that should create tracks in response to a clip being added.
+   * Components must call this instead of rolling their own find-or-create logic.
+   */
+  ensureTrackForType: (type: TrackType, mediaId?: string) => string;
   // Gap operations
   insertGap: (trackId: string, startTime: number, duration: number) => Gap | null;
   removeGap: (gapId: string) => void;
@@ -123,61 +136,28 @@ interface TimelineStore {
   updateClipAudioFX: (clipId: string, fxUpdates: Partial<import("@/types").AudioFXConfig>) => void;
 }
 
-const trackHeights: Record<string, number> = {
-  video: 68,
-  audio: 52,
-  text: 30,
-  sticker: 30,
-  filter: 30,
-  "video-effect": 30,
-  "body-effect": 30,
-  "animated-overlay": 30,
-};
+/** Track row height in px — derived from the canonical TRACK_TYPE_CONFIG registry. */
+const trackHeights: Record<string, number> = Object.fromEntries(
+  Object.entries(TRACK_TYPE_CONFIG).map(([type, cfg]) => [type, cfg.height]),
+);
 const MIN_TRIM_DURATION_SEC = 1;
 
-/** Where to insert a new row when dropping off-track: video/text at top; audio under first video (or append if no video). */
+/**
+ * Where to insert a new row when dropping off-track.
+ * Delegates to trackTypeConfig.getTrackInsertionIndex — do NOT add logic here.
+ * @deprecated Prefer getTrackInsertionIndex from trackTypeConfig directly.
+ */
 export function getInsertIndexForNewTrack(tracks: Track[], trackType: TrackType): number {
-  if (trackType === "video" || trackType === "text" || trackType === "sticker" || trackType === "filter" || trackType === "video-effect" || trackType === "body-effect" || trackType === "animated-overlay") {
-    return 0;
-  }
-  const mainIdx = tracks.findIndex((t) => t.type === "video");
-  if (mainIdx >= 0) {
-    return mainIdx + 1;
-  }
-  return tracks.length;
+  return getTrackInsertionIndex(tracks, trackType);
 }
 
 /**
  * Find the best insertion index for a new track, grouping effects/filters by their mediaId.
- * For effects and filters, this places new tracks immediately adjacent to existing tracks
- * that use the same effect/filter (same mediaId).
+ * Delegates to trackTypeConfig.getTrackInsertionIndexGrouped — do NOT add logic here.
+ * @deprecated Prefer getTrackInsertionIndexGrouped from trackTypeConfig directly.
  */
 export function getInsertIndexForNewTrackGrouped(tracks: Track[], clips: Clip[], trackType: TrackType, mediaId?: string): number {
-  // Only apply grouping logic for effects and filters
-  if (!mediaId || (trackType !== "filter" && trackType !== "video-effect" && trackType !== "body-effect" && trackType !== "animated-overlay")) {
-    return getInsertIndexForNewTrack(tracks, trackType);
-  }
-
-  // Find all tracks of the same type that have clips with the same mediaId
-  const siblingTrackIndices: number[] = [];
-
-  tracks.forEach((track, index) => {
-    if (track.type === trackType) {
-      const hasMatchingClip = clips.some((clip) => clip.trackId === track.id && clip.mediaId === mediaId);
-      if (hasMatchingClip) {
-        siblingTrackIndices.push(index);
-      }
-    }
-  });
-
-  // If we found sibling tracks with the same effect, insert immediately after the last one
-  if (siblingTrackIndices.length > 0) {
-    const lastSiblingIndex = Math.max(...siblingTrackIndices);
-    return lastSiblingIndex + 1;
-  }
-
-  // No siblings found, use default placement
-  return getInsertIndexForNewTrack(tracks, trackType);
+  return getTrackInsertionIndexGrouped(tracks, clips, trackType, mediaId);
 }
 
 /**
@@ -445,7 +425,53 @@ export const useTimelineStore = create<TimelineStore>(
       });
     },
 
+    ensureTrackForType: (type, mediaId) => {
+      const state = get();
+      const config = TRACK_TYPE_CONFIG[type];
+      if (!config) {
+        throw new Error(`[ensureTrackForType] Unknown track type: "${type}"`);
+      }
+
+      switch (config.reuseStrategy) {
+        case "primary": {
+          // The primary video track must already exist; never create one here.
+          const primary = state.tracks.find((t) => t.type === "video") ?? null;
+          if (!primary) throw new Error("[ensureTrackForType] primary: no video track found");
+          return primary.id;
+        }
+
+        case "shared": {
+          // All clips of this type share one track.
+          const existing = get().tracks.find((t) => t.type === type);
+          if (existing) return existing.id;
+          const idx = getTrackInsertionIndex(get().tracks, type);
+          return get().insertTrackAt(type, idx);
+        }
+
+        case "per-clip": {
+          // Always create a fresh track.
+          const idx = getTrackInsertionIndex(get().tracks, type);
+          return get().insertTrackAt(type, idx);
+        }
+
+        case "per-media-group": {
+          // Reuse a track of this type that already carries a clip with the same mediaId.
+          if (mediaId) {
+            const { tracks, clips } = get();
+            const match = tracks.find(
+              (t) => t.type === type && clips.some((c) => c.trackId === t.id && c.mediaId === mediaId),
+            );
+            if (match) return match.id;
+          }
+          const { tracks, clips } = get();
+          const idx = getTrackInsertionIndexGrouped(tracks, clips, type, mediaId);
+          return get().insertTrackAt(type, idx);
+        }
+      }
+    },
+
     addClip: (clip) => {
+
       set((state) => {
         // Prevent adding duplicate clips with the same ID
         const existingClip = state.clips.find((c) => c.id === clip.id);
@@ -564,19 +590,18 @@ export const useTimelineStore = create<TimelineStore>(
           });
         }
 
-        // Check if the track this clip was on is now empty
+        // Auto-prune: remove the track when its last clip is deleted,
+        // if the track type is configured with autoPrune: true.
         let tracksToKeep = state.tracks;
         let gapsToKeep = state.gaps;
         let mainVideoTrackId = state.mainVideoTrackId;
         let removedTrackIdForCleanup: string | null = null;
         if (clipToRemove) {
           const trackId = clipToRemove.trackId;
+          const track = state.tracks.find((t) => t.id === trackId);
           const hasOtherClips = remainingClips.some((c) => c.trackId === trackId);
-          const primaryVideoTrackId = state.tracks.find((t) => t.type === "video")?.id ?? state.mainVideoTrackId;
-          const isPrimaryVideoTrack = trackId === primaryVideoTrackId;
 
-          // If no other clips on this track, remove secondary track (preserve primary main video track)
-          if (!hasOtherClips && !isPrimaryVideoTrack) {
+          if (track && !hasOtherClips && shouldAutoPruneTrack(track, state.mainVideoTrackId || state.tracks)) {
             tracksToKeep = state.tracks.filter((t) => t.id !== trackId);
             gapsToKeep = state.gaps.filter((g) => g.trackId !== trackId);
             removedTrackIdForCleanup = trackId;
@@ -584,7 +609,6 @@ export const useTimelineStore = create<TimelineStore>(
               mainVideoTrackId = tracksToKeep.find((t) => t.type === "video")?.id ?? null;
             }
           }
-
         }
 
         const next: Partial<TimelineStore> = {
