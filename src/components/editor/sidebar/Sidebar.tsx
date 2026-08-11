@@ -1,5 +1,12 @@
 import React, { useState } from "react";
-import { Music, Smile, Wand2, MessageSquare, Filter, Shuffle } from "lucide-react";
+import {
+  Music,
+  Smile,
+  Wand2,
+  MessageSquare,
+  Filter,
+  Shuffle,
+} from "lucide-react";
 import { MediaTab } from "./tabs/MediaTab";
 import { AudioTab } from "./tabs/AudioTab";
 import { TextTab } from "./tabs/TextTab";
@@ -13,7 +20,10 @@ import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
 import { TextIcon, YouTubeIcon } from "@/components/ui/icons";
 import { Sparkles } from "lucide-react";
 
-export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab = "media" }) => {
+export const Sidebar: React.FC<MediaTabProps> = ({
+  onAddToTimeline,
+  initialTab = "media",
+}) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
 
   React.useEffect(() => {
@@ -24,7 +34,7 @@ export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab =
     { id: "media" as const, icon: YouTubeIcon, label: "Media" },
     { id: "audio" as const, icon: Music, label: "Audio" },
     { id: "text" as const, icon: TextIcon, label: "Text" },
-    { id: "smart-overlays" as const, icon: Sparkles, label: "Smart Overlays" },
+    { id: "smart-overlays" as const, icon: Sparkles, label: "Overlays" },
     { id: "stickers" as const, icon: Smile, label: "Stickers" },
     { id: "effects" as const, icon: Wand2, label: "Effects" },
     { id: "filters" as const, icon: Filter, label: "Filters" },
@@ -47,7 +57,11 @@ export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab =
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center flex-col gap-0.5 px-2 py-1 text-[10px] font-medium transition-colors whitespace-nowrap cursor-pointer hover:text-accent ${activeTab === tab.id ? "text-accent" : "text-text-muted"}`}>
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center flex-col gap-0.5 px-2 py-1 text-[10px] font-medium transition-colors whitespace-nowrap cursor-pointer hover:text-accent ${activeTab === tab.id ? "text-accent" : "text-text-muted"}`}
+              >
                 <Icon size={14} />
                 {tab.label}
               </button>
@@ -58,22 +72,34 @@ export const Sidebar: React.FC<MediaTabProps> = ({ onAddToTimeline, initialTab =
 
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden flex flex-col">
-        {activeTab === "media" && <MediaTab onAddToTimeline={onAddToTimeline} />}
-        {activeTab === "audio" && <AudioTab onAddToTimeline={onAddToTimeline} />}
+        {activeTab === "media" && (
+          <MediaTab onAddToTimeline={onAddToTimeline} />
+        )}
+        {activeTab === "audio" && (
+          <AudioTab onAddToTimeline={onAddToTimeline} />
+        )}
         {activeTab === "text" && <TextTab onAddToTimeline={onAddToTimeline} />}
-        {activeTab === "smart-overlays" && <SmartOverlaysTab onAddToTimeline={onAddToTimeline} />}
-        {activeTab === "stickers" && <StickersTab onAddToTimeline={onAddToTimeline} />}
-        {activeTab === "effects" && <EffectsPanel onAddToTimeline={onAddToTimeline} />}
-        {activeTab === "filters" && <FiltersTab onAddToTimeline={onAddToTimeline} />}
-        {activeTab === "transitions" && <TransitionsTab onAddToTimeline={onAddToTimeline} />}
-        {activeTab === "captions" && <CaptionsTab onAddToTimeline={onAddToTimeline} />}
+        {activeTab === "smart-overlays" && (
+          <SmartOverlaysTab onAddToTimeline={onAddToTimeline} />
+        )}
+        {activeTab === "stickers" && (
+          <StickersTab onAddToTimeline={onAddToTimeline} />
+        )}
+        {activeTab === "effects" && (
+          <EffectsPanel onAddToTimeline={onAddToTimeline} />
+        )}
+        {activeTab === "filters" && (
+          <FiltersTab onAddToTimeline={onAddToTimeline} />
+        )}
+        {activeTab === "transitions" && (
+          <TransitionsTab onAddToTimeline={onAddToTimeline} />
+        )}
+        {activeTab === "captions" && (
+          <CaptionsTab onAddToTimeline={onAddToTimeline} />
+        )}
       </div>
     </div>
   );
 };
 
-
-
-
 export const EnhancedMediaPanel = Sidebar;
-

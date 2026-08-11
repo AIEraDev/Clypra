@@ -90,6 +90,13 @@ export const PixiProgramPreview: React.FC = () => {
     setCanvasEl(node);
   }, []);
 
+  const [smartOverlayCanvasEl, setSmartOverlayCanvasEl] = useState<HTMLCanvasElement | null>(null);
+  const smartOverlayCanvasRefObj = useRef<HTMLCanvasElement | null>(null);
+  const smartOverlayCanvasRef = useCallback((node: HTMLCanvasElement | null) => {
+    smartOverlayCanvasRefObj.current = node;
+    setSmartOverlayCanvasEl(node);
+  }, []);
+
   const aspectMenuRef = useRef<HTMLDivElement>(null);
   const speedMenuRef = useRef<HTMLDivElement>(null);
   const qualityMenuRef = useRef<HTMLDivElement>(null);
@@ -520,22 +527,18 @@ export const PixiProgramPreview: React.FC = () => {
               currentTime <= c.startTime + c.duration
           );
 
-          if (canvasEl) {
-            const ctx2d = canvasEl.getContext("2d");
+          const smartCanvas = smartOverlayCanvasRefObj.current;
+          if (smartCanvas) {
+            const ctx2d = smartCanvas.getContext("2d");
             if (ctx2d) {
-              ctx2d.clearRect(0, 0, canvasEl.width, canvasEl.height);
+              ctx2d.clearRect(0, 0, smartCanvas.width, smartCanvas.height);
               for (const smartClip of activeSmartClips) {
                 const renderer = new SmartOverlayRenderer(smartClip);
                 const relTime = currentTime - smartClip.startTime;
-                renderer.draw(ctx2d, relTime, canvasEl.width, canvasEl.height);
+                renderer.draw(ctx2d, relTime, smartCanvas.width, smartCanvas.height);
               }
             }
           }
-
-
-
-
-          // Bug 5 fix: guard against the compositor being destroyed while composeFrame
 
           // was in-flight (e.g. rapid project switch, React Strict Mode remount).
           // Without this, post-await code would write into a torn-down WebGL context.
@@ -653,6 +656,21 @@ export const PixiProgramPreview: React.FC = () => {
                   width: displayWidth,
                   height: displayHeight,
                   imageRendering: "auto",
+                  background: "transparent",
+                }}
+              />
+              <canvas
+                ref={smartOverlayCanvasRef}
+                data-testid="program-preview-smart-overlay-canvas"
+                width={displayWidth}
+                height={displayHeight}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  zIndex: 2,
+                  pointerEvents: "none",
+                  width: displayWidth,
+                  height: displayHeight,
                   background: "transparent",
                 }}
               />
