@@ -32,7 +32,7 @@ describe("DeleteClipCommand", () => {
   });
 
   it("should restore clip and track on undo", () => {
-    const track = { id: "track-1", type: "video" as const, name: "Video 1", muted: false, locked: false, visible: true, height: 68 };
+    const track = { id: "track-1", type: "text" as const, name: "Text 1", muted: false, locked: false, visible: true, height: 30 };
     const clip = createTestClip({ id: "A", trackId: "track-1" });
     const command = new DeleteClipCommand("A");
     const state = { tracks: [track], clips: [clip], epoch: 0 };
