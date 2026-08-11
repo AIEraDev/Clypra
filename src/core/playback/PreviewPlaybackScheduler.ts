@@ -94,20 +94,21 @@ interface SeekPolicyConfig {
 // ─── Default Configuration ───────────────────────────────────────────────
 
 const DEFAULT_SEEK_POLICY: SeekPolicyConfig = {
-  driftTolerancePaused: 0.01, // 10ms for frame-stepping
-  driftTolerancePlaying: 2.0, // 2s during buffering (prevents seek loops)
-  hardSeekThreshold: 0.5, // 500ms triggers hard seek
-  hardSeekThresholdAudioFriendly: 1.0, // 1s for audio-friendly sync
-  minSeekInterval: 400, // 400ms minimum between seeks
-  minSeekIntervalAudioFriendly: 1500, // 1.5s for audio tracks
-  minSeekIntervalScrubbing: 150, // 150ms during scrubbing
-  scrubbingDriftThreshold: 2.0, // >2s drift indicates scrubbing
-  postThrottlingDriftThreshold: 5.0, // ≥5s drift indicates throttling recovery
-  rateCorrectionMinDrift: 0.1, // Start rate correction at 100ms
-  rateCorrectionMaxDrift: 0.3, // Stop rate correction at 300ms (use seek)
-  rateCorrectionSpeedUp: 1.02, // 2% faster to catch up
-  rateCorrectionSlowDown: 0.98, // 2% slower to let video catch up
+  driftTolerancePaused: 0.005, // 5ms for frame-stepping
+  driftTolerancePlaying: 0.1, // 100ms during playback (tight sync)
+  hardSeekThreshold: 0.2, // 200ms triggers hard seek
+  hardSeekThresholdAudioFriendly: 0.1, // 100ms for audio-friendly sync
+  minSeekInterval: 100, // 100ms minimum between seeks
+  minSeekIntervalAudioFriendly: 100, // 100ms for audio tracks (eliminates 1.5s delay)
+  minSeekIntervalScrubbing: 50, // 50ms during scrubbing
+  scrubbingDriftThreshold: 0.3, // >300ms drift indicates scrubbing
+  postThrottlingDriftThreshold: 2.0, // ≥2s drift indicates throttling recovery
+  rateCorrectionMinDrift: 0.05, // Start rate correction at 50ms
+  rateCorrectionMaxDrift: 0.2, // Stop rate correction at 200ms (use seek)
+  rateCorrectionSpeedUp: 1.05, // 5% faster to catch up
+  rateCorrectionSlowDown: 0.95, // 5% slower to let audio catch up
 };
+
 
 // ─── Scheduler Implementation ────────────────────────────────────────────
 

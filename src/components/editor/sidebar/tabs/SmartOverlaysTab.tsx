@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { Sparkles, Plus, Wand2, Sliders, TrendingUp, Quote, Columns, Code, List, Clock, Share2, User } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useTimelineStore, getInsertIndexForNewTrack } from "@/store/timelineStore";
-import { SMART_OVERLAY_PRESETS, getSmartOverlayPreset, type SmartOverlayType, type SmartOverlayClip } from "@/types/smartOverlay";
+import { SMART_OVERLAY_PRESETS, getSmartOverlayPreset, type SmartOverlayType, type SmartOverlayClip, type ComparisonOverlayContent } from "@/types/smartOverlay";
+
 import { extractSmartOverlaysFromTranscript } from "@/features/smart-overlays/services/smartOverlayExtractor";
 import type { TabProps } from "../types";
 
@@ -269,8 +270,9 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
           {/* Comparison Overlay Controls */}
           {selectedClip.content.type === "comparison" && (() => {
-            const compData = selectedClip.content.data as import("@/types/smartOverlay").ComparisonOverlayContent;
+            const compData = selectedClip.content.data as ComparisonOverlayContent;
             return (
+
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] text-text-muted">Option A</label>
