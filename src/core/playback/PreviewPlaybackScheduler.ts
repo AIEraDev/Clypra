@@ -97,9 +97,9 @@ const DEFAULT_SEEK_POLICY: SeekPolicyConfig = {
   driftTolerancePaused: 0.005, // 5ms for frame-stepping
   driftTolerancePlaying: 0.1, // 100ms during playback (tight sync)
   hardSeekThreshold: 0.2, // 200ms triggers hard seek
-  hardSeekThresholdAudioFriendly: 0.1, // 100ms for audio-friendly sync
+  hardSeekThresholdAudioFriendly: 1.5, // 1.5s for audio-friendly sync (prevents mid-playback audio cracking)
   minSeekInterval: 100, // 100ms minimum between seeks
-  minSeekIntervalAudioFriendly: 100, // 100ms for audio tracks (eliminates 1.5s delay)
+  minSeekIntervalAudioFriendly: 1000, // 1000ms minimum between seeks for audio
   minSeekIntervalScrubbing: 50, // 50ms during scrubbing
   scrubbingDriftThreshold: 0.3, // >300ms drift indicates scrubbing
   postThrottlingDriftThreshold: 2.0, // ≥2s drift indicates throttling recovery
@@ -254,7 +254,15 @@ export class PreviewPlaybackScheduler {
       }
     } else {
       // Element is paused but should be playing
-      // Request play (PreviewMediaPool will handle guards and promise)
+      const drift = Math.abs(state.currentTime - targetTime);
+      if (drift > this.config.driftTolerancePlaying || !state.hasBeenSeeked) {
+        actions.push({
+          type: "seek",
+          clipId,
+          time: targetTime,
+          reason: "transport-jump",
+        });
+      }
       actions.push({ type: "play", clipId });
     }
 

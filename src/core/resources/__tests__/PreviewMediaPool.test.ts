@@ -4529,4 +4529,115 @@ describe("PreviewMediaPool —: Memory-Aware Adaptive Eviction", () => {
       useTimelineStore.setState({ transitions: originalTransitions });
     }
   });
+
+  describe("Audio Backward Seek Synchronization", () => {
+    it("synchronizes audio element currentTime when playhead immediately seeks backward", () => {
+      const audioClip: Clip = {
+        id: "audio-clip-1",
+        trackId: "track-1",
+        mediaId: "asset-audio-1",
+        kind: "audio",
+        startTime: 0,
+        duration: 20,
+        trimIn: 0,
+        trimOut: 20,
+        volume: 1.0,
+      } as any;
+
+      const assets: MediaAsset[] = [
+        {
+          id: "asset-audio-1",
+          path: "/test/audio.mp3",
+          type: "audio",
+          name: "audio.mp3",
+          duration: 20,
+        } as any,
+      ];
+
+      const tracks = [{ id: "track-1", type: "audio" }];
+
+      // Step 1: Forward playback at 10.0s
+      pool.sync([audioClip], assets, tracks, {
+        time: 10.0,
+        state: "playing",
+        volume: 100,
+        muted: false,
+        speed: 1.0,
+        frameRate: 30,
+      });
+
+      const managedAudio = (pool as any).audios.get("audio-clip-1");
+      expect(managedAudio).toBeDefined();
+
+      // Simulate audio element reached 10.0s during forward playback
+      managedAudio.element.currentTime = 10.0;
+      Object.defineProperty(managedAudio.element, "readyState", { get: () => 4, configurable: true });
+
+      // Step 2: Immediately seek backward to 2.0s while playing
+      pool.sync([audioClip], assets, tracks, {
+        time: 2.0,
+        state: "playing",
+        volume: 100,
+        muted: false,
+        speed: 1.0,
+        frameRate: 30,
+      });
+
+      // Verify audio element currentTime was seeked backward to 2.0s
+      expect(managedAudio.element.currentTime).toBe(2.0);
+    });
+
+    it("executes seek actions on audio elements via executeSchedulerActions when scrubbing backward", () => {
+      const audioClip: Clip = {
+        id: "audio-clip-2",
+        trackId: "track-1",
+        mediaId: "asset-audio-2",
+        kind: "audio",
+        startTime: 0,
+        duration: 20,
+        trimIn: 0,
+        trimOut: 20,
+        volume: 1.0,
+      } as any;
+
+      const assets: MediaAsset[] = [
+        {
+          id: "asset-audio-2",
+          path: "/test/audio2.mp3",
+          type: "audio",
+          name: "audio2.mp3",
+          duration: 20,
+        } as any,
+      ];
+
+      const tracks = [{ id: "track-1", type: "audio" }];
+
+      pool.sync([audioClip], assets, tracks, {
+        time: 15.0,
+        state: "paused",
+        volume: 100,
+        muted: false,
+        speed: 1.0,
+        frameRate: 30,
+      });
+
+      const managedAudio = (pool as any).audios.get("audio-clip-2");
+      expect(managedAudio).toBeDefined();
+
+      managedAudio.element.currentTime = 15.0;
+      Object.defineProperty(managedAudio.element, "readyState", { get: () => 4, configurable: true });
+
+      // Immediate seek backward while paused
+      pool.sync([audioClip], assets, tracks, {
+        time: 4.0,
+        state: "paused",
+        volume: 100,
+        muted: false,
+        speed: 1.0,
+        frameRate: 30,
+      });
+
+      expect(managedAudio.element.currentTime).toBe(4.0);
+    });
+  });
 });
