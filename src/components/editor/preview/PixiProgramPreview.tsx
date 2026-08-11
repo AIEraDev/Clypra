@@ -520,9 +520,10 @@ export const PixiProgramPreview: React.FC = () => {
               currentTime <= c.startTime + c.duration
           );
 
-          if (activeSmartClips.length > 0 && canvasEl) {
+          if (canvasEl) {
             const ctx2d = canvasEl.getContext("2d");
             if (ctx2d) {
+              ctx2d.clearRect(0, 0, canvasEl.width, canvasEl.height);
               for (const smartClip of activeSmartClips) {
                 const renderer = new SmartOverlayRenderer(smartClip);
                 const relTime = currentTime - smartClip.startTime;
@@ -530,6 +531,7 @@ export const PixiProgramPreview: React.FC = () => {
               }
             }
           }
+
 
 
 
