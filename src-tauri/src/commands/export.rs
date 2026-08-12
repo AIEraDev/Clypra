@@ -917,3 +917,191 @@ pub async fn get_ffmpeg_version() -> Result<String, String> {
         Err("FFmpeg not available".to_string())
     }
 }
+
+/// Track A — Native GPU/Rasterizer Rectangle Smoke Test Spike
+///
+/// Evaluates and rasterizes a single animated filled rectangle directly on the native GPU backend (wgpu),
+/// feeding RGBA pixel frames into a zero-copy FFmpeg stdin pipeline.
+#[tauri::command]
+pub async fn run_wgpu_smoke_test(output_path: String) -> Result<String, String> {
+    let width = 1280u32;
+    let height = 720u32;
+    let fps = 30u32;
+    let total_frames = 30u32; // 1.0 second video
+
+    let wgpu_renderer = crate::wgpu_compositor::NativeWgpuRenderer::new().await?;
+
+    let mut cmd = Command::new("ffmpeg");
+    cmd.env("PATH", augmented_path());
+    cmd.arg("-thread_queue_size")
+        .arg("8")
+        .arg("-f")
+        .arg("rawvideo")
+        .arg("-pixel_format")
+        .arg("rgba")
+        .arg("-video_size")
+        .arg(format!("{}x{}", width, height))
+        .arg("-framerate")
+        .arg(fps.to_string())
+        .arg("-i")
+        .arg("pipe:0")
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg("-preset")
+        .arg("ultrafast")
+        .arg("-y")
+        .arg(&output_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn FFmpeg process: {}", e))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| "Failed to open FFmpeg stdin".to_string())?;
+
+    for frame_idx in 0..total_frames {
+        let t = frame_idx as f64 / (total_frames - 1) as f64;
+        let rgba_buffer = wgpu_renderer.render_rectangle_frame(width, height, t).await?;
+
+        stdin.write_all(&rgba_buffer).await.map_err(|e| format!("Failed to write frame {} to FFmpeg: {}", frame_idx, e))?;
+    }
+
+    drop(stdin);
+    let output = child.wait_with_output().await.map_err(|e| format!("FFmpeg execution failed: {}", e))?;
+
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg failed: {}", err_msg));
+    }
+
+    Ok(format!("Native wgpu single-rectangle MP4 export completed (30 frames): {}", output_path))
+}
+
+/// Native 0.2 Milestone: Parse OverlayDocument JSON and render via wgpu pipeline
+#[tauri::command]
+pub async fn run_native_document_wgpu_export(doc_json: String, output_path: String) -> Result<String, String> {
+    let doc = crate::models::overlay::OverlayDocument::from_json(&doc_json)?;
+    let width = doc.canvas.width;
+    let height = doc.canvas.height;
+    let fps = 30u32;
+    let total_frames = 30u32;
+
+    let wgpu_renderer = crate::wgpu_compositor::NativeWgpuRenderer::new().await?;
+
+    let mut cmd = Command::new("ffmpeg");
+    cmd.env("PATH", augmented_path());
+    cmd.arg("-thread_queue_size")
+        .arg("8")
+        .arg("-f")
+        .arg("rawvideo")
+        .arg("-pixel_format")
+        .arg("rgba")
+        .arg("-video_size")
+        .arg(format!("{}x{}", width, height))
+        .arg("-framerate")
+        .arg(fps.to_string())
+        .arg("-i")
+        .arg("pipe:0")
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg("-preset")
+        .arg("ultrafast")
+        .arg("-y")
+        .arg(&output_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn FFmpeg process: {}", e))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| "Failed to open FFmpeg stdin".to_string())?;
+
+    for frame_idx in 0..total_frames {
+        let t = frame_idx as f64 / (total_frames - 1) as f64;
+        let rgba_buffer = wgpu_renderer.render_overlay_document(&doc, t).await?;
+        stdin.write_all(&rgba_buffer).await.map_err(|e| format!("Failed to write frame {} to FFmpeg: {}", frame_idx, e))?;
+    }
+
+    drop(stdin);
+    let output = child.wait_with_output().await.map_err(|e| format!("FFmpeg execution failed: {}", e))?;
+
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg failed: {}", err_msg));
+    }
+
+    Ok(format!("Native OverlayDocument wgpu MP4 export completed (30 frames): {}", output_path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_run_wgpu_smoke_test() {
+        let test_output = std::env::temp_dir().join("wgpu_smoke_test.mp4");
+        let path_str = test_output.to_string_lossy().to_string();
+
+        let result = run_wgpu_smoke_test(path_str.clone()).await;
+        assert!(result.is_ok(), "wgpu smoke test failed: {:?}", result.err());
+
+        let metadata = std::fs::metadata(&test_output);
+        assert!(metadata.is_ok(), "Exported MP4 file does not exist");
+        assert!(metadata.unwrap().len() > 0, "Exported MP4 file is 0 bytes");
+
+        println!("Successfully generated native single-rectangle MP4 at: {}", path_str);
+    }
+
+    #[tokio::test]
+    async fn test_native_document_wgpu_export() {
+        let fixture_json = include_str!("../fixtures/basic_rectangle_doc.json");
+        let test_output = std::env::temp_dir().join("native_doc_wgpu_export.mp4");
+        let path_str = test_output.to_string_lossy().to_string();
+
+        let result = run_native_document_wgpu_export(fixture_json.to_string(), path_str.clone()).await;
+        assert!(result.is_ok(), "Native OverlayDocument wgpu export failed: {:?}", result.err());
+
+        let metadata = std::fs::metadata(&test_output);
+        assert!(metadata.is_ok(), "Exported MP4 file from OverlayDocument does not exist");
+        assert!(metadata.unwrap().len() > 0, "Exported MP4 file from OverlayDocument is 0 bytes");
+
+        println!("Successfully rendered & exported OverlayDocument fixture to MP4: {}", path_str);
+    }
+
+    #[tokio::test]
+    async fn test_revenue_data_story_wgpu_export() {
+        let fixture_json = include_str!("../fixtures/revenue_data_story_doc.json");
+        let test_output = std::env::temp_dir().join("revenue_story_wgpu_export.mp4");
+        let path_str = test_output.to_string_lossy().to_string();
+
+        let result = run_native_document_wgpu_export(fixture_json.to_string(), path_str.clone()).await;
+        assert!(result.is_ok(), "Native Revenue Data Story wgpu export failed: {:?}", result.err());
+
+        let metadata = std::fs::metadata(&test_output);
+        assert!(metadata.is_ok(), "Exported Revenue Data Story MP4 file does not exist");
+        assert!(metadata.unwrap().len() > 0, "Exported Revenue Data Story MP4 file is 0 bytes");
+
+        println!("Successfully rendered & exported Revenue Data Story OverlayDocument fixture to MP4: {}", path_str);
+    }
+
+    #[tokio::test]
+    async fn test_published_artifact_wgpu_export() {
+        let artifact_json = include_str!("../fixtures/published_revenue_story.json");
+        let test_output = std::env::temp_dir().join("published_artifact_wgpu_export.mp4");
+        let path_str = test_output.to_string_lossy().to_string();
+
+        let result = run_native_document_wgpu_export(artifact_json.to_string(), path_str.clone()).await;
+        assert!(result.is_ok(), "Published OverlayArtifact wgpu export failed: {:?}", result.err());
+
+        let metadata = std::fs::metadata(&test_output);
+        assert!(metadata.is_ok(), "Exported Published OverlayArtifact MP4 file does not exist");
+        assert!(metadata.unwrap().len() > 0, "Exported Published OverlayArtifact MP4 file is 0 bytes");
+
+        println!("Successfully extracted & rendered PublishedOverlayArtifact (rev 17) to MP4: {}", path_str);
+    }
+}
+
+
+

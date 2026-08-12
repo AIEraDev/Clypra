@@ -1,0 +1,25 @@
+{
+  "canvas": {
+    "width": 1280,
+    "height": 720
+  },
+  "nodes": [
+    {
+      "id": "rect-1",
+      "name": "Native Wgpu Rectangle",
+      "type": "shape",
+      "x": 320,
+      "y": 180,
+      "width": 640,
+      "height": 360,
+      "rotation": 0,
+      "opacity": 0.9,
+      "style": {
+        "fillColor": "#8B5CF6",
+        "strokeColor": "#45FF72",
+        "strokeWidth": 4,
+        "borderRadius": 16
+      }
+    }
+  ]
+}

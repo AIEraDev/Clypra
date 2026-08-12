@@ -1,0 +1,68 @@
+{
+  "documentId": "revenue-story-01",
+  "revision": 17,
+  "schemaVersion": "2.0",
+  "updatedAt": "2026-08-12T12:00:00Z",
+  "publishedAt": "2026-08-12T12:35:00Z",
+  "author": "Studio Publisher",
+  "document": {
+    "id": "revenue-story-01",
+    "title": "Published Revenue Story",
+    "canvas": {
+      "width": 1280,
+      "height": 720
+    },
+    "nodes": [
+      {
+        "id": "card-published",
+        "name": "Published Story Card",
+        "type": "container-card",
+        "x": 200,
+        "y": 100,
+        "width": 880,
+        "height": 520,
+        "rotation": 0,
+        "opacity": 0.95,
+        "style": {
+          "fillColor": "#0F172A",
+          "strokeColor": "#334155",
+          "strokeWidth": 2,
+          "borderRadius": 24
+        }
+      },
+      {
+        "id": "title-published",
+        "name": "Published Title",
+        "type": "text-label",
+        "x": 240,
+        "y": 140,
+        "width": 400,
+        "height": 48,
+        "rotation": 0,
+        "opacity": 1.0,
+        "content": "Published Revenue Report v17",
+        "style": {
+          "fillColor": "#F8FAFC"
+        }
+      },
+      {
+        "id": "metric-published",
+        "name": "Published KPI",
+        "type": "kpi-metric",
+        "x": 240,
+        "y": 200,
+        "width": 320,
+        "height": 96,
+        "rotation": 0,
+        "opacity": 1.0,
+        "label": "Annual Recurring Revenue",
+        "value": "$2.5M",
+        "trend": "+18% YoY",
+        "style": {
+          "fillColor": "#8B5CF6",
+          "strokeColor": "#45FF72"
+        }
+      }
+    ]
+  }
+}
