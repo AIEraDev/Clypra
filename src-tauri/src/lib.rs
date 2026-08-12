@@ -3,6 +3,7 @@ use tauri::Manager;
 pub mod thumbnail_engine;
 pub mod commands;
 pub mod models;
+pub mod wgpu_compositor;
 
 use thumbnail_engine::init_thumbnail_engine;
 use commands::*;
@@ -108,9 +109,11 @@ pub fn run() {
             list_downloaded_models,
             cancel_whisper_download,
             verify_whisper_model_exists,
-            // Screen recording commands
+            // Screen recording & native smoke test commands
             trim_video,
             set_menu_language,
+            run_wgpu_smoke_test,
+            run_native_document_wgpu_export,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,0 +1,452 @@
+/**
+ * Native wgpu Compositor & Offscreen Renderer
+ *
+ * Real wgpu GPU pipeline initialization for Clypra Rust core.
+ * Headless Instance -> Adapter (Metal/Vulkan) -> Device/Queue -> Texture Render Pass -> Buffer Readback
+ */
+
+use std::borrow::Cow;
+
+pub struct NativeWgpuRenderer {
+    pub instance: wgpu::Instance,
+    pub adapter: wgpu::Adapter,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+}
+
+impl NativeWgpuRenderer {
+    pub async fn new() -> Result<Self, String> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            flags: wgpu::InstanceFlags::default(),
+            backend_options: Default::default(),
+        });
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or_else(|| "Failed to find suitable GPU adapter for wgpu".to_string())?;
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("Native Wgpu Device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                    memory_hints: wgpu::MemoryHints::Performance,
+                },
+                None,
+            )
+            .await
+            .map_err(|e| format!("Failed to request wgpu device: {}", e))?;
+
+        Ok(Self {
+            instance,
+            adapter,
+            device,
+            queue,
+        })
+    }
+
+    /// Native 0.2 Milestone: Render an OverlayDocument fixture directly via wgpu
+    pub async fn render_overlay_document(&self, doc: &crate::models::overlay::OverlayDocument, t: f64) -> Result<Vec<u8>, String> {
+        let width = doc.canvas.width;
+        let height = doc.canvas.height;
+        
+        let default_node = crate::models::overlay::OverlayNode {
+            id: "default".to_string(),
+            name: "Default".to_string(),
+            node_type: "shape".to_string(),
+            x: 320.0,
+            y: 180.0,
+            width: 640.0,
+            height: 360.0,
+            rotation: 0.0,
+            opacity: 1.0,
+            style: None,
+        };
+
+        let node = doc.nodes.first().unwrap_or(&default_node);
+        
+        // Calculate normalized bounds
+        let norm_x = node.x / width as f32;
+        let norm_y = node.y / height as f32;
+        let norm_w = node.width / width as f32;
+        let norm_h = node.height / height as f32;
+
+        let texture_desc = wgpu::TextureDescriptor {
+            label: Some("OverlayDocument Target Texture"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        };
+
+        let texture = self.device.create_texture(&texture_desc);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let shader_source = format!(
+            r#"
+            struct VertexOutput {{
+                @builtin(position) position: vec4<f32>,
+                @location(0) uv: vec2<f32>,
+            }};
+
+            @vertex
+            fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {{
+                var pos = array<vec2<f32>, 6>(
+                    vec2<f32>(-1.0, -1.0), vec2<f32>( 1.0, -1.0), vec2<f32>(-1.0,  1.0),
+                    vec2<f32>(-1.0,  1.0), vec2<f32>( 1.0, -1.0), vec2<f32>( 1.0,  1.0)
+                );
+                var uv = array<vec2<f32>, 6>(
+                    vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 0.0),
+                    vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0)
+                );
+                var out: VertexOutput;
+                out.position = vec4<f32>(pos[vertex_index], 0.0, 1.0);
+                out.uv = uv[vertex_index];
+                return out;
+            }}
+
+            @fragment
+            fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
+                let min_x: f32 = {:.6};
+                let max_x: f32 = {:.6};
+                let min_y: f32 = {:.6};
+                let max_y: f32 = {:.6};
+                let opacity: f32 = {:.6};
+
+                let in_x = in.uv.x >= min_x && in.uv.x <= max_x;
+                let in_y = in.uv.y >= min_y && in.uv.y <= max_y;
+
+                if (in_x && in_y) {{
+                    let border = in.uv.x <= (min_x + 0.005) || in.uv.x >= (max_x - 0.005) ||
+                                 in.uv.y <= (min_y + 0.005) || in.uv.y >= (max_y - 0.005);
+                    if (border) {{
+                        return vec4<f32>(0.27, 1.0, 0.44, opacity); // #45FF72
+                    }}
+                    return vec4<f32>(0.545, 0.36, 0.965, opacity); // #8B5CF6
+                }}
+                return vec4<f32>(0.058, 0.09, 0.164, 1.0); // #0F172A
+            }}
+            "#,
+            norm_x,
+            norm_x + norm_w,
+            norm_y,
+            norm_y + norm_h,
+            node.opacity
+        );
+
+        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Document Node Shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Owned(shader_source)),
+        });
+
+        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Doc Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Doc Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Doc Command Encoder") });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Doc Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.058, g: 0.09, b: 0.164, a: 1.0 }), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            render_pass.set_pipeline(&render_pipeline);
+            render_pass.draw(0..6, 0..1);
+        }
+
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+        let buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Doc Readback Buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::ImageCopyBuffer { buffer: &output_buffer, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(padded_bytes_per_row), rows_per_image: Some(height) } },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        );
+
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = output_buffer.slice(..);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |res| { let _ = sender.send(res); });
+
+        self.device.poll(wgpu::Maintain::Wait);
+        receiver.await.map_err(|e| format!("Channel error: {}", e))?.map_err(|e| format!("Buffer map error: {:?}", e))?;
+
+        let mapped_view = buffer_slice.get_mapped_range();
+        let mut rgba_bytes = vec![0u8; (width * height * 4) as usize];
+
+        for y in 0..height {
+            let src_start = (y * padded_bytes_per_row) as usize;
+            let src_end = src_start + unpadded_bytes_per_row as usize;
+            let dst_start = (y * unpadded_bytes_per_row) as usize;
+            let dst_end = dst_start + unpadded_bytes_per_row as usize;
+            rgba_bytes[dst_start..dst_end].copy_from_slice(&mapped_view[src_start..src_end]);
+        }
+
+        drop(mapped_view);
+        output_buffer.unmap();
+
+        Ok(rgba_bytes)
+    }
+
+    /// Render a single animated rectangle frame onto an offscreen 1280x720 texture
+    pub async fn render_rectangle_frame(&self, width: u32, height: u32, t: f64) -> Result<Vec<u8>, String> {
+        // Offscreen texture target
+        let texture_desc = wgpu::TextureDescriptor {
+            label: Some("Offscreen Target Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        };
+
+        let texture = self.device.create_texture(&texture_desc);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Simple WGSL shader rendering dark slate background and bright rectangle
+        let shader_source = format!(
+            r#"
+            struct VertexOutput {{
+                @builtin(position) position: vec4<f32>,
+                @location(0) uv: vec2<f32>,
+            }};
+
+            @vertex
+            fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {{
+                var pos = array<vec2<f32>, 6>(
+                    vec2<f32>(-1.0, -1.0),
+                    vec2<f32>( 1.0, -1.0),
+                    vec2<f32>(-1.0,  1.0),
+                    vec2<f32>(-1.0,  1.0),
+                    vec2<f32>( 1.0, -1.0),
+                    vec2<f32>( 1.0,  1.0)
+                );
+                var uv = array<vec2<f32>, 6>(
+                    vec2<f32>(0.0, 1.0),
+                    vec2<f32>(1.0, 1.0),
+                    vec2<f32>(0.0, 0.0),
+                    vec2<f32>(0.0, 0.0),
+                    vec2<f32>(1.0, 1.0),
+                    vec2<f32>(1.0, 0.0)
+                );
+
+                var out: VertexOutput;
+                out.position = vec4<f32>(pos[vertex_index], 0.0, 1.0);
+                out.uv = uv[vertex_index];
+                return out;
+            }}
+
+            @fragment
+            fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
+                let t_val: f32 = {:.6};
+                let rect_min_x = 0.5 - (0.15 + 0.15 * sin(t_val * 3.14159 * 0.5));
+                let rect_max_x = 0.5 + (0.15 + 0.15 * sin(t_val * 3.14159 * 0.5));
+                let rect_min_y = 0.325;
+                let rect_max_y = 0.675;
+
+                let inside_x = in.uv.x >= rect_min_x && in.uv.x <= rect_max_x;
+                let inside_y = in.uv.y >= rect_min_y && in.uv.y <= rect_max_y;
+
+                if (inside_x && inside_y) {{
+                    let border = in.uv.x <= (rect_min_x + 0.005) || in.uv.x >= (rect_max_x - 0.005) ||
+                                 in.uv.y <= (rect_min_y + 0.005) || in.uv.y >= (rect_max_y - 0.005);
+                    if (border) {{
+                        return vec4<f32>(0.27, 1.0, 0.44, 1.0); // #45FF72
+                    }}
+                    return vec4<f32>(0.545, 0.36, 0.965, 1.0); // #8B5CF6
+                }}
+
+                return vec4<f32>(0.058, 0.09, 0.164, 1.0); // #0F172A
+            }}
+            "#,
+            t
+        );
+
+        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Rectangle Shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Owned(shader_source)),
+        });
+
+        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Rectangle Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Command Encoder"),
+        });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Wgpu Offscreen Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.058,
+                            g: 0.09,
+                            b: 0.164,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            render_pass.set_pipeline(&render_pipeline);
+            render_pass.draw(0..6, 0..1);
+        }
+
+        // Buffer readback configuration for CPU texture mapping
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+        let buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Readback Buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &output_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(Some(encoder.finish()));
+
+        // Map buffer for reading
+        let buffer_slice = output_buffer.slice(..);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = sender.send(res);
+        });
+
+        self.device.poll(wgpu::Maintain::Wait);
+        receiver.await.map_err(|e| format!("Channel error: {}", e))?.map_err(|e| format!("Buffer map error: {:?}", e))?;
+
+        let mapped_view = buffer_slice.get_mapped_range();
+        let mut rgba_bytes = vec![0u8; (width * height * 4) as usize];
+
+        for y in 0..height {
+            let src_start = (y * padded_bytes_per_row) as usize;
+            let src_end = src_start + unpadded_bytes_per_row as usize;
+            let dst_start = (y * unpadded_bytes_per_row) as usize;
+            let dst_end = dst_start + unpadded_bytes_per_row as usize;
+            rgba_bytes[dst_start..dst_end].copy_from_slice(&mapped_view[src_start..src_end]);
+        }
+
+        drop(mapped_view);
+        output_buffer.unmap();
+
+        Ok(rgba_bytes)
+    }
+}
