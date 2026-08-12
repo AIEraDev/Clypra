@@ -149,6 +149,7 @@ export interface SmartOverlayPreset {
   previewThumbnail: string;
   defaultContent: SmartOverlayContentUnion;
   style: SmartOverlayStyle;
+  isCustom?: boolean;
 }
 
 export const SMART_OVERLAY_PRESETS: SmartOverlayPreset[] = [
