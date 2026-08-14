@@ -23,7 +23,9 @@
     /* Path aliases */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@clypra/ui-color-picker": ["../clypra-studio/packages/ui-color-picker/dist/index.d.ts"],
+      "@clypra/ui-color-picker/*": ["../clypra-studio/packages/ui-color-picker/dist/*"]
     },
 
     /* Test type declarations */

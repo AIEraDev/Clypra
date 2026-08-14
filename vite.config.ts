@@ -12,6 +12,8 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@clypra/ui-color-picker/styles.css": path.resolve(__dirname, "../clypra-studio/packages/ui-color-picker/src/styles.css"),
+      "@clypra/ui-color-picker": path.resolve(__dirname, "../clypra-studio/packages/ui-color-picker/src/index.ts"),
       "@clypra/engine/transitions": path.resolve(__dirname, "../clypra-studio/packages/clypra-engine/src/transitions/index.ts"),
       "@clypra/engine": path.resolve(__dirname, "../clypra-studio/packages/clypra-engine/src/index.ts"),
     },
@@ -41,6 +43,7 @@ export default defineConfig(async () => ({
       allow: [
         path.resolve(__dirname, "."),
         path.resolve(__dirname, "../clypra-studio/packages/clypra-engine"),
+        path.resolve(__dirname, "../clypra-studio/packages/ui-color-picker"),
       ],
     },
   },
