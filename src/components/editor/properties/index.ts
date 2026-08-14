@@ -15,6 +15,8 @@ export { EffectsFiltersSection } from "./EffectsFiltersSection";
 export { TextModeSelector } from "./TextModeSelector";
 export { EffectStylePanel } from "./EffectStylePanel";
 export { TemplateLayerEditor } from "./TemplateLayerEditor";
+export { ChromaKeySection } from "./ChromaKeySection";
+export { LUTSection } from "./LUTSection";
 
 
 // Shared primitives

@@ -3,6 +3,7 @@ import { Type, Square, Image, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TextTemplate } from "@/features/text-templates/types";
 import { PropertySlider } from "./primitives/PropertySlider";
+import { ClypraColorPicker } from "@clypra/ui-color-picker";
 
 interface TemplateLayerEditorProps {
   template: TextTemplate;
@@ -174,17 +175,16 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
 
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] text-zinc-400 font-medium">Text Color</span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-zinc-500 tabular-nums uppercase">
-                          {currentColor}
-                        </span>
-                        <input
-                          type="color"
-                          value={currentColor}
-                          onChange={(e) => handleLayerColorChange(layer.id, e.target.value, layer.role)}
-                          className="w-6 h-6 bg-transparent border-0 cursor-pointer rounded overflow-hidden"
-                        />
-                      </div>
+                      <ClypraColorPicker
+                        value={currentColor}
+                        onChange={(c) => handleLayerColorChange(layer.id, c, layer.role)}
+                        onChangeComplete={(c) => handleLayerColorChange(layer.id, c, layer.role)}
+                        format="hex"
+                        showAlpha={true}
+                        size="sm"
+                        triggerClassName="w-20 h-6.5 bg-zinc-900 border-zinc-800 hover:border-zinc-700 shrink-0"
+                        popoverClassName="right-0 left-auto mt-1 z-[100]"
+                      />
                     </div>
 
                     <PropertySlider
@@ -220,17 +220,16 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                 {layer.kind === "shape" && (
                   <div className="flex items-center justify-between">
                     <span className="text-[9px] text-zinc-400 font-medium">Fill Color</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-zinc-500 tabular-nums uppercase">
-                        {currentColor}
-                      </span>
-                      <input
-                        type="color"
-                        value={currentColor}
-                        onChange={(e) => handleLayerColorChange(layer.id, e.target.value)}
-                        className="w-6 h-6 bg-transparent border-0 cursor-pointer rounded overflow-hidden"
-                      />
-                    </div>
+                    <ClypraColorPicker
+                      value={currentColor}
+                      onChange={(c) => handleLayerColorChange(layer.id, c)}
+                      onChangeComplete={(c) => handleLayerColorChange(layer.id, c)}
+                      format="hex"
+                      showAlpha={true}
+                      size="sm"
+                      triggerClassName="w-20 h-6.5 bg-zinc-900 border-zinc-800 hover:border-zinc-700 shrink-0"
+                      popoverClassName="right-0 left-auto mt-1 z-[100]"
+                    />
                   </div>
                 )}
 

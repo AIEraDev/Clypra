@@ -18,7 +18,7 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const { clips, tracks, addClip, removeClip, updateClip, withBatch } = useTimelineStore();
   const { project } = useProjectStore();
   const { seek } = useTransportControls();
-  const { captionSettings } = useCaptionStore();
+  const { captionSettings, karaokeOverlayEnabled, setKaraokeOverlayEnabled } = useCaptionStore();
   const { toggleSettingsModal } = useUIStore();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -223,69 +223,46 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       const canvasWidth = project?.canvasWidth || 1920;
       const canvasHeight = project?.canvasHeight || 1080;
       let totalCaptions = 0;
+      const allGeneratedSegments: any[] = [];
 
       // Process each media clip
       for (const mediaClip of mediaClips) {
         const asset = mediaAssets.find((a) => a.id === mediaClip.mediaId);
-        if (!asset) continue;
+        if (!asset || !asset.path) continue;
 
         try {
-          console.log(`[CaptionsTab] Processing clip: ${mediaClip.id}, asset: ${asset.path}`);
+          console.log(`[CaptionsTab] Running native Whisper inference on clip: ${mediaClip.id}, asset: ${asset.path}`);
 
-          // Extract audio from the clip
-          const tempAudioPath = await invoke<string>("extract_audio_track", {
-            path: asset.path,
-          });
-
-          console.log(`[CaptionsTab] Audio extracted to: ${tempAudioPath}`);
-
-          // Transcribe using Whisper with selected/default model and language
-          console.log(`[CaptionsTab] About to call transcribe_audio_local...`);
-          console.log(`[CaptionsTab] Parameters:`, {
-            audioPath: tempAudioPath,
+          // Native Whisper inference with in-memory FFmpeg audio extraction & token timestamps
+          const segments = await invoke<any[]>("generate_auto_captions", {
+            videoPath: asset.path,
             modelSize: model,
             language: language === "auto" ? null : language,
-            languageHints: captionSettings.languageHints?.length > 0 ? captionSettings.languageHints : null,
           });
 
-          const resultJsonStr = await invoke<string>("transcribe_audio_local", {
-            audioPath: tempAudioPath,
-            modelSize: model,
-            language: language === "auto" ? null : language,
-            languageHints: captionSettings.languageHints?.length > 0 ? captionSettings.languageHints : null,
-          });
-
-          console.log(`[CaptionsTab] Transcription completed, result:`, resultJsonStr);
-          const result = JSON.parse(resultJsonStr);
-
-          if (result.error) {
-            console.error(`Failed to transcribe ${mediaClip.id}:`, result.error);
-            setErrorMsg(`Transcription error: ${result.error}`);
+          console.log(`[CaptionsTab] Native transcription generated ${segments?.length || 0} segments`);
+          if (!segments || segments.length === 0) {
+            console.warn(`[CaptionsTab] No segments found in transcription result for clip ${mediaClip.id}`);
             continue;
           }
 
-          // Add segments to timeline
-          const segments = result.segments || [];
-          console.log(`[CaptionsTab] Found ${segments.length} segments`);
-
-          if (segments.length === 0) {
-            console.warn(`[CaptionsTab] No segments found in transcription result`);
-          }
+          allGeneratedSegments.push(...segments);
 
           withBatch(() => {
             segments.forEach((seg: any) => {
-              const relativeStart = seg.start - mediaClip.trimIn;
+              const segStartSec = (seg.startMs || 0) / 1000;
+              const segEndSec = (seg.endMs || 0) / 1000;
+              const relativeStart = segStartSec - mediaClip.trimIn;
 
               if (relativeStart >= 0 && relativeStart < mediaClip.duration) {
                 const startTime = mediaClip.startTime + relativeStart;
-                const segmentDuration = Math.min(seg.end - seg.start, mediaClip.duration - relativeStart);
+                const segmentDuration = Math.min(segEndSec - segStartSec, mediaClip.duration - relativeStart);
 
-                // Convert word timestamps to clip-relative time
+                // Convert word timestamps to clip-relative seconds
                 const words = seg.words?.map((w: any) => ({
                   word: w.word,
-                  start: w.start - seg.start, // Convert to clip-relative time
-                  end: w.end - seg.start,
-                  probability: w.probability,
+                  start: Math.max(0, (w.startMs || 0) / 1000 - segStartSec),
+                  end: Math.max(0, (w.endMs || 0) / 1000 - segStartSec),
                 }));
 
                 const textClip = createTextClip({
@@ -299,22 +276,26 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   bold: false,
                   position: "bottom",
                   textRole: "caption",
-                  words, // Include word-level timestamps
+                  words, // Include word-level timestamps for karaoke-style rendering
                   styleId: undefined,
-                  fontFamily: "Inter",
+                  fontFamily: "Inter Variable",
                 });
 
                 addClip(textClip);
                 totalCaptions++;
-                console.log(`[CaptionsTab] Added caption: "${seg.text}"`);
+                console.log(`[CaptionsTab] Added caption to timeline: "${seg.text}"`);
               }
             });
           });
         } catch (clipError: any) {
           console.error(`[CaptionsTab] Error processing clip ${mediaClip.id}:`, clipError);
-          console.error(`[CaptionsTab] Error stack:`, clipError.stack);
           setErrorMsg(`Error: ${clipError.message || clipError}`);
         }
+      }
+
+      // Update captionStore segments for live Karaoke overlay
+      if (allGeneratedSegments.length > 0) {
+        useCaptionStore.setState({ segments: allGeneratedSegments });
       }
 
       if (totalCaptions > 0) {
@@ -324,7 +305,6 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       }
     } catch (error: any) {
       console.error(`[CaptionsTab] Top-level error:`, error);
-      console.error(`[CaptionsTab] Error stack:`, error.stack);
       setErrorMsg(error.message || "Failed to generate captions.");
     } finally {
       setIsGenerating(false);
@@ -425,10 +405,25 @@ export const CaptionsTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         </div>
       </div>
 
-      <Button variant="secondary" size="sm" className="w-full flex items-center justify-center gap-1.5" onClick={handleAddManualCaption}>
-        <Plus className="w-4 h-4" />
-        Add Manual Caption
-      </Button>
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="secondary" size="sm" className="w-full flex items-center justify-center gap-1.5" onClick={handleAddManualCaption}>
+          <Plus className="w-4 h-4" />
+          Add Manual
+        </Button>
+
+        <button
+          onClick={() => setKaraokeOverlayEnabled(!karaokeOverlayEnabled)}
+          className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+            karaokeOverlayEnabled
+              ? "bg-accent/20 border-accent text-accent shadow-[0_0_12px_rgba(124,111,255,0.25)]"
+              : "bg-surface border-white/10 text-text-muted hover:text-text-primary hover:border-white/20"
+          }`}
+          title="Toggle animated word-by-word karaoke overlay in preview"
+        >
+          <Sparkles className={`w-3.5 h-3.5 ${karaokeOverlayEnabled ? "text-accent" : "text-text-muted"}`} />
+          Karaoke: {karaokeOverlayEnabled ? "ON" : "OFF"}
+        </button>
+      </div>
 
       {errorMsg && (
         <div className="p-2.5 bg-destructive/10 border border-destructive/20 text-destructive rounded-lg text-xs">

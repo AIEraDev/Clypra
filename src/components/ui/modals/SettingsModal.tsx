@@ -12,6 +12,7 @@ import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { checkAppUpdate, installAndRelaunchUpdate, isTauriDesktop } from "@/services/updaterService";
 import { useI18n } from "@/i18n/I18nProvider";
 import { getVersion } from "@tauri-apps/api/app";
+import { ClypraColorPicker } from "@clypra/ui-color-picker";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -291,12 +292,20 @@ function CustomThemeEditor() {
               <div className="space-y-2">
                 {keys.map((key) => (
                   <div key={key} className="flex items-center gap-2">
-                    <input type="color" value={editingColors[key] || "#000000"} onChange={(e) => handleColorChange(key, e.target.value)} className="w-8 h-8 rounded cursor-pointer border border-white/6" />
+                    <ClypraColorPicker
+                      value={editingColors[key] || "#000000"}
+                      onChange={(c) => handleColorChange(key, c)}
+                      onChangeComplete={(c) => handleColorChange(key, c)}
+                      format="hex"
+                      showAlpha={true}
+                      size="sm"
+                      triggerClassName="w-16 h-7.5 bg-surface-raised border-white/6 hover:border-white/15 shrink-0"
+                      popoverClassName="left-0 mt-1 z-[200]"
+                    />
                     <div className="flex-1">
                       <div className="text-[11px] text-text-primary">{formatColorName(key)}</div>
                       <div className="text-[9px] text-text-muted font-mono">{editingColors[key]}</div>
                     </div>
-                    <input type="text" value={editingColors[key] || ""} onChange={(e) => handleColorChange(key, e.target.value)} className="w-24 px-2 py-1 text-[10px] font-mono rounded bg-surface-raised border border-white/6 text-text-primary" />
                   </div>
                 ))}
               </div>
