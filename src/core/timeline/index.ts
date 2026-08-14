@@ -7,3 +7,6 @@ export { legacyClipToTimelineItem, legacyClipsToTimelineItems, timelineItemToLeg
 export { resolveClipSourceTime, resolveTimelineItemSourceTime } from "./sourceTime";
 export { getActiveAudioClips } from "./audioClips";
 export type { ExportAudioClipConfig } from "./audioClips";
+export * from "./bezier";
+export * from "./speedRamp";
+

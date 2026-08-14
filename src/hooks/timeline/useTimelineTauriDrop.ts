@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, useRef, RefObject } from "react";
 import { useDragLayer } from "react-dnd";
 import { listen } from "@tauri-apps/api/event";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { platform } from "@/core/platform";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { generateId } from "@/lib/utils/id";
-import type { VideoMetadata } from "@/types";
 import { createClipFromAsset } from "@/lib/timeline/timelineClip";
 import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime, resolvePreferredTrackId, resolveTargetTrackType } from "@/lib/timeline/placementPolicy";
@@ -54,8 +53,13 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
           if (!asset) {
             // Import new asset
             if (type === "video" || type === "audio") {
-              const metadata: VideoMetadata = await invoke("get_media_metadata", { path: filePath });
-              const posterFrame: string | undefined = type === "video" ? ((await invoke("extract_poster_frame", { path: filePath, time: 0.0 }).catch(() => undefined)) as string | undefined) : undefined;
+              const metadata = await platform.getMediaMetadata(filePath);
+              let posterFrame: string | undefined;
+              if (type === "video") {
+                posterFrame = await platform
+                  .extractPosterFrame(filePath, metadata.duration, window.devicePixelRatio || 1.0)
+                  .catch(() => undefined);
+              }
 
               asset = {
                 id: generateId("asset"),
@@ -66,7 +70,7 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
                 width: metadata.width,
                 height: metadata.height,
                 posterFrame,
-                size: metadata.size,
+                size: metadata.size || 0,
               };
             } else {
               asset = {
@@ -76,12 +80,14 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
                 type: "image" as const,
                 duration: 0,
                 size: 0,
-                posterFrame: convertFileSrc(filePath),
+                posterFrame: platform.convertFileSrc(filePath),
               };
             }
 
             addMediaAsset(asset);
           }
+
+          if (!asset) continue;
 
           // Add clip to timeline at end
           const targetTrackType = resolveTargetTrackType(asset);

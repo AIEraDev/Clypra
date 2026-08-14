@@ -1836,7 +1836,7 @@ export class PreviewMediaPool {
     const sourceTime = getClipSourceTime(clip, syncState.time, syncState.frameRate, activeTransitions);
 
     // Combine global preview volume with per-clip and per-track volume
-    const clipVolume = clip.volume ?? 1.0; // Default to 1.0 if not set
+    const clipVolume = clip.volume ?? 1.0;
     const track = useTimelineStore.getState().tracks.find((t) => t.id === clip.trackId);
     const trackVolume = track?.volume ?? 1.0;
     const combinedVolume = (syncState.volume / 100) * clipVolume * trackVolume;

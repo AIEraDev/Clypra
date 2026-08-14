@@ -62,6 +62,7 @@ interface NativeTimelineRunCallbacks {
     etaSeconds: number;
     fps: number;
   }) => void;
+  signal?: AbortSignal;
   onSessionReady?: (cancel: () => Promise<void>) => void;
 }
 
@@ -223,10 +224,23 @@ export async function runNativeTimelineExport(
     plan,
     onProgress: progressChannel,
   });
-  callbacks.onSessionReady?.(async () => {
+
+  const performCancel = async () => {
     cancelled = true;
     await invoke("cancel_native_timeline_export", { sessionId }).catch(() => {});
-  });
+  };
+
+  callbacks.onSessionReady?.(performCancel);
+
+  if (callbacks.signal) {
+    if (callbacks.signal.aborted) {
+      await performCancel();
+    } else {
+      callbacks.signal.addEventListener("abort", () => {
+        performCancel().catch(() => {});
+      }, { once: true });
+    }
+  }
 
   try {
     const completion = await invoke<{

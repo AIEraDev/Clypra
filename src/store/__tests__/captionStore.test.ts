@@ -57,4 +57,45 @@ describe("captionStore — Whisper Model & Caption Settings", () => {
     setLanguageHints(["en", "es", "ja"]);
     expect(useCaptionStore.getState().captionSettings.languageHints).toEqual(["en", "es", "ja"]);
   });
+
+  it("manages subtitle segments and clearSegments action", () => {
+    const mockSegments = [
+      {
+        id: 0,
+        text: "Hello world",
+        startMs: 0,
+        endMs: 1500,
+        words: [
+          { word: "Hello", startMs: 0, endMs: 750 },
+          { word: "world", startMs: 750, endMs: 1500 },
+        ],
+      },
+    ];
+
+    useCaptionStore.setState({ segments: mockSegments });
+    expect(useCaptionStore.getState().segments).toHaveLength(1);
+    expect(useCaptionStore.getState().segments[0].words).toHaveLength(2);
+
+    useCaptionStore.getState().clearSegments();
+    expect(useCaptionStore.getState().segments).toHaveLength(0);
+  });
+
+  it("manages karaoke overlay toggle and styling customizations", () => {
+    const { setKaraokeOverlayEnabled, setKaraokeStyle } = useCaptionStore.getState();
+
+    expect(useCaptionStore.getState().karaokeOverlayEnabled).toBe(false);
+    setKaraokeOverlayEnabled(true);
+    expect(useCaptionStore.getState().karaokeOverlayEnabled).toBe(true);
+
+    setKaraokeStyle({
+      activeColor: "#00ffff",
+      fontSize: 42,
+      position: "middle",
+    });
+
+    const style = useCaptionStore.getState().karaokeStyle;
+    expect(style.activeColor).toBe("#00ffff");
+    expect(style.fontSize).toBe(42);
+    expect(style.position).toBe("middle");
+  });
 });
