@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { normalizePathForTauriInvoke, decodeFrame, decodeFramesStreaming, releaseVideoDecoder } from "../platform/tauri";
+import { normalizePathForTauriInvoke, decodeFrame, decodeFramesStreaming, releaseVideoDecoder, streamTimelineFramesBinary, prewarmDecoders } from "../platform/tauri";
 import { DensityLevel } from "@/types";
 
 // Stub Tauri internals globally for this test suite
@@ -262,3 +262,83 @@ describe("releaseVideoDecoder", () => {
     expect(result).toBeUndefined();
   });
 });
+
+// ─── streamTimelineFramesBinary ─────────────────────────────────────────────
+
+describe("streamTimelineFramesBinary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(invoke).mockReset();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("calls stream_timeline_frames_binary with Channel and normalized path", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    const onFrame = vi.fn();
+
+    await streamTimelineFramesBinary("/test/video.mp4", [0.5, 1.5], 1920, 1080, onFrame);
+
+    expect(invoke).toHaveBeenCalledWith(
+      "stream_timeline_frames_binary",
+      expect.objectContaining({
+        videoPath: "/test/video.mp4",
+        timestamps: [0.5, 1.5],
+        width: 1920,
+        height: 1080,
+        onFrame: expect.any(Object),
+      }),
+    );
+  });
+
+  it("normalizes file:// URLs before invoking", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    await streamTimelineFramesBinary("file:///Users/test/clip.mov", [0.0], 1280, 720, vi.fn());
+
+    expect(invoke).toHaveBeenCalledWith(
+      "stream_timeline_frames_binary",
+      expect.objectContaining({
+        videoPath: "/Users/test/clip.mov",
+      }),
+    );
+  });
+
+  it("propagates error when backend fails", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("Decoder initialization failed"));
+    await expect(
+      streamTimelineFramesBinary("/test/video.mp4", [0.5], 1920, 1080, vi.fn()),
+    ).rejects.toThrow("Decoder initialization failed");
+  });
+});
+
+// ─── prewarmDecoders ────────────────────────────────────────────────────────
+
+describe("prewarmDecoders", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(invoke).mockReset();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns 0 immediately if path list is empty without invoking Tauri", async () => {
+    const result = await prewarmDecoders([]);
+    expect(result).toBe(0);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("normalizes paths and calls prewarm_decoders", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(2);
+    const result = await prewarmDecoders(["file:///Users/test/a.mp4", "/test/b.mp4"]);
+
+    expect(invoke).toHaveBeenCalledWith("prewarm_decoders", {
+      videoPaths: ["/Users/test/a.mp4", "/test/b.mp4"],
+    });
+    expect(result).toBe(2);
+  });
+
+  it("gracefully catches errors and returns 0", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("Channel closed"));
+    const result = await prewarmDecoders(["/test/video.mp4"]);
+    expect(result).toBe(0);
+  });
+});
+

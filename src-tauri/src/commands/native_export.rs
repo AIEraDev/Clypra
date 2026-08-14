@@ -93,11 +93,126 @@ fn target_bitrate(plan: &NativeTimelineExportPlan) -> u64 {
     ((base * pixels) / (3840 * 2160)).max(4_000_000)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HwAccelType {
+    VideoToolbox,
+    Nvenc,
+    Qsv,
+    Amf,
+    Vaapi,
+    Software,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectedEncoder {
+    pub codec_name: String,
+    pub hw_type: HwAccelType,
+    pub hwaccel_flag: Option<String>,
+}
+
+#[allow(dead_code)]
+fn test_encoder_available(encoder: &str) -> bool {
+    let output = std::process::Command::new("ffmpeg")
+        .env("PATH", super::export::augmented_path())
+        .args(["-hide_banner", "-encoders"])
+        .output();
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        stdout.contains(encoder)
+    } else {
+        false
+    }
+}
+
+pub fn detect_best_encoder(codec: &str) -> SelectedEncoder {
+    #[cfg(target_os = "macos")]
+    {
+        match codec {
+            "h265" | "hevc" => SelectedEncoder {
+                codec_name: "hevc_videotoolbox".into(),
+                hw_type: HwAccelType::VideoToolbox,
+                hwaccel_flag: Some("videotoolbox".into()),
+            },
+            "prores" => SelectedEncoder {
+                codec_name: "prores_videotoolbox".into(),
+                hw_type: HwAccelType::VideoToolbox,
+                hwaccel_flag: Some("videotoolbox".into()),
+            },
+            _ => SelectedEncoder {
+                codec_name: "h264_videotoolbox".into(),
+                hw_type: HwAccelType::VideoToolbox,
+                hwaccel_flag: Some("videotoolbox".into()),
+            },
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let is_hevc = codec == "h265" || codec == "hevc";
+        if test_encoder_available("h264_nvenc") {
+            SelectedEncoder {
+                codec_name: if is_hevc { "hevc_nvenc".into() } else { "h264_nvenc".into() },
+                hw_type: HwAccelType::Nvenc,
+                hwaccel_flag: Some("cuda".into()),
+            }
+        } else if test_encoder_available("h264_qsv") {
+            SelectedEncoder {
+                codec_name: if is_hevc { "hevc_qsv".into() } else { "h264_qsv".into() },
+                hw_type: HwAccelType::Qsv,
+                hwaccel_flag: Some("qsv".into()),
+            }
+        } else if test_encoder_available("h264_amf") {
+            SelectedEncoder {
+                codec_name: if is_hevc { "hevc_amf".into() } else { "h264_amf".into() },
+                hw_type: HwAccelType::Amf,
+                hwaccel_flag: Some("d3d11va".into()),
+            }
+        } else {
+            SelectedEncoder {
+                codec_name: if is_hevc { "libx265".into() } else { "libx264".into() },
+                hw_type: HwAccelType::Software,
+                hwaccel_flag: None,
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let is_hevc = codec == "h265" || codec == "hevc";
+        if test_encoder_available("h264_vaapi") {
+            SelectedEncoder {
+                codec_name: if is_hevc { "hevc_vaapi".into() } else { "h264_vaapi".into() },
+                hw_type: HwAccelType::Vaapi,
+                hwaccel_flag: Some("vaapi".into()),
+            }
+        } else if test_encoder_available("h264_nvenc") {
+            SelectedEncoder {
+                codec_name: if is_hevc { "hevc_nvenc".into() } else { "h264_nvenc".into() },
+                hw_type: HwAccelType::Nvenc,
+                hwaccel_flag: Some("cuda".into()),
+            }
+        } else {
+            SelectedEncoder {
+                codec_name: if is_hevc { "libx265".into() } else { "libx264".into() },
+                hw_type: HwAccelType::Software,
+                hwaccel_flag: None,
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        let is_hevc = codec == "h265" || codec == "hevc";
+        SelectedEncoder {
+            codec_name: if is_hevc { "libx265".into() } else { "libx264".into() },
+            hw_type: HwAccelType::Software,
+            hwaccel_flag: None,
+        }
+    }
+}
+
 fn build_segment_args(
     plan: &NativeTimelineExportPlan,
     clip: &NativeTimelineClipPlan,
     output_path: &Path,
-    use_videotoolbox: bool,
+    encoder: &SelectedEncoder,
 ) -> Vec<String> {
     let source_duration = number(clip.duration);
     let output_duration = number(clip.frame_count as f64 / plan.frame_rate);
@@ -113,8 +228,11 @@ fn build_segment_args(
         "2".into(),
     ];
 
-    if use_videotoolbox {
-        args.extend(["-hwaccel".into(), "videotoolbox".into()]);
+    if let Some(ref hwaccel) = encoder.hwaccel_flag {
+        args.extend(["-hwaccel".into(), hwaccel.clone()]);
+        if encoder.hw_type == HwAccelType::Vaapi {
+            args.extend(["-vaapi_device".into(), "/dev/dri/renderD128".into()]);
+        }
     }
 
     args.extend([
@@ -152,85 +270,154 @@ fn build_segment_args(
         "-an".into(),
     ]);
 
-    match plan.codec.as_str() {
-        "h265" if use_videotoolbox => {
+    match encoder.hw_type {
+        HwAccelType::VideoToolbox => {
+            if plan.codec == "h265" {
+                let bitrate = target_bitrate(plan);
+                args.extend([
+                    "-c:v".into(),
+                    encoder.codec_name.clone(),
+                    "-tag:v".into(),
+                    "hvc1".into(),
+                    "-b:v".into(),
+                    bitrate.to_string(),
+                    "-maxrate".into(),
+                    (bitrate * 10 / 7).to_string(),
+                    "-bufsize".into(),
+                    (bitrate * 2).to_string(),
+                    "-allow_sw".into(),
+                    "1".into(),
+                    "-realtime".into(),
+                    "1".into(),
+                    "-prio_speed".into(),
+                    "1".into(),
+                    "-bf".into(),
+                    "0".into(),
+                    "-g".into(),
+                    number(plan.frame_rate * 2.0),
+                ]);
+            } else if plan.codec == "h264" {
+                args.extend([
+                    "-c:v".into(),
+                    encoder.codec_name.clone(),
+                    "-b:v".into(),
+                    target_bitrate(plan).to_string(),
+                    "-allow_sw".into(),
+                    "1".into(),
+                    "-realtime".into(),
+                    "1".into(),
+                    "-bf".into(),
+                    "0".into(),
+                    "-g".into(),
+                    number(plan.frame_rate * 2.0),
+                ]);
+            } else if plan.codec == "prores" {
+                args.extend(["-c:v".into(), encoder.codec_name.clone()]);
+            }
+        }
+        HwAccelType::Nvenc => {
             let bitrate = target_bitrate(plan);
             args.extend([
                 "-c:v".into(),
-                "hevc_videotoolbox".into(),
-                "-tag:v".into(),
-                "hvc1".into(),
+                encoder.codec_name.clone(),
+                "-preset".into(),
+                "p4".into(),
                 "-b:v".into(),
                 bitrate.to_string(),
                 "-maxrate".into(),
                 (bitrate * 10 / 7).to_string(),
                 "-bufsize".into(),
                 (bitrate * 2).to_string(),
-                "-allow_sw".into(),
-                "1".into(),
-                "-realtime".into(),
-                "1".into(),
-                "-prio_speed".into(),
-                "1".into(),
                 "-bf".into(),
                 "0".into(),
                 "-g".into(),
                 number(plan.frame_rate * 2.0),
             ]);
+            if plan.codec == "h265" {
+                args.extend(["-tag:v".into(), "hvc1".into()]);
+            }
         }
-        "h264" if use_videotoolbox => {
+        HwAccelType::Qsv => {
+            let bitrate = target_bitrate(plan);
             args.extend([
                 "-c:v".into(),
-                "h264_videotoolbox".into(),
+                encoder.codec_name.clone(),
                 "-b:v".into(),
-                target_bitrate(plan).to_string(),
-                "-allow_sw".into(),
-                "1".into(),
-                "-realtime".into(),
-                "1".into(),
+                bitrate.to_string(),
                 "-bf".into(),
                 "0".into(),
                 "-g".into(),
                 number(plan.frame_rate * 2.0),
             ]);
+            if plan.codec == "h265" {
+                args.extend(["-tag:v".into(), "hvc1".into()]);
+            }
         }
-        "prores" if use_videotoolbox => {
-            args.extend(["-c:v".into(), "prores_videotoolbox".into()]);
-        }
-        "h265" => {
+        HwAccelType::Amf => {
+            let bitrate = target_bitrate(plan);
             args.extend([
                 "-c:v".into(),
-                "libx265".into(),
-                "-preset".into(),
-                plan.preset.clone(),
-                "-crf".into(),
-                plan.crf.to_string(),
-                "-tag:v".into(),
-                "hvc1".into(),
+                encoder.codec_name.clone(),
+                "-b:v".into(),
+                bitrate.to_string(),
                 "-bf".into(),
                 "0".into(),
                 "-g".into(),
                 number(plan.frame_rate * 2.0),
             ]);
+            if plan.codec == "h265" {
+                args.extend(["-tag:v".into(), "hvc1".into()]);
+            }
         }
-        "h264" => {
+        HwAccelType::Vaapi => {
+            let bitrate = target_bitrate(plan);
             args.extend([
                 "-c:v".into(),
-                "libx264".into(),
-                "-preset".into(),
-                plan.preset.clone(),
-                "-crf".into(),
-                plan.crf.to_string(),
+                encoder.codec_name.clone(),
+                "-b:v".into(),
+                bitrate.to_string(),
                 "-bf".into(),
                 "0".into(),
                 "-g".into(),
                 number(plan.frame_rate * 2.0),
             ]);
+            if plan.codec == "h265" {
+                args.extend(["-tag:v".into(), "hvc1".into()]);
+            }
         }
-        "prores" => {
-            args.extend(["-c:v".into(), "prores_ks".into()]);
+        HwAccelType::Software => {
+            if plan.codec == "h265" {
+                args.extend([
+                    "-c:v".into(),
+                    "libx265".into(),
+                    "-preset".into(),
+                    plan.preset.clone(),
+                    "-crf".into(),
+                    plan.crf.to_string(),
+                    "-tag:v".into(),
+                    "hvc1".into(),
+                    "-bf".into(),
+                    "0".into(),
+                    "-g".into(),
+                    number(plan.frame_rate * 2.0),
+                ]);
+            } else if plan.codec == "h264" {
+                args.extend([
+                    "-c:v".into(),
+                    "libx264".into(),
+                    "-preset".into(),
+                    plan.preset.clone(),
+                    "-crf".into(),
+                    plan.crf.to_string(),
+                    "-bf".into(),
+                    "0".into(),
+                    "-g".into(),
+                    number(plan.frame_rate * 2.0),
+                ]);
+            } else if plan.codec == "prores" {
+                args.extend(["-c:v".into(), "prores_ks".into()]);
+            }
         }
-        _ => {}
     }
 
     args.extend([
@@ -519,7 +706,7 @@ async fn run_native_export(
     let total_frames = (plan.total_duration * plan.frame_rate).round() as u32;
     let temp_dir = std::env::temp_dir().join(format!("clypra-export-{session_id}"));
     let output_path = PathBuf::from(&plan.output_path);
-    let use_videotoolbox = cfg!(target_os = "macos");
+    let encoder = detect_best_encoder(&plan.codec);
     let segment_extension = if plan.codec == "prores" { "mov" } else { "mp4" };
     let result = async {
         tokio::fs::create_dir_all(&temp_dir)
@@ -536,7 +723,7 @@ async fn run_native_export(
             }
             let segment_path = temp_dir.join(format!("segment-{index:04}.{segment_extension}"));
             audio_streams.push(probe_has_audio(&clip.path).await);
-            let args = build_segment_args(&plan, clip, &segment_path, use_videotoolbox);
+            let args = build_segment_args(&plan, clip, &segment_path, &encoder);
             peak_rss = peak_rss.max(run_ffmpeg(&args, &cancellation).await?);
             segment_paths.push(segment_path);
             completed_duration += clip.duration;
@@ -760,8 +947,14 @@ mod tests {
             volume: 1.0,
         };
 
-        let main_args = build_segment_args(&plan(), &main, output, true);
-        let ident_args = build_segment_args(&plan(), &ident, output, true);
+        let encoder = SelectedEncoder {
+            codec_name: "hevc_videotoolbox".into(),
+            hw_type: HwAccelType::VideoToolbox,
+            hwaccel_flag: Some("videotoolbox".into()),
+        };
+
+        let main_args = build_segment_args(&plan(), &main, output, &encoder);
+        let ident_args = build_segment_args(&plan(), &ident, output, &encoder);
 
         for args in [main_args, ident_args] {
             let joined = args.join(" ");

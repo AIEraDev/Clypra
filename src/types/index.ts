@@ -273,6 +273,10 @@ export interface Clip {
   /** Text template ID for text clips */
   templateId?: string;
   adjustments?: import("@clypra-studio/engine").ColorAdjustments;
+  /** GPU UltraKey Chroma Key configuration */
+  chromaKey?: import("./compositor").ChromaKeyConfig;
+  /** GPU Color grading and 3D LUT uniforms */
+  colorGrade?: import("./compositor").ColorGradeUniforms;
   /** Clip-level markers pinned to local clip time */
   markers?: ClipMarker[];
   /** Visual property animation keyframes */
@@ -597,4 +601,5 @@ export interface ClipMarker {
 export * from "./export";
 export * from "./gap";
 export * from "./serialization";
+export * from "./compositor";
 

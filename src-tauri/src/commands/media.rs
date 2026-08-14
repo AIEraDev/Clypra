@@ -489,14 +489,8 @@ pub async fn extract_waveform_data(
         return Err(format!("FFmpeg audio decoding failed: {}", stderr));
     }
     
-    // Convert bytes to f32 samples
-    let samples: Vec<f32> = output.stdout
-        .chunks_exact(4)
-        .map(|chunk| {
-            let bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
-            f32::from_le_bytes(bytes)
-        })
-        .collect();
+    // Zero-copy cast bytes to f32 samples using bytemuck
+    let samples: &[f32] = bytemuck::cast_slice(&output.stdout);
     
     if samples.is_empty() {
         return Err("No audio samples extracted".to_string());
@@ -504,16 +498,18 @@ pub async fn extract_waveform_data(
     
     eprintln!("🦀 [extract_waveform_data] Decoded {} samples", samples.len());
     
-    // Compute peak and RMS for each bucket
-    let buckets = compute_waveform_buckets(&samples, num_buckets);
+    // Compute peak and RMS for each bucket in parallel
+    let buckets = compute_waveform_buckets(samples, num_buckets);
     
     eprintln!("🦀 [extract_waveform_data] Computed {} buckets", buckets.len());
     Ok(buckets)
 }
 
-/// Compute peak and RMS amplitudes for each pixel bucket.
+/// Compute peak and RMS amplitudes for each pixel bucket using parallel chunk processing.
 /// Professional audio analysis: peak captures transients, RMS captures energy.
 fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<WaveformBucket> {
+    use rayon::prelude::*;
+
     let samples_per_bucket = samples.len() / num_buckets;
     
     if samples_per_bucket == 0 {
@@ -522,21 +518,26 @@ fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<Waveform
     }
     
     (0..num_buckets)
+        .into_par_iter()
         .map(|i| {
             let start = i * samples_per_bucket;
             let end = ((i + 1) * samples_per_bucket).min(samples.len());
             let bucket = &samples[start..end];
             
-            // Peak: absolute maximum sample in bucket
-            let peak = bucket.iter()
-                .map(|s| s.abs())
-                .fold(0.0f32, f32::max);
-            
-            // RMS: root mean square (perceived loudness/energy)
-            let sum_squares: f32 = bucket.iter()
-                .map(|s| s * s)
-                .sum();
-            let rms = (sum_squares / bucket.len() as f32).sqrt();
+            let mut peak = 0.0f32;
+            let mut sum_squares = 0.0f32;
+            for &s in bucket {
+                let abs_s = s.abs();
+                if abs_s > peak {
+                    peak = abs_s;
+                }
+                sum_squares += s * s;
+            }
+            let rms = if !bucket.is_empty() {
+                (sum_squares / bucket.len() as f32).sqrt()
+            } else {
+                0.0
+            };
             
             WaveformBucket { peak, rms }
         })

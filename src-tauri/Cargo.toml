@@ -42,9 +42,13 @@ uuid = { version = "1", features = ["v4"] }
 unicode-segmentation = "1"
 reqwest = { version = "0.12", features = ["stream"] }
 futures-util = "0.3"
+parking_lot = "0.12"
+log = "0.4"
 
 # Native GPU rendering via wgpu
 wgpu = "24.0"
+bytemuck = { version = "1.21", features = ["derive"] }
+memmap2 = "0.9"
 
 # Native FFmpeg bindings for fast thumbnail extraction
 ffmpeg-next = "8"

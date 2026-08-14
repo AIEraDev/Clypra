@@ -275,17 +275,28 @@ impl VideoDecoder {
         mut ctx: ffmpeg::codec::context::Context,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
         #[cfg(target_os = "macos")]
-        let hw_types: &[u32] = &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX as u32];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+        ];
         #[cfg(target_os = "windows")]
-        let hw_types: &[u32] = &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA as u32];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_DXVA2,
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_QSV,
+        ];
         #[cfg(target_os = "linux")]
-        let hw_types: &[u32] = &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI as u32];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VULKAN,
+        ];
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        let hw_types: &[u32] = &[];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
 
-        for &hw_type_raw in hw_types {
+        let mut hw_attached = false;
+        for &hw_type in hw_types {
             unsafe {
-                let hw_type = std::mem::transmute::<u32, ffmpeg::ffi::AVHWDeviceType>(hw_type_raw);
                 let mut hw_ctx = std::ptr::null_mut();
                 let ret = ffmpeg::ffi::av_hwdevice_ctx_create(
                     &mut hw_ctx,
@@ -294,19 +305,26 @@ impl VideoDecoder {
                     std::ptr::null_mut(),
                     0,
                 );
-                if ret >= 0 {
+                if ret >= 0 && !hw_ctx.is_null() {
                     (*ctx.as_mut_ptr()).hw_device_ctx =
                         ffmpeg::ffi::av_buffer_ref(hw_ctx);
                     ffmpeg::ffi::av_buffer_unref(&mut hw_ctx);
+                    hw_attached = true;
+                    eprintln!("[VideoDecoder::open_with_hw] Activated HW acceleration: {:?}", hw_type);
+                    break;
                 }
             }
+        }
+
+        if !hw_attached {
+            eprintln!("[VideoDecoder::open_with_hw] No HW accelerator attached, using optimized software decoder");
         }
 
         let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
         let w = decoder.width();
         let h = decoder.height();
 
-        eprintln!("[VideoDecoder::open] Opened {}x{} decoder", w, h);
+        eprintln!("[VideoDecoder::open] Opened {}x{} decoder (hw={})", w, h, hw_attached);
 
         Ok((decoder, w, h))
     }
@@ -590,6 +608,118 @@ impl VideoDecoder {
             Ok(cpu_frame)
         } else {
             Ok(frame)
+        }
+    }
+
+    /// Extract raw NV12 planes (Y plane + interleaved UV plane) directly from a decoded frame without CPU sws_scale.
+    pub fn extract_nv12_planes(&self, frame: &ffmpeg::frame::Video) -> Option<(Vec<u8>, Vec<u8>, u32, u32)> {
+        if frame.format() == ffmpeg::format::Pixel::NV12 {
+            let width = frame.width() as usize;
+            let height = frame.height() as usize;
+            let y_stride = frame.stride(0);
+            let uv_stride = frame.stride(1);
+            let y_data = frame.data(0);
+            let uv_data = frame.data(1);
+
+            let mut y_plane = Vec::with_capacity(width * height);
+            for y in 0..height {
+                let row_start = y * y_stride;
+                y_plane.extend_from_slice(&y_data[row_start..row_start + width]);
+            }
+
+            let uv_height = (height + 1) / 2;
+            let mut uv_plane = Vec::with_capacity(width * uv_height);
+            for y in 0..uv_height {
+                let row_start = y * uv_stride;
+                uv_plane.extend_from_slice(&uv_data[row_start..row_start + width]);
+            }
+
+            Some((y_plane, uv_plane, width as u32, height as u32))
+        } else {
+            None
+        }
+    }
+
+    /// Decode a single frame and return raw NV12 planes directly (Y + UV) for GPU shader consumption.
+    pub fn decode_frame_raw_nv12(
+        &mut self,
+        timestamp_secs: f64,
+    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32), String> {
+        let ts = timestamp_secs.max(0.0).min(self.duration - 0.001);
+        let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        self.state.update_sequential(target_pts);
+
+        let needs_seek = self.state.current_pts < 0
+            || target_pts < self.state.current_pts
+            || !self.state.can_decode_forward(target_pts, sequential_window);
+
+        if needs_seek {
+            unsafe {
+                let ret = ffmpeg::ffi::av_seek_frame(
+                    self.input_ctx.as_mut_ptr(),
+                    self.stream_index as i32,
+                    target_pts,
+                    ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+                );
+                if ret < 0 {
+                    return Err(format!("Seek failed at {}s", ts));
+                }
+            }
+            self.decoder.flush();
+            self.state.current_pts = -1;
+            self.state.gop_start_pts = target_pts;
+        }
+
+        let mut best_frame = ffmpeg::frame::Video::empty();
+        let mut found = false;
+
+        'decode: for (stream, packet) in self.input_ctx.packets() {
+            if stream.index() != self.stream_index {
+                continue;
+            }
+            if self.decoder.send_packet(&packet).is_err() {
+                continue;
+            }
+            let mut frame = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut frame).is_ok() {
+                let pts = frame.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                if frame_ts >= ts - (1.0 / 60.0) {
+                    best_frame = frame;
+                    found = true;
+                    break 'decode;
+                }
+                best_frame = frame;
+                frame = ffmpeg::frame::Video::empty();
+            }
+        }
+
+        if !found && best_frame.width() == 0 {
+            return Err(format!("No frame found at {}s", ts));
+        }
+
+        let cpu_frame = self.to_cpu_frame(best_frame)?;
+        if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
+            Ok(nv12)
+        } else {
+            use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
+            let mut scaler = Context::get(
+                cpu_frame.format(),
+                cpu_frame.width(),
+                cpu_frame.height(),
+                ffmpeg::format::Pixel::NV12,
+                cpu_frame.width(),
+                cpu_frame.height(),
+                Flags::FAST_BILINEAR,
+            )
+            .map_err(|e| e.to_string())?;
+
+            let mut out = ffmpeg::frame::Video::empty();
+            scaler.run(&cpu_frame, &mut out).map_err(|e| e.to_string())?;
+            self.extract_nv12_planes(&out)
+                .ok_or_else(|| "Failed to extract converted NV12 planes".to_string())
         }
     }
 

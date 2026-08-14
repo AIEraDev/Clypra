@@ -2,14 +2,30 @@
  * Native wgpu Compositor & Offscreen Renderer
  *
  * Real wgpu GPU pipeline initialization for Clypra Rust core.
- * Headless Instance -> Adapter (Metal/Vulkan) -> Device/Queue -> Texture Render Pass -> Buffer Readback
+ * Headless Instance -> Adapter (Metal/Vulkan/DirectX) -> Device/Queue -> Texture Render Pass -> Buffer Readback
  */
 
 use std::borrow::Cow;
 
+pub mod texture_pool;
+pub use texture_pool::{
+    create_nv12_bind_group_layout, create_nv12_render_pipeline, create_nv12_sampler,
+    render_scrub_frame, Nv12FrameSlot, Nv12TextureRingBuffer,
+};
+
+pub mod yuv_ring_buffer;
+pub use yuv_ring_buffer::{
+    create_yuv_hdr_bind_group_layout, create_yuv_hdr_render_pipeline, create_yuv_hdr_sampler,
+    render_yuv_frame, ColorTransformUniforms, YuvFrameSlot, YuvPixelFormat, YuvTextureRingBuffer,
+};
+
+pub mod adapter_selector;
+pub use adapter_selector::{GpuContext, SelectedGpuInfo};
+
 pub struct NativeWgpuRenderer {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
+    pub gpu_info: SelectedGpuInfo,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
 }
@@ -22,20 +38,21 @@ impl NativeWgpuRenderer {
             backend_options: Default::default(),
         });
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok_or_else(|| "Failed to find suitable GPU adapter for wgpu".to_string())?;
+        let gpu_ctx = GpuContext::select_best_gpu(&instance).await?;
+        let adapter = gpu_ctx.adapter;
+        let gpu_info = gpu_ctx.info;
+
+        let available_features = adapter.features();
+        let mut required_features = wgpu::Features::empty();
+        if available_features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
+            required_features |= wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
+        }
 
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Native Wgpu Device"),
-                    required_features: wgpu::Features::empty(),
+                    required_features,
                     required_limits: wgpu::Limits::default(),
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
@@ -47,16 +64,328 @@ impl NativeWgpuRenderer {
         Ok(Self {
             instance,
             adapter,
+            gpu_info,
             device,
             queue,
         })
     }
 
-    /// Native 0.2 Milestone: Render an OverlayDocument fixture directly via wgpu
-    pub async fn render_overlay_document(&self, doc: &crate::models::overlay::OverlayDocument, t: f64) -> Result<Vec<u8>, String> {
+    /// Render an NV12 multi-planar frame (Y + UV planes) directly to RGBA on the GPU using WGSL shader.
+    /// Eliminates host CPU sws_scale matrix transformation and reduces PCIe transfer overhead by ~50%.
+    pub async fn render_nv12_frame(
+        &self,
+        width: u32,
+        height: u32,
+        y_plane: &[u8],
+        uv_plane: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        if width == 0 || height == 0 {
+            return Err("Width and height must be non-zero".to_string());
+        }
+
+        // 1. Create Y plane texture (R8Unorm)
+        let y_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("NV12 Y Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &y_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            y_plane,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let uv_width = (width + 1) / 2;
+        let uv_height = (height + 1) / 2;
+
+        // 2. Create UV plane texture (Rg8Unorm)
+        let uv_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("NV12 UV Texture"),
+            size: wgpu::Extent3d {
+                width: uv_width,
+                height: uv_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &uv_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            uv_plane,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(uv_width * 2),
+                rows_per_image: Some(uv_height),
+            },
+            wgpu::Extent3d {
+                width: uv_width,
+                height: uv_height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let y_view = y_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let uv_view = uv_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("NV12 Linear Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // 3. Render target texture (RGBA8Unorm)
+        let target_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("NV12 Target RGBA Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let shader_source = include_str!("shaders/yuv_to_rgb.wgsl");
+        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("NV12 YUV to RGB Shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(shader_source)),
+        });
+
+        let bind_group_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("NV12 Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("NV12 Bind Group"),
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&y_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&uv_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("NV12 Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("NV12 Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("NV12 Render Encoder"),
+        });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("NV12 Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            render_pass.set_pipeline(&render_pipeline);
+            render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+        }
+
+        // Buffer readback with 256-byte alignment compliance
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+        let buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("NV12 Readback Buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = output_buffer.slice(..);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = sender.send(res);
+        });
+
+        self.device.poll(wgpu::Maintain::Wait);
+        receiver
+            .await
+            .map_err(|e| format!("Channel error: {}", e))?
+            .map_err(|e| format!("Buffer map error: {:?}", e))?;
+
+        let mapped_view = buffer_slice.get_mapped_range();
+        let mut rgba_bytes = vec![0u8; (width * height * 4) as usize];
+
+        for y in 0..height {
+            let src_start = (y * padded_bytes_per_row) as usize;
+            let src_end = src_start + unpadded_bytes_per_row as usize;
+            let dst_start = (y * unpadded_bytes_per_row) as usize;
+            let dst_end = dst_start + unpadded_bytes_per_row as usize;
+            rgba_bytes[dst_start..dst_end].copy_from_slice(&mapped_view[src_start..src_end]);
+        }
+
+        drop(mapped_view);
+        output_buffer.unmap();
+
+        Ok(rgba_bytes)
+    }
+
+    /// Render an OverlayDocument fixture directly via wgpu
+    pub async fn render_overlay_document(
+        &self,
+        doc: &crate::models::overlay::OverlayDocument,
+        _t: f64,
+    ) -> Result<Vec<u8>, String> {
         let width = doc.canvas.width;
         let height = doc.canvas.height;
-        
+
         let default_node = crate::models::overlay::OverlayNode {
             id: "default".to_string(),
             name: "Default".to_string(),
@@ -71,7 +400,7 @@ impl NativeWgpuRenderer {
         };
 
         let node = doc.nodes.first().unwrap_or(&default_node);
-        
+
         // Calculate normalized bounds
         let norm_x = node.x / width as f32;
         let norm_y = node.y / height as f32;
@@ -80,7 +409,11 @@ impl NativeWgpuRenderer {
 
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("OverlayDocument Target Texture"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -158,7 +491,12 @@ impl NativeWgpuRenderer {
         let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Doc Render Pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
@@ -176,7 +514,9 @@ impl NativeWgpuRenderer {
             cache: None,
         });
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Doc Command Encoder") });
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Doc Command Encoder"),
+        });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -184,7 +524,15 @@ impl NativeWgpuRenderer {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.058, g: 0.09, b: 0.164, a: 1.0 }), store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.058,
+                            g: 0.09,
+                            b: 0.164,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -208,19 +556,40 @@ impl NativeWgpuRenderer {
         });
 
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::ImageCopyBuffer { buffer: &output_buffer, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(padded_bytes_per_row), rows_per_image: Some(height) } },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
 
         self.queue.submit(Some(encoder.finish()));
 
         let buffer_slice = output_buffer.slice(..);
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |res| { let _ = sender.send(res); });
+        buffer_slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = sender.send(res);
+        });
 
         self.device.poll(wgpu::Maintain::Wait);
-        receiver.await.map_err(|e| format!("Channel error: {}", e))?.map_err(|e| format!("Buffer map error: {:?}", e))?;
+        receiver
+            .await
+            .map_err(|e| format!("Channel error: {}", e))?
+            .map_err(|e| format!("Buffer map error: {:?}", e))?;
 
         let mapped_view = buffer_slice.get_mapped_range();
         let mut rgba_bytes = vec![0u8; (width * height * 4) as usize];
@@ -239,9 +608,8 @@ impl NativeWgpuRenderer {
         Ok(rgba_bytes)
     }
 
-    /// Render a single animated rectangle frame onto an offscreen 1280x720 texture
+    /// Render a single animated rectangle frame onto an offscreen texture
     pub async fn render_rectangle_frame(&self, width: u32, height: u32, t: f64) -> Result<Vec<u8>, String> {
-        // Offscreen texture target
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Offscreen Target Texture"),
             size: wgpu::Extent3d {
@@ -260,7 +628,6 @@ impl NativeWgpuRenderer {
         let texture = self.device.create_texture(&texture_desc);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Simple WGSL shader rendering dark slate background and bright rectangle
         let shader_source = format!(
             r#"
             struct VertexOutput {{
@@ -400,15 +767,15 @@ impl NativeWgpuRenderer {
         });
 
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &output_buffer,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
                     rows_per_image: Some(height),
@@ -431,7 +798,10 @@ impl NativeWgpuRenderer {
         });
 
         self.device.poll(wgpu::Maintain::Wait);
-        receiver.await.map_err(|e| format!("Channel error: {}", e))?.map_err(|e| format!("Buffer map error: {:?}", e))?;
+        receiver
+            .await
+            .map_err(|e| format!("Channel error: {}", e))?
+            .map_err(|e| format!("Buffer map error: {:?}", e))?;
 
         let mapped_view = buffer_slice.get_mapped_range();
         let mut rgba_bytes = vec![0u8; (width * height * 4) as usize];
@@ -448,5 +818,40 @@ impl NativeWgpuRenderer {
         output_buffer.unmap();
 
         Ok(rgba_bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_wgpu_nv12_shader_render() {
+        let renderer = NativeWgpuRenderer::new().await;
+        if let Ok(renderer) = renderer {
+            let width = 64u32;
+            let height = 64u32;
+
+            // Synthetic Rec. 709 neutral gray in NV12: Y=128, U=128, V=128
+            let y_plane = vec![128u8; (width * height) as usize];
+            let uv_plane = vec![128u8; (width * height / 2) as usize];
+
+            let rgba = renderer
+                .render_nv12_frame(width, height, &y_plane, &uv_plane)
+                .await;
+            assert!(rgba.is_ok(), "NV12 rendering failed: {:?}", rgba.err());
+            let bytes = rgba.unwrap();
+            assert_eq!(bytes.len(), (width * height * 4) as usize);
+
+            // Neutral gray check: R, G, B should be approximately equal and non-zero
+            let r = bytes[0];
+            let g = bytes[1];
+            let b = bytes[2];
+            let a = bytes[3];
+            assert_eq!(a, 255, "Alpha channel must be 255");
+            let diff_rg = (r as i32 - g as i32).abs();
+            let diff_gb = (g as i32 - b as i32).abs();
+            assert!(diff_rg <= 10 && diff_gb <= 10, "Color should be neutral gray, got R={} G={} B={}", r, g, b);
+        }
     }
 }

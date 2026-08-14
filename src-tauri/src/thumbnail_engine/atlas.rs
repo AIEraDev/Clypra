@@ -178,18 +178,17 @@ impl AtlasBuilder {
         
         let offset_x = cell_x + (self.thumb_width - actual_width) / 2;
         let offset_y = cell_y + (self.thumb_height - actual_height) / 2;
-        
-        for y in 0..actual_height {
-            for x in 0..actual_width {
-                let src_idx = ((y * actual_width + x) * 4) as usize;
-                let pixel = Rgba([
-                    rgba_data[src_idx],
-                    rgba_data[src_idx + 1],
-                    rgba_data[src_idx + 2],
-                    rgba_data[src_idx + 3],
-                ]);
-                self.atlas.put_pixel(offset_x + x, offset_y + y, pixel);
-            }
+        let atlas_width = self.atlas.width() as usize;
+        let src_row_bytes = (actual_width * 4) as usize;
+        let dst_raw: &mut [u8] = &mut self.atlas;
+
+        for y in 0..actual_height as usize {
+            let dst_y = offset_y as usize + y;
+            let dst_row_start = (dst_y * atlas_width + offset_x as usize) * 4;
+            let dst_row_end = dst_row_start + src_row_bytes;
+            let src_row_start = y * src_row_bytes;
+            let src_row_end = src_row_start + src_row_bytes;
+            dst_raw[dst_row_start..dst_row_end].copy_from_slice(&rgba_data[src_row_start..src_row_end]);
         }
 
         self.count += 1;

@@ -368,6 +368,58 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
     cancelExportFnRef.current = null; // clear any stale cancel fn from previous export
 
     try {
+      // 1. Analyze if the timeline is eligible for native zero-copy hardware acceleration
+      const { analyzeNativeTimelineExport, runNativeTimelineExport } = await import("@/lib/export/nativeTimelineExport");
+      const eligibility = analyzeNativeTimelineExport({
+        clips,
+        tracks,
+        transitions,
+        assets: mediaAssets,
+        project,
+        startTime: 0,
+        endTime: sequenceDuration,
+        outputPath,
+        width: resolvedWidth,
+        height: resolvedHeight,
+        frameRate: project.frameRate,
+        codec: selectedPreset.codecValue as any,
+        preset: selectedPreset.preset,
+        crf: selectedPreset.crf,
+        pixelFormat: selectedPreset.pixelFormat as any,
+      });
+
+      if (eligibility.eligible) {
+        console.log("[ExportDialog] Fast-Path: Native Hardware Acceleration activated!", eligibility.plan);
+        const nativeResult = await runNativeTimelineExport(eligibility.plan, {
+          onProgress: (p) => setProgress({
+            currentFrame: p.currentFrame,
+            totalFrames: p.totalFrames,
+            progress: p.progress,
+            fps: p.fps,
+            etaSeconds: p.etaSeconds,
+          }),
+          onSessionReady: (cancel) => {
+            cancelExportFnRef.current = cancel;
+          },
+        });
+
+        if (!nativeResult.cancelled) {
+          setResult({
+            totalFrames: nativeResult.completedFrames,
+            totalTimeMs: nativeResult.totalTimeMs,
+            avgTimePerFrameMs: nativeResult.totalTimeMs > 0 && nativeResult.completedFrames > 0
+              ? nativeResult.totalTimeMs / nativeResult.completedFrames
+              : 0,
+          });
+          setPhase("complete");
+          return;
+        } else {
+          setPhase("configure");
+          return;
+        }
+      }
+
+      // 2. Fallback to Compositor export for complex layers / overlays
       const { exportVideo } = await exportVideoModule();
 
       const exportResult = await exportVideo({
@@ -411,7 +463,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ isOpen, onClose }) =
       setError(err instanceof Error ? err.message : "Export failed");
       setPhase("error");
     }
-  }, [outputPath, project, clips, tracks, transitions, mediaAssets, epoch, selectedPreset, sequenceDuration]);
+  }, [outputPath, project, clips, tracks, transitions, mediaAssets, epoch, selectedPreset, sequenceDuration, resolvedWidth, resolvedHeight]);
 
   // FIX (BUG-C2): Actually cancel the backend FFmpeg session and stop the frame loop.
   // Previously this only reset the UI; FFmpeg kept running and writing output.

@@ -88,6 +88,7 @@ pub fn run() {
             decode_frame_gpu,
             decode_export_frame,
             decode_frames_streaming,
+            stream_timeline_frames_binary,
             release_video_decoder,
             prewarm_decoders,
             get_render_artifact,

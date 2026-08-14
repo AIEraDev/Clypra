@@ -1057,3 +1057,33 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
 
     Ok(success_count)
 }
+
+/// Stream timeline frames directly as raw binary responses via a Tauri Channel.
+/// Completely bypasses JSON/Base64 serialization for zero-copy IPC throughput.
+#[tauri::command]
+pub async fn stream_timeline_frames_binary(
+    video_path: String,
+    timestamps: Vec<f64>,
+    width: u32,
+    height: u32,
+    on_frame: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+) -> Result<(), String> {
+    let decoder = get_decoder(&video_path).await?;
+
+    tokio::spawn(async move {
+        for ts in timestamps {
+            let rgba_res = {
+                let mut decoder_guard = decoder.lock().await;
+                decoder_guard.decode_frame(ts, width, height)
+            };
+            if let Ok(bytes) = rgba_res {
+                if on_frame.send(tauri::ipc::InvokeResponseBody::Raw(bytes)).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
