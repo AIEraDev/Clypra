@@ -20,21 +20,54 @@ pub struct DownloadProgressPayload {
 /// Active download tasks with cancellation tokens
 type DownloadTasks = Arc<Mutex<HashMap<String, CancellationToken>>>;
 
-/// Get the download URL for a Whisper model
-/// URLs from: https://github.com/openai/whisper/blob/main/whisper/__init__.py
+/// Get the download URL for a Whisper GGML model
+/// URLs from: https://huggingface.co/ggerganov/whisper.cpp
 fn get_model_url(size: &str) -> Result<String, String> {
-    let url = match size {
-        "tiny" => "https://openaipublic.azureedge.net/main/whisper/models/65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt",
-        "base" => "https://openaipublic.azureedge.net/main/whisper/models/ed3a0b6b1c0edf879ad9b11b1af5a0e6ab5db9205f891f668f8b0e6c6326e34e/base.pt",
-        "small" => "https://openaipublic.azureedge.net/main/whisper/models/9ecf779972d90ba49c06d968637d720dd632c55bbf19d441fb42bf17a411e794/small.pt",
-        "medium" => "https://openaipublic.azureedge.net/main/whisper/models/345ae4da62f9b3d59415adc60127b97c714f32e89e936602e85993674d08dcb1/medium.pt",
-        "large-v3" => "https://openaipublic.azureedge.net/main/whisper/models/e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb/large-v3.pt",
+    let clean_size = size.strip_prefix("ggml-").unwrap_or(size).strip_suffix(".bin").unwrap_or(size);
+    let url = match clean_size {
+        "tiny" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+        "base" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+        "small" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+        "medium" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+        "large-v3" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
         _ => return Err(format!("Unknown model size: {}", size)),
     };
     Ok(url.to_string())
 }
 
-/// Download a Whisper model directly from OpenAI CDN with progress tracking and cancellation support
+/// Resolves the file path for a Whisper model on disk.
+/// Checks absolute path, ggml-{size}.bin, {size}.bin, or legacy {size}.pt
+pub fn resolve_model_file_path(app_data_dir: &std::path::Path, model_size_or_path: &str) -> Option<std::path::PathBuf> {
+    let direct_path = std::path::PathBuf::from(model_size_or_path);
+    if direct_path.exists() && direct_path.is_file() {
+        return Some(direct_path);
+    }
+
+    let models_dir = app_data_dir.join("models").join("whisper");
+    let clean_name = model_size_or_path
+        .strip_prefix("ggml-")
+        .unwrap_or(model_size_or_path)
+        .strip_suffix(".bin")
+        .unwrap_or(model_size_or_path)
+        .strip_suffix(".pt")
+        .unwrap_or(model_size_or_path);
+
+    let candidates = [
+        models_dir.join(format!("ggml-{}.bin", clean_name)),
+        models_dir.join(format!("{}.bin", clean_name)),
+        models_dir.join(format!("{}.pt", clean_name)),
+    ];
+
+    for candidate in candidates {
+        if candidate.exists() && candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+/// Download a Whisper model directly from Hugging Face GGML CDN with progress tracking and cancellation support
 #[tauri::command]
 pub async fn download_whisper_model(
     app: tauri::AppHandle,
@@ -58,7 +91,8 @@ pub async fn download_whisper_model(
         .await
         .map_err(|e| format!("Failed to create models directory: {}", e))?;
 
-    let file_path = models_dir.join(format!("{}.pt", size));
+    let clean_size = size.strip_prefix("ggml-").unwrap_or(&size).strip_suffix(".bin").unwrap_or(&size);
+    let file_path = models_dir.join(format!("ggml-{}.bin", clean_size));
     
     eprintln!("🦀 [download_whisper_model] Downloading from: {}", url);
     eprintln!("🦀 [download_whisper_model] Saving to: {:?}", file_path);
@@ -227,18 +261,13 @@ pub async fn delete_whisper_model(
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    let model_path = app_data_dir
-        .join("models")
-        .join("whisper")
-        .join(format!("{}.pt", size));
-
-    if model_path.exists() {
+    if let Some(model_path) = resolve_model_file_path(&app_data_dir, &size) {
         tokio::fs::remove_file(&model_path)
             .await
             .map_err(|e| format!("Failed to delete model file: {}", e))?;
         eprintln!("🦀 [delete_whisper_model] Deleted model: {:?}", model_path);
     } else {
-        eprintln!("🦀 [delete_whisper_model] Model not found: {:?}", model_path);
+        eprintln!("🦀 [delete_whisper_model] Model not found for: {}", size);
     }
 
     Ok(())
@@ -268,10 +297,14 @@ pub async fn list_downloaded_models(
 
     while let Some(entry) = entries.next_entry().await.map_err(|e| format!("Failed to read entry: {}", e))? {
         let path = entry.path();
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("pt") {
-            if let Some(stem) = path.file_stem() {
-                if let Some(name) = stem.to_str() {
-                    models.push(name.to_string());
+        if path.is_file() {
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if ext == "bin" || ext == "pt" {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let clean_name = stem.strip_prefix("ggml-").unwrap_or(stem);
+                    if !models.contains(&clean_name.to_string()) {
+                        models.push(clean_name.to_string());
+                    }
                 }
             }
         }
@@ -311,14 +344,7 @@ pub async fn verify_whisper_model_exists(
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    let model_path = app_data_dir
-        .join("models")
-        .join("whisper")
-        .join(format!("{}.pt", size));
-    
-    let exists = model_path.exists();
-    
-    if exists {
+    if let Some(model_path) = resolve_model_file_path(&app_data_dir, &size) {
         // Check file size to ensure it's a real model file
         if let Ok(metadata) = tokio::fs::metadata(&model_path).await {
             let file_size = metadata.len();
@@ -335,7 +361,7 @@ pub async fn verify_whisper_model_exists(
             return Ok(true);
         }
     } else {
-        eprintln!("🦀 [verify_whisper_model_exists] Model '{}' at {:?}: not found", size, model_path);
+        eprintln!("🦀 [verify_whisper_model_exists] Model '{}' not found in app data", size);
     }
     
     Ok(false)

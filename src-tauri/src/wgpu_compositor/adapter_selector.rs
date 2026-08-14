@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use wgpu::{Adapter, DeviceType, Instance};
+use wgpu::{Adapter, Device, DeviceType, Instance, Queue};
 
 /// Detailed metadata about the active GPU adapter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -15,11 +15,13 @@ pub struct SelectedGpuInfo {
 pub struct GpuContext {
     pub adapter: Adapter,
     pub info: SelectedGpuInfo,
+    pub device: Device,
+    pub queue: Queue,
 }
 
 impl GpuContext {
-    /// Enumerates and scores all available graphics adapters to select the optimal discrete GPU.
-    /// Eliminates dual-GPU hybrid performance drops where systems silently bind to low-power iGPUs.
+    /// Enumerates and scores all available graphics adapters to select the optimal discrete GPU
+    /// and initializes the associated Device and Queue.
     pub async fn select_best_gpu(instance: &Instance) -> Result<Self, String> {
         let adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY);
         
@@ -45,14 +47,26 @@ impl GpuContext {
             scored_adapters.remove(0).1
         } else {
             // Fallback to request_adapter if enumerate_adapters returns empty on some platforms
-            instance
+            if let Some(adapter) = instance
                 .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
                     compatible_surface: None,
                     force_fallback_adapter: false,
                 })
                 .await
-                .ok_or_else(|| "No compatible graphics adapters found on this system.".to_string())?
+            {
+                adapter
+            } else {
+                // Graceful degradation: Fallback to software rasterizer (WARP / Lavapipe / SwiftShader)
+                instance
+                    .request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference: wgpu::PowerPreference::None,
+                        compatible_surface: None,
+                        force_fallback_adapter: true,
+                    })
+                    .await
+                    .ok_or_else(|| "No compatible graphics adapters or software rasterizers found.".to_string())?
+            }
         };
 
         let info = best_adapter.get_info();
@@ -74,9 +88,30 @@ impl GpuContext {
             gpu_info.backend
         );
 
+        let available_features = best_adapter.features();
+        let mut required_features = wgpu::Features::empty();
+        if available_features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
+            required_features |= wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
+        }
+
+        let (device, queue) = best_adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("Native Wgpu Device"),
+                    required_features,
+                    required_limits: wgpu::Limits::default(),
+                    memory_hints: wgpu::MemoryHints::Performance,
+                },
+                None,
+            )
+            .await
+            .map_err(|e| format!("Failed to request wgpu device: {}", e))?;
+
         Ok(Self {
             adapter: best_adapter,
             info: gpu_info,
+            device,
+            queue,
         })
     }
 }

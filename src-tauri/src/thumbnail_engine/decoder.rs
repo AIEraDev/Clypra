@@ -24,13 +24,31 @@ pub struct DisplayGeometry {
     pub rotation: u32,
 }
 
+/// Maximum safe display dimension to prevent OOM allocations on corrupted video metadata
+pub const MAX_DISPLAY_DIMENSION: u32 = 8192;
+
 impl DisplayGeometry {
     pub fn from_encoded(width: u32, height: u32, sar: (i32, i32), rotation: u32) -> Self {
+        if width == 0 || height == 0 {
+            return Self {
+                encoded_width: width,
+                encoded_height: height,
+                display_width: 0,
+                display_height: 0,
+                sar_num: sar.0,
+                sar_den: sar.1,
+                rotation,
+            };
+        }
+
         let (display_w, display_h) = if sar.0 > 0 && sar.1 > 0 && sar.0 != sar.1 {
-            let w = ((width as f64) * (sar.0 as f64) / (sar.1 as f64)).round() as u32;
-            (w, height)
+            let ratio = (sar.0 as f64) / (sar.1 as f64);
+            // Cap extreme SAR ratios between 1:4 and 4:1 to prevent allocation blowups
+            let clamped_ratio = ratio.clamp(0.25, 4.0);
+            let w = ((width as f64) * clamped_ratio).round() as u32;
+            (w.clamp(1, MAX_DISPLAY_DIMENSION), height.clamp(1, MAX_DISPLAY_DIMENSION))
         } else {
-            (width, height)
+            (width.clamp(1, MAX_DISPLAY_DIMENSION), height.clamp(1, MAX_DISPLAY_DIMENSION))
         };
         
         let (final_w, final_h) = if rotation == 90 || rotation == 270 {
@@ -233,18 +251,8 @@ impl VideoDecoder {
     }
     
     pub fn display_dimensions(&self) -> (u32, u32) {
-        let display_w = if self.sar.0 > 0 && self.sar.1 > 0 && self.sar.0 != self.sar.1 {
-            ((self.width as f64) * (self.sar.0 as f64) / (self.sar.1 as f64)).round() as u32
-        } else {
-            self.width
-        };
-        let display_h = self.height;
-        
-        if self.rotation == 90 || self.rotation == 270 {
-            (display_h, display_w)
-        } else {
-            (display_w, display_h)
-        }
+        let geom = DisplayGeometry::from_encoded(self.width, self.height, self.sar, self.rotation);
+        (geom.display_width, geom.display_height)
     }
     
     pub fn sar(&self) -> (i32, i32) {
@@ -628,10 +636,16 @@ impl VideoDecoder {
             }
 
             let uv_height = (height + 1) / 2;
-            let mut uv_plane = Vec::with_capacity(width * uv_height);
+            let uv_width = (width + 1) / 2;
+            let uv_packed_stride = uv_width * 2;
+            let mut uv_plane = Vec::with_capacity(uv_packed_stride * uv_height);
             for y in 0..uv_height {
                 let row_start = y * uv_stride;
-                uv_plane.extend_from_slice(&uv_data[row_start..row_start + width]);
+                let copy_len = width.min(uv_packed_stride);
+                uv_plane.extend_from_slice(&uv_data[row_start..row_start + copy_len]);
+                if copy_len < uv_packed_stride {
+                    uv_plane.extend(std::iter::repeat(0u8).take(uv_packed_stride - copy_len));
+                }
             }
 
             Some((y_plane, uv_plane, width as u32, height as u32))
@@ -879,66 +893,69 @@ impl VideoDecoder {
 // One decoder per video path. Created on first use, reused with LRU tracking.
 // Mutex is per-video so decoders for different videos don't block each other.
 
-use std::time::Instant;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-// Wrapper to track last access time for LRU eviction
-pub(crate) struct DecoderEntry {
-    decoder: Arc<Mutex<VideoDecoder>>,
-    last_accessed: Arc<Mutex<Instant>>,
+fn current_timestamp_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
-pub(crate) static DECODER_POOL: Lazy<DashMap<String, DecoderEntry>> =
+// Wrapper to track last access time for LRU eviction without async mutex overhead
+pub(crate) struct DecoderEntry {
+    pub(crate) decoder: Arc<Mutex<VideoDecoder>>,
+    pub(crate) last_accessed_ms: AtomicU64,
+}
+
+impl DecoderEntry {
+    pub(crate) fn touch(&self) {
+        self.last_accessed_ms.store(current_timestamp_ms(), Ordering::Relaxed);
+    }
+}
+
+pub(crate) static DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
     Lazy::new(DashMap::new);
 
-// Add pool size limit with proper LRU eviction
+// Pool size limit with lock-free atomic LRU eviction
 const MAX_DECODER_POOL_SIZE: usize = 20;
 
 pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
-    // Check if decoder exists and update access time
-    if let Some(entry) = DECODER_POOL.get_mut(path) {
-        // Update last accessed time (LRU tracking)
-        *entry.last_accessed.lock().await = Instant::now();
+    // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
+    if let Some(entry) = DECODER_POOL.get(path) {
+        entry.touch();
         eprintln!("[get_decoder] Pool HIT for {} (LRU updated)", path);
         
-        // MONITORING: Track cache hit
         #[cfg(debug_assertions)]
         eprintln!("[METRIC] decoder_pool.hit=1 path={}", path);
         
         return Ok(entry.decoder.clone());
     }
 
-    // MONITORING: Track cache miss
     #[cfg(debug_assertions)]
     eprintln!("[METRIC] decoder_pool.miss=1 path={}", path);
 
-    // Evict least recently used decoder if pool is full
+    // 2. LRU Eviction: Collect candidates snapshot without holding locks across await
     if DECODER_POOL.len() >= MAX_DECODER_POOL_SIZE {
-        let mut oldest_key: Option<String> = None;
-        let mut oldest_time = Instant::now();
+        let oldest = DECODER_POOL
+            .iter()
+            .map(|kv| (kv.key().clone(), kv.value().last_accessed_ms.load(Ordering::Relaxed)))
+            .min_by_key(|(_, ts)| *ts);
 
-        // Find the least recently used decoder
-        for entry in DECODER_POOL.iter() {
-            let last_accessed = *entry.value().last_accessed.lock().await;
-            if oldest_key.is_none() || last_accessed < oldest_time {
-                oldest_key = Some(entry.key().clone());
-                oldest_time = last_accessed;
-            }
-        }
-
-        if let Some(key) = oldest_key {
-            let age_secs = oldest_time.elapsed().as_secs_f64();
-            DECODER_POOL.remove(&key);
+        if let Some((oldest_key, oldest_ts)) = oldest {
+            let age_secs = (current_timestamp_ms().saturating_sub(oldest_ts)) as f64 / 1000.0;
+            DECODER_POOL.remove(&oldest_key);
             
-            // MONITORING: Track eviction with age
             #[cfg(debug_assertions)]
             eprintln!("[METRIC] decoder_pool.eviction=1 age_secs={:.1} reason=lru_full", age_secs);
             
             eprintln!("[get_decoder] Pool full ({} decoders), LRU evicted: {} (age: {:.1}s)", 
-                     MAX_DECODER_POOL_SIZE, key, age_secs);
+                     MAX_DECODER_POOL_SIZE, oldest_key, age_secs);
         }
     }
 
-    // Create new decoder — this is the only slow path (~20-50ms once per video)
+    // 3. Create new decoder — performed outside any DashMap lock
     let start = std::time::Instant::now();
     eprintln!("[get_decoder] Pool MISS - creating new decoder for {}", path);
     
@@ -947,26 +964,24 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
 
     let creation_time_ms = start.elapsed().as_millis();
     
-    // MONITORING: Track decoder creation time
     #[cfg(debug_assertions)]
     eprintln!("[METRIC] decoder_pool.creation_time_ms={} path={}", creation_time_ms, path);
 
-    let arc = Arc::new(Mutex::new(decoder));
-    let entry = DecoderEntry {
-        decoder: arc.clone(),
-        last_accessed: Arc::new(Mutex::new(Instant::now())),
-    };
+    let arc_decoder = Arc::new(Mutex::new(decoder));
+    let entry = Arc::new(DecoderEntry {
+        decoder: arc_decoder.clone(),
+        last_accessed_ms: AtomicU64::new(current_timestamp_ms()),
+    });
     
     DECODER_POOL.insert(path.to_string(), entry);
     
-    // MONITORING: Track pool size
     let pool_size = DECODER_POOL.len();
     #[cfg(debug_assertions)]
     eprintln!("[METRIC] decoder_pool.size={}", pool_size);
     
     eprintln!("[get_decoder] Created decoder in {:?} (pool size: {})", 
              start.elapsed(), pool_size);
-    Ok(arc)
+    Ok(arc_decoder)
 }
 
 /// Call this when a clip is removed from the project to free memory
@@ -987,20 +1002,8 @@ mod display_dimensions_tests {
         sar: (i32, i32),
         rotation: u32,
     ) -> (u32, u32) {
-        // Step 1: Apply SAR
-        let display_w = if sar.0 > 0 && sar.1 > 0 && sar.0 != sar.1 {
-            ((width as f64) * (sar.0 as f64) / (sar.1 as f64)).round() as u32
-        } else {
-            width
-        };
-        let display_h = height;
-        
-        // Step 2: Apply rotation
-        if rotation == 90 || rotation == 270 {
-            (display_h, display_w)
-        } else {
-            (display_w, display_h)
-        }
+        let geom = super::DisplayGeometry::from_encoded(width, height, sar, rotation);
+        (geom.display_width, geom.display_height)
     }
 
     #[test]
@@ -1150,13 +1153,15 @@ mod display_dimensions_tests {
 
     #[test]
     fn test_very_large_sar() {
+        // Clamped at 4:1 SAR ratio ceiling (1920 * 4.0 = 7680) to prevent OOM panics
         let (w, h) = calc_display_dims(1920, 1080, (1000, 1), 0);
-        assert_eq!((w, h), (1920000, 1080));
+        assert_eq!((w, h), (7680, 1080));
     }
 
     #[test]
     fn test_very_small_sar() {
+        // Clamped at 1:4 SAR ratio floor (1920 * 0.25 = 480)
         let (w, h) = calc_display_dims(1920, 1080, (1, 1000), 0);
-        assert_eq!((w, h), (2, 1080));
+        assert_eq!((w, h), (480, 1080));
     }
 }

@@ -22,6 +22,30 @@ pub use yuv_ring_buffer::{
 pub mod adapter_selector;
 pub use adapter_selector::{GpuContext, SelectedGpuInfo};
 
+pub mod lut_parser;
+pub use lut_parser::ParsedLut3D;
+
+pub mod lut_texture;
+pub use lut_texture::GpuLut3D;
+
+pub mod chroma_key;
+pub use chroma_key::ChromaKeyUniforms;
+
+pub mod multi_track_composer;
+pub use multi_track_composer::{
+    BlendMode, ColorGradeUniforms, CompositeLayer, CropMargins, LayerBlendMode, LayerTransform,
+    LayerUniforms, MultiTrackCompositor,
+};
+
+pub mod transition_pipeline;
+pub use transition_pipeline::{TransitionPipeline, TransitionType, TransitionUniforms};
+
+pub mod bezier;
+pub use bezier::{interpolate_keyframe, CubicBezier};
+
+pub mod speed_ramp;
+pub use speed_ramp::{SpeedKeyframe, SpeedRampProfile};
+
 pub struct NativeWgpuRenderer {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
@@ -39,34 +63,13 @@ impl NativeWgpuRenderer {
         });
 
         let gpu_ctx = GpuContext::select_best_gpu(&instance).await?;
-        let adapter = gpu_ctx.adapter;
-        let gpu_info = gpu_ctx.info;
-
-        let available_features = adapter.features();
-        let mut required_features = wgpu::Features::empty();
-        if available_features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
-            required_features |= wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
-        }
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("Native Wgpu Device"),
-                    required_features,
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: wgpu::MemoryHints::Performance,
-                },
-                None,
-            )
-            .await
-            .map_err(|e| format!("Failed to request wgpu device: {}", e))?;
 
         Ok(Self {
             instance,
-            adapter,
-            gpu_info,
-            device,
-            queue,
+            adapter: gpu_ctx.adapter,
+            gpu_info: gpu_ctx.info,
+            device: gpu_ctx.device,
+            queue: gpu_ctx.queue,
         })
     }
 

@@ -33,7 +33,6 @@ impl Nv12TextureRingBuffer {
         capacity: usize,
     ) -> Self {
         assert!(capacity > 0, "Ring buffer capacity must be > 0");
-        assert!(width % 2 == 0 && height % 2 == 0, "Dimensions must be even for NV12");
 
         let mut slots = Vec::with_capacity(capacity);
 
@@ -155,6 +154,9 @@ impl Nv12TextureRingBuffer {
         let uv_width = (self.width + 1) / 2;
         let uv_height = (self.height + 1) / 2;
 
+        let actual_linesize_y = linesize_y.max(self.width);
+        let actual_linesize_uv = linesize_uv.max(uv_width * 2);
+
         // 1. Upload Y-Plane (R8Unorm: 1 byte per pixel)
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -166,7 +168,7 @@ impl Nv12TextureRingBuffer {
             y_plane,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(linesize_y),
+                bytes_per_row: Some(actual_linesize_y),
                 rows_per_image: Some(self.height),
             },
             wgpu::Extent3d {
@@ -187,7 +189,7 @@ impl Nv12TextureRingBuffer {
             uv_plane,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(linesize_uv),
+                bytes_per_row: Some(actual_linesize_uv),
                 rows_per_image: Some(uv_height),
             },
             wgpu::Extent3d {
@@ -201,6 +203,7 @@ impl Nv12TextureRingBuffer {
         self.active_index = slot_idx;
         self.write_index = (self.write_index + 1) % self.capacity;
     }
+
 
     /// Retrieves the active pre-baked BindGroup for immediate O(1) rendering.
     #[inline(always)]
@@ -252,9 +255,8 @@ impl Nv12TextureRingBuffer {
             return;
         }
 
-        assert!(width % 2 == 0 && height % 2 == 0, "Dimensions must be even for NV12");
-
         self.width = width;
+
         self.height = height;
         self.write_index = 0;
         self.active_index = 0;
@@ -605,4 +607,51 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn test_ring_buffer_odd_and_non_standard_dimensions() {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await;
+
+        if let Some(adapter) = adapter {
+            if let Ok((device, queue)) = adapter
+                .request_device(&wgpu::DeviceDescriptor::default(), None)
+                .await
+            {
+                let layout = create_nv12_bind_group_layout(&device);
+                let sampler = create_nv12_sampler(&device);
+
+                // Test odd/non-standard resolutions
+                let odd_resolutions = [(854u32, 480u32), (720, 1280), (1080, 1920)];
+
+                for (w, h) in odd_resolutions {
+                    let mut ring = Nv12TextureRingBuffer::new(
+                        &device,
+                        &layout,
+                        &sampler,
+                        &sampler,
+                        w,
+                        h,
+                        2,
+                    );
+
+                    let uv_w = (w + 1) / 2;
+                    let uv_h = (h + 1) / 2;
+
+                    let y_frame = vec![128u8; (w * h) as usize];
+                    let uv_frame = vec![128u8; (uv_w * 2 * uv_h) as usize];
+
+                    ring.upload_frame(&queue, &y_frame, &uv_frame, w, uv_w * 2);
+                    let _bg = ring.active_bind_group();
+                }
+            }
+        }
+    }
 }
+

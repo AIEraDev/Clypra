@@ -147,6 +147,9 @@ struct ExportSession {
     /// Start time
     start_time: std::time::Instant,
 
+    /// Last progress emission timestamp for 15 Hz rate limiting
+    last_progress_emit: std::time::Instant,
+
     /// Channel for progress updates
     on_progress: Channel<ExportProgress>,
     
@@ -154,8 +157,11 @@ struct ExportSession {
     width: u32,
     height: u32,
     
-    /// Output file path (for cleanup on cancellation)
-    output_path: Option<String>,
+    /// Final output destination path
+    final_output_path: std::path::PathBuf,
+
+    /// Ephemeral temporary output path (atomic swap target)
+    temp_output_path: std::path::PathBuf,
     
     /// Performance monitoring
     frame_write_times: VecDeque<f64>, // Last 60 frame write times (ms) — VecDeque for O(1) front removal
@@ -163,8 +169,13 @@ struct ExportSession {
 }
 
 /// Global export sessions (keyed by session ID).
-static EXPORT_SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, ExportSession>>>> =
+/// Uses Arc<Mutex<ExportSession>> so the map lock is released immediately after lookup,
+/// eliminating deadlocks and lock contention during streaming stdin writes.
+static EXPORT_SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, Arc<Mutex<ExportSession>>>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+/// Progress emission interval ceiling (15 Hz / ~66ms) to prevent IPC flooding and UI freezes
+const PROGRESS_THROTTLE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(66);
 
 /// Build an augmented PATH string that includes common Homebrew/system binary
 /// locations. Tauri apps on macOS launch with a stripped environment, so
@@ -463,13 +474,27 @@ pub async fn start_video_export(
         }
     }
     
+    // Calculate atomic temporary output path on the same filesystem volume
+    let final_output_path = std::path::PathBuf::from(&config.output_path);
+    let extension = final_output_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or(if config.codec == "prores" { "mov" } else { "mp4" });
+    let file_stem = final_output_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("export");
+    let temp_output_path = final_output_path
+        .with_file_name(format!("{}.tmp-{}.{}", file_stem, session_id, extension));
+
     // Output settings
     cmd.arg("-movflags").arg("+faststart"); // Enable streaming
     cmd.arg("-y"); // Overwrite output file
-    cmd.arg(&config.output_path);
+    cmd.arg(&temp_output_path);
     
-    // Spawn FFmpeg process
-    cmd.stdin(Stdio::piped())
+    // Spawn FFmpeg process with automatic kill on drop to prevent zombie / orphaned processes
+    cmd.kill_on_drop(true)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     
@@ -489,6 +514,7 @@ pub async fn start_video_export(
         Some(stdin) => stdin,
         None => {
             let _ = child.kill().await;
+            let _ = child.wait().await;
             super::native_export::release_export_slot();
             return Err("Failed to open stdin".to_string());
         }
@@ -501,16 +527,18 @@ pub async fn start_video_export(
         current_frame: 0,
         total_frames: config.total_frames,
         start_time: std::time::Instant::now(),
+        last_progress_emit: std::time::Instant::now(),
         on_progress,
         width: config.width,
         height: config.height,
-        output_path: Some(config.output_path.clone()),
-        frame_write_times: VecDeque::with_capacity(60), // FIX (BUG-M7): VecDeque for O(1) front removal
+        final_output_path,
+        temp_output_path,
+        frame_write_times: VecDeque::with_capacity(60),
         last_perf_log_time: std::time::Instant::now(),
     };
     
-    // Store session
-    EXPORT_SESSIONS.lock().await.insert(session_id.clone(), session);
+    // Store session wrapped in Arc<Mutex<ExportSession>>
+    EXPORT_SESSIONS.lock().await.insert(session_id.clone(), Arc::new(Mutex::new(session)));
     
     eprintln!(
         "[start_video_export] Started session {} ({}x{} @ {}fps, {} frames, codec={})",
@@ -540,11 +568,15 @@ pub async fn write_export_frame(
         return Err("Expected raw binary payload".to_string());
     };
 
-    let mut sessions = EXPORT_SESSIONS.lock().await;
-    
-    let session = sessions
-        .get_mut(&session_id)
-        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+    let session_arc = {
+        let sessions = EXPORT_SESSIONS.lock().await;
+        sessions
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| format!("Export session not found: {}", session_id))?
+    };
+
+    let mut session = session_arc.lock().await;
     
     // Validate frame buffer size matches expected dimensions
     // RGBA format = 4 bytes per pixel
@@ -598,16 +630,19 @@ pub async fn write_export_frame(
         0.0
     };
     
-    // Send progress update
-    let progress_update = ExportProgress {
-        current_frame: session.current_frame,
-        total_frames: session.total_frames,
-        progress: progress.min(1.0), // clamp: prevents >100% if frame count overshoots
-        eta_seconds,
-        fps,
-    };
-    
-    let _ = session.on_progress.send(progress_update);
+    // Send progress update throttled to 15 Hz (~66ms) or on final milestone
+    let is_last_frame = session.current_frame >= session.total_frames;
+    if is_last_frame || session.last_progress_emit.elapsed() >= PROGRESS_THROTTLE_INTERVAL {
+        session.last_progress_emit = std::time::Instant::now();
+        let progress_update = ExportProgress {
+            current_frame: session.current_frame,
+            total_frames: session.total_frames,
+            progress: progress.min(1.0), // clamp: prevents >100% if frame count overshoots
+            eta_seconds,
+            fps,
+        };
+        let _ = session.on_progress.send(progress_update);
+    }
     
     // Log progress periodically
     if session.current_frame % 30 == 0 || session.current_frame == session.total_frames {
@@ -699,11 +734,15 @@ pub async fn write_export_frames_batch(
         return Err("Expected raw binary payload".to_string());
     };
 
-    let mut sessions = EXPORT_SESSIONS.lock().await;
-    
-    let session = sessions
-        .get_mut(&session_id)
-        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+    let session_arc = {
+        let sessions = EXPORT_SESSIONS.lock().await;
+        sessions
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| format!("Export session not found: {}", session_id))?
+    };
+
+    let mut session = session_arc.lock().await;
     
     // Validate total batch size
     let frame_size = (session.width * session.height * 4) as usize;
@@ -757,16 +796,19 @@ pub async fn write_export_frames_batch(
         0.0
     };
     
-    // Send progress update
-    let progress_update = ExportProgress {
-        current_frame: session.current_frame,
-        total_frames: session.total_frames,
-        progress: progress.min(1.0), // FIX (BUG-H2): clamp in case frame count overshoots
-        eta_seconds,
-        fps,
-    };
-    
-    let _ = session.on_progress.send(progress_update);
+    // Send progress update throttled to 15 Hz (~66ms) or on final milestone
+    let is_last_frame = session.current_frame >= session.total_frames;
+    if is_last_frame || session.last_progress_emit.elapsed() >= PROGRESS_THROTTLE_INTERVAL {
+        session.last_progress_emit = std::time::Instant::now();
+        let progress_update = ExportProgress {
+            current_frame: session.current_frame,
+            total_frames: session.total_frames,
+            progress: progress.min(1.0), // FIX (BUG-H2): clamp in case frame count overshoots
+            eta_seconds,
+            fps,
+        };
+        let _ = session.on_progress.send(progress_update);
+    }
     
     // Log batch statistics
     let batch_duration = batch_start.elapsed().as_secs_f64() * 1000.0;
@@ -791,40 +833,66 @@ pub async fn write_export_frames_batch(
 
 /// Finalize the export session.
 ///
-/// Closes stdin and waits for FFmpeg to finish encoding.
+/// Closes stdin, waits for FFmpeg to finish encoding, and atomically commits output.
 #[tauri::command]
 pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
-    let mut sessions = EXPORT_SESSIONS.lock().await;
-    
-    let session = sessions
-        .remove(&session_id)
-        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
-    
+    let session_arc = {
+        let mut sessions = EXPORT_SESSIONS.lock().await;
+        sessions
+            .remove(&session_id)
+            .ok_or_else(|| format!("Export session not found: {}", session_id))?
+    };
+
+    // Take exclusive ownership of the session by unwrapping the Arc.
+    // Since we just removed it from the map, no other holder exists.
+    let session = Arc::try_unwrap(session_arc)
+        .map_err(|_| "Export session is still referenced; cannot finalize".to_string())?
+        .into_inner();
+
+    // Destructure to obtain owned fields needed for async moves
+    let ExportSession {
+        process,
+        stdin,
+        current_frame,
+        start_time,
+        temp_output_path,
+        final_output_path,
+        ..
+    } = session;
+
     // Close stdin to signal end of input
-    drop(session.stdin);
+    drop(stdin);
     
     // Wait for FFmpeg to finish
-    let output = match session.process.wait_with_output().await {
+    let output = match process.wait_with_output().await {
         Ok(output) => output,
         Err(error) => {
+            let _ = tokio::fs::remove_file(&temp_output_path).await;
             super::native_export::release_export_slot();
             return Err(format!("Failed to wait for FFmpeg: {}", error));
         }
     };
     
-    let elapsed = session.start_time.elapsed();
+    let elapsed = start_time.elapsed();
     
     super::native_export::release_export_slot();
 
     if output.status.success() {
+        // Atomic commit: rename temporary file to destination path
+        if let Err(e) = tokio::fs::rename(&temp_output_path, &final_output_path).await {
+            let _ = tokio::fs::remove_file(&temp_output_path).await;
+            return Err(format!("Failed to commit final export file: {}", e));
+        }
+
         eprintln!(
             "[finalize_video_export] Session {} completed successfully in {:.2}s ({} frames)",
             session_id,
             elapsed.as_secs_f64(),
-            session.current_frame
+            current_frame
         );
         Ok(())
     } else {
+        let _ = tokio::fs::remove_file(&temp_output_path).await;
         let stderr = String::from_utf8_lossy(&output.stderr);
         eprintln!(
             "[finalize_video_export] Session {} failed:\n{}",
@@ -836,48 +904,54 @@ pub async fn finalize_video_export(session_id: String) -> Result<(), String> {
 
 /// Cancel an export session.
 ///
-/// Kills the FFmpeg process and cleans up resources.
-/// FIX (BUG-7): Also deletes the partial output file to avoid leaving
-/// a corrupt/unplayable file on disk (moov atom won't be written).
+/// Kills the FFmpeg process, reaps the child PID, and cleans up temporary resources.
 #[tauri::command]
 pub async fn cancel_video_export(session_id: String) -> Result<(), String> {
-    let mut sessions = EXPORT_SESSIONS.lock().await;
-    
-    let mut session = sessions
-        .remove(&session_id)
-        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
-    
-    // Capture output path before killing the process
-    let output_path = session.output_path.clone();
-    
-    // Kill FFmpeg process.
-    // FIX (BUG-L6): treat kill errors as non-fatal — the process may have already
-    // exited (e.g. it crashed, or finalize raced with cancel). Either way we still
-    // need to clean up the partial output file below.
-    if let Err(e) = session.process.kill().await {
+    let session_arc = {
+        let mut sessions = EXPORT_SESSIONS.lock().await;
+        sessions
+            .remove(&session_id)
+            .ok_or_else(|| format!("Export session not found: {}", session_id))?
+    };
+
+    // Take exclusive ownership of the session by unwrapping the Arc.
+    // Since we just removed it from the map, no other holder exists.
+    let session = Arc::try_unwrap(session_arc)
+        .map_err(|_| "Export session is still referenced; cannot cancel".to_string())?
+        .into_inner();
+
+    let ExportSession {
+        mut process,
+        current_frame,
+        temp_output_path,
+        ..
+    } = session;
+
+    // Kill FFmpeg process
+    if let Err(e) = process.kill().await {
         eprintln!(
             "[cancel_video_export] Could not kill FFmpeg (already exited?): {}",
             e
         );
     }
 
-    // FIX (BUG-7 + BUG-L6): Always attempt partial output file deletion.
-    // The file will be corrupt (missing moov atom due to -movflags +faststart
-    // not completing). This now runs even when kill() fails.
-    if let Some(ref path) = output_path {
-        if let Err(e) = tokio::fs::remove_file(path).await {
-            eprintln!(
-                "[cancel_video_export] Could not delete partial file {}: {}",
-                path, e
-            );
-        } else {
-            eprintln!("[cancel_video_export] Deleted partial output: {}", path);
-        }
+    // CRITICAL: Reap child process and drain OS handles (especially on Windows).
+    // This prevents zombie PIDs on POSIX and file-lock lingering on Windows.
+    let _ = process.wait().await;
+
+    // Clean up temporary partial file (never touches the user's final path)
+    if let Err(e) = tokio::fs::remove_file(&temp_output_path).await {
+        eprintln!(
+            "[cancel_video_export] Could not delete temporary file {:?}: {}",
+            temp_output_path, e
+        );
+    } else {
+        eprintln!("[cancel_video_export] Deleted temporary output: {:?}", temp_output_path);
     }
 
     eprintln!(
         "[cancel_video_export] Session {} cancelled ({} frames written)",
-        session_id, session.current_frame
+        session_id, current_frame
     );
 
     super::native_export::release_export_slot();

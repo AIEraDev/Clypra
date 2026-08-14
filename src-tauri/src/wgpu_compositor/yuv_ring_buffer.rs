@@ -70,9 +70,9 @@ impl YuvTextureRingBuffer {
         capacity: usize,
     ) -> Self {
         assert!(capacity > 0, "Ring buffer capacity must be > 0");
-        assert!(width % 2 == 0 && height % 2 == 0, "Dimensions must be even for YUV");
 
         let mut slots = Vec::with_capacity(capacity);
+
         for _ in 0..capacity {
             slots.push(Self::create_slot(
                 device, layout, sampler_y, sampler_uv, width, height, format,
@@ -201,6 +201,18 @@ impl YuvTextureRingBuffer {
         let uv_width = (self.width + 1) / 2;
         let uv_height = (self.height + 1) / 2;
 
+        let bytes_per_y_sample = match self.format {
+            YuvPixelFormat::Nv12 => 1u32,
+            YuvPixelFormat::P010 => 2u32,
+        };
+        let bytes_per_uv_sample = match self.format {
+            YuvPixelFormat::Nv12 => 2u32,
+            YuvPixelFormat::P010 => 4u32,
+        };
+
+        let actual_linesize_y = linesize_y.max(self.width * bytes_per_y_sample);
+        let actual_linesize_uv = linesize_uv.max(uv_width * bytes_per_uv_sample);
+
         // 1. Update Color Uniforms
         queue.write_buffer(&slot.uniform_buffer, 0, bytemuck::bytes_of(params));
 
@@ -215,7 +227,7 @@ impl YuvTextureRingBuffer {
             y_plane,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(linesize_y),
+                bytes_per_row: Some(actual_linesize_y),
                 rows_per_image: Some(self.height),
             },
             wgpu::Extent3d {
@@ -236,7 +248,7 @@ impl YuvTextureRingBuffer {
             uv_plane,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(linesize_uv),
+                bytes_per_row: Some(actual_linesize_uv),
                 rows_per_image: Some(uv_height),
             },
             wgpu::Extent3d {
@@ -249,6 +261,7 @@ impl YuvTextureRingBuffer {
         self.active_index = slot_idx;
         self.write_index = (self.write_index + 1) % self.capacity;
     }
+
 
     /// Retrieves the active pre-baked BindGroup for immediate rendering.
     #[inline(always)]
@@ -295,9 +308,8 @@ impl YuvTextureRingBuffer {
             return;
         }
 
-        assert!(width % 2 == 0 && height % 2 == 0, "Dimensions must be even for YUV");
-
         self.width = width;
+
         self.height = height;
         self.format = format;
         self.write_index = 0;

@@ -80,13 +80,22 @@ fn aces_film(x: vec3<f32>) -> vec3<f32> {
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-// Rec.709 OETF (Linear [0..1] -> Display Gamma)
-fn rec709_oetf(linear: vec3<f32>) -> vec3<f32> {
-    let clamped = clamp(linear, vec3<f32>(0.0), vec3<f32>(1.0));
-    let low = clamped * 4.5;
-    let high = 1.099 * pow(clamped, vec3<f32>(0.45)) - 0.099;
-    let cutoff = vec3<f32>(0.018);
-    return select(high, low, clamped < cutoff);
+// Inverse HLG (ARIB STD-B67) OETF: Non-linear signal [0..1] -> Scene linear light [0..12]
+fn hlg_inverse_oetf(e: vec3<f32>) -> vec3<f32> {
+    let a = 0.17883277;
+    let b = 0.28466892; // 1.0 - 4.0 * a
+    let c = 0.55991073; // 0.5 - a * ln(4.0 * a)
+
+    var linear: vec3<f32>;
+    for (var i = 0; i < 3; i++) {
+        let val = e[i];
+        if (val <= 0.5) {
+            linear[i] = (val * val) / 3.0;
+        } else {
+            linear[i] = (exp((val - c) / a) + b) / 12.0;
+        }
+    }
+    return linear;
 }
 
 @fragment
@@ -100,15 +109,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var v: f32;
 
     if (config.range == 0u) {
-        // Standard Limited Range
-        y = (y_raw - (16.0 / 255.0)) * (255.0 / (235.0 - 16.0));
-        u = (uv_raw.r - (128.0 / 255.0)) * (255.0 / (240.0 - 16.0));
-        v = (uv_raw.g - (128.0 / 255.0)) * (255.0 / (240.0 - 16.0));
+        // Standard Limited Range (Y in [16..235], Cb/Cr in [16..240])
+        y = (y_raw - (16.0 / 255.0)) * (255.0 / 219.0);
+        u = (uv_raw.r - (128.0 / 255.0)) * (255.0 / 224.0);
+        v = (uv_raw.g - (128.0 / 255.0)) * (255.0 / 224.0);
     } else {
         // Full Range
         y = y_raw;
-        u = uv_raw.r - 0.5;
-        v = uv_raw.g - 0.5;
+        u = uv_raw.r - (128.0 / 255.0);
+        v = uv_raw.g - (128.0 / 255.0);
     }
 
     var rgb_non_linear: vec3<f32>;
@@ -139,33 +148,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if (config.color_space == 1u) {
         // --- BT.2020 PQ HDR Pipeline ---
-        // Decode PQ to linear scene light (in Nits, 0..10,000)
         let linear_nits = pq_eotf(rgb_non_linear);
-
-        // Convert Gamut: BT.2020 Primaries -> BT.709 Primaries
         let linear_709_nits = bt2020_to_bt709_linear(linear_nits);
-
-        // Normalize scene brightness relative to SDR reference white (~100 nits)
-        let peak_nits = max(config.target_peak_nits, 1.0);
+        let peak_nits = max(config.target_peak_nits, 100.0);
         let normalized_hdr = max(linear_709_nits / peak_nits, vec3<f32>(0.0));
 
-        // Dynamic range compression
         if (config.tonemap_operator == 1u) {
-            // ACES Film Tonemap
             final_sdr_linear = aces_film(normalized_hdr);
         } else if (config.tonemap_operator == 2u) {
-            // Simple Reinhard Tonemap: x / (1 + x)
             final_sdr_linear = normalized_hdr / (vec3<f32>(1.0) + normalized_hdr);
         } else {
-            // Passthrough / Clamp
             final_sdr_linear = clamp(normalized_hdr, vec3<f32>(0.0), vec3<f32>(1.0));
         }
+    } else if (config.color_space == 2u) {
+        // --- BT.2020 HLG HDR Pipeline ---
+        let linear_hlg = hlg_inverse_oetf(clamp(rgb_non_linear, vec3<f32>(0.0), vec3<f32>(1.0)));
+        let linear_709_nits = bt2020_to_bt709_linear(linear_hlg * 1000.0);
+        let peak_nits = max(config.target_peak_nits, 100.0);
+        let normalized_hdr = max(linear_709_nits / peak_nits, vec3<f32>(0.0));
+        final_sdr_linear = aces_film(normalized_hdr);
     } else {
         // --- Standard SDR Pipeline ---
-        final_sdr_linear = clamp(rgb_non_linear, vec3<f32>(0.0), vec3<f32>(1.0));
+        // Convert gamma-encoded signal to linear light so Rgba8UnormSrgb target converts it back cleanly
+        let clamped = clamp(rgb_non_linear, vec3<f32>(0.0), vec3<f32>(1.0));
+        final_sdr_linear = pow(clamped, vec3<f32>(2.2));
     }
 
-    // 4. Output Display Encoding (Rec.709 Gamma)
-    let final_color = rec709_oetf(final_sdr_linear);
-    return vec4<f32>(final_color, 1.0);
+    return vec4<f32>(final_sdr_linear, 1.0);
 }
+

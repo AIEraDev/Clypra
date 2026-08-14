@@ -37,15 +37,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let y_raw = textureSample(t_y, s_y, in.uv).r;
     let uv_raw = textureSample(t_uv, s_uv, in.uv).rg;
 
-    // Expand Rec. 709 Limited Range: Y in [16/255, 235/255], UV in [16/255, 240/255]
-    let y = (y_raw - (16.0 / 255.0)) * (255.0 / (235.0 - 16.0));
-    let u = uv_raw.r - 0.5;
-    let v = uv_raw.g - 0.5;
+    // Expand Rec. 709 Limited Range: Y in [16/255, 235/255], Cb/Cr in [16/255, 240/255]
+    let y = (y_raw - (16.0 / 255.0)) * (255.0 / 219.0);
+    let u = (uv_raw.r - (128.0 / 255.0)) * (255.0 / 224.0);
+    let v = (uv_raw.g - (128.0 / 255.0)) * (255.0 / 224.0);
 
     // Rec. 709 Transformation Matrix (HD/4K video standard)
     let r = y + 1.5748 * v;
     let g = y - 0.1873 * u - 0.4681 * v;
     let b = y + 1.8556 * u;
 
-    return vec4<f32>(clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    let clamped_gamma = clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0));
+    // Linearize for sRGB render target so hardware sRGB write filter produces exact target gamma
+    let linear_rgb = pow(clamped_gamma, vec3<f32>(2.2));
+
+    return vec4<f32>(linear_rgb, 1.0);
 }
+
