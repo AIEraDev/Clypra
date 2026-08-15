@@ -47,7 +47,6 @@ jobs:
             patchelf \
             xdg-utils \
             libva-dev \
-            ffmpeg \
             libavutil-dev \
             libavcodec-dev \
             libavformat-dev \
@@ -55,9 +54,29 @@ jobs:
             libswresample-dev \
             libavdevice-dev \
             libavfilter-dev \
+            libpostproc-dev \
             build-essential \
             pkg-config \
-            libssl-dev
+            libssl-dev \
+            libclang-dev \
+            libxdo-dev
+
+      # ------------------------------------------------------------------------
+      # macOS FFmpeg via Homebrew
+      # ------------------------------------------------------------------------
+      - name: Install FFmpeg (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install ffmpeg pkg-config
+
+      # ------------------------------------------------------------------------
+      # Windows FFmpeg via vcpkg
+      # ------------------------------------------------------------------------
+      - name: Install FFmpeg (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          vcpkg install ffmpeg:x64-windows-static-md
+          echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
 
       # ------------------------------------------------------------------------
       # Toolchains & Cache Setup
@@ -84,17 +103,20 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      - name: Run Vitest Suite (156 Tests)
+      - name: Run Vitest Suite
         run: npx vitest run
 
-      - name: Run Cargo Test Suite (104 Tests)
+      # Cargo tests require native FFmpeg + libclang headers; only run on Linux
+      # where the full system dependency set is installed above.
+      - name: Run Cargo Test Suite
+        if: matrix.platform == 'ubuntu-22.04'
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       # ------------------------------------------------------------------------
       # Build and Publish Release Artifacts with In-App Updater Signatures
       # ------------------------------------------------------------------------
       - name: Build & Publish Release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Tauri v2 Auto-Updater Private Key & Password
