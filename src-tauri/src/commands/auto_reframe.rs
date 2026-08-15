@@ -120,8 +120,8 @@ pub fn compute_auto_reframe_trajectory(
         let mut sum_val = 0.0;
         let mut count = 0.0;
 
-        for j in start_idx..end_idx {
-            sum_val += sampled_points[j].1;
+        for point in sampled_points.iter().take(end_idx).skip(start_idx) {
+            sum_val += point.1;
             count += 1.0;
         }
 

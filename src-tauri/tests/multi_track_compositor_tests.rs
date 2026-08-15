@@ -112,6 +112,7 @@ fn assert_pixel_near(actual: [u8; 4], expected: [u8; 4], tolerance: u8, context:
 // Test 1: Z-Index Stacking Order
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_z_index_layer_sorting() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 256;
@@ -176,6 +177,7 @@ async fn test_z_index_layer_sorting() {
 // Test 2: Premultiplied Alpha & Opacity Blending
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_premultiplied_alpha_opacity_blend() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 256;
@@ -227,6 +229,7 @@ async fn test_premultiplied_alpha_opacity_blend() {
 // Test 3: Additive Blending Mode
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_additive_blend_mode() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 256;
@@ -278,6 +281,7 @@ async fn test_additive_blend_mode() {
 // Test 4: Branch-Free Crop Margins [Left, Top, Right, Bottom]
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_crop_margins_clipping() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 256;
@@ -339,6 +343,7 @@ async fn test_crop_margins_clipping() {
 // Test 5: 2D Affine Transform (Picture-in-Picture Quadrant Placement)
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_affine_transform_pip_placement() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 256;
@@ -401,6 +406,7 @@ async fn test_affine_transform_pip_placement() {
 // Test 6: 16-Layer High Track Density Stress & Stride Alignment
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_16_track_density_stress() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 1920;
@@ -447,6 +453,7 @@ async fn test_16_track_density_stress() {
 // Test 7: 3D LUT Identity Pass & Half-Texel Precision
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_lut_identity_and_half_texel_offset() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 64;
@@ -506,6 +513,7 @@ async fn test_lut_identity_and_half_texel_offset() {
 // Test 8: Exposure EV Math (+1.0 EV doubles intensity, -1.0 EV halves)
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_exposure_ev_adjustments() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 64;
@@ -568,6 +576,7 @@ async fn test_exposure_ev_adjustments() {
 // Test 9: Custom .cube Inversion LUT Color Transformation
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_cube_lut_color_inversion_and_intensity() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 64;
@@ -655,6 +664,7 @@ DOMAIN_MAX 1.0 1.0 1.0
 // Test 10: Chroma Key (UltraKey) Green Screen Removal & Background Pass
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_chroma_key_green_screen_removal() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 64;
@@ -717,6 +727,7 @@ async fn test_chroma_key_green_screen_removal() {
 // Test 11: Chroma Key Subject Retention (Red Foreground remains solid)
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_chroma_key_subject_retention() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 64;

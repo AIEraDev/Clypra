@@ -1,6 +1,7 @@
 use tauri_app_lib::wgpu_compositor::{NativeWgpuRenderer, TransitionPipeline, TransitionType, TransitionUniforms};
 
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_gpu_transition_pipeline_initialization_and_render() {
     let renderer = match NativeWgpuRenderer::new().await {
         Ok(r) => r,

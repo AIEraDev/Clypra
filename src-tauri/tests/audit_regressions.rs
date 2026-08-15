@@ -95,6 +95,7 @@ impl TestGpuContext {
 // Regression 1: Odd-Width & Arbitrary Pitch Padding
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_regression_odd_width_and_arbitrary_stride_padding() {
     let ctx = match TestGpuContext::new().await {
         Some(c) => c,
@@ -183,6 +184,7 @@ async fn test_regression_odd_width_and_arbitrary_stride_padding() {
 // Regression 2: YUV HDR Ring Buffer Odd Width & P010 10-bit Alignment
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_regression_yuv_hdr_odd_width_p010() {
     let ctx = match TestGpuContext::new().await {
         Some(c) => c,
@@ -258,6 +260,7 @@ async fn test_regression_yuv_hdr_odd_width_p010() {
 // Regression 3: DashMap Concurrent LRU Eviction & Deadlock Freedom
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_regression_dashmap_lru_concurrency_no_deadlock() {
     struct MockEntry {
         _id: usize,
@@ -346,6 +349,7 @@ async fn test_regression_dashmap_lru_concurrency_no_deadlock() {
 // Regression 4: Dynamic Uniform Multi-Layer Compositing
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
 async fn test_regression_multi_track_layer_pooling() {
     let ctx = match TestGpuContext::new().await {
         Some(c) => c,

@@ -58,13 +58,7 @@ pub fn resolve_model_file_path(app_data_dir: &std::path::Path, model_size_or_pat
         models_dir.join(format!("{}.pt", clean_name)),
     ];
 
-    for candidate in candidates {
-        if candidate.exists() && candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-
-    None
+    candidates.into_iter().find(|candidate| candidate.exists() && candidate.is_file())
 }
 
 /// Download a Whisper model directly from Hugging Face GGML CDN with progress tracking and cancellation support

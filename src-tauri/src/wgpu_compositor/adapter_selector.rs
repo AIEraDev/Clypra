@@ -43,7 +43,7 @@ impl GpuContext {
                 .collect();
 
             // Sort descending by score
-            scored_adapters.sort_by(|a, b| b.0.cmp(&a.0));
+            scored_adapters.sort_by_key(|b| std::cmp::Reverse(b.0));
             scored_adapters.remove(0).1
         } else {
             // Fallback to request_adapter if enumerate_adapters returns empty on some platforms

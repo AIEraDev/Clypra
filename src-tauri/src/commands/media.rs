@@ -275,8 +275,6 @@ pub async fn transcribe_audio_local(
     language: Option<String>,
     language_hints: Option<Vec<String>>,
 ) -> Result<String, String> {
-    use std::process::Command;
-    use std::fs;
     use std::path::PathBuf;
 
     let model = model_size.unwrap_or_else(|| "tiny".to_string());

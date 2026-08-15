@@ -94,6 +94,7 @@ fn assert_pixel_near(actual: [u8; 4], expected: [u8; 4], tolerance: u8, ctx: &st
 // Test 1: Pixel-Perfect Identity 3D LUT Pass-Through
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware"]
 async fn test_audit_identity_3d_lut_pass_through() {
     let ctx = HeadlessAuditContext::new().await;
     let width = 64;
@@ -150,6 +151,7 @@ async fn test_audit_identity_3d_lut_pass_through() {
 // Test 2: UltraKey Exact Matte Extraction & Retention
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware"]
 async fn test_audit_ultrakey_matte_extraction() {
     let ctx = HeadlessAuditContext::new().await;
     let width = 64;
@@ -255,6 +257,7 @@ async fn test_audit_ultrakey_matte_extraction() {
 // Test 3: Native Dual-Texture Transition t=0.5 Midpoint Rendering
 // -----------------------------------------------------------------------------
 #[tokio::test]
+#[ignore = "requires GPU hardware"]
 async fn test_audit_dual_texture_transition_midpoint() {
     let ctx = HeadlessAuditContext::new().await;
     let width = 64;
