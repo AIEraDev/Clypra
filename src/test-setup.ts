@@ -29,6 +29,52 @@ class MockAudioContext {
     };
   }
 
+  createDynamicsCompressor() {
+    const audioParam = () => ({
+      value: 0,
+      setValueAtTime: vi.fn(),
+      linearRampToValueAtTime: vi.fn(),
+    });
+    return {
+      threshold: audioParam(),
+      knee: audioParam(),
+      ratio: audioParam(),
+      attack: audioParam(),
+      release: audioParam(),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    };
+  }
+
+  createBiquadFilter() {
+    const audioParam = () => ({
+      value: 0,
+      setValueAtTime: vi.fn(),
+      linearRampToValueAtTime: vi.fn(),
+    });
+    return {
+      type: "lowpass",
+      frequency: audioParam(),
+      Q: audioParam(),
+      gain: audioParam(),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    };
+  }
+
+  createStereoPanner() {
+    const audioParam = () => ({
+      value: 0,
+      setValueAtTime: vi.fn(),
+      linearRampToValueAtTime: vi.fn(),
+    });
+    return {
+      pan: audioParam(),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    };
+  }
+
   createBufferSource() {
     return {
       buffer: null,

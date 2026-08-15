@@ -1113,16 +1113,11 @@ pub async fn run_native_document_wgpu_export(doc_json: String, output_path: Stri
 mod tests {
     use super::*;
 
+    /// GPU rendering tests — require a real hardware adapter.
+    /// Run locally with: cargo test -- --ignored
     #[tokio::test]
+    #[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
     async fn test_run_wgpu_smoke_test() {
-        // Skip on headless CI environments without a GPU adapter
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await;
-        if adapter.is_none() {
-            println!("[SKIP] test_run_wgpu_smoke_test: no GPU adapter available");
-            return;
-        }
-
         let test_output = std::env::temp_dir().join("wgpu_smoke_test.mp4");
         let path_str = test_output.to_string_lossy().to_string();
 
@@ -1137,14 +1132,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
     async fn test_native_document_wgpu_export() {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await;
-        if adapter.is_none() {
-            println!("[SKIP] test_native_document_wgpu_export: no GPU adapter available");
-            return;
-        }
-
         let fixture_json = include_str!("../fixtures/basic_rectangle_doc.json");
         let test_output = std::env::temp_dir().join("native_doc_wgpu_export.mp4");
         let path_str = test_output.to_string_lossy().to_string();
@@ -1160,14 +1149,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
     async fn test_revenue_data_story_wgpu_export() {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await;
-        if adapter.is_none() {
-            println!("[SKIP] test_revenue_data_story_wgpu_export: no GPU adapter available");
-            return;
-        }
-
         let fixture_json = include_str!("../fixtures/revenue_data_story_doc.json");
         let test_output = std::env::temp_dir().join("revenue_story_wgpu_export.mp4");
         let path_str = test_output.to_string_lossy().to_string();
@@ -1183,14 +1166,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
     async fn test_published_artifact_wgpu_export() {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await;
-        if adapter.is_none() {
-            println!("[SKIP] test_published_artifact_wgpu_export: no GPU adapter available");
-            return;
-        }
-
         let artifact_json = include_str!("../fixtures/published_revenue_story.json");
         let test_output = std::env::temp_dir().join("published_artifact_wgpu_export.mp4");
         let path_str = test_output.to_string_lossy().to_string();
