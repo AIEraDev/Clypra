@@ -351,8 +351,8 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
                       ? adjustments.vibrance?.protectedHue ?? "#E8B08C"
                       : presetParams?.vibrance?.protectedHue ?? "#E8B08C"
                   }
-                  onChange={(c) => updateStructuredField("vibrance", { protectedHue: c })}
-                  onChangeComplete={(c) => updateStructuredField("vibrance", { protectedHue: c })}
+                  onChange={(c: string) => updateStructuredField("vibrance", { protectedHue: c })}
+                  onChangeComplete={(c: string) => updateStructuredField("vibrance", { protectedHue: c })}
                   format="hex"
                   showAlpha={false}
                   size="sm"

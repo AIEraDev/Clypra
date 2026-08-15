@@ -177,8 +177,8 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                       <span className="text-[9px] text-zinc-400 font-medium">Text Color</span>
                       <ClypraColorPicker
                         value={currentColor}
-                        onChange={(c) => handleLayerColorChange(layer.id, c, layer.role)}
-                        onChangeComplete={(c) => handleLayerColorChange(layer.id, c, layer.role)}
+                        onChange={(c: string) => handleLayerColorChange(layer.id, c, layer.role)}
+                        onChangeComplete={(c: string) => handleLayerColorChange(layer.id, c, layer.role)}
                         format="hex"
                         showAlpha={true}
                         size="sm"
@@ -222,8 +222,8 @@ export const TemplateLayerEditor: React.FC<TemplateLayerEditorProps> = ({
                     <span className="text-[9px] text-zinc-400 font-medium">Fill Color</span>
                     <ClypraColorPicker
                       value={currentColor}
-                      onChange={(c) => handleLayerColorChange(layer.id, c)}
-                      onChangeComplete={(c) => handleLayerColorChange(layer.id, c)}
+                      onChange={(c: string) => handleLayerColorChange(layer.id, c)}
+                      onChangeComplete={(c: string) => handleLayerColorChange(layer.id, c)}
                       format="hex"
                       showAlpha={true}
                       size="sm"
