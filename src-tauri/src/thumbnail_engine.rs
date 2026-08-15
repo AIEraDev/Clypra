@@ -9,6 +9,9 @@ pub mod types;
 pub mod cache;
 pub mod queue;
 pub mod retry;
+pub mod mmap_cache;
+
+pub use mmap_cache::MmapFrameCache;
 
 #[cfg(test)]
 mod tests;

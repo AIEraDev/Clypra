@@ -1,186 +1,109 @@
-name: Release
+name: "Publish Release"
 
 on:
   push:
     tags:
-      - "v*"
-  workflow_dispatch:
-
-permissions:
-  contents: write
+      - "v*" # Trigger on version tag push, e.g. v1.2.3
+  workflow_dispatch: # Allow manual workflow dispatch
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.create-release.outputs.id }}
-      release_upload_url: ${{ steps.create-release.outputs.upload_url }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Get version
-        id: get_version
-        shell: bash
-        run: |
-          if [[ $GITHUB_REF == refs/tags/v* ]]; then
-            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-          else
-            VERSION=$(node -p "require('./package.json').version")
-            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create Release
-        id: create-release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ steps.get_version.outputs.VERSION }}
-          release_name: Clypra v${{ steps.get_version.outputs.VERSION }}
-          body: |
-            ## What's New in v${{ steps.get_version.outputs.VERSION }}
-
-            See [CHANGELOG.md](https://github.com/AIEraDev/Clypra/blob/master/CHANGELOG.md) for full details.
-
-            ## Downloads
-
-            Choose the right version for your platform:
-
-            - **macOS**: Download the `.dmg` file (works on both Intel and Apple Silicon)
-            - **Windows**: Download the `.msi` installer
-            - **Linux**: Download the `.AppImage` file
-
-            ## Installation
-
-            ### macOS (Apple Silicon & Intel)
-            The recommended way to install Clypra on macOS is via **Homebrew Cask** to automatically bypass the Gatekeeper security warnings:
-            ```bash
-            # Tap the repository and install the cask
-            brew install AIEraDev/tap/clypra
-            ```
-            Alternatively, download the `.dmg` file below, drag Clypra to your `/Applications` folder, then Right-click (Control-click) the application icon and select **Open** to authorize execution.
-
-            ### Windows
-            1. Download the `.msi` file below
-            2. Run the installer
-            3. If Windows SmartScreen blocks execution, click **More Info** and select **Run Anyway**
-
-            ### Linux
-            1. Download the `.AppImage` file below
-            2. Make it executable: `chmod +x Clypra*.AppImage`
-            3. Run it: `./Clypra*.AppImage`
-          draft: true
-          prerelease: false
-
-  build-release:
-    name: Build ${{ matrix.platform }}
-    needs: create-release
+  publish-tauri:
+    name: Build & Release (${{ matrix.platform }}${{ matrix.target && format(' - {0}', matrix.target) || '' }})
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            target: aarch64-apple-darwin
+          - platform: "macos-latest"
+            target: "aarch64-apple-darwin"
+            args: "--target aarch64-apple-darwin"
+          - platform: "macos-latest"
+            target: "x86_64-apple-darwin"
+            args: "--target x86_64-apple-darwin"
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
             args: ""
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            args: ""
-          - platform: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
+          - platform: "ubuntu-22.04"
+            target: "x86_64-unknown-linux-gnu"
             args: ""
 
     runs-on: ${{ matrix.platform }}
-    defaults:
-      run:
-        working-directory: clypra
-
     steps:
-      - name: Checkout Clypra
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          path: clypra
 
-      - name: Checkout clypra-studio
-        uses: actions/checkout@v4
-        with:
-          repository: AIEraDev/clypra-studio
-          path: clypra-studio
+      # ------------------------------------------------------------------------
+      # Linux Native System Dependencies (WebKitGTK, VA-API, FFmpeg Dev)
+      # ------------------------------------------------------------------------
+      - name: Install System Dependencies (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils \
+            libva-dev \
+            ffmpeg \
+            libavutil-dev \
+            libavcodec-dev \
+            libavformat-dev \
+            libswscale-dev \
+            libswresample-dev \
+            libavdevice-dev \
+            libavfilter-dev \
+            build-essential \
+            pkg-config \
+            libssl-dev
 
+      # ------------------------------------------------------------------------
+      # Toolchains & Cache Setup
+      # ------------------------------------------------------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: "clypra/package-lock.json"
 
-      - name: Setup Rust
+      - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
         with:
-          workspaces: clypra/src-tauri
+          workspaces: src-tauri
 
-      - name: Install FFmpeg (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          brew install ffmpeg
-          echo FFMPEG_DIR=$(brew --prefix ffmpeg) >> $GITHUB_ENV
-
-      - name: Install FFmpeg (Linux)
-        if: matrix.platform == 'ubuntu-24.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libavcodec-dev \
-            libavformat-dev \
-            libavutil-dev \
-            libavfilter-dev \
-            libavdevice-dev \
-            libswscale-dev \
-            libswresample-dev \
-            libpostproc-dev \
-            pkg-config \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
-
-      - name: Install FFmpeg (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          vcpkg install ffmpeg:x64-windows-static-md
-          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
-          echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
-
-      - name: Install frontend dependencies
+      # ------------------------------------------------------------------------
+      # Install Dependencies & Run Verification Suites
+      # ------------------------------------------------------------------------
+      - name: Install Frontend Dependencies
         run: npm ci
 
-      - name: Build and release
+      - name: Run Vitest Suite (156 Tests)
+        run: npx vitest run
+
+      - name: Run Cargo Test Suite (104 Tests)
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # ------------------------------------------------------------------------
+      # Build and Publish Release Artifacts with In-App Updater Signatures
+      # ------------------------------------------------------------------------
+      - name: Build & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri v2 Auto-Updater Private Key & Password
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          VITE_CLYPRA_API_KEY: ${{ secrets.VITE_CLYPRA_API_KEY }}
         with:
-          projectPath: clypra
-          releaseId: ${{ needs.create-release.outputs.release_id }}
+          tagName: v__VERSION__
+          releaseName: "Clypra v__VERSION__"
+          releaseBody: "Automated multi-platform release bundle containing installers for macOS, Windows, and Linux."
+          releaseDraft: true
+          prerelease: false
           args: ${{ matrix.args }}

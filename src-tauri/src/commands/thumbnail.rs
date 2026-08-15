@@ -231,14 +231,14 @@ pub async fn decode_frame(
     }
 }
 
-/// Extract single frame for GPU upload (returns raw RGBA, 5-10× faster than base64).
+/// Extract single frame for GPU upload (returns raw RGBA binary response, 5-10× faster than base64/JSON array).
 #[tauri::command]
 pub async fn decode_frame_gpu(
     video_path: String,
     time_secs: f64,
     width: u32,
     height: u32,
-) -> Result<Vec<u8>, String> {
+) -> Result<tauri::ipc::Response, String> {
     // Create deduplication key
     let video_id = format!("{:x}", md5::compute(&video_path));
     let timestamp_ms = (time_secs * 1000.0).round() as u64;
@@ -253,7 +253,7 @@ pub async fn decode_frame_gpu(
         match rx.recv().await {
             Ok(result) => {
                 IN_FLIGHT_EXTRACTIONS.remove(&key);
-                return result;
+                return result.map(tauri::ipc::Response::new);
             }
             Err(_) => {
                 // Channel closed, fall through to extraction
@@ -282,9 +282,10 @@ pub async fn decode_frame_gpu(
     // Remove from in-flight map
     IN_FLIGHT_EXTRACTIONS.remove(&key);
 
-    // Return raw RGBA bytes (no encoding!)
-    result
+    // Return raw RGBA as binary IPC response (zero-copy)
+    result.map(tauri::ipc::Response::new)
 }
+
 
 /// Decode a frame for desktop export and return raw RGBA as a binary IPC
 /// response. Unlike `decode_frame_gpu`, this avoids serializing millions of
@@ -712,11 +713,18 @@ pub async fn get_render_artifact(
                 IN_FLIGHT_TIER.remove(&inflight_key);
                 break f;
             }
+            if !IN_FLIGHT_TIER.contains_key(&inflight_key) {
+                if let Some(f) = FRAME_CACHE.get(&content_hash) {
+                    break f;
+                }
+                return Err(format!("Concurrent decode failed for {}", content_hash.0));
+            }
             if waited > 400 {
                 return Err(format!("Decode timeout for {}", content_hash.0));
             }
         }
     };
+
 
     let tier_frames = {
         let raw = raw_arc.clone();
@@ -892,11 +900,18 @@ pub async fn get_render_artifacts_batch(
                         IN_FLIGHT_TIER.remove(&inflight_key);
                         break f;
                     }
+                    if !IN_FLIGHT_TIER.contains_key(&inflight_key) {
+                        if let Some(f) = FRAME_CACHE.get(&content_hash) {
+                            break f;
+                        }
+                        return Err(format!("Concurrent decode failed for {}", content_hash.0));
+                    }
                     if waited > 400 {
                         return Err(format!("Decode timeout for {}", content_hash.0));
                     }
                 }
             };
+
 
             let tier_frames = {
                 let raw = raw_arc.clone();
@@ -1057,3 +1072,33 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
 
     Ok(success_count)
 }
+
+/// Stream timeline frames directly as raw binary responses via a Tauri Channel.
+/// Completely bypasses JSON/Base64 serialization for zero-copy IPC throughput.
+#[tauri::command]
+pub async fn stream_timeline_frames_binary(
+    video_path: String,
+    timestamps: Vec<f64>,
+    width: u32,
+    height: u32,
+    on_frame: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+) -> Result<(), String> {
+    let decoder = get_decoder(&video_path).await?;
+
+    tokio::spawn(async move {
+        for ts in timestamps {
+            let rgba_res = {
+                let mut decoder_guard = decoder.lock().await;
+                decoder_guard.decode_frame(ts, width, height)
+            };
+            if let Ok(bytes) = rgba_res {
+                if on_frame.send(tauri::ipc::InvokeResponseBody::Raw(bytes)).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+

@@ -1,84 +1,37 @@
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use std::path::{Path, PathBuf};
+    use super::super::security::*;
 
-    /// Sanitizes and validates a given file path to protect against path traversal attacks.
-    /// Ensures paths do not contain null bytes, control characters, or relative escapes (`..`).
-    pub fn sanitize_and_validate_path(raw_path: &str) -> Result<PathBuf, String> {
-        // Null byte check
-        if raw_path.contains('\0') {
-            return Err("Security Violation: Path contains null bytes".into());
+    #[test]
+    fn test_validate_project_id_valid() {
+        let valid_ids = vec![
+            "proj_12345",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "project-alpha-2026",
+            "clip_99_render",
+        ];
+        for id in valid_ids {
+            assert!(validate_project_id(id).is_ok(), "Expected valid project ID: {}", id);
         }
-
-        // Control characters check (\n, \r, \t, etc.)
-        if raw_path.chars().any(|c| c.is_control()) {
-            return Err("Security Violation: Path contains illegal control characters".into());
-        }
-
-        // Forbidden protocol schemes check
-        let lower = raw_path.to_lowercase();
-        if lower.starts_with("javascript:")
-            || lower.starts_with("data:")
-            || lower.starts_with("vbscript:")
-        {
-            return Err("Security Violation: Disallowed URI protocol scheme".into());
-        }
-
-        // Path normalization check (handle both POSIX / and Windows \ separators cross-platform)
-        let normalized = raw_path.replace('\\', "/");
-        let path = Path::new(&normalized);
-        for component in path.components() {
-            if component == std::path::Component::ParentDir || component.as_os_str() == ".." {
-                return Err("Security Violation: Path traversal '..' detected".into());
-            }
-        }
-
-
-        Ok(path.to_path_buf())
     }
 
-    /// Sanitizes command arguments intended for shell / process spawning (e.g., FFmpeg).
-    pub fn sanitize_shell_arg(arg: &str) -> Result<String, String> {
-        // Prevent command injection characters
-        if arg.contains(';')
-            || arg.contains('|')
-            || arg.contains('&')
-            || arg.contains('`')
-            || arg.contains('$')
-            || arg.contains('<')
-            || arg.contains('>')
-            || arg.contains('\n')
-            || arg.contains('\r')
-        {
-            return Err("Security Violation: Argument contains potential shell injection tokens".into());
+    #[test]
+    fn test_validate_project_id_rejects_traversal_and_bad_chars() {
+        let invalid_ids = vec![
+            "../secret",
+            "../../etc/passwd",
+            "dir/subproject",
+            "dir\\subproject",
+            "project\0null",
+            "",
+            "   ",
+            "project;drop table",
+            "project$evil",
+        ];
+        for id in invalid_ids {
+            assert!(validate_project_id(id).is_err(), "Expected invalid project ID: {}", id);
         }
-        Ok(arg.to_string())
-    }
-
-    /// Validates audio volume level (0.0 to 10.0 max safety margin).
-    pub fn validate_audio_volume(volume: f64) -> Result<f64, String> {
-        if volume.is_nan() || volume.is_infinite() {
-            return Err("Invalid volume: NaN or Infinity".into());
-        }
-        if volume < 0.0 || volume > 10.0 {
-            return Err(format!("Volume out of bounds: {}", volume));
-        }
-        Ok(volume)
-    }
-
-    /// Validates spatial dimensions (width, height, fps).
-    pub fn validate_export_dimensions(w: u32, h: u32, fps: u32) -> Result<(), String> {
-        if w == 0 || h == 0 {
-            return Err("Export dimensions cannot be zero".into());
-        }
-        if w > 15360 || h > 8640 {
-            return Err("Export dimensions exceed 16K max safety ceiling".into());
-        }
-        if fps == 0 || fps > 480 {
-            return Err(format!("FPS out of bounds: {}", fps));
-        }
-        Ok(())
     }
 
     // ==========================================

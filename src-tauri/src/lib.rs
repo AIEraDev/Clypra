@@ -3,6 +3,7 @@ use tauri::Manager;
 pub mod thumbnail_engine;
 pub mod commands;
 pub mod models;
+pub mod wgpu_compositor;
 
 use thumbnail_engine::init_thumbnail_engine;
 use commands::*;
@@ -60,6 +61,28 @@ pub fn run() {
             
             // Initialize Whisper download state
             app.manage(whisper::init_download_state());
+
+            // Initialize GPU context and 3D LUT cache
+            let gpu_ctx_res = tauri::async_runtime::block_on(async {
+                let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                    backends: wgpu::Backends::PRIMARY,
+                    ..Default::default()
+                });
+                crate::wgpu_compositor::GpuContext::select_best_gpu(&instance).await
+            });
+
+            if let Ok(gpu_ctx) = gpu_ctx_res {
+                let identity = crate::wgpu_compositor::lut_texture::GpuLut3D::default_identity(
+                    &gpu_ctx.device,
+                    &gpu_ctx.queue,
+                );
+                let lut_cache = std::sync::Arc::new(crate::commands::lut::LutCache {
+                    luts: dashmap::DashMap::new(),
+                    default_identity: std::sync::Arc::new(identity),
+                });
+                app.manage(std::sync::Arc::new(gpu_ctx));
+                app.manage(lut_cache);
+            }
             
             Ok(())
         })
@@ -87,6 +110,7 @@ pub fn run() {
             decode_frame_gpu,
             decode_export_frame,
             decode_frames_streaming,
+            stream_timeline_frames_binary,
             release_video_decoder,
             prewarm_decoders,
             get_render_artifact,
@@ -102,15 +126,23 @@ pub fn run() {
             cancel_native_timeline_export,
             check_ffmpeg_available,
             get_ffmpeg_version,
-            // Whisper model management commands
+            // Whisper model management & local AI caption commands
             download_whisper_model,
             delete_whisper_model,
             list_downloaded_models,
             cancel_whisper_download,
             verify_whisper_model_exists,
-            // Screen recording commands
+            generate_auto_captions,
+            // Color grading and 3D LUT commands
+            load_lut_cube,
+            // On-device AI Engine (Silence Detection & Smart Auto-Reframe)
+            detect_silence_ranges,
+            calculate_auto_reframe,
+            // Screen recording & native smoke test commands
             trim_video,
             set_menu_language,
+            run_wgpu_smoke_test,
+            run_native_document_wgpu_export,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

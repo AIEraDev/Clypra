@@ -108,6 +108,33 @@ export async function prewarmDecoders(videoPaths: string[]): Promise<number> {
 }
 
 /**
+ * Stream timeline frames as raw binary ArrayBuffer over a Tauri Channel.
+ * Zero string/Base64 serialization overhead.
+ */
+export async function streamTimelineFramesBinary(
+  videoPath: string,
+  timestamps: number[],
+  width: number,
+  height: number,
+  onFrame: (buffer: ArrayBuffer) => void
+): Promise<void> {
+  if (!isTauri()) {
+    console.warn("[Tauri] streamTimelineFramesBinary bypassed: Non-Tauri environment.");
+    return;
+  }
+  const channel = new Channel<ArrayBuffer>();
+  channel.onmessage = onFrame;
+
+  return invoke("stream_timeline_frames_binary", {
+    videoPath: toNativePath(videoPath),
+    timestamps,
+    width,
+    height,
+    onFrame: channel,
+  });
+}
+
+/**
  * Get render cache statistics (atlas hits, tier cache hits, decodes).
  * Useful for monitoring cache effectiveness.
  */
@@ -127,3 +154,4 @@ export async function getRenderCacheStats(): Promise<{
   }
   return invoke("get_render_cache_stats");
 }
+

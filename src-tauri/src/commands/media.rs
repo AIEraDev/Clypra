@@ -129,11 +129,9 @@ pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
 }
 
 async fn get_audio_duration(path: &str) -> Result<f64, String> {
-    use std::process::Command;
-    
     eprintln!("[get_audio_duration] Attempting to get duration for: {}", path);
     
-    let output = Command::new("ffprobe")
+    let output = tokio::process::Command::new("ffprobe")
         .env("PATH", augmented_path())
         .args([
             "-v", "error",
@@ -142,6 +140,7 @@ async fn get_audio_duration(path: &str) -> Result<f64, String> {
             path,
         ])
         .output()
+        .await
         .map_err(|e| {
             eprintln!("[get_audio_duration] Failed to run ffprobe: {}", e);
             format!("Failed to run ffprobe: {}", e)
@@ -190,11 +189,9 @@ pub async fn extract_poster_frame(path: String, time: f64) -> Result<String, Str
 
 #[tauri::command]
 pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, String> {
-    use std::process::Command;
-    
     eprintln!("[extract_audio_artwork] Extracting artwork from: {}", path);
     
-    let output = Command::new("ffmpeg")
+    let output = tokio::process::Command::new("ffmpeg")
         .env("PATH", augmented_path())
         .args([
             "-i", &path,
@@ -205,6 +202,7 @@ pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, Strin
             "pipe:1",
         ])
         .output()
+        .await
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
     
     if !output.status.success() || output.stdout.is_empty() {
@@ -221,9 +219,6 @@ pub async fn extract_audio_artwork(path: String) -> Result<Option<String>, Strin
 
 #[tauri::command]
 pub async fn extract_audio_track(path: String) -> Result<String, String> {
-    use std::process::Command;
-    use std::fs;
-
     eprintln!("🦀 [extract_audio_track] Extracting audio from: {}", path);
 
     // Use system temp directory to avoid triggering file watchers in dev mode
@@ -232,7 +227,9 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
     // Create a clypra-specific subdirectory
     let clypra_temp = temp_dir.join("clypra-audio");
     if !clypra_temp.exists() {
-        fs::create_dir_all(&clypra_temp).map_err(|e| format!("Failed to create temp directory: {}", e))?;
+        tokio::fs::create_dir_all(&clypra_temp)
+            .await
+            .map_err(|e| format!("Failed to create temp directory: {}", e))?;
     }
 
     // Generate a unique filename using MD5 of path
@@ -241,8 +238,8 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
     let output_path = clypra_temp.join(output_filename);
     let output_path_str = output_path.to_str().ok_or("Failed to convert output path to string")?.to_string();
 
-    // Call ffmpeg command to extract audio: ffmpeg -i <path> -vn -acodec libmp3lame -ac 1 -ar 16000 -y <output_path>
-    let output = Command::new("ffmpeg")
+    // Call ffmpeg command to extract audio asynchronously
+    let output = tokio::process::Command::new("ffmpeg")
         .env("PATH", augmented_path())
         .args([
             "-i", &path,
@@ -254,6 +251,7 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
             &output_path_str,
         ])
         .output()
+        .await
         .map_err(|e| format!("Failed to execute ffmpeg for audio extraction: {}", e))?;
 
     if !output.status.success() {
@@ -261,8 +259,7 @@ pub async fn extract_audio_track(path: String) -> Result<String, String> {
         return Err(format!("FFmpeg audio extraction failed: {}", stderr));
     }
 
-    // Get the absolute path of the output file
-    let abs_path = fs::canonicalize(output_path)
+    let abs_path = std::fs::canonicalize(&output_path)
         .map_err(|e| format!("Failed to resolve absolute path of extracted audio: {}", e))?;
     
     let abs_path_str = abs_path.to_str().ok_or("Failed to convert absolute path to string")?.to_string();
@@ -410,20 +407,23 @@ pub async fn transcribe_audio_local(
 
     eprintln!("🦀 [transcribe_audio_local] Executing command: uv {}", args.join(" "));
 
-    // Call uv command to run our python script
-    let output = Command::new("uv")
+    // Call uv command to run our python script asynchronously
+    let output = tokio::process::Command::new("uv")
         .env("PATH", augmented_path())
         .args(&args)
         .output()
+        .await
         .map_err(|e| format!("Failed to execute uv transcription: {}", e))?;
 
     eprintln!("🦀 [transcribe_audio_local] Command completed with status: {}", output.status);
 
-    eprintln!("🦀 [transcribe_audio_local] Command completed with status: {}", output.status);
-
-    // Delete the temporary audio file since transcription is completed (to prevent disk bloat)
-    if let Err(e) = fs::remove_file(&audio_path) {
-        eprintln!("⚠️ [transcribe_audio_local] Failed to clean up temporary audio file: {}", e);
+    // Only delete the audio file if it is confirmed to be an internal temp file (in clypra-audio or system temp)
+    let is_temp_audio = audio_path.contains("clypra-audio") 
+        || audio_path.starts_with(&std::env::temp_dir().to_string_lossy().to_string());
+    if is_temp_audio {
+        if let Err(e) = tokio::fs::remove_file(&audio_path).await {
+            eprintln!("⚠️ [transcribe_audio_local] Failed to clean up temporary audio file: {}", e);
+        }
     }
 
     if !output.status.success() {
@@ -489,14 +489,8 @@ pub async fn extract_waveform_data(
         return Err(format!("FFmpeg audio decoding failed: {}", stderr));
     }
     
-    // Convert bytes to f32 samples
-    let samples: Vec<f32> = output.stdout
-        .chunks_exact(4)
-        .map(|chunk| {
-            let bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
-            f32::from_le_bytes(bytes)
-        })
-        .collect();
+    // Zero-copy cast bytes to f32 samples using bytemuck
+    let samples: &[f32] = bytemuck::cast_slice(&output.stdout);
     
     if samples.is_empty() {
         return Err("No audio samples extracted".to_string());
@@ -504,16 +498,18 @@ pub async fn extract_waveform_data(
     
     eprintln!("🦀 [extract_waveform_data] Decoded {} samples", samples.len());
     
-    // Compute peak and RMS for each bucket
-    let buckets = compute_waveform_buckets(&samples, num_buckets);
+    // Compute peak and RMS for each bucket in parallel
+    let buckets = compute_waveform_buckets(samples, num_buckets);
     
     eprintln!("🦀 [extract_waveform_data] Computed {} buckets", buckets.len());
     Ok(buckets)
 }
 
-/// Compute peak and RMS amplitudes for each pixel bucket.
+/// Compute peak and RMS amplitudes for each pixel bucket using parallel chunk processing.
 /// Professional audio analysis: peak captures transients, RMS captures energy.
 fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<WaveformBucket> {
+    use rayon::prelude::*;
+
     let samples_per_bucket = samples.len() / num_buckets;
     
     if samples_per_bucket == 0 {
@@ -522,21 +518,26 @@ fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<Waveform
     }
     
     (0..num_buckets)
+        .into_par_iter()
         .map(|i| {
             let start = i * samples_per_bucket;
             let end = ((i + 1) * samples_per_bucket).min(samples.len());
             let bucket = &samples[start..end];
             
-            // Peak: absolute maximum sample in bucket
-            let peak = bucket.iter()
-                .map(|s| s.abs())
-                .fold(0.0f32, f32::max);
-            
-            // RMS: root mean square (perceived loudness/energy)
-            let sum_squares: f32 = bucket.iter()
-                .map(|s| s * s)
-                .sum();
-            let rms = (sum_squares / bucket.len() as f32).sqrt();
+            let mut peak = 0.0f32;
+            let mut sum_squares = 0.0f32;
+            for &s in bucket {
+                let abs_s = s.abs();
+                if abs_s > peak {
+                    peak = abs_s;
+                }
+                sum_squares += s * s;
+            }
+            let rms = if !bucket.is_empty() {
+                (sum_squares / bucket.len() as f32).sqrt()
+            } else {
+                0.0
+            };
             
             WaveformBucket { peak, rms }
         })

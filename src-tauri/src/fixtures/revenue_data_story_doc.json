@@ -1,0 +1,75 @@
+{
+  "version": "2.0",
+  "title": "Revenue Data Story",
+  "canvas": {
+    "width": 1280,
+    "height": 720
+  },
+  "nodes": [
+    {
+      "id": "card-bg",
+      "name": "Story Container",
+      "type": "container-card",
+      "x": 200,
+      "y": 100,
+      "width": 880,
+      "height": 520,
+      "rotation": 0,
+      "opacity": 0.95,
+      "style": {
+        "fillColor": "#0F172A",
+        "strokeColor": "#334155",
+        "strokeWidth": 2,
+        "borderRadius": 24
+      }
+    },
+    {
+      "id": "title-label",
+      "name": "Title Label",
+      "type": "text-label",
+      "x": 240,
+      "y": 140,
+      "width": 400,
+      "height": 48,
+      "rotation": 0,
+      "opacity": 1.0,
+      "content": "Q3 Financial Performance",
+      "style": {
+        "fillColor": "#F8FAFC"
+      }
+    },
+    {
+      "id": "kpi-metric",
+      "name": "Revenue Metric",
+      "type": "kpi-metric",
+      "x": 240,
+      "y": 200,
+      "width": 320,
+      "height": 96,
+      "rotation": 0,
+      "opacity": 1.0,
+      "label": "Total Revenue",
+      "value": "$2.5M",
+      "trend": "+18%",
+      "style": {
+        "fillColor": "#8B5CF6",
+        "strokeColor": "#45FF72"
+      }
+    },
+    {
+      "id": "chart-bar",
+      "name": "Quarterly Bar Chart",
+      "type": "chart-bar",
+      "x": 240,
+      "y": 320,
+      "width": 800,
+      "height": 260,
+      "rotation": 0,
+      "opacity": 1.0,
+      "style": {
+        "fillColor": "#6366F1",
+        "strokeColor": "#A855F7"
+      }
+    }
+  ]
+}

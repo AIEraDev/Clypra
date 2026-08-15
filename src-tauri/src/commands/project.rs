@@ -24,10 +24,11 @@ pub fn save_project(app: tauri::AppHandle, project_data: String) -> Result<(), S
     let project: Project = serde_json::from_str(&project_data)
         .map_err(|e| format!("Invalid project JSON: {}", e))?;
 
-    let file_path = projects_dir.join(format!("{}.json", project.id));
+    let safe_id = super::security::validate_project_id(&project.id)?;
+    let file_path = projects_dir.join(format!("{}.json", safe_id));
 
     println!("[save_project] Saving project {} with {} tracks, {} clips, {} media_assets",
-        project.id,
+        safe_id,
         project.tracks.len(),
         project.clips.len(),
         project.media_assets.len()
@@ -36,7 +37,7 @@ pub fn save_project(app: tauri::AppHandle, project_data: String) -> Result<(), S
     // Implement atomic write to prevent data corruption
     // Write to temp file first, then atomically rename to target path
     // This ensures project file is never left in a corrupt state if write fails
-    let temp_path = projects_dir.join(format!("{}.tmp", project.id));
+    let temp_path = projects_dir.join(format!("{}.tmp", safe_id));
     
     // Write to temporary file
     fs::write(&temp_path, &project_data)
@@ -56,7 +57,8 @@ pub fn save_project(app: tauri::AppHandle, project_data: String) -> Result<(), S
 
 #[tauri::command]
 pub fn load_project(path: String) -> Result<String, String> {
-    fs::read_to_string(&path)
+    let safe_path = super::security::sanitize_and_validate_path(&path)?;
+    fs::read_to_string(&safe_path)
         .map_err(|e| format!("Failed to load project: {}", e))
 }
 
@@ -98,6 +100,7 @@ const MAX_PROJECT_NAME_LENGTH: usize = 64;
 // CRITICAL: Must stay in sync with src/types/index.ts MAX_PROJECT_NAME_LENGTH
 #[tauri::command]
 pub fn rename_project(app: tauri::AppHandle, project_id: String, new_name: String) -> Result<(), String> {
+    let safe_id = super::security::validate_project_id(&project_id)?;
     let trimmed = new_name.trim();
     if trimmed.is_empty() {
         return Err("Project name cannot be empty".to_string());
@@ -106,10 +109,10 @@ pub fn rename_project(app: tauri::AppHandle, project_id: String, new_name: Strin
         return Err(format!("Project name exceeds {} characters", MAX_PROJECT_NAME_LENGTH));
     }
     let projects_dir = get_projects_dir(&app)?;
-    let file_path = projects_dir.join(format!("{}.json", project_id));
+    let file_path = projects_dir.join(format!("{}.json", safe_id));
 
     if !file_path.exists() {
-        return Err(format!("Project file not found: {}", project_id));
+        return Err(format!("Project file not found: {}", safe_id));
     }
 
     let content = fs::read_to_string(&file_path)
@@ -131,11 +134,12 @@ pub fn rename_project(app: tauri::AppHandle, project_id: String, new_name: Strin
 
 #[tauri::command]
 pub fn delete_project(app: tauri::AppHandle, project_id: String) -> Result<(), String> {
+    let safe_id = super::security::validate_project_id(&project_id)?;
     let projects_dir = get_projects_dir(&app)?;
-    let file_path = projects_dir.join(format!("{}.json", project_id));
+    let file_path = projects_dir.join(format!("{}.json", safe_id));
     
     if !file_path.exists() {
-        return Err(format!("Project file not found: {}", project_id));
+        return Err(format!("Project file not found: {}", safe_id));
     }
     
     fs::remove_file(&file_path)

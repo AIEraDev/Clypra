@@ -12,6 +12,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { TextModeSelector } from "./TextModeSelector";
 import { EffectStylePanel } from "./EffectStylePanel";
 import { TemplateLayerEditor } from "./TemplateLayerEditor";
+import { ClypraColorPicker } from "@clypra/ui-color-picker";
 
 // Extracted font list for maintainability
 const SYSTEM_FONTS = [
@@ -580,7 +581,16 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                     <option value="#ff007f, #aa00ff, #00c8ff, #00ff66">Rainbow Gradient</option>
                     <option value="custom_gradient">Custom Gradient</option>
                   </select>
-                  <input type="color" value={isGradient ? "#ffffff" : textClip.color || "#ffffff"} onChange={(e) => handleCustomStyleUpdate("color", e.target.value)} className="w-7 h-7 bg-transparent border-0 cursor-pointer rounded overflow-hidden" />
+                  <ClypraColorPicker
+                    value={isGradient ? "#ffffff" : textClip.color || "#ffffff"}
+                    onChange={(c) => handleCustomStyleUpdate("color", c)}
+                    onChangeComplete={(c) => handleCustomStyleUpdate("color", c)}
+                    format="hex"
+                    showAlpha={true}
+                    size="sm"
+                    triggerClassName="w-16 h-7.5 bg-surface-raised border-border/60 hover:border-border shrink-0"
+                    popoverClassName="right-0 left-auto mt-1 z-[100]"
+                  />
                 </div>
               </div>
 
@@ -598,7 +608,16 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                   <div className="flex flex-wrap gap-2.5">
                     {getStops().map((stopColor, idx) => (
                       <div key={idx} className="flex items-center gap-1">
-                        <input type="color" value={stopColor} onChange={(e) => handleStopChange(idx, e.target.value)} className="w-6 h-6 bg-transparent border-0 cursor-pointer rounded overflow-hidden" />
+                        <ClypraColorPicker
+                          value={stopColor}
+                          onChange={(c) => handleStopChange(idx, c)}
+                          onChangeComplete={(c) => handleStopChange(idx, c)}
+                          format="hex"
+                          showAlpha={true}
+                          size="sm"
+                          triggerClassName="w-14 h-7 bg-surface-raised border-border/60 hover:border-border shrink-0"
+                          popoverClassName="right-0 left-auto mt-1 z-[100]"
+                        />
                         {getStops().length > 2 && (
                           <button onClick={() => handleRemoveStop(idx)} className="text-[10px] text-destructive hover:underline cursor-pointer font-bold px-1">
                             &times;
@@ -648,7 +667,16 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                       {["#000000", "#ffffff", "#ff3b30", "#ffcc00"].map((c, idx) => (
                         <button key={idx} onClick={() => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.stroke?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
                       ))}
-                      <input type="color" value={textClip.stroke.color} onChange={(e) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
+                      <ClypraColorPicker
+                        value={textClip.stroke.color}
+                        onChange={(c) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: c })}
+                        onChangeComplete={(c) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: c })}
+                        format="hex"
+                        showAlpha={true}
+                        size="sm"
+                        triggerClassName="w-14 h-6 bg-surface-raised border-border/60 hover:border-border shrink-0"
+                        popoverClassName="right-0 left-auto mt-1 z-[100]"
+                      />
                     </div>
                   </div>
                   <PropertySlider label="Thickness" value={textClip.stroke.width} min={1} max={15} step={1} suffix="px" onChange={(v) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, width: v })} compact />
@@ -682,7 +710,16 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                       {["#ff0000", "#ff007f", "#00f0ff", "#ffe066"].map((c, idx) => (
                         <button key={idx} onClick={() => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.shadow?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
                       ))}
-                      <input type="color" value={textClip.shadow.color} onChange={(e) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
+                      <ClypraColorPicker
+                        value={textClip.shadow.color}
+                        onChange={(c) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: c })}
+                        onChangeComplete={(c) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: c })}
+                        format="hex"
+                        showAlpha={true}
+                        size="sm"
+                        triggerClassName="w-14 h-6 bg-surface-raised border-border/60 hover:border-border shrink-0"
+                        popoverClassName="right-0 left-auto mt-1 z-[100]"
+                      />
                     </div>
                   </div>
                   <PropertySlider label="Blur Radius" value={textClip.shadow.blur} min={1} max={30} step={1} suffix="px" onChange={(v) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, blur: v })} compact />
@@ -726,7 +763,16 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                       {["rgba(0,0,0,0.6)", "rgba(255,255,255,0.2)", "rgba(0,122,255,0.3)", "rgba(255,59,48,0.3)"].map((c, idx) => (
                         <button key={idx} onClick={() => handleCustomStyleUpdate("background", { ...textClip.background, color: c })} className={`w-4 h-4 rounded-full border cursor-pointer transition-all ${textClip.background?.color === c ? "ring-2 ring-accent/40 border-accent" : "border-border/60"}`} style={{ backgroundColor: c }} />
                       ))}
-                      <input type="color" value={textClip.background.color.startsWith("rgba") ? "#000000" : textClip.background.color} onChange={(e) => handleCustomStyleUpdate("background", { ...textClip.background, color: e.target.value })} className="w-5 h-5 bg-transparent border-0 cursor-pointer" />
+                      <ClypraColorPicker
+                        value={textClip.background.color}
+                        onChange={(c) => handleCustomStyleUpdate("background", { ...textClip.background, color: c })}
+                        onChangeComplete={(c) => handleCustomStyleUpdate("background", { ...textClip.background, color: c })}
+                        format="hex"
+                        showAlpha={true}
+                        size="sm"
+                        triggerClassName="w-14 h-6 bg-surface-raised border-border/60 hover:border-border shrink-0"
+                        popoverClassName="right-0 left-auto mt-1 z-[100]"
+                      />
                     </div>
                   </div>
                   <PropertySlider label="Padding" value={textClip.background.padding} min={0} max={30} step={1} suffix="px" onChange={(v) => handleCustomStyleUpdate("background", { ...textClip.background, padding: v })} compact />

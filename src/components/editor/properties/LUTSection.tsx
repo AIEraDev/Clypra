@@ -1,6 +1,9 @@
 import React, { useRef } from "react";
-import { Sliders, Upload, Trash2 } from "lucide-react";
+import { Upload, Trash2 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { Clip } from "@/types";
+import { useTimelineStore } from "@/store/timelineStore";
 import { PropertySlider } from "./primitives/PropertySlider";
 
 interface LUTSectionProps {
@@ -20,8 +23,47 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
   handleUpdate,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const updateClipColorGrade = useTimelineStore((state) => state.updateClipColorGrade);
   const adjustments = selectedClip.adjustments ?? {};
   const lut = (adjustments as any).lut ?? null;
+  const colorGrade = selectedClip.colorGrade;
+
+  const handleTauriBrowse = async () => {
+    try {
+      const file = await open({
+        filters: [{ name: "3D LUT", extensions: ["cube"] }],
+        multiple: false,
+      });
+
+      if (typeof file === "string") {
+        const lutId = `lut_${Date.now()}`;
+        const lutInfo = await invoke<{ id: string; title: string; size: number }>("load_lut_cube", {
+          lutId,
+          filePath: file,
+        });
+
+        const lutName = file.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, "") || lutInfo.title;
+        const nextLut = {
+          id: lutInfo.id,
+          name: lutName,
+          path: file,
+          intensity: lut?.intensity ?? 1.0,
+          size: lutInfo.size,
+        };
+
+        handleUpdate("adjustments", { ...adjustments, lut: nextLut });
+        updateClipColorGrade(selectedClip.id, {
+          hasLut: 1,
+          lutId: lutInfo.id,
+          lutSize: lutInfo.size,
+          lutIntensity: lut?.intensity ?? 1.0,
+        });
+      }
+    } catch {
+      // Fallback to web input if in web mode
+      fileInputRef.current?.click();
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -56,23 +98,28 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
   };
 
   const updateIntensity = (intensity: number) => {
-    if (!lut) return;
-    const nextLut = { ...lut, intensity };
-    const nextAdjustments = { ...adjustments, lut: nextLut };
-    handleUpdate("adjustments", nextAdjustments);
+    if (!lut && !colorGrade?.hasLut) return;
+    if (lut) {
+      const nextLut = { ...lut, intensity };
+      handleUpdate("adjustments", { ...adjustments, lut: nextLut });
+    }
+    updateClipColorGrade(selectedClip.id, { lutIntensity: intensity });
   };
 
   const removeLut = () => {
     const nextAdjustments = { ...adjustments } as any;
     delete nextAdjustments.lut;
     handleUpdate("adjustments", nextAdjustments);
+    updateClipColorGrade(selectedClip.id, { hasLut: 0, lutId: undefined });
   };
+
+  const hasActiveLut = !!lut || colorGrade?.hasLut === 1;
 
   return (
     <div className="space-y-3 pt-2 border-t border-white/5">
       <div className="flex items-center justify-between px-0.5">
         <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">3D LUT (.cube) Profile</span>
-        {lut && (
+        {hasActiveLut && (
           <button
             onClick={removeLut}
             className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1 transition-colors cursor-pointer"
@@ -110,7 +157,7 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
           className="hidden"
         />
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={handleTauriBrowse}
           className="w-full flex items-center justify-center gap-2 py-1.5 px-3 text-[11px] font-medium rounded bg-surface-raised hover:bg-white/10 border border-white/10 text-text-secondary hover:text-text-primary transition-all cursor-pointer"
         >
           <Upload className="w-3.5 h-3.5" />
@@ -119,10 +166,10 @@ export const LUTSection: React.FC<LUTSectionProps> = ({
       </div>
 
       {/* LUT Intensity Slider */}
-      {lut && (
+      {hasActiveLut && (
         <PropertySlider
           label="LUT Intensity"
-          value={Math.round((lut.intensity ?? 1.0) * 100)}
+          value={Math.round(((colorGrade?.lutIntensity ?? lut?.intensity) ?? 1.0) * 100)}
           min={0}
           max={100}
           step={5}

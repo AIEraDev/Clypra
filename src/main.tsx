@@ -22,6 +22,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import "@clypra/ui-color-picker/styles.css";
 import { initSettings } from "./store/settingsStore";
 import { I18nProvider } from "./i18n/I18nProvider";
 

@@ -134,6 +134,9 @@ interface TimelineStore {
   removeAudioKeyframe: (clipId: string, keyframeId: string) => void;
   updateAudioKeyframe: (clipId: string, keyframeId: string, updates: Partial<import("@/types").AudioKeyframe>) => void;
   updateClipAudioFX: (clipId: string, fxUpdates: Partial<import("@/types").AudioFXConfig>) => void;
+  // Chroma Key & Color Grading operations
+  updateClipChromaKey: (clipId: string, updates: Partial<import("@/types").ChromaKeyConfig>) => void;
+  updateClipColorGrade: (clipId: string, updates: Partial<import("@/types").ColorGradeUniforms>) => void;
 }
 
 /** Track row height in px — derived from the canonical TRACK_TYPE_CONFIG registry. */
@@ -1540,6 +1543,63 @@ export const useTimelineStore = create<TimelineStore>(
         return next;
       });
     },
+
+    updateClipChromaKey: (clipId, updates) => {
+      set((state) => {
+        const clip = state.clips.find((c) => c.id === clipId);
+        if (!clip) return state;
+
+        const currentChroma = clip.chromaKey || {
+          enabled: false,
+          keyColor: [0.0, 1.0, 0.0] as [number, number, number],
+          tolerance: 0.25,
+          smoothness: 0.15,
+          despillAmount: 0.85,
+          despillBalance: 0.5,
+          mattePedestal: 0.05,
+          matteHighlight: 0.95,
+        };
+        const newChroma = { ...currentChroma, ...updates };
+
+        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, chromaKey: newChroma } : c));
+        const next: Partial<TimelineStore> = { clips: updatedClips };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
+    updateClipColorGrade: (clipId, updates) => {
+      set((state) => {
+        const clip = state.clips.find((c) => c.id === clipId);
+        if (!clip) return state;
+
+        const currentColor = clip.colorGrade || {
+          exposure: 0.0,
+          contrast: 1.0,
+          saturation: 1.0,
+          temperature: 0.0,
+          tint: 0.0,
+          lutIntensity: 1.0,
+          lutSize: 33.0,
+          hasLut: 0,
+        };
+        const newColor = { ...currentColor, ...updates };
+
+        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, colorGrade: newColor } : c));
+        const next: Partial<TimelineStore> = { clips: updatedClips };
+        if (state._batchDepth > 0) {
+          next._pendingEpochIncrement = true;
+        } else {
+          next.epoch = state.epoch + 1;
+        }
+        return next;
+      });
+    },
+
 
     addClipMarker: (clipId, localTime, name, color) => {
       const markerId = generateId("clipmarker");

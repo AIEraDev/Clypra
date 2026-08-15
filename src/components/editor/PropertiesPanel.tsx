@@ -20,6 +20,7 @@ import { TransitionSection } from "./properties/TransitionSection";
 import { StickerSettingsSection } from "./properties/StickerSettingsSection";
 import { TimelineEffectSection } from "./properties/TimelineEffectSection";
 import { AdjustmentsSection } from "./properties/AdjustmentsSection";
+import { ChromaKeySection } from "./properties/ChromaKeySection";
 
 export function buildClipPropertyTransform(clip: Clip, updates: Record<string, unknown>, canvasWidth: number, canvasHeight: number): { oldTransform: Record<string, unknown>; newTransform: Record<string, unknown> } {
   let newTransform = { ...updates };
@@ -276,6 +277,9 @@ export const PropertiesPanel: React.FC = () => {
 
         {/* Color Adjustments */}
         {isVisualClip && <AdjustmentsSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
+
+        {/* UltraKey (Chroma Key) */}
+        {isVisualClip && <ChromaKeySection selectedClip={selectedClip} />}
 
         {/* Effects and Filters */}
         {isVisualClip && <EffectsFiltersSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}

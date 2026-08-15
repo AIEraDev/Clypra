@@ -111,6 +111,13 @@ export class PlaybackClock {
   }
 
   /**
+   * Alias for time - returns imperative continuous hardware clock time.
+   */
+  get currentTime(): number {
+    return this.time;
+  }
+
+  /**
    * Get playback state.
    */
   get state(): PlaybackState {

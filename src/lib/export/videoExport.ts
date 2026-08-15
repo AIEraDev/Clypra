@@ -85,6 +85,11 @@ export interface VideoExportConfig {
   onProgress?: (progress: VideoExportProgress) => void;
 
   /**
+   * Optional AbortSignal for immediate lifecycle cancellation
+   */
+  signal?: AbortSignal;
+
+  /**
    * Called as soon as the FFmpeg session is live, providing a cancel() function
    * that kills the backend process and stops the frame loop cleanly.
    * The ExportDialog stores this reference so the Cancel button works correctly.
@@ -131,7 +136,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   }
 
   const { invoke, Channel } = await import("@tauri-apps/api/core");
-  const { clips, tracks, transitions = [], assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, onSessionReady } = config;
+  const { clips, tracks, transitions = [], assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, onSessionReady, signal } = config;
 
   const startTimeMs = Date.now();
 
@@ -220,13 +225,25 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   // starts so the UI can kill FFmpeg when the user presses Cancel. Setting isCancelled
   // causes the frame loop to break cleanly on the next iteration.
   let isCancelled = false;
-  if (onSessionReady) {
-    onSessionReady(async () => {
-      isCancelled = true;
-      await invoke("cancel_video_export", { sessionId }).catch(() => {
-        // Ignore — process may have already exited
-      });
+  const performCancel = async () => {
+    isCancelled = true;
+    await invoke("cancel_video_export", { sessionId }).catch(() => {
+      // Ignore — process may have already exited
     });
+  };
+
+  if (onSessionReady) {
+    onSessionReady(performCancel);
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      await performCancel();
+    } else {
+      signal.addEventListener("abort", () => {
+        performCancel().catch(() => {});
+      }, { once: true });
+    }
   }
 
   // PERFORMANCE OPTIMIZATION: Batch frame writes to reduce IPC overhead

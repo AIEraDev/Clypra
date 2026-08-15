@@ -1,5 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { invoke } from "@tauri-apps/api/core";
+import type { SubtitleSegment, KaraokeStyleConfig } from "@/types/captions";
+import { DEFAULT_KARAOKE_STYLE } from "@/types/captions";
 
 export type WhisperModelSize = "tiny" | "base" | "small" | "medium" | "large-v3";
 export type ModelDownloadStatus = "idle" | "downloading" | "downloaded" | "error";
@@ -16,16 +19,28 @@ export interface CaptionSettings {
   language: string | "auto";
   activeModel: WhisperModelSize | null;
   models: Record<WhisperModelSize, ModelDownloadState>;
-  languageHints: string[]; // List of language codes to watch for (e.g., ["en", "es", "fr"])
+  languageHints: string[];
 }
 
 interface CaptionStore {
   captionSettings: CaptionSettings;
+  // Generated subtitle data (not persisted — regenerated each session)
+  segments: SubtitleSegment[];
+  isGenerating: boolean;
+  generationError: string | null;
+  // Karaoke overlay
+  karaokeOverlayEnabled: boolean;
+  karaokeStyle: KaraokeStyleConfig;
+  // Actions
   setLanguage: (lang: string | "auto") => void;
   setActiveModel: (size: WhisperModelSize) => void;
   setLanguageHints: (hints: string[]) => void;
   updateModelDownloadState: (size: WhisperModelSize, state: Partial<ModelDownloadState>) => void;
   resetModelState: (size: WhisperModelSize) => void;
+  setKaraokeOverlayEnabled: (enabled: boolean) => void;
+  setKaraokeStyle: (style: Partial<KaraokeStyleConfig>) => void;
+  generateCaptions: (videoPath: string, modelSize: string, language?: string) => Promise<void>;
+  clearSegments: () => void;
 }
 
 const DEFAULT_MODEL_STATE: ModelDownloadState = {
@@ -41,7 +56,7 @@ export const useCaptionStore = create<CaptionStore>()(
       captionSettings: {
         language: "auto",
         activeModel: null,
-        languageHints: [], // Default: no hints, auto-detect all languages
+        languageHints: [],
         models: {
           tiny: { ...DEFAULT_MODEL_STATE },
           base: { ...DEFAULT_MODEL_STATE },
@@ -50,29 +65,25 @@ export const useCaptionStore = create<CaptionStore>()(
           "large-v3": { ...DEFAULT_MODEL_STATE },
         },
       },
+      segments: [],
+      isGenerating: false,
+      generationError: null,
+      karaokeOverlayEnabled: false,
+      karaokeStyle: { ...DEFAULT_KARAOKE_STYLE },
 
       setLanguage: (lang) =>
         set((state) => ({
-          captionSettings: {
-            ...state.captionSettings,
-            language: lang,
-          },
+          captionSettings: { ...state.captionSettings, language: lang },
         })),
 
       setActiveModel: (size) =>
         set((state) => ({
-          captionSettings: {
-            ...state.captionSettings,
-            activeModel: size,
-          },
+          captionSettings: { ...state.captionSettings, activeModel: size },
         })),
 
       setLanguageHints: (hints) =>
         set((state) => ({
-          captionSettings: {
-            ...state.captionSettings,
-            languageHints: hints,
-          },
+          captionSettings: { ...state.captionSettings, languageHints: hints },
         })),
 
       updateModelDownloadState: (size, partialState) =>
@@ -81,10 +92,7 @@ export const useCaptionStore = create<CaptionStore>()(
             ...state.captionSettings,
             models: {
               ...state.captionSettings.models,
-              [size]: {
-                ...state.captionSettings.models[size],
-                ...partialState,
-              },
+              [size]: { ...state.captionSettings.models[size], ...partialState },
             },
           },
         })),
@@ -99,10 +107,36 @@ export const useCaptionStore = create<CaptionStore>()(
             },
           },
         })),
+
+      setKaraokeOverlayEnabled: (enabled) => set({ karaokeOverlayEnabled: enabled }),
+
+      setKaraokeStyle: (partial) =>
+        set((state) => ({
+          karaokeStyle: { ...state.karaokeStyle, ...partial },
+        })),
+
+      generateCaptions: async (videoPath, modelSize, language) => {
+        set({ isGenerating: true, generationError: null, segments: [] });
+        try {
+          const segments = await invoke<SubtitleSegment[]>("generate_auto_captions", {
+            videoPath,
+            modelSize: modelSize || null,
+            language: language && language !== "auto" ? language : null,
+          });
+          set({ segments, isGenerating: false });
+        } catch (err) {
+          const errorMsg = typeof err === "string" ? err : String(err);
+          console.error("[CaptionStore] generate_auto_captions failed:", errorMsg);
+          set({ isGenerating: false, generationError: errorMsg });
+          throw err;
+        }
+      },
+
+      clearSegments: () => set({ segments: [], generationError: null }),
     }),
     {
       name: "clypra-caption-settings",
-      // Only persist language and model statuses, not download progress
+      // Persist caption settings and karaoke style, but NOT runtime segments
       partialize: (state) => ({
         captionSettings: {
           language: state.captionSettings.language,
@@ -121,6 +155,8 @@ export const useCaptionStore = create<CaptionStore>()(
             ]),
           ) as Record<WhisperModelSize, ModelDownloadState>,
         },
+        karaokeOverlayEnabled: state.karaokeOverlayEnabled,
+        karaokeStyle: state.karaokeStyle,
       }),
     },
   ),

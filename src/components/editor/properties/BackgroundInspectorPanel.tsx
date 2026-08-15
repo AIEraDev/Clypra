@@ -2,6 +2,7 @@ import React from "react";
 import { Palette, Sparkles, Sliders, EyeOff, Check } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import type { CanvasBackgroundConfig } from "@/types";
+import { ClypraColorPicker } from "@clypra/ui-color-picker";
 
 const QUICK_COLORS = [
   "#000000",
@@ -95,17 +96,15 @@ export const BackgroundInspectorPanel: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="font-medium text-text-secondary">Solid Color</span>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="color"
+                  <ClypraColorPicker
                     value={bgConfig.color || "#0e0e12"}
-                    onChange={(e) => handleUpdate({ color: e.target.value })}
-                    className="w-6 h-6 rounded cursor-pointer border border-border bg-transparent p-0"
-                  />
-                  <input
-                    type="text"
-                    value={bgConfig.color || "#0e0e12"}
-                    onChange={(e) => handleUpdate({ color: e.target.value })}
-                    className="w-20 px-2 py-1 rounded bg-surface border border-border/60 font-mono text-[11px] uppercase text-text-primary"
+                    onChange={(c) => handleUpdate({ color: c })}
+                    onChangeComplete={(c) => handleUpdate({ color: c })}
+                    format="hex"
+                    showAlpha={true}
+                    size="sm"
+                    triggerClassName="w-28 h-7 bg-surface border-border/60 hover:border-border shrink-0"
+                    popoverClassName="right-0 left-auto mt-1 z-[100]"
                   />
                 </div>
               </div>
@@ -182,28 +181,44 @@ export const BackgroundInspectorPanel: React.FC = () => {
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between">
                   <span className="text-text-muted">Start Color</span>
-                  <input
-                    type="color"
+                  <ClypraColorPicker
                     value={bgConfig.gradient?.stops?.[0]?.color || "#1e1e2d"}
-                    onChange={(e) => {
+                    onChange={(c) => {
                       const stops = [...(bgConfig.gradient?.stops || [{ color: "#1e1e2d", offset: 0 }, { color: "#000000", offset: 100 }])];
-                      stops[0] = { ...stops[0], color: e.target.value };
+                      stops[0] = { ...stops[0], color: c };
                       handleUpdate({ gradient: { ...bgConfig.gradient, type: bgConfig.gradient?.type || "linear", stops } });
                     }}
-                    className="w-6 h-6 rounded cursor-pointer border border-border bg-transparent p-0"
+                    onChangeComplete={(c) => {
+                      const stops = [...(bgConfig.gradient?.stops || [{ color: "#1e1e2d", offset: 0 }, { color: "#000000", offset: 100 }])];
+                      stops[0] = { ...stops[0], color: c };
+                      handleUpdate({ gradient: { ...bgConfig.gradient, type: bgConfig.gradient?.type || "linear", stops } });
+                    }}
+                    format="hex"
+                    showAlpha={true}
+                    size="sm"
+                    triggerClassName="w-24 h-6.5 bg-surface border-border/60 hover:border-border shrink-0"
+                    popoverClassName="right-0 left-auto mt-1 z-[100]"
                   />
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-text-muted">End Color</span>
-                  <input
-                    type="color"
+                  <ClypraColorPicker
                     value={bgConfig.gradient?.stops?.[1]?.color || "#000000"}
-                    onChange={(e) => {
+                    onChange={(c) => {
                       const stops = [...(bgConfig.gradient?.stops || [{ color: "#1e1e2d", offset: 0 }, { color: "#000000", offset: 100 }])];
-                      stops[1] = { ...stops[1], color: e.target.value };
+                      stops[1] = { ...stops[1], color: c };
                       handleUpdate({ gradient: { ...bgConfig.gradient, type: bgConfig.gradient?.type || "linear", stops } });
                     }}
-                    className="w-6 h-6 rounded cursor-pointer border border-border bg-transparent p-0"
+                    onChangeComplete={(c) => {
+                      const stops = [...(bgConfig.gradient?.stops || [{ color: "#1e1e2d", offset: 0 }, { color: "#000000", offset: 100 }])];
+                      stops[1] = { ...stops[1], color: c };
+                      handleUpdate({ gradient: { ...bgConfig.gradient, type: bgConfig.gradient?.type || "linear", stops } });
+                    }}
+                    format="hex"
+                    showAlpha={true}
+                    size="sm"
+                    triggerClassName="w-24 h-6.5 bg-surface border-border/60 hover:border-border shrink-0"
+                    popoverClassName="right-0 left-auto mt-1 z-[100]"
                   />
                 </div>
 

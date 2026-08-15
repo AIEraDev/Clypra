@@ -19,6 +19,7 @@ import { AspectRatio } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { getPreviewMediaSyncClips } from "./previewMediaSync";
+import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 
 import { type TelemetryStats } from "./TelemetryOverlay";
 import { AspectSelector } from "./AspectSelector";
@@ -30,6 +31,8 @@ import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
+import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
+import { useCaptionStore } from "@/store/captionStore";
 
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
@@ -46,6 +49,7 @@ const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: numbe
 };
 
 export const PixiProgramPreview: React.FC = () => {
+  const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
   const project = useProjectStore((s) => s.project);
   const updateProject = useProjectStore((s) => s.updateProject);
   const mediaAssets = useProjectStore((s) => s.mediaAssets);
@@ -67,6 +71,9 @@ export const PixiProgramPreview: React.FC = () => {
 
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(100);
+
+  // High-performance Web Audio synchronization engine
+  useAudioSyncEngine({ volume, muted: isMuted });
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [previewScaleMode, setPreviewScaleMode] = useState<"fit" | "fill">("fit");
   const [previewAspectPreset, setPreviewAspectPreset] = useState<AspectRatio>("original");
@@ -435,8 +442,8 @@ export const PixiProgramPreview: React.FC = () => {
             time: timeToRenderRounded,
             state: playbackState,
             speed: state.clock.speed,
-            muted: isMutedRef.current,
-            volume: volumeRef.current,
+            muted: true, // PreviewMediaPool DOM elements kept muted; AudioEngine handles all audible timeline output
+            volume: 0,
             frameRate,
           });
           lastSyncedMediaHashRef.current = scene.metadata.activeMediaHash ?? "";
@@ -676,7 +683,8 @@ export const PixiProgramPreview: React.FC = () => {
               />
 
               <TransformOverlay canvasWidth={canvasWidth} canvasHeight={canvasHeight} scale={scale} viewport={viewport} displayOffset={{ x: offsetX, y: offsetY }} displayWidth={displayWidth} displayHeight={displayHeight} currentTime={currentTime} visible={!isPlaying} />
-              <SafeOverlay visible={showSafeOverlay} displayWidth={displayWidth} displayHeight={displayHeight} displayOffset={{ x: offsetX, y: offsetY }} />
+              <SafeOverlay visible={showSafeOverlay} displayWidth={displayWidth} displayHeight={displayHeight} displayOffset={{ x: offsetX, y: offsetY}} />
+              {karaokeOverlayEnabled && <KaraokeCaptions />}
             </>
           </div>
         </div>

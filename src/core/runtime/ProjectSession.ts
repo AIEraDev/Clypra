@@ -53,6 +53,7 @@ import { SourcePlaybackContext } from "../playback/SourcePlaybackContext";
 import { RenderEngine } from "@/lib/renderEngine/renderEngine";
 import { QualityPreset, RendererMode, type SrpConfig } from "@/lib/renderEngine/types";
 import { PreviewMediaPool, type PreviewSyncState } from "../resources/PreviewMediaPool";
+import { AudioEngine } from "../audio/AudioEngine";
 import type { Clip, MediaAsset } from "@/types";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { resourceTracker, installDiagnostics } from "@/core/monitoring/ResourceTracker";
@@ -77,6 +78,7 @@ export class ProjectSession {
 
   // Owned subsystems (created on initialize, destroyed on dispose)
   private _playback: PlaybackClock | null = null;
+  private _audioEngine: AudioEngine | null = null;
   private _renderRuntime: RenderEngine | null = null;
   private _transportAuthority: TransportAuthority | null = null;
   private _programContext: ProgramPlaybackContext | null = null;
@@ -119,6 +121,10 @@ export class ProjectSession {
     return this._renderRuntime;
   }
 
+  get audioEngine(): AudioEngine | null {
+    return this._audioEngine;
+  }
+
   /**
    * Transport authority - single source of truth for playback ownership.
    * Returns null if not yet initialized.
@@ -158,7 +164,7 @@ export class ProjectSession {
     try {
       // Use global singletons (single clock/scheduler ensures no divergence)
       this._playback = getPlaybackClock();
-
+      this._audioEngine = new AudioEngine();
 
       // Create playback contexts and transport authority
       this._programContext = new ProgramPlaybackContext(this._playback);
@@ -235,7 +241,11 @@ export class ProjectSession {
         this._playback.stop();
       }
 
-
+      // 3. Teardown audio engine
+      if (this._audioEngine) {
+        this._audioEngine.dispose();
+        this._audioEngine = null;
+      }
 
       // 4. Release media resources (video elements, audio nodes)
       await this._releaseMediaResources();
@@ -340,6 +350,7 @@ export class ProjectSession {
    */
   unlockPreviewAudio(): void {
     this._previewMediaPool?.unlockAudio();
+    this._audioEngine?.resume();
   }
 
   /**

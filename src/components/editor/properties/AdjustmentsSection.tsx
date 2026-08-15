@@ -6,6 +6,7 @@ import { filterCacheManager } from "@/features/filters/cache/filterCache";
 import type { ColorAdjustments } from "@clypra-studio/engine";
 import { ColorWheelsSection } from "./ColorWheelsSection";
 import { LUTSection } from "./LUTSection";
+import { ClypraColorPicker } from "@clypra/ui-color-picker";
 
 interface AdjustmentsSectionProps {
   selectedClip: Clip;
@@ -344,25 +345,20 @@ export const AdjustmentsSection: React.FC<AdjustmentsSectionProps> = ({
             <div className="flex items-center justify-between">
               <span className={`text-[10px] ${isOverridden("vibrance") ? "text-purple-400" : "text-text-muted"}`}>Protected Skin Tone Hue</span>
               <div className="flex items-center gap-1.5">
-                <label
-                  className="relative w-5 h-5 rounded-full border border-border/60 cursor-pointer overflow-hidden block shadow-sm hover:scale-105 transition-transform"
-                  style={{
-                    backgroundColor: isOverridden("vibrance")
+                <ClypraColorPicker
+                  value={
+                    isOverridden("vibrance")
                       ? adjustments.vibrance?.protectedHue ?? "#E8B08C"
                       : presetParams?.vibrance?.protectedHue ?? "#E8B08C"
-                  }}
-                >
-                  <input
-                    type="color"
-                    value={
-                      isOverridden("vibrance")
-                        ? adjustments.vibrance?.protectedHue ?? "#E8B08C"
-                        : presetParams?.vibrance?.protectedHue ?? "#E8B08C"
-                    }
-                    onChange={(e) => updateStructuredField("vibrance", { protectedHue: e.target.value })}
-                    className="absolute -inset-1 opacity-0 cursor-pointer"
-                  />
-                </label>
+                  }
+                  onChange={(c) => updateStructuredField("vibrance", { protectedHue: c })}
+                  onChangeComplete={(c) => updateStructuredField("vibrance", { protectedHue: c })}
+                  format="hex"
+                  showAlpha={false}
+                  size="sm"
+                  triggerClassName="w-16 h-6.5 bg-surface border-border/60 hover:border-border shrink-0"
+                  popoverClassName="right-0 left-auto mt-1 z-[100]"
+                />
                 {isOverridden("vibrance") && (
                   <button
                     onClick={() => resetAdjustment("vibrance")}
