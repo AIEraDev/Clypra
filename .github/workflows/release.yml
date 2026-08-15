@@ -28,9 +28,6 @@ jobs:
             args: ""
 
     runs-on: ${{ matrix.platform }}
-    env:
-      # whisper.cpp uses std::filesystem (requires macOS 10.15+)
-      MACOSX_DEPLOYMENT_TARGET: "10.15"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -65,23 +62,34 @@ jobs:
             libxdo-dev
 
       # ------------------------------------------------------------------------
-      # macOS FFmpeg via Homebrew
+      # macOS: FFmpeg via Homebrew + deployment target for whisper.cpp
+      # whisper.cpp ggml uses std::filesystem which requires macOS 10.15+.
+      # MACOSX_DEPLOYMENT_TARGET must be set before cmake runs so it propagates
+      # into the C++ compiler flags via -mmacosx-version-min.
       # ------------------------------------------------------------------------
       - name: Install FFmpeg (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
           brew install ffmpeg pkg-config
           echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
+          echo "CXXFLAGS=-mmacosx-version-min=11.0" >> $GITHUB_ENV
+          echo "CFLAGS=-mmacosx-version-min=11.0" >> $GITHUB_ENV
 
       # ------------------------------------------------------------------------
-      # Windows FFmpeg via vcpkg (ffmpeg-sys-next discovers via VCPKGRS_TRIPLET)
+      # Windows: FFmpeg via vcpkg with explicit version tag
+      # ffmpeg-next v8 requires FFmpeg 6.x. vcpkg baseline pins to a known-good
+      # commit that ships FFmpeg 7.x (latest stable supported by ffmpeg-sys-next).
       # ------------------------------------------------------------------------
       - name: Install FFmpeg (Windows)
         if: matrix.platform == 'windows-latest'
         run: |
-          vcpkg install ffmpeg:x64-windows-static-md
+          cd C:\vcpkg
+          git pull
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
           echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
           echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "VCPKGRS_DYNAMIC=0" >> $env:GITHUB_ENV
 
       # ------------------------------------------------------------------------
       # Toolchains & Cache Setup
@@ -122,7 +130,6 @@ jobs:
         uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Tauri v2 Auto-Updater Private Key & Password
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
