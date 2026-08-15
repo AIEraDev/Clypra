@@ -15,29 +15,32 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Native arm64 only — cross-compiling x86_64 on Apple Silicon breaks
+          # FFmpeg pkg-config discovery (see v1.2.2 release workflow).
           - platform: "macos-latest"
             target: "aarch64-apple-darwin"
-            args: "--target aarch64-apple-darwin"
-          - platform: "macos-latest"
-            target: "x86_64-apple-darwin"
-            args: "--target x86_64-apple-darwin"
+            args: ""
           - platform: "windows-latest"
             target: "x86_64-pc-windows-msvc"
             args: ""
-          - platform: "ubuntu-22.04"
+          - platform: "ubuntu-24.04"
             target: "x86_64-unknown-linux-gnu"
             args: ""
 
     runs-on: ${{ matrix.platform }}
+    env:
+      # whisper.cpp uses std::filesystem (requires macOS 10.15+)
+      MACOSX_DEPLOYMENT_TARGET: "10.15"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------------------
       # Linux Native System Dependencies (WebKitGTK, VA-API, FFmpeg Dev)
+      # ubuntu-24.04 ships FFmpeg 6.x+ required by ffmpeg-next 8 (22.04 has 4.x)
       # ------------------------------------------------------------------------
       - name: Install System Dependencies (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -66,17 +69,19 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Install FFmpeg (macOS)
         if: matrix.platform == 'macos-latest'
-        run: brew install ffmpeg pkg-config
+        run: |
+          brew install ffmpeg pkg-config
+          echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> $GITHUB_ENV
 
       # ------------------------------------------------------------------------
-      # Windows FFmpeg via vcpkg
+      # Windows FFmpeg via vcpkg (ffmpeg-sys-next discovers via VCPKGRS_TRIPLET)
       # ------------------------------------------------------------------------
       - name: Install FFmpeg (Windows)
         if: matrix.platform == 'windows-latest'
         run: |
           vcpkg install ffmpeg:x64-windows-static-md
-          echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
-          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
 
       # ------------------------------------------------------------------------
       # Toolchains & Cache Setup
@@ -89,8 +94,6 @@ jobs:
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
@@ -109,7 +112,7 @@ jobs:
       # Cargo tests require native FFmpeg + libclang headers; only run on Linux
       # where the full system dependency set is installed above.
       - name: Run Cargo Test Suite
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       # ------------------------------------------------------------------------
