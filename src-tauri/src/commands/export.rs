@@ -168,10 +168,13 @@ struct ExportSession {
     last_perf_log_time: std::time::Instant,
 }
 
+/// Type alias for the shared export session map.
+type ExportSessionMap = Arc<Mutex<HashMap<String, Arc<Mutex<ExportSession>>>>>;
+
 /// Global export sessions (keyed by session ID).
 /// Uses Arc<Mutex<ExportSession>> so the map lock is released immediately after lookup,
 /// eliminating deadlocks and lock contention during streaming stdin writes.
-static EXPORT_SESSIONS: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, Arc<Mutex<ExportSession>>>>>> =
+static EXPORT_SESSIONS: once_cell::sync::Lazy<ExportSessionMap> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Progress emission interval ceiling (15 Hz / ~66ms) to prevent IPC flooding and UI freezes

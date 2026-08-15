@@ -59,6 +59,7 @@ pub struct YuvTextureRingBuffer {
 
 impl YuvTextureRingBuffer {
     /// Create a new pre-allocated YUV / HDR texture ring buffer.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
@@ -120,8 +121,8 @@ impl YuvTextureRingBuffer {
             view_formats: &[],
         });
 
-        let uv_width = (width + 1) / 2;
-        let uv_height = (height + 1) / 2;
+        let uv_width = width.div_ceil(2);
+        let uv_height = height.div_ceil(2);
 
         let uv_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("UV Plane Texture"),
@@ -198,8 +199,8 @@ impl YuvTextureRingBuffer {
         let slot_idx = self.write_index;
         let slot = &self.slots[slot_idx];
 
-        let uv_width = (self.width + 1) / 2;
-        let uv_height = (self.height + 1) / 2;
+        let uv_width = self.width.div_ceil(2);
+        let uv_height = self.height.div_ceil(2);
 
         let bytes_per_y_sample = match self.format {
             YuvPixelFormat::Nv12 => 1u32,
@@ -294,6 +295,7 @@ impl YuvTextureRingBuffer {
     }
 
     /// Adapt to changes in resolution or pixel format.
+    #[allow(clippy::too_many_arguments)]
     pub fn ensure_dimensions_and_format(
         &mut self,
         device: &wgpu::Device,
@@ -444,6 +446,7 @@ pub fn create_yuv_hdr_render_pipeline(
 }
 
 /// Renders a frame using the YUV HDR ring buffer directly to a target texture view.
+#[allow(clippy::too_many_arguments)]
 pub fn render_yuv_frame(
     ring_buffer: &mut YuvTextureRingBuffer,
     device: &wgpu::Device,
