@@ -418,7 +418,7 @@ impl MultiTrackCompositor {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[vertex_buffer_layout.clone()],
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -450,7 +450,7 @@ impl MultiTrackCompositor {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[vertex_buffer_layout.clone()],
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -808,6 +808,7 @@ impl MultiTrackCompositor {
     }
 
     /// Composites a dual-texture transition (from -> to) onto the target view.
+    #[allow(clippy::too_many_arguments)]
     pub fn composite_transition(
         &self,
         device: &wgpu::Device,
@@ -894,6 +895,7 @@ impl MultiTrackCompositor {
     }
 
     /// Render a dual-texture transition to RGBA bytes.
+    #[allow(clippy::too_many_arguments)]
     pub async fn render_transition_to_rgba_bytes(
         &self,
         device: &wgpu::Device,

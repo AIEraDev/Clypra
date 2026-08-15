@@ -1,4 +1,4 @@
-/**
+/*!
  * Native wgpu Compositor & Offscreen Renderer
  *
  * Real wgpu GPU pipeline initialization for Clypra Rust core.
@@ -122,8 +122,8 @@ impl NativeWgpuRenderer {
             },
         );
 
-        let uv_width = (width + 1) / 2;
-        let uv_height = (height + 1) / 2;
+        let uv_width = width.div_ceil(2);
+        let uv_height = height.div_ceil(2);
 
         // 2. Create UV plane texture (Rg8Unorm)
         let uv_texture = self.device.create_texture(&wgpu::TextureDescriptor {

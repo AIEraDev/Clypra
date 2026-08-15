@@ -83,8 +83,8 @@ impl Nv12TextureRingBuffer {
             view_formats: &[],
         });
 
-        let uv_width = (width + 1) / 2;
-        let uv_height = (height + 1) / 2;
+        let uv_width = width.div_ceil(2);
+        let uv_height = height.div_ceil(2);
 
         // 2. UV-Plane: Half resolution Rg8Unorm (interleaved U and V, 2 bytes per texel)
         let uv_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -151,8 +151,8 @@ impl Nv12TextureRingBuffer {
         let slot_idx = self.write_index;
         let slot = &self.slots[slot_idx];
 
-        let uv_width = (self.width + 1) / 2;
-        let uv_height = (self.height + 1) / 2;
+        let uv_width = self.width.div_ceil(2);
+        let uv_height = self.height.div_ceil(2);
 
         let actual_linesize_y = linesize_y.max(self.width);
         let actual_linesize_uv = linesize_uv.max(uv_width * 2);
@@ -375,6 +375,7 @@ pub fn create_nv12_render_pipeline(
 
 /// Renders a scrub frame using the pre-allocated ring buffer and a render pipeline.
 /// Direct O(1) execution with zero descriptor / texture reallocations.
+#[allow(clippy::too_many_arguments)]
 pub fn render_scrub_frame(
     ring_buffer: &mut Nv12TextureRingBuffer,
     device: &wgpu::Device,

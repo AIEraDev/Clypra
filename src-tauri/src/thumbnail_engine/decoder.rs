@@ -635,8 +635,8 @@ impl VideoDecoder {
                 y_plane.extend_from_slice(&y_data[row_start..row_start + width]);
             }
 
-            let uv_height = (height + 1) / 2;
-            let uv_width = (width + 1) / 2;
+            let uv_height = height.div_ceil(2);
+            let uv_width = width.div_ceil(2);
             let uv_packed_stride = uv_width * 2;
             let mut uv_plane = Vec::with_capacity(uv_packed_stride * uv_height);
             for y in 0..uv_height {
@@ -644,7 +644,7 @@ impl VideoDecoder {
                 let copy_len = width.min(uv_packed_stride);
                 uv_plane.extend_from_slice(&uv_data[row_start..row_start + copy_len]);
                 if copy_len < uv_packed_stride {
-                    uv_plane.extend(std::iter::repeat(0u8).take(uv_packed_stride - copy_len));
+                    uv_plane.extend(std::iter::repeat_n(0u8, uv_packed_stride - copy_len));
                 }
             }
 

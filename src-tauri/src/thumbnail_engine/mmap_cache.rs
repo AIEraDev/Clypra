@@ -170,6 +170,7 @@ impl MmapFrameCache {
     }
 
     /// Read frame with 10-bit format flag directly from the memory-mapped cache.
+    #[allow(clippy::type_complexity)]
     pub fn get_frame_with_format(&self, pts_us: u64) -> Option<(&[u8], &[u8], u32, u32, bool)> {
         let index = self.frame_index.read();
         let &slot_idx = index.get(&pts_us)?;
