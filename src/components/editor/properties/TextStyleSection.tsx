@@ -583,8 +583,8 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                   </select>
                   <ClypraColorPicker
                     value={isGradient ? "#ffffff" : textClip.color || "#ffffff"}
-                    onChange={(c) => handleCustomStyleUpdate("color", c)}
-                    onChangeComplete={(c) => handleCustomStyleUpdate("color", c)}
+                    onChange={(c: string) => handleCustomStyleUpdate("color", c)}
+                    onChangeComplete={(c: string) => handleCustomStyleUpdate("color", c)}
                     format="hex"
                     showAlpha={true}
                     size="sm"
@@ -610,8 +610,8 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                       <div key={idx} className="flex items-center gap-1">
                         <ClypraColorPicker
                           value={stopColor}
-                          onChange={(c) => handleStopChange(idx, c)}
-                          onChangeComplete={(c) => handleStopChange(idx, c)}
+                          onChange={(c: string) => handleStopChange(idx, c)}
+                          onChangeComplete={(c: string) => handleStopChange(idx, c)}
                           format="hex"
                           showAlpha={true}
                           size="sm"
@@ -669,8 +669,8 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                       ))}
                       <ClypraColorPicker
                         value={textClip.stroke.color}
-                        onChange={(c) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: c })}
-                        onChangeComplete={(c) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: c })}
+                        onChange={(c: string) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: c })}
+                        onChangeComplete={(c: string) => handleCustomStyleUpdate("stroke", { ...textClip.stroke, color: c })}
                         format="hex"
                         showAlpha={true}
                         size="sm"
@@ -712,8 +712,8 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                       ))}
                       <ClypraColorPicker
                         value={textClip.shadow.color}
-                        onChange={(c) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: c })}
-                        onChangeComplete={(c) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: c })}
+                        onChange={(c: string) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: c })}
+                        onChangeComplete={(c: string) => handleCustomStyleUpdate("shadow", { ...textClip.shadow, color: c })}
                         format="hex"
                         showAlpha={true}
                         size="sm"
@@ -765,8 +765,8 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                       ))}
                       <ClypraColorPicker
                         value={textClip.background.color}
-                        onChange={(c) => handleCustomStyleUpdate("background", { ...textClip.background, color: c })}
-                        onChangeComplete={(c) => handleCustomStyleUpdate("background", { ...textClip.background, color: c })}
+                        onChange={(c: string) => handleCustomStyleUpdate("background", { ...textClip.background, color: c })}
+                        onChangeComplete={(c: string) => handleCustomStyleUpdate("background", { ...textClip.background, color: c })}
                         format="hex"
                         showAlpha={true}
                         size="sm"

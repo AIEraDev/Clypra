@@ -98,8 +98,8 @@ export const BackgroundInspectorPanel: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <ClypraColorPicker
                     value={bgConfig.color || "#0e0e12"}
-                    onChange={(c) => handleUpdate({ color: c })}
-                    onChangeComplete={(c) => handleUpdate({ color: c })}
+                    onChange={(c: string) => handleUpdate({ color: c })}
+                    onChangeComplete={(c: string) => handleUpdate({ color: c })}
                     format="hex"
                     showAlpha={true}
                     size="sm"
@@ -183,12 +183,12 @@ export const BackgroundInspectorPanel: React.FC = () => {
                   <span className="text-text-muted">Start Color</span>
                   <ClypraColorPicker
                     value={bgConfig.gradient?.stops?.[0]?.color || "#1e1e2d"}
-                    onChange={(c) => {
+                    onChange={(c: string) => {
                       const stops = [...(bgConfig.gradient?.stops || [{ color: "#1e1e2d", offset: 0 }, { color: "#000000", offset: 100 }])];
                       stops[0] = { ...stops[0], color: c };
                       handleUpdate({ gradient: { ...bgConfig.gradient, type: bgConfig.gradient?.type || "linear", stops } });
                     }}
-                    onChangeComplete={(c) => {
+                    onChangeComplete={(c: string) => {
                       const stops = [...(bgConfig.gradient?.stops || [{ color: "#1e1e2d", offset: 0 }, { color: "#000000", offset: 100 }])];
                       stops[0] = { ...stops[0], color: c };
                       handleUpdate({ gradient: { ...bgConfig.gradient, type: bgConfig.gradient?.type || "linear", stops } });
@@ -204,12 +204,12 @@ export const BackgroundInspectorPanel: React.FC = () => {
                   <span className="text-text-muted">End Color</span>
                   <ClypraColorPicker
                     value={bgConfig.gradient?.stops?.[1]?.color || "#000000"}
-                    onChange={(c) => {
+                    onChange={(c: string) => {
                       const stops = [...(bgConfig.gradient?.stops || [{ color: "#1e1e2d", offset: 0 }, { color: "#000000", offset: 100 }])];
                       stops[1] = { ...stops[1], color: c };
                       handleUpdate({ gradient: { ...bgConfig.gradient, type: bgConfig.gradient?.type || "linear", stops } });
                     }}
-                    onChangeComplete={(c) => {
+                    onChangeComplete={(c: string) => {
                       const stops = [...(bgConfig.gradient?.stops || [{ color: "#1e1e2d", offset: 0 }, { color: "#000000", offset: 100 }])];
                       stops[1] = { ...stops[1], color: c };
                       handleUpdate({ gradient: { ...bgConfig.gradient, type: bgConfig.gradient?.type || "linear", stops } });

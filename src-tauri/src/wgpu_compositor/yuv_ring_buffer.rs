@@ -494,12 +494,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_yuv_hdr_ring_buffer_nv12_and_p010() {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::None,
                 compatible_surface: None,
-                force_fallback_adapter: false,
+                force_fallback_adapter: true, // Use software fallback on headless CI
             })
             .await;
 
