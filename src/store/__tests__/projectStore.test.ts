@@ -9,6 +9,48 @@ vi.mock("@/core/runtime/ProjectSession", () => ({
   createProjectSession: vi.fn(),
 }));
 
+// Mock fetchDefinitionOnlyById so preloadTextEffectDefinitionsFromClips
+// populates the effects store without real network calls
+vi.mock(
+  "@/features/text-effects/store/effectsStore",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@/features/text-effects/store/effectsStore")
+      >();
+    return {
+      ...actual,
+      useEffectsStore: {
+        ...actual.useEffectsStore,
+        getState: () => ({
+          ...actual.useEffectsStore.getState(),
+          fetchDefinitionOnlyById: vi.fn(async (id: string) => {
+            actual.useEffectsStore.setState((state) => ({
+              definitions: {
+                ...state.definitions,
+                [id]: {
+                  id,
+                  name: id,
+                  category: "sticker",
+                  font: { family: "Inter", weight: 700 },
+                  fills: [],
+                  strokes: [],
+                  glows: [],
+                  shadows: [],
+                  tags: [],
+                  description: "",
+                } as any,
+              },
+            }));
+          }),
+        }),
+        setState: actual.useEffectsStore.setState,
+        subscribe: actual.useEffectsStore.subscribe,
+      },
+    };
+  },
+);
+
 describe("projectStore", () => {
   beforeEach(() => {
     useProjectStore.setState({
@@ -43,7 +85,17 @@ describe("projectStore", () => {
       frameRate: 30,
       duration: 10,
     };
-    const tracks: Track[] = [{ id: "track-text", type: "text", name: "Text", muted: false, locked: false, visible: true, height: 30 }];
+    const tracks: Track[] = [
+      {
+        id: "track-text",
+        type: "text",
+        name: "Text",
+        muted: false,
+        locked: false,
+        visible: true,
+        height: 30,
+      },
+    ];
     const clips: TextClip[] = [
       {
         id: "clip-text",
@@ -75,15 +127,29 @@ describe("projectStore", () => {
 
     const originalHydrate = useTimelineStore.getState().hydrateFromProject;
     const hydrateSpy = vi.fn((payload: { tracks?: any[]; clips?: any[] }) => {
-      expect(useEffectsStore.getState().definitions["premium-sticker"]).toBeDefined();
+      expect(
+        useEffectsStore.getState().definitions["premium-sticker"],
+      ).toBeDefined();
       originalHydrate(payload);
     });
     useTimelineStore.setState({ hydrateFromProject: hydrateSpy } as any);
 
-    await useProjectStore.getState().loadProject(project, { tracks, clips, mediaAssets: [] });
+    await useProjectStore
+      .getState()
+      .loadProject(project, { tracks, clips, mediaAssets: [] });
 
-    expect(hydrateSpy).toHaveBeenCalledWith({ tracks, clips, transitions: [], gaps: [], markers: [], cleanEmptyTracks: true });
-    expect(useTimelineStore.getState().clips[0]).toMatchObject({ id: "clip-text", styleId: "premium-sticker" });
+    expect(hydrateSpy).toHaveBeenCalledWith({
+      tracks,
+      clips,
+      transitions: [],
+      gaps: [],
+      markers: [],
+      cleanEmptyTracks: true,
+    });
+    expect(useTimelineStore.getState().clips[0]).toMatchObject({
+      id: "clip-text",
+      styleId: "premium-sticker",
+    });
   });
 
   it("normalizes embedded flat text effect definitions before hydrating timeline clips", async () => {
@@ -98,7 +164,17 @@ describe("projectStore", () => {
       frameRate: 30,
       duration: 10,
     };
-    const tracks: Track[] = [{ id: "track-text", type: "text", name: "Text", muted: false, locked: false, visible: true, height: 30 }];
+    const tracks: Track[] = [
+      {
+        id: "track-text",
+        type: "text",
+        name: "Text",
+        muted: false,
+        locked: false,
+        visible: true,
+        height: 30,
+      },
+    ];
     const clips = [
       {
         id: "clip-text",
@@ -129,12 +205,22 @@ describe("projectStore", () => {
           strokeEnabled: true,
           strokeColor: "#ffffff",
           strokeWidth: 10,
-          glowLayers: [{ enabled: true, color: "#ff1744", blur: 32, opacity: 85, type: "outer" }],
+          glowLayers: [
+            {
+              enabled: true,
+              color: "#ff1744",
+              blur: 32,
+              opacity: 85,
+              type: "outer",
+            },
+          ],
         },
       },
     ] as any[];
 
-    await useProjectStore.getState().loadProject(project, { tracks, clips, mediaAssets: [] });
+    await useProjectStore
+      .getState()
+      .loadProject(project, { tracks, clips, mediaAssets: [] });
 
     const cached = useEffectsStore.getState().definitions["flat-neon"];
     expect(cached.font.family).toBe("Bebas Neue");
