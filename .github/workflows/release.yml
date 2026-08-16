@@ -29,6 +29,8 @@ jobs:
             args: ""
 
     runs-on: ${{ matrix.platform }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -64,8 +66,10 @@ jobs:
             cmake
 
       # ------------------------------------------------------------------------
-      # macOS: FFmpeg 7.x via Homebrew (ffmpeg-next crate targets FFmpeg 7.x headers)
-      # cmake is required for whisper-rs to compile whisper.cpp
+      # macOS: FFmpeg via Homebrew + deployment target for whisper.cpp
+      # whisper.cpp ggml uses std::filesystem which requires macOS 10.15+.
+      # MACOSX_DEPLOYMENT_TARGET must be set to 11.0 so cmake / clang compile
+      # ggml-backend-reg.cpp without availability errors on macOS.
       # ------------------------------------------------------------------------
       - name: Install FFmpeg + cmake (macOS)
         if: matrix.platform == 'macos-latest'
@@ -73,18 +77,26 @@ jobs:
           brew install ffmpeg cmake pkg-config
           echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=$(brew --prefix ffmpeg)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
+          echo "CXXFLAGS=-mmacosx-version-min=11.0" >> $GITHUB_ENV
+          echo "CFLAGS=-mmacosx-version-min=11.0" >> $GITHUB_ENV
 
       # ------------------------------------------------------------------------
-      # Windows: FFmpeg 7.x via vcpkg with a pinned baseline
-      # LIBCLANG_PATH is required for whisper-rs and ffmpeg-sys-next bindgen
+      # Windows: LLVM (for bindgen/libclang) + FFmpeg via vcpkg
       # ------------------------------------------------------------------------
+      - name: Install LLVM and Clang (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18.0"
+
       - name: Install FFmpeg (Windows)
         if: matrix.platform == 'windows-latest'
         run: |
           vcpkg install ffmpeg:x64-windows-static-md
           echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
-          echo "LIBCLANG_PATH=C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/Llvm/x64/bin" >> $env:GITHUB_ENV
+          echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/bin" >> $env:GITHUB_ENV
 
       # ------------------------------------------------------------------------
       # Toolchains & Cache Setup
@@ -130,6 +142,10 @@ jobs:
           # Tauri v2 Auto-Updater Private Key & Password
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS deployment target for whisper-rs cmake builds
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+          CXXFLAGS: "-mmacosx-version-min=11.0"
+          CFLAGS: "-mmacosx-version-min=11.0"
         with:
           tagName: v__VERSION__
           releaseName: "Clypra v__VERSION__"
