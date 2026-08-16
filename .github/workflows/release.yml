@@ -3,12 +3,12 @@ name: "Publish Release"
 on:
   push:
     tags:
-      - "v*" # Trigger on version tag push, e.g. v1.2.3
-  workflow_dispatch: # Allow manual workflow dispatch
+      - "v*"
+  workflow_dispatch:
 
 jobs:
   publish-tauri:
-    name: Build & Release (${{ matrix.platform }}${{ matrix.target && format(' - {0}', matrix.target) || '' }})
+    name: Build & Release (${{ matrix.platform }} - ${{ matrix.target }})
     permissions:
       contents: write
     strategy:
@@ -18,9 +18,6 @@ jobs:
           - platform: "macos-latest"
             target: "aarch64-apple-darwin"
             args: "--target aarch64-apple-darwin"
-          - platform: "macos-latest"
-            target: "x86_64-apple-darwin"
-            args: "--target x86_64-apple-darwin"
           - platform: "windows-latest"
             target: "x86_64-pc-windows-msvc"
             args: ""
@@ -29,16 +26,11 @@ jobs:
             args: ""
 
     runs-on: ${{ matrix.platform }}
-    env:
-      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------------------
-      # Linux System Dependencies
-      # Note: ubuntu-24.04 uses libayatana-appindicator3-dev (replaces libappindicator3-dev)
-      # ------------------------------------------------------------------------
+      # ── Linux ──────────────────────────────────────────────────────────────
       - name: Install System Dependencies (Linux)
         if: matrix.platform == 'ubuntu-24.04'
         run: |
@@ -46,64 +38,62 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            xdg-utils \
+            librsvg2-dev patchelf xdg-utils \
             libva-dev \
-            libavutil-dev \
-            libavcodec-dev \
-            libavformat-dev \
-            libswscale-dev \
-            libswresample-dev \
-            libavdevice-dev \
-            libavfilter-dev \
-            libpostproc-dev \
-            build-essential \
-            pkg-config \
-            libssl-dev \
-            libclang-dev \
-            libxdo-dev \
-            cmake
+            libavutil-dev libavcodec-dev libavformat-dev \
+            libswscale-dev libswresample-dev \
+            libavdevice-dev libavfilter-dev libpostproc-dev \
+            build-essential pkg-config libssl-dev \
+            libclang-dev libxdo-dev cmake
 
-      # ------------------------------------------------------------------------
-      # macOS: FFmpeg via Homebrew + deployment target for whisper.cpp
-      # whisper.cpp ggml uses std::filesystem which requires macOS 10.15+.
-      # MACOSX_DEPLOYMENT_TARGET must be set to 11.0 so cmake / clang compile
-      # ggml-backend-reg.cpp without availability errors on macOS.
-      # ------------------------------------------------------------------------
-      - name: Install FFmpeg + cmake (macOS)
+      # ── macOS ──────────────────────────────────────────────────────────────
+      # whisper-rs-sys builds ggml via cmake. The only reliable way to set
+      # the deployment target for cmake sub-builds inside cargo is via the
+      # SDKROOT + MACOSX_DEPLOYMENT_TARGET env pair AND setting
+      # CMAKE_OSX_DEPLOYMENT_TARGET through CARGO_BUILD_TARGET_DIR cmake
+      # passthrough. We use a .cargo/config.toml [env] block (committed) to
+      # guarantee cmake sees the flag, and also set it here for safety.
+      - name: Install FFmpeg (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
           brew install ffmpeg cmake pkg-config
-          echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=$(brew --prefix ffmpeg)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig" >> $GITHUB_ENV
+          BREW_PREFIX=$(brew --prefix)
+          FFMPEG_PREFIX=$(brew --prefix ffmpeg)
+          echo "FFMPEG_DIR=$FFMPEG_PREFIX" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$FFMPEG_PREFIX/lib/pkgconfig:$BREW_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
           echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
-          echo "CXXFLAGS=-mmacosx-version-min=11.0" >> $GITHUB_ENV
-          echo "CFLAGS=-mmacosx-version-min=11.0" >> $GITHUB_ENV
+          echo "CMAKE_OSX_DEPLOYMENT_TARGET=11.0" >> $GITHUB_ENV
 
-      # ------------------------------------------------------------------------
-      # Windows: LLVM (for bindgen/libclang) + FFmpeg via vcpkg
-      # Use chocolatey (pre-installed on Windows runners) for LLVM 17 —
-      # KyleMayes/install-llvm-action v2 doesn't ship Windows x64 binaries
-      # for v18. choco provides a reliable libclang.dll bindgen can locate.
-      # ------------------------------------------------------------------------
-      - name: Install LLVM (Windows)
+      # ── Windows ────────────────────────────────────────────────────────────
+      # LLVM is already available on windows-latest at C:\Program Files\LLVM
+      # (installed by the runner image). Just set LIBCLANG_PATH.
+      - name: Set LIBCLANG_PATH (Windows)
         if: matrix.platform == 'windows-latest'
         shell: powershell
         run: |
-          choco install llvm --version=17.0.6 -y --no-progress
-          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          $llvm = "C:\Program Files\LLVM\bin"
+          if (Test-Path $llvm) {
+            echo "LIBCLANG_PATH=$llvm" >> $env:GITHUB_ENV
+            Write-Host "Using runner LLVM at $llvm"
+          } else {
+            choco install llvm -y --no-progress
+            echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          }
 
       - name: Install FFmpeg (Windows)
         if: matrix.platform == 'windows-latest'
+        shell: powershell
         run: |
-          vcpkg install ffmpeg:x64-windows-static-md
+          cd C:\vcpkg
+          git pull --quiet
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
           echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
 
-      # ------------------------------------------------------------------------
-      # Toolchains & Cache Setup
-      # ------------------------------------------------------------------------
+      # ── Toolchain ──────────────────────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -120,39 +110,28 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # ------------------------------------------------------------------------
-      # Install Dependencies & Run Verification Suites
-      # ------------------------------------------------------------------------
+      # ── Frontend ───────────────────────────────────────────────────────────
       - name: Install Frontend Dependencies
         run: npm ci
 
       - name: Run Vitest Suite
         run: npx vitest run
 
-      # Cargo tests require native FFmpeg + libclang headers; only run on Linux
-      # where the full system dependency set is guaranteed above.
       - name: Run Cargo Test Suite
         if: matrix.platform == 'ubuntu-24.04'
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      # ------------------------------------------------------------------------
-      # Build and Publish Release Artifacts with In-App Updater Signatures
-      # ------------------------------------------------------------------------
+      # ── Release ────────────────────────────────────────────────────────────
       - name: Build & Publish Release
         uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Tauri v2 Auto-Updater Private Key & Password
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS deployment target for whisper-rs cmake builds
-          MACOSX_DEPLOYMENT_TARGET: "11.0"
-          CXXFLAGS: "-mmacosx-version-min=11.0"
-          CFLAGS: "-mmacosx-version-min=11.0"
         with:
           tagName: v__VERSION__
           releaseName: "Clypra v__VERSION__"
-          releaseBody: "Automated multi-platform release bundle containing installers for macOS, Windows, and Linux."
+          releaseBody: "Automated multi-platform release bundle — macOS (arm64), Windows (x64), Linux (x64)."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

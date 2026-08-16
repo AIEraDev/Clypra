@@ -1,0 +1,9 @@
+# Cargo build configuration
+# Sets macOS deployment target env vars that cargo build scripts and cmake
+# subprocesses inherit. This is the reliable way to ensure whisper-rs-sys
+# (which builds ggml via cmake) compiles with std::filesystem support.
+
+[env]
+# Applied on all platforms — cmake ignores these on non-Apple targets
+CMAKE_OSX_DEPLOYMENT_TARGET = "11.0"
+MACOSX_DEPLOYMENT_TARGET = "11.0"
