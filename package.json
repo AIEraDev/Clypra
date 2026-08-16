@@ -64,6 +64,7 @@
     "@fontsource/permanent-marker": "^5.2.7",
     "@fontsource/poppins": "^5.2.7",
     "@fontsource/press-start-2p": "^5.2.7",
+    "@mediapipe/tasks-vision": "1.0.1",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.0",

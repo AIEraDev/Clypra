@@ -51,12 +51,18 @@ bytemuck = { version = "1.21", features = ["derive"] }
 memmap2 = "0.9"
 
 # Native FFmpeg bindings for fast thumbnail extraction
-ffmpeg-next = "8"
-ffmpeg-sys-next = "8"
+# ffmpeg-next "9" / ffmpeg-sys-next "9" target FFmpeg 8.x system libraries
+ffmpeg-next = "9"
+ffmpeg-sys-next = "9"
 
 # Image encoding for native decoder frame output
 image = { version = "0.25", default-features = false, features = ["webp", "png"] }
 whisper-rs = "0.16.0"
+
+# On-device AI inference via ONNX Runtime (MediaPipe face tracking, auto-reframe)
+ort = { version = "2.0.0-rc.13", features = ["copy-dylibs"] }
+ndarray = "0.17"
+sha2 = "0.10"
 
 [dev-dependencies]
 proptest = "1"

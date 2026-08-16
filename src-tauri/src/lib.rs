@@ -4,6 +4,7 @@ pub mod thumbnail_engine;
 pub mod commands;
 pub mod models;
 pub mod wgpu_compositor;
+pub mod ai;
 
 use thumbnail_engine::init_thumbnail_engine;
 use commands::*;
@@ -61,6 +62,9 @@ pub fn run() {
             
             // Initialize Whisper download state
             app.manage(whisper::init_download_state());
+
+            // Initialize MediaPipe AI tracking state
+            app.manage(commands::ai::init_ai_state());
 
             // Initialize GPU context and 3D LUT cache
             let gpu_ctx_res = tauri::async_runtime::block_on(async {
@@ -135,9 +139,14 @@ pub fn run() {
             generate_auto_captions,
             // Color grading and 3D LUT commands
             load_lut_cube,
-            // On-device AI Engine (Silence Detection & Smart Auto-Reframe)
+            // On-device AI Engine (Silence Detection, Smart Auto-Reframe, MediaPipe Tracking)
             detect_silence_ranges,
             calculate_auto_reframe,
+            run_face_tracking,
+            cancel_face_tracking,
+            download_mediapipe_model,
+            verify_mediapipe_model,
+            delete_mediapipe_model,
             // Screen recording & native smoke test commands
             trim_video,
             set_menu_language,
