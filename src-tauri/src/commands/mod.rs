@@ -10,6 +10,7 @@ pub mod security;
 pub mod lut;
 pub mod silence_detector;
 pub mod auto_reframe;
+pub mod ai;
 #[cfg(test)]
 pub mod ipc_security_tests;
 
@@ -25,4 +26,5 @@ pub use security::*;
 pub use lut::*;
 pub use silence_detector::*;
 pub use auto_reframe::*;
+pub use ai::*;
 
