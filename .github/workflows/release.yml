@@ -83,12 +83,16 @@ jobs:
 
       # ------------------------------------------------------------------------
       # Windows: LLVM (for bindgen/libclang) + FFmpeg via vcpkg
+      # Use chocolatey (pre-installed on Windows runners) for LLVM 17 —
+      # KyleMayes/install-llvm-action v2 doesn't ship Windows x64 binaries
+      # for v18. choco provides a reliable libclang.dll bindgen can locate.
       # ------------------------------------------------------------------------
-      - name: Install LLVM and Clang (Windows)
+      - name: Install LLVM (Windows)
         if: matrix.platform == 'windows-latest'
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "18.0"
+        shell: powershell
+        run: |
+          choco install llvm --version=17.0.6 -y --no-progress
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
 
       - name: Install FFmpeg (Windows)
         if: matrix.platform == 'windows-latest'
@@ -96,7 +100,6 @@ jobs:
           vcpkg install ffmpeg:x64-windows-static-md
           echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
-          echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/bin" >> $env:GITHUB_ENV
 
       # ------------------------------------------------------------------------
       # Toolchains & Cache Setup
