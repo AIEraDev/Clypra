@@ -86,6 +86,8 @@ interface ManagedVideo {
   rvfcGeneration: number;
   /** Whether this video has been seeked at least once (ensures frame decode) */
   hasBeenSeeked: boolean;
+  /** Whether the browser has delivered decoded frame data for this element */
+  hasDecodedFrame: boolean;
 }
 
 interface ManagedAudio {
@@ -467,6 +469,7 @@ export class PreviewMediaPool {
           // This ensures scheduler forces initial seek for frame decode on new clip
           if (wasBoundToDifferentClip) {
             managed.hasBeenSeeked = false;
+            managed.hasDecodedFrame = false;
           }
         }
 
@@ -1216,6 +1219,7 @@ export class PreviewMediaPool {
       rvfcGeneration: 0,
       // CRITICAL: Track if this video has been seeked to ensure initial frame decode
       hasBeenSeeked: false,
+      hasDecodedFrame: false,
       // ────────────────────────────────────────────────────────────────────
     };
 
@@ -1278,6 +1282,7 @@ export class PreviewMediaPool {
     video.addEventListener(
       "loadeddata",
       () => {
+        managed.hasDecodedFrame = true;
         // CRITICAL: Trigger epoch increment to allow first frame render
         // loadeddata fires when currentTime frame data is decoded and ready (readyState >= 2)
         // This ensures render loop can proceed after scheduler-initiated seek completes
@@ -1306,6 +1311,9 @@ export class PreviewMediaPool {
 
     video.addEventListener("seeked", () => {
       if (video.paused) {
+        if (video.readyState >= 2) {
+          managed.hasDecodedFrame = true;
+        }
         import("../../store/timelineStore")
           .then(({ useTimelineStore }) => {
             useTimelineStore.getState().incrementEpoch();
@@ -1452,6 +1460,15 @@ export class PreviewMediaPool {
         // Muted priming is best effort. loadeddata/seeked can still expose
         // the frame on browsers that decode paused seeks without playback.
       });
+  }
+
+  /**
+   * Keeps the compositor from replacing a visible poster with a video texture
+   * before the browser has actually delivered decoded pixels.
+   */
+  isVideoFrameReady(clipId: string, video: HTMLVideoElement): boolean {
+    const managed = this.findManagedVideoByClipId(clipId);
+    return Boolean(managed && managed.element === video && managed.hasDecodedFrame);
   }
 
   // ─── NEW: Playback Controller (Separated from sync) ────────────────────

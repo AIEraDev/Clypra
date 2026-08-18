@@ -326,7 +326,11 @@ export class PixiSceneCompositor {
           let sourceElement: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement | null = resolveMediaSource(mediaLayer, videoElements, resourceHandleMap);
           if (
             mediaLayer.mediaType === "video" &&
-            (!(sourceElement instanceof HTMLVideoElement) || sourceElement.readyState < 2 || sourceElement.videoWidth <= 0 || sourceElement.videoHeight <= 0)
+            (!(sourceElement instanceof HTMLVideoElement) ||
+              sourceElement.readyState < 2 ||
+              sourceElement.videoWidth <= 0 ||
+              sourceElement.videoHeight <= 0 ||
+              !this.mediaPool.isVideoFrameReady(mediaLayer.clipId, sourceElement))
           ) {
             sourceElement = this.getPosterImage(mediaLayer);
           }
@@ -659,7 +663,11 @@ export class PixiSceneCompositor {
     let sourceElement: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement | null = resolveMediaSource(layer, videoElements, resourceHandleMap);
     if (
       layer.mediaType === "video" &&
-      (!(sourceElement instanceof HTMLVideoElement) || sourceElement.readyState < 2 || sourceElement.videoWidth <= 0 || sourceElement.videoHeight <= 0)
+      (!(sourceElement instanceof HTMLVideoElement) ||
+        sourceElement.readyState < 2 ||
+        sourceElement.videoWidth <= 0 ||
+        sourceElement.videoHeight <= 0 ||
+        !this.mediaPool.isVideoFrameReady(layer.clipId, sourceElement))
     ) {
       sourceElement = this.getPosterImage(layer);
     }
