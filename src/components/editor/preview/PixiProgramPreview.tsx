@@ -88,6 +88,7 @@ export const PixiProgramPreview: React.FC = () => {
   const [telemetryStats, setTelemetryStats] = useState<TelemetryStats | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [compositorReady, setCompositorReady] = useState(false);
+  const hasStartedPlaybackRef = useRef(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
@@ -261,6 +262,16 @@ export const PixiProgramPreview: React.FC = () => {
       setPreviewAspectPreset(project.aspectRatio);
     }
   }, [project?.id, project?.aspectRatio]);
+
+  useEffect(() => {
+    hasStartedPlaybackRef.current = false;
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (clockState.state === "playing") {
+      hasStartedPlaybackRef.current = true;
+    }
+  }, [clockState.state]);
 
   useEffect(() => {
     if (!project) return;
@@ -538,6 +549,7 @@ export const PixiProgramPreview: React.FC = () => {
 
         const activeVideoElements = session?.getPreviewVideoElements() ?? new Map();
         const previewMediaPool = session?.getPreviewMediaPool();
+        const preferPosterFrame = !isPlaying && !hasStartedPlaybackRef.current && frameIndex === 0;
         const hasReadyHtmlVideo = scene.visualLayers.some((layer) => {
           if (layer.layerType !== "media" || layer.mediaType !== "video") return false;
           const element = activeVideoElements.get(`${layer.clipId}-${layer.mediaId}`);
@@ -565,7 +577,8 @@ export const PixiProgramPreview: React.FC = () => {
             // the WebView decoder is still loading the first visible frame.
             // The decoded-frame latch is stricter than readyState: WebKit can
             // expose dimensions before it has delivered usable pixels.
-            hasReadyHtmlVideo;
+            hasReadyHtmlVideo &&
+            !preferPosterFrame;
 
           if (canUseNativePreview && nativeRequest) {
             try {
@@ -609,6 +622,7 @@ export const PixiProgramPreview: React.FC = () => {
             undefined, // resourceHandleMap (can be left undefined during preview)
             new Map(), // bodyMasks map
             nativeFrame,
+            preferPosterFrame,
           );
 
           // Render active smart-overlay clips if any

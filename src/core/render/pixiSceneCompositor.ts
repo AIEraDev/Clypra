@@ -193,6 +193,7 @@ export class PixiSceneCompositor {
     resourceHandleMap?: Map<string, any>,
     bodyMasks: Map<string, any> = new Map(),
     nativeFrame?: NativePreviewFrame | null,
+    preferPosterFrame = false,
   ): Promise<void> {
     if (this._isContextLost) {
       throw new Error("[PixiSceneCompositor] WebGL context lost during frame composition");
@@ -322,21 +323,23 @@ export class PixiSceneCompositor {
           await renderStickerLayerBridged(mediaLayer, frameId, baseMediaContainer, viewport, renderOrder);
         } else {
           // Use decoded video when available. During decoder startup, prefer
-          // the existing sprite so a paused seek never flashes to black. Only
-          // fall back to the asset poster when there is no stable frame yet.
+          // the existing sprite so a paused seek never flashes to black. On
+          // the initial paused frame, keep the professional poster visible
+          // until playback starts instead of exposing a black frame-0 intro.
           let sourceElement: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement | null = resolveMediaSource(mediaLayer, videoElements, resourceHandleMap);
-          if (
-            mediaLayer.mediaType === "video" &&
-            (!(sourceElement instanceof HTMLVideoElement) ||
-              sourceElement.readyState < 2 ||
-              sourceElement.videoWidth <= 0 ||
-              sourceElement.videoHeight <= 0 ||
-              !this.mediaPool.isVideoFrameReady(mediaLayer.clipId, sourceElement))
-          ) {
+          const videoFrameReady =
+            sourceElement instanceof HTMLVideoElement &&
+            sourceElement.readyState >= 2 &&
+            sourceElement.videoWidth > 0 &&
+            sourceElement.videoHeight > 0 &&
+            this.mediaPool.isVideoFrameReady(mediaLayer.clipId, sourceElement);
+
+          if (mediaLayer.mediaType === "video" && (preferPosterFrame || !videoFrameReady)) {
+            const poster = preferPosterFrame ? this.getPosterImage(mediaLayer) : null;
             const existingRecord = getMediaSpriteRecord(mediaLayer.clipId);
-            sourceElement = existingRecord && !existingRecord.destroyed
+            sourceElement = poster ?? (existingRecord && !existingRecord.destroyed
               ? existingRecord.sourceIdentity
-              : this.getPosterImage(mediaLayer);
+              : videoFrameReady ? sourceElement : this.getPosterImage(mediaLayer));
           }
 
           if (!sourceElement && mediaLayer.mediaType === "video" && import.meta.env.DEV) {
