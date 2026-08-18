@@ -458,12 +458,16 @@ export class PreviewMediaPool {
           managed = this.createVideo(cacheKey, clip.id, clip.mediaId, sourcePath);
         } else {
           // Element exists - update its binding
+          const wasBoundToDifferentClip = managed.clipId !== clip.id || managed.mediaId !== clip.mediaId;
           managed.clipId = clip.id;
+          managed.mediaId = clip.mediaId;
           managed.lastUsedAt = performance.now();
 
           // CRITICAL: Reset seek state when element reassigned to different clip
           // This ensures scheduler forces initial seek for frame decode on new clip
-          managed.hasBeenSeeked = false;
+          if (wasBoundToDifferentClip) {
+            managed.hasBeenSeeked = false;
+          }
         }
 
         // Mark activity state (does NOT dispose when inactive)

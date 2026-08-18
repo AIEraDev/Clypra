@@ -537,11 +537,6 @@ export const PixiProgramPreview: React.FC = () => {
         };
 
         const activeVideoElements = session?.getPreviewVideoElements() ?? new Map();
-        const hasReadyHtmlVideo = scene.visualLayers.some((layer) => {
-          if (layer.layerType !== "media" || layer.mediaType !== "video") return false;
-          const element = activeVideoElements.get(`${layer.clipId}-${layer.mediaId}`);
-          return Boolean(element && element.readyState >= 2 && element.videoWidth > 0 && element.videoHeight > 0);
-        });
 
         try {
           let nativeFrame: { rgba: ArrayBuffer; width: number; height: number } | null = null;
@@ -550,9 +545,10 @@ export const PixiProgramPreview: React.FC = () => {
             isTauriRuntime() &&
             nativeRequest !== null &&
             !nativePreviewDisabled &&
-            // Native IPC/readback is deterministic for paused editing frames,
-            // but HTML video is the smooth playback path once it is decoded.
-            (!isPlaying || !hasReadyHtmlVideo);
+            // Native IPC/readback is deterministic for paused editing frames.
+            // Never put an IPC decode/readback in the playback RAF path: the
+            // HTML video element is the smooth playback source.
+            !isPlaying;
 
           if (canUseNativePreview && nativeRequest) {
             try {

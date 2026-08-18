@@ -17,6 +17,8 @@ import { getPlaybackClock } from "../playback/PlaybackClock.js";
 import { ConformCaptureService } from "./services/ConformCaptureService.js";
 import { FilterManager } from "./managers/FilterManager.js";
 import { SpriteLifecycleManager } from "./managers/SpriteLifecycleManager.js";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 
 // Boundary components
 import type { PreviewMediaPool } from "../resources/PreviewMediaPool.js";
@@ -49,6 +51,7 @@ export class PixiSceneCompositor {
   private nativeFrameImageData: ImageData | null = null;
   private nativeFrameTexture: Texture | null = null;
   private nativeFrameSprite: Sprite | null = null;
+  private posterImages = new Map<string, { src: string; image: HTMLImageElement; ready: boolean }>();
 
   // Stub render textures used for off-screen pre-warming (1×1 px).
   // Allocated once and reused for all prewarm calls to avoid GC pressure.
@@ -125,6 +128,38 @@ export class PixiSceneCompositor {
 
     canvas.addEventListener("webglcontextlost", this.contextLostHandler);
     canvas.addEventListener("webglcontextrestored", this.contextRestoredHandler);
+  }
+
+  /**
+   * Return a decoded poster while the corresponding video element is still
+   * waiting for metadata/current frame data. This keeps the paused program
+   * monitor useful during decoder startup without changing the playback path.
+   */
+  private getPosterImage(layer: EvaluatedMediaLayer): HTMLImageElement | null {
+    if (!layer.posterFrame || typeof Image === "undefined") return null;
+
+    const src = isWebviewOrExternalUrl(layer.posterFrame) ? layer.posterFrame : convertFileSrc(layer.posterFrame);
+    const cached = this.posterImages.get(layer.clipId);
+    if (cached && cached.src === src) {
+      return cached.ready ? cached.image : null;
+    }
+
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    const entry = { src, image, ready: false };
+    this.posterImages.set(layer.clipId, entry);
+    image.onload = () => {
+      if (this.posterImages.get(layer.clipId) !== entry) return;
+      entry.ready = true;
+      import("../../store/timelineStore")
+        .then(({ useTimelineStore }) => useTimelineStore.getState().incrementEpoch())
+        .catch(() => undefined);
+    };
+    image.onerror = () => {
+      if (this.posterImages.get(layer.clipId) === entry) this.posterImages.delete(layer.clipId);
+    };
+    image.src = src;
+    return null;
   }
 
   /**
@@ -286,8 +321,15 @@ export class PixiSceneCompositor {
         if (mediaLayer.clipKind === "sticker") {
           await renderStickerLayerBridged(mediaLayer, frameId, baseMediaContainer, viewport, renderOrder);
         } else {
-          // Use media resolver to get video element or image resource
-          const sourceElement = resolveMediaSource(mediaLayer, videoElements, resourceHandleMap);
+          // Use decoded video when available. During decoder startup, use the
+          // asset poster so a paused frame is visible immediately.
+          let sourceElement: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement | null = resolveMediaSource(mediaLayer, videoElements, resourceHandleMap);
+          if (
+            mediaLayer.mediaType === "video" &&
+            (!(sourceElement instanceof HTMLVideoElement) || sourceElement.readyState < 2 || sourceElement.videoWidth <= 0 || sourceElement.videoHeight <= 0)
+          ) {
+            sourceElement = this.getPosterImage(mediaLayer);
+          }
 
           if (!sourceElement && mediaLayer.mediaType === "video" && import.meta.env.DEV) {
             const key = `${mediaLayer.clipId}-${mediaLayer.mediaId}`;
@@ -295,7 +337,8 @@ export class PixiSceneCompositor {
           }
 
           if (sourceElement) {
-            const kind = sourceElement instanceof HTMLCanvasElement ? "image" : mediaLayer.mediaType;
+            const isImageElement = typeof HTMLImageElement !== "undefined" && sourceElement instanceof HTMLImageElement;
+            const kind = sourceElement instanceof HTMLCanvasElement || isImageElement ? "image" : mediaLayer.mediaType;
             const record = getOrCreateMediaSprite(mediaLayer.clipId, kind, sourceElement as any, baseMediaContainer);
 
             // Skip this layer if sprite creation was deferred (video metadata not ready yet)
@@ -611,11 +654,19 @@ export class PixiSceneCompositor {
     // Clear the container to prevent sprite accumulation
     container.removeChildren();
 
-    // Use media resolver to get source element
-    const sourceElement = resolveMediaSource(layer, videoElements, resourceHandleMap);
+    // Use decoded video when available. During decoder startup, use the asset
+    // poster so transition textures also have a visible first frame.
+    let sourceElement: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement | null = resolveMediaSource(layer, videoElements, resourceHandleMap);
+    if (
+      layer.mediaType === "video" &&
+      (!(sourceElement instanceof HTMLVideoElement) || sourceElement.readyState < 2 || sourceElement.videoWidth <= 0 || sourceElement.videoHeight <= 0)
+    ) {
+      sourceElement = this.getPosterImage(layer);
+    }
 
     if (sourceElement) {
-      const kind = sourceElement instanceof HTMLCanvasElement ? "image" : layer.mediaType;
+      const isImageElement = typeof HTMLImageElement !== "undefined" && sourceElement instanceof HTMLImageElement;
+      const kind = sourceElement instanceof HTMLCanvasElement || isImageElement ? "image" : layer.mediaType;
       const record = getOrCreateMediaSprite(layer.clipId, kind, sourceElement as any, container);
       if (!record) return texture;
 
@@ -689,6 +740,7 @@ export class PixiSceneCompositor {
     this.nativeFrameTexture?.destroy(true);
     this.nativeFrameSprite = null;
     this.nativeFrameTexture = null;
+    this.posterImages.clear();
     this.nativeFrameCanvas = null;
     this.nativeFrameContext = null;
     this.nativeFrameImageData = null;
