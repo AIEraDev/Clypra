@@ -2,7 +2,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import type { DensityLevel, ThumbnailTile } from "../../types";
 import { toNativePath } from "./pathConversion";
 
-const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /**
  * Tauri `invoke` / FFmpeg need a native filesystem path.
@@ -11,6 +11,151 @@ const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in 
  */
 export function normalizePathForTauriInvoke(inputPath: string): string {
   return toNativePath(inputPath);
+}
+
+export interface VideoRenderMetadata {
+  width: number;
+  height: number;
+  durationSeconds: number;
+  timeBaseNum: number;
+  timeBaseDen: number;
+  nominalFrameRateNum: number;
+  nominalFrameRateDen: number;
+  averageFrameRateNum: number;
+  averageFrameRateDen: number;
+  pixelFormatCode: number;
+  bitsPerRawSample: number;
+  sampleAspectRatioNum: number;
+  sampleAspectRatioDen: number;
+  rotation: number;
+  color: {
+    range: string;
+    rangeCode: number;
+    matrix: string;
+    matrixCode: number;
+    primaries: string;
+    primariesCode: number;
+    transfer: string;
+    transferCode: number;
+    chromaLocation: string;
+    chromaLocationCode: number;
+  };
+}
+
+/**
+ * Read the complete native decoder contract used by the future program
+ * renderer. The legacy get_media_metadata response intentionally stays small.
+ */
+export async function getVideoRenderMetadata(videoPath: string): Promise<VideoRenderMetadata> {
+  if (!isTauriRuntime()) {
+    throw new Error("getVideoRenderMetadata requires the Tauri runtime");
+  }
+
+  return invoke<VideoRenderMetadata>("get_video_render_metadata", {
+    path: toNativePath(videoPath),
+  });
+}
+
+/**
+ * Decode one frame through the native FFmpeg + wgpu proof path.
+ * The returned buffer is tightly packed RGBA8 at the source frame dimensions.
+ */
+export async function renderNativePreviewFrame(
+  videoPath: string,
+  timeSecs: number,
+  outputWidth?: number,
+  outputHeight?: number,
+): Promise<ArrayBuffer> {
+  if (!isTauriRuntime()) {
+    throw new Error("renderNativePreviewFrame requires the Tauri runtime");
+  }
+
+  const args: {
+    videoPath: string;
+    timeSecs: number;
+    outputWidth?: number;
+    outputHeight?: number;
+  } = {
+    videoPath: toNativePath(videoPath),
+    timeSecs,
+  };
+  if (outputWidth !== undefined) args.outputWidth = outputWidth;
+  if (outputHeight !== undefined) args.outputHeight = outputHeight;
+
+  return invoke<ArrayBuffer>("render_native_preview_frame", args);
+}
+
+export interface NativeProjectSolidLayer {
+  color: [number, number, number, number];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  zIndex?: number;
+  blendMode?: string;
+}
+
+export interface NativeProjectFrameRequest {
+  canvasWidth: number;
+  canvasHeight: number;
+  clearColor?: [number, number, number, number];
+  layers: NativeProjectSolidLayer[];
+}
+
+/**
+ * Render one project-sized native compositor frame.
+ * The returned buffer is tightly packed RGBA8 at the requested canvas size.
+ */
+export async function renderNativeProjectFrame(
+  request: NativeProjectFrameRequest,
+): Promise<ArrayBuffer> {
+  if (!isTauriRuntime()) {
+    throw new Error("renderNativeProjectFrame requires the Tauri runtime");
+  }
+
+  return invoke<ArrayBuffer>("render_native_project_frame", { request });
+}
+
+export interface NativeProjectVideoLayer {
+  videoPath: string;
+  timeSecs: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  opacity?: number;
+  zIndex?: number;
+  blendMode?: string;
+}
+
+export interface NativeVideoProjectFrameRequest {
+  canvasWidth: number;
+  canvasHeight: number;
+  clearColor?: [number, number, number, number];
+  layers: NativeProjectVideoLayer[];
+}
+
+/**
+ * Decode and composite project video layers entirely in native Rust/wgpu.
+ */
+export async function renderNativeVideoProjectFrame(
+  request: NativeVideoProjectFrameRequest,
+): Promise<ArrayBuffer> {
+  if (!isTauriRuntime()) {
+    throw new Error("renderNativeVideoProjectFrame requires the Tauri runtime");
+  }
+
+  const nativeRequest: NativeVideoProjectFrameRequest = {
+    ...request,
+    layers: request.layers.map((layer) => ({
+      ...layer,
+      videoPath: toNativePath(layer.videoPath),
+    })),
+  };
+  return invoke<ArrayBuffer>("render_native_video_project_frame", { request: nativeRequest });
 }
 
 // ─── Native FFmpeg Decoder Commands ───────────────────────────────────────
@@ -22,7 +167,7 @@ export function normalizePathForTauriInvoke(inputPath: string): string {
  * Returns base64-encoded WebP data URL.
  */
 export async function decodeFrame(videoPath: string, timeSecs: number, width: number, height: number): Promise<string> {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     console.warn("[Tauri] decodeFrame bypassed: Non-Tauri environment.");
     return "data:image/png;base64,mockedDataURL";
   }
@@ -38,7 +183,7 @@ export async function decodeFrame(videoPath: string, timeSecs: number, width: nu
  * Extract multiple frames using the native decoder with streaming, instead of sidecar FFmpeg. Much faster for batch extractions.
  */
 export async function decodeFramesStreaming(videoPath: string, timestamps: number[], density: DensityLevel, width: number, height: number, duration: number, onTile: (tile: ThumbnailTile) => void): Promise<void> {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     console.warn("[Tauri] decodeFramesStreaming bypassed: Non-Tauri environment.");
     return;
   }
@@ -60,7 +205,7 @@ export async function decodeFramesStreaming(videoPath: string, timestamps: numbe
  * Release the native decoder for a video to free memory. Call this when a clip is removed from the project.
  */
 export function releaseVideoDecoder(videoPath: string): void {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     console.warn("[Tauri] releaseVideoDecoder bypassed: Non-Tauri environment.");
     return;
   }
@@ -84,7 +229,7 @@ export function releaseVideoDecoder(videoPath: string): void {
  * @returns Promise<number> - Count of successfully prewarmed decoders
  */
 export async function prewarmDecoders(videoPaths: string[]): Promise<number> {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     console.warn("[Tauri] prewarmDecoders bypassed: Non-Tauri environment.");
     return 0;
   }
@@ -118,7 +263,7 @@ export async function streamTimelineFramesBinary(
   height: number,
   onFrame: (buffer: ArrayBuffer) => void
 ): Promise<void> {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     console.warn("[Tauri] streamTimelineFramesBinary bypassed: Non-Tauri environment.");
     return;
   }
@@ -144,7 +289,7 @@ export async function getRenderCacheStats(): Promise<{
   decodes: number;
   total_requests: number;
 }> {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     return {
       atlas_hits: 0,
       tier_cache_hits: 0,
@@ -154,4 +299,3 @@ export async function getRenderCacheStats(): Promise<{
   }
   return invoke("get_render_cache_stats");
 }
-

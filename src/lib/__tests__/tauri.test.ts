@@ -3,12 +3,12 @@
  *
  * Tests the communication layer between frontend and Rust backend.
  * Covers: normalizePathForTauriInvoke, decodeFrame, decodeFramesStreaming,
- *         releaseVideoDecoder — the current tauri.ts API.
+ *         releaseVideoDecoder, native preview — the current tauri.ts API.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { normalizePathForTauriInvoke, decodeFrame, decodeFramesStreaming, releaseVideoDecoder, streamTimelineFramesBinary, prewarmDecoders } from "../platform/tauri";
+import { normalizePathForTauriInvoke, decodeFrame, decodeFramesStreaming, releaseVideoDecoder, streamTimelineFramesBinary, prewarmDecoders, getVideoRenderMetadata, renderNativePreviewFrame, renderNativeProjectFrame, renderNativeVideoProjectFrame } from "../platform/tauri";
 import { DensityLevel } from "@/types";
 
 // Stub Tauri internals globally for this test suite
@@ -237,6 +237,87 @@ describe("decodeFramesStreaming", () => {
   });
 });
 
+// ─── Native preview bridge ──────────────────────────────────────────────────
+
+describe("native preview bridge", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("requests the complete native render metadata contract", async () => {
+    const metadata = { width: 1920, height: 1080, color: { range: "limited" } };
+    vi.mocked(invoke).mockResolvedValueOnce(metadata);
+
+    const result = await getVideoRenderMetadata("file:///Users/test/clip.mov");
+
+    expect(invoke).toHaveBeenCalledWith("get_video_render_metadata", {
+      path: "/Users/test/clip.mov",
+    });
+    expect(result).toBe(metadata);
+  });
+
+  it("requests one native RGBA source frame", async () => {
+    const frame = new ArrayBuffer(16);
+    vi.mocked(invoke).mockResolvedValueOnce(frame);
+
+    const result = await renderNativePreviewFrame("/test/video.mp4", 2.5);
+
+    expect(invoke).toHaveBeenCalledWith("render_native_preview_frame", {
+      videoPath: "/test/video.mp4",
+      timeSecs: 2.5,
+    });
+    expect(result).toBe(frame);
+  });
+
+  it("requests one native project compositor frame", async () => {
+    const frame = new ArrayBuffer(32);
+    const request = {
+      canvasWidth: 320,
+      canvasHeight: 180,
+      layers: [{
+        color: [1, 0, 0, 1] as [number, number, number, number],
+        x: 0,
+        y: 0,
+        width: 160,
+        height: 90,
+        zIndex: 0,
+      }],
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(frame);
+
+    const result = await renderNativeProjectFrame(request);
+
+    expect(invoke).toHaveBeenCalledWith("render_native_project_frame", { request });
+    expect(result).toBe(frame);
+  });
+
+  it("normalizes paths before requesting native video project compositing", async () => {
+    const frame = new ArrayBuffer(32);
+    const request = {
+      canvasWidth: 320,
+      canvasHeight: 180,
+      layers: [{
+        videoPath: "file:///Users/test/clip.mp4",
+        timeSecs: 1.25,
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 180,
+      }],
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(frame);
+
+    const result = await renderNativeVideoProjectFrame(request);
+
+    expect(invoke).toHaveBeenCalledWith("render_native_video_project_frame", {
+      request: {
+        ...request,
+        layers: [{ ...request.layers[0], videoPath: "/Users/test/clip.mp4" }],
+      },
+    });
+    expect(result).toBe(frame);
+  });
+});
+
 // ─── releaseVideoDecoder ──────────────────────────────────────────────────────
 
 describe("releaseVideoDecoder", () => {
@@ -341,4 +422,3 @@ describe("prewarmDecoders", () => {
     expect(result).toBe(0);
   });
 });
-
