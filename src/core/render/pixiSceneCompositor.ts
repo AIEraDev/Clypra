@@ -1,4 +1,4 @@
-import { getSharedPixiRenderer, getOrCreateMediaSprite, applyMediaTransform, clearAllMediaSprites, ALL_TRANSITIONS } from "@clypra-studio/engine";
+import { getSharedPixiRenderer, getMediaSpriteRecord, getOrCreateMediaSprite, applyMediaTransform, clearAllMediaSprites, ALL_TRANSITIONS } from "@clypra-studio/engine";
 import { renderTextLayerBridged, beginTextFrame, endTextFrame } from "./textBridge.js";
 import { renderStickerLayerBridged, beginStickerFrame, endStickerFrame } from "./stickerBridge.js";
 import type { EvaluatedScene, EvaluatedMediaLayer, EvaluatedTextLayer, EvaluatedTransition } from "../evaluation/types.js";
@@ -321,8 +321,9 @@ export class PixiSceneCompositor {
         if (mediaLayer.clipKind === "sticker") {
           await renderStickerLayerBridged(mediaLayer, frameId, baseMediaContainer, viewport, renderOrder);
         } else {
-          // Use decoded video when available. During decoder startup, use the
-          // asset poster so a paused frame is visible immediately.
+          // Use decoded video when available. During decoder startup, prefer
+          // the existing sprite so a paused seek never flashes to black. Only
+          // fall back to the asset poster when there is no stable frame yet.
           let sourceElement: HTMLVideoElement | HTMLCanvasElement | ImageBitmap | HTMLImageElement | null = resolveMediaSource(mediaLayer, videoElements, resourceHandleMap);
           if (
             mediaLayer.mediaType === "video" &&
@@ -332,7 +333,10 @@ export class PixiSceneCompositor {
               sourceElement.videoHeight <= 0 ||
               !this.mediaPool.isVideoFrameReady(mediaLayer.clipId, sourceElement))
           ) {
-            sourceElement = this.getPosterImage(mediaLayer);
+            const existingRecord = getMediaSpriteRecord(mediaLayer.clipId);
+            sourceElement = existingRecord && !existingRecord.destroyed
+              ? existingRecord.sourceIdentity
+              : this.getPosterImage(mediaLayer);
           }
 
           if (!sourceElement && mediaLayer.mediaType === "video" && import.meta.env.DEV) {

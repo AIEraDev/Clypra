@@ -537,10 +537,17 @@ export const PixiProgramPreview: React.FC = () => {
         };
 
         const activeVideoElements = session?.getPreviewVideoElements() ?? new Map();
+        const previewMediaPool = session?.getPreviewMediaPool();
         const hasReadyHtmlVideo = scene.visualLayers.some((layer) => {
           if (layer.layerType !== "media" || layer.mediaType !== "video") return false;
           const element = activeVideoElements.get(`${layer.clipId}-${layer.mediaId}`);
-          return Boolean(element && element.readyState >= 2 && element.videoWidth > 0 && element.videoHeight > 0);
+          return Boolean(
+            element &&
+            element.readyState >= 2 &&
+            element.videoWidth > 0 &&
+            element.videoHeight > 0 &&
+            previewMediaPool?.isVideoFrameReady(layer.clipId, element),
+          );
         });
 
         try {
@@ -556,6 +563,8 @@ export const PixiProgramPreview: React.FC = () => {
             !isPlaying &&
             // Do not let a native clear/partial frame replace the poster while
             // the WebView decoder is still loading the first visible frame.
+            // The decoded-frame latch is stricter than readyState: WebKit can
+            // expose dimensions before it has delivered usable pixels.
             hasReadyHtmlVideo;
 
           if (canUseNativePreview && nativeRequest) {
