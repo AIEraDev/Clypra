@@ -21,6 +21,9 @@ jobs:
     env:
       CLYPRA_ALLOW_FALLBACK_GPU: "1"
       CLYPRA_GOLDEN_ARTIFACT_DIR: golden-artifacts
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_MULTIPLEXING: "false"
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
     steps:
       - name: Checkout repository
@@ -35,7 +38,7 @@ jobs:
             libavdevice-dev libswscale-dev libswresample-dev libpostproc-dev \
             libclang-dev pkg-config libwebkit2gtk-4.1-dev build-essential \
             libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev \
-            mesa-vulkan-drivers vulkan-tools libegl1-mesa-dev libgl1-mesa-dri
+            libvulkan1 mesa-vulkan-drivers vulkan-tools libegl1-mesa-dev libgl1-mesa-dri
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -59,8 +62,7 @@ jobs:
           }
           echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
           cd C:\vcpkg
-          git pull --quiet
-          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md --triplet=x64-windows-static-md
           echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
           echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
@@ -74,8 +76,18 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Fetch Rust dependencies
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            cargo fetch --locked --manifest-path src-tauri/Cargo.toml && exit 0
+            echo "cargo fetch attempt ${attempt} failed; retrying..."
+            sleep $((attempt * 5))
+          done
+          exit 1
+
       - name: Run native preview golden test
-        run: cargo test --manifest-path src-tauri/Cargo.toml --test native_preview_golden_tests -- --ignored --nocapture
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --test native_preview_golden_tests -- --ignored --nocapture
 
       - name: Upload golden mismatch artifacts
         if: failure()

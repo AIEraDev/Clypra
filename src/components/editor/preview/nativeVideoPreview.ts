@@ -6,9 +6,49 @@ import type {
 
 const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
 
+function hasMeaningfulObject(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && Object.keys(value as Record<string, unknown>).length > 0);
+}
+
+/**
+ * Reject frames that contain no visible video signal. A successful IPC call is
+ * not enough: a GPU pass can legally return an opaque black clear frame when
+ * the source texture or compositor submission failed. Falling back here keeps
+ * that failure from covering the working WebView video path.
+ */
+export function isRenderableNativePreviewFrame(
+  rgba: ArrayBuffer,
+  width: number,
+  height: number,
+): boolean {
+  if (width <= 0 || height <= 0 || rgba.byteLength !== width * height * 4) return false;
+
+  const pixels = new Uint8Array(rgba);
+  let hasVisibleAlpha = false;
+  let hasNonBlackRgb = false;
+  for (let offset = 0; offset < pixels.length; offset += 4) {
+    const alpha = pixels[offset + 3];
+    if (alpha > 0) hasVisibleAlpha = true;
+    if (pixels[offset] !== 0 || pixels[offset + 1] !== 0 || pixels[offset + 2] !== 0) {
+      hasNonBlackRgb = true;
+    }
+    if (hasVisibleAlpha && hasNonBlackRgb) return true;
+  }
+
+  return false;
+}
+
 function isNativeFileSource(sourcePath: string): boolean {
   const value = sourcePath.trim().toLowerCase();
-  return value.length > 0 && !["data:", "blob:", "http://", "https://"].some((prefix) => value.startsWith(prefix));
+  if (!value || value.startsWith("data:") || value.startsWith("blob:")) return false;
+
+  // Tauri v2 may expose local filesystem media through the asset protocol's
+  // HTTP origin. The IPC wrapper normalizes this URL back to a native path.
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value.startsWith("http://asset.localhost/") || value.startsWith("https://asset.localhost/");
+  }
+
+  return true;
 }
 
 function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
@@ -17,7 +57,7 @@ function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
     layer.clipKind !== "sticker" &&
     isNativeFileSource(layer.sourcePath) &&
     !layer.filter &&
-    !layer.adjustments &&
+    !hasMeaningfulObject(layer.adjustments) &&
     !layer.effects?.length &&
     (!layer.sourceRotation || layer.sourceRotation === 0) &&
     NATIVE_BLEND_MODES.has(layer.blendMode)
@@ -60,4 +100,3 @@ export function buildNativeVideoProjectRequest(
     layers,
   };
 }
-

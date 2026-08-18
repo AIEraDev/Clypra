@@ -29,7 +29,7 @@ import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
-import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { isTauriRuntime, renderNativePreviewFrame, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
 
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
@@ -39,7 +39,7 @@ import { useCaptionStore } from "@/store/captionStore";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
-import { buildNativeVideoProjectRequest } from "./nativeVideoPreview";
+import { buildNativeVideoProjectRequest, isRenderableNativePreviewFrame } from "./nativeVideoPreview";
 
 
 const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: number; height: number }> = {
@@ -87,6 +87,7 @@ export const PixiProgramPreview: React.FC = () => {
   const [showSafeOverlay, setShowSafeOverlay] = useState(false);
   const [telemetryStats, setTelemetryStats] = useState<TelemetryStats | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
+  const [compositorReady, setCompositorReady] = useState(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
@@ -354,6 +355,9 @@ export const PixiProgramPreview: React.FC = () => {
     // Skip if compositor already initialized
     if (compositorRef.current) return;
 
+    let isActive = true;
+    setCompositorReady(false);
+
     const session = getActiveSessionOrNull();
     const mediaPool = session?.getPreviewMediaPool();
 
@@ -370,11 +374,25 @@ export const PixiProgramPreview: React.FC = () => {
       const compositor = new PixiSceneCompositor(canvasEl, backingW, backingH, mediaPool);
       compositorRef.current = compositor;
       mediaPool.setCompositor(compositor);
+
+      // The shared engine starts Pixi asynchronously. The render loop must not
+      // compose against its intentional clear-frame state before init completes.
+      void compositor.waitForReady().then(() => {
+        if (isActive && compositorRef.current === compositor) {
+          setCompositorReady(true);
+        }
+      }).catch((err) => {
+        if (isActive) {
+          console.error("[PixiProgramPreview] Pixi renderer failed to become ready:", err);
+        }
+      });
     } catch (err) {
       console.error("[PixiProgramPreview] Failed to initialize WebGL Compositor:", err);
     }
 
     return () => {
+      isActive = false;
+      setCompositorReady(false);
       mediaPool.setCompositor(null);
       if (compositorRef.current) {
         compositorRef.current.destroy();
@@ -399,7 +417,7 @@ export const PixiProgramPreview: React.FC = () => {
 
   // ── Render loop ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!canvasEl || !project || !compositorRef.current) return;
+    if (!canvasEl || !project || !compositorReady || !compositorRef.current) return;
 
     let rafId: number | null = null;
     let isActive = true;
@@ -416,7 +434,6 @@ export const PixiProgramPreview: React.FC = () => {
     // Used by the Bug 4 refinement to distinguish initial slow-load from mid-seek dips.
     const everReadyClipKeys = new Set<string>();
     let nativePreviewDisabled = false;
-    let nativePreviewFailureEpoch = -1;
 
     const renderLoop = async () => {
       if (!isActive) return;
@@ -520,6 +537,18 @@ export const PixiProgramPreview: React.FC = () => {
         };
 
         const activeVideoElements = session?.getPreviewVideoElements() ?? new Map();
+        const previewMediaPool = session?.getPreviewMediaPool();
+        const hasReadyHtmlVideo = scene.visualLayers.some((layer) => {
+          if (layer.layerType !== "media" || layer.mediaType !== "video") return false;
+          const element = activeVideoElements.get(`${layer.clipId}-${layer.mediaId}`);
+          return Boolean(
+            element &&
+            element.readyState >= 2 &&
+            element.videoWidth > 0 &&
+            element.videoHeight > 0 &&
+            previewMediaPool?.isVideoFrameReady(layer.clipId, element),
+          );
+        });
 
         try {
           let nativeFrame: { rgba: ArrayBuffer; width: number; height: number } | null = null;
@@ -527,11 +556,36 @@ export const PixiProgramPreview: React.FC = () => {
           const canUseNativePreview =
             isTauriRuntime() &&
             nativeRequest !== null &&
-            (!nativePreviewDisabled || nativePreviewFailureEpoch !== state.epoch);
+            !nativePreviewDisabled &&
+            // Native IPC/readback is deterministic for paused editing frames.
+            // Never put an IPC decode/readback in the playback RAF path: the
+            // HTML video element is the smooth playback source.
+            !isPlaying &&
+            // Do not let a native clear/partial frame replace the poster while
+            // the WebView decoder is still loading the first visible frame.
+            // The decoded-frame latch is stricter than readyState: WebKit can
+            // expose dimensions before it has delivered usable pixels.
+            hasReadyHtmlVideo;
 
           if (canUseNativePreview && nativeRequest) {
             try {
-              const rgba = await renderNativeVideoProjectFrame(nativeRequest);
+              const [layer] = nativeRequest.layers;
+              const isDirectFullCanvasVideo =
+                nativeRequest.layers.length === 1 &&
+                layer &&
+                Math.abs(layer.x) < 0.5 &&
+                Math.abs(layer.y) < 0.5 &&
+                Math.abs(layer.width - nativeRequest.canvasWidth) < 0.5 &&
+                Math.abs(layer.height - nativeRequest.canvasHeight) < 0.5 &&
+                Math.abs(layer.rotation ?? 0) < 0.001 &&
+                Math.abs((layer.opacity ?? 1) - 1) < 0.001 &&
+                (layer.blendMode ?? "normal") === "normal";
+              const rgba = isDirectFullCanvasVideo
+                ? await renderNativePreviewFrame(layer.videoPath, layer.timeSecs, nativeRequest.canvasWidth, nativeRequest.canvasHeight)
+                : await renderNativeVideoProjectFrame(nativeRequest);
+              if (!isRenderableNativePreviewFrame(rgba, nativeRequest.canvasWidth, nativeRequest.canvasHeight)) {
+                throw new Error("Native preview returned an empty or opaque-black frame");
+              }
               nativeFrame = {
                 rgba,
                 width: nativeRequest.canvasWidth,
@@ -539,8 +593,11 @@ export const PixiProgramPreview: React.FC = () => {
               };
               nativePreviewDisabled = false;
             } catch (error) {
+              // Do not retry a failed native request on every media epoch. Seek and
+              // loadeddata events advance the epoch, which otherwise creates a
+              // tight native-decode failure loop and prevents the Pixi fallback
+              // from getting a chance to present the HTML video frame.
               nativePreviewDisabled = true;
-              nativePreviewFailureEpoch = state.epoch;
               console.warn("[PixiProgramPreview] Native video preview unavailable; using Pixi fallback:", error);
             }
           }
@@ -635,7 +692,7 @@ export const PixiProgramPreview: React.FC = () => {
     // Without sessionReady here the loop would return early on first run (no compositor yet)
     // and never re-trigger after the compositor is created. React runs effects in source
     // order so the compositor-init effect always fires before this one on the same dep change.
-  }, [canvasEl, project?.id, sessionReady]);
+  }, [canvasEl, project?.id, sessionReady, compositorReady]);
 
   useEffect(() => {
     setActiveContext("program");

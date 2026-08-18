@@ -193,4 +193,14 @@ describe("PlaybackClock: RAF Generation Counter", () => {
     // Should not crash or cause issues (generation check protects)
     expect(clock.state).toBe("paused");
   });
+
+  it("should restart from zero when play is pressed at the timeline end", () => {
+    clock.seek(10);
+    expect(clock.time).toBe(10);
+
+    clock.play();
+
+    expect(clock.state).toBe("playing");
+    expect(clock.time).toBe(0);
+  });
 });

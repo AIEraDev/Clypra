@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/types";
-import { buildNativeVideoProjectRequest } from "../nativeVideoPreview";
+import { buildNativeVideoProjectRequest, isRenderableNativePreviewFrame } from "../nativeVideoPreview";
 
 function makeVideoLayer(overrides: Partial<EvaluatedMediaLayer> = {}): EvaluatedMediaLayer {
   return {
@@ -67,6 +67,14 @@ describe("buildNativeVideoProjectRequest", () => {
     });
   });
 
+  it("accepts Tauri v2 asset-origin URLs for native decoding", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ sourcePath: "http://asset.localhost/%2FUsers%2Ftest%2Fclip.mp4", adjustments: {} }),
+    ]));
+
+    expect(request?.layers[0].videoPath).toBe("http://asset.localhost/%2FUsers%2Ftest%2Fclip.mp4");
+  });
+
   it("keeps unsupported scenes on the existing Pixi path", () => {
     expect(buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ filter: { id: "filter", name: "blur", intensity: 1 } }),
@@ -75,5 +83,19 @@ describe("buildNativeVideoProjectRequest", () => {
       makeVideoLayer(),
       { ...makeVideoLayer({ mediaId: "image-1" }), mediaType: "image" } as never,
     ]))).toBeNull();
+  });
+});
+
+describe("isRenderableNativePreviewFrame", () => {
+  it("rejects an opaque black clear frame", () => {
+    expect(isRenderableNativePreviewFrame(new Uint8Array([0, 0, 0, 255]).buffer, 1, 1)).toBe(false);
+  });
+
+  it("accepts a visible opaque pixel", () => {
+    expect(isRenderableNativePreviewFrame(new Uint8Array([12, 24, 36, 255]).buffer, 1, 1)).toBe(true);
+  });
+
+  it("rejects invalid byte lengths", () => {
+    expect(isRenderableNativePreviewFrame(new Uint8Array([12, 24, 36]).buffer, 1, 1)).toBe(false);
   });
 });

@@ -215,6 +215,14 @@ export class PlaybackClock {
       return;
     }
 
+    // Treat Play at the terminal playhead position as a restart. Without this,
+    // the next RAF tick immediately reaches duration again and playback appears
+    // to do nothing after a completed timeline.
+    if (this._duration > 0 && this._time >= this._duration) {
+      this._time = 0;
+      this._isSeeking = false;
+    }
+
     // Initialize AudioContext for high-precision timing
     if (!this._audioContext) {
       this._audioContext = new AudioContext();
