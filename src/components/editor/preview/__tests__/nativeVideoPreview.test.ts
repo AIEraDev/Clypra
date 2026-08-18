@@ -67,6 +67,14 @@ describe("buildNativeVideoProjectRequest", () => {
     });
   });
 
+  it("accepts Tauri v2 asset-origin URLs for native decoding", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ sourcePath: "http://asset.localhost/%2FUsers%2Ftest%2Fclip.mp4", adjustments: {} }),
+    ]));
+
+    expect(request?.layers[0].videoPath).toBe("http://asset.localhost/%2FUsers%2Ftest%2Fclip.mp4");
+  });
+
   it("keeps unsupported scenes on the existing Pixi path", () => {
     expect(buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ filter: { id: "filter", name: "blur", intensity: 1 } }),

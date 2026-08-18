@@ -83,8 +83,15 @@ export class PixiSceneCompositor {
     return this._isContextLost;
   }
 
-  async waitForReady(): Promise<void> {
+  async waitForReady(timeoutMs = 10000): Promise<void> {
+    const startedAt = performance.now();
     while (!this.renderer?.isReady) {
+      if (this.isDestroying) {
+        throw new Error("[PixiSceneCompositor] Renderer destroyed before initialization completed");
+      }
+      if (performance.now() - startedAt >= timeoutMs) {
+        throw new Error(`[PixiSceneCompositor] Renderer initialization timed out after ${timeoutMs}ms`);
+      }
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }

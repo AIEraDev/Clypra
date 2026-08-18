@@ -23,6 +23,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { getPlaybackClock, type PlaybackClockState } from "../core/playback";
 import type { TransportAuthority, PlaybackContextStateSnapshot } from "../core/playback";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { resumeGlobalAudioEngine } from "@/hooks/useAudioSyncEngine";
 
 /**
  * Hook for UI snapshots of playback state.
@@ -89,10 +90,12 @@ export function useTransportControls() {
   return useMemo(
     () => ({
       play: () => {
+        resumeGlobalAudioEngine();
         getActiveSessionOrNull()?.unlockPreviewAudio();
         authority?.play();
       },
       togglePlayback: () => {
+        resumeGlobalAudioEngine();
         getActiveSessionOrNull()?.unlockPreviewAudio();
         authority?.togglePlayback();
       },

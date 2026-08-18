@@ -109,6 +109,18 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
     }
   }
 
+  // The audible preview engine is shared by the React preview and survives
+  // session disposal. Flush it explicitly so audio cannot continue on the
+  // launch screen after a project is closed.
+  try {
+    const { stopGlobalAudioEngine } = await import("@/hooks/useAudioSyncEngine");
+    stopGlobalAudioEngine();
+    resetSubsystems.push("GlobalAudioEngine");
+  } catch (error) {
+    errors.push({ subsystem: "GlobalAudioEngine", error: error as Error });
+    console.error("  ❌ GlobalAudioEngine reset failed:", error);
+  }
+
 
 
   // ═══════════════════════════════════════════════════════════════════════════════

@@ -35,6 +35,18 @@ export function getGlobalAudioEngine(): AudioEngine {
   return globalAudioEngine;
 }
 
+/** Resume the shared audible engine from a user-gesture transport action. */
+export function resumeGlobalAudioEngine(): void {
+  if (globalAudioEngine) {
+    void globalAudioEngine.resume();
+  }
+}
+
+/** Flush shared voices when the project preview is leaving the editor. */
+export function stopGlobalAudioEngine(): void {
+  globalAudioEngine?.stopAllVoices(false);
+}
+
 export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   const clips = useTimelineStore((s) => s.clips);
   const tracks = useTimelineStore((s) => s.tracks);
@@ -117,6 +129,12 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       }
     };
   }, [clips, tracks, options.volume, options.muted]);
+
+  // Keep this separate from the sync-loop effect. Timeline edits can recreate
+  // the loop while playback continues and must not cut the audible voices.
+  useEffect(() => {
+    return () => stopGlobalAudioEngine();
+  }, []);
 
   return {
     audioEngine: engineRef.current,
