@@ -90,6 +90,7 @@ impl NativePreviewSession {
     /// Convert one decoded NV12 frame into a GPU texture for timeline compositing.
     /// The texture is owned by the caller and remains valid until the compositor
     /// has submitted the project frame that samples it.
+    #[allow(clippy::too_many_arguments)]
     pub fn render_nv12_frame_to_texture(
         &mut self,
         source_width: u32,
@@ -162,6 +163,7 @@ impl NativePreviewSession {
         Ok(target_texture)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn render_nv12_frame(
         &mut self,
         source_width: u32,

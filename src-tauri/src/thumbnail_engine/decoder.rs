@@ -808,17 +808,15 @@ impl VideoDecoder {
 
         // Drain delayed codec output after packet iteration. If this path is
         // used, force the next request to seek because the decoder is at EOF.
-        if !found {
-            if self.decoder.send_eof().is_ok() {
-                let mut frame = ffmpeg::frame::Video::empty();
-                while self.decoder.receive_frame(&mut frame).is_ok() {
-                    let pts = frame.pts().unwrap_or(0);
-                    self.state.current_pts = pts;
-                    best_frame = frame;
-                    frame = ffmpeg::frame::Video::empty();
-                }
-                self.state.current_pts = -1;
+        if !found && self.decoder.send_eof().is_ok() {
+            let mut frame = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut frame).is_ok() {
+                let pts = frame.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                best_frame = frame;
+                frame = ffmpeg::frame::Video::empty();
             }
+            self.state.current_pts = -1;
         }
 
         if !found && best_frame.width() == 0 {
@@ -1056,17 +1054,15 @@ impl VideoDecoder {
 
         // Drain delayed codec output after packet iteration. The decoder is at
         // EOF after this path, so force the next request to seek.
-        if !found {
-            if self.decoder.send_eof().is_ok() {
-                let mut frame = ffmpeg::frame::Video::empty();
-                while self.decoder.receive_frame(&mut frame).is_ok() {
-                    let pts = frame.pts().unwrap_or(0);
-                    self.state.current_pts = pts;
-                    best_frame = frame;
-                    frame = ffmpeg::frame::Video::empty();
-                }
-                self.state.current_pts = -1;
+        if !found && self.decoder.send_eof().is_ok() {
+            let mut frame = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut frame).is_ok() {
+                let pts = frame.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                best_frame = frame;
+                frame = ffmpeg::frame::Video::empty();
             }
+            self.state.current_pts = -1;
         }
 
         if !found && best_frame.width() == 0 {

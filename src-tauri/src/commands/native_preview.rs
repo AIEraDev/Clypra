@@ -431,7 +431,7 @@ pub async fn render_native_video_project_frame(
     for (layer, (y_plane, uv_plane, width, height, color)) in
         request.layers.iter().zip(decoded_frames.iter())
     {
-        let params = color_params(&color)?;
+        let params = color_params(color)?;
         let texture = session.render_nv12_frame_to_texture(
             *width,
             *height,

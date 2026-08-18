@@ -23,7 +23,7 @@ pub fn compare_rgba8(actual: &[u8], expected: &[u8], tolerance: u8) -> Result<Go
             expected.len()
         ));
     }
-    if actual.len() % 4 != 0 {
+    if !actual.len().is_multiple_of(4) {
         return Err(format!(
             "RGBA frame length is not pixel-aligned: {} bytes",
             actual.len()

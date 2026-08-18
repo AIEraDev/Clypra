@@ -178,6 +178,9 @@ async fn native_project_frame_matches_geometry_golden() {
     assert_eq!(pixel(&actual, 64, 8, 28), [0, 0, 0, 255]);
 
     let mut expected = vec![0u8; 64 * 36 * 4];
+    for pixel in expected.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&[0, 0, 0, 255]);
+    }
     for y in 0..18 {
         for x in 0..32 {
             let offset = (y * 64 + x) * 4;
