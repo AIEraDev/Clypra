@@ -29,6 +29,7 @@ import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
+import { computeThumbnailSeekTime } from "@/lib/media/thumbnailHeuristic";
 import { isTauriRuntime, renderNativePreviewFrame, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
 
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
@@ -565,9 +566,27 @@ export const PixiProgramPreview: React.FC = () => {
         try {
           let nativeFrame: { rgba: ArrayBuffer; width: number; height: number } | null = null;
           const nativeRequest = buildNativeVideoProjectRequest(scene);
+          const nativePosterRequest = preferPosterFrame && nativeRequest
+            ? {
+                ...nativeRequest,
+                layers: nativeRequest.layers.map((layer, index) => {
+                  const mediaLayers = scene.visualLayers.filter((visualLayer) => visualLayer.layerType === "media");
+                  const asset = state.mediaAssets.find((candidate) => candidate.id === mediaLayers[index]?.mediaId);
+                  const duration = asset?.duration ?? 0;
+                  return {
+                    ...layer,
+                    // Decode the same representative moment used for the
+                    // poster, but at full preview resolution. The stored
+                    // poster is intentionally small for the media library.
+                    timeSecs: computeThumbnailSeekTime(duration),
+                  };
+                }),
+              }
+            : null;
+          const requestForRender = nativePosterRequest ?? nativeRequest;
           const canUseNativePreview =
             isTauriRuntime() &&
-            nativeRequest !== null &&
+            requestForRender !== null &&
             !nativePreviewDisabled &&
             // Native IPC/readback is deterministic for paused editing frames.
             // Never put an IPC decode/readback in the playback RAF path: the
@@ -577,32 +596,31 @@ export const PixiProgramPreview: React.FC = () => {
             // the WebView decoder is still loading the first visible frame.
             // The decoded-frame latch is stricter than readyState: WebKit can
             // expose dimensions before it has delivered usable pixels.
-            hasReadyHtmlVideo &&
-            !preferPosterFrame;
+            (preferPosterFrame || hasReadyHtmlVideo);
 
-          if (canUseNativePreview && nativeRequest) {
+          if (canUseNativePreview && requestForRender) {
             try {
-              const [layer] = nativeRequest.layers;
+              const [layer] = requestForRender.layers;
               const isDirectFullCanvasVideo =
-                nativeRequest.layers.length === 1 &&
+                requestForRender.layers.length === 1 &&
                 layer &&
                 Math.abs(layer.x) < 0.5 &&
                 Math.abs(layer.y) < 0.5 &&
-                Math.abs(layer.width - nativeRequest.canvasWidth) < 0.5 &&
-                Math.abs(layer.height - nativeRequest.canvasHeight) < 0.5 &&
+                Math.abs(layer.width - requestForRender.canvasWidth) < 0.5 &&
+                Math.abs(layer.height - requestForRender.canvasHeight) < 0.5 &&
                 Math.abs(layer.rotation ?? 0) < 0.001 &&
                 Math.abs((layer.opacity ?? 1) - 1) < 0.001 &&
                 (layer.blendMode ?? "normal") === "normal";
               const rgba = isDirectFullCanvasVideo
-                ? await renderNativePreviewFrame(layer.videoPath, layer.timeSecs, nativeRequest.canvasWidth, nativeRequest.canvasHeight)
-                : await renderNativeVideoProjectFrame(nativeRequest);
-              if (!isRenderableNativePreviewFrame(rgba, nativeRequest.canvasWidth, nativeRequest.canvasHeight)) {
+                ? await renderNativePreviewFrame(layer.videoPath, layer.timeSecs, requestForRender.canvasWidth, requestForRender.canvasHeight)
+                : await renderNativeVideoProjectFrame(requestForRender);
+              if (!isRenderableNativePreviewFrame(rgba, requestForRender.canvasWidth, requestForRender.canvasHeight)) {
                 throw new Error("Native preview returned an empty or opaque-black frame");
               }
               nativeFrame = {
                 rgba,
-                width: nativeRequest.canvasWidth,
-                height: nativeRequest.canvasHeight,
+                width: requestForRender.canvasWidth,
+                height: requestForRender.canvasHeight,
               };
               nativePreviewDisabled = false;
             } catch (error) {
