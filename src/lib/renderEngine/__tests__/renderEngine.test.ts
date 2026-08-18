@@ -14,6 +14,15 @@ afterEach(() => {
 });
 
 describe("RenderRuntime clip registration", () => {
+  it("seeds a newly registered clip at the normal-zoom tier", () => {
+    const runtime = new RenderEngine("project-1");
+
+    runtime.registerClip("clip-1");
+
+    expect(runtime.getRenderState("clip-1").currentTier.spatialTier).toBe(SpatialTier.L2);
+    runtime.teardown();
+  });
+
   it("seeds a newly registered clip at L1 after zoom 0.75", () => {
     const runtime = new RenderEngine("project-1");
 

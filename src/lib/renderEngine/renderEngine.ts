@@ -64,7 +64,9 @@ export class RenderEngine {
     this._rendererMode = options.rendererMode ?? RendererMode.Canvas2D;
 
     this._ism = new InteractionStateMachine();
-    this._hysteresis = new HysteresisController(SpatialTier.L0, options.srpConfig ?? DEFAULT_SRP_CONFIG);
+    const initialDpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const initialTier = computeSpatialTier(this._currentZoom, initialDpr, this._qualityPreset).spatialTier;
+    this._hysteresis = new HysteresisController(initialTier, options.srpConfig ?? DEFAULT_SRP_CONFIG);
     this._scheduler = new RenderScheduler();
     this._filmstripCache = new FilmstripCache(options.filmstripMemoryMB ?? 100);
 

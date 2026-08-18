@@ -6,6 +6,34 @@ import type {
 
 const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
 
+/**
+ * Reject frames that contain no visible video signal. A successful IPC call is
+ * not enough: a GPU pass can legally return an opaque black clear frame when
+ * the source texture or compositor submission failed. Falling back here keeps
+ * that failure from covering the working WebView video path.
+ */
+export function isRenderableNativePreviewFrame(
+  rgba: ArrayBuffer,
+  width: number,
+  height: number,
+): boolean {
+  if (width <= 0 || height <= 0 || rgba.byteLength !== width * height * 4) return false;
+
+  const pixels = new Uint8Array(rgba);
+  let hasVisibleAlpha = false;
+  let hasNonBlackRgb = false;
+  for (let offset = 0; offset < pixels.length; offset += 4) {
+    const alpha = pixels[offset + 3];
+    if (alpha > 0) hasVisibleAlpha = true;
+    if (pixels[offset] !== 0 || pixels[offset + 1] !== 0 || pixels[offset + 2] !== 0) {
+      hasNonBlackRgb = true;
+    }
+    if (hasVisibleAlpha && hasNonBlackRgb) return true;
+  }
+
+  return false;
+}
+
 function isNativeFileSource(sourcePath: string): boolean {
   const value = sourcePath.trim().toLowerCase();
   return value.length > 0 && !["data:", "blob:", "http://", "https://"].some((prefix) => value.startsWith(prefix));
@@ -60,4 +88,3 @@ export function buildNativeVideoProjectRequest(
     layers,
   };
 }
-

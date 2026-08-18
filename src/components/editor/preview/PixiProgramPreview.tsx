@@ -39,7 +39,7 @@ import { useCaptionStore } from "@/store/captionStore";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
-import { buildNativeVideoProjectRequest } from "./nativeVideoPreview";
+import { buildNativeVideoProjectRequest, isRenderableNativePreviewFrame } from "./nativeVideoPreview";
 
 
 const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: number; height: number }> = {
@@ -532,6 +532,9 @@ export const PixiProgramPreview: React.FC = () => {
           if (canUseNativePreview && nativeRequest) {
             try {
               const rgba = await renderNativeVideoProjectFrame(nativeRequest);
+              if (!isRenderableNativePreviewFrame(rgba, nativeRequest.canvasWidth, nativeRequest.canvasHeight)) {
+                throw new Error("Native preview returned an empty or opaque-black frame");
+              }
               nativeFrame = {
                 rgba,
                 width: nativeRequest.canvasWidth,

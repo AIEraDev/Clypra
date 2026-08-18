@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/types";
-import { buildNativeVideoProjectRequest } from "../nativeVideoPreview";
+import { buildNativeVideoProjectRequest, isRenderableNativePreviewFrame } from "../nativeVideoPreview";
 
 function makeVideoLayer(overrides: Partial<EvaluatedMediaLayer> = {}): EvaluatedMediaLayer {
   return {
@@ -75,5 +75,19 @@ describe("buildNativeVideoProjectRequest", () => {
       makeVideoLayer(),
       { ...makeVideoLayer({ mediaId: "image-1" }), mediaType: "image" } as never,
     ]))).toBeNull();
+  });
+});
+
+describe("isRenderableNativePreviewFrame", () => {
+  it("rejects an opaque black clear frame", () => {
+    expect(isRenderableNativePreviewFrame(new Uint8Array([0, 0, 0, 255]).buffer, 1, 1)).toBe(false);
+  });
+
+  it("accepts a visible opaque pixel", () => {
+    expect(isRenderableNativePreviewFrame(new Uint8Array([12, 24, 36, 255]).buffer, 1, 1)).toBe(true);
+  });
+
+  it("rejects invalid byte lengths", () => {
+    expect(isRenderableNativePreviewFrame(new Uint8Array([12, 24, 36]).buffer, 1, 1)).toBe(false);
   });
 });
