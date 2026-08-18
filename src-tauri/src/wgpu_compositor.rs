@@ -6,6 +6,7 @@
  */
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 pub mod texture_pool;
 pub use texture_pool::{
@@ -52,6 +53,248 @@ pub struct NativeWgpuRenderer {
     pub gpu_info: SelectedGpuInfo,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+}
+
+/// Persistent YUV preview resources shared by native editing-preview calls.
+///
+/// The source-size ring buffer is recreated only when the decoded stream
+/// changes resolution or pixel format. The output target remains per-frame for
+/// now because the next phase will replace CPU readback with a native surface.
+pub struct NativePreviewSession {
+    pub gpu: Arc<GpuContext>,
+    yuv_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    pipeline: wgpu::RenderPipeline,
+    ring: Option<YuvTextureRingBuffer>,
+}
+
+impl NativePreviewSession {
+    pub fn new(gpu: Arc<GpuContext>) -> Self {
+        let yuv_layout = create_yuv_hdr_bind_group_layout(&gpu.device);
+        let sampler = create_yuv_hdr_sampler(&gpu.device);
+        let pipeline = create_yuv_hdr_render_pipeline(
+            &gpu.device,
+            &yuv_layout,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
+
+        Self {
+            gpu,
+            yuv_layout,
+            sampler,
+            pipeline,
+            ring: None,
+        }
+    }
+
+    /// Convert one decoded NV12 frame into a GPU texture for timeline compositing.
+    /// The texture is owned by the caller and remains valid until the compositor
+    /// has submitted the project frame that samples it.
+    pub fn render_nv12_frame_to_texture(
+        &mut self,
+        source_width: u32,
+        source_height: u32,
+        output_width: u32,
+        output_height: u32,
+        y_plane: &[u8],
+        uv_plane: &[u8],
+        params: &ColorTransformUniforms,
+    ) -> Result<wgpu::Texture, String> {
+        if source_width == 0
+            || source_height == 0
+            || output_width == 0
+            || output_height == 0
+        {
+            return Err("Source and output dimensions must be non-zero".to_string());
+        }
+
+        let ring = self.ring.get_or_insert_with(|| {
+            YuvTextureRingBuffer::new(
+                &self.gpu.device,
+                &self.yuv_layout,
+                &self.sampler,
+                &self.sampler,
+                source_width,
+                source_height,
+                YuvPixelFormat::Nv12,
+                3,
+            )
+        });
+        ring.ensure_dimensions_and_format(
+            &self.gpu.device,
+            &self.yuv_layout,
+            &self.sampler,
+            &self.sampler,
+            source_width,
+            source_height,
+            YuvPixelFormat::Nv12,
+        );
+
+        let target_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Native Project Video Layer"),
+            size: wgpu::Extent3d {
+                width: output_width,
+                height: output_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        render_yuv_frame(
+            ring,
+            &self.gpu.device,
+            &self.gpu.queue,
+            &self.pipeline,
+            &target_view,
+            y_plane,
+            uv_plane,
+            source_width,
+            source_width.div_ceil(2) * 2,
+            params,
+        );
+
+        Ok(target_texture)
+    }
+
+    pub async fn render_nv12_frame(
+        &mut self,
+        source_width: u32,
+        source_height: u32,
+        output_width: u32,
+        output_height: u32,
+        y_plane: &[u8],
+        uv_plane: &[u8],
+        params: &ColorTransformUniforms,
+    ) -> Result<Vec<u8>, String> {
+        if source_width == 0
+            || source_height == 0
+            || output_width == 0
+            || output_height == 0
+        {
+            return Err("Source and output dimensions must be non-zero".to_string());
+        }
+
+        let ring = self.ring.get_or_insert_with(|| {
+            YuvTextureRingBuffer::new(
+                &self.gpu.device,
+                &self.yuv_layout,
+                &self.sampler,
+                &self.sampler,
+                source_width,
+                source_height,
+                YuvPixelFormat::Nv12,
+                3,
+            )
+        });
+        ring.ensure_dimensions_and_format(
+            &self.gpu.device,
+            &self.yuv_layout,
+            &self.sampler,
+            &self.sampler,
+            source_width,
+            source_height,
+            YuvPixelFormat::Nv12,
+        );
+
+        let target_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Persistent Native Preview Output"),
+            size: wgpu::Extent3d {
+                width: output_width,
+                height: output_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        render_yuv_frame(
+            ring,
+            &self.gpu.device,
+            &self.gpu.queue,
+            &self.pipeline,
+            &target_view,
+            y_plane,
+            uv_plane,
+            source_width,
+            source_width.div_ceil(2) * 2,
+            params,
+        );
+
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = output_width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+        let output_buffer = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Persistent Native Preview Readback"),
+            size: (padded_bytes_per_row * output_height) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Native Preview Readback Encoder"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(output_height),
+                },
+            },
+            wgpu::Extent3d {
+                width: output_width,
+                height: output_height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.gpu.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = output_buffer.slice(..);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        self.gpu.device.poll(wgpu::Maintain::Wait);
+        receiver
+            .await
+            .map_err(|error| format!("Readback channel error: {}", error))?
+            .map_err(|error| format!("Readback map error: {:?}", error))?;
+
+        let mapped = buffer_slice.get_mapped_range();
+        let mut rgba = vec![0u8; (output_width * output_height * 4) as usize];
+        for row in 0..output_height as usize {
+            let src_start = row * padded_bytes_per_row as usize;
+            let dst_start = row * unpadded_bytes_per_row as usize;
+            rgba[dst_start..dst_start + unpadded_bytes_per_row as usize]
+                .copy_from_slice(&mapped[src_start..src_start + unpadded_bytes_per_row as usize]);
+        }
+        drop(mapped);
+        output_buffer.unmap();
+
+        Ok(rgba)
+    }
 }
 
 impl NativeWgpuRenderer {
@@ -378,6 +621,144 @@ impl NativeWgpuRenderer {
         output_buffer.unmap();
 
         Ok(rgba_bytes)
+    }
+
+    /// Render NV12 using explicit color metadata through the reusable YUV
+    /// pipeline. This is the correctness path for the native preview proof;
+    /// persistent GPU resources will be introduced after the contract is
+    /// validated across platforms.
+    pub async fn render_nv12_frame_with_color(
+        &self,
+        width: u32,
+        height: u32,
+        y_plane: &[u8],
+        uv_plane: &[u8],
+        params: &ColorTransformUniforms,
+    ) -> Result<Vec<u8>, String> {
+        if width == 0 || height == 0 {
+            return Err("Width and height must be non-zero".to_string());
+        }
+
+        let expected_y = (width * height) as usize;
+        let expected_uv = width.div_ceil(2) as usize * height.div_ceil(2) as usize * 2;
+        if y_plane.len() < expected_y || uv_plane.len() < expected_uv {
+            return Err(format!(
+                "Invalid NV12 plane sizes: expected at least Y={} UV={}, got Y={} UV={}",
+                expected_y,
+                expected_uv,
+                y_plane.len(),
+                uv_plane.len()
+            ));
+        }
+
+        let layout = create_yuv_hdr_bind_group_layout(&self.device);
+        let sampler = create_yuv_hdr_sampler(&self.device);
+        let pipeline = create_yuv_hdr_render_pipeline(
+            &self.device,
+            &layout,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
+        let mut ring = YuvTextureRingBuffer::new(
+            &self.device,
+            &layout,
+            &sampler,
+            &sampler,
+            width,
+            height,
+            YuvPixelFormat::Nv12,
+            1,
+        );
+
+        let target_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Native Preview RGBA Target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        render_yuv_frame(
+            &mut ring,
+            &self.device,
+            &self.queue,
+            &pipeline,
+            &target_view,
+            y_plane,
+            uv_plane,
+            width,
+            width.div_ceil(2) * 2,
+            params,
+        );
+
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+        let buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Native Preview Readback Buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Native Preview Readback Encoder"),
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = output_buffer.slice(..);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        receiver
+            .await
+            .map_err(|error| format!("Readback channel error: {}", error))?
+            .map_err(|error| format!("Readback map error: {:?}", error))?;
+
+        let mapped = buffer_slice.get_mapped_range();
+        let mut rgba = vec![0u8; (width * height * 4) as usize];
+        for row in 0..height as usize {
+            let src_start = row * padded_bytes_per_row as usize;
+            let dst_start = row * unpadded_bytes_per_row as usize;
+            rgba[dst_start..dst_start + unpadded_bytes_per_row as usize]
+                .copy_from_slice(&mapped[src_start..src_start + unpadded_bytes_per_row as usize]);
+        }
+        drop(mapped);
+        output_buffer.unmap();
+
+        Ok(rgba)
     }
 
     /// Render an OverlayDocument fixture directly via wgpu
@@ -827,6 +1208,7 @@ impl NativeWgpuRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_wgpu_nv12_shader_render() {
@@ -856,5 +1238,82 @@ mod tests {
             let diff_gb = (g as i32 - b as i32).abs();
             assert!(diff_rg <= 10 && diff_gb <= 10, "Color should be neutral gray, got R={} G={} B={}", r, g, b);
         }
+    }
+
+    #[tokio::test]
+    async fn test_wgpu_metadata_driven_nv12_shader_render() {
+        let renderer = match NativeWgpuRenderer::new().await {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("Skipping metadata-driven YUV test (no GPU adapter): {}", error);
+                return;
+            }
+        };
+
+        let width = 64u32;
+        let height = 64u32;
+        let y_plane = vec![128u8; (width * height) as usize];
+        let uv_plane = vec![128u8; (width.div_ceil(2) * height.div_ceil(2) * 2) as usize];
+        let params = ColorTransformUniforms {
+            color_space: 0,
+            range: 0,
+            tonemap_operator: 0,
+            target_peak_nits: 100.0,
+        };
+
+        let rgba = renderer
+            .render_nv12_frame_with_color(width, height, &y_plane, &uv_plane, &params)
+            .await
+            .expect("metadata-driven NV12 rendering failed");
+
+        assert_eq!(rgba.len(), (width * height * 4) as usize);
+        let r = rgba[0];
+        let g = rgba[1];
+        let b = rgba[2];
+        assert_eq!(rgba[3], 255, "Alpha channel must be opaque");
+        assert!((r as i32 - g as i32).abs() <= 10);
+        assert!((g as i32 - b as i32).abs() <= 10);
+    }
+
+    #[tokio::test]
+    async fn test_native_preview_session_scales_source_to_output() {
+        let renderer = match NativeWgpuRenderer::new().await {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("Skipping native preview session test (no GPU adapter): {}", error);
+                return;
+            }
+        };
+
+        let gpu = Arc::new(GpuContext {
+            adapter: renderer.adapter,
+            info: renderer.gpu_info,
+            device: renderer.device,
+            queue: renderer.queue,
+        });
+        let mut session = NativePreviewSession::new(gpu);
+        let source_width = 64u32;
+        let source_height = 64u32;
+        let output_width = 32u32;
+        let output_height = 16u32;
+        let y_plane = vec![128u8; (source_width * source_height) as usize];
+        let uv_plane = vec![128u8;
+            (source_width.div_ceil(2) * source_height.div_ceil(2) * 2) as usize];
+
+        let rgba = session
+            .render_nv12_frame(
+                source_width,
+                source_height,
+                output_width,
+                output_height,
+                &y_plane,
+                &uv_plane,
+                &ColorTransformUniforms::default(),
+            )
+            .await
+            .expect("scaled native preview render failed");
+
+        assert_eq!(rgba.len(), (output_width * output_height * 4) as usize);
+        assert_eq!(rgba[3], 255);
     }
 }
