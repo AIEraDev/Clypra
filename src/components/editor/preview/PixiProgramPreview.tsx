@@ -446,6 +446,7 @@ export const PixiProgramPreview: React.FC = () => {
     // Used by the Bug 4 refinement to distinguish initial slow-load from mid-seek dips.
     const everReadyClipKeys = new Set<string>();
     let nativePreviewDisabled = false;
+    let nativePreviewRequestInFlight = false;
 
     const renderLoop = async () => {
       if (!isActive) return;
@@ -463,6 +464,13 @@ export const PixiProgramPreview: React.FC = () => {
       const epochChanged = state.epoch !== lastRenderedEpoch;
       const playbackStateChanged = lastRenderedPlaybackState !== playbackState;
       const isFirstFrame = lastRenderedFrameIndex === -1;
+
+      // A native decode failure is scoped to the current render attempt. Do
+      // not let a failed initial poster readback disable native paused seeks
+      // for the rest of the preview session.
+      if (timeChanged || epochChanged || playbackStateChanged) {
+        nativePreviewDisabled = false;
+      }
 
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
 
@@ -549,19 +557,7 @@ export const PixiProgramPreview: React.FC = () => {
         };
 
         const activeVideoElements = session?.getPreviewVideoElements() ?? new Map();
-        const previewMediaPool = session?.getPreviewMediaPool();
         const preferPosterFrame = !isPlaying && !hasStartedPlaybackRef.current && frameIndex === 0;
-        const hasReadyHtmlVideo = scene.visualLayers.some((layer) => {
-          if (layer.layerType !== "media" || layer.mediaType !== "video") return false;
-          const element = activeVideoElements.get(`${layer.clipId}-${layer.mediaId}`);
-          return Boolean(
-            element &&
-            element.readyState >= 2 &&
-            element.videoWidth > 0 &&
-            element.videoHeight > 0 &&
-            previewMediaPool?.isVideoFrameReady(layer.clipId, element),
-          );
-        });
 
         try {
           let nativeFrame: { rgba: ArrayBuffer; width: number; height: number } | null = null;
@@ -584,6 +580,24 @@ export const PixiProgramPreview: React.FC = () => {
               }
             : null;
           const requestForRender = nativePosterRequest ?? nativeRequest;
+
+          // The native full-resolution poster is an enhancement, not the
+          // first paint. Native FFmpeg/wgpu startup can take long enough that
+          // waiting here leaves Pixi showing its clear frame. Compose the
+          // existing poster immediately, then replace it below if the native
+          // readback succeeds.
+          if (preferPosterFrame) {
+            await compositorRef.current.composeFrame(
+              scene,
+              viewportParams,
+              activeVideoElements,
+              undefined,
+              new Map(),
+              null,
+              preferPosterFrame,
+            );
+          }
+
           const canUseNativePreview =
             isTauriRuntime() &&
             requestForRender !== null &&
@@ -591,14 +605,14 @@ export const PixiProgramPreview: React.FC = () => {
             // Native IPC/readback is deterministic for paused editing frames.
             // Never put an IPC decode/readback in the playback RAF path: the
             // HTML video element is the smooth playback source.
+            // Paused seeks must be allowed to decode directly even when the
+            // WebView element is still seeking. The native frame is validated
+            // before it can replace the existing Pixi/HTML fallback.
             !isPlaying &&
-            // Do not let a native clear/partial frame replace the poster while
-            // the WebView decoder is still loading the first visible frame.
-            // The decoded-frame latch is stricter than readyState: WebKit can
-            // expose dimensions before it has delivered usable pixels.
-            (preferPosterFrame || hasReadyHtmlVideo);
+            !nativePreviewRequestInFlight;
 
           if (canUseNativePreview && requestForRender) {
+            nativePreviewRequestInFlight = true;
             try {
               const [layer] = requestForRender.layers;
               const isDirectFullCanvasVideo =
@@ -624,12 +638,13 @@ export const PixiProgramPreview: React.FC = () => {
               };
               nativePreviewDisabled = false;
             } catch (error) {
-              // Do not retry a failed native request on every media epoch. Seek and
-              // loadeddata events advance the epoch, which otherwise creates a
-              // tight native-decode failure loop and prevents the Pixi fallback
-              // from getting a chance to present the HTML video frame.
+              // Keep the fallback visible for this render boundary. The flag
+              // is reset when the user seeks, changes playback state, or a
+              // media epoch advances.
               nativePreviewDisabled = true;
               console.warn("[PixiProgramPreview] Native video preview unavailable; using Pixi fallback:", error);
+            } finally {
+              nativePreviewRequestInFlight = false;
             }
           }
 
