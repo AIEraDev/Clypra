@@ -336,7 +336,16 @@ export class PreviewMediaPool {
       // CRITICAL: Only use fast path if we have video elements already created.
       // This prevents skipping the first sync after project load when elements need creation.
       const hasVideoElements = this.videoCache.size > 0;
-      if (hasVideoElements && quickHash === this._lastQuickHash) {
+      // A metadata event can advance the timeline epoch without changing the
+      // rounded time hash. Do not skip reconciliation until every active video
+      // has been seeked and has current frame data; otherwise the scheduler's
+      // initial seek is skipped and Pixi receives a permanently blank texture.
+      const activeVideosReadyForFastPath = Array.from(this.videoCache.values()).every(
+        (managed) =>
+          !managed.isActive ||
+          (managed.hasBeenSeeked && managed.element.readyState >= 2 && managed.element.videoWidth > 0 && managed.element.videoHeight > 0),
+      );
+      if (hasVideoElements && quickHash === this._lastQuickHash && activeVideosReadyForFastPath) {
         // Still run prewarming during playback even when skipping reconciliation
         if (syncState.state === "playing") {
           this.prewarmUpcomingClips(clips, assets, syncState.time, syncState.frameRate);
@@ -917,6 +926,13 @@ export class PreviewMediaPool {
               video.currentTime = clampedTime;
               managedVideo.lastHardSeekAtMs = performance.now();
               managedVideo.hasBeenSeeked = true; // Mark as seeked to prevent redundant initial seeks
+
+              // WebKit can complete a paused seek with metadata only and leave
+              // the current frame undecoded. Prime one muted frame so Pixi's
+              // VideoSource has real pixels to upload during paused scrubbing.
+              if (syncState.state !== "playing" && video.readyState < 2) {
+                this.primePausedVideoFrame(managedVideo);
+              }
             }
 
             if (managedAudio && managedAudio.element.readyState >= 1) {
@@ -1296,13 +1312,15 @@ export class PreviewMediaPool {
       }
     });
 
-    const isSpecialUrl = sourcePath.startsWith("blob:") || sourcePath.startsWith("data:");
-    video.src = isSpecialUrl ? sourcePath : `${sourcePath}${sourcePath.includes("?") ? "&" : "?"}clipId=${clipId}`;
-
-    // Explicitly trigger video load
-    video.load();
-
+    // Each clip owns its element, so a cache-busting query is unnecessary.
+    // It can also make Tauri asset URLs fragile when the asset protocol treats
+    // the query as part of the filesystem path.
+    video.src = sourcePath;
     this.container.appendChild(video);
+
+    // Attach before loading. WebKit is more reliable about metadata and first
+    // frame delivery when the media element is already connected to the DOM.
+    video.load();
 
     this.videoCache.set(key, managed);
 
@@ -1410,6 +1428,28 @@ export class PreviewMediaPool {
     // This method only configures audio routing and element properties
   }
 
+  private primePausedVideoFrame(managed: ManagedVideo): void {
+    const video = managed.element;
+    if (managed.disposing || !video.paused || video.readyState < 1) return;
+
+    const playResult = video.play();
+    if (!playResult || typeof (playResult as Promise<void>).then !== "function") {
+      video.pause();
+      return;
+    }
+
+    void (playResult as Promise<void>)
+      .then(() => {
+        if (managed.disposing) return;
+        video.pause();
+        useTimelineStore.getState().incrementEpoch();
+      })
+      .catch(() => {
+        // Muted priming is best effort. loadeddata/seeked can still expose
+        // the frame on browsers that decode paused seeks without playback.
+      });
+  }
+
   // ─── NEW: Playback Controller (Separated from sync) ────────────────────
 
   /**
@@ -1427,7 +1467,9 @@ export class PreviewMediaPool {
     }
 
     // Guard 2: Not ready → wait
-    if (video.readyState < 3) {
+    // HAVE_CURRENT_DATA is sufficient for Pixi's VideoSource and avoids
+    // waiting for a full decode buffer before starting the visible preview.
+    if (video.readyState < 2) {
       return;
     }
 

@@ -6,6 +6,10 @@ import type {
 
 const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
 
+function hasMeaningfulObject(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && Object.keys(value as Record<string, unknown>).length > 0);
+}
+
 /**
  * Reject frames that contain no visible video signal. A successful IPC call is
  * not enough: a GPU pass can legally return an opaque black clear frame when
@@ -36,7 +40,15 @@ export function isRenderableNativePreviewFrame(
 
 function isNativeFileSource(sourcePath: string): boolean {
   const value = sourcePath.trim().toLowerCase();
-  return value.length > 0 && !["data:", "blob:", "http://", "https://"].some((prefix) => value.startsWith(prefix));
+  if (!value || value.startsWith("data:") || value.startsWith("blob:")) return false;
+
+  // Tauri v2 may expose local filesystem media through the asset protocol's
+  // HTTP origin. The IPC wrapper normalizes this URL back to a native path.
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value.startsWith("http://asset.localhost/") || value.startsWith("https://asset.localhost/");
+  }
+
+  return true;
 }
 
 function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
@@ -45,7 +57,7 @@ function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
     layer.clipKind !== "sticker" &&
     isNativeFileSource(layer.sourcePath) &&
     !layer.filter &&
-    !layer.adjustments &&
+    !hasMeaningfulObject(layer.adjustments) &&
     !layer.effects?.length &&
     (!layer.sourceRotation || layer.sourceRotation === 0) &&
     NATIVE_BLEND_MODES.has(layer.blendMode)
