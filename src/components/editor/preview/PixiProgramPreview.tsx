@@ -29,7 +29,6 @@ import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
-import { computeThumbnailSeekTime } from "@/lib/media/thumbnailHeuristic";
 import { isTauriRuntime, renderNativePreviewFrame, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
 
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
@@ -50,6 +49,11 @@ const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: numbe
   "4:5": { width: 1080, height: 1350 },
   "21:9": { width: 2520, height: 1080 },
   "4:3": { width: 1440, height: 1080 },
+};
+
+type CachedNativePreviewFrame = {
+  requestKey: string;
+  frame: { rgba: ArrayBuffer; width: number; height: number };
 };
 
 export const PixiProgramPreview: React.FC = () => {
@@ -115,6 +119,9 @@ export const PixiProgramPreview: React.FC = () => {
   const qualityMenuRef = useRef<HTMLDivElement>(null);
   const compositorRef = useRef<PixiSceneCompositor | null>(null);
   const qualityManagerRef = useRef<PreviewQualityManager | null>(null);
+  // Native frames are authoritative for paused seeks. Retaining the last
+  // successful frame prevents media-pool epoch updates from hiding it.
+  const nativeFrameRef = useRef<CachedNativePreviewFrame | null>(null);
   const qualityManagerSigRef = useRef<string>("");
   const telemetryRef = useRef(telemetryStats);
   const lastTelemetryFlushRef = useRef(0);
@@ -266,6 +273,7 @@ export const PixiProgramPreview: React.FC = () => {
 
   useEffect(() => {
     hasStartedPlaybackRef.current = false;
+    nativeFrameRef.current = null;
   }, [project?.id]);
 
   useEffect(() => {
@@ -445,8 +453,9 @@ export const PixiProgramPreview: React.FC = () => {
     // Resets when this effect restarts (project switch, canvas remount).
     // Used by the Bug 4 refinement to distinguish initial slow-load from mid-seek dips.
     const everReadyClipKeys = new Set<string>();
-    let nativePreviewDisabled = false;
     let nativePreviewRequestInFlight = false;
+    let nativeRetryAt = 0;
+    let nativeRetryKey = "";
 
     const renderLoop = async () => {
       if (!isActive) return;
@@ -465,17 +474,31 @@ export const PixiProgramPreview: React.FC = () => {
       const playbackStateChanged = lastRenderedPlaybackState !== playbackState;
       const isFirstFrame = lastRenderedFrameIndex === -1;
 
-      // A native decode failure is scoped to the current render attempt. Do
-      // not let a failed initial poster readback disable native paused seeks
-      // for the rest of the preview session.
-      if (timeChanged || epochChanged || playbackStateChanged) {
-        nativePreviewDisabled = false;
-      }
-
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
+      const nativeRequest = buildNativeVideoProjectRequest(scene);
+      const nativeRequestKey = nativeRequest ? JSON.stringify(nativeRequest) : "";
+      if (nativeRequestKey !== nativeRetryKey) {
+        nativeRetryKey = nativeRequestKey;
+        nativeRetryAt = 0;
+      }
+      const cachedNativeFrame = !isPlaying && nativeRequestKey !== "" && nativeFrameRef.current?.requestKey === nativeRequestKey
+        ? nativeFrameRef.current.frame
+        : null;
+      const nativeFrameNeedsRetry = !isPlaying && Boolean(nativeRequest) && !cachedNativeFrame && performance.now() >= nativeRetryAt;
+      const nativePausedPath = isTauriRuntime() && Boolean(nativeRequest) && !isPlaying;
+      const targetStillCurrent = () => {
+        const current = renderStateRef.current;
+        return isActive &&
+          current.project?.id === state.project?.id &&
+          current.clock.state === playbackState &&
+          getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex;
+      };
 
       const activeSetChanged = scene.metadata.activeMediaHash !== lastSyncedMediaHashRef.current;
-      const needsSync = activeSetChanged || epochChanged || isFirstFrame || playbackStateChanged || (!isPlaying && timeChanged) || isPlaying;
+      // Native paused preview owns decode and frame timing when the scene is
+      // representable by the Rust/wgpu compositor. The hidden DOM pool is
+      // synchronized only for playback or unsupported fallback compositions.
+      const needsSync = isPlaying || (!nativePausedPath && (activeSetChanged || epochChanged || isFirstFrame || playbackStateChanged || (!isPlaying && timeChanged)));
 
       const session = getActiveSessionOrNull();
 
@@ -501,7 +524,7 @@ export const PixiProgramPreview: React.FC = () => {
       // Clips that are merely seeking don't need forced re-renders — the compositor
       // handles absent/seeking frames gracefully. Forcing on every seek with multiple
       // stacked clips hammers composeFrame every RAF tick → GPU overload → hang.
-      if (session) {
+      if (session && !nativePausedPath) {
         const videoElements = session.getPreviewVideoElements();
         const videoClips = state.clips.filter((c) => c.kind === "video");
 
@@ -531,7 +554,7 @@ export const PixiProgramPreview: React.FC = () => {
       const transitionsChanged = state.transitions !== lastRenderedTransitions;
       const projectChanged = state.project !== lastRenderedProject;
 
-      const needsRender = isPlaying || timeChanged || epochChanged || isFirstFrame || forceRenderNeeded || hasActiveTransform || clipsChanged || tracksChanged || transitionsChanged || projectChanged;
+      const needsRender = isPlaying || timeChanged || epochChanged || isFirstFrame || forceRenderNeeded || nativeFrameNeedsRetry || hasActiveTransform || clipsChanged || tracksChanged || transitionsChanged || projectChanged;
 
       if (needsRender) {
         lastRenderedClips = state.clips;
@@ -560,26 +583,11 @@ export const PixiProgramPreview: React.FC = () => {
         const preferPosterFrame = !isPlaying && !hasStartedPlaybackRef.current && frameIndex === 0;
 
         try {
-          let nativeFrame: { rgba: ArrayBuffer; width: number; height: number } | null = null;
-          const nativeRequest = buildNativeVideoProjectRequest(scene);
-          const nativePosterRequest = preferPosterFrame && nativeRequest
-            ? {
-                ...nativeRequest,
-                layers: nativeRequest.layers.map((layer, index) => {
-                  const mediaLayers = scene.visualLayers.filter((visualLayer) => visualLayer.layerType === "media");
-                  const asset = state.mediaAssets.find((candidate) => candidate.id === mediaLayers[index]?.mediaId);
-                  const duration = asset?.duration ?? 0;
-                  return {
-                    ...layer,
-                    // Decode the same representative moment used for the
-                    // poster, but at full preview resolution. The stored
-                    // poster is intentionally small for the media library.
-                    timeSecs: computeThumbnailSeekTime(duration),
-                  };
-                }),
-              }
-            : null;
-          const requestForRender = nativePosterRequest ?? nativeRequest;
+          // Hold the previous native image while a new seek is decoding. It
+          // is visual continuity only; `cachedNativeFrame` remains the
+          // separate exact-target readiness signal below.
+          let nativeFrame = cachedNativeFrame ?? (nativePausedPath ? nativeFrameRef.current?.frame ?? null : null);
+          const requestForRender = nativeRequest;
 
           // The native full-resolution poster is an enhancement, not the
           // first paint. Native FFmpeg/wgpu startup can take long enough that
@@ -601,7 +609,7 @@ export const PixiProgramPreview: React.FC = () => {
           const canUseNativePreview =
             isTauriRuntime() &&
             requestForRender !== null &&
-            !nativePreviewDisabled &&
+            !cachedNativeFrame &&
             // Native IPC/readback is deterministic for paused editing frames.
             // Never put an IPC decode/readback in the playback RAF path: the
             // HTML video element is the smooth playback source.
@@ -609,7 +617,8 @@ export const PixiProgramPreview: React.FC = () => {
             // WebView element is still seeking. The native frame is validated
             // before it can replace the existing Pixi/HTML fallback.
             !isPlaying &&
-            !nativePreviewRequestInFlight;
+            !nativePreviewRequestInFlight &&
+            performance.now() >= nativeRetryAt;
 
           if (canUseNativePreview && requestForRender) {
             nativePreviewRequestInFlight = true;
@@ -631,21 +640,36 @@ export const PixiProgramPreview: React.FC = () => {
               if (!isRenderableNativePreviewFrame(rgba, requestForRender.canvasWidth, requestForRender.canvasHeight)) {
                 throw new Error("Native preview returned an empty or opaque-black frame");
               }
+              // A seek or play action may have happened while native decode
+              // was awaiting FFmpeg/GPU readback. Never commit that stale
+              // response to the current program canvas.
+              if (!targetStillCurrent()) {
+                forceRenderNeeded = true;
+                rafId = requestAnimationFrame(renderLoop);
+                return;
+              }
               nativeFrame = {
                 rgba,
                 width: requestForRender.canvasWidth,
                 height: requestForRender.canvasHeight,
               };
-              nativePreviewDisabled = false;
+              nativeFrameRef.current = { requestKey: nativeRequestKey, frame: nativeFrame };
+              nativeRetryAt = 0;
             } catch (error) {
-              // Keep the fallback visible for this render boundary. The flag
-              // is reset when the user seeks, changes playback state, or a
-              // media epoch advances.
-              nativePreviewDisabled = true;
+              // Keep the fallback visible for this render boundary, then
+              // retry this exact request. One failed readback must not
+              // permanently disable paused seeking.
+              nativeRetryAt = performance.now() + 250;
               console.warn("[PixiProgramPreview] Native video preview unavailable; using Pixi fallback:", error);
             } finally {
               nativePreviewRequestInFlight = false;
             }
+          }
+
+          if (!targetStillCurrent()) {
+            forceRenderNeeded = true;
+            rafId = requestAnimationFrame(renderLoop);
+            return;
           }
 
           await compositorRef.current.composeFrame(
@@ -680,6 +704,12 @@ export const PixiProgramPreview: React.FC = () => {
             }
           }
 
+          if (!targetStillCurrent()) {
+            forceRenderNeeded = true;
+            rafId = requestAnimationFrame(renderLoop);
+            return;
+          }
+
           // was in-flight (e.g. rapid project switch, React Strict Mode remount).
           // Without this, post-await code would write into a torn-down WebGL context.
           if (!isActive) return;
@@ -688,12 +718,14 @@ export const PixiProgramPreview: React.FC = () => {
           lastRenderedEpoch = state.epoch;
           lastRenderedPlaybackState = playbackState;
 
-          if (state.clock.isSeeking) {
+          const nativeFrameReady = !isTauriRuntime() || nativeRequest === null ||
+            cachedNativeFrame !== null || nativeFrameRef.current?.requestKey === nativeRequestKey || isPlaying;
+          if (state.clock.isSeeking && nativeFrameReady) {
             state.clock.completeSeek();
           }
 
           // Live program preview thumbnail sync: capture frame snapshot when paused / seeking finished
-          if (!playbackState) {
+          if (!playbackState && nativeFrameReady && !state.clock.isSeeking) {
             if (thumbnailDebounceTimer) clearTimeout(thumbnailDebounceTimer);
             thumbnailDebounceTimer = setTimeout(() => {
               if (!isActive || !canvasEl) return;
@@ -715,6 +747,9 @@ export const PixiProgramPreview: React.FC = () => {
 
     const unsubscribeClock = clock.subscribe(() => {
       forceRenderNeeded = true;
+      // A fresh seek should retry immediately, even when it lands on the same
+      // frame as a previous failed request.
+      nativeRetryAt = 0;
     });
 
     rafId = requestAnimationFrame(renderLoop);
