@@ -12,22 +12,51 @@ struct HeadlessGpuContext {
 
 impl HeadlessGpuContext {
     async fn new() -> Self {
+        let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends,
             ..Default::default()
         });
         let allow_fallback = std::env::var_os("CLYPRA_ALLOW_FALLBACK_GPU").is_some();
+        let adapters = instance.enumerate_adapters(backends);
+        for adapter in &adapters {
+            let info = adapter.get_info();
+            println!(
+                "native preview golden discovered adapter: name={} backend={:?} device_type={:?}",
+                info.name, info.backend, info.device_type
+            );
+        }
+
+        // Prefer the real platform adapter. The CI flag permits a software adapter when a
+        // headless runner has no usable hardware; it must not force software on every runner.
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
-                force_fallback_adapter: allow_fallback,
+                force_fallback_adapter: false,
             })
-            .await
-            .expect("Failed to find suitable GPU adapter");
+            .await;
+        let adapter = match adapter {
+            Some(adapter) => adapter,
+            None if allow_fallback => instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::LowPower,
+                    compatible_surface: None,
+                    force_fallback_adapter: true,
+                })
+                .await
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Failed to find a suitable wgpu adapter (backends={backends:?}, fallback_allowed={allow_fallback}); install a platform GPU/software Vulkan adapter or set up the CI graphics dependencies"
+                    )
+                }),
+            None => panic!(
+                "Failed to find a suitable wgpu adapter (backends={backends:?}, fallback_allowed={allow_fallback}); install a platform GPU/software Vulkan adapter or set up the CI graphics dependencies"
+            ),
+        };
         let info = adapter.get_info();
         println!(
-            "native preview golden adapter: name={} backend={:?} device_type={:?} fallback_requested={}",
+            "native preview golden selected adapter: name={} backend={:?} device_type={:?} fallback_allowed={}",
             info.name, info.backend, info.device_type, allow_fallback
         );
         let (device, queue) = adapter
