@@ -590,10 +590,6 @@ impl MultiTrackCompositor {
         layers: &[CompositeLayer],
         clear_color: Option<wgpu::Color>,
     ) -> Result<(), String> {
-        if layers.is_empty() {
-            return Ok(());
-        }
-
         // Sort layer references ascending by z_index (back to front)
         let mut sorted_layers: Vec<&CompositeLayer> = layers.iter().collect();
         sorted_layers.sort_by_key(|l| l.z_index);

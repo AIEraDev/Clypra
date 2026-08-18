@@ -28,6 +28,8 @@ import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
 import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
+import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
+import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
 
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
@@ -37,6 +39,7 @@ import { useCaptionStore } from "@/store/captionStore";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
+import { buildNativeVideoProjectRequest } from "./nativeVideoPreview";
 
 
 const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: number; height: number }> = {
@@ -401,7 +404,7 @@ export const PixiProgramPreview: React.FC = () => {
     let rafId: number | null = null;
     let isActive = true;
     let forceRenderNeeded = false;
-    let lastRenderedTime = -1;
+    let lastRenderedFrameIndex = -1;
     let lastRenderedEpoch = -1;
     let lastRenderedPlaybackState: "playing" | "paused" | "stopped" = "stopped";
     let lastRenderedClips = renderStateRef.current.clips;
@@ -412,6 +415,8 @@ export const PixiProgramPreview: React.FC = () => {
     // Resets when this effect restarts (project switch, canvas remount).
     // Used by the Bug 4 refinement to distinguish initial slow-load from mid-seek dips.
     const everReadyClipKeys = new Set<string>();
+    let nativePreviewDisabled = false;
+    let nativePreviewFailureEpoch = -1;
 
     const renderLoop = async () => {
       if (!isActive) return;
@@ -422,14 +427,15 @@ export const PixiProgramPreview: React.FC = () => {
       const isPlaying = playbackState === "playing";
 
       const frameRate = state.project?.frameRate ?? 30;
-      const timeToRenderRounded = Math.round(timeToRender * frameRate) / frameRate;
+      const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
+      const frameStartTime = getFrameStartTime(timeToRender, frameRate);
 
-      const timeChanged = timeToRenderRounded !== lastRenderedTime;
+      const timeChanged = frameIndex !== lastRenderedFrameIndex;
       const epochChanged = state.epoch !== lastRenderedEpoch;
       const playbackStateChanged = lastRenderedPlaybackState !== playbackState;
-      const isFirstFrame = lastRenderedTime === -1;
+      const isFirstFrame = lastRenderedFrameIndex === -1;
 
-      const scene = evaluateTimelineSceneCached(timeToRenderRounded, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
+      const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
 
       const activeSetChanged = scene.metadata.activeMediaHash !== lastSyncedMediaHashRef.current;
       const needsSync = activeSetChanged || epochChanged || isFirstFrame || playbackStateChanged || (!isPlaying && timeChanged) || isPlaying;
@@ -438,8 +444,8 @@ export const PixiProgramPreview: React.FC = () => {
 
       if (needsSync && session && session.state === "active") {
         try {
-          session.syncPreviewMedia(getPreviewMediaSyncClips(state.clips, timeToRenderRounded, state.transitions), state.mediaAssets, state.tracks, {
-            time: timeToRenderRounded,
+          session.syncPreviewMedia(getPreviewMediaSyncClips(state.clips, frameStartTime, state.transitions), state.mediaAssets, state.tracks, {
+            time: frameStartTime,
             state: playbackState,
             speed: state.clock.speed,
             muted: true, // PreviewMediaPool DOM elements kept muted; AudioEngine handles all audible timeline output
@@ -516,17 +522,40 @@ export const PixiProgramPreview: React.FC = () => {
         const activeVideoElements = session?.getPreviewVideoElements() ?? new Map();
 
         try {
+          let nativeFrame: { rgba: ArrayBuffer; width: number; height: number } | null = null;
+          const nativeRequest = buildNativeVideoProjectRequest(scene);
+          const canUseNativePreview =
+            isTauriRuntime() &&
+            nativeRequest !== null &&
+            (!nativePreviewDisabled || nativePreviewFailureEpoch !== state.epoch);
+
+          if (canUseNativePreview && nativeRequest) {
+            try {
+              const rgba = await renderNativeVideoProjectFrame(nativeRequest);
+              nativeFrame = {
+                rgba,
+                width: nativeRequest.canvasWidth,
+                height: nativeRequest.canvasHeight,
+              };
+              nativePreviewDisabled = false;
+            } catch (error) {
+              nativePreviewDisabled = true;
+              nativePreviewFailureEpoch = state.epoch;
+              console.warn("[PixiProgramPreview] Native video preview unavailable; using Pixi fallback:", error);
+            }
+          }
+
           await compositorRef.current.composeFrame(
             scene,
             viewportParams,
             activeVideoElements,
             undefined, // resourceHandleMap (can be left undefined during preview)
-
-            new Map()  // bodyMasks map
+            new Map(), // bodyMasks map
+            nativeFrame,
           );
 
           // Render active smart-overlay clips if any
-          const currentTime = timeToRenderRounded;
+          const currentTime = frameStartTime;
           const activeSmartClips = state.clips.filter(
             (c): c is SmartOverlayClip =>
               c.kind === "smart-overlay" &&
@@ -551,7 +580,7 @@ export const PixiProgramPreview: React.FC = () => {
           // Without this, post-await code would write into a torn-down WebGL context.
           if (!isActive) return;
 
-          lastRenderedTime = timeToRenderRounded;
+          lastRenderedFrameIndex = frameIndex;
           lastRenderedEpoch = state.epoch;
           lastRenderedPlaybackState = playbackState;
 

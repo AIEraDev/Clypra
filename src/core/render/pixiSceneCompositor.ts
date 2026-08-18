@@ -21,6 +21,12 @@ import { SpriteLifecycleManager } from "./managers/SpriteLifecycleManager.js";
 // Boundary components
 import type { PreviewMediaPool } from "../resources/PreviewMediaPool.js";
 
+export interface NativePreviewFrame {
+  rgba: ArrayBuffer;
+  width: number;
+  height: number;
+}
+
 export class PixiSceneCompositor {
   private renderer: any;
   private currentFrameId = 0;
@@ -38,6 +44,11 @@ export class PixiSceneCompositor {
   private backgroundTexture: Texture | null = null;
   private backgroundSprite: Sprite | null = null;
   private backgroundSignature = "";
+  private nativeFrameCanvas: HTMLCanvasElement | null = null;
+  private nativeFrameContext: CanvasRenderingContext2D | null = null;
+  private nativeFrameImageData: ImageData | null = null;
+  private nativeFrameTexture: Texture | null = null;
+  private nativeFrameSprite: Sprite | null = null;
 
   // Stub render textures used for off-screen pre-warming (1×1 px).
   // Allocated once and reused for all prewarm calls to avoid GC pressure.
@@ -133,7 +144,14 @@ export class PixiSceneCompositor {
     }
   }
 
-  async composeFrame(scene: EvaluatedScene, viewport: { scale: number; offsetX: number; offsetY: number; pixelRatio: number; projectWidth?: number; projectHeight?: number }, videoElements: Map<string, HTMLVideoElement>, resourceHandleMap?: Map<string, any>, bodyMasks: Map<string, any> = new Map()): Promise<void> {
+  async composeFrame(
+    scene: EvaluatedScene,
+    viewport: { scale: number; offsetX: number; offsetY: number; pixelRatio: number; projectWidth?: number; projectHeight?: number },
+    videoElements: Map<string, HTMLVideoElement>,
+    resourceHandleMap?: Map<string, any>,
+    bodyMasks: Map<string, any> = new Map(),
+    nativeFrame?: NativePreviewFrame | null,
+  ): Promise<void> {
     if (this._isContextLost) {
       throw new Error("[PixiSceneCompositor] WebGL context lost during frame composition");
     }
@@ -195,6 +213,9 @@ export class PixiSceneCompositor {
     const baseMediaContainer = this.renderer.getOverlayContainer() || appStage;
     if (!baseMediaContainer) return;
 
+    const nativeFrameActive = nativeFrame ? this.updateNativeFrame(nativeFrame) : false;
+    this.updateNativeFrameSprite(baseMediaContainer, projectW, projectH, nativeFrameActive);
+
     // Scale both the dedicated background layer and the overlay layer to project viewport scale.
     if (backgroundContainer) {
       backgroundContainer.scale.set(viewport.scale);
@@ -246,6 +267,10 @@ export class PixiSceneCompositor {
 
       if (layer.layerType === "media") {
         const mediaLayer = layer as EvaluatedMediaLayer;
+
+        if (nativeFrameActive && mediaLayer.mediaType === "video") {
+          continue;
+        }
 
         if (isTransitionActive && transitionLayerIds.has(mediaLayer.layerId)) {
           continue;
@@ -349,6 +374,54 @@ export class PixiSceneCompositor {
 
     // 3. Render stage
     this.renderer.render();
+  }
+
+  private updateNativeFrame(frame: NativePreviewFrame): boolean {
+    if (frame.width <= 0 || frame.height <= 0 || frame.rgba.byteLength !== frame.width * frame.height * 4) {
+      return false;
+    }
+
+    if (
+      !this.nativeFrameCanvas ||
+      this.nativeFrameCanvas.width !== frame.width ||
+      this.nativeFrameCanvas.height !== frame.height
+    ) {
+      this.nativeFrameCanvas = document.createElement("canvas");
+      this.nativeFrameCanvas.width = frame.width;
+      this.nativeFrameCanvas.height = frame.height;
+      this.nativeFrameContext = this.nativeFrameCanvas.getContext("2d", { willReadFrequently: false });
+      this.nativeFrameImageData = this.nativeFrameContext?.createImageData(frame.width, frame.height) ?? null;
+      this.nativeFrameTexture?.destroy(true);
+      this.nativeFrameTexture = Texture.from(this.nativeFrameCanvas);
+      this.nativeFrameSprite = new Sprite(this.nativeFrameTexture);
+    }
+
+    if (!this.nativeFrameContext || !this.nativeFrameTexture || !this.nativeFrameImageData) return false;
+
+    this.nativeFrameImageData.data.set(new Uint8ClampedArray(frame.rgba));
+    this.nativeFrameContext.putImageData(this.nativeFrameImageData, 0, 0);
+    (this.nativeFrameTexture.source as any)?.update?.();
+    return true;
+  }
+
+  private updateNativeFrameSprite(
+    container: Container,
+    projectWidth: number,
+    projectHeight: number,
+    visible: boolean,
+  ): void {
+    const sprite = this.nativeFrameSprite;
+    if (!sprite) return;
+
+    if (sprite.parent !== container) {
+      sprite.parent?.removeChild(sprite);
+      container.addChild(sprite);
+    }
+    sprite.visible = visible;
+    sprite.position.set(0, 0);
+    sprite.width = projectWidth;
+    sprite.height = projectHeight;
+    sprite.zIndex = -900_000;
   }
 
   private renderCanvasBackground(scene: EvaluatedScene, container: Container): void {
@@ -603,6 +676,15 @@ export class PixiSceneCompositor {
       this.contextRestoredHandler = null;
     }
     this.canvas = null;
+
+    this.nativeFrameSprite?.parent?.removeChild(this.nativeFrameSprite);
+    this.nativeFrameSprite?.destroy();
+    this.nativeFrameTexture?.destroy(true);
+    this.nativeFrameSprite = null;
+    this.nativeFrameTexture = null;
+    this.nativeFrameCanvas = null;
+    this.nativeFrameContext = null;
+    this.nativeFrameImageData = null;
 
     clearFilterCache();
 

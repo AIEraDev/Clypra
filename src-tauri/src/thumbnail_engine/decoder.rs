@@ -9,8 +9,153 @@
 use dashmap::DashMap;
 use ffmpeg_next as ffmpeg;
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+/// Explicit color metadata carried from FFmpeg into the native render path.
+///
+/// The normalized labels are convenient for renderer decisions while the raw
+/// FFmpeg codes preserve information for values not yet handled by the UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoColorMetadata {
+    pub range: String,
+    pub range_code: u32,
+    pub matrix: String,
+    pub matrix_code: u32,
+    pub primaries: String,
+    pub primaries_code: u32,
+    pub transfer: String,
+    pub transfer_code: u32,
+    pub chroma_location: String,
+    pub chroma_location_code: u32,
+}
+
+impl Default for VideoColorMetadata {
+    fn default() -> Self {
+        Self {
+            range: "unspecified".to_string(),
+            range_code: ffmpeg::ffi::AVColorRange::AVCOL_RANGE_UNSPECIFIED as u32,
+            matrix: "unspecified".to_string(),
+            matrix_code: ffmpeg::ffi::AVColorSpace::AVCOL_SPC_UNSPECIFIED as u32,
+            primaries: "unspecified".to_string(),
+            primaries_code: ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_UNSPECIFIED as u32,
+            transfer: "unspecified".to_string(),
+            transfer_code: ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_UNSPECIFIED as u32,
+            chroma_location: "unspecified".to_string(),
+            chroma_location_code: ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_UNSPECIFIED as u32,
+        }
+    }
+}
+
+/// Stream-level metadata used to configure deterministic frame decoding.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoStreamMetadata {
+    pub width: u32,
+    pub height: u32,
+    pub duration_seconds: f64,
+    pub time_base_num: i32,
+    pub time_base_den: i32,
+    pub nominal_frame_rate_num: i32,
+    pub nominal_frame_rate_den: i32,
+    pub average_frame_rate_num: i32,
+    pub average_frame_rate_den: i32,
+    pub pixel_format_code: i32,
+    pub bits_per_raw_sample: u8,
+    pub sample_aspect_ratio_num: i32,
+    pub sample_aspect_ratio_den: i32,
+    pub rotation: u32,
+    pub color: VideoColorMetadata,
+}
+
+/// Metadata for one decoded frame, including the timestamp selected by the
+/// decoder and the actual pixel format produced by the active backend.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecodedFrameMetadata {
+    pub pts: Option<i64>,
+    pub best_effort_pts: Option<i64>,
+    pub pts_seconds: Option<f64>,
+    pub width: u32,
+    pub height: u32,
+    pub pixel_format: String,
+    pub linesize_y: i32,
+    pub linesize_uv: i32,
+    pub sample_aspect_ratio_num: i32,
+    pub sample_aspect_ratio_den: i32,
+    pub color: VideoColorMetadata,
+}
+
+fn color_metadata(
+    range: ffmpeg::ffi::AVColorRange,
+    matrix: ffmpeg::ffi::AVColorSpace,
+    primaries: ffmpeg::ffi::AVColorPrimaries,
+    transfer: ffmpeg::ffi::AVColorTransferCharacteristic,
+    chroma_location: ffmpeg::ffi::AVChromaLocation,
+) -> VideoColorMetadata {
+    VideoColorMetadata {
+        range: match range {
+            ffmpeg::ffi::AVColorRange::AVCOL_RANGE_MPEG => "limited",
+            ffmpeg::ffi::AVColorRange::AVCOL_RANGE_JPEG => "full",
+            _ => "unspecified",
+        }
+        .to_string(),
+        range_code: range as u32,
+        matrix: match matrix {
+            ffmpeg::ffi::AVColorSpace::AVCOL_SPC_BT709 => "bt709",
+            ffmpeg::ffi::AVColorSpace::AVCOL_SPC_BT470BG => "bt601_625",
+            ffmpeg::ffi::AVColorSpace::AVCOL_SPC_SMPTE170M => "bt601_525",
+            ffmpeg::ffi::AVColorSpace::AVCOL_SPC_BT2020_NCL => "bt2020_ncl",
+            ffmpeg::ffi::AVColorSpace::AVCOL_SPC_BT2020_CL => "bt2020_cl",
+            ffmpeg::ffi::AVColorSpace::AVCOL_SPC_RGB => "rgb",
+            _ => "unspecified",
+        }
+        .to_string(),
+        matrix_code: matrix as u32,
+        primaries: match primaries {
+            ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT709 => "bt709",
+            ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT470BG => "bt601_625",
+            ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_SMPTE170M => "bt601_525",
+            ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT2020 => "bt2020",
+            ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_SMPTE432 => "display_p3",
+            _ => "unspecified",
+        }
+        .to_string(),
+        primaries_code: primaries as u32,
+        transfer: match transfer {
+            ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709 => "bt709",
+            ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_IEC61966_2_1 => "srgb",
+            ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT2020_10 => "bt2020_10",
+            ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT2020_12 => "bt2020_12",
+            ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_SMPTE2084 => "pq",
+            ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_ARIB_STD_B67 => "hlg",
+            _ => "unspecified",
+        }
+        .to_string(),
+        transfer_code: transfer as u32,
+        chroma_location: match chroma_location {
+            ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_LEFT => "left",
+            ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_CENTER => "center",
+            ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_TOPLEFT => "top_left",
+            ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_TOP => "top",
+            ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_BOTTOMLEFT => "bottom_left",
+            ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_BOTTOM => "bottom",
+            _ => "unspecified",
+        }
+        .to_string(),
+        chroma_location_code: chroma_location as u32,
+    }
+}
+
+fn pixel_format_name(frame: &ffmpeg::frame::Video) -> String {
+    frame
+        .format()
+        .descriptor()
+        .map(|descriptor| descriptor.name().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
 
 /// Centralized display geometry model.
 #[derive(Debug, Clone, Copy)]
@@ -149,6 +294,8 @@ pub struct VideoDecoder {
     sar: (i32, i32),
     /// Rotation from container metadata (0, 90, 180, 270)
     rotation: u32,
+    /// Stream metadata retained for the native preview/render contract.
+    stream_metadata: VideoStreamMetadata,
     /// Decoder state for sequential optimization
     state: DecoderState,
 }
@@ -167,6 +314,8 @@ impl VideoDecoder {
 
         let stream_index = stream.index();
         let time_base = stream.time_base();
+        let nominal_frame_rate = stream.rate();
+        let average_frame_rate = stream.avg_frame_rate();
         
         let sar = unsafe {
             let codecpar = (*stream.as_ptr()).codecpar;
@@ -180,6 +329,25 @@ impl VideoDecoder {
                 }
             } else {
                 (1, 1)
+            }
+        };
+
+        let (pixel_format_code, bits_per_raw_sample, color) = unsafe {
+            let codecpar = (*stream.as_ptr()).codecpar;
+            if codecpar.is_null() {
+                (0, 0, VideoColorMetadata::default())
+            } else {
+                (
+                    (*codecpar).format,
+                    (*codecpar).bits_per_raw_sample.clamp(0, u8::MAX as i32) as u8,
+                    color_metadata(
+                        (*codecpar).color_range,
+                        (*codecpar).color_space,
+                        (*codecpar).color_primaries,
+                        (*codecpar).color_trc,
+                        (*codecpar).chroma_location,
+                    ),
+                )
             }
         };
         
@@ -236,6 +404,24 @@ impl VideoDecoder {
 
         let (decoder, width, height) = Self::open_with_hw(codec_ctx)?;
 
+        let stream_metadata = VideoStreamMetadata {
+            width,
+            height,
+            duration_seconds: duration.max(0.0),
+            time_base_num: time_base.numerator(),
+            time_base_den: time_base.denominator(),
+            nominal_frame_rate_num: nominal_frame_rate.numerator(),
+            nominal_frame_rate_den: nominal_frame_rate.denominator(),
+            average_frame_rate_num: average_frame_rate.numerator(),
+            average_frame_rate_den: average_frame_rate.denominator(),
+            pixel_format_code,
+            bits_per_raw_sample,
+            sample_aspect_ratio_num: sar.0,
+            sample_aspect_ratio_den: sar.1,
+            rotation,
+            color,
+        };
+
         Ok(Self {
             input_ctx,
             decoder,
@@ -246,8 +432,48 @@ impl VideoDecoder {
             height,
             sar,
             rotation,
+            stream_metadata,
             state: DecoderState::new(),
         })
+    }
+
+    /// Return the stream-level metadata used to configure native rendering.
+    pub fn metadata(&self) -> VideoStreamMetadata {
+        self.stream_metadata.clone()
+    }
+
+    /// Describe the actual decoded frame, rather than only the encoded stream.
+    pub fn frame_metadata(&self, frame: &ffmpeg::frame::Video) -> DecodedFrameMetadata {
+        let raw = unsafe { &*frame.as_ptr() };
+        let pts = frame.pts();
+        let best_effort_pts = if raw.best_effort_timestamp >= 0 {
+            Some(raw.best_effort_timestamp)
+        } else {
+            None
+        };
+        let pts_seconds = best_effort_pts
+            .or(pts)
+            .map(|value| value as f64 * self.time_base.numerator() as f64 / self.time_base.denominator() as f64);
+
+        DecodedFrameMetadata {
+            pts,
+            best_effort_pts,
+            pts_seconds,
+            width: frame.width(),
+            height: frame.height(),
+            pixel_format: pixel_format_name(frame),
+            linesize_y: frame.stride(0).min(i32::MAX as usize) as i32,
+            linesize_uv: frame.stride(1).min(i32::MAX as usize) as i32,
+            sample_aspect_ratio_num: raw.sample_aspect_ratio.num,
+            sample_aspect_ratio_den: raw.sample_aspect_ratio.den,
+            color: color_metadata(
+                raw.color_range,
+                raw.colorspace,
+                raw.color_primaries,
+                raw.color_trc,
+                raw.chroma_location,
+            ),
+        }
     }
     
     pub fn display_dimensions(&self) -> (u32, u32) {
@@ -272,11 +498,22 @@ impl VideoDecoder {
     }
 
     pub fn fps(&self) -> f64 {
-        if self.time_base.denominator() > 0 {
-            self.time_base.denominator() as f64 / self.time_base.numerator() as f64
-        } else {
-            30.0
+        let average = self.stream_metadata.average_frame_rate_num as f64
+            / self.stream_metadata.average_frame_rate_den as f64;
+        if average.is_finite() && average > 0.0 {
+            return average;
         }
+
+        let nominal = self.stream_metadata.nominal_frame_rate_num as f64
+            / self.stream_metadata.nominal_frame_rate_den as f64;
+        if nominal.is_finite() && nominal > 0.0 {
+            return nominal;
+        }
+
+        // VFR streams may not expose a usable rate. Keep the legacy fallback
+        // for callers that require a display rate, but do not derive FPS from
+        // the timestamp time base.
+        30.0
     }
 
     fn open_with_hw(
@@ -995,6 +1232,8 @@ pub fn release_decoder(path: &str) {
 
 #[cfg(test)]
 mod display_dimensions_tests {
+    use super::ffmpeg;
+
     /// Helper to test display dimension calculation without full decoder
     fn calc_display_dims(
         width: u32,
@@ -1163,5 +1402,45 @@ mod display_dimensions_tests {
         // Clamped at 1:4 SAR ratio floor (1920 * 0.25 = 480)
         let (w, h) = calc_display_dims(1920, 1080, (1, 1000), 0);
         assert_eq!((w, h), (480, 1080));
+    }
+
+    #[test]
+    fn test_color_metadata_normalizes_common_sdr_values() {
+        let metadata = super::color_metadata(
+            ffmpeg::ffi::AVColorRange::AVCOL_RANGE_MPEG,
+            ffmpeg::ffi::AVColorSpace::AVCOL_SPC_BT709,
+            ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT709,
+            ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709,
+            ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_LEFT,
+        );
+
+        assert_eq!(metadata.range, "limited");
+        assert_eq!(metadata.matrix, "bt709");
+        assert_eq!(metadata.primaries, "bt709");
+        assert_eq!(metadata.transfer, "bt709");
+        assert_eq!(metadata.chroma_location, "left");
+        assert_eq!(metadata.range_code, 1);
+        assert_eq!(metadata.matrix_code, 1);
+    }
+
+    #[test]
+    fn test_color_metadata_preserves_unknown_codes() {
+        let metadata = super::color_metadata(
+            ffmpeg::ffi::AVColorRange::AVCOL_RANGE_UNSPECIFIED,
+            ffmpeg::ffi::AVColorSpace::AVCOL_SPC_UNSPECIFIED,
+            ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_UNSPECIFIED,
+            ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_UNSPECIFIED,
+            ffmpeg::ffi::AVChromaLocation::AVCHROMA_LOC_UNSPECIFIED,
+        );
+
+        assert_eq!(metadata.range, "unspecified");
+        assert_eq!(metadata.matrix, "unspecified");
+        assert_eq!(metadata.primaries, "unspecified");
+        assert_eq!(metadata.transfer, "unspecified");
+        assert_eq!(metadata.chroma_location, "unspecified");
+
+        let json = serde_json::to_value(&metadata).expect("metadata should serialize");
+        assert_eq!(json["range"], "unspecified");
+        assert_eq!(json["rangeCode"], 0);
     }
 }

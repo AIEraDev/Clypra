@@ -6,7 +6,15 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { snapToFrameBoundary, snapToFrameFloor, snapToFrameCeil, getFrameIndex, getTimeFromFrame } from "../utils/frameTime";
+import {
+  snapToFrameBoundary,
+  snapToFrameFloor,
+  snapToFrameCeil,
+  getFrameIndex,
+  getFrameIndexAtTime,
+  getFrameStartTime,
+  getTimeFromFrame,
+} from "../utils/frameTime";
 
 describe("frameTime utilities", () => {
   describe("snapToFrameBoundary", () => {
@@ -105,6 +113,31 @@ describe("frameTime utilities", () => {
       const backToTime = getTimeFromFrame(frameIndex, frameRate);
 
       expect(backToTime).toBeCloseTo(snapToFrameBoundary(time, frameRate), 4);
+    });
+  });
+
+  describe("getFrameIndexAtTime", () => {
+    it("uses half-open frame intervals", () => {
+      expect(getFrameIndexAtTime(0, 30)).toBe(0);
+      expect(getFrameIndexAtTime(0.0001, 30)).toBe(0);
+      expect(getFrameIndexAtTime(1 / 30, 30)).toBe(1);
+      expect(getFrameIndexAtTime((2 / 30) - 0.0001, 30)).toBe(1);
+      expect(getFrameIndexAtTime(2 / 30, 30)).toBe(2);
+    });
+
+    it("does not turn a floating-point boundary into the previous frame", () => {
+      expect(getFrameIndexAtTime(0.9999999999999999 / 30, 30)).toBe(1);
+    });
+
+    it("clamps invalid and negative times to frame zero", () => {
+      expect(getFrameIndexAtTime(-1, 30)).toBe(0);
+      expect(getFrameIndexAtTime(Number.NaN, 30)).toBe(0);
+      expect(getFrameIndexAtTime(1, 0)).toBe(0);
+    });
+
+    it("returns the canonical frame start time", () => {
+      expect(getFrameStartTime(0.05, 30)).toBeCloseTo(1 / 30, 8);
+      expect(getFrameStartTime(1 / 30, 30)).toBeCloseTo(1 / 30, 8);
     });
   });
 

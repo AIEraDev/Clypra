@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use tauri::Manager;
 
 pub mod thumbnail_engine;
@@ -5,6 +6,7 @@ pub mod commands;
 pub mod models;
 pub mod wgpu_compositor;
 pub mod ai;
+pub mod preview_golden;
 
 use thumbnail_engine::init_thumbnail_engine;
 use commands::*;
@@ -84,7 +86,12 @@ pub fn run() {
                     luts: dashmap::DashMap::new(),
                     default_identity: std::sync::Arc::new(identity),
                 });
-                app.manage(std::sync::Arc::new(gpu_ctx));
+                let gpu_ctx = Arc::new(gpu_ctx);
+                let preview_session = Arc::new(tokio::sync::Mutex::new(
+                    crate::wgpu_compositor::NativePreviewSession::new(gpu_ctx.clone()),
+                ));
+                app.manage(gpu_ctx);
+                app.manage(preview_session);
                 app.manage(lut_cache);
             }
             
@@ -97,6 +104,7 @@ pub fn run() {
             clear_thumbnail_cache,
             extract_poster_frame_command,
             get_media_metadata,
+            get_video_render_metadata,
             #[allow(deprecated)]
             get_video_metadata,
             extract_poster_frame,
@@ -113,6 +121,9 @@ pub fn run() {
             decode_frame,
             decode_frame_gpu,
             decode_export_frame,
+            render_native_preview_frame,
+            render_native_project_frame,
+            render_native_video_project_frame,
             decode_frames_streaming,
             stream_timeline_frames_binary,
             release_video_decoder,

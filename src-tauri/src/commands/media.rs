@@ -1,4 +1,4 @@
-use crate::thumbnail_engine::decoder::get_decoder;
+use crate::thumbnail_engine::decoder::{get_decoder, VideoStreamMetadata};
 use crate::models::{VideoMetadata, MediaMetadata};
 use crate::commands::export::augmented_path;
 use base64::Engine;
@@ -27,6 +27,16 @@ pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
         // Video/audio formats - use FFmpeg decoder
         _ => get_video_metadata_internal(&path).await,
     }
+}
+
+/// Return the complete native stream contract used by deterministic preview
+/// rendering. This intentionally remains separate from the legacy UI metadata
+/// response so color and timestamp fields are not discarded.
+#[tauri::command]
+pub async fn get_video_render_metadata(path: String) -> Result<VideoStreamMetadata, String> {
+    let decoder = get_decoder(&path).await?;
+    let guard = decoder.lock().await;
+    Ok(guard.metadata())
 }
 
 /// Extract metadata from image files using the image crate.

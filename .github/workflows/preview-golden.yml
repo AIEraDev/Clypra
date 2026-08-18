@@ -1,0 +1,86 @@
+name: Native Preview Golden Frames
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+    branches: [develop, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    name: Golden (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CLYPRA_ALLOW_FALLBACK_GPU: "1"
+      CLYPRA_GOLDEN_ARTIFACT_DIR: golden-artifacts
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
+            libavdevice-dev libswscale-dev libswresample-dev libpostproc-dev \
+            libclang-dev pkg-config libwebkit2gtk-4.1-dev build-essential \
+            libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev \
+            mesa-vulkan-drivers vulkan-tools libegl1-mesa-dev libgl1-mesa-dri
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install ffmpeg cmake pkg-config
+          BREW_PREFIX=$(brew --prefix)
+          FFMPEG_PREFIX=$(brew --prefix ffmpeg)
+          echo "FFMPEG_DIR=$FFMPEG_PREFIX" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$FFMPEG_PREFIX/lib/pkgconfig:$BREW_PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          echo "CMAKE_OSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $llvm = "C:\Program Files\LLVM\bin"
+          if (-not (Test-Path $llvm)) {
+            choco install llvm -y --no-progress
+          }
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          cd C:\vcpkg
+          git pull --quiet
+          vcpkg install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows-static-md
+          echo "FFMPEG_DIR=C:/vcpkg/installed/x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows-static-md/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Run native preview golden test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --test native_preview_golden_tests -- --ignored --nocapture
+
+      - name: Upload golden mismatch artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-preview-golden-${{ matrix.os }}
+          path: golden-artifacts/
+          if-no-files-found: ignore
