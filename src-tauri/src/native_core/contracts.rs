@@ -117,6 +117,18 @@ pub struct VideoLayerSnapshot {
     pub opacity: f32,
     pub z_index: i32,
     pub blend_mode: String,
+    #[serde(default)]
+    pub color_grade: Option<ColorGradeSnapshot>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColorGradeSnapshot {
+    pub exposure: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub temperature: f32,
+    pub tint: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +255,20 @@ impl FrameRequest {
                     "VideoLayerSnapshot source_time timescale must be non-zero".to_string(),
                 ));
             }
+            if let Some(color_grade) = layer.color_grade {
+                if !color_grade.exposure.is_finite()
+                    || !color_grade.contrast.is_finite()
+                    || !color_grade.saturation.is_finite()
+                    || !color_grade.temperature.is_finite()
+                    || !color_grade.tint.is_finite()
+                    || color_grade.contrast < 0.0
+                    || color_grade.saturation < 0.0
+                {
+                    return Err(NativeCoreError::InvalidContract(
+                        "VideoLayerSnapshot contains invalid color-grade data".to_string(),
+                    ));
+                }
+            }
         }
         let mut raster_bytes = 0usize;
         for layer in &self.project.raster_layers {
@@ -363,6 +389,7 @@ mod tests {
                     opacity: 1.0,
                     z_index: 0,
                     blend_mode: "normal".to_string(),
+                    color_grade: None,
                 }],
                 raster_layers: vec![],
             },

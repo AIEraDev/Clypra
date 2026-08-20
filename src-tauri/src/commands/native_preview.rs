@@ -1,5 +1,5 @@
 use crate::native_core::{
-    FramePacket, FrameRequest, FrameTime, NativeFrameService, NativeFrameServiceStats,
+    ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime, NativeFrameService, NativeFrameServiceStats,
     NativeSurfacePresentation, PerformanceSample, PixelFormat, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::native_audio::NativeAudioClock;
@@ -157,6 +157,8 @@ pub struct NativeProjectVideoLayer {
     pub z_index: i32,
     #[serde(default = "default_blend_mode")]
     pub blend_mode: String,
+    #[serde(default)]
+    pub color_grade: Option<ColorGradeSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -360,6 +362,7 @@ fn to_video_project_request(
                 opacity: layer.opacity,
                 z_index: layer.z_index,
                 blend_mode: layer.blend_mode.clone(),
+                color_grade: layer.color_grade,
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -437,6 +440,18 @@ struct NativeLayerSpec<'a> {
     opacity: f32,
     z_index: i32,
     blend_mode: &'a str,
+    color_grade: ColorGradeUniforms,
+}
+
+fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGradeUniforms {
+    snapshot.map_or_else(ColorGradeUniforms::default, |grade| ColorGradeUniforms {
+        exposure: grade.exposure,
+        contrast: grade.contrast,
+        saturation: grade.saturation,
+        temperature: grade.temperature,
+        tint: grade.tint,
+        ..ColorGradeUniforms::default()
+    })
 }
 
 fn build_native_composite_layers<'a>(
@@ -463,7 +478,7 @@ fn build_native_composite_layers<'a>(
                     canvas_height,
                 ),
                 crop: CropMargins::default(),
-                color_grade: ColorGradeUniforms::default(),
+                color_grade: layer.color_grade,
                 chroma_key: ChromaKeyUniforms::default(),
             })
         })
@@ -775,6 +790,7 @@ async fn render_native_video_project_frame_bytes(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
         });
     }
     let raster_views = views.iter().skip(request.layers.len());
@@ -789,6 +805,7 @@ async fn render_native_video_project_frame_bytes(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            color_grade: ColorGradeUniforms::default(),
         });
     }
     let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;
@@ -1066,6 +1083,7 @@ pub async fn present_native_frame(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
         });
     }
     let raster_views = views.iter().skip(legacy_request.layers.len());
@@ -1080,6 +1098,7 @@ pub async fn present_native_frame(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            color_grade: ColorGradeUniforms::default(),
         });
     }
     let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;

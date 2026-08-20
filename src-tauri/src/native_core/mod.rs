@@ -14,7 +14,7 @@ pub mod surface;
 
 pub use cache::FrameCache;
 pub use contracts::{
-    ColorPolicy, FramePacket, FrameRequest, FrameTime, NativeCoreError, PixelFormat,
+    ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime, NativeCoreError, PixelFormat,
     PlaybackClockStatus, PlaybackPlan, PlaybackState, ProjectSnapshot, QualityTier,
     RasterLayerSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };

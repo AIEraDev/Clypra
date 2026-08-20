@@ -107,6 +107,7 @@ mod tests {
                     opacity: 1.0,
                     z_index: 0,
                     blend_mode: "normal".to_string(),
+                    color_grade: None,
                 }],
                 raster_layers: vec![],
             },
