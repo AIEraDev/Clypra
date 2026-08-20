@@ -3,6 +3,9 @@ export const NATIVE_CORE_TIME_SCALE = 1_000_000;
 /** Opt-in diagnostics for native preview timing and surface composition. */
 export const NATIVE_PREVIEW_TRACE_ENABLED =
   import.meta.env.DEV && import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_TRACE === "1";
+/** Dev-only gate for proving that a Tauri scene can run without Pixi fallback. */
+export const NATIVE_PREVIEW_ONLY =
+  import.meta.env.DEV && import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_ONLY === "1";
 
 export type NativeQualityTier = "full" | "half" | "quarter" | "proxy";
 export type NativePixelFormat = "rgba8Srgb" | "rgba16Float";

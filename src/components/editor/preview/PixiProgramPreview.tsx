@@ -63,6 +63,7 @@ import {
   type NativeTextRasterAsset,
 } from "./nativeTextPreview";
 import {
+  NATIVE_PREVIEW_ONLY,
   NATIVE_PREVIEW_TRACE_ENABLED,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
@@ -123,6 +124,8 @@ export const PixiProgramPreview: React.FC = () => {
   const [compositorReady, setCompositorReady] = useState(false);
   const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
   const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
+  const [nativeOnlyBlocked, setNativeOnlyBlocked] = useState(false);
+  const nativeOnlyBlockedRef = useRef(false);
   const hasStartedPlaybackRef = useRef(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -900,6 +903,17 @@ export const PixiProgramPreview: React.FC = () => {
       const nativeDirectSurfacePath = nativeSurfaceReady && Boolean(nativeRequest) && (
         nativePlaybackPath || nativePausedSurfacePath
       );
+      const nativeOnlyMode = isTauriRuntime() && NATIVE_PREVIEW_ONLY;
+      const nativeOnlySceneBlocked = nativeOnlyMode && (!nativeRequest || !nativeSurfaceReady);
+      if (nativeOnlyBlockedRef.current !== nativeOnlySceneBlocked) {
+        nativeOnlyBlockedRef.current = nativeOnlySceneBlocked;
+        setNativeOnlyBlocked(nativeOnlySceneBlocked);
+        traceNativePreview(nativeOnlySceneBlocked ? "native-only-blocked" : "native-only-ready", {
+          hasNativeRequest: Boolean(nativeRequest),
+          nativeSurfaceReady,
+          frameIndex,
+        });
+      }
       if (nativeSurfaceShown && !nativeDirectSurfacePath && !nativeSurfaceOwnsCurrentFrame) {
         nativeSurfaceShown = false;
         browserMediaPausedForNative = false;
@@ -934,7 +948,7 @@ export const PixiProgramPreview: React.FC = () => {
       // representable by the Rust/wgpu compositor. The hidden DOM pool is
       // synchronized only for playback or unsupported fallback compositions.
       const needsFallbackSync = nativePausedReadbackPath && !cachedNativeFrame && (isFirstFrame || nativeFrameNeedsRetry || activeSetChanged || epochChanged);
-      const needsSync = isPlaying || needsFallbackSync || (!nativePausedPath && (activeSetChanged || epochChanged || isFirstFrame || playbackStateChanged || (!isPlaying && timeChanged)));
+      const needsSync = !nativeOnlySceneBlocked && (isPlaying || needsFallbackSync || (!nativePausedPath && (activeSetChanged || epochChanged || isFirstFrame || playbackStateChanged || (!isPlaying && timeChanged))));
 
       // Continuous native presentation is intentionally non-blocking. The
       // render loop keeps the last accepted native frame while one request is
@@ -1119,7 +1133,7 @@ export const PixiProgramPreview: React.FC = () => {
         if (forceRenderNeeded) forceRenderNeeded = false;
       }
 
-      if (needsRender && compositorRef.current && !nativeSurfaceShown) {
+      if (needsRender && compositorRef.current && !nativeSurfaceShown && !nativeOnlySceneBlocked) {
         const canvasDpr = window.devicePixelRatio || 1;
         // Bug 3 fix: read viewport transform values from renderStateRef rather than
         // from the effect's closure. This lets scale/offsetX/offsetY/canvasWidth/
@@ -1466,10 +1480,10 @@ export const PixiProgramPreview: React.FC = () => {
     <div className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
       <div className="flex items-center px-4 h-10 shrink-0 gap-2">
         <span className="text-[13px] font-semibold text-text-primary tracking-tight">
-          {isTauriRuntime() ? "Program Preview (Native)" : "Program Preview (PixiJS)"}
+          {isTauriRuntime() ? (NATIVE_PREVIEW_ONLY ? "Program Preview (Native-only)" : "Program Preview (Native)") : "Program Preview (PixiJS)"}
         </span>
         <span className="text-[13px] text-text-muted">
-          — {isTauriRuntime() ? (nativeSurfacePresenting ? "wgpu Surface" : "Native-first / fallback") : "WebGL Pipeline"}
+          — {isTauriRuntime() ? (nativeSurfacePresenting ? "wgpu Surface" : NATIVE_PREVIEW_ONLY ? "Proof mode" : "Native-first / fallback") : "WebGL Pipeline"}
         </span>
         <button onClick={() => setShowSafeOverlay((s) => !s)} className={cn("ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer", showSafeOverlay ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text-primary hover:bg-white/6")}>
           Safe Zones
@@ -1522,6 +1536,17 @@ export const PixiProgramPreview: React.FC = () => {
             </>
           </div>
         </div>
+
+        {isTauriRuntime() && NATIVE_PREVIEW_ONLY && nativeOnlyBlocked && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+            <div className="rounded-lg border border-accent/30 bg-black/80 px-4 py-3 text-center shadow-xl">
+              <div className="text-sm font-semibold text-text-primary">Native-only proof mode</div>
+              <div className="mt-1 max-w-xs text-xs text-text-muted">
+                This scene is waiting for a native wgpu surface or contains a graph feature not migrated yet.
+              </div>
+            </div>
+          </div>
+        )}
 
         {clips.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none mx-auto" style={{ width: displayWidth, height: displayHeight }}>
