@@ -203,7 +203,7 @@ function getNativeColorGrade(
   if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
   const supportedEffectRenderers = new Set([
     "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
-    "vhs", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "body_outline", "body_glow", "body_segmentation_glow", "body_particles", "motion_blur", "radial_blur", "zoom_blur",
+  "vhs", "glitch", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "body_outline", "body_glow", "body_segmentation_glow", "body_particles", "motion_blur", "radial_blur", "zoom_blur",
   ]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
@@ -239,9 +239,22 @@ function getNativeColorGrade(
   let lightLeakStrength = 0;
   let lightLeakAngle = Math.PI / 4;
   let lightLeakTime = 0;
+  let glitchIntensity = 0;
+  let glitchTime = 0;
+  let glitchSliceCount = 0;
+  let glitchColorShift = 0;
   for (const effect of activeEffects) {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-    if (renderer === "pixelate") {
+    if (renderer === "glitch") {
+      const amount = Number(effect.parameters.glitchIntensity ?? effect.parameters.amount ?? 50);
+      const sliceCount = Number(effect.parameters.sliceCount ?? 5);
+      const colorShift = Number(effect.parameters.colorOffset ?? effect.parameters.splitDistance ?? 12);
+      if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(sliceCount) || sliceCount <= 0 || !Number.isFinite(colorShift) || colorShift < 0) return null;
+      glitchIntensity = Math.max(glitchIntensity, Math.min(1, amount / 100) * effect.intensity);
+      glitchSliceCount = Math.max(glitchSliceCount, Math.min(64, sliceCount));
+      glitchColorShift = Math.max(glitchColorShift, colorShift * effect.intensity);
+      glitchTime = Math.max(glitchTime, effect.localTime);
+    } else if (renderer === "pixelate") {
       const amount = Number(effect.parameters.pixelSize ?? 18);
       if (!Number.isFinite(amount) || amount < 0) return null;
       pixelateSize = Math.max(pixelateSize, Math.max(2, Math.floor(amount * effect.intensity)));
@@ -535,6 +548,12 @@ function getNativeColorGrade(
     lightLeakStrength,
     lightLeakAngle,
     lightLeakTime,
+    ...(glitchIntensity > 0 ? {
+      glitchIntensity,
+      glitchTime,
+      glitchSliceCount,
+      glitchColorShift,
+    } : {}),
   };
 }
 

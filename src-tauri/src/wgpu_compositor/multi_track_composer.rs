@@ -127,6 +127,7 @@ pub struct ColorGradeUniforms {
     pub temporal_effects: [f32; 4], // flicker, strobe frequency/time/strength
     pub light_leak_color_strength: [f32; 4], // RGB + strength
     pub light_leak_params: [f32; 4], // angle, time + padding
+    pub glitch_params: [f32; 4], // intensity, time, slice count, color shift
 }
 
 /// Mask-driven body effect controls matching multi_track_blend.wgsl (32 bytes).
@@ -191,6 +192,7 @@ impl Default for ColorGradeUniforms {
             temporal_effects: [0.0, 0.0, 0.0, 0.0],
             light_leak_color_strength: [1.0, 1.0, 1.0, 0.0],
             light_leak_params: [0.7853982, 0.0, 0.0, 0.0],
+            glitch_params: [0.0, 0.0, 0.0, 0.0],
         }
     }
 }

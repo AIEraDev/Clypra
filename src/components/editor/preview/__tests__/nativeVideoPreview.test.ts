@@ -678,6 +678,24 @@ describe("buildNativeVideoProjectRequest", () => {
     });
   });
 
+  it("maps bounded glitch effects into the native sampling contract", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([makeVideoLayer({
+      effects: [{
+        effectId: "glitch",
+        renderer: "glitch",
+        type: "video_effect",
+        intensity: 0.8,
+        localTime: 1.25,
+        parameters: { glitchIntensity: 70, sliceCount: 8, colorOffset: 14 },
+      }],
+    })]));
+
+    expect(request?.layers[0].colorGrade?.glitchIntensity).toBeCloseTo(0.56, 6);
+    expect(request?.layers[0].colorGrade?.glitchTime).toBeCloseTo(1.25, 6);
+    expect(request?.layers[0].colorGrade?.glitchSliceCount).toBe(8);
+    expect(request?.layers[0].colorGrade?.glitchColorShift).toBeCloseTo(11.2, 6);
+  });
+
   it("maps deterministic VHS and CRT controls into the native grading pass", () => {
     const request = buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ effects: [

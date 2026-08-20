@@ -293,6 +293,14 @@ pub struct ColorGradeSnapshot {
     pub light_leak_angle: f32,
     #[serde(default)]
     pub light_leak_time: f32,
+    #[serde(default)]
+    pub glitch_intensity: f32,
+    #[serde(default)]
+    pub glitch_time: f32,
+    #[serde(default)]
+    pub glitch_slice_count: f32,
+    #[serde(default)]
+    pub glitch_color_shift: f32,
 }
 
 fn default_color_grade_multiplier() -> f32 { 1.0 }
@@ -504,6 +512,10 @@ impl FrameRequest {
                     || !color_grade.light_leak_strength.is_finite()
                     || !color_grade.light_leak_angle.is_finite()
                     || !color_grade.light_leak_time.is_finite()
+                    || !color_grade.glitch_intensity.is_finite()
+                    || !color_grade.glitch_time.is_finite()
+                    || !color_grade.glitch_slice_count.is_finite()
+                    || !color_grade.glitch_color_shift.is_finite()
                     || color_grade.contrast < 0.0
                     || color_grade.saturation < 0.0
                     || color_grade.sepia < 0.0
@@ -602,6 +614,11 @@ impl FrameRequest {
                     || color_grade.light_leak_strength < 0.0
                     || color_grade.light_leak_strength > 1.0
                     || color_grade.light_leak_time < 0.0
+                    || color_grade.glitch_intensity < 0.0
+                    || color_grade.glitch_intensity > 1.0
+                    || color_grade.glitch_time < 0.0
+                    || color_grade.glitch_slice_count < 0.0
+                    || color_grade.glitch_color_shift < 0.0
                 {
                     return Err(NativeCoreError::InvalidContract(
                         "VideoLayerSnapshot contains invalid color-grade data".to_string(),

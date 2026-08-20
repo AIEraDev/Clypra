@@ -247,6 +247,10 @@ export interface NativeColorGradeSnapshot {
   lightLeakStrength: number;
   lightLeakAngle: number;
   lightLeakTime: number;
+  glitchIntensity?: number;
+  glitchTime?: number;
+  glitchSliceCount?: number;
+  glitchColorShift?: number;
 }
 
 export interface NativeRasterLayerSnapshot {

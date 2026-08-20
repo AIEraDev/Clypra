@@ -61,6 +61,7 @@ struct ColorGradeUniforms {
     temporal_effects: vec4<f32>, // flicker, strobe frequency/time/strength
     light_leak_color_strength: vec4<f32>, // RGB + strength
     light_leak_params: vec4<f32>, // angle, time + padding
+    glitch_params: vec4<f32>, // intensity, time, slice count, color shift
 };
 
 struct LayerUniforms {
@@ -264,6 +265,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var sample_uv = in.uv;
     let source_dimensions = vec2<f32>(textureDimensions(t_diffuse));
+    if (layer.color_grade.glitch_params.x > 0.0 && layer.color_grade.glitch_params.z > 0.0) {
+        let slice_count = max(1.0, layer.color_grade.glitch_params.z);
+        let slice = floor(in.uv.y * slice_count);
+        let burst = hash12(vec2<f32>(slice, floor(layer.color_grade.glitch_params.y * 24.0)));
+        let offset = (burst - 0.5) * 2.0 * layer.color_grade.glitch_params.x * layer.color_grade.glitch_params.w;
+        sample_uv.x = clamp(sample_uv.x + offset / max(source_dimensions.x, 1.0), 0.0, 1.0);
+    }
     if (layer.color_grade.pixelate_size > 0.0) {
         let cell = vec2<f32>(layer.color_grade.pixelate_size) / max(source_dimensions, vec2<f32>(1.0));
         sample_uv = floor(in.uv / cell) * cell + cell * 0.5;

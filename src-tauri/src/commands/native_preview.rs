@@ -622,6 +622,12 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
             grade.light_leak_strength,
         ],
         light_leak_params: [grade.light_leak_angle, grade.light_leak_time, 0.0, 0.0],
+        glitch_params: [
+            grade.glitch_intensity,
+            grade.glitch_time,
+            grade.glitch_slice_count,
+            grade.glitch_color_shift,
+        ],
         ..ColorGradeUniforms::default()
     })
 }

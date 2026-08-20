@@ -37,6 +37,11 @@ the native wgpu transition pass for both the retained surface and readback.
 Creative transitions such as glitch, film-burn, and luma-wipe remain blocked
 until their shader contracts are implemented natively.
 
+The bounded `glitch` video effect is now evaluated into native sampling
+parameters and executed by the wgpu fragment shader. Creative transitions are
+separate graph nodes and remain blocked when their transition contract is not
+supported.
+
 Static sticker image clips, evaluated Lottie frames, and smart-overlay cards are
 uploaded as immutable native raster assets, then composited by wgpu. The
 browser overlay canvas is hidden after native presentation succeeds, so the
