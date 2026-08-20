@@ -316,7 +316,7 @@ describe("buildNativeVideoProjectRequest", () => {
   });
 
   it("keeps backgrounds without a registered native asset off the native path", () => {
-    for (const type of ["gradient", "shader", "media"] as const) {
+    for (const type of ["gradient", "shader"] as const) {
       const scene = {
         ...makeScene([makeVideoLayer()]),
         metadata: {
@@ -326,6 +326,24 @@ describe("buildNativeVideoProjectRequest", () => {
       } as EvaluatedScene;
       expect(buildNativeVideoProjectRequest(scene)).toBeNull();
     }
+  });
+
+  it("composes a native media background below the timeline layers", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([], [], {
+      type: "media",
+      mediaUrl: "/Users/test/background.mp4",
+      opacity: 0.4,
+      isTransparent: false,
+    }));
+
+    expect(request?.clearColor).toEqual([0, 0, 0, 0]);
+    expect(request?.layers).toHaveLength(1);
+    expect(request?.layers[0]).toMatchObject({
+      layerId: "__native-background-media",
+      videoPath: "/Users/test/background.mp4",
+      opacity: 0.4,
+      zIndex: -1_000_000,
+    });
   });
 
   it("maps supported color adjustments to the native grade shader", () => {

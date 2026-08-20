@@ -24,6 +24,7 @@ const NATIVE_COLOR_GRADE_KEYS = new Set([
   "lift", "crossProcess", "channelMix", "duotone", "splitTone",
 ]);
 const NATIVE_BODY_EFFECT_RENDERERS = new Set(["body_outline", "body_glow", "body_segmentation_glow", "body_particles"]);
+const NATIVE_BACKGROUND_MEDIA_LAYER_ID = "__native-background-media";
 
 function getNativeTransitionSnapshot(
   scene: EvaluatedScene,
@@ -116,6 +117,18 @@ function isNativeFileSource(sourcePath: string): boolean {
   }
 
   return true;
+}
+
+function getNativeBackgroundMediaPath(scene: EvaluatedScene): string | null {
+  const background = scene.metadata.canvasBackground;
+  if (!background || background.type !== "media" || typeof background.mediaUrl !== "string") return null;
+  const mediaPath = background.mediaUrl.trim();
+  return isNativeFileSource(mediaPath) ? mediaPath : null;
+}
+
+function getNativeBackgroundMediaOpacity(scene: EvaluatedScene): number {
+  const opacity = scene.metadata.canvasBackground?.opacity;
+  return typeof opacity === "number" && Number.isFinite(opacity) ? Math.min(1, Math.max(0, opacity)) : 1;
 }
 
 function getNativeColorGrade(
@@ -614,7 +627,7 @@ function getNativeClearColor(
     const hasNativeBackground = rasterLayers.some((layer) =>
       !layer.isMask && layer.assetId.startsWith("native-background:"),
     );
-    return hasNativeBackground ? [0, 0, 0, 0] : null;
+    return hasNativeBackground || getNativeBackgroundMediaPath(scene) !== null ? [0, 0, 0, 0] : null;
   }
 
   const color = background.color?.trim() || "#000000";
@@ -652,16 +665,19 @@ export function buildNativeVideoProjectRequest(
   );
   const animatedStickerLayers = allMediaLayers.filter(isNativeAnimatedStickerLayer);
   const mediaLayers = allMediaLayers.filter((layer) => !isNativeAnimatedStickerLayer(layer));
+  const backgroundMediaPath = getNativeBackgroundMediaPath(scene);
   if (
     mediaLayers.length === 0 &&
     textLayers.length === 0 &&
-    rasterLayers.filter((layer) => !layer.isMask).length === 0
+    rasterLayers.filter((layer) => !layer.isMask).length === 0 &&
+    backgroundMediaPath === null
   ) return null;
   if (animatedStickerLayers.some((layer) => !rasterLayers.some((asset) =>
     !asset.isMask && asset.assetId.startsWith(`native-sticker:${layer.layerId}:`),
   ))) return null;
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
   if (transition === null) return null;
+  if (transition && backgroundMediaPath !== null) return null;
   if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) return null;
   if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) return null;
   if (!mediaLayers.every(isSupportedNativeVideoLayer)) {
@@ -687,6 +703,22 @@ export function buildNativeVideoProjectRequest(
       ...(bodyEffect ? { bodyEffect } : {}),
     };
   });
+
+  if (backgroundMediaPath !== null) {
+    layers.push({
+      layerId: NATIVE_BACKGROUND_MEDIA_LAYER_ID,
+      videoPath: backgroundMediaPath,
+      timeSecs: Math.max(0, scene.metadata.time),
+      x: 0,
+      y: 0,
+      width: scene.metadata.canvasWidth || 1920,
+      height: scene.metadata.canvasHeight || 1080,
+      rotation: 0,
+      opacity: getNativeBackgroundMediaOpacity(scene),
+      zIndex: -1_000_000,
+      blendMode: "normal",
+    });
+  }
 
   if (mediaLayers.some((layer) => getNativeBodyEffect(layer, rasterLayers) === null)) return null;
 
@@ -721,6 +753,7 @@ export function buildNativeFrameRequest(
   const request = buildNativeVideoProjectRequest(scene, rasterLayers);
   if (!request) return null;
 
+  const nativeMediaLayers = request.layers.filter((layer) => layer.layerId !== NATIVE_BACKGROUND_MEDIA_LAYER_ID);
   const videoLayers = scene.visualLayers
     .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && !isNativeAnimatedStickerLayer(layer))
     .map((layer, index) => {
@@ -728,7 +761,7 @@ export function buildNativeFrameRequest(
       return {
       assetId: layer.mediaId,
       layerId: layer.layerId,
-      videoPath: request.layers[index].videoPath,
+      videoPath: nativeMediaLayers[index].videoPath,
       sourceTime: secondsToNativeTime(layer.sourceTime, Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1)))),
       x: layer.x,
       y: layer.y,
@@ -739,9 +772,27 @@ export function buildNativeFrameRequest(
       zIndex: layer.zIndex,
       blendMode: layer.blendMode,
       ...(colorGrade ? { colorGrade } : {}),
-      ...(request.layers[index].bodyEffect ? { bodyEffect: request.layers[index].bodyEffect } : {}),
+      ...(nativeMediaLayers[index].bodyEffect ? { bodyEffect: nativeMediaLayers[index].bodyEffect } : {}),
       };
     });
+
+  const nativeBackgroundLayer = request.layers.find((layer) => layer.layerId === NATIVE_BACKGROUND_MEDIA_LAYER_ID);
+  if (nativeBackgroundLayer) {
+    videoLayers.push({
+      assetId: NATIVE_BACKGROUND_MEDIA_LAYER_ID,
+      layerId: NATIVE_BACKGROUND_MEDIA_LAYER_ID,
+      videoPath: nativeBackgroundLayer.videoPath,
+      sourceTime: secondsToNativeTime(nativeBackgroundLayer.timeSecs, frameIndex),
+      x: nativeBackgroundLayer.x,
+      y: nativeBackgroundLayer.y,
+      width: nativeBackgroundLayer.width ?? request.canvasWidth,
+      height: nativeBackgroundLayer.height ?? request.canvasHeight,
+      rotation: nativeBackgroundLayer.rotation ?? 0,
+      opacity: nativeBackgroundLayer.opacity ?? 1,
+      zIndex: nativeBackgroundLayer.zIndex ?? -1_000_000,
+      blendMode: "normal" as EvaluatedMediaLayer["blendMode"],
+    });
+  }
 
   return createNativeFrameRequest({
     requestId: `${projectRevision}:${frameIndex}:${outputWidth}x${outputHeight}`,

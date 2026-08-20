@@ -24,10 +24,11 @@ npm run tauri dev
 Start with one local video clip that has a native-compatible solid background.
 The preview header should show `Program Preview (Native-only)` and then
 `wgpu Surface`. If the scene contains an unmigrated transition, background,
-effect, media background, text/sticker path, or the surface is not ready, the
+effect, unsupported text/sticker path, or the surface is not ready, the
 proof-mode blocker is shown instead of rendering through Pixi. Gradient and
-shader backgrounds are rasterized once per native frame and then composed by
-wgpu, so they do not force the full scene back to Pixi.
+shader backgrounds are rasterized once per native frame and media backgrounds
+are decoded as a native layer below the timeline, so supported backgrounds do
+not force the full scene back to Pixi.
 
 The first transition proof case is two video clips with no text, sticker, or
 mask layer. Cross-dissolve, directional wipe, and zoom-blur are composed by
