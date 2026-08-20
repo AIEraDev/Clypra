@@ -178,6 +178,50 @@ pub struct ColorGradeSnapshot {
     pub vibrance_protected_hue_g: f32,
     #[serde(default = "default_vibrance_protected_hue_b")]
     pub vibrance_protected_hue_b: f32,
+    #[serde(default)]
+    pub lift: f32,
+    #[serde(default)]
+    pub cross_process_amount: f32,
+    #[serde(default)]
+    pub channel_mix_r: f32,
+    #[serde(default)]
+    pub channel_mix_g: f32,
+    #[serde(default)]
+    pub channel_mix_b: f32,
+    #[serde(default)]
+    pub channel_mix_enabled: f32,
+    #[serde(default)]
+    pub duotone_dark_r: f32,
+    #[serde(default)]
+    pub duotone_dark_g: f32,
+    #[serde(default)]
+    pub duotone_dark_b: f32,
+    #[serde(default)]
+    pub duotone_light_r: f32,
+    #[serde(default)]
+    pub duotone_light_g: f32,
+    #[serde(default)]
+    pub duotone_light_b: f32,
+    #[serde(default)]
+    pub duotone_enabled: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub shadow_tint_r: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub shadow_tint_g: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub shadow_tint_b: f32,
+    #[serde(default)]
+    pub shadow_tint_strength: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub highlight_tint_r: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub highlight_tint_g: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub highlight_tint_b: f32,
+    #[serde(default)]
+    pub highlight_tint_strength: f32,
+    #[serde(default = "default_color_grade_split_balance")]
+    pub split_balance: f32,
 }
 
 fn default_color_grade_multiplier() -> f32 { 1.0 }
@@ -187,6 +231,8 @@ fn default_color_grade_lut_size() -> f32 { 33.0 }
 fn default_vibrance_protected_hue_r() -> f32 { 0.91 }
 fn default_vibrance_protected_hue_g() -> f32 { 0.69 }
 fn default_vibrance_protected_hue_b() -> f32 { 0.55 }
+fn default_color_grade_neutral_channel() -> f32 { 1.0 }
+fn default_color_grade_split_balance() -> f32 { 0.5 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -339,6 +385,28 @@ impl FrameRequest {
                     || !color_grade.vibrance_protected_hue_r.is_finite()
                     || !color_grade.vibrance_protected_hue_g.is_finite()
                     || !color_grade.vibrance_protected_hue_b.is_finite()
+                    || !color_grade.lift.is_finite()
+                    || !color_grade.cross_process_amount.is_finite()
+                    || !color_grade.channel_mix_r.is_finite()
+                    || !color_grade.channel_mix_g.is_finite()
+                    || !color_grade.channel_mix_b.is_finite()
+                    || !color_grade.channel_mix_enabled.is_finite()
+                    || !color_grade.duotone_dark_r.is_finite()
+                    || !color_grade.duotone_dark_g.is_finite()
+                    || !color_grade.duotone_dark_b.is_finite()
+                    || !color_grade.duotone_light_r.is_finite()
+                    || !color_grade.duotone_light_g.is_finite()
+                    || !color_grade.duotone_light_b.is_finite()
+                    || !color_grade.duotone_enabled.is_finite()
+                    || !color_grade.shadow_tint_r.is_finite()
+                    || !color_grade.shadow_tint_g.is_finite()
+                    || !color_grade.shadow_tint_b.is_finite()
+                    || !color_grade.shadow_tint_strength.is_finite()
+                    || !color_grade.highlight_tint_r.is_finite()
+                    || !color_grade.highlight_tint_g.is_finite()
+                    || !color_grade.highlight_tint_b.is_finite()
+                    || !color_grade.highlight_tint_strength.is_finite()
+                    || !color_grade.split_balance.is_finite()
                     || color_grade.contrast < 0.0
                     || color_grade.saturation < 0.0
                     || color_grade.sepia < 0.0
@@ -370,6 +438,41 @@ impl FrameRequest {
                     || color_grade.vibrance_protected_hue_g > 1.0
                     || color_grade.vibrance_protected_hue_b < 0.0
                     || color_grade.vibrance_protected_hue_b > 1.0
+                    || color_grade.lift < -0.5
+                    || color_grade.lift > 0.5
+                    || color_grade.cross_process_amount < 0.0
+                    || color_grade.cross_process_amount > 1.0
+                    || color_grade.channel_mix_r < 0.0
+                    || color_grade.channel_mix_g < 0.0
+                    || color_grade.channel_mix_b < 0.0
+                    || color_grade.channel_mix_enabled < 0.0
+                    || color_grade.channel_mix_enabled > 1.0
+                    || color_grade.duotone_dark_r < 0.0
+                    || color_grade.duotone_dark_r > 1.0
+                    || color_grade.duotone_dark_g < 0.0
+                    || color_grade.duotone_dark_g > 1.0
+                    || color_grade.duotone_dark_b < 0.0
+                    || color_grade.duotone_dark_b > 1.0
+                    || color_grade.duotone_light_r < 0.0
+                    || color_grade.duotone_light_r > 1.0
+                    || color_grade.duotone_light_g < 0.0
+                    || color_grade.duotone_light_g > 1.0
+                    || color_grade.duotone_light_b < 0.0
+                    || color_grade.duotone_light_b > 1.0
+                    || color_grade.duotone_enabled < 0.0
+                    || color_grade.duotone_enabled > 1.0
+                    || color_grade.shadow_tint_r < 0.0
+                    || color_grade.shadow_tint_g < 0.0
+                    || color_grade.shadow_tint_b < 0.0
+                    || color_grade.shadow_tint_strength < 0.0
+                    || color_grade.shadow_tint_strength > 1.0
+                    || color_grade.highlight_tint_r < 0.0
+                    || color_grade.highlight_tint_g < 0.0
+                    || color_grade.highlight_tint_b < 0.0
+                    || color_grade.highlight_tint_strength < 0.0
+                    || color_grade.highlight_tint_strength > 1.0
+                    || color_grade.split_balance < 0.0
+                    || color_grade.split_balance > 1.0
                 {
                     return Err(NativeCoreError::InvalidContract(
                         "VideoLayerSnapshot contains invalid color-grade data".to_string(),

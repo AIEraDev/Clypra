@@ -47,7 +47,14 @@ struct ColorGradeUniforms {
     vibrance_protected_hue_r: f32,
     vibrance_protected_hue_g: f32,
     vibrance_protected_hue_b: f32,
-    _padding0: f32,
+    lift: f32,
+    cross_process_amount: f32,
+    channel_mix: vec4<f32>, // RGB weights + enabled flag
+    duotone_dark: vec4<f32>, // RGB + enabled flag
+    duotone_light: vec4<f32>, // RGB + padding
+    shadow_tint: vec4<f32>, // RGB + strength
+    highlight_tint: vec4<f32>, // RGB + strength
+    split_params: vec4<f32>, // balance + padding
 };
 
 struct LayerUniforms {
@@ -275,6 +282,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = rgb + vec3<f32>(layer.color_grade.brightness);
     }
 
+    // Lift shifts the black point; keep it before contrast to match Clypra Studio.
+    if (layer.color_grade.lift != 0.0) {
+        rgb = rgb + layer.color_grade.lift * (vec3<f32>(1.0) - rgb);
+    }
+
     // Contrast Adjustment around mid-gray (0.5)
     if (layer.color_grade.contrast != 1.0) {
         rgb = clamp((rgb - vec3<f32>(0.5)) * layer.color_grade.contrast + vec3<f32>(0.5), vec3<f32>(0.0), vec3<f32>(1.0));
@@ -285,7 +297,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = mix(vec3<f32>(luma), rgb, layer.color_grade.saturation);
     }
 
-    if (layer.color_grade.vibrance_amount != 0.0) {
+    if (layer.color_grade.channel_mix.w > 0.5) {
+        let mono = dot(rgb, layer.color_grade.channel_mix.xyz);
+        rgb = vec3<f32>(mono);
+    }
+
+    if (layer.color_grade.duotone_dark.w > 0.5) {
+        let duo_luma = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
+        rgb = mix(layer.color_grade.duotone_dark.xyz, layer.color_grade.duotone_light.xyz, duo_luma);
+    }
+
+    if (layer.color_grade.shadow_tint.w > 0.0 || layer.color_grade.highlight_tint.w > 0.0) {
+        let split_luma = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
+        let balance = clamp(layer.color_grade.split_params.x, 0.0, 1.0);
+        let shadow_weight = 1.0 - smoothstep(0.0, max(balance, 0.001), split_luma);
+        let highlight_weight = smoothstep(min(balance, 0.999), 1.0, split_luma);
+        rgb = mix(rgb, rgb * layer.color_grade.shadow_tint.xyz, shadow_weight * layer.color_grade.shadow_tint.w);
+        rgb = mix(rgb, rgb * layer.color_grade.highlight_tint.xyz, highlight_weight * layer.color_grade.highlight_tint.w);
+    }
+
+    if (layer.color_grade.vibrance_amount != 0.0 && layer.color_grade.channel_mix.w < 0.5 && layer.color_grade.duotone_dark.w < 0.5) {
         let hsv = rgb_to_hsv(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)));
         let protected_hsv = rgb_to_hsv(vec3<f32>(
             layer.color_grade.vibrance_protected_hue_r,
@@ -298,6 +329,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         var adjusted_hsv = hsv;
         adjusted_hsv.y = clamp(hsv.y + layer.color_grade.vibrance_amount * protection, 0.0, 1.0);
         rgb = hsv_to_rgb(adjusted_hsv);
+    }
+
+    // Cross-process swaps red/blue response curves, matching the Studio shader.
+    if (layer.color_grade.cross_process_amount > 0.0) {
+        let original_red = rgb.r;
+        let original_blue = rgb.b;
+        rgb.r = mix(rgb.r, pow(max(original_blue, 0.001), 0.8), layer.color_grade.cross_process_amount);
+        rgb.b = mix(rgb.b, pow(max(original_red, 0.001), 1.2), layer.color_grade.cross_process_amount);
     }
 
     if (layer.color_grade.grayscale > 0.0) {

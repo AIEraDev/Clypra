@@ -474,6 +474,39 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
         vibrance_protected_hue_r: grade.vibrance_protected_hue_r,
         vibrance_protected_hue_g: grade.vibrance_protected_hue_g,
         vibrance_protected_hue_b: grade.vibrance_protected_hue_b,
+        lift: grade.lift,
+        cross_process_amount: grade.cross_process_amount,
+        channel_mix: [
+            grade.channel_mix_r,
+            grade.channel_mix_g,
+            grade.channel_mix_b,
+            grade.channel_mix_enabled,
+        ],
+        duotone_dark: [
+            grade.duotone_dark_r,
+            grade.duotone_dark_g,
+            grade.duotone_dark_b,
+            grade.duotone_enabled,
+        ],
+        duotone_light: [
+            grade.duotone_light_r,
+            grade.duotone_light_g,
+            grade.duotone_light_b,
+            0.0,
+        ],
+        shadow_tint: [
+            grade.shadow_tint_r,
+            grade.shadow_tint_g,
+            grade.shadow_tint_b,
+            grade.shadow_tint_strength,
+        ],
+        highlight_tint: [
+            grade.highlight_tint_r,
+            grade.highlight_tint_g,
+            grade.highlight_tint_b,
+            grade.highlight_tint_strength,
+        ],
+        split_params: [grade.split_balance, 0.0, 0.0, 0.0],
         ..ColorGradeUniforms::default()
     })
 }

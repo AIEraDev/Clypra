@@ -81,7 +81,7 @@ impl LayerTransform {
     }
 }
 
-/// Color grading uniforms matching multi_track_blend.wgsl (112 bytes).
+/// Color grading uniforms matching multi_track_blend.wgsl (224 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
 pub struct ColorGradeUniforms {
@@ -112,7 +112,15 @@ pub struct ColorGradeUniforms {
     pub vibrance_protected_hue_r: f32,
     pub vibrance_protected_hue_g: f32,
     pub vibrance_protected_hue_b: f32,
-    pub _padding0: f32,
+    pub lift: f32,
+    pub cross_process_amount: f32,
+    pub _padding0: [f32; 3], // align following vec4 uniforms to 16 bytes
+    pub channel_mix: [f32; 4], // RGB weights + enabled flag
+    pub duotone_dark: [f32; 4], // RGB + enabled flag
+    pub duotone_light: [f32; 4], // RGB + padding
+    pub shadow_tint: [f32; 4], // RGB + strength
+    pub highlight_tint: [f32; 4], // RGB + strength
+    pub split_params: [f32; 4], // balance + padding
 }
 
 impl Default for ColorGradeUniforms {
@@ -145,12 +153,20 @@ impl Default for ColorGradeUniforms {
             vibrance_protected_hue_r: 0.91,
             vibrance_protected_hue_g: 0.69,
             vibrance_protected_hue_b: 0.55,
-            _padding0: 0.0,
+            lift: 0.0,
+            cross_process_amount: 0.0,
+            _padding0: [0.0, 0.0, 0.0],
+            channel_mix: [0.0, 0.0, 0.0, 0.0],
+            duotone_dark: [0.0, 0.0, 0.0, 0.0],
+            duotone_light: [1.0, 1.0, 1.0, 0.0],
+            shadow_tint: [1.0, 1.0, 1.0, 0.0],
+            highlight_tint: [1.0, 1.0, 1.0, 0.0],
+            split_params: [0.5, 0.0, 0.0, 0.0],
         }
     }
 }
 
-/// GPU Uniform layout matching multi_track_blend.wgsl (224 bytes).
+/// GPU Uniform layout matching multi_track_blend.wgsl (368 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct LayerUniforms {
@@ -160,7 +176,7 @@ pub struct LayerUniforms {
     pub blend_mode: u32,                 // 4 bytes
     pub is_premultiplied: u32,           // 4 bytes
     pub grain_seed: f32,                 // 4 bytes; deterministic per-source-frame grain seed
-    pub color_grade: ColorGradeUniforms, // 112 bytes
+    pub color_grade: ColorGradeUniforms, // 224 bytes
     pub chroma_key: ChromaKeyUniforms,   // 48 bytes
 }
 
