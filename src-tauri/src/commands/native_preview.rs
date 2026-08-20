@@ -161,6 +161,24 @@ pub struct NativeProjectVideoLayer {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NativeProjectRasterLayer {
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub x: f32,
+    pub y: f32,
+    #[serde(default)]
+    pub rotation: f32,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(default = "default_blend_mode")]
+    pub blend_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NativeVideoProjectFrameRequest {
     pub canvas_width: u32,
     pub canvas_height: u32,
@@ -168,6 +186,8 @@ pub struct NativeVideoProjectFrameRequest {
     pub clear_color: [f32; 4],
     #[serde(default)]
     pub layers: Vec<NativeProjectVideoLayer>,
+    #[serde(default)]
+    pub raster_layers: Vec<NativeProjectRasterLayer>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,6 +255,9 @@ fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> R
     if request.layers.len() > 256 {
         return Err("Native preview supports at most 256 layers per frame".to_string());
     }
+    if request.raster_layers.len() > 64 {
+        return Err("Native preview supports at most 64 raster layers per frame".to_string());
+    }
     if request.clear_color.iter().any(|value| !value.is_finite()) {
         return Err("Native project clear color contains invalid color data".to_string());
     }
@@ -254,6 +277,31 @@ fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> R
             return Err("Native project video layer contains invalid data".to_string());
         }
         parse_blend_mode(&layer.blend_mode)?;
+    }
+    let mut raster_bytes = 0usize;
+    for layer in &request.raster_layers {
+        let expected_bytes = (layer.width as usize)
+            .checked_mul(layer.height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or_else(|| "Native project raster dimensions overflow".to_string())?;
+        raster_bytes = raster_bytes.saturating_add(expected_bytes);
+        if layer.width == 0
+            || layer.height == 0
+            || layer.width > 8192
+            || layer.height > 8192
+            || layer.rgba.len() != expected_bytes
+            || layer.rgba.len() > 64 * 1024 * 1024
+            || !layer.x.is_finite()
+            || !layer.y.is_finite()
+            || !layer.rotation.is_finite()
+            || !layer.opacity.is_finite()
+        {
+            return Err("Native project raster layer contains invalid data".to_string());
+        }
+        parse_blend_mode(&layer.blend_mode)?;
+    }
+    if raster_bytes > 128 * 1024 * 1024 {
+        return Err("Native project raster layers exceed the byte limit".to_string());
     }
     Ok(())
 }
@@ -298,12 +346,29 @@ fn to_video_project_request(
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
+    let raster_layers = request
+        .project
+        .raster_layers
+        .iter()
+        .map(|layer| NativeProjectRasterLayer {
+            rgba: layer.rgba.clone(),
+            width: layer.width,
+            height: layer.height,
+            x: layer.x * scale_x,
+            y: layer.y * scale_y,
+            rotation: layer.rotation,
+            opacity: layer.opacity,
+            z_index: layer.z_index,
+            blend_mode: layer.blend_mode.clone(),
+        })
+        .collect();
 
     Ok(NativeVideoProjectFrameRequest {
         canvas_width: request.output_width,
         canvas_height: request.output_height,
         clear_color: request.project.clear_color,
         layers,
+        raster_layers,
     })
 }
 
@@ -342,6 +407,49 @@ fn project_layer_transform_values(
         scale_y: height / canvas_height,
         rotation_rad: -rotation.to_radians(),
     }
+}
+
+struct NativeLayerSpec<'a> {
+    view: &'a wgpu::TextureView,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    rotation: f32,
+    opacity: f32,
+    z_index: i32,
+    blend_mode: &'a str,
+}
+
+fn build_native_composite_layers<'a>(
+    specs: &[NativeLayerSpec<'a>],
+    canvas_width: f32,
+    canvas_height: f32,
+) -> Result<Vec<CompositeLayer<'a>>, String> {
+    specs
+        .iter()
+        .map(|layer| {
+            Ok(CompositeLayer {
+                texture_view: layer.view,
+                lut: None,
+                z_index: layer.z_index,
+                opacity: layer.opacity.clamp(0.0, 1.0),
+                blend_mode: parse_blend_mode(layer.blend_mode)?,
+                transform: project_layer_transform_values(
+                    layer.x,
+                    layer.y,
+                    layer.width,
+                    layer.height,
+                    layer.rotation,
+                    canvas_width,
+                    canvas_height,
+                ),
+                crop: CropMargins::default(),
+                color_grade: ColorGradeUniforms::default(),
+                chroma_key: ChromaKeyUniforms::default(),
+            })
+        })
+        .collect()
 }
 
 /// Convert stream metadata into the explicit shader contract.
@@ -601,8 +709,8 @@ async fn render_native_video_project_frame_bytes(
     let decoded_frames = decode_native_video_layers(&request).await?;
 
     let mut session = state.lock().await;
-    let mut textures = Vec::with_capacity(request.layers.len());
-    let mut views = Vec::with_capacity(request.layers.len());
+    let mut textures = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
+    let mut views = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
     for (layer, (y_plane, uv_plane, width, height, color)) in
         request.layers.iter().zip(decoded_frames.iter())
     {
@@ -619,6 +727,15 @@ async fn render_native_video_project_frame_bytes(
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
+    for layer in &request.raster_layers {
+        let texture = session.upload_rgba_layer_to_texture(
+            layer.width,
+            layer.height,
+            &layer.rgba,
+        )?;
+        views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        textures.push(texture);
+    }
 
     let compositor = MultiTrackCompositor::new_with_target_format(
         &session.gpu.device,
@@ -627,31 +744,35 @@ async fn render_native_video_project_frame_bytes(
         request.canvas_height,
         wgpu::TextureFormat::Rgba8UnormSrgb,
     );
-    let layers: Vec<CompositeLayer<'_>> = request
-        .layers
-        .iter()
-        .zip(views.iter())
-        .map(|(layer, view)| CompositeLayer {
-            texture_view: view,
-            lut: None,
+    let mut specs = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
+    for (layer, view) in request.layers.iter().zip(views.iter()) {
+        specs.push(NativeLayerSpec {
+            view,
+            x: layer.x,
+            y: layer.y,
+            width: layer.width as f32,
+            height: layer.height as f32,
+            rotation: layer.rotation,
+            opacity: layer.opacity,
             z_index: layer.z_index,
-            opacity: layer.opacity.clamp(0.0, 1.0),
-            blend_mode: parse_blend_mode(&layer.blend_mode).expect("validated blend mode"),
-            transform: project_layer_transform_values(
-                layer.x,
-                layer.y,
-                layer.width,
-                layer.height,
-                layer.rotation,
-                canvas_width,
-                canvas_height,
-            ),
-            crop: CropMargins::default(),
-            color_grade: ColorGradeUniforms::default(),
-            chroma_key: ChromaKeyUniforms::default(),
-        })
-        .collect();
-
+            blend_mode: &layer.blend_mode,
+        });
+    }
+    let raster_views = views.iter().skip(request.layers.len());
+    for (layer, view) in request.raster_layers.iter().zip(raster_views) {
+        specs.push(NativeLayerSpec {
+            view,
+            x: layer.x,
+            y: layer.y,
+            width: layer.width as f32,
+            height: layer.height as f32,
+            rotation: layer.rotation,
+            opacity: layer.opacity,
+            z_index: layer.z_index,
+            blend_mode: &layer.blend_mode,
+        });
+    }
+    let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;
     // Keep both decoded textures and their views alive through GPU readback.
     let _textures = textures;
     let rgba = compositor
@@ -831,8 +952,12 @@ pub async fn present_native_frame(
 
     let canvas_width = legacy_request.canvas_width as f32;
     let canvas_height = legacy_request.canvas_height as f32;
-    let mut textures = Vec::with_capacity(legacy_request.layers.len());
-    let mut views = Vec::with_capacity(legacy_request.layers.len());
+    let mut textures = Vec::with_capacity(
+        legacy_request.layers.len() + legacy_request.raster_layers.len(),
+    );
+    let mut views = Vec::with_capacity(
+        legacy_request.layers.len() + legacy_request.raster_layers.len(),
+    );
     for (layer, (y_plane, uv_plane, width, height, color)) in legacy_request
         .layers
         .iter()
@@ -851,6 +976,15 @@ pub async fn present_native_frame(
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
+    for layer in &legacy_request.raster_layers {
+        let texture = session.upload_rgba_layer_to_texture(
+            layer.width,
+            layer.height,
+            &layer.rgba,
+        )?;
+        views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        textures.push(texture);
+    }
 
     let compositor = MultiTrackCompositor::new_with_target_format(
         &session.gpu.device,
@@ -859,30 +993,37 @@ pub async fn present_native_frame(
         legacy_request.canvas_height,
         target_format,
     );
-    let layers: Vec<CompositeLayer<'_>> = legacy_request
-        .layers
-        .iter()
-        .zip(views.iter())
-        .map(|(layer, view)| CompositeLayer {
-            texture_view: view,
-            lut: None,
+    let mut specs = Vec::with_capacity(
+        legacy_request.layers.len() + legacy_request.raster_layers.len(),
+    );
+    for (layer, view) in legacy_request.layers.iter().zip(views.iter()) {
+        specs.push(NativeLayerSpec {
+            view,
+            x: layer.x,
+            y: layer.y,
+            width: layer.width,
+            height: layer.height,
+            rotation: layer.rotation,
+            opacity: layer.opacity,
             z_index: layer.z_index,
-            opacity: layer.opacity.clamp(0.0, 1.0),
-            blend_mode: parse_blend_mode(&layer.blend_mode).expect("validated blend mode"),
-            transform: project_layer_transform_values(
-                layer.x,
-                layer.y,
-                layer.width,
-                layer.height,
-                layer.rotation,
-                canvas_width,
-                canvas_height,
-            ),
-            crop: CropMargins::default(),
-            color_grade: ColorGradeUniforms::default(),
-            chroma_key: ChromaKeyUniforms::default(),
-        })
-        .collect();
+            blend_mode: &layer.blend_mode,
+        });
+    }
+    let raster_views = views.iter().skip(legacy_request.layers.len());
+    for (layer, view) in legacy_request.raster_layers.iter().zip(raster_views) {
+        specs.push(NativeLayerSpec {
+            view,
+            x: layer.x,
+            y: layer.y,
+            width: layer.width as f32,
+            height: layer.height as f32,
+            rotation: layer.rotation,
+            opacity: layer.opacity,
+            z_index: layer.z_index,
+            blend_mode: &layer.blend_mode,
+        });
+    }
+    let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;
 
     compositor.composite_layers(
         &session.gpu.device,
@@ -1134,6 +1275,18 @@ mod tests {
         assert_eq!(request.layers[0].opacity, 1.0);
         assert_eq!(request.layers[0].blend_mode, "normal");
         validate_video_project_request(&request).expect("default request should validate");
+    }
+
+    #[test]
+    fn video_project_rejects_invalid_raster_payloads() {
+        let mut request: NativeVideoProjectFrameRequest = serde_json::from_str(
+            r#"{"canvasWidth":320,"canvasHeight":180,"layers":[],"rasterLayers":[{"rgba":[255,255,255,255],"width":2,"height":2,"x":0,"y":0}]}"#,
+        )
+        .expect("video project request should deserialize");
+
+        assert!(validate_video_project_request(&request).is_err());
+        request.raster_layers[0].rgba = vec![255; 16];
+        validate_video_project_request(&request).expect("valid raster payload should validate");
     }
 
     #[test]

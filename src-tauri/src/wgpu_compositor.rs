@@ -159,6 +159,67 @@ impl NativePreviewSession {
         Ok(target_texture)
     }
 
+    /// Upload a small RGBA layer produced by a canonical browser-side
+    /// renderer (currently Clypra Studio text effects) for composition with
+    /// native video. The layer is uploaded only at this frame boundary; a
+    /// later asset-cache tranche will retain these textures across frames.
+    pub fn upload_rgba_layer_to_texture(
+        &self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<wgpu::Texture, String> {
+        if width == 0 || height == 0 {
+            return Err("RGBA layer dimensions must be non-zero".to_string());
+        }
+        let expected_bytes = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or_else(|| "RGBA layer dimensions overflow".to_string())?;
+        if rgba.len() != expected_bytes {
+            return Err(format!(
+                "RGBA layer byte length mismatch: expected {}, got {}",
+                expected_bytes,
+                rgba.len()
+            ));
+        }
+
+        let texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Native RGBA Raster Layer"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width.saturating_mul(4)),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        Ok(texture)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn render_nv12_frame(
         &mut self,
