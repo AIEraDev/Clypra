@@ -159,6 +159,28 @@ export interface NativeColorGradeSnapshot {
   saturation: number;
   temperature: number;
   tint: number;
+  brightness: number;
+  sepia: number;
+  grayscale: number;
+  hueRotate: number;
+  vignette: number;
+  invert: number;
+  grainIntensity: number;
+  grainSize: number;
+  lutId?: string;
+  lutIntensity: number;
+  lutSize: number;
+  blurStrength: number;
+  blurRadius: number;
+  pixelateSize: number;
+  scanlineCount: number;
+  scanlineIntensity: number;
+  rgbSplitX: number;
+  rgbSplitY: number;
+  vibranceAmount: number;
+  vibranceProtectedHueR: number;
+  vibranceProtectedHueG: number;
+  vibranceProtectedHueB: number;
 }
 
 export interface NativeRasterLayerSnapshot {

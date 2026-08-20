@@ -102,6 +102,18 @@ describe("buildNativeVideoProjectRequest", () => {
     })).toBeNull();
   });
 
+  it("maps canonical built-in filter-track presets into native grading", () => {
+    const layer = makeVideoLayer({
+      filter: { id: "filter-sepia", name: "Sepia", intensity: 0.75 },
+    });
+    const request = buildNativeVideoProjectRequest({
+      ...makeScene([layer]),
+      activeFilter: { id: "filter-sepia", name: "Sepia", intensity: 0.75 },
+    });
+
+    expect(request?.layers[0].colorGrade).toMatchObject({ sepia: 0.75 });
+  });
+
   it("composes Studio-rasterized text layers alongside native video", () => {
     const textLayer = {
       ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title", zIndex: 1 }),
@@ -167,6 +179,12 @@ describe("buildNativeVideoProjectRequest", () => {
           saturation: -0.3,
           temperature: 0.1,
           tint: -0.2,
+          brightness: 0.15,
+          sepia: 0.2,
+          grayscale: 0.1,
+          hue: 30,
+          vignette: 0.4,
+          invert: true,
         },
       }),
     ]));
@@ -177,13 +195,101 @@ describe("buildNativeVideoProjectRequest", () => {
       saturation: 0.7,
       temperature: 0.1,
       tint: -0.2,
+      brightness: 0.15,
+      sepia: 0.2,
+      grayscale: 0.1,
+      hueRotate: (30 * Math.PI) / 180,
+      vignette: 0.4,
+      invert: 1,
+      grainIntensity: 0,
+      grainSize: 1,
+      lutIntensity: 1,
+      lutSize: 33,
+      blurStrength: 0,
+      blurRadius: 0,
+      pixelateSize: 0,
+      scanlineCount: 0,
+      scanlineIntensity: 0,
+      rgbSplitX: 0,
+      rgbSplitY: 0,
+      vibranceAmount: 0,
+      vibranceProtectedHueR: 0.91,
+      vibranceProtectedHueG: 0.69,
+      vibranceProtectedHueB: 0.55,
     });
   });
 
-  it("keeps unsupported color controls on Pixi", () => {
+  it("maps deterministic film grain into the native grade shader", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ adjustments: { grain: { intensity: 0.2, size: 1.5 } } }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({ grainIntensity: 0.2, grainSize: 1.5 });
+  });
+
+  it("maps protected-hue vibrance into the native grade shader", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ adjustments: { vibrance: { amount: 0.35, protectedHue: "#336699" } } }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      vibranceAmount: 0.35,
+      vibranceProtectedHueR: 0x33 / 255,
+      vibranceProtectedHueG: 0x66 / 255,
+      vibranceProtectedHueB: 0x99 / 255,
+    });
+  });
+
+  it("maps the bounded blur effect into the native compositor", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ effects: [{ effectId: "fx-blur", renderer: "blur", type: "video_effect", intensity: 0.5, localTime: 0, parameters: { blur: 12 } }] }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({ blurStrength: 1, blurRadius: 6 });
+  });
+
+  it("maps deterministic stylized shader effects into native grading", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ effects: [
+        { effectId: "fx-pixelate", renderer: "pixelate", type: "video_effect", intensity: 0.5, localTime: 0, parameters: { pixelSize: 20 } },
+        { effectId: "fx-scanlines", renderer: "scanlines", type: "video_effect", intensity: 0.4, localTime: 0, parameters: { scanlineCount: 100 } },
+        { effectId: "fx-rgb", renderer: "rgb-split", type: "video_effect", intensity: 0.25, localTime: 0, parameters: { splitDistance: 8 } },
+      ] }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      pixelateSize: 10,
+      scanlineCount: 100,
+      scanlineIntensity: 0.4,
+      rgbSplitX: 2,
+      rgbSplitY: 2,
+    });
+  });
+
+  it("keeps unsupported structured color controls on Pixi until their native resources exist", () => {
     expect(buildNativeVideoProjectRequest(makeScene([
-      makeVideoLayer({ adjustments: { brightness: 0.2 } }),
+      makeVideoLayer({ adjustments: { crossProcess: { amount: 0.2 } } }),
     ]))).toBeNull();
+  });
+
+  it("carries a registered clip LUT binding into the native request", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({
+        colorGrade: {
+          exposure: 0,
+          contrast: 1,
+          saturation: 1,
+          temperature: 0,
+          tint: 0,
+          lutIntensity: 0.65,
+          lutSize: 33,
+          hasLut: 1,
+          lutId: "lut-clip-1",
+        },
+      }),
+    ]));
+
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      lutId: "lut-clip-1",
+      lutIntensity: 0.65,
+      lutSize: 33,
+    });
   });
 });
 
