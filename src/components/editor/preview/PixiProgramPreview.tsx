@@ -62,6 +62,7 @@ import {
   rasterizeTextLayerForNative,
   type NativeTextRasterAsset,
 } from "./nativeTextPreview";
+import { NativeAnimatedStickerRenderer, type NativeAnimatedStickerRaster } from "./nativeStickerPreview";
 import {
   NATIVE_PREVIEW_ONLY,
   NATIVE_PREVIEW_TRACE_ENABLED,
@@ -578,9 +579,13 @@ export const PixiProgramPreview: React.FC = () => {
     const nativeBodyMaskAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
     const registeredNativeBodyMaskAssets = new Set<string>();
     const nativeSmartOverlayAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
+    const nativeAnimatedStickerRenderer = new NativeAnimatedStickerRenderer();
+    const nativeAnimatedStickerAssetsById = new Map<string, NativeAnimatedStickerRaster>();
+    const registeredNativeAnimatedStickerAssets = new Set<string>();
     const maxNativeTextRasterCacheEntries = 96;
     const maxNativeBodyMaskCacheEntries = 90;
     const maxNativeSmartOverlayCacheEntries = 48;
+    const maxNativeAnimatedStickerCacheEntries = 90;
 
     const ensureNativeTextAssetRegistered = async (
       asset: NativeTextRasterAsset,
@@ -746,6 +751,46 @@ export const PixiProgramPreview: React.FC = () => {
       return assets;
     };
 
+    const ensureNativeAnimatedStickerAssetRegistered = async (
+      asset: NativeAnimatedStickerRaster,
+      force = false,
+    ): Promise<void> => {
+      nativeAnimatedStickerAssetsById.set(asset.assetId, asset);
+      while (nativeAnimatedStickerAssetsById.size > maxNativeAnimatedStickerCacheEntries) {
+        const oldestId = nativeAnimatedStickerAssetsById.keys().next().value as string | undefined;
+        if (!oldestId) break;
+        nativeAnimatedStickerAssetsById.delete(oldestId);
+        registeredNativeAnimatedStickerAssets.delete(oldestId);
+      }
+      if (!force && registeredNativeAnimatedStickerAssets.has(asset.assetId)) return;
+      await registerNativeRasterAsset(asset);
+      registeredNativeAnimatedStickerAssets.add(asset.assetId);
+    };
+
+    const rasterizeNativeAnimatedStickers = async (scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> => {
+      if (!isTauriRuntime()) return [];
+      const layers = scene.visualLayers.filter(
+        (layer): layer is import("@/core/evaluation/types").EvaluatedMediaLayer =>
+          layer.layerType === "media" && layer.clipKind === "sticker" && layer.stickerFormat === "lottie",
+      );
+      const assets: NativeRasterLayerSnapshot[] = [];
+      for (const layer of layers) {
+        try {
+          const raster = await nativeAnimatedStickerRenderer.render(layer);
+          if (!raster) continue;
+          const cached = nativeAnimatedStickerAssetsById.get(raster.assetId);
+          if (!cached) await ensureNativeAnimatedStickerAssetRegistered(raster);
+          assets.push({ ...raster, rgba: undefined });
+        } catch (error) {
+          traceNativePreview("native-sticker-raster-failed", {
+            layerId: layer.layerId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return assets;
+    };
+
     const reRegisterTextAssetsForRequest = async (request: NativeFrameRequest): Promise<boolean> => {
       const references = request.project.rasterLayers ?? [];
       if (references.length === 0) return false;
@@ -755,10 +800,14 @@ export const PixiProgramPreview: React.FC = () => {
       const maskAssets = references
         .map((reference) => nativeBodyMaskAssetsById.get(reference.assetId))
         .filter((asset): asset is NativeRasterLayerSnapshot & { rgba: number[] } => Boolean(asset));
-      if (textAssets.length + maskAssets.length !== references.length) return false;
+      const stickerAssets = references
+        .map((reference) => nativeAnimatedStickerAssetsById.get(reference.assetId))
+        .filter((asset): asset is NativeAnimatedStickerRaster => Boolean(asset));
+      if (textAssets.length + maskAssets.length + stickerAssets.length !== references.length) return false;
       await Promise.all([
         ...textAssets.map((asset) => ensureNativeTextAssetRegistered(asset, true)),
         ...maskAssets.map((asset) => ensureNativeBodyMaskAssetRegistered(asset, true)),
+        ...stickerAssets.map((asset) => ensureNativeAnimatedStickerAssetRegistered(asset, true)),
       ]);
       return true;
     };
@@ -877,6 +926,7 @@ export const PixiProgramPreview: React.FC = () => {
         scene,
         getActiveSessionOrNull()?.getPreviewVideoElements() ?? new Map(),
       );
+      const nativeAnimatedStickers = await rasterizeNativeAnimatedStickers(scene);
       const nativeActiveSmartClips = state.clips.filter(
         (clip): clip is SmartOverlayClip =>
           clip.kind === "smart-overlay" &&
@@ -890,7 +940,12 @@ export const PixiProgramPreview: React.FC = () => {
         state.canvasHeight,
         frameIndex,
       );
-      const nativeRasterLayers = [...nativeTextRasters, ...nativeBodyMasks, ...nativeSmartOverlays];
+      const nativeRasterLayers = [
+        ...nativeTextRasters,
+        ...nativeBodyMasks,
+        ...nativeAnimatedStickers,
+        ...nativeSmartOverlays,
+      ];
       const nativeRequest = buildNativeFrameRequest(
         scene,
         `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -921,6 +976,7 @@ export const PixiProgramPreview: React.FC = () => {
               state.transitions,
             );
             const lookAheadTextRasters = await rasterizeNativeTextLayers(lookAheadScene);
+            const lookAheadAnimatedStickers = await rasterizeNativeAnimatedStickers(lookAheadScene);
             const lookAheadSmartClips = state.clips.filter(
               (clip): clip is SmartOverlayClip =>
                 clip.kind === "smart-overlay" &&
@@ -941,7 +997,7 @@ export const PixiProgramPreview: React.FC = () => {
               frameRate,
               state.canvasWidth,
               state.canvasHeight,
-              [...lookAheadTextRasters, ...lookAheadSmartOverlays],
+              [...lookAheadTextRasters, ...lookAheadAnimatedStickers, ...lookAheadSmartOverlays],
             ) ?? nativeRequest;
           }
         }
@@ -1513,6 +1569,7 @@ export const PixiProgramPreview: React.FC = () => {
       isActive = false;
       unsubscribeClock();
       nativePreviewScheduler.dispose();
+      nativeAnimatedStickerRenderer.dispose();
       if (thumbnailDebounceTimer) clearTimeout(thumbnailDebounceTimer);
       if (canvasEl) {
         const finalDataUrl = captureCanvasThumbnail(canvasEl, 640, 0.85);

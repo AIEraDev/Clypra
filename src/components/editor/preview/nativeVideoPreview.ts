@@ -592,6 +592,10 @@ function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
   );
 }
 
+function isNativeAnimatedStickerLayer(layer: EvaluatedMediaLayer): boolean {
+  return layer.clipKind === "sticker" && layer.stickerFormat === "lottie";
+}
+
 /**
  * Return a native clear color only for backgrounds whose semantics can be
  * represented exactly by the wgpu surface. Gradients, shaders, and media
@@ -634,14 +638,19 @@ export function buildNativeVideoProjectRequest(
     layer.isText || (layer.isText === undefined && textLayers.length === visibleRasterLayers.length),
   );
   if (textLayers.length !== textRasterLayers.length) return null;
-  const mediaLayers = scene.visualLayers.filter(
+  const allMediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
+  const animatedStickerLayers = allMediaLayers.filter(isNativeAnimatedStickerLayer);
+  const mediaLayers = allMediaLayers.filter((layer) => !isNativeAnimatedStickerLayer(layer));
   if (
     mediaLayers.length === 0 &&
     textLayers.length === 0 &&
     rasterLayers.filter((layer) => !layer.isMask).length === 0
   ) return null;
+  if (animatedStickerLayers.some((layer) => !rasterLayers.some((asset) =>
+    !asset.isMask && asset.assetId.startsWith(`native-sticker:${layer.layerId}:`),
+  ))) return null;
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
   if (transition === null) return null;
   if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) return null;
@@ -704,7 +713,7 @@ export function buildNativeFrameRequest(
   if (!request) return null;
 
   const videoLayers = scene.visualLayers
-    .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media")
+    .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && !isNativeAnimatedStickerLayer(layer))
     .map((layer, index) => {
       const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects);
       return {

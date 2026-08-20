@@ -115,6 +115,41 @@ describe("buildNativeVideoProjectRequest", () => {
     })]))).toBeNull();
   });
 
+  it("composes an evaluated Lottie sticker from a registered native raster asset", () => {
+    const sticker = makeVideoLayer({
+      layerId: "sticker-1",
+      clipId: "sticker-1",
+      clipKind: "sticker",
+      mediaType: "image",
+      stickerFormat: "lottie",
+      sourcePath: "/Users/test/sticker.json",
+      x: 240,
+      y: 120,
+      width: 320,
+      height: 320,
+      zIndex: 4,
+    });
+    const request = buildNativeVideoProjectRequest(makeScene([sticker]), [{
+      assetId: "native-sticker:sticker-1:12:320x320",
+      width: 320,
+      height: 320,
+      x: 240,
+      y: 120,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 4,
+      blendMode: "normal",
+      isText: false,
+    }]);
+
+    expect(request?.layers).toEqual([]);
+    expect(request?.rasterLayers?.[0]).toMatchObject({
+      assetId: "native-sticker:sticker-1:12:320x320",
+      x: 240,
+      y: 120,
+    });
+  });
+
   it("accepts a raster-only native scene for overlay and text mockups", () => {
     const request = buildNativeVideoProjectRequest(makeScene([]), [{
       assetId: "native-overlay:sample",
