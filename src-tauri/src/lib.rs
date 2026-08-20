@@ -180,6 +180,7 @@ pub fn run() {
             render_native_video_project_frame,
             render_native_frame,
             queue_native_frame,
+            register_native_raster_asset,
             present_native_frame,
             get_native_frame_service_stats,
             get_native_gpu_status,

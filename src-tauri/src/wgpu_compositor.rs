@@ -311,7 +311,7 @@ impl NativePreviewSession {
         asset_id: &str,
         width: u32,
         height: u32,
-        rgba: &[u8],
+        rgba: Option<&[u8]>,
     ) -> Result<Arc<wgpu::Texture>, String> {
         if !asset_id.trim().is_empty() {
             if let Some(texture) = self.rgba_layers.get(asset_id, width, height) {
@@ -319,6 +319,9 @@ impl NativePreviewSession {
             }
         }
 
+        let rgba = rgba.ok_or_else(|| {
+            format!("Native RGBA raster asset is not registered: {asset_id}")
+        })?;
         let texture = self.create_rgba_layer_texture(width, height, rgba)?;
         if !asset_id.trim().is_empty() {
             self.rgba_layers

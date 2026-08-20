@@ -123,7 +123,10 @@ pub struct VideoLayerSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct RasterLayerSnapshot {
     pub asset_id: String,
-    pub rgba: Vec<u8>,
+    /// Pixel payload is present on the registration/miss path and omitted
+    /// once the native GPU asset is already resident.
+    #[serde(default)]
+    pub rgba: Option<Vec<u8>>,
     pub width: u32,
     pub height: u32,
     pub x: f32,
@@ -251,13 +254,19 @@ impl FrameRequest {
                         "RasterLayerSnapshot dimensions overflow".to_string(),
                     )
                 })?;
-            raster_bytes = raster_bytes.saturating_add(expected_bytes);
+            if let Some(rgba) = &layer.rgba {
+                raster_bytes = raster_bytes.saturating_add(expected_bytes);
+                if rgba.len() != expected_bytes || rgba.len() > 64 * 1024 * 1024 {
+                    return Err(NativeCoreError::InvalidContract(
+                        "ProjectSnapshot contains an invalid raster payload".to_string(),
+                    ));
+                }
+            }
             if layer.asset_id.trim().is_empty()
                 || layer.width == 0
                 || layer.height == 0
                 || layer.width > 8192
                 || layer.height > 8192
-                || layer.rgba.len() != expected_bytes
                 || !layer.x.is_finite()
                 || !layer.y.is_finite()
                 || !layer.rotation.is_finite()
@@ -265,11 +274,6 @@ impl FrameRequest {
             {
                 return Err(NativeCoreError::InvalidContract(
                     "ProjectSnapshot contains an invalid raster layer".to_string(),
-                ));
-            }
-            if layer.rgba.len() > 64 * 1024 * 1024 {
-                return Err(NativeCoreError::InvalidContract(
-                    "RasterLayerSnapshot exceeds the per-layer byte limit".to_string(),
                 ));
             }
         }
@@ -393,5 +397,26 @@ mod tests {
         let mut value = request();
         value.contract_version += 1;
         assert!(value.validate().is_err());
+    }
+
+    #[test]
+    fn registered_raster_reference_can_omit_pixel_payload() {
+        let mut value = request();
+        value.project.raster_layers = vec![RasterLayerSnapshot {
+            asset_id: "native-text:title:abcd1234".to_string(),
+            rgba: None,
+            width: 64,
+            height: 32,
+            x: 0.0,
+            y: 0.0,
+            rotation: 0.0,
+            opacity: 1.0,
+            z_index: 1,
+            blend_mode: "normal".to_string(),
+        }];
+
+        value
+            .validate()
+            .expect("registered raster references should validate without bytes");
     }
 }

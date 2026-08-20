@@ -164,7 +164,8 @@ pub struct NativeProjectVideoLayer {
 pub struct NativeProjectRasterLayer {
     #[serde(default)]
     pub asset_id: String,
-    pub rgba: Vec<u8>,
+    #[serde(default)]
+    pub rgba: Option<Vec<u8>>,
     pub width: u32,
     pub height: u32,
     pub x: f32,
@@ -177,6 +178,15 @@ pub struct NativeProjectRasterLayer {
     pub z_index: i32,
     #[serde(default = "default_blend_mode")]
     pub blend_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeRasterAssetRegistration {
+    pub asset_id: String,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,13 +296,18 @@ fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> R
             .checked_mul(layer.height as usize)
             .and_then(|pixels| pixels.checked_mul(4))
             .ok_or_else(|| "Native project raster dimensions overflow".to_string())?;
-        raster_bytes = raster_bytes.saturating_add(expected_bytes);
+        if let Some(rgba) = &layer.rgba {
+            raster_bytes = raster_bytes.saturating_add(expected_bytes);
+            if rgba.len() != expected_bytes || rgba.len() > 64 * 1024 * 1024 {
+                return Err("Native project raster layer contains invalid data".to_string());
+            }
+        } else if layer.asset_id.trim().is_empty() {
+            return Err("Native project raster layer is missing a registered asset".to_string());
+        }
         if layer.width == 0
             || layer.height == 0
             || layer.width > 8192
             || layer.height > 8192
-            || layer.rgba.len() != expected_bytes
-            || layer.rgba.len() > 64 * 1024 * 1024
             || !layer.x.is_finite()
             || !layer.y.is_finite()
             || !layer.rotation.is_finite()
@@ -735,7 +750,7 @@ async fn render_native_video_project_frame_bytes(
             &layer.asset_id,
             layer.width,
             layer.height,
-            &layer.rgba,
+            layer.rgba.as_deref(),
         )?;
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
@@ -858,6 +873,45 @@ pub async fn queue_native_frame(
             Err(error)
         }
     }
+}
+
+/// Register immutable browser-rendered pixels in the native GPU asset cache.
+/// Subsequent versioned frame requests may reference the asset by id without
+/// retransmitting its RGBA payload over IPC.
+#[tauri::command]
+pub async fn register_native_raster_asset(
+    app: tauri::AppHandle,
+    asset: NativeRasterAssetRegistration,
+) -> Result<(), String> {
+    if asset.asset_id.trim().is_empty() {
+        return Err("Native raster asset id must be non-empty".to_string());
+    }
+    let expected_bytes = (asset.width as usize)
+        .checked_mul(asset.height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "Native raster asset dimensions overflow".to_string())?;
+    if asset.width == 0
+        || asset.height == 0
+        || asset.width > 8192
+        || asset.height > 8192
+        || asset.rgba.len() != expected_bytes
+        || asset.rgba.len() > 64 * 1024 * 1024
+    {
+        return Err("Native raster asset payload is invalid".to_string());
+    }
+
+    let preview_state = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    let mut session = preview_state.lock().await;
+    session
+        .get_or_upload_rgba_layer_to_texture(
+            &asset.asset_id,
+            asset.width,
+            asset.height,
+            Some(&asset.rgba),
+        )
+        .map(|_| ())
 }
 
 /// Present a versioned frame directly to the retained native surface.
@@ -985,7 +1039,7 @@ pub async fn present_native_frame(
             &layer.asset_id,
             layer.width,
             layer.height,
-            &layer.rgba,
+            layer.rgba.as_deref(),
         )?;
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
@@ -1290,7 +1344,7 @@ mod tests {
         .expect("video project request should deserialize");
 
         assert!(validate_video_project_request(&request).is_err());
-        request.raster_layers[0].rgba = vec![255; 16];
+        request.raster_layers[0].rgba = Some(vec![255; 16]);
         validate_video_project_request(&request).expect("valid raster payload should validate");
     }
 
