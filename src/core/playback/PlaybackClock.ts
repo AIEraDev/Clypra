@@ -1,3 +1,5 @@
+import { NATIVE_PREVIEW_TRACE_ENABLED } from "@/lib/platform/nativeCore";
+
 /**
  * Playback Clock - Continuous Time Signal
  *
@@ -42,7 +44,7 @@ export interface PlaybackClockState {
 export type PlaybackClockListener = (state: PlaybackClockState) => void;
 
 function tracePlayback(event: string, details: Record<string, unknown>): void {
-  if (import.meta.env.DEV) {
+  if (NATIVE_PREVIEW_TRACE_ENABLED) {
     console.debug(`[NativePreviewTrace] ${event}`, details);
   }
 }

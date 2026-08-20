@@ -19,6 +19,7 @@ import { FilterManager } from "./managers/FilterManager.js";
 import { SpriteLifecycleManager } from "./managers/SpriteLifecycleManager.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
+import { NATIVE_PREVIEW_TRACE_ENABLED } from "@/lib/platform/nativeCore";
 
 // Boundary components
 import type { PreviewMediaPool } from "../resources/PreviewMediaPool.js";
@@ -184,7 +185,7 @@ export class PixiSceneCompositor {
       // valid native frame into a black monitor between compose passes.
       this.renderer.render?.();
 
-      if (import.meta.env.DEV) {
+      if (NATIVE_PREVIEW_TRACE_ENABLED) {
         const app = this.renderer.getApp?.();
         const sprite = this.nativeFrameSprite;
         console.debug("[NativePreviewTrace] pixi-resize-render", {
@@ -460,7 +461,7 @@ export class PixiSceneCompositor {
       this.nativeFrameSprite.renderable = true;
     }
 
-    if (import.meta.env.DEV && nativeFrameActive && this.nativeFrameSprite) {
+    if (NATIVE_PREVIEW_TRACE_ENABLED && nativeFrameActive && this.nativeFrameSprite) {
       console.debug("[NativePreviewTrace] pixi-native-present", {
         visible: this.nativeFrameSprite.visible,
         renderable: this.nativeFrameSprite.renderable,
@@ -479,7 +480,7 @@ export class PixiSceneCompositor {
   }
 
   private traceNativeFramebuffer(nativeFrameActive: boolean): void {
-    if (!import.meta.env.DEV || !nativeFrameActive || !this.canvas) return;
+    if (!NATIVE_PREVIEW_TRACE_ENABLED || !nativeFrameActive || !this.canvas) return;
 
     const gl = (this.canvas.getContext("webgl2") || this.canvas.getContext("webgl")) as WebGLRenderingContext | null;
     if (!gl || this.canvas.width <= 0 || this.canvas.height <= 0) return;
@@ -528,7 +529,7 @@ export class PixiSceneCompositor {
     this.nativeFrameContext.putImageData(this.nativeFrameImageData, 0, 0);
     (this.nativeFrameTexture.source as any)?.update?.();
 
-    if (import.meta.env.DEV) {
+    if (NATIVE_PREVIEW_TRACE_ENABLED) {
       const pixels = new Uint8Array(frame.rgba);
       const center = Math.max(0, Math.floor(pixels.length / 2) - 2);
       const tail = Math.max(0, pixels.length - 4);
@@ -577,7 +578,7 @@ export class PixiSceneCompositor {
     sprite.height = projectHeight;
     sprite.zIndex = -900_000;
 
-    if (import.meta.env.DEV && visible) {
+    if (NATIVE_PREVIEW_TRACE_ENABLED && visible) {
       console.debug("[NativePreviewTrace] pixi-native-sprite", {
         visible: sprite.visible,
         parent: sprite.parent === container,

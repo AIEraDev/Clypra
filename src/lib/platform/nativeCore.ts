@@ -1,5 +1,8 @@
 export const NATIVE_CORE_CONTRACT_VERSION = 1;
 export const NATIVE_CORE_TIME_SCALE = 1_000_000;
+/** Opt-in diagnostics for native preview timing and surface composition. */
+export const NATIVE_PREVIEW_TRACE_ENABLED =
+  import.meta.env.DEV && import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_TRACE === "1";
 
 export type NativeQualityTier = "full" | "half" | "quarter" | "proxy";
 export type NativePixelFormat = "rgba8Srgb" | "rgba16Float";
