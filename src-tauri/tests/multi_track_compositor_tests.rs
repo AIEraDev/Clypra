@@ -639,6 +639,31 @@ async fn test_body_glow_mask_binding() {
         .expect("Body mask glow render failed");
     let sample = get_pixel(&output, width, width / 2, height / 2);
     assert!(sample[0] > sample[1], "body glow should add the configured red channel");
+
+    let particle_layers = vec![CompositeLayer {
+        texture_view: &source_view,
+        lut: None,
+        z_index: 0,
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        transform: LayerTransform::default(),
+        crop: CropMargins::default(),
+        color_grade: ColorGradeUniforms::default(),
+        chroma_key: ChromaKeyUniforms::default(),
+        mask_view: Some(&mask_view),
+        body_effect: BodyEffectUniforms {
+            color: [1.0, 0.5, 0.0, 0.0],
+            params: [3.0, 1.0, 40.0, 1.0],
+        },
+    }];
+    let particle_output = compositor
+        .render_to_rgba_bytes(&ctx.device, &ctx.queue, &particle_layers)
+        .await
+        .expect("Body particle render failed");
+    assert!(particle_output
+        .chunks_exact(4)
+        .any(|pixel| pixel[0] > pixel[1] && pixel[1] > 100),
+        "body particles should add a visible configured orange particle");
 }
 
 // -----------------------------------------------------------------------------

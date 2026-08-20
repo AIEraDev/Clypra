@@ -134,7 +134,7 @@ pub struct ColorGradeUniforms {
 #[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
 pub struct BodyEffectUniforms {
     pub color: [f32; 4], // RGB + padding
-    pub params: [f32; 4], // renderer type, strength, radius, time
+    pub params: [f32; 4], // renderer type, strength, radius/count, time
 }
 
 impl Default for BodyEffectUniforms {

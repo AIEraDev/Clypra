@@ -298,7 +298,7 @@ fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> R
         parse_blend_mode(&layer.blend_mode)?;
         if let Some(effect) = &layer.body_effect {
             if effect.mask_asset_id.trim().is_empty()
-                || !matches!(effect.renderer.as_str(), "body_outline" | "body_glow" | "body_segmentation_glow")
+                || !matches!(effect.renderer.as_str(), "body_outline" | "body_glow" | "body_segmentation_glow" | "body_particles")
                 || !effect.color_r.is_finite()
                 || !effect.color_g.is_finite()
                 || !effect.color_b.is_finite()
@@ -480,6 +480,7 @@ fn body_effect_from_snapshot(snapshot: Option<&BodyEffectSnapshot>) -> BodyEffec
     let renderer_type = match effect.renderer.as_str() {
         "body_outline" => 1.0,
         "body_glow" | "body_segmentation_glow" => 2.0,
+        "body_particles" => 3.0,
         _ => 0.0,
     };
     BodyEffectUniforms {

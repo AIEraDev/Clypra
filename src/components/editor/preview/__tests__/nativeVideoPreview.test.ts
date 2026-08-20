@@ -431,6 +431,44 @@ describe("buildNativeVideoProjectRequest", () => {
     });
   });
 
+  it("maps body particles to the native mask-driven particle pass", () => {
+    const request = buildNativeVideoProjectRequest(
+      makeScene([makeVideoLayer({
+        effects: [{
+          effectId: "fx-body-particles",
+          renderer: "body_particles",
+          type: "body_effect",
+          parameters: { particleColor: "#ff8000", particleCount: 120 },
+          intensity: 0.5,
+          localTime: 2,
+        }],
+      })]),
+      [{
+        assetId: "clip-1_fx-body-particles",
+        width: 1920,
+        height: 1080,
+        x: 0,
+        y: 0,
+        rotation: 0,
+        opacity: 0,
+        zIndex: -2147483648,
+        blendMode: "normal",
+        isMask: true,
+      }],
+    );
+
+    expect(request?.layers[0].bodyEffect).toEqual({
+      maskAssetId: "clip-1_fx-body-particles",
+      renderer: "body_particles",
+      colorR: 1,
+      colorG: 128 / 255,
+      colorB: 0,
+      strength: 0.5,
+      radius: 40,
+      time: 2,
+    });
+  });
+
   it("maps deterministic stylized shader effects into native grading", () => {
     const request = buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ effects: [

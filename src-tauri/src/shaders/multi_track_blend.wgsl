@@ -245,6 +245,14 @@ fn sample_body_mask(uv: vec2<f32>) -> f32 {
     return textureSample(t_mask, s_mask, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).a;
 }
 
+// Stable pseudo-random values keep body particles deterministic for a given
+// cell/time without uploading a particle buffer from the frontend.
+fn hash12(p: vec2<f32>) -> f32 {
+    var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+    p3 += vec3<f32>(dot(p3, p3.yzx + vec3<f32>(33.33)));
+    return fract((p3.x + p3.y) * p3.z);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 1. Branch-Free Crop Margin Clipping
@@ -286,7 +294,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var rgb = keyed_color.rgb;
 
     // Body effects use the segmentation alpha channel as a native texture
-    // binding. Type 1 is outline and type 2 is glow; zero means no mask node.
+    // binding. Type 1 is outline, type 2 is glow, and type 3 is particles;
+    // zero means no mask node.
     let body_type = layer.body_effect.params.x;
     if (body_type > 0.0 && layer.body_effect.params.y > 0.0) {
         let body_dimensions = vec2<f32>(textureDimensions(t_mask));
@@ -301,9 +310,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         if (body_type < 1.5) {
             let edge = max(neighbor_max - center_mask, 0.0) * layer.body_effect.params.y;
             rgb = clamp(rgb + layer.body_effect.color.xyz * edge, vec3<f32>(0.0), vec3<f32>(1.0));
-        } else {
+        } else if (body_type < 2.5) {
             let halo = (neighbor_max + center_mask) * 0.5 * layer.body_effect.params.y;
             rgb = clamp(rgb + layer.body_effect.color.xyz * halo, vec3<f32>(0.0), vec3<f32>(1.0));
+        } else {
+            // One candidate particle per deterministic grid cell. The native
+            // count is bounded to 40 by the frontend, keeping this pass cheap
+            // while retaining animated, mask-constrained particles.
+            let count = clamp(floor(layer.body_effect.params.z), 1.0, 40.0);
+            let grid = max(2.0, ceil(sqrt(count)));
+            let cell = floor(in.uv * grid);
+            let cell_index = cell.y * grid + cell.x;
+            if (cell_index < count) {
+                let time = layer.body_effect.params.w;
+                let jitter = vec2<f32>(
+                    hash12(cell + vec2<f32>(17.0, time * 0.73)),
+                    hash12(cell + vec2<f32>(41.0, time * 1.11))
+                );
+                let particle_uv = (cell + jitter) / grid;
+                let particle_radius = 0.055 + hash12(cell + vec2<f32>(73.0, 5.0)) * 0.045;
+                let cell_uv = fract(in.uv * grid);
+                let distance_to_particle = distance(cell_uv, jitter);
+                let particle_shape = 1.0 - smoothstep(0.0, particle_radius, distance_to_particle);
+                let particle_mask = sample_body_mask(particle_uv);
+                let particles = particle_shape * particle_mask * layer.body_effect.params.y;
+                rgb = clamp(rgb + layer.body_effect.color.xyz * particles, vec3<f32>(0.0), vec3<f32>(1.0));
+            }
         }
     }
 

@@ -677,7 +677,7 @@ export const PixiProgramPreview: React.FC = () => {
       for (const layer of mediaLayers) {
         const bodyEffects = (layer.effects ?? []).filter((effect) => {
           const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-          return effect.intensity > 0.001 && ["body_outline", "body_glow", "body_segmentation_glow"].includes(renderer);
+          return effect.intensity > 0.001 && ["body_outline", "body_glow", "body_segmentation_glow", "body_particles"].includes(renderer);
         });
         if (bodyEffects.length === 0) continue;
 

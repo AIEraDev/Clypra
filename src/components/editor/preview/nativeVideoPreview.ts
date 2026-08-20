@@ -22,7 +22,7 @@ const NATIVE_COLOR_GRADE_KEYS = new Set([
   "brightness", "sepia", "grayscale", "hue", "vignette", "invert", "grain", "vibrance",
   "lift", "crossProcess", "channelMix", "duotone", "splitTone",
 ]);
-const NATIVE_BODY_EFFECT_RENDERERS = new Set(["body_outline", "body_glow", "body_segmentation_glow"]);
+const NATIVE_BODY_EFFECT_RENDERERS = new Set(["body_outline", "body_glow", "body_segmentation_glow", "body_particles"]);
 
 /**
  * Build a scheduler identity without serializing large RGBA payloads on every
@@ -146,7 +146,7 @@ function getNativeColorGrade(
   if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
   const supportedEffectRenderers = new Set([
     "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
-    "vhs", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "body_outline", "body_glow", "body_segmentation_glow", "motion_blur", "radial_blur", "zoom_blur",
+    "vhs", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "body_outline", "body_glow", "body_segmentation_glow", "body_particles", "motion_blur", "radial_blur", "zoom_blur",
   ]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
@@ -505,15 +505,23 @@ function getNativeBodyEffect(
 
   const colorValue = renderer === "body_outline"
     ? effect.parameters.outlineColor ?? "#ffffff"
-    : effect.parameters.glowColor ?? "#00ffff";
+    : renderer === "body_particles"
+      ? effect.parameters.particleColor ?? effect.parameters.glowColor ?? "#00ffff"
+      : effect.parameters.glowColor ?? "#00ffff";
   if (typeof colorValue !== "string") return null;
   const [red, green, blue] = parseColor(colorValue);
   const strength = renderer === "body_outline"
     ? effect.intensity
-    : Number(effect.parameters.glowIntensity ?? 0.8) * effect.intensity;
+    : renderer === "body_particles"
+      ? effect.intensity
+      : Number(effect.parameters.glowIntensity ?? 0.8) * effect.intensity;
+  // For body_particles, the third uniform slot is the bounded particle count;
+  // outline/glow use the same slot for their mask sampling radius.
   const radius = renderer === "body_outline"
     ? Number(effect.parameters.thickness ?? 5) * effect.intensity
-    : Number(effect.parameters.glowRadius ?? 22) * effect.intensity;
+    : renderer === "body_particles"
+      ? Math.min(40, Math.max(1, Math.floor(Number(effect.parameters.particleCount ?? 120) * effect.intensity)))
+      : Number(effect.parameters.glowRadius ?? 22) * effect.intensity;
   if (!Number.isFinite(strength) || strength < 0 || !Number.isFinite(radius) || radius < 0) return null;
 
   return {

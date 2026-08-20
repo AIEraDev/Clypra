@@ -588,7 +588,7 @@ impl FrameRequest {
             }
             if let Some(body_effect) = layer.body_effect.as_ref() {
                 if body_effect.mask_asset_id.trim().is_empty()
-                    || !matches!(body_effect.renderer.as_str(), "body_outline" | "body_glow" | "body_segmentation_glow")
+                    || !matches!(body_effect.renderer.as_str(), "body_outline" | "body_glow" | "body_segmentation_glow" | "body_particles")
                     || !body_effect.color_r.is_finite()
                     || !body_effect.color_g.is_finite()
                     || !body_effect.color_b.is_finite()

@@ -156,7 +156,7 @@ export interface NativeVideoLayerSnapshot {
 
 export interface NativeBodyEffectSnapshot {
   maskAssetId: string;
-  renderer: "body_outline" | "body_glow" | "body_segmentation_glow";
+  renderer: "body_outline" | "body_glow" | "body_segmentation_glow" | "body_particles";
   colorR: number;
   colorG: number;
   colorB: number;
