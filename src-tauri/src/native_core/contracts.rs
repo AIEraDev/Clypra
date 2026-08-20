@@ -222,6 +222,16 @@ pub struct ColorGradeSnapshot {
     pub highlight_tint_strength: f32,
     #[serde(default = "default_color_grade_split_balance")]
     pub split_balance: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub glow_color_r: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub glow_color_g: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub glow_color_b: f32,
+    #[serde(default)]
+    pub glow_strength: f32,
+    #[serde(default)]
+    pub glow_radius: f32,
 }
 
 fn default_color_grade_multiplier() -> f32 { 1.0 }
@@ -407,6 +417,11 @@ impl FrameRequest {
                     || !color_grade.highlight_tint_b.is_finite()
                     || !color_grade.highlight_tint_strength.is_finite()
                     || !color_grade.split_balance.is_finite()
+                    || !color_grade.glow_color_r.is_finite()
+                    || !color_grade.glow_color_g.is_finite()
+                    || !color_grade.glow_color_b.is_finite()
+                    || !color_grade.glow_strength.is_finite()
+                    || !color_grade.glow_radius.is_finite()
                     || color_grade.contrast < 0.0
                     || color_grade.saturation < 0.0
                     || color_grade.sepia < 0.0
@@ -473,6 +488,15 @@ impl FrameRequest {
                     || color_grade.highlight_tint_strength > 1.0
                     || color_grade.split_balance < 0.0
                     || color_grade.split_balance > 1.0
+                    || color_grade.glow_color_r < 0.0
+                    || color_grade.glow_color_r > 1.0
+                    || color_grade.glow_color_g < 0.0
+                    || color_grade.glow_color_g > 1.0
+                    || color_grade.glow_color_b < 0.0
+                    || color_grade.glow_color_b > 1.0
+                    || color_grade.glow_strength < 0.0
+                    || color_grade.glow_strength > 1.0
+                    || color_grade.glow_radius < 0.0
                 {
                     return Err(NativeCoreError::InvalidContract(
                         "VideoLayerSnapshot contains invalid color-grade data".to_string(),

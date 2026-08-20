@@ -507,6 +507,13 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
             grade.highlight_tint_strength,
         ],
         split_params: [grade.split_balance, 0.0, 0.0, 0.0],
+        glow_color_strength: [
+            grade.glow_color_r,
+            grade.glow_color_g,
+            grade.glow_color_b,
+            grade.glow_strength,
+        ],
+        glow_params: [grade.glow_radius, 0.0, 0.0, 0.0],
         ..ColorGradeUniforms::default()
     })
 }

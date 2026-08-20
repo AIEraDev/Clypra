@@ -55,6 +55,8 @@ struct ColorGradeUniforms {
     shadow_tint: vec4<f32>, // RGB + strength
     highlight_tint: vec4<f32>, // RGB + strength
     split_params: vec4<f32>, // balance + padding
+    glow_color_strength: vec4<f32>, // RGB + strength
+    glow_params: vec4<f32>, // radius + padding
 };
 
 struct LayerUniforms {
@@ -266,6 +268,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     var rgb = keyed_color.rgb;
+
+    // Regular video glow: a bounded blur-plus-add pass. Body glow remains a
+    // separate mask-driven path and is intentionally not represented here.
+    if (layer.color_grade.glow_color_strength.w > 0.0 && layer.color_grade.glow_params.x > 0.0) {
+        let glow_rgb = sample_blurred_color(sample_uv, layer.color_grade.glow_params.x).rgb;
+        rgb = clamp(rgb + glow_rgb * layer.color_grade.glow_color_strength.xyz * layer.color_grade.glow_color_strength.w, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
 
     // 3. Clypra Studio ColorAdjustments order: invert, exposure, brightness,
     // contrast, saturation, grayscale, sepia, hue, white balance, grain, vignette.
