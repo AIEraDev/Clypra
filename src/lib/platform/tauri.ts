@@ -134,6 +134,7 @@ export async function renderNativeProjectFrame(
 }
 
 export interface NativeProjectVideoLayer {
+  layerId?: string;
   videoPath: string;
   timeSecs: number;
   x: number;
@@ -154,6 +155,7 @@ export interface NativeVideoProjectFrameRequest {
   clearColor?: [number, number, number, number];
   layers: NativeProjectVideoLayer[];
   rasterLayers?: import("./nativeCore").NativeRasterLayerSnapshot[];
+  transition?: import("./nativeCore").NativeTransitionSnapshot;
 }
 
 /**

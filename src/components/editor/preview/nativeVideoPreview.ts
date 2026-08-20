@@ -12,6 +12,7 @@ import {
   secondsToNativeTime,
   type NativeColorGradeSnapshot,
   type NativeBodyEffectSnapshot,
+  type NativeTransitionSnapshot,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
@@ -23,6 +24,49 @@ const NATIVE_COLOR_GRADE_KEYS = new Set([
   "lift", "crossProcess", "channelMix", "duotone", "splitTone",
 ]);
 const NATIVE_BODY_EFFECT_RENDERERS = new Set(["body_outline", "body_glow", "body_segmentation_glow", "body_particles"]);
+
+function getNativeTransitionSnapshot(
+  scene: EvaluatedScene,
+  mediaLayers: EvaluatedMediaLayer[],
+): NativeTransitionSnapshot | null | undefined {
+  if (scene.transitions.length === 0) return undefined;
+  if (scene.transitions.length !== 1 || mediaLayers.length !== 2) return null;
+
+  const transition = scene.transitions[0];
+  const outgoingIndex = mediaLayers.findIndex((layer) => layer.layerId === transition.outgoingLayer);
+  const incomingIndex = mediaLayers.findIndex((layer) => layer.layerId === transition.incomingLayer);
+  if (outgoingIndex < 0 || incomingIndex < 0 || outgoingIndex === incomingIndex) return null;
+
+  const renderer = (transition.renderer || transition.type || "").replace(/^fx-/, "").toLowerCase();
+  let transitionType: string;
+  if (["fade", "dissolve", "blur_fade", "directional_blur", "cross-dissolve"].includes(renderer)) {
+    transitionType = "cross-dissolve";
+  } else if (["wipe_left", "wipe_right", "wipe_up", "wipe_down", "wipe-left", "wipe-right", "wipe-up", "wipe-down"].includes(renderer)) {
+    transitionType = renderer.replace(/_/g, "-");
+  } else if (["zoom_blur", "zoom_in", "zoom_out", "zoom-blur"].includes(renderer)) {
+    transitionType = "zoom-blur";
+  } else {
+    return null;
+  }
+
+  const params = (transition.params ?? {}) as Record<string, unknown>;
+  const readFinite = (value: unknown, fallback: number): number | null => {
+    if (value === undefined) return fallback;
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  };
+  const feather = readFinite(params.feather, 0.1);
+  const intensity = readFinite(params.intensity ?? params.blurAmount, 1);
+  if (feather === null || intensity === null || !Number.isFinite(transition.progress)) return null;
+
+  return {
+    outgoingLayer: mediaLayers[outgoingIndex].layerId,
+    incomingLayer: mediaLayers[incomingIndex].layerId,
+    transitionType,
+    progress: Math.min(1, Math.max(0, transition.progress)),
+    feather: Math.min(1, Math.max(0, feather)),
+    intensity: Math.max(0, intensity),
+  };
+}
 
 /**
  * Build a scheduler identity without serializing large RGBA payloads on every
@@ -579,7 +623,6 @@ export function buildNativeVideoProjectRequest(
   scene: EvaluatedScene,
   rasterLayers: NativeRasterLayerSnapshot[] = [],
 ): NativeVideoProjectFrameRequest | null {
-  if (scene.transitions.length > 0) return null;
   if (scene.visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) return null;
   const clearColor = getNativeClearColor(scene);
   if (!clearColor) return null;
@@ -591,6 +634,9 @@ export function buildNativeVideoProjectRequest(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
   if (mediaLayers.length === 0 && textLayers.length === 0) return null;
+  const transition = getNativeTransitionSnapshot(scene, mediaLayers);
+  if (transition === null) return null;
+  if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) return null;
   if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) return null;
   if (!mediaLayers.every(isSupportedNativeVideoLayer)) {
     return null;
@@ -600,6 +646,7 @@ export function buildNativeVideoProjectRequest(
     const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects);
     const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
     return {
+      layerId: layer.layerId,
       videoPath: layer.sourcePath,
       timeSecs: layer.sourceTime,
       x: layer.x,
@@ -627,6 +674,7 @@ export function buildNativeVideoProjectRequest(
     clearColor,
     layers,
     ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
+    ...(transition ? { transition } : {}),
   };
 }
 
@@ -653,6 +701,7 @@ export function buildNativeFrameRequest(
       const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects);
       return {
       assetId: layer.mediaId,
+      layerId: layer.layerId,
       videoPath: request.layers[index].videoPath,
       sourceTime: secondsToNativeTime(layer.sourceTime, Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1)))),
       x: layer.x,
@@ -679,6 +728,7 @@ export function buildNativeFrameRequest(
       clearColor: request.clearColor ?? [0, 0, 0, 1],
       videoLayers,
       ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
+      ...(request.transition ? { transition: request.transition } : {}),
     },
     outputWidth,
     outputHeight,

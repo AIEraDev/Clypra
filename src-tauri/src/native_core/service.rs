@@ -95,7 +95,9 @@ mod tests {
                 canvas_width: 2,
                 canvas_height: 2,
                 clear_color: [0.0, 0.0, 0.0, 1.0],
+                transition: None,
                 video_layers: vec![VideoLayerSnapshot {
+                    layer_id: "layer-1".to_string(),
                     asset_id: "asset-1".to_string(),
                     video_path: "/tmp/clip.mp4".to_string(),
                     source_time: FrameTime::new(0, 0, 1_000_000).unwrap(),

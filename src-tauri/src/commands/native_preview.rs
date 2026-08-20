@@ -1,6 +1,7 @@
 use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime, NativeFrameService, NativeFrameServiceStats,
     NativeSurfacePresentation, PerformanceSample, PixelFormat, NATIVE_CORE_CONTRACT_VERSION,
+    TransitionSnapshot,
 };
 use crate::native_audio::NativeAudioClock;
 use crate::commands::lut::LutCache;
@@ -11,6 +12,7 @@ use crate::wgpu_compositor::{
     BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms, CompositeLayer,
     CropMargins, LayerTransform, MultiTrackCompositor, NativePreviewSession, NativeWgpuRenderer,
 };
+use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -144,6 +146,8 @@ pub struct NativeProjectSolidLayer {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeProjectVideoLayer {
+    #[serde(default)]
+    pub layer_id: String,
     pub video_path: String,
     pub time_secs: f64,
     pub x: f32,
@@ -207,6 +211,8 @@ pub struct NativeVideoProjectFrameRequest {
     pub layers: Vec<NativeProjectVideoLayer>,
     #[serde(default)]
     pub raster_layers: Vec<NativeProjectRasterLayer>,
+    #[serde(default)]
+    pub transition: Option<TransitionSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,6 +236,34 @@ fn parse_blend_mode(value: &str) -> Result<BlendMode, String> {
         "difference" => Ok(BlendMode::Difference),
         other => Err(format!("Unsupported native blend mode: {}", other)),
     }
+}
+
+fn validate_transition(transition: &TransitionSnapshot, layer_ids: &[String], raster_count: usize) -> Result<(), String> {
+    if layer_ids.len() != 2 || raster_count != 0 {
+        return Err("Native transitions currently require exactly two video layers and no raster layers".to_string());
+    }
+    if transition.outgoing_layer.trim().is_empty()
+        || transition.incoming_layer.trim().is_empty()
+        || transition.outgoing_layer == transition.incoming_layer
+        || !layer_ids.iter().any(|id| id == &transition.outgoing_layer)
+        || !layer_ids.iter().any(|id| id == &transition.incoming_layer)
+        || !transition.progress.is_finite()
+        || !transition.feather.is_finite()
+        || !transition.intensity.is_finite()
+        || !(0.0..=1.0).contains(&transition.progress)
+        || !(0.0..=1.0).contains(&transition.feather)
+        || transition.intensity < 0.0
+    {
+        return Err("Native transition contains invalid layer references or parameters".to_string());
+    }
+    let supported = matches!(
+        transition.transition_type.as_str(),
+        "cross-dissolve" | "wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "zoom-blur"
+    );
+    if !supported {
+        return Err(format!("Unsupported native transition type: {}", transition.transition_type));
+    }
+    Ok(())
 }
 
 fn validate_project_request(request: &NativeProjectFrameRequest) -> Result<(), String> {
@@ -316,6 +350,13 @@ fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> R
             }
         }
     }
+    if let Some(transition) = request.transition.as_ref() {
+        validate_transition(
+            transition,
+            &request.layers.iter().map(|layer| layer.layer_id.clone()).collect::<Vec<_>>(),
+            request.raster_layers.len(),
+        )?;
+    }
     let mut raster_bytes = 0usize;
     for layer in &request.raster_layers {
         let expected_bytes = (layer.width as usize)
@@ -376,6 +417,7 @@ fn to_video_project_request(
         .iter()
         .map(|layer| {
             Ok(NativeProjectVideoLayer {
+                layer_id: layer.layer_id.clone(),
                 video_path: layer.video_path.clone(),
                 time_secs: frame_time_seconds(layer.source_time)?,
                 x: layer.x * scale_x,
@@ -416,6 +458,7 @@ fn to_video_project_request(
         clear_color: request.project.clear_color,
         layers,
         raster_layers,
+        transition: request.project.transition.clone(),
     })
 }
 
@@ -631,6 +674,90 @@ fn build_native_composite_layers<'a>(
             })
         })
         .collect()
+}
+
+fn transition_uniforms(transition: &TransitionSnapshot) -> TransitionUniforms {
+    let (transition_type, angle_rad) = match transition.transition_type.as_str() {
+        "wipe-left" => (1, std::f32::consts::PI),
+        "wipe-right" => (1, 0.0),
+        "wipe-up" => (1, -std::f32::consts::FRAC_PI_2),
+        "wipe-down" => (1, std::f32::consts::FRAC_PI_2),
+        "zoom-blur" => (2, 0.0),
+        _ => (0, 0.0),
+    };
+    TransitionUniforms {
+        progress: transition.progress.clamp(0.0, 1.0),
+        transition_type,
+        feather: transition.feather.clamp(0.0, 1.0),
+        angle_rad,
+        blur_strength: transition.intensity.max(0.0),
+        ..TransitionUniforms::default()
+    }
+}
+
+fn transition_source_layer<'a>(layer: &CompositeLayer<'a>) -> CompositeLayer<'a> {
+    CompositeLayer {
+        texture_view: layer.texture_view,
+        lut: layer.lut,
+        z_index: layer.z_index,
+        // The evaluator already exposes transition opacity for the normal
+        // compositor. Native transition shaders own the blend, so each source
+        // must be rendered at full opacity to avoid double fading.
+        opacity: 1.0,
+        blend_mode: layer.blend_mode,
+        transform: layer.transform,
+        crop: layer.crop,
+        color_grade: layer.color_grade,
+        chroma_key: layer.chroma_key,
+        mask_view: layer.mask_view,
+        body_effect: layer.body_effect,
+    }
+}
+
+fn build_transition_sources<'a>(
+    request: &NativeVideoProjectFrameRequest,
+    layers: &'a [CompositeLayer<'a>],
+) -> Result<(CompositeLayer<'a>, CompositeLayer<'a>), String> {
+    let transition = request
+        .transition
+        .as_ref()
+        .ok_or_else(|| "Native transition source requested without transition metadata".to_string())?;
+    let outgoing_index = request
+        .layers
+        .iter()
+        .position(|layer| layer.layer_id == transition.outgoing_layer)
+        .ok_or_else(|| "Native transition outgoing layer is not present".to_string())?;
+    let incoming_index = request
+        .layers
+        .iter()
+        .position(|layer| layer.layer_id == transition.incoming_layer)
+        .ok_or_else(|| "Native transition incoming layer is not present".to_string())?;
+    let outgoing = layers
+        .get(outgoing_index)
+        .ok_or_else(|| "Native transition outgoing layer texture is not present".to_string())?;
+    let incoming = layers
+        .get(incoming_index)
+        .ok_or_else(|| "Native transition incoming layer texture is not present".to_string())?;
+    Ok((transition_source_layer(outgoing), transition_source_layer(incoming)))
+}
+
+fn create_transition_source_texture(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+    format: wgpu::TextureFormat,
+    label: &'static str,
+) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    })
 }
 
 /// Convert stream metadata into the explicit shader contract.
@@ -979,21 +1106,67 @@ async fn render_native_video_project_frame_bytes(
     let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;
     // Keep both decoded textures and their views alive through GPU readback.
     let _textures = textures;
-    let rgba = compositor
-        .render_to_rgba_bytes_with_size(
+    let clear_color = wgpu::Color {
+        r: request.clear_color[0].clamp(0.0, 1.0) as f64,
+        g: request.clear_color[1].clamp(0.0, 1.0) as f64,
+        b: request.clear_color[2].clamp(0.0, 1.0) as f64,
+        a: request.clear_color[3].clamp(0.0, 1.0) as f64,
+    };
+    let rgba = if let Some(transition) = request.transition.as_ref() {
+        let (from_layer, to_layer) = build_transition_sources(&request, &layers)?;
+        let from_texture = create_transition_source_texture(
             &session.gpu.device,
-            &session.gpu.queue,
             request.canvas_width,
             request.canvas_height,
-            &layers,
-            Some(wgpu::Color {
-                r: request.clear_color[0].clamp(0.0, 1.0) as f64,
-                g: request.clear_color[1].clamp(0.0, 1.0) as f64,
-                b: request.clear_color[2].clamp(0.0, 1.0) as f64,
-                a: request.clear_color[3].clamp(0.0, 1.0) as f64,
-            }),
-        )
-        .await?;
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            "Native Transition From Texture",
+        );
+        let to_texture = create_transition_source_texture(
+            &session.gpu.device,
+            request.canvas_width,
+            request.canvas_height,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            "Native Transition To Texture",
+        );
+        let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        compositor.composite_layers(
+            &session.gpu.device,
+            &session.gpu.queue,
+            &from_view,
+            std::slice::from_ref(&from_layer),
+            Some(clear_color),
+        )?;
+        compositor.composite_layers(
+            &session.gpu.device,
+            &session.gpu.queue,
+            &to_view,
+            std::slice::from_ref(&to_layer),
+            Some(clear_color),
+        )?;
+        compositor
+            .render_transition_to_rgba_bytes(
+                &session.gpu.device,
+                &session.gpu.queue,
+                request.canvas_width,
+                request.canvas_height,
+                &from_view,
+                &to_view,
+                &transition_uniforms(transition),
+            )
+            .await?
+    } else {
+        compositor
+            .render_to_rgba_bytes_with_size(
+                &session.gpu.device,
+                &session.gpu.queue,
+                request.canvas_width,
+                request.canvas_height,
+                &layers,
+                Some(clear_color),
+            )
+            .await?
+    };
 
     Ok(rgba)
 }
@@ -1288,19 +1461,62 @@ pub async fn present_native_frame(
         });
     }
     let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;
-
-    compositor.composite_layers(
-        &session.gpu.device,
-        &session.gpu.queue,
-        &target_view,
-        &layers,
-        Some(wgpu::Color {
-            r: legacy_request.clear_color[0].clamp(0.0, 1.0) as f64,
-            g: legacy_request.clear_color[1].clamp(0.0, 1.0) as f64,
-            b: legacy_request.clear_color[2].clamp(0.0, 1.0) as f64,
-            a: legacy_request.clear_color[3].clamp(0.0, 1.0) as f64,
-        }),
-    )?;
+    let clear_color = wgpu::Color {
+        r: legacy_request.clear_color[0].clamp(0.0, 1.0) as f64,
+        g: legacy_request.clear_color[1].clamp(0.0, 1.0) as f64,
+        b: legacy_request.clear_color[2].clamp(0.0, 1.0) as f64,
+        a: legacy_request.clear_color[3].clamp(0.0, 1.0) as f64,
+    };
+    if let Some(transition) = legacy_request.transition.as_ref() {
+        let (from_layer, to_layer) = build_transition_sources(&legacy_request, &layers)?;
+        let from_texture = create_transition_source_texture(
+            &session.gpu.device,
+            legacy_request.canvas_width,
+            legacy_request.canvas_height,
+            target_format,
+            "Native Surface Transition From Texture",
+        );
+        let to_texture = create_transition_source_texture(
+            &session.gpu.device,
+            legacy_request.canvas_width,
+            legacy_request.canvas_height,
+            target_format,
+            "Native Surface Transition To Texture",
+        );
+        let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        compositor.composite_layers(
+            &session.gpu.device,
+            &session.gpu.queue,
+            &from_view,
+            std::slice::from_ref(&from_layer),
+            Some(clear_color),
+        )?;
+        compositor.composite_layers(
+            &session.gpu.device,
+            &session.gpu.queue,
+            &to_view,
+            std::slice::from_ref(&to_layer),
+            Some(clear_color),
+        )?;
+        compositor.composite_transition(
+            &session.gpu.device,
+            &session.gpu.queue,
+            &target_view,
+            &from_view,
+            &to_view,
+            &transition_uniforms(transition),
+            Some(clear_color),
+        )?;
+    } else {
+        compositor.composite_layers(
+            &session.gpu.device,
+            &session.gpu.queue,
+            &target_view,
+            &layers,
+            Some(clear_color),
+        )?;
+    }
     // Keep decoded textures and views alive until after queue submission.
     let _textures = textures;
     surface_texture.present();

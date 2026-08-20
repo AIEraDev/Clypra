@@ -142,6 +142,7 @@ export interface NativeColorPolicy {
 }
 
 export interface NativeVideoLayerSnapshot {
+  layerId?: string;
   assetId: string;
   videoPath: string;
   sourceTime: NativeFrameTime;
@@ -155,6 +156,15 @@ export interface NativeVideoLayerSnapshot {
   blendMode: string;
   colorGrade?: NativeColorGradeSnapshot;
   bodyEffect?: NativeBodyEffectSnapshot;
+}
+
+export interface NativeTransitionSnapshot {
+  outgoingLayer: string;
+  incomingLayer: string;
+  transitionType: string;
+  progress: number;
+  feather?: number;
+  intensity?: number;
 }
 
 export interface NativeBodyEffectSnapshot {
@@ -263,6 +273,7 @@ export interface NativeProjectSnapshot {
   clearColor: [number, number, number, number];
   videoLayers: NativeVideoLayerSnapshot[];
   rasterLayers?: NativeRasterLayerSnapshot[];
+  transition?: NativeTransitionSnapshot;
 }
 
 export interface NativeFrameRequest {

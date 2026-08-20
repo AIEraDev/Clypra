@@ -106,6 +106,8 @@ impl Default for ColorPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoLayerSnapshot {
+    #[serde(default)]
+    pub layer_id: String,
     pub asset_id: String,
     pub video_path: String,
     pub source_time: FrameTime,
@@ -122,6 +124,22 @@ pub struct VideoLayerSnapshot {
     #[serde(default)]
     pub body_effect: Option<BodyEffectSnapshot>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionSnapshot {
+    pub outgoing_layer: String,
+    pub incoming_layer: String,
+    pub transition_type: String,
+    pub progress: f32,
+    #[serde(default = "default_transition_feather")]
+    pub feather: f32,
+    #[serde(default = "default_transition_intensity")]
+    pub intensity: f32,
+}
+
+fn default_transition_feather() -> f32 { 0.1 }
+fn default_transition_intensity() -> f32 { 1.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -319,6 +337,8 @@ pub struct ProjectSnapshot {
     pub video_layers: Vec<VideoLayerSnapshot>,
     #[serde(default)]
     pub raster_layers: Vec<RasterLayerSnapshot>,
+    #[serde(default)]
+    pub transition: Option<TransitionSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -649,6 +669,32 @@ impl FrameRequest {
                 }
             }
         }
+        if let Some(transition) = self.project.transition.as_ref() {
+            let layer_ids: Vec<&str> = self.project.video_layers.iter().map(|layer| layer.layer_id.as_str()).collect();
+            let supported = matches!(
+                transition.transition_type.as_str(),
+                "cross-dissolve" | "wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "zoom-blur"
+            );
+            if layer_ids.len() != 2
+                || !self.project.raster_layers.is_empty()
+                || transition.outgoing_layer.trim().is_empty()
+                || transition.incoming_layer.trim().is_empty()
+                || transition.outgoing_layer == transition.incoming_layer
+                || !layer_ids.iter().any(|id| *id == transition.outgoing_layer)
+                || !layer_ids.iter().any(|id| *id == transition.incoming_layer)
+                || !transition.progress.is_finite()
+                || !transition.feather.is_finite()
+                || !transition.intensity.is_finite()
+                || !(0.0..=1.0).contains(&transition.progress)
+                || !(0.0..=1.0).contains(&transition.feather)
+                || transition.intensity < 0.0
+                || !supported
+            {
+                return Err(NativeCoreError::UnsupportedFeature(
+                    "Native transition requires two video layers and a supported transition shader".to_string(),
+                ));
+            }
+        }
         if raster_bytes > 128 * 1024 * 1024 {
             return Err(NativeCoreError::InvalidContract(
                 "ProjectSnapshot raster layers exceed the byte limit".to_string(),
@@ -723,7 +769,9 @@ mod tests {
                 canvas_width: 1920,
                 canvas_height: 1080,
                 clear_color: [0.0, 0.0, 0.0, 1.0],
+                transition: None,
                 video_layers: vec![VideoLayerSnapshot {
+                    layer_id: "layer-1".to_string(),
                     asset_id: "asset-1".to_string(),
                     video_path: "/tmp/video.mp4".to_string(),
                     source_time: FrameTime::new(12, 400_000, DEFAULT_TIME_SCALE).unwrap(),

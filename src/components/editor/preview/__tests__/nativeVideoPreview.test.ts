@@ -32,11 +32,14 @@ function makeVideoLayer(overrides: Partial<EvaluatedMediaLayer> = {}): Evaluated
   };
 }
 
-function makeScene(visualLayers: EvaluatedScene["visualLayers"]): EvaluatedScene {
+function makeScene(
+  visualLayers: EvaluatedScene["visualLayers"],
+  transitions: EvaluatedScene["transitions"] = [],
+): EvaluatedScene {
   return {
     visualLayers,
     audioLayers: [],
-    transitions: [],
+    transitions,
     metadata: {
       time: 2,
       canvasWidth: 1920,
@@ -50,6 +53,45 @@ function makeScene(visualLayers: EvaluatedScene["visualLayers"]): EvaluatedScene
 }
 
 describe("buildNativeVideoProjectRequest", () => {
+  it("maps a supported two-video transition into the native graph", () => {
+    const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
+    const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming", sourcePath: "/Users/test/next.mp4" });
+    const request = buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+      transitionId: "transition-1",
+      type: "dissolve",
+      renderer: "dissolve",
+      progress: 0.5,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }]));
+
+    expect(request?.transition).toEqual({
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      transitionType: "cross-dissolve",
+      progress: 0.5,
+      feather: 0.1,
+      intensity: 1,
+    });
+  });
+
+  it("keeps unsupported creative transitions off the native path", () => {
+    const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
+    const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming" });
+    expect(buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+      transitionId: "transition-1",
+      type: "glitch",
+      renderer: "glitch",
+      progress: 0.5,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }]))).toBeNull();
+  });
+
   it("maps evaluated video layers into a project-sized native request", () => {
     const layer = makeVideoLayer({ x: 100, y: 50, width: 640, height: 360, zIndex: 7 });
 
@@ -58,6 +100,7 @@ describe("buildNativeVideoProjectRequest", () => {
       canvasHeight: 1080,
       clearColor: [0, 0, 0, 1],
       layers: [{
+        layerId: "clip-1",
         videoPath: "/Users/test/clip.mp4",
         timeSecs: 2,
         x: 100,
