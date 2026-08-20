@@ -44,6 +44,7 @@ import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOv
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
 import { useCaptionStore } from "@/store/captionStore";
+import type { EvaluatedScene } from "@/core/evaluation/types";
 
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
@@ -570,6 +571,43 @@ export const PixiProgramPreview: React.FC = () => {
     let transportRevision = 0;
     let lastTraceClockState = "";
     const nativeTextRasterCache = new Map<string, Promise<NativeTextRasterAsset>>();
+    const maxNativeTextRasterCacheEntries = 96;
+
+    const rasterizeNativeTextLayers = async (scene: EvaluatedScene): Promise<NativeTextRasterAsset[]> => {
+      const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+      if (!isTauriRuntime() || textLayers.length === 0) return [];
+
+      try {
+        return await Promise.all(textLayers.map((layer) => {
+          const key = buildNativeTextRasterKey(layer);
+          const cached = nativeTextRasterCache.get(key);
+          if (cached) {
+            nativeTextRasterCache.delete(key);
+            nativeTextRasterCache.set(key, cached);
+            return cached;
+          }
+
+          const raster = rasterizeTextLayerForNative(layer);
+          nativeTextRasterCache.set(key, raster);
+          while (nativeTextRasterCache.size > maxNativeTextRasterCacheEntries) {
+            const oldestKey = nativeTextRasterCache.keys().next().value as string | undefined;
+            if (!oldestKey) break;
+            nativeTextRasterCache.delete(oldestKey);
+          }
+          void raster.catch(() => {
+            if (nativeTextRasterCache.get(key) === raster) nativeTextRasterCache.delete(key);
+          });
+          return raster;
+        }));
+      } catch (error) {
+        // Keep the full Pixi scene authoritative if the browser canvas or
+        // Studio text engine cannot produce a native asset for this frame.
+        traceNativePreview("native-text-raster-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return [];
+      }
+    };
 
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
       maxCacheEntries: 12,
@@ -620,32 +658,7 @@ export const PixiProgramPreview: React.FC = () => {
       const isFirstFrame = lastRenderedFrameIndex === -1;
 
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
-      let nativeTextRasters: NativeTextRasterAsset[] = [];
-      const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-      if (isTauriRuntime() && textLayers.length > 0) {
-        try {
-          nativeTextRasters = await Promise.all(textLayers.map((layer) => {
-            const key = buildNativeTextRasterKey(layer);
-            const cached = nativeTextRasterCache.get(key);
-            if (cached) return cached;
-
-            const raster = rasterizeTextLayerForNative(layer);
-            nativeTextRasterCache.set(key, raster);
-            void raster.catch(() => {
-              if (nativeTextRasterCache.get(key) === raster) nativeTextRasterCache.delete(key);
-            });
-            return raster;
-          }));
-        } catch (error) {
-          // Keep the full Pixi scene authoritative if the browser canvas or
-          // Studio text engine cannot produce a native asset for this frame.
-          nativeTextRasters = [];
-          traceNativePreview("native-text-raster-failed", {
-            frameIndex,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
+      const nativeTextRasters = await rasterizeNativeTextLayers(scene);
       const nativeRequest = buildNativeFrameRequest(
         scene,
         `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -656,10 +669,7 @@ export const PixiProgramPreview: React.FC = () => {
         nativeTextRasters,
       );
       let nativePlaybackRequest = nativeRequest;
-      // Text rasters are time-dependent assets. Do not submit a look-ahead
-      // video request with the current frame's text bitmap; native text
-      // look-ahead becomes safe once its own raster assets are prepared.
-      if (isPlaying && nativeRequest && nativeTextRasters.length === 0 && nativePresentationLatencyMs > 0) {
+      if (isPlaying && nativeRequest && nativePresentationLatencyMs > 0) {
         const leadFrames = Math.min(
           6,
           Math.max(0, Math.round((nativePresentationLatencyMs * frameRate) / 1000)),
@@ -678,6 +688,7 @@ export const PixiProgramPreview: React.FC = () => {
               state.epoch,
               state.transitions,
             );
+            const lookAheadTextRasters = await rasterizeNativeTextLayers(lookAheadScene);
             nativePlaybackRequest = buildNativeFrameRequest(
               lookAheadScene,
               `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -685,6 +696,7 @@ export const PixiProgramPreview: React.FC = () => {
               frameRate,
               state.canvasWidth,
               state.canvasHeight,
+              lookAheadTextRasters,
             ) ?? nativeRequest;
           }
         }
