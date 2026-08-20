@@ -263,6 +263,8 @@ export interface NativeRasterLayerSnapshot {
   blendMode: string;
   /** Mask-only assets are uploaded but omitted from visible compositing. */
   isMask?: boolean;
+  /** Text bridge assets are tracked separately from other native overlays. */
+  isText?: boolean;
 }
 
 export interface NativeProjectSnapshot {

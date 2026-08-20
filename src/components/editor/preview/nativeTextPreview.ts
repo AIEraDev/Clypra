@@ -15,6 +15,7 @@ export interface NativeTextRasterAsset {
   opacity: number;
   zIndex: number;
   blendMode: string;
+  isText: true;
 }
 
 function hashTextRasterKey(value: string): string {
@@ -133,5 +134,6 @@ export async function rasterizeTextLayerForNative(
     opacity: layer.opacity,
     zIndex: layer.zIndex,
     blendMode: layer.blendMode,
+    isText: true,
   };
 }

@@ -324,6 +324,8 @@ pub struct RasterLayerSnapshot {
     pub blend_mode: String,
     #[serde(default)]
     pub is_mask: bool,
+    #[serde(default)]
+    pub is_text: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -836,6 +838,7 @@ mod tests {
             z_index: 1,
             blend_mode: "normal".to_string(),
             is_mask: false,
+            is_text: false,
         }];
 
         value

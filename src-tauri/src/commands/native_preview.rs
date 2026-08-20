@@ -189,6 +189,8 @@ pub struct NativeProjectRasterLayer {
     pub blend_mode: String,
     #[serde(default)]
     pub is_mask: bool,
+    #[serde(default)]
+    pub is_text: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -449,6 +451,7 @@ fn to_video_project_request(
             z_index: layer.z_index,
             blend_mode: layer.blend_mode.clone(),
             is_mask: layer.is_mask,
+            is_text: layer.is_text,
         })
         .collect();
 

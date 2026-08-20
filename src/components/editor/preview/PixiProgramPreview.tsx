@@ -577,8 +577,10 @@ export const PixiProgramPreview: React.FC = () => {
     const nativeBodyMaskInFlight = new Map<string, Promise<NativeRasterLayerSnapshot | null>>();
     const nativeBodyMaskAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
     const registeredNativeBodyMaskAssets = new Set<string>();
+    const nativeSmartOverlayAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
     const maxNativeTextRasterCacheEntries = 96;
     const maxNativeBodyMaskCacheEntries = 90;
+    const maxNativeSmartOverlayCacheEntries = 48;
 
     const ensureNativeTextAssetRegistered = async (
       asset: NativeTextRasterAsset,
@@ -761,6 +763,60 @@ export const PixiProgramPreview: React.FC = () => {
       return true;
     };
 
+    const rasterizeNativeSmartOverlays = async (
+      smartClips: SmartOverlayClip[],
+      currentTime: number,
+      width: number,
+      height: number,
+      frameIndex: number,
+    ): Promise<NativeRasterLayerSnapshot[]> => {
+      if (!isTauriRuntime() || smartClips.length === 0 || typeof document === "undefined") return [];
+
+      const rasterWidth = Math.max(1, Math.round(width));
+      const rasterHeight = Math.max(1, Math.round(height));
+      const assetId = `native-smart-overlay:${frameIndex}:${smartClips.map((clip) => clip.id).join(",")}`;
+      const cached = nativeSmartOverlayAssetsById.get(assetId);
+      if (cached) {
+        return [{ ...cached, rgba: undefined }];
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = rasterWidth;
+      canvas.height = rasterHeight;
+      const context = canvas.getContext("2d");
+      if (!context) return [];
+      context.clearRect(0, 0, rasterWidth, rasterHeight);
+      for (const smartClip of smartClips) {
+        const renderer = new SmartOverlayRenderer(smartClip);
+        renderer.draw(context, currentTime - smartClip.startTime, rasterWidth, rasterHeight);
+      }
+
+      const rgba = Array.from(context.getImageData(0, 0, rasterWidth, rasterHeight).data);
+      if (!rgba.some((value, index) => index % 4 === 3 && value > 0)) return [];
+
+      const asset: NativeRasterLayerSnapshot & { rgba: number[] } = {
+        assetId,
+        rgba,
+        width: rasterWidth,
+        height: rasterHeight,
+        x: 0,
+        y: 0,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 1_000_000,
+        blendMode: "normal",
+        isText: false,
+      };
+      await registerNativeRasterAsset(asset);
+      nativeSmartOverlayAssetsById.set(assetId, asset);
+      while (nativeSmartOverlayAssetsById.size > maxNativeSmartOverlayCacheEntries) {
+        const oldestId = nativeSmartOverlayAssetsById.keys().next().value as string | undefined;
+        if (!oldestId) break;
+        nativeSmartOverlayAssetsById.delete(oldestId);
+      }
+      return [{ ...asset, rgba: undefined }];
+    };
+
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
       maxCacheEntries: 12,
       maxInFlight: 2,
@@ -821,7 +877,20 @@ export const PixiProgramPreview: React.FC = () => {
         scene,
         getActiveSessionOrNull()?.getPreviewVideoElements() ?? new Map(),
       );
-      const nativeRasterLayers = [...nativeTextRasters, ...nativeBodyMasks];
+      const nativeActiveSmartClips = state.clips.filter(
+        (clip): clip is SmartOverlayClip =>
+          clip.kind === "smart-overlay" &&
+          frameStartTime >= clip.startTime &&
+          frameStartTime <= clip.startTime + clip.duration,
+      );
+      const nativeSmartOverlays = await rasterizeNativeSmartOverlays(
+        nativeActiveSmartClips,
+        frameStartTime,
+        state.canvasWidth,
+        state.canvasHeight,
+        frameIndex,
+      );
+      const nativeRasterLayers = [...nativeTextRasters, ...nativeBodyMasks, ...nativeSmartOverlays];
       const nativeRequest = buildNativeFrameRequest(
         scene,
         `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -852,6 +921,19 @@ export const PixiProgramPreview: React.FC = () => {
               state.transitions,
             );
             const lookAheadTextRasters = await rasterizeNativeTextLayers(lookAheadScene);
+            const lookAheadSmartClips = state.clips.filter(
+              (clip): clip is SmartOverlayClip =>
+                clip.kind === "smart-overlay" &&
+                lookAheadTime >= clip.startTime &&
+                lookAheadTime <= clip.startTime + clip.duration,
+            );
+            const lookAheadSmartOverlays = await rasterizeNativeSmartOverlays(
+              lookAheadSmartClips,
+              lookAheadTime,
+              state.canvasWidth,
+              state.canvasHeight,
+              lookAheadFrame,
+            );
             nativePlaybackRequest = buildNativeFrameRequest(
               lookAheadScene,
               `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -859,7 +941,7 @@ export const PixiProgramPreview: React.FC = () => {
               frameRate,
               state.canvasWidth,
               state.canvasHeight,
-              lookAheadTextRasters,
+              [...lookAheadTextRasters, ...lookAheadSmartOverlays],
             ) ?? nativeRequest;
           }
         }
@@ -1527,6 +1609,7 @@ export const PixiProgramPreview: React.FC = () => {
                   width: displayWidth,
                   height: displayHeight,
                   background: "transparent",
+                  visibility: nativeSurfacePresenting ? "hidden" : "visible",
                 }}
               />
 

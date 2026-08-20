@@ -92,6 +92,29 @@ describe("buildNativeVideoProjectRequest", () => {
     }]))).toBeNull();
   });
 
+  it("routes static sticker image clips through the native media layer", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([makeVideoLayer({
+      clipKind: "sticker",
+      mediaType: "image",
+      stickerFormat: "static",
+      sourcePath: "/Users/test/sticker.png",
+    })]));
+
+    expect(request?.layers[0]).toMatchObject({
+      videoPath: "/Users/test/sticker.png",
+      timeSecs: 2,
+    });
+  });
+
+  it("keeps animated sticker formats out of the native media path", () => {
+    expect(buildNativeVideoProjectRequest(makeScene([makeVideoLayer({
+      clipKind: "sticker",
+      mediaType: "image",
+      stickerFormat: "lottie",
+      sourcePath: "/Users/test/sticker.json",
+    })]))).toBeNull();
+  });
+
   it("maps evaluated video layers into a project-sized native request", () => {
     const layer = makeVideoLayer({ x: 100, y: 50, width: 640, height: 360, zIndex: 7 });
 

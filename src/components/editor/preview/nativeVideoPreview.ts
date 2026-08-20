@@ -581,9 +581,10 @@ function getNativeBodyEffect(
 }
 
 function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
+  const isStaticSticker = layer.clipKind === "sticker" && layer.stickerFormat === "static";
   return (
     (layer.mediaType === "video" || layer.mediaType === "image") &&
-    layer.clipKind !== "sticker" &&
+    (layer.clipKind !== "sticker" || isStaticSticker) &&
     isNativeFileSource(layer.sourcePath) &&
     getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects) !== null &&
     (!layer.sourceRotation || layer.sourceRotation === 0) &&
@@ -629,7 +630,10 @@ export function buildNativeVideoProjectRequest(
 
   const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
   const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
-  if (textLayers.length !== visibleRasterLayers.length) return null;
+  const textRasterLayers = visibleRasterLayers.filter((layer) =>
+    layer.isText || (layer.isText === undefined && textLayers.length === visibleRasterLayers.length),
+  );
+  if (textLayers.length !== textRasterLayers.length) return null;
   const mediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );

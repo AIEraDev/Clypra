@@ -32,3 +32,8 @@ mask layer. Cross-dissolve, directional wipe, and zoom-blur are composed by
 the native wgpu transition pass for both the retained surface and readback.
 Creative transitions such as glitch, film-burn, and luma-wipe remain blocked
 until their shader contracts are implemented natively.
+
+Static sticker image clips and smart-overlay cards are also uploaded as
+immutable native raster assets, then composited by wgpu. The browser overlay
+canvas is hidden after native presentation succeeds, so the same card is not
+drawn twice. Animated Lottie/GIF stickers remain outside this tranche.
