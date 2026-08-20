@@ -1,6 +1,20 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DensityLevel, ThumbnailTile } from "../../types";
 import { toNativePath } from "./pathConversion";
+import type {
+  NativeFrameRequest,
+  NativeFrameServiceStats,
+  NativeAudioStatus,
+  NativeAudioClipStatus,
+  NativeGpuRuntimeStatus,
+  NativePlaybackPlan,
+  NativePlaybackState,
+  NativeFrameTime,
+  NativeSurfaceGeometry,
+  NativeSurfaceProbe,
+  NativeSurfacePresentation,
+} from "./nativeCore";
 
 export const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -156,6 +170,248 @@ export async function renderNativeVideoProjectFrame(
     })),
   };
   return invoke<ArrayBuffer>("render_native_video_project_frame", { request: nativeRequest });
+}
+
+/**
+ * Render through the versioned native-core contract. This is the preferred
+ * boundary for new preview, filmstrip, and export callers.
+ */
+export async function renderNativeFrame(request: NativeFrameRequest): Promise<ArrayBuffer> {
+  if (!isTauriRuntime()) {
+    throw new Error("renderNativeFrame requires the Tauri runtime");
+  }
+
+  const nativeRequest: NativeFrameRequest = {
+    ...request,
+    project: {
+      ...request.project,
+      videoLayers: request.project.videoLayers.map((layer) => ({
+        ...layer,
+        videoPath: toNativePath(layer.videoPath),
+      })),
+    },
+  };
+  return invoke<ArrayBuffer>("render_native_frame", { request: nativeRequest });
+}
+
+/**
+ * Submit a versioned frame directly to the retained native wgpu surface.
+ * Readback via renderNativeFrame remains the fallback when the preview is
+ * hosted in a browser canvas or the native surface is unavailable.
+ */
+export async function presentNativeFrame(
+  request: NativeFrameRequest,
+): Promise<NativeSurfacePresentation> {
+  if (!isTauriRuntime()) {
+    throw new Error("presentNativeFrame requires the Tauri runtime");
+  }
+
+  const nativeRequest: NativeFrameRequest = {
+    ...request,
+    project: {
+      ...request.project,
+      videoLayers: request.project.videoLayers.map((layer) => ({
+        ...layer,
+        videoPath: toNativePath(layer.videoPath),
+      })),
+    },
+  };
+  return invoke<NativeSurfacePresentation>("present_native_frame", { request: nativeRequest });
+}
+
+export async function getNativeFrameServiceStats(): Promise<NativeFrameServiceStats> {
+  if (!isTauriRuntime()) {
+    throw new Error("getNativeFrameServiceStats requires the Tauri runtime");
+  }
+  return invoke<NativeFrameServiceStats>("get_native_frame_service_stats");
+}
+
+export async function getNativeGpuStatus(): Promise<NativeGpuRuntimeStatus> {
+  if (!isTauriRuntime()) {
+    throw new Error("getNativeGpuStatus requires the Tauri runtime");
+  }
+
+  return invoke<NativeGpuRuntimeStatus>("get_native_gpu_status");
+}
+
+export async function probeNativeSurface(geometry: NativeSurfaceGeometry): Promise<NativeSurfaceProbe> {
+  if (!isTauriRuntime()) {
+    throw new Error("probeNativeSurface requires the Tauri runtime");
+  }
+  return invoke<NativeSurfaceProbe>("probe_native_surface", { geometry });
+}
+
+/** Convert a DOM preview rectangle into physical screen coordinates for the
+ * native child surface. The native host is deliberately sized in physical
+ * pixels so DPI changes cannot introduce a one-frame scaling mismatch. */
+export async function getNativePreviewSurfaceGeometry(
+  element: HTMLElement,
+): Promise<NativeSurfaceGeometry> {
+  if (!isTauriRuntime()) {
+    throw new Error("getNativePreviewSurfaceGeometry requires the Tauri runtime");
+  }
+
+  const rect = element.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const windowPosition = await getCurrentWindow().innerPosition();
+  return {
+    xPhysical: windowPosition.x + Math.round(rect.left * dpr),
+    yPhysical: windowPosition.y + Math.round(rect.top * dpr),
+    widthPhysical: Math.max(1, Math.round(rect.width * dpr)),
+    heightPhysical: Math.max(1, Math.round(rect.height * dpr)),
+    devicePixelRatio: dpr,
+  };
+}
+
+export async function resizeNativeSurface(geometry: NativeSurfaceGeometry): Promise<NativeSurfaceProbe> {
+  if (!isTauriRuntime()) {
+    throw new Error("resizeNativeSurface requires the Tauri runtime");
+  }
+
+  return invoke<NativeSurfaceProbe>("resize_native_surface", { geometry });
+}
+
+export async function hideNativeSurface(): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("hideNativeSurface requires the Tauri runtime");
+  }
+  await invoke("hide_native_surface");
+}
+
+export async function getNativeSurfaceStatus(): Promise<NativeSurfaceProbe | null> {
+  if (!isTauriRuntime()) {
+    throw new Error("getNativeSurfaceStatus requires the Tauri runtime");
+  }
+
+  return invoke<NativeSurfaceProbe | null>("get_native_surface_status");
+}
+
+export async function configureNativePlayback(plan: NativePlaybackPlan): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("configureNativePlayback requires the Tauri runtime");
+  return invoke<NativePlaybackState>("configure_native_playback", { plan });
+}
+
+export async function getNativePlaybackState(): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("getNativePlaybackState requires the Tauri runtime");
+  return invoke<NativePlaybackState>("get_native_playback_state");
+}
+
+export async function nativePlay(clock: NativeFrameTime): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("nativePlay requires the Tauri runtime");
+  return invoke<NativePlaybackState>("native_play", { clock });
+}
+
+export async function nativePause(clock: NativeFrameTime): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("nativePause requires the Tauri runtime");
+  return invoke<NativePlaybackState>("native_pause", { clock });
+}
+
+export async function nativeSeek(frameIndex: number): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("nativeSeek requires the Tauri runtime");
+  return invoke<NativePlaybackState>("native_seek", { frameIndex });
+}
+
+export async function nativeSeekFromAudio(frameIndex: number): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("nativeSeekFromAudio requires the Tauri runtime");
+  return invoke<NativePlaybackState>("native_seek_from_audio", { frameIndex });
+}
+
+export async function nativeTick(clock: NativeFrameTime): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("nativeTick requires the Tauri runtime");
+  return invoke<NativePlaybackState>("native_tick", { clock });
+}
+
+export async function nativePlayFromAudio(): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("nativePlayFromAudio requires the Tauri runtime");
+  return invoke<NativePlaybackState>("native_play_from_audio");
+}
+
+export async function nativePauseFromAudio(): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("nativePauseFromAudio requires the Tauri runtime");
+  return invoke<NativePlaybackState>("native_pause_from_audio");
+}
+
+export async function nativeTickFromAudio(): Promise<NativePlaybackState> {
+  if (!isTauriRuntime()) throw new Error("nativeTickFromAudio requires the Tauri runtime");
+  return invoke<NativePlaybackState>("native_tick_from_audio");
+}
+
+export async function startNativeAudio(): Promise<NativeAudioStatus> {
+  if (!isTauriRuntime()) throw new Error("startNativeAudio requires the Tauri runtime");
+  return invoke<NativeAudioStatus>("start_native_audio");
+}
+
+export async function stopNativeAudio(): Promise<void> {
+  if (!isTauriRuntime()) throw new Error("stopNativeAudio requires the Tauri runtime");
+  await invoke("stop_native_audio");
+}
+
+export async function getNativeAudioStatus(): Promise<NativeAudioStatus> {
+  if (!isTauriRuntime()) throw new Error("getNativeAudioStatus requires the Tauri runtime");
+  return invoke<NativeAudioStatus>("get_native_audio_status");
+}
+
+export async function pauseNativeAudio(): Promise<void> {
+  if (!isTauriRuntime()) throw new Error("pauseNativeAudio requires the Tauri runtime");
+  await invoke("pause_native_audio");
+}
+
+export async function resumeNativeAudio(): Promise<void> {
+  if (!isTauriRuntime()) throw new Error("resumeNativeAudio requires the Tauri runtime");
+  await invoke("resume_native_audio");
+}
+
+export async function setNativeAudioSpeed(speed: number): Promise<void> {
+  if (!isTauriRuntime()) throw new Error("setNativeAudioSpeed requires the Tauri runtime");
+  await invoke("set_native_audio_speed", { speed });
+}
+
+export async function setNativeAudioOutput(volume: number, muted: boolean): Promise<void> {
+  if (!isTauriRuntime()) throw new Error("setNativeAudioOutput requires the Tauri runtime");
+  await invoke("set_native_audio_output", { volume, muted });
+}
+
+export async function seekNativeAudio(positionTicks: number): Promise<void> {
+  if (!isTauriRuntime()) throw new Error("seekNativeAudio requires the Tauri runtime");
+  await invoke("seek_native_audio", { positionTicks });
+}
+
+export async function loadNativeAudioClip(options: {
+  path: string;
+  clipId: string;
+  timelineStartTicks: number;
+  sourceStartTicks?: number;
+  durationTicks?: number;
+  gain?: number;
+  fadeInTicks?: number;
+  fadeOutTicks?: number;
+}): Promise<NativeAudioClipStatus> {
+  if (!isTauriRuntime()) throw new Error("loadNativeAudioClip requires the Tauri runtime");
+  return invoke<NativeAudioClipStatus>("load_native_audio_clip", {
+    path: toNativePath(options.path),
+    clipId: options.clipId,
+    timelineStartTicks: options.timelineStartTicks,
+    sourceStartTicks: options.sourceStartTicks ?? 0,
+    durationTicks: options.durationTicks ?? 0,
+    gain: options.gain ?? 1,
+    fadeInTicks: options.fadeInTicks ?? 0,
+    fadeOutTicks: options.fadeOutTicks ?? 0,
+  });
+}
+
+export async function clearNativeAudioClip(): Promise<void> {
+  if (!isTauriRuntime()) throw new Error("clearNativeAudioClip requires the Tauri runtime");
+  await invoke("clear_native_audio_clip");
+}
+
+export async function getNativeAudioClip(): Promise<NativeAudioClipStatus | null> {
+  if (!isTauriRuntime()) throw new Error("getNativeAudioClip requires the Tauri runtime");
+  return invoke<NativeAudioClipStatus | null>("get_native_audio_clip");
+}
+
+export async function getNativeAudioClips(): Promise<NativeAudioClipStatus[]> {
+  if (!isTauriRuntime()) throw new Error("getNativeAudioClips requires the Tauri runtime");
+  return invoke<NativeAudioClipStatus[]>("get_native_audio_clips");
 }
 
 // ─── Native FFmpeg Decoder Commands ───────────────────────────────────────
