@@ -1,0 +1,30 @@
+{
+  "contractVersion": 1,
+  "requestId": "fixture:minimal:0",
+  "frameTime": {
+    "frameIndex": 0,
+    "ticks": 0,
+    "timescale": 1000000
+  },
+  "project": {
+    "schemaVersion": 1,
+    "projectRevision": "fixture:minimal",
+    "canvasWidth": 320,
+    "canvasHeight": 180,
+    "clearColor": [0, 0, 0, 1],
+    "videoLayers": [],
+    "rasterLayers": [],
+    "transition": null
+  },
+  "outputWidth": 320,
+  "outputHeight": 180,
+  "quality": "full",
+  "colorPolicy": {
+    "version": 1,
+    "workingSpace": "linear-rec709",
+    "outputFormat": "rgba8Srgb",
+    "toneMapHdrToSdr": true,
+    "displayProfile": "srgb-reference"
+  },
+  "renderGraphVersion": 1
+}

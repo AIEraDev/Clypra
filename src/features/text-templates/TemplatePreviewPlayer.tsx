@@ -3,6 +3,7 @@ import React, {
   forwardRef, useState
 } from 'react';
 import { TemplateRenderer } from '@clypra-studio/engine';
+import { getApiBaseUrl } from '@/lib/api';
 
 export interface TemplatePreviewPlayerHandle {
   play:        () => void;
@@ -233,9 +234,9 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
       );
     }
 
-    const previewUrl =
+  const previewUrl =
       template.preview ||
-      `https://clypra-worker-api.abdulkabirmusa.com/media/text-templates/${template.category}/${template.id}.webm`;
+      `${getApiBaseUrl()}/media/text-templates/${template.category}/${template.id}.webm`;
 
     return (
       <div className={className} style={{ position: 'relative', width, height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

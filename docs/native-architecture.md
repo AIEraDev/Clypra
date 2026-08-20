@@ -7,8 +7,8 @@ Status: migration branch `codex/native-architecture-migration`.
 Desktop Tauri is the authoritative runtime. Rust owns timeline evaluation,
 native decode, color normalization, frame graph evaluation, playback timing,
 thumbnails, filmstrips, and export. React owns editor controls and project
-state presentation. Pixi is a temporary final-frame bridge and interaction
-overlay; it is not an authoritative decoder or exporter.
+state presentation. The native surface is the only authoritative preview and
+export presentation path.
 
 ## Contract invariants
 
@@ -59,7 +59,7 @@ mixer with timeline seek, pause, gain, overlap summing, and device-rate
 conversion. The Tauri program preview now performs a controlled native-audio
 takeover and samples that clock into the shared PlaybackClock, including speed
 and seek re-anchoring. Representable video scenes also have a non-blocking
-continuous native-frame path with a validated browser/Pixi fallback. Direct
+continuous native-frame path. Direct
 surface presentation is now implemented as a retained child-surface command
 with physical-pixel positioning, stale-request rejection, and swapchain
 recovery. Full native effects/text and legacy retirement remain gated work.

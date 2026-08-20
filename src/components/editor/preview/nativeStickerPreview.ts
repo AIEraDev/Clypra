@@ -20,7 +20,7 @@ interface StickerRendererEntry {
  * Canvas-backed Lottie frame bridge for the native compositor.
  *
  * Lottie evaluation remains in the Studio-compatible JS engine for now, but
- * Pixi never receives the resulting frame. The pixels are registered once in
+ * The browser compositor never receives the resulting frame. The pixels are registered once in
  * the native GPU cache and the native graph owns transforms, blending, and
  * presentation. This is the migration seam until a Rust font/vector Lottie
  * evaluator is available on every target OS.

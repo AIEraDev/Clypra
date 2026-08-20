@@ -5,7 +5,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import { getActiveSessionOrNull, subscribeToSessionChanges } from "@/core/runtime/ProjectSession";
+import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { getTransformController } from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 import { AspectRatio } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
-import { getPreviewMediaSyncClips } from "./previewMediaSync";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 
 import { type TelemetryStats } from "./TelemetryOverlay";
@@ -50,7 +49,6 @@ import type { EvaluatedScene } from "@/core/evaluation/types";
 import { makeBodyMaskCacheKey, segmentBodyMask } from "@/features/body-effects";
 
 
-import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
 import {
   buildNativeFrameRequest,
@@ -88,7 +86,26 @@ function traceNativePreview(event: string, details: Record<string, unknown> = {}
   }
 }
 
-export const PixiProgramPreview: React.FC = () => {
+function drawNativeFrameToCanvas(
+  canvas: HTMLCanvasElement,
+  frame: { rgba: ArrayBuffer; width: number; height: number },
+): boolean {
+  if (frame.width <= 0 || frame.height <= 0 || frame.rgba.byteLength !== frame.width * frame.height * 4) {
+    return false;
+  }
+
+  if (canvas.width !== frame.width) canvas.width = frame.width;
+  if (canvas.height !== frame.height) canvas.height = frame.height;
+  const context = canvas.getContext("2d");
+  if (!context) return false;
+
+  const image = context.createImageData(frame.width, frame.height);
+  image.data.set(new Uint8ClampedArray(frame.rgba));
+  context.putImageData(image, 0, 0);
+  return true;
+}
+
+export const NativeProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
   const project = useProjectStore((s) => s.project);
   const updateProject = useProjectStore((s) => s.updateProject);
@@ -123,15 +140,12 @@ export const PixiProgramPreview: React.FC = () => {
   const [showTelemetry, setShowTelemetry] = useState(false);
   const [showSafeOverlay, setShowSafeOverlay] = useState(false);
   const [telemetryStats, setTelemetryStats] = useState<TelemetryStats | null>(null);
-  const [sessionReady, setSessionReady] = useState(false);
-  const [compositorReady, setCompositorReady] = useState(false);
   const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
   const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
   const [nativeOnlyBlocked, setNativeOnlyBlocked] = useState(false);
   const [nativeOnlyBlockers, setNativeOnlyBlockers] = useState<string[]>([]);
   const nativeOnlyBlockedRef = useRef(false);
   const nativeOnlyBlockersKeyRef = useRef("");
-  const hasStartedPlaybackRef = useRef(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const nativeSurfaceTargetRef = useRef<HTMLDivElement>(null);
@@ -157,7 +171,6 @@ export const PixiProgramPreview: React.FC = () => {
   const aspectMenuRef = useRef<HTMLDivElement>(null);
   const speedMenuRef = useRef<HTMLDivElement>(null);
   const qualityMenuRef = useRef<HTMLDivElement>(null);
-  const compositorRef = useRef<PixiSceneCompositor | null>(null);
   const qualityManagerRef = useRef<PreviewQualityManager | null>(null);
   // Native frames are authoritative for representable scenes. Retaining the
   // last successful frame prevents media-pool updates or native decode latency
@@ -174,7 +187,6 @@ export const PixiProgramPreview: React.FC = () => {
   const prevFrameRateRef = useRef<number>(0);
   const isMutedRef = useRef(isMuted);
   const volumeRef = useRef(volume);
-  const lastSyncedMediaHashRef = useRef<string>("");
 
   isMutedRef.current = isMuted;
   volumeRef.current = volume;
@@ -227,8 +239,7 @@ export const PixiProgramPreview: React.FC = () => {
   const { scale, offsetX, offsetY, displayWidth, displayHeight } = displayTransform;
 
   // The native presenter is hosted in a transparent child surface positioned
-  // over the displayed program viewport. It is configured only in Tauri; the
-  // browser path remains entirely DOM/Pixi-owned.
+  // over the displayed program viewport and configured only in Tauri.
   useEffect(() => {
     if (!isTauriRuntime() || !nativeSurfaceTargetRef.current || displayWidth <= 0 || displayHeight <= 0) {
       return;
@@ -368,15 +379,8 @@ export const PixiProgramPreview: React.FC = () => {
   }, [project?.id, project?.aspectRatio]);
 
   useEffect(() => {
-    hasStartedPlaybackRef.current = false;
     nativeDisplayedFrameRef.current = null;
   }, [project?.id]);
-
-  useEffect(() => {
-    if (clockState.state === "playing") {
-      hasStartedPlaybackRef.current = true;
-    }
-  }, [clockState.state]);
 
   useEffect(() => {
     if (!project) return;
@@ -443,98 +447,12 @@ export const PixiProgramPreview: React.FC = () => {
     // `project?.id` covers project-switch; no need for the full unstable `project` object.
   }, [project?.id, canvasWidth, canvasHeight, displayWidth, displayHeight]);
 
-  // ── Initialize PixiSceneCompositor ──────────────────────────────
-  // Check session readiness and trigger compositor init
-  useEffect(() => {
-    const checkReadiness = () => {
-      const session = getActiveSessionOrNull();
-      const mediaPool = session?.getPreviewMediaPool();
-      const isReady = !!(session && session.state === "active" && mediaPool);
-      setSessionReady(isReady);
-    };
-
-    checkReadiness();
-
-    const unsubscribe = subscribeToSessionChanges(() => {
-      checkReadiness();
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, []);
-
-  // Compositor initialization (canvas/project identity changes only)
-  useEffect(() => {
-    if (!canvasEl || !project || !sessionReady) return;
-
-    // Skip if compositor already initialized
-    if (compositorRef.current) return;
-
-    let isActive = true;
-    setCompositorReady(false);
-
-    const session = getActiveSessionOrNull();
-    const mediaPool = session?.getPreviewMediaPool();
-
-    if (!mediaPool) {
-      // Session/pool not ready yet - should not happen since sessionReady=true
-      console.warn("[PreviewLifecycle] compositor-init: sessionReady=true but mediaPool is null");
-      return;
-    }
-
-    const backingW = Math.round(displayWidth);
-    const backingH = Math.round(displayHeight);
-
-    try {
-      const compositor = new PixiSceneCompositor(canvasEl, backingW, backingH, mediaPool);
-      compositorRef.current = compositor;
-      mediaPool.setCompositor(compositor);
-
-      // The shared engine starts Pixi asynchronously. The render loop must not
-      // compose against its intentional clear-frame state before init completes.
-      void compositor.waitForReady().then(() => {
-        if (isActive && compositorRef.current === compositor) {
-          setCompositorReady(true);
-        }
-      }).catch((err) => {
-        if (isActive) {
-          console.error("[PixiProgramPreview] Pixi renderer failed to become ready:", err);
-        }
-      });
-    } catch (err) {
-      console.error("[PixiProgramPreview] Failed to initialize WebGL Compositor:", err);
-    }
-
-    return () => {
-      isActive = false;
-      setCompositorReady(false);
-      mediaPool.setCompositor(null);
-      if (compositorRef.current) {
-        compositorRef.current.destroy();
-        compositorRef.current = null;
-      }
-    };
-  }, [canvasEl, project?.id, sessionReady]);
-
-  // Compositor resize (dimensions change only)
-  useEffect(() => {
-    if (!compositorRef.current) return;
-
-    const backingW = Math.round(displayWidth);
-    const backingH = Math.round(displayHeight);
-
-    try {
-      compositorRef.current.resize(backingW, backingH);
-    } catch (err) {
-      console.error("[PixiProgramPreview] Failed to resize compositor:", err);
-    }
-
-  }, [displayWidth, displayHeight]);
-
   // ── Render loop ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!canvasEl || !project || !compositorReady || !compositorRef.current) return;
+    // The desktop editor is the native runtime. Browser rendering is kept out
+    // of this component so a missing native runtime cannot silently resurrect a
+    // second renderer.
+    if (!canvasEl || !project || !isTauriRuntime()) return;
 
     let rafId: number | null = null;
     let isActive = true;
@@ -549,10 +467,6 @@ export const PixiProgramPreview: React.FC = () => {
     let lastRenderedTracks = renderStateRef.current.tracks;
     let lastRenderedTransitions = renderStateRef.current.transitions;
     let lastRenderedProject = renderStateRef.current.project;
-    // Tracks clip keys (id-mediaId) that have ever reported readyState > 2.
-    // Resets when this effect restarts (project switch, canvas remount).
-    // Used by the Bug 4 refinement to distinguish initial slow-load from mid-seek dips.
-    const everReadyClipKeys = new Set<string>();
     let nativeRetryAt = 0;
     let nativeRetryKey = "";
     let nativeFailureKey = "";
@@ -563,12 +477,12 @@ export const PixiProgramPreview: React.FC = () => {
     let nativeDroppedFrameCount = 0;
     let nativeContinuousBlockedRevision = "";
     let nativeContinuousObservedRevision = "";
+
     // Native frame decode/presentation is asynchronous. A small measured
     // look-ahead keeps the frame that completes aligned with the audio clock
     // instead of presenting the frame that was current when decoding started.
     let nativePresentationLatencyMs = 0;
     let nativeSurfaceShown = false;
-    let browserMediaPausedForNative = false;
     let lastNativePlaybackRequestKey = "";
     let nativeSurfaceFailureKey = "";
     let visibleRequestKey = "";
@@ -643,8 +557,8 @@ export const PixiProgramPreview: React.FC = () => {
 
         return assets.map(({ rgba: _rgba, ...asset }) => asset);
       } catch (error) {
-        // Keep the full Pixi scene authoritative if the browser canvas or
-        // Studio text engine cannot produce a native asset for this frame.
+        // Keep the native request authoritative if the browser text rasterizer
+        // cannot produce an asset for this frame.
         traceNativePreview("native-text-raster-failed", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -986,7 +900,6 @@ export const PixiProgramPreview: React.FC = () => {
       const timeChanged = frameIndex !== lastRenderedFrameIndex;
       const epochChanged = state.epoch !== lastRenderedEpoch;
       const transportChanged = transportRevision !== lastRenderedTransportRevision;
-      const playbackStateChanged = lastRenderedPlaybackState !== playbackState;
       const isFirstFrame = lastRenderedFrameIndex === -1;
 
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
@@ -1102,8 +1015,8 @@ export const PixiProgramPreview: React.FC = () => {
       const targetGeneration = visibleRequestGeneration;
       // Do not hand the visible surface to native video until native audio has
       // supplied its first hardware-clock sample. Before that point the
-      // browser/Pixi fallback remains synchronized to the pre-takeover clock;
-      // switching surfaces early causes the exact play-toggle desync/jump.
+      // Wait for the native audio clock before handing continuous playback to
+      // the retained surface; readback remains available while it initializes.
       const nativeAudioClockReady = !isTauriRuntime() || state.clock.hasNativeClockPosition;
       const nativePlaybackPath = isTauriRuntime() && Boolean(nativePlaybackRequest) && isPlaying && nativeAudioClockReady;
       const nativePausedPath = isTauriRuntime() && Boolean(nativeRequest) && !isPlaying;
@@ -1114,7 +1027,7 @@ export const PixiProgramPreview: React.FC = () => {
         nativePlaybackPath || nativePausedSurfacePath
       );
       const nativeOnlyMode = isTauriRuntime() && NATIVE_PREVIEW_ONLY;
-      const nativeOnlySceneBlocked = nativeOnlyMode && (!nativeRequest || !nativeSurfaceReady);
+      const nativeOnlySceneBlocked = nativeOnlyMode && !nativeRequest;
       if (nativeOnlyMode) {
         const blockers = [
           ...(!nativeRequest ? getNativePreviewBlockers(scene, nativeRasterLayers) : []),
@@ -1137,7 +1050,6 @@ export const PixiProgramPreview: React.FC = () => {
       }
       if (nativeSurfaceShown && !nativeDirectSurfacePath && !nativeSurfaceOwnsCurrentFrame) {
         nativeSurfaceShown = false;
-        browserMediaPausedForNative = false;
         lastNativePlaybackRequestKey = "";
         setNativeSurfacePresenting(false);
         void hideNativeSurface().catch(() => undefined);
@@ -1164,18 +1076,12 @@ export const PixiProgramPreview: React.FC = () => {
           getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex;
       };
 
-      const activeSetChanged = scene.metadata.activeMediaHash !== lastSyncedMediaHashRef.current;
-      // Native paused preview owns decode and frame timing when the scene is
-      // representable by the Rust/wgpu compositor. The hidden DOM pool is
-      // synchronized only for playback or unsupported fallback compositions.
-      const needsFallbackSync = nativePausedReadbackPath && !cachedNativeFrame && (isFirstFrame || nativeFrameNeedsRetry || activeSetChanged || epochChanged);
-      const needsSync = !nativeOnlySceneBlocked && (isPlaying || needsFallbackSync || (!nativePausedPath && (activeSetChanged || epochChanged || isFirstFrame || playbackStateChanged || (!isPlaying && timeChanged))));
 
       // Continuous native presentation is intentionally non-blocking. The
       // render loop keeps the last accepted native frame while one request is
       // in flight, preventing native decode latency from stalling playback.
       if (
-        nativeDirectSurfacePath &&
+        (nativeDirectSurfacePath || (!nativeSurfaceReady && nativePlaybackPath)) &&
         (nativePlaybackRequest || nativeRequest) &&
         (isPlaying ? !cachedNativeFrame : true) &&
         nativeContinuousBlockedRevision !== nativeRevision &&
@@ -1223,11 +1129,11 @@ export const PixiProgramPreview: React.FC = () => {
               }
             } else if (isActive && renderStateRef.current.clock.state === playbackState) {
               nativeSurfaceShown = true;
-              // The direct native surface is the exclusive owner of the base
-              // video layer for playback and paused seeks. Leaving the Pixi
-              // canvas visible underneath creates a second, slightly
-              // different frame.
-              setNativeSurfacePresenting(true);
+              if (nativeSurfaceReady) {
+                // The direct native surface is the exclusive owner of the base
+                // video layer for playback and paused seeks.
+                setNativeSurfacePresenting(true);
+              }
             } else if (presentation.presented) {
               // The IPC request completed after the target changed. Do not
               // allow a stale direct frame to reappear above the current one.
@@ -1259,7 +1165,6 @@ export const PixiProgramPreview: React.FC = () => {
             nativeRetryAt = performance.now() + 250;
             if (nativeSurfaceShown) {
               nativeSurfaceShown = false;
-              browserMediaPausedForNative = false;
               lastNativePlaybackRequestKey = "";
               setNativeSurfacePresenting(false);
               void hideNativeSurface().catch(() => undefined);
@@ -1281,60 +1186,6 @@ export const PixiProgramPreview: React.FC = () => {
       const mediaReadyRevision = session?.getPreviewMediaReadyRevision() ?? 0;
       const mediaReadyChanged = mediaReadyRevision !== lastRenderedMediaReadyRevision;
 
-      if (needsSync && session && session.state === "active" && !nativeSurfaceShown) {
-        try {
-          session.syncPreviewMedia(getPreviewMediaSyncClips(state.clips, frameStartTime, state.transitions), state.mediaAssets, state.tracks, {
-            time: frameStartTime,
-            state: playbackState,
-            speed: state.clock.speed,
-            muted: true, // PreviewMediaPool DOM elements kept muted; AudioEngine handles all audible timeline output
-            volume: 0,
-            frameRate,
-          });
-          lastSyncedMediaHashRef.current = scene.metadata.activeMediaHash ?? "";
-        } catch (error) {
-          console.error(`[PixiProgramPreview] syncPreviewMedia error:`, error);
-        }
-      }
-
-      // Once the native surface owns playback, stop the hidden browser video
-      // elements too. Keeping them playing wastes decode time and can make
-      // their readiness callbacks continuously invalidate the Pixi path.
-      if (nativeSurfaceShown) {
-        if (!browserMediaPausedForNative) {
-          session?.pausePreviewMedia();
-          browserMediaPausedForNative = true;
-        }
-      }
-
-      // Bug 4 refinement: distinguish "never been ready" (initial slow-load) from
-      // "temporarily not ready" (seeking after previous successful renders).
-      // We only force re-renders for clips that have NEVER reported readyState > 2.
-      // Clips that are merely seeking don't need forced re-renders — the compositor
-      // handles absent/seeking frames gracefully. Forcing on every seek with multiple
-      // stacked clips hammers composeFrame every RAF tick → GPU overload → hang.
-      if (session && !nativePausedPath) {
-        const videoElements = session.getPreviewVideoElements();
-        const videoClips = state.clips.filter((c) => c.kind === "video");
-
-        if (videoClips.length > 0) {
-          let hasNeverReadyClip = false;
-          for (const clip of videoClips) {
-            const key = `${clip.id}-${clip.mediaId}`;
-            const el = videoElements.get(key);
-            if (el && el.readyState > 2) {
-              // Clip has decoded data — record it and stop forcing re-renders for it
-              everReadyClipKeys.add(key);
-            } else if (!everReadyClipKeys.has(key)) {
-              // Clip has never been ready — keep scheduling re-renders until it is
-              hasNeverReadyClip = true;
-            }
-            // else: clip has been ready before but is temporarily seeking — no action
-          }
-          if (hasNeverReadyClip) forceRenderNeeded = true;
-        }
-      }
-
       const transformController = getTransformController();
       const hasActiveTransform = transformController.getActiveTransform() !== null;
 
@@ -1354,24 +1205,10 @@ export const PixiProgramPreview: React.FC = () => {
         if (forceRenderNeeded) forceRenderNeeded = false;
       }
 
-      if (needsRender && compositorRef.current && !nativeSurfaceShown && !nativeOnlySceneBlocked) {
-        const canvasDpr = window.devicePixelRatio || 1;
-        // Bug 3 fix: read viewport transform values from renderStateRef rather than
-        // from the effect's closure. This lets scale/offsetX/offsetY/canvasWidth/
-        // canvasHeight change freely (pan, zoom, canvas resize) without causing the
-        // render loop effect to tear down and restart.
-        const viewportParams = {
-          scale: state.scale,
-          offsetX: state.offsetX,
-          offsetY: state.offsetY,
-          pixelRatio: canvasDpr,
-          projectWidth: state.canvasWidth,
-          projectHeight: state.canvasHeight,
-        };
-
-        const activeVideoElements = session?.getPreviewVideoElements() ?? new Map();
-        const preferPosterFrame = !isPlaying && !hasStartedPlaybackRef.current && frameIndex === 0;
-
+      // Native Tauri preview is a hard boundary. If the retained surface is
+      // temporarily unavailable, use the same native renderer's RGBA readback
+      // path; never create a second renderer.
+      if (needsRender && !nativeSurfaceShown && !nativeOnlySceneBlocked && !nativeDirectSurfacePath) {
         try {
           // Hold the previous native image while a new seek is decoding. It
           // is visual continuity only; `cachedNativeFrame` remains the
@@ -1380,23 +1217,6 @@ export const PixiProgramPreview: React.FC = () => {
           let nativeFrame = exactNativeFrame ?? ((nativePausedPath || nativePlaybackPath) ? nativeDisplayedFrameRef.current : null);
           const requestForRender = nativeRequest;
 
-          // The native full-resolution poster is an enhancement, not the
-          // first paint. Native FFmpeg/wgpu startup can take long enough that
-          // waiting here leaves Pixi showing its clear frame. Compose the
-          // existing poster immediately, then replace it below if the native
-          // readback succeeds.
-          if (preferPosterFrame) {
-            await compositorRef.current.composeFrame(
-              scene,
-              viewportParams,
-              activeVideoElements,
-              undefined,
-              new Map(),
-              null,
-              preferPosterFrame,
-            );
-          }
-
           const canUseNativePreview =
             isTauriRuntime() &&
             requestForRender !== null &&
@@ -1404,7 +1224,7 @@ export const PixiProgramPreview: React.FC = () => {
             // Paused seeks may await an exact native frame. Continuous native
             // playback is scheduled separately above and never blocks this
             // render loop; the returned frame is validated before replacing
-            // the existing Pixi/browser fallback.
+            // the existing native readback frame.
             !isPlaying &&
             !nativeDirectSurfacePath &&
             performance.now() >= nativeRetryAt &&
@@ -1454,11 +1274,9 @@ export const PixiProgramPreview: React.FC = () => {
                 bytes: loadedFrame.rgba.byteLength,
               });
             } catch (error) {
-              // Keep the fallback visible for this render boundary, then
+              // Keep the last native frame visible for this render boundary, then
               // retry this exact request. One failed readback must not
               // permanently disable paused seeking.
-              // Do not pass the previous native frame to Pixi here: that
-              // would make a failed seek look successful but visually frozen.
               nativeFrame = null;
               if (nativeFailureKey !== nativeRequestKey) {
                 nativeFailureKey = nativeRequestKey;
@@ -1467,8 +1285,8 @@ export const PixiProgramPreview: React.FC = () => {
               nativeFailureCount += 1;
               if (nativeFailureCount >= 3) {
                 // Repeated invalid payloads are a native-renderer failure, not
-                // a reason to hammer FFmpeg/wgpu every RAF. Fall back until the
-                // user changes the target or explicitly seeks again.
+                // a reason to hammer FFmpeg/wgpu every RAF. Wait until the user
+                // changes the target or explicitly seeks again.
                 nativeBlockedKey = nativeRequestKey;
               }
               nativeRetryAt = performance.now() + 250;
@@ -1481,7 +1299,10 @@ export const PixiProgramPreview: React.FC = () => {
                 attempt: nativeFailureCount,
                 blocked: nativeBlockedKey === nativeRequestKey,
               });
-              console.warn("[PixiProgramPreview] Native video preview unavailable; using Pixi fallback:", error);
+              if (nativeOnlyMode) {
+                setNativeOnlyBlocked(true);
+                setNativeOnlyBlockers(["Native GPU frame rendering failed for the current frame.", error instanceof Error ? error.message : String(error)]);
+              }
             }
           }
 
@@ -1530,37 +1351,14 @@ export const PixiProgramPreview: React.FC = () => {
             return;
           }
 
-          await compositorRef.current.composeFrame(
-            scene,
-            viewportParams,
-            activeVideoElements,
-            undefined, // resourceHandleMap (can be left undefined during preview)
-            new Map(), // bodyMasks map
-            nativeFrame,
-            preferPosterFrame,
-          );
-
-          // Render active smart-overlay clips if any
-          const currentTime = frameStartTime;
-          const activeSmartClips = state.clips.filter(
-            (c): c is SmartOverlayClip =>
-              c.kind === "smart-overlay" &&
-              currentTime >= c.startTime &&
-              currentTime <= c.startTime + c.duration
-          );
-
-          const smartCanvas = smartOverlayCanvasRefObj.current;
-          if (smartCanvas) {
-            const ctx2d = smartCanvas.getContext("2d");
-            if (ctx2d) {
-              ctx2d.clearRect(0, 0, smartCanvas.width, smartCanvas.height);
-              for (const smartClip of activeSmartClips) {
-                const renderer = new SmartOverlayRenderer(smartClip);
-                const relTime = currentTime - smartClip.startTime;
-                renderer.draw(ctx2d, relTime, smartCanvas.width, smartCanvas.height);
-              }
-            }
+          if (nativeFrame && canvasEl && !drawNativeFrameToCanvas(canvasEl, nativeFrame)) {
+            throw new Error("Native preview returned a frame that could not be drawn to the preview canvas");
           }
+
+          // Smart overlays are already rasterized into the native request. The
+          // separate overlay canvas must stay clear to avoid double rendering.
+          const smartCanvas = smartOverlayCanvasRefObj.current;
+          smartCanvas?.getContext("2d")?.clearRect(0, 0, smartCanvas.width, smartCanvas.height);
 
           if (!targetStillCurrent()) {
             forceRenderNeeded = true;
@@ -1611,7 +1409,7 @@ export const PixiProgramPreview: React.FC = () => {
             }, 500);
           }
         } catch (err) {
-          console.error("[PixiProgramPreview] composeFrame error:", err);
+          console.error("[NativeProgramPreview] native frame presentation error:", err);
         }
       }
 
@@ -1666,12 +1464,7 @@ export const PixiProgramPreview: React.FC = () => {
     // now read from renderStateRef inside the loop, so they are NOT listed as deps here.
     // Bug 6 fix: project?.id instead of full project object (updateProject always creates
     // a new reference, so `project` as a dep would restart the loop on every store write).
-    // sessionReady is required: the loop's early-return guard checks compositorRef.current,
-    // which is only set by the compositor-init effect (which also deps on sessionReady).
-    // Without sessionReady here the loop would return early on first run (no compositor yet)
-    // and never re-trigger after the compositor is created. React runs effects in source
-    // order so the compositor-init effect always fires before this one on the same dep change.
-  }, [canvasEl, project?.id, sessionReady, compositorReady, nativeSurfaceReady]);
+  }, [canvasEl, project?.id, nativeSurfaceReady]);
 
   useEffect(() => {
     setActiveContext("program");
@@ -1702,10 +1495,10 @@ export const PixiProgramPreview: React.FC = () => {
     <div className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
       <div className="flex items-center px-4 h-10 shrink-0 gap-2">
         <span className="text-[13px] font-semibold text-text-primary tracking-tight">
-          {isTauriRuntime() ? (NATIVE_PREVIEW_ONLY ? "Program Preview (Native-only)" : "Program Preview (Native)") : "Program Preview (PixiJS)"}
+          {isTauriRuntime() ? "Program Preview (Native)" : "Program Preview (Desktop required)"}
         </span>
         <span className="text-[13px] text-text-muted">
-          — {isTauriRuntime() ? (nativeSurfacePresenting ? "wgpu Surface" : NATIVE_PREVIEW_ONLY ? "Proof mode" : "Native-first / fallback") : "WebGL Pipeline"}
+          — {isTauriRuntime() ? (nativeSurfacePresenting ? "wgpu Surface" : "Native readback") : "Open the desktop runtime"}
         </span>
         <button onClick={() => setShowSafeOverlay((s) => !s)} className={cn("ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer", showSafeOverlay ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text-primary hover:bg-white/6")}>
           Safe Zones
@@ -1848,3 +1641,5 @@ export const PixiProgramPreview: React.FC = () => {
     </div>
   );
 };
+
+/** @deprecated Import NativeProgramPreview. Kept temporarily for downstream integrations. */

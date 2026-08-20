@@ -351,6 +351,11 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         transitionId: transition.transition.id,
         type: transition.transition.type,
         renderer: transition.transition.renderer, // Pass renderer from timeline transition
+        // Transition parameters are authored by Studio and persisted on the
+        // timeline item metadata. Keep them in the canonical scene so native
+        // preview/export and the compatibility compositor receive identical
+        // authoring data.
+        params: (transition.transition.metadata?.params ?? {}) as EvaluatedTransition["params"],
         progress: transition.progress,
         duration: transition.transition.placement.duration,
         outgoingLayer: outgoingLayer.layerId,

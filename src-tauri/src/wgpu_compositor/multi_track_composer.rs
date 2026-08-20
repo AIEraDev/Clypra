@@ -81,7 +81,7 @@ impl LayerTransform {
     }
 }
 
-/// Color grading uniforms matching multi_track_blend.wgsl (320 bytes).
+/// Color grading and procedural-effect uniforms matching multi_track_blend.wgsl.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
 pub struct ColorGradeUniforms {
@@ -129,6 +129,13 @@ pub struct ColorGradeUniforms {
     pub light_leak_params: [f32; 4], // angle, time + padding
     pub glitch_params: [f32; 4], // intensity, time, slice count, color shift
     pub distortion_params: [f32; 4], // type, strength, time, frequency
+    pub fire_params: [f32; 4], // height, particle count, intensity, time
+    pub fire_color_1: [f32; 4],
+    pub fire_color_2: [f32; 4],
+    pub fire_color_3: [f32; 4],
+    pub particle_params: [f32; 4], // count, size, drift speed, intensity
+    pub particle_color: [f32; 4], // RGB + mode/fade flag
+    pub particle_time: [f32; 4], // time + padding
 }
 
 /// Mask-driven body effect controls matching multi_track_blend.wgsl (32 bytes).
@@ -195,11 +202,18 @@ impl Default for ColorGradeUniforms {
             light_leak_params: [0.7853982, 0.0, 0.0, 0.0],
             glitch_params: [0.0, 0.0, 0.0, 0.0],
             distortion_params: [0.0, 0.0, 0.0, 0.0],
+            fire_params: [0.0, 0.0, 0.0, 0.0],
+            fire_color_1: [1.0, 0.2705882353, 0.0, 0.0],
+            fire_color_2: [1.0, 0.6470588235, 0.0, 0.0],
+            fire_color_3: [1.0, 0.8431372549, 0.0, 0.0],
+            particle_params: [0.0, 0.0, 0.0, 0.0],
+            particle_color: [1.0, 1.0, 1.0, 0.0],
+            particle_time: [0.0, 0.0, 0.0, 0.0],
         }
     }
 }
 
-/// GPU Uniform layout matching multi_track_blend.wgsl (512 bytes).
+/// GPU Uniform layout matching multi_track_blend.wgsl (608 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct LayerUniforms {
@@ -254,7 +268,7 @@ struct QuadVertex {
     uv: [f32; 2],
 }
 
-/// Uniforms for dual-texture GPU transitions matching gpu_transitions.wgsl (32 bytes).
+/// Uniforms for dual-texture GPU transitions matching gpu_transitions.wgsl (48 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
 pub struct TransitionUniforms {
@@ -266,6 +280,7 @@ pub struct TransitionUniforms {
     pub _pad0: f32,
     pub _pad1: f32,
     pub _pad2: f32,
+    pub fade_color: [f32; 4],
 }
 
 impl Default for TransitionUniforms {
@@ -279,6 +294,7 @@ impl Default for TransitionUniforms {
             _pad0: 0.0,
             _pad1: 0.0,
             _pad2: 0.0,
+            fade_color: [0.0, 0.0, 0.0, 1.0],
         }
     }
 }

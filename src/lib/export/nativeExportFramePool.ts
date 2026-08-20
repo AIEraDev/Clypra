@@ -54,9 +54,9 @@ function toUint8Array(value: ArrayBuffer | Uint8Array | number[]): Uint8Array {
 }
 
 /**
- * Supplies Pixi with stable canvas-backed video sources whose pixels come from
- * Clypra's native sequential FFmpeg decoder. Reusing one canvas per clip keeps
- * the Pixi texture stable while avoiding WebKit's slow paused-video seek path.
+ * Supplies the compatibility exporter with stable canvas-backed video sources
+ * whose pixels come from Clypra's native sequential FFmpeg decoder, avoiding
+ * WebKit's slow paused-video seek path.
  */
 export class NativeExportFramePool {
   private readonly surfaces = new Map<string, NativeFrameSurface>();

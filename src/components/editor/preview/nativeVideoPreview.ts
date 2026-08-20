@@ -24,6 +24,14 @@ const NATIVE_COLOR_GRADE_KEYS = new Set([
   "lift", "crossProcess", "channelMix", "duotone", "splitTone",
 ]);
 const NATIVE_BODY_EFFECT_RENDERERS = new Set(["body_outline", "body_glow", "body_segmentation_glow", "body_particles"]);
+const NATIVE_VIDEO_EFFECT_RENDERERS = new Set([
+  "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
+  "vhs", "glitch", "wave", "ripple", "bulge", "twist", "fisheye", "crt", "film_grain", "grain",
+  "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2",
+  "body_outline", "body_glow", "body_segmentation_glow", "body_particles",
+  "motion_blur", "radial_blur", "zoom_blur",
+  "fire", "particles", "dust_particles",
+]);
 const NATIVE_BACKGROUND_MEDIA_LAYER_ID = "__native-background-media";
 
 function getNativeTransitionSnapshot(
@@ -39,18 +47,53 @@ function getNativeTransitionSnapshot(
   if (outgoingIndex < 0 || incomingIndex < 0 || outgoingIndex === incomingIndex) return null;
 
   const renderer = (transition.renderer || transition.type || "").replace(/^fx-/, "").toLowerCase();
+  const params = (transition.params ?? {}) as Record<string, unknown>;
   let transitionType: string;
-  if (["fade", "dissolve", "blur_fade", "directional_blur", "cross-dissolve"].includes(renderer)) {
-    transitionType = "cross-dissolve";
+  let fadeColor: [number, number, number, number] | undefined;
+  if (["fade", "dissolve", "cross-dissolve"].includes(renderer)) {
+    if (renderer === "fade" && params.color !== undefined) {
+      if (typeof params.color !== "string") return null;
+      const parsed = parseColor(params.color);
+      fadeColor = [parsed[0] / 255, parsed[1] / 255, parsed[2] / 255, parsed[3]];
+      transitionType = "fade-through-color";
+    } else {
+      transitionType = "cross-dissolve";
+    }
+  } else if (["blur_fade", "directional_blur"].includes(renderer)) {
+    transitionType = "blur-fade";
   } else if (["wipe_left", "wipe_right", "wipe_up", "wipe_down", "wipe-left", "wipe-right", "wipe-up", "wipe-down"].includes(renderer)) {
     transitionType = renderer.replace(/_/g, "-");
+  } else if (["wipe_diagonal", "wipe-diagonal"].includes(renderer)) {
+    transitionType = "wipe-diagonal";
+  } else if (["wipe_clockwise", "wipe-clockwise"].includes(renderer)) {
+    transitionType = "wipe-clockwise";
+  } else if (["wipe_center", "wipe-center", "circle_expand", "circle-expand", "circle_collapse", "circle-collapse"].includes(renderer)) {
+    transitionType = "circle-wipe";
+  } else if (["diamond_expand", "diamond-expand"].includes(renderer)) {
+    transitionType = "diamond-wipe";
+  } else if (["rectangle_expand", "rectangle-expand"].includes(renderer)) {
+    transitionType = "rectangle-wipe";
+  } else if (["slide_left", "slide-left", "slide_right", "slide-right", "slide_up", "slide-up", "slide_down", "slide-down", "slide_push"].includes(renderer)) {
+    transitionType = renderer === "slide_push" ? "slide-right" : renderer.replace(/_/g, "-");
   } else if (["zoom_blur", "zoom_in", "zoom_out", "zoom-blur"].includes(renderer)) {
-    transitionType = "zoom-blur";
+    transitionType = renderer === "zoom_in" ? "zoom-in" : renderer === "zoom_out" ? "zoom-out" : "zoom-blur";
+  } else if (["glitch", "rgb_split", "rgb-split", "chromatic", "film_burn", "film-burn", "light_leak", "light-leak", "whip_pan", "whip-pan"].includes(renderer)) {
+    transitionType = renderer.replace(/_/g, "-");
+  } else if (["iris-reveal", "iris-wipe", "iris"].includes(renderer)) {
+    // The timeline currently persists the published renderer, not custom
+    // iris geometry. Reject non-default geometry instead of silently dropping
+    // the authoring parameters on the native path.
+    const centerX = params.centerX;
+    const centerY = params.centerY;
+    const shape = params.shape;
+    if ((centerX !== undefined && centerX !== 0.5) || (centerY !== undefined && centerY !== 0.5) || (shape !== undefined && shape !== "circle")) {
+      return null;
+    }
+    transitionType = "iris-wipe";
   } else {
     return null;
   }
 
-  const params = (transition.params ?? {}) as Record<string, unknown>;
   const readFinite = (value: unknown, fallback: number): number | null => {
     if (value === undefined) return fallback;
     return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -66,6 +109,7 @@ function getNativeTransitionSnapshot(
     progress: Math.min(1, Math.max(0, transition.progress)),
     feather: Math.min(1, Math.max(0, feather)),
     intensity: Math.max(0, intensity),
+    ...(fadeColor ? { fadeColor } : {}),
   };
 }
 
@@ -131,27 +175,91 @@ function getNativeBackgroundMediaOpacity(scene: EvaluatedScene): number {
   return typeof opacity === "number" && Number.isFinite(opacity) ? Math.min(1, Math.max(0, opacity)) : 1;
 }
 
+interface NativeMpgStackGrade {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  temperature: number;
+  tint: number;
+  sepia: number;
+  grayscale: number;
+  hueRotate: number;
+  vignette: number;
+  blurRadius: number;
+}
+
+/** Collapse supported MPG v2 single-input nodes into the native one-pass grade. */
+function resolveNativeMpgStack(
+  stack: ReadonlyArray<{ type: string; params?: Record<string, unknown> }> | undefined,
+): NativeMpgStackGrade | null | undefined {
+  if (!stack || stack.length === 0) return undefined;
+  const grade: NativeMpgStackGrade = {
+    brightness: 0, contrast: 1, saturation: 1, temperature: 0, tint: 0,
+    sepia: 0, grayscale: 0, hueRotate: 0, vignette: 0, blurRadius: 0,
+  };
+  const read = (params: Record<string, unknown>, keys: string[], fallback = 0): number | null => {
+    const value = keys.map((key) => params[key]).find((candidate) => candidate !== undefined);
+    if (value === undefined) return fallback;
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  };
+  const composite = (current: number, amount: number): number => 1 - (1 - current) * (1 - amount);
+  for (const node of stack) {
+    const type = node.type.replace(/[-_\s]/g, "").toLowerCase();
+    const params = node.params ?? {};
+    if (type === "brightness") {
+      const value = read(params, ["brightness"]); if (value === null) return null; grade.brightness += value;
+    } else if (type === "contrast") {
+      const value = read(params, ["contrast"]); if (value === null || value < -1 || value > 1) return null; grade.contrast *= 1 + value;
+    } else if (type === "saturation") {
+      const value = read(params, ["saturation"]); if (value === null || value < -1 || value > 1) return null; grade.saturation *= 1 + value;
+    } else if (type === "temperature") {
+      const value = read(params, ["temperature"]); if (value === null) return null; grade.temperature += value;
+    } else if (type === "tint") {
+      const value = read(params, ["tint"]); if (value === null) return null; grade.tint += value;
+    } else if (type === "sepia") {
+      const value = read(params, ["sepia"]); if (value === null || value < 0 || value > 1) return null; grade.sepia = composite(grade.sepia, value);
+    } else if (type === "grayscale") {
+      const value = read(params, ["grayscale"]); if (value === null || value < 0 || value > 1) return null; grade.grayscale = composite(grade.grayscale, value);
+    } else if (type === "huerotate") {
+      const value = read(params, ["hueRotate", "hue"]); if (value === null) return null; grade.hueRotate += Math.abs(value) > Math.PI * 2 ? (value * Math.PI) / 180 : value;
+    } else if (type === "vignette") {
+      const value = read(params, ["vignette"]); if (value === null || value < 0 || value > 1) return null; grade.vignette = composite(grade.vignette, value);
+    } else if (type === "gaussianblur") {
+      const value = read(params, ["blur", "blurAmount"]); if (value === null || value < 0) return null; grade.blurRadius += value;
+    } else {
+      return null;
+    }
+  }
+  return grade;
+}
+
 function getNativeColorGrade(
   adjustments: EvaluatedMediaLayer["adjustments"],
   colorGrade: EvaluatedMediaLayer["colorGrade"],
   filter: EvaluatedMediaLayer["filter"],
   effects: EvaluatedMediaLayer["effects"],
+  mpgStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>,
 ): NativeColorGradeSnapshot | null | undefined {
   const grade = colorGrade as Record<string, unknown> | undefined;
   const hasLut = grade?.hasLut === 1;
   const activeFilter = filter && filter.intensity > 0.001 ? filter : undefined;
   const preset = activeFilter?.gradingParams as Record<string, unknown> | undefined;
   const presetIntensity = activeFilter?.intensity ?? 0;
+  const layerMpgStack = (filter as (typeof filter & {
+    effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
+  }) | undefined)?.effectStack;
+  const mpgGrade = resolveNativeMpgStack(mpgStack ?? layerMpgStack);
+  if (mpgGrade === null) return null;
   let filterIR: FilterIR = {};
   if (activeFilter) {
     filterIR = resolveFilterToIR(activeFilter.id, activeFilter.intensity);
-    if (Object.keys(filterIR).length === 0 && !preset) return null;
+    if (Object.keys(filterIR).length === 0 && !preset && !mpgGrade) return null;
   }
   const hasGradeValues = Boolean(grade && (
     grade.exposure !== 0 || grade.contrast !== 1 || grade.saturation !== 1 ||
     grade.temperature !== 0 || grade.tint !== 0 || grade.lift !== 0 ||
     grade.crossProcessAmount !== 0 || hasLut
-  )) || Boolean(preset && Object.keys(preset).length > 0);
+  )) || Boolean(preset && Object.keys(preset).length > 0) || Boolean(mpgGrade);
   const activeEffects = (effects ?? []).filter((effect) => effect.intensity > 0.001);
   if (!hasMeaningfulObject(adjustments) && !hasGradeValues && !activeFilter && activeEffects.length === 0) return undefined;
   if (hasLut && (typeof grade?.lutId !== "string" || !grade.lutId.trim())) return null;
@@ -201,13 +309,9 @@ function getNativeColorGrade(
     "channelMix", "splitTone", "duotone", "vibrance", "crossProcess",
   ]);
   if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
-  const supportedEffectRenderers = new Set([
-    "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
-  "vhs", "glitch", "wave", "ripple", "bulge", "twist", "fisheye", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "body_outline", "body_glow", "body_segmentation_glow", "body_particles", "motion_blur", "radial_blur", "zoom_blur",
-  ]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-    return !supportedEffectRenderers.has(renderer);
+    return !NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer);
   })) return null;
   const blurEffects = activeEffects.filter((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
@@ -216,7 +320,7 @@ function getNativeColorGrade(
   const blurRadius = blurEffects.reduce((total, effect) => {
     const amount = Number(effect.parameters.blur ?? effect.parameters.blurAmount ?? 10);
     return Number.isFinite(amount) && amount >= 0 ? total + amount * effect.intensity : Number.NaN;
-  }, 0);
+  }, mpgGrade?.blurRadius ?? 0);
   if (!Number.isFinite(blurRadius)) return null;
   let pixelateSize = 0;
   let scanlineCount = 0;
@@ -247,6 +351,13 @@ function getNativeColorGrade(
   let distortionStrength = 0;
   let distortionTime = 0;
   let distortionFrequency = 6;
+  let fireParams: [number, number, number, number] = [0, 0, 0, 0];
+  let fireColor1: [number, number, number, number] = [1, 0.2705882353, 0, 0];
+  let fireColor2: [number, number, number, number] = [1, 0.6470588235, 0, 0];
+  let fireColor3: [number, number, number, number] = [1, 0.8431372549, 0, 0];
+  let particleParams: [number, number, number, number] = [0, 0, 0, 0];
+  let particleColor: [number, number, number, number] = [1, 1, 1, 0];
+  let particleTime = 0;
   for (const effect of activeEffects) {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
     if (renderer === "wave" || renderer === "ripple" || renderer === "bulge" || renderer === "twist" || renderer === "fisheye") {
@@ -350,6 +461,51 @@ function getNativeColorGrade(
       } else {
         effectVignette = Math.max(effectVignette, effect.intensity);
       }
+    } else if (renderer === "fire") {
+      const fireHeight = Number(effect.parameters.fireHeight ?? 0.4);
+      const particleCount = Number(effect.parameters.particleCount ?? 50);
+      const colors = [
+        effect.parameters.fireColor1 ?? "#FF4500",
+        effect.parameters.fireColor2 ?? "#FFA500",
+        effect.parameters.fireColor3 ?? "#FFD700",
+      ];
+      if (
+        !Number.isFinite(fireHeight) || fireHeight < 0.1 || fireHeight > 0.8 ||
+        !Number.isFinite(particleCount) || particleCount < 1 || particleCount > 128 ||
+        colors.some((value) => typeof value !== "string")
+      ) return null;
+      const parsedColors = colors.map((value) => {
+        const [red, green, blue] = parseColor(value as string);
+        return [red / 255, green / 255, blue / 255, 0] as [number, number, number, number];
+      });
+      if (effect.intensity >= fireParams[2]) {
+        fireParams = [fireHeight, particleCount, Math.min(1, effect.intensity), Math.max(0, effect.localTime)];
+        [fireColor1, fireColor2, fireColor3] = parsedColors as [
+          [number, number, number, number],
+          [number, number, number, number],
+          [number, number, number, number],
+        ];
+      }
+    } else if (renderer === "particles" || renderer === "dust_particles") {
+      const particleCount = Number(effect.parameters.particleCount ?? (renderer === "dust_particles" ? 60 : 100));
+      const particleSize = Number(effect.parameters.particleSize ?? (renderer === "dust_particles" ? 2 : 3));
+      const driftSpeed = Number(effect.parameters.driftSpeed ?? (renderer === "dust_particles" ? 0.2 : 1));
+      const fadeEffect = renderer === "dust_particles"
+        ? false
+        : effect.parameters.fadeEffect === undefined || Boolean(effect.parameters.fadeEffect);
+      const colorValue = effect.parameters.particleColor ?? (renderer === "dust_particles" ? "#E0E0E0" : "#FFFFFF");
+      if (
+        !Number.isFinite(particleCount) || particleCount < 1 || particleCount > 128 ||
+        !Number.isFinite(particleSize) || particleSize <= 0 || particleSize > 20 ||
+        !Number.isFinite(driftSpeed) || driftSpeed < 0 || driftSpeed > 5 ||
+        typeof colorValue !== "string"
+      ) return null;
+      const [red, green, blue] = parseColor(colorValue);
+      if (effect.intensity >= particleParams[3]) {
+        particleParams = [particleCount, particleSize, driftSpeed, Math.min(1, effect.intensity)];
+        particleColor = [red / 255, green / 255, blue / 255, (renderer === "dust_particles" ? 2 : 1) + (fadeEffect ? 0.5 : 0)];
+        particleTime = Math.max(0, effect.localTime);
+      }
     }
   }
   const exposure = choose("exposure", 0, scaledPreset("exposure"));
@@ -358,7 +514,7 @@ function getNativeColorGrade(
     ? null
     : contrastAdjustment !== undefined
       ? contrastAdjustment + 1
-      : choose("contrast", 1, filterIR.contrast, (() => {
+      : choose("contrast", 1, filterIR.contrast, mpgGrade?.contrast, (() => {
         const value = scaledPreset("contrast");
         return value === undefined ? undefined : 1 + value;
       })());
@@ -367,22 +523,22 @@ function getNativeColorGrade(
     ? null
     : saturationAdjustment !== undefined
       ? saturationAdjustment + 1
-      : choose("saturation", 1, filterIR.saturate, (() => {
+      : choose("saturation", 1, filterIR.saturate, mpgGrade?.saturation, (() => {
         const value = scaledPreset("saturation");
         return value === undefined ? undefined : 1 + value;
       })());
-  const temperature = choose("temperature", 0, scaledPreset("temperature"));
-  const tint = choose("tint", 0, scaledPreset("tint"));
-  const brightness = choose("brightness", 0, scaledPreset("brightness"));
+  const temperature = choose("temperature", 0, scaledPreset("temperature"), mpgGrade?.temperature);
+  const tint = choose("tint", 0, scaledPreset("tint"), mpgGrade?.tint);
+  const brightness = choose("brightness", 0, scaledPreset("brightness"), mpgGrade?.brightness);
   const lift = choose("lift", 0, scaledPreset("lift"));
-  const sepia = choose("sepia", 0, filterIR.sepia, scaledPreset("sepia"));
-  const grayscale = choose("grayscale", 0, filterIR.grayscale, scaledPreset("grayscale"));
+  const sepia = choose("sepia", 0, filterIR.sepia, mpgGrade?.sepia, scaledPreset("sepia"));
+  const grayscale = choose("grayscale", 0, filterIR.grayscale, mpgGrade?.grayscale, scaledPreset("grayscale"));
   const hueAdjustment = readAdjustment("hue");
-  const hue = hueAdjustment !== undefined ? hueAdjustment : filterIR.hueRotate ?? (() => {
+  const hue = hueAdjustment !== undefined ? hueAdjustment : filterIR.hueRotate ?? mpgGrade?.hueRotate ?? (() => {
     const value = scaledPreset("hueRotate");
     return value === undefined ? 0 : (value * 180) / Math.PI;
   })();
-  const vignetteValue = choose("vignette", 0, scaledPreset("vignette"));
+  const vignetteValue = choose("vignette", 0, scaledPreset("vignette"), mpgGrade?.vignette);
   const vignette = vignetteValue === null ? null : Math.max(vignetteValue, effectVignette);
   const grainValue = values?.grain ?? preset?.grain;
   const grainScale = values?.grain === undefined ? presetIntensity : 1;
@@ -512,7 +668,7 @@ function getNativeColorGrade(
       lutIntensity: typeof grade?.lutIntensity === "number" && Number.isFinite(grade.lutIntensity) ? grade.lutIntensity : 1,
       lutSize: typeof grade?.lutSize === "number" && Number.isFinite(grade.lutSize) ? grade.lutSize : 33,
     } : { lutIntensity: 1, lutSize: 33 }),
-    blurStrength: blurEffects.length > 0 ? 1 : 0,
+    blurStrength: blurRadius > 0 ? 1 : 0,
     blurRadius,
     pixelateSize,
     scanlineCount,
@@ -575,6 +731,8 @@ function getNativeColorGrade(
       distortionTime,
       distortionFrequency,
     } : {}),
+    ...(fireParams[2] > 0 ? { fireParams, fireColor1, fireColor2, fireColor3 } : {}),
+    ...(particleParams[3] > 0 ? { particleParams, particleColor, particleTime } : {}),
   };
 }
 
@@ -633,14 +791,17 @@ function getNativeBodyEffect(
   };
 }
 
-function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
+function isSupportedNativeVideoLayer(
+  layer: EvaluatedMediaLayer,
+  mpgStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>,
+): boolean {
   const isStaticSticker = layer.clipKind === "sticker" && layer.stickerFormat === "static";
   const isGifSticker = layer.clipKind === "sticker" && layer.stickerFormat === "gif";
   return (
     (layer.mediaType === "video" || layer.mediaType === "image") &&
     (layer.clipKind !== "sticker" || isStaticSticker || isGifSticker) &&
     isNativeFileSource(layer.sourcePath) &&
-    getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects) !== null &&
+    getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, mpgStack) !== null &&
     (!layer.sourceRotation || layer.sourceRotation === 0) &&
     NATIVE_BLEND_MODES.has(layer.blendMode)
   );
@@ -653,8 +814,8 @@ function isNativeAnimatedStickerLayer(layer: EvaluatedMediaLayer): boolean {
 /**
  * Return a native clear color only for backgrounds whose semantics can be
  * represented exactly by the wgpu surface. Gradients, shaders, and media
- * backgrounds must stay on the full Pixi scene path until they have native
- * graph nodes of their own.
+ * backgrounds stay outside the native request until they have native graph
+ * nodes of their own.
  */
 function getNativeClearColor(
   scene: EvaluatedScene,
@@ -720,12 +881,12 @@ export function buildNativeVideoProjectRequest(
   if (transition && backgroundMediaPath !== null) return null;
   if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) return null;
   if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) return null;
-  if (!mediaLayers.every(isSupportedNativeVideoLayer)) {
+  if (!mediaLayers.every((layer) => isSupportedNativeVideoLayer(layer, scene.activeFilter?.effectStack))) {
     return null;
   }
 
   const layers: NativeProjectVideoLayer[] = mediaLayers.map((layer) => {
-    const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects);
+    const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
     const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
     return {
       layerId: layer.layerId,
@@ -833,7 +994,24 @@ export function getNativePreviewBlockers(
     add("The active filter track does not resolve consistently across native media layers.");
   }
   for (const layer of mediaLayers) {
-    if (!isSupportedNativeVideoLayer(layer)) {
+    for (const effect of (layer.effects ?? []).filter((item) => item.intensity > 0.001)) {
+      const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
+      if (!NATIVE_VIDEO_EFFECT_RENDERERS.has(renderer)) {
+        add(`Video effect "${renderer}" on media layer ${layer.layerId} has no native compositor implementation.`);
+      }
+    }
+    const filterMetadata = layer.filter as (typeof layer.filter & {
+      pipeline?: string;
+      effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
+    }) | undefined;
+    const filterStack = scene.activeFilter?.effectStack ?? filterMetadata?.effectStack;
+    const hasMpgFilter = scene.activeFilter?.pipeline === "v2" || filterMetadata?.pipeline === "v2" || (filterStack?.length ?? 0) > 0;
+    if (hasMpgFilter && resolveNativeMpgStack(filterStack) === null) {
+      add(`Filter "${scene.activeFilter?.id ?? filterMetadata?.id ?? "unknown"}" on media layer ${layer.layerId} contains MPG v2 nodes that are not supported by the native compositor.`);
+    } else if (hasMpgFilter && !filterStack) {
+      add(`Filter "${scene.activeFilter?.id ?? filterMetadata?.id ?? "unknown"}" on media layer ${layer.layerId} uses an MPG v2 stack without serialized nodes.`);
+    }
+    if (!isSupportedNativeVideoLayer(layer, scene.activeFilter?.effectStack)) {
       add(`Media layer ${layer.layerId} uses a source, transform, blend mode, or effect outside the native contract.`);
     }
     if (getNativeBodyEffect(layer, rasterLayers) === null) {
@@ -873,7 +1051,7 @@ export function buildNativeFrameRequest(
   const videoLayers = scene.visualLayers
     .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && !isNativeAnimatedStickerLayer(layer))
     .map((layer, index) => {
-      const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects);
+      const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
       return {
       assetId: layer.mediaId,
       layerId: layer.layerId,

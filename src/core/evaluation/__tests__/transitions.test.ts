@@ -75,6 +75,13 @@ describe("timeline transition evaluation", () => {
     expect(scene.visualLayers.map((layer) => layer.opacity)).toEqual([0.5, 0.5]);
   });
 
+  it("carries Studio transition parameters into the evaluated scene", () => {
+    const authored = { ...transition, metadata: { params: { color: "#000000" } } };
+    const scene = evaluateTimelineScene(5, [makeTextClip("left", 0, "A"), makeTextClip("right", 5, "B")], tracks, [], project, [authored]);
+
+    expect(scene.transitions[0]?.params).toEqual({ color: "#000000" });
+  });
+
   it("evaluates transition start and end opacity deterministically", () => {
     const start = evaluateTimelineScene(4.5, [makeTextClip("left", 0, "A"), makeTextClip("right", 5, "B")], tracks, [], project, [transition]);
     const end = evaluateTimelineScene(5.5, [makeTextClip("left", 0, "A"), makeTextClip("right", 5, "B")], tracks, [], project, [transition]);

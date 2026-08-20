@@ -10,7 +10,7 @@ they must have an owner and a deletion gate.
 - [ ] No `PreviewMediaPool` ownership.
 - [ ] No browser playback scheduler owns program frame selection.
 - [ ] No `VideoTextureManager` video decode/compositing path.
-- [ ] Pixi receives only a native final frame while the bridge exists.
+- [x] Native surface receives the authoritative final frame.
 
 ## Filmstrip and thumbnails
 
@@ -28,8 +28,7 @@ they must have an owner and a deletion gate.
 - [ ] Native surface/shared-texture playback passes the platform matrix.
 - [ ] Export consumes the same graph and golden frames as preview.
 - [ ] Browser source-preview playback is removed.
-- [ ] `PixiExportRenderer` and `NativeExportFramePool` are retired only after
-  native export is complete.
+- [ ] Legacy browser export frame pools are retired after native export coverage.
 
 ## Audit commands
 

@@ -325,15 +325,12 @@ export class ProjectSession {
     return this._previewMediaPool?.getVideoElements() ?? new Map();
   }
 
-  /** Readiness revision for repainting the Pixi fallback without changing the timeline snapshot. */
+  /** Readiness revision for repainting the native preview without changing the timeline snapshot. */
   getPreviewMediaReadyRevision(): number {
     return this._previewMediaPool?.getMediaReadyRevision() ?? 0;
   }
 
-  /**
-   * Get the PreviewMediaPool instance for compositor integration.
-   * @internal Used by PixiSceneCompositor for texture management
-   */
+  /** Get the PreviewMediaPool instance for media lifecycle integration. */
   getPreviewMediaPool(): PreviewMediaPool | null {
     return this._previewMediaPool;
   }

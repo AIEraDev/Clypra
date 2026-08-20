@@ -77,7 +77,7 @@ const roundPlacement = (value: number): number => Math.round(value);
 
 /**
  * Finds cut-only timelines that Rust can normalize and encode without routing
- * every frame through WebKit and Pixi.
+ * every frame through WebKit or a browser compositor.
  */
 export function analyzeNativeTimelineExport(
   input: NativeTimelineExportInput,
@@ -205,6 +205,9 @@ export async function runNativeTimelineExport(
   plan: NativeTimelineExportPlan,
   callbacks: NativeTimelineRunCallbacks,
 ): Promise<NativeTimelineRunResult> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    throw new Error("Native timeline export requires the Tauri runtime");
+  }
   const { invoke, Channel } = await import("@tauri-apps/api/core");
   let completedFrames = 0;
   let cancelled = false;

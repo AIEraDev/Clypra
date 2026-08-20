@@ -41,7 +41,7 @@ export function calculateMaxTrackIndex(layers: EvaluatedMediaLayer[]): number {
  * Calculate z-index for a layer based on track ordering and render order.
  *
  * Timeline convention: lower-numbered tracks are visually higher (top in UI)
- * Pixi convention: higher zIndex renders later / on top
+ * Native convention: higher zIndex renders later / on top
  * Therefore: sprite.zIndex = (maxTrackIndex - trackIndex) * SPACING + renderOrder
  *
  * @param trackIndex - Track index of the layer (0 = top track)

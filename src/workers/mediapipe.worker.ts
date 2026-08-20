@@ -1,7 +1,7 @@
 /**
  * MediaPipe inference Web Worker.
  *
- * Strategy: isolated Web Worker so inference never blocks the React/PixiJS thread.
+ * Strategy: isolated Web Worker so inference never blocks the React thread.
  *
  * Messages IN (from main thread):
  *   { type: 'INIT',         payload: { modelUrl: string } }

@@ -3,9 +3,14 @@ export const NATIVE_CORE_TIME_SCALE = 1_000_000;
 /** Opt-in diagnostics for native preview timing and surface composition. */
 export const NATIVE_PREVIEW_TRACE_ENABLED =
   import.meta.env.DEV && import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_TRACE === "1";
-/** Dev-only gate for proving that a Tauri scene can run without Pixi fallback. */
+/**
+ * Tauri is the production editor runtime, so native preview is enforced there.
+ * The explicit dev flag remains useful for browser harnesses that emulate the
+ * desktop contract without exposing Tauri internals.
+ */
 export const NATIVE_PREVIEW_ONLY =
-  import.meta.env.DEV && import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_ONLY === "1";
+  (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) ||
+  (import.meta.env.DEV && import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_ONLY === "1");
 
 export type NativeQualityTier = "full" | "half" | "quarter" | "proxy";
 export type NativePixelFormat = "rgba8Srgb" | "rgba16Float";
@@ -165,6 +170,8 @@ export interface NativeTransitionSnapshot {
   progress: number;
   feather?: number;
   intensity?: number;
+  /** Optional color used by fade-through-color transitions. */
+  fadeColor?: [number, number, number, number];
 }
 
 export interface NativeBodyEffectSnapshot {
@@ -255,6 +262,16 @@ export interface NativeColorGradeSnapshot {
   distortionStrength?: number;
   distortionTime?: number;
   distortionFrequency?: number;
+  /** Procedural fire overlay: height, particle count, intensity, time. */
+  fireParams?: [number, number, number, number];
+  fireColor1?: [number, number, number, number];
+  fireColor2?: [number, number, number, number];
+  fireColor3?: [number, number, number, number];
+  /** Procedural particles: count, size, drift speed, intensity. */
+  particleParams?: [number, number, number, number];
+  /** RGB plus mode (1 particles, 2 dust; fractional .5 means edge fade). */
+  particleColor?: [number, number, number, number];
+  particleTime?: number;
 }
 
 export interface NativeRasterLayerSnapshot {

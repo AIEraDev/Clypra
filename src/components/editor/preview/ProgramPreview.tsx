@@ -1,10 +1,9 @@
 import React from "react";
-import { PixiProgramPreview } from "./PixiProgramPreview.jsx";
+import { NativeProgramPreview } from "./NativeProgramPreview.jsx";
 import { WebGLUnavailableError } from "./WebGLUnavailableError.jsx";
 
-// React Error Boundary to catch WebGL / Pixi initialization errors.
-// On failure renders WebGLUnavailableError instead of falling back to a Canvas 2D
-// renderer — Canvas 2D preview has been retired. WebGL is a hard requirement.
+// React Error Boundary for the native preview surface. Browser compatibility
+// support remains isolated behind the migration boundary.
 class PreviewErrorBoundary extends React.Component<
   { fallback: React.ReactNode; children: React.ReactNode },
   { hasError: boolean }
@@ -16,7 +15,7 @@ class PreviewErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error) {
-    console.error("[PreviewLifecycle] PixiProgramPreview error boundary caught:", error);
+    console.error("[PreviewLifecycle] Program preview error boundary caught:", error);
   }
 
   render() {
@@ -30,7 +29,7 @@ class PreviewErrorBoundary extends React.Component<
 export const ProgramPreview: React.FC<any> = (props) => {
   return (
     <PreviewErrorBoundary fallback={<WebGLUnavailableError />}>
-      <PixiProgramPreview {...props} />
+      <NativeProgramPreview {...props} />
     </PreviewErrorBoundary>
   );
 };

@@ -81,7 +81,7 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
 
 /**
  * Rasterize one evaluated text layer through the exact Clypra Studio engine
- * path used by the Pixi text bridge. The returned bitmap is positioned in
+ * path used by the native text bridge. The returned bitmap is positioned in
  * project space including the same effect bleed as the browser renderer.
  */
 export async function rasterizeTextLayerForNative(

@@ -147,9 +147,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const [result, setResult] = useState<ExportResult | null>(null);
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
   const [ffmpegVersion, setFfmpegVersion] = useState<string>("");
-  const [mobileExportMode, setMobileExportMode] = useState<
-    "webcodecs" | "cloud" | "clypra"
-  >("webcodecs");
+  const [mobileExportMode, setMobileExportMode] = useState<"cloud" | "clypra">("cloud");
 
   // Project Rename State
   const [isEditingName, setIsEditingName] = useState(false);
@@ -413,19 +411,12 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     if (platform.isCapacitor()) {
       const checkMobileCapabilities = async () => {
         try {
-          const { isWebCodecsSupported } =
-            await import("@/lib/export/videoExport");
-          if (isWebCodecsSupported()) {
-            setMobileExportMode("webcodecs");
+          const { isCloudRenderAvailable } = await import("@/lib/export/cloudExport");
+          const cloudAvailable = await isCloudRenderAvailable();
+          if (cloudAvailable) {
+            setMobileExportMode("cloud");
           } else {
-            const { isCloudRenderAvailable } =
-              await import("@/lib/export/cloudExport");
-            const cloudAvailable = await isCloudRenderAvailable();
-            if (cloudAvailable) {
-              setMobileExportMode("cloud");
-            } else {
-              setMobileExportMode("clypra");
-            }
+            setMobileExportMode("clypra");
           }
         } catch (err) {
           console.error("[ExportDialog] Capability check failed:", err);
@@ -451,63 +442,67 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     abortControllerRef.current = controller;
 
     try {
-      // 1. Analyze if the timeline is eligible for native zero-copy hardware acceleration
-      const { analyzeNativeTimelineExport, runNativeTimelineExport } =
-        await import("@/lib/export/nativeTimelineExport");
-      const eligibility = analyzeNativeTimelineExport({
-        clips,
-        tracks,
-        transitions,
-        assets: mediaAssets,
-        project,
-        startTime: 0,
-        endTime: sequenceDuration,
-        outputPath,
-        width: resolvedWidth,
-        height: resolvedHeight,
-        frameRate: project.frameRate,
-        codec: selectedPreset.codecValue as any,
-        preset: selectedPreset.preset,
-        crf: selectedPreset.crf,
-        pixelFormat: selectedPreset.pixelFormat as any,
-      });
-
-      if (eligibility.eligible) {
-        console.log(
-          "[ExportDialog] Fast-Path: Native Hardware Acceleration activated!",
-          eligibility.plan,
-        );
-        const nativeResult = await runNativeTimelineExport(eligibility.plan, {
-          signal: controller.signal,
-          onProgress: (p) =>
-            safeSetProgress({
-              currentFrame: p.currentFrame,
-              totalFrames: p.totalFrames,
-              progress: p.progress,
-              fps: p.fps,
-              etaSeconds: p.etaSeconds,
-            }),
-          onSessionReady: (cancel) => {
-            cancelExportFnRef.current = cancel;
-          },
+      // 1. Analyze the native zero-copy path only in Tauri. Browser and mobile
+      // exports must use their platform-specific compatibility path; invoking a
+      // Tauri IPC command there would turn a valid export into a false failure.
+      if (platform.isTauri()) {
+        const { analyzeNativeTimelineExport, runNativeTimelineExport } =
+          await import("@/lib/export/nativeTimelineExport");
+        const eligibility = analyzeNativeTimelineExport({
+          clips,
+          tracks,
+          transitions,
+          assets: mediaAssets,
+          project,
+          startTime: 0,
+          endTime: sequenceDuration,
+          outputPath,
+          width: resolvedWidth,
+          height: resolvedHeight,
+          frameRate: project.frameRate,
+          codec: selectedPreset.codecValue as any,
+          preset: selectedPreset.preset,
+          crf: selectedPreset.crf,
+          pixelFormat: selectedPreset.pixelFormat as any,
         });
 
-        if (!isMountedRef.current) return;
-
-        if (!nativeResult.cancelled) {
-          safeSetResult({
-            totalFrames: nativeResult.completedFrames,
-            totalTimeMs: nativeResult.totalTimeMs,
-            avgTimePerFrameMs:
-              nativeResult.totalTimeMs > 0 && nativeResult.completedFrames > 0
-                ? nativeResult.totalTimeMs / nativeResult.completedFrames
-                : 0,
+        if (eligibility.eligible) {
+          console.log(
+            "[ExportDialog] Fast-Path: Native Hardware Acceleration activated!",
+            eligibility.plan,
+          );
+          const nativeResult = await runNativeTimelineExport(eligibility.plan, {
+            signal: controller.signal,
+            onProgress: (p) =>
+              safeSetProgress({
+                currentFrame: p.currentFrame,
+                totalFrames: p.totalFrames,
+                progress: p.progress,
+                fps: p.fps,
+                etaSeconds: p.etaSeconds,
+              }),
+            onSessionReady: (cancel) => {
+              cancelExportFnRef.current = cancel;
+            },
           });
-          safeSetPhase("complete");
-          return;
-        } else {
-          safeSetPhase("configure");
-          return;
+
+          if (!isMountedRef.current) return;
+
+          if (!nativeResult.cancelled) {
+            safeSetResult({
+              totalFrames: nativeResult.completedFrames,
+              totalTimeMs: nativeResult.totalTimeMs,
+              avgTimePerFrameMs:
+                nativeResult.totalTimeMs > 0 && nativeResult.completedFrames > 0
+                  ? nativeResult.totalTimeMs / nativeResult.completedFrames
+                  : 0,
+            });
+            safeSetPhase("complete");
+            return;
+          } else {
+            safeSetPhase("configure");
+            return;
+          }
         }
       }
 
@@ -832,22 +827,6 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2.5">
                       Mobile Export
                     </h3>
-                    {mobileExportMode === "webcodecs" && (
-                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/2 p-4 flex gap-3 items-start">
-                        <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                        <div>
-                          <h4 className="text-xs font-semibold text-text-primary mb-1">
-                            On-Device Rendering Available
-                          </h4>
-                          <p className="text-[11px] text-text-muted leading-relaxed">
-                            This device supports hardware-accelerated video
-                            encoding (WebCodecs). Your video will render locally
-                            on-device and can be shared or saved to your photo
-                            library.
-                          </p>
-                        </div>
-                      </div>
-                    )}
                     {mobileExportMode === "cloud" && (
                       <div className="rounded-lg border border-accent/20 bg-accent/2 p-4 flex gap-3 items-start">
                         <Cloud className="w-5 h-5 text-accent shrink-0 mt-0.5" />
@@ -948,11 +927,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   <Button
                     variant="default"
                     onClick={
-                      mobileExportMode === "webcodecs"
-                        ? handleExport
-                        : mobileExportMode === "cloud"
-                          ? handleCloudExport
-                          : handleExportProjectFile
+                      mobileExportMode === "cloud" ? handleCloudExport : handleExportProjectFile
                     }
                     disabled={sequenceDuration <= 0}
                     className="min-w-[150px]"
@@ -963,11 +938,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                           : undefined,
                     }}
                   >
-                    {mobileExportMode === "webcodecs"
-                      ? "Export Video"
-                      : mobileExportMode === "cloud"
-                        ? "Cloud Render Video"
-                        : "Export Project File"}
+                    {mobileExportMode === "cloud" ? "Cloud Render Video" : "Export Project File"}
                   </Button>
                 ) : (
                   <Button

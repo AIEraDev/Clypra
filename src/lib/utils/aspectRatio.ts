@@ -1,11 +1,11 @@
 /**
  * Aspect Ratio Utility
  *
- * Shared aspect ratio calculation logic extracted from PixiRenderer.
+ * Shared aspect ratio calculation logic for the native preview viewport.
  * This is the proven implementation from Transition Lab Console that handles
  * all video dimensions perfectly (16:9, 9:16, 4:3, 1:1, etc.)
  *
- * Based on PixiRenderer._resizeSprite() from @clypra-studio/engine
+ * Preserves the editor's established media-fit behavior.
  */
 
 export type FitMode = "stretch" | "fit" | "cover";
@@ -21,7 +21,7 @@ export interface AspectRatioLayout {
 /**
  * Calculate sprite dimensions and position for aspect ratio handling
  *
- * This is the EXACT logic from PixiRenderer that makes Transition Lab Console
+ * This is the established logic that makes Transition Lab Console
  * work perfectly with any video dimension.
  *
  * @param containerWidth - Canvas/container width (logical pixels)
@@ -87,7 +87,7 @@ export function calculateAspectRatio(containerWidth: number, containerHeight: nu
 /**
  * Get element dimensions from video/image/canvas element
  *
- * Based on PixiRenderer._getElementDimensions()
+ * Computes source element dimensions for native layout.
  * Handles all media element types and falls back gracefully
  */
 export function getElementDimensions(element: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement | ImageBitmap): {

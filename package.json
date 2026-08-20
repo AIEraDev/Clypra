@@ -78,8 +78,6 @@
     "lottie-web": "^5.13.0",
     "lucide-react": "^1.12.0",
     "mp4-muxer": "^5.2.2",
-    "pixi-filters": "^6.0.0",
-    "pixi.js": "^8.0.0",
     "radix-ui": "^1.4.3",
     "react": "^19.1.0",
     "react-dnd": "^16.0.1",

@@ -136,6 +136,8 @@ pub struct TransitionSnapshot {
     pub feather: f32,
     #[serde(default = "default_transition_intensity")]
     pub intensity: f32,
+    #[serde(default)]
+    pub fade_color: Option<[f32; 4]>,
 }
 
 fn default_transition_feather() -> f32 { 0.1 }
@@ -309,6 +311,23 @@ pub struct ColorGradeSnapshot {
     pub distortion_time: f32,
     #[serde(default = "default_color_grade_distortion_frequency")]
     pub distortion_frequency: f32,
+    /// Procedural fire overlay: height, particle count, intensity, time.
+    #[serde(default)]
+    pub fire_params: [f32; 4],
+    #[serde(default = "default_color_grade_fire_color_1")]
+    pub fire_color_1: [f32; 4],
+    #[serde(default = "default_color_grade_fire_color_2")]
+    pub fire_color_2: [f32; 4],
+    #[serde(default = "default_color_grade_fire_color_3")]
+    pub fire_color_3: [f32; 4],
+    /// Procedural particles: count, size, drift speed, intensity.
+    #[serde(default)]
+    pub particle_params: [f32; 4],
+    /// RGB plus mode (1 particles, 2 dust; fractional .5 means edge fade).
+    #[serde(default = "default_color_grade_particle_color")]
+    pub particle_color: [f32; 4],
+    #[serde(default)]
+    pub particle_time: f32,
 }
 
 fn default_color_grade_multiplier() -> f32 { 1.0 }
@@ -322,6 +341,10 @@ fn default_color_grade_neutral_channel() -> f32 { 1.0 }
 fn default_color_grade_split_balance() -> f32 { 0.5 }
 fn default_color_grade_light_leak_angle() -> f32 { 0.7853982 }
 fn default_color_grade_distortion_frequency() -> f32 { 6.0 }
+fn default_color_grade_fire_color_1() -> [f32; 4] { [1.0, 0.2705882353, 0.0, 0.0] }
+fn default_color_grade_fire_color_2() -> [f32; 4] { [1.0, 0.6470588235, 0.0, 0.0] }
+fn default_color_grade_fire_color_3() -> [f32; 4] { [1.0, 0.8431372549, 0.0, 0.0] }
+fn default_color_grade_particle_color() -> [f32; 4] { [1.0, 1.0, 1.0, 0.0] }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -339,6 +362,8 @@ pub struct RasterLayerSnapshot {
     pub opacity: f32,
     pub z_index: i32,
     pub blend_mode: String,
+    #[serde(default)]
+    pub color_grade: Option<ColorGradeSnapshot>,
     #[serde(default)]
     pub is_mask: bool,
     #[serde(default)]
@@ -529,6 +554,13 @@ impl FrameRequest {
                     || !color_grade.distortion_strength.is_finite()
                     || !color_grade.distortion_time.is_finite()
                     || !color_grade.distortion_frequency.is_finite()
+                    || color_grade.fire_params.iter().any(|value| !value.is_finite())
+                    || color_grade.fire_color_1.iter().any(|value| !value.is_finite())
+                    || color_grade.fire_color_2.iter().any(|value| !value.is_finite())
+                    || color_grade.fire_color_3.iter().any(|value| !value.is_finite())
+                    || color_grade.particle_params.iter().any(|value| !value.is_finite())
+                    || color_grade.particle_color.iter().any(|value| !value.is_finite())
+                    || !color_grade.particle_time.is_finite()
                     || color_grade.contrast < 0.0
                     || color_grade.saturation < 0.0
                     || color_grade.sepia < 0.0
@@ -638,6 +670,31 @@ impl FrameRequest {
                     || color_grade.distortion_strength > 1.0
                     || color_grade.distortion_time < 0.0
                     || color_grade.distortion_frequency <= 0.0
+                    || color_grade.fire_params[0] < 0.0
+                    || color_grade.fire_params[0] > 1.0
+                    || color_grade.fire_params[1] < 0.0
+                    || color_grade.fire_params[1] > 128.0
+                    || color_grade.fire_params[2] < 0.0
+                    || color_grade.fire_params[2] > 1.0
+                    || color_grade.fire_params[3] < 0.0
+                    || color_grade.fire_color_1.iter().any(|value| *value < 0.0 || *value > 1.0)
+                    || color_grade.fire_color_2.iter().any(|value| *value < 0.0 || *value > 1.0)
+                    || color_grade.fire_color_3.iter().any(|value| *value < 0.0 || *value > 1.0)
+                    || color_grade.particle_params[0] < 0.0
+                    || color_grade.particle_params[0] > 128.0
+                    || color_grade.particle_params[1] < 0.0
+                    || color_grade.particle_params[2] < 0.0
+                    || color_grade.particle_params[3] < 0.0
+                    || color_grade.particle_params[3] > 1.0
+                    || color_grade.particle_color[0] < 0.0
+                    || color_grade.particle_color[0] > 1.0
+                    || color_grade.particle_color[1] < 0.0
+                    || color_grade.particle_color[1] > 1.0
+                    || color_grade.particle_color[2] < 0.0
+                    || color_grade.particle_color[2] > 1.0
+                    || color_grade.particle_color[3] < 0.0
+                    || color_grade.particle_color[3] > 2.5
+                    || color_grade.particle_time < 0.0
                 {
                     return Err(NativeCoreError::InvalidContract(
                         "VideoLayerSnapshot contains invalid color-grade data".to_string(),
@@ -708,13 +765,23 @@ impl FrameRequest {
             }
         }
         if let Some(transition) = self.project.transition.as_ref() {
-            let layer_ids: Vec<&str> = self.project.video_layers.iter().map(|layer| layer.layer_id.as_str()).collect();
+            let layer_ids: Vec<&str> = if self.project.video_layers.len() == 2 && self.project.raster_layers.is_empty() {
+                self.project.video_layers.iter().map(|layer| layer.layer_id.as_str()).collect()
+            } else if self.project.video_layers.is_empty() && self.project.raster_layers.len() == 2 {
+                self.project.raster_layers.iter().map(|layer| layer.asset_id.as_str()).collect()
+            } else {
+                Vec::new()
+            };
             let supported = matches!(
                 transition.transition_type.as_str(),
-                "cross-dissolve" | "wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "zoom-blur"
+                "cross-dissolve" | "cross_dissolve" | "crossfade" | "fade" | "fade-through-color" | "directional-wipe" | "directional_wipe" | "wipe" | "wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "wipe-diagonal"
+                    | "wipe-clockwise" | "circle-wipe" | "diamond-wipe" | "rectangle-wipe"
+                    | "slide-left" | "slide-right" | "slide-up" | "slide-down"
+                    | "zoom-blur" | "zoom-in" | "zoom-out" | "blur-fade"
+                    | "glitch" | "rgb-split" | "chromatic" | "film-burn" | "light-leak" | "whip-pan"
+                    | "iris-wipe"
             );
             if layer_ids.len() != 2
-                || !self.project.raster_layers.is_empty()
                 || transition.outgoing_layer.trim().is_empty()
                 || transition.incoming_layer.trim().is_empty()
                 || transition.outgoing_layer == transition.incoming_layer
@@ -726,10 +793,11 @@ impl FrameRequest {
                 || !(0.0..=1.0).contains(&transition.progress)
                 || !(0.0..=1.0).contains(&transition.feather)
                 || transition.intensity < 0.0
+                || transition.fade_color.map(|color| color.iter().any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))).unwrap_or(false)
                 || !supported
             {
                 return Err(NativeCoreError::UnsupportedFeature(
-                    "Native transition requires two video layers and a supported transition shader".to_string(),
+                    "Native transition requires exactly two source layers and a supported transition shader".to_string(),
                 ));
             }
         }
@@ -873,6 +941,7 @@ mod tests {
             opacity: 1.0,
             z_index: 1,
             blend_mode: "normal".to_string(),
+            color_grade: None,
             is_mask: false,
             is_text: false,
         }];
@@ -880,5 +949,56 @@ mod tests {
         value
             .validate()
             .expect("registered raster references should validate without bytes");
+    }
+
+    #[test]
+    fn raster_transition_accepts_two_native_source_layers() {
+        let mut value = request();
+        value.project.video_layers.clear();
+        value.project.raster_layers = vec![
+            RasterLayerSnapshot {
+                asset_id: "clip-a".to_string(),
+                rgba: None,
+                width: 64,
+                height: 32,
+                x: 0.0,
+                y: 0.0,
+                rotation: 0.0,
+                opacity: 1.0,
+                z_index: 0,
+                blend_mode: "normal".to_string(),
+                color_grade: None,
+                is_mask: false,
+                is_text: false,
+            },
+            RasterLayerSnapshot {
+                asset_id: "clip-b".to_string(),
+                rgba: None,
+                width: 64,
+                height: 32,
+                x: 0.0,
+                y: 0.0,
+                rotation: 0.0,
+                opacity: 1.0,
+                z_index: 1,
+                blend_mode: "normal".to_string(),
+                color_grade: None,
+                is_mask: false,
+                is_text: false,
+            },
+        ];
+        value.project.transition = Some(TransitionSnapshot {
+            outgoing_layer: "clip-a".to_string(),
+            incoming_layer: "clip-b".to_string(),
+            transition_type: "cross-dissolve".to_string(),
+            progress: 0.5,
+            feather: 0.1,
+            intensity: 1.0,
+            fade_color: None,
+        });
+
+        value
+            .validate()
+            .expect("two raster layers should be valid transition sources");
     }
 }

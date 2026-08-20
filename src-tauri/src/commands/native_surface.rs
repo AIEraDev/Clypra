@@ -265,7 +265,7 @@ fn configure_surface(
 /// Phase 0.5 surface setup: create/configure and retain the real native
 /// surface on the UI main thread, but do not present into the editor window.
 /// This validates handles, adapter compatibility, physical sizing, and
-/// swapchain policy before the native surface replaces the Pixi bridge.
+/// swapchain policy before the native surface owns the preview.
 #[tauri::command]
 pub async fn probe_native_surface(
     app: tauri::AppHandle,
@@ -333,7 +333,7 @@ pub async fn resize_native_surface(
         .map_err(|_| "Native surface resize was cancelled".to_string())?
 }
 
-/// Hide the child surface while the browser/Pixi compositor owns the preview.
+/// Hide the child surface while the native compositor owns the preview.
 /// This is a state transition, not destruction: the configured surface and
 /// swapchain remain available for the next native playback frame.
 #[tauri::command]

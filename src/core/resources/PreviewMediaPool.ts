@@ -37,7 +37,6 @@ import { useTimelineStore } from "../../store/timelineStore";
 import { PreviewPlaybackScheduler, type MediaAction, type MediaElementState } from "../playback/PreviewPlaybackScheduler";
 import { VideoTextureManager } from "../render/VideoTextureManager";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
-import { resolveTransitionDefinition, mergeTransitionParams } from "../render/utils/transitionResolver";
 
 export interface PreviewSyncState {
   /** Current playback time (seconds) */
@@ -259,11 +258,6 @@ export class PreviewMediaPool {
   private scheduler: PreviewPlaybackScheduler;
   private textureManager: VideoTextureManager;
 
-  // Optional compositor reference for transition shader pre-warming.
-  // Set via setCompositor() after the PixiSceneCompositor is initialised.
-  // Using a loose type to avoid a circular dependency between resource and render layers.
-  private _compositor: { prewarmTransitionShader: (definition: any, params?: Record<string, any>) => void } | null = null;
-
   constructor(projectId?: string, sessionId?: string) {
     this._projectId = projectId ?? null;
     this._sessionId = sessionId ?? null;
@@ -297,13 +291,6 @@ export class PreviewMediaPool {
       (window as any).__previewMediaPools.push(this);
     }
     // ───────────────────────────────────────────────────────────────────────
-  }
-
-  /**
-   * Set the compositor instance for transition shader prewarming.
-   */
-  setCompositor(compositor: { prewarmTransitionShader: (definition: any, params?: Record<string, any>) => void } | null): void {
-    this._compositor = compositor;
   }
 
   /**
@@ -342,7 +329,7 @@ export class PreviewMediaPool {
       // A metadata event can advance the timeline epoch without changing the
       // rounded time hash. Do not skip reconciliation until every active video
       // has been seeked and has current frame data; otherwise the scheduler's
-      // initial seek is skipped and Pixi receives a permanently blank texture.
+      // initial seek is skipped and the preview receives a permanently blank texture.
       const activeVideosReadyForFastPath = Array.from(this.videoCache.values()).every(
         (managed) =>
           !managed.isActive ||
@@ -636,7 +623,6 @@ export class PreviewMediaPool {
       // Lookahead prewarming: Initialize upcoming clips before they become active
       if (syncState.state === "playing") {
         this.prewarmUpcomingClips(clips, assets, syncState.time, syncState.frameRate);
-        this.prewarmUpcomingTransitions(useTimelineStore.getState().transitions, syncState.time);
       }
 
       // ─── SCHEDULER INTEGRATION ────────────────────────────────────────────────
@@ -702,42 +688,6 @@ export class PreviewMediaPool {
       }
 
       this.prewarmVideoElement(cacheKey, clip.id, clip.mediaId, sourcePath, normalizedTrimIn);
-    }
-  }
-
-  /**
-   * Prewarm upcoming transition shaders within the lookahead window during playback.
-   * Compiles the transition shaders off-screen before the playhead reaches them.
-   */
-  private prewarmUpcomingTransitions(transitions: TransitionTimelineItem[], currentTime: number): void {
-    if (!this._compositor) return;
-
-    const lookaheadTime = currentTime + this.LOOKAHEAD_WINDOW_SECONDS;
-
-    for (const transition of transitions) {
-      // If the transition starts in the future, but within our lookahead window
-      if (transition.placement.startTime <= currentTime || transition.placement.startTime > lookaheadTime) {
-        continue;
-      }
-
-      // Resolve the transition type using transitionResolver
-      const resolved = resolveTransitionDefinition(
-        transition.type,
-        ALL_TRANSITIONS,
-        transition.renderer
-      );
-
-      if (resolved) {
-        const { definition, params } = resolved;
-        const runtimeParams = {
-          easing: transition.easing,
-          ...(transition.metadata?.params as Record<string, any> || {}),
-        };
-        const mergedParams = mergeTransitionParams(definition.params, params, runtimeParams);
-        
-        // Trigger off-screen compile
-        this._compositor.prewarmTransitionShader(definition, mergedParams);
-      }
     }
   }
 
@@ -808,7 +758,7 @@ export class PreviewMediaPool {
 
   /**
    * Media readiness is separate from the immutable timeline revision. This
-   * lets the Pixi fallback repaint without invalidating native frame requests.
+   * lets the preview repaint without invalidating native frame requests.
    */
   getMediaReadyRevision(): number {
     return this.mediaReadyRevision;
@@ -949,7 +899,7 @@ export class PreviewMediaPool {
               managedVideo.hasBeenSeeked = true; // Mark as seeked to prevent redundant initial seeks
 
               // WebKit can complete a paused seek with metadata only and leave
-              // the current frame undecoded. Prime one muted frame so Pixi's
+              // the current frame undecoded. Prime one muted frame so the preview's
               // VideoSource has real pixels to upload during paused scrubbing.
               if (syncState.state !== "playing" && video.readyState < 2) {
                 this.primePausedVideoFrame(managedVideo);
@@ -1482,7 +1432,7 @@ export class PreviewMediaPool {
     }
 
     // Guard 2: Not ready → wait
-    // HAVE_CURRENT_DATA is sufficient for Pixi's VideoSource and avoids
+    // HAVE_CURRENT_DATA is sufficient for the media readiness boundary and avoids
     // waiting for a full decode buffer before starting the visible preview.
     if (video.readyState < 2) {
       return;

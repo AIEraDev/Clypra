@@ -7,6 +7,24 @@ import { expect, afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import * as matchers from "@testing-library/jest-dom/matchers";
 
+// lottie-web schedules a browser-only readiness timer at module load. The
+// editor's native tests do not exercise its DOM renderer, so keep the test
+// process deterministic and provide the small runtime surface used by the
+// preview bridges.
+vi.mock("lottie-web", () => ({
+  default: {
+    loadAnimation: vi.fn(() => ({
+      destroy: vi.fn(),
+      goToAndStop: vi.fn(),
+      play: vi.fn(),
+      pause: vi.fn(),
+      setSpeed: vi.fn(),
+      frameRate: 30,
+      totalFrames: 1,
+    })),
+  },
+}));
+
 // Extend Vitest's expect with jest-dom matchers
 expect.extend(matchers);
 

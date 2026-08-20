@@ -79,10 +79,31 @@ describe("buildNativeVideoProjectRequest", () => {
     });
   });
 
-  it("keeps unsupported creative transitions off the native path", () => {
+  it("preserves authored fade-through-color parameters in the native graph", () => {
     const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
     const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming" });
-    expect(buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+    const request = buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+      transitionId: "fade-black",
+      type: "fade",
+      renderer: "fade",
+      params: { color: "#000000" },
+      progress: 0.5,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }] as any));
+
+    expect(request?.transition).toMatchObject({
+      transitionType: "fade-through-color",
+      fadeColor: [0, 0, 0, 1],
+    });
+  });
+
+  it("maps creative transitions into native shader modes", () => {
+    const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
+    const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming" });
+    const request = buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
       transitionId: "transition-1",
       type: "glitch",
       renderer: "glitch",
@@ -91,10 +112,12 @@ describe("buildNativeVideoProjectRequest", () => {
       outgoingLayer: "outgoing",
       incomingLayer: "incoming",
       blendMode: "normal",
-    }]))).toBeNull();
+    }]));
+
+    expect(request?.transition?.transitionType).toBe("glitch");
   });
 
-  it("reports the native migration blocker for unsupported transitions", () => {
+  it("does not report blockers for native creative transitions", () => {
     const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
     const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming" });
     expect(getNativePreviewBlockers(makeScene([outgoing, incoming], [{
@@ -106,7 +129,80 @@ describe("buildNativeVideoProjectRequest", () => {
       outgoingLayer: "outgoing",
       incomingLayer: "incoming",
       blendMode: "normal",
-    }]))).toContain("The active transition is not implemented in the native compositor.");
+    }]))).not.toContain("The active transition is not implemented in the native compositor.");
+  });
+
+  it("maps the published iris reveal transition to the native iris shader", () => {
+    const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
+    const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming" });
+    const request = buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+      transitionId: "iris-reveal",
+      type: "fade",
+      renderer: "iris-reveal",
+      progress: 0.5,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }]));
+
+    expect(request?.transition?.transitionType).toBe("iris-wipe");
+  });
+
+  it("maps diagonal wipes and slide pushes into native transition modes", () => {
+    const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
+    const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming" });
+    const diagonal = buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+      transitionId: "transition-diagonal",
+      type: "fade",
+      renderer: "wipe-diagonal",
+      progress: 0.4,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }]));
+    const slide = buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+      transitionId: "transition-slide",
+      type: "fade",
+      renderer: "slide-left",
+      progress: 0.4,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }]));
+
+    expect(diagonal?.transition?.transitionType).toBe("wipe-diagonal");
+    expect(slide?.transition?.transitionType).toBe("slide-left");
+
+    const vertical = buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+      transitionId: "transition-slide-up",
+      type: "fade",
+      renderer: "slide-up",
+      progress: 0.4,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }]));
+    expect(vertical?.transition?.transitionType).toBe("slide-up");
+  });
+
+  it("keeps custom iris geometry off native until the timeline persists it", () => {
+    const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
+    const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming" });
+    expect(buildNativeVideoProjectRequest(makeScene([outgoing, incoming], [{
+      transitionId: "iris-reveal",
+      type: "fade",
+      renderer: "iris-reveal",
+      params: { centerX: 0.25, centerY: 0.5, shape: "circle" },
+      progress: 0.5,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }] as any))).toBeNull();
   });
 
   it("routes static sticker image clips through the native media layer", () => {
@@ -254,7 +350,7 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(request?.layers[0].videoPath).toBe("http://asset.localhost/%2FUsers%2Ftest%2Fclip.mp4");
   });
 
-  it("keeps unsupported scenes on the existing Pixi path", () => {
+  it("rejects unsupported scenes at the native boundary", () => {
     expect(buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ filter: { id: "filter", name: "blur", intensity: 1 } }),
     ]))).toBeNull();
@@ -731,10 +827,76 @@ describe("buildNativeVideoProjectRequest", () => {
     });
   });
 
-  it("keeps unsupported structured color controls on Pixi until their native resources exist", () => {
+  it("rejects unsupported structured color controls until native resources exist", () => {
     expect(buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ adjustments: { halation: { color: "#ff0000", threshold: 0.8, intensity: 0.2 } } as never }),
     ]))).toBeNull();
+  });
+
+  it("maps procedural fire, particles, and dust into the native shader contract", () => {
+    const scene = makeScene([makeVideoLayer({
+      effects: [
+        { effectId: "fire", renderer: "fire", type: "video_effect", intensity: 0.8, localTime: 1.25, parameters: { fireHeight: 0.5, particleCount: 64, fireColor1: "#ff0000", fireColor2: "#ff8800", fireColor3: "#ffff00" } },
+        { effectId: "particles", renderer: "particles", type: "video_effect", intensity: 0.6, localTime: 2.5, parameters: { particleCount: 80, particleSize: 4, driftSpeed: 1.5, fadeEffect: true, particleColor: "#336699" } },
+        { effectId: "dust_particles", renderer: "dust_particles", type: "video_effect", intensity: 0.2, localTime: 0.5, parameters: {} },
+      ],
+    })]);
+
+    const request = buildNativeVideoProjectRequest(scene);
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      fireParams: [0.5, 64, 0.8, 1.25],
+      fireColor1: [1, 0, 0, 0],
+      fireColor2: [1, 136 / 255, 0, 0],
+      fireColor3: [1, 1, 0, 0],
+      particleParams: [80, 4, 1.5, 0.6],
+      particleColor: [51 / 255, 102 / 255, 153 / 255, 1.5],
+      particleTime: 2.5,
+    });
+    expect(getNativePreviewBlockers(scene)).not.toContain(
+      'Video effect "fire" on media layer clip-1 has no native compositor implementation.',
+    );
+  });
+
+  it("maps supported MPG v2 color stacks into the native grade", () => {
+    const scene = makeScene([makeVideoLayer({
+      filter: {
+        id: "mpg-stack",
+        name: "MPG Stack",
+        intensity: 1,
+        pipeline: "v2",
+        effectStack: [
+          { type: "Brightness", params: { brightness: 0.1 } },
+          { type: "Contrast", params: { contrast: 0.2 } },
+          { type: "GaussianBlur", params: { blur: 4 } },
+        ],
+      } as never,
+    })]);
+
+    expect(buildNativeVideoProjectRequest(scene)?.layers[0].colorGrade).toMatchObject({
+      brightness: 0.1,
+      contrast: 1.2,
+      blurStrength: 1,
+      blurRadius: 4,
+    });
+    expect(getNativePreviewBlockers(scene)).not.toContain(
+      'Filter "mpg-stack" on media layer clip-1 contains MPG v2 nodes that are not supported by the native compositor.',
+    );
+  });
+
+  it("reports unsupported MPG v2 nodes as an explicit native blocker", () => {
+    const scene = makeScene([makeVideoLayer({
+      filter: {
+        id: "mpg-stack",
+        name: "MPG Stack",
+        intensity: 1,
+        pipeline: "v2",
+        effectStack: [{ type: "unsupported_shader_node" }],
+      } as never,
+    })]);
+
+    expect(getNativePreviewBlockers(scene)).toContain(
+      'Filter "mpg-stack" on media layer clip-1 contains MPG v2 nodes that are not supported by the native compositor.',
+    );
   });
 
   it("carries a registered clip LUT binding into the native request", () => {

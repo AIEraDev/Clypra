@@ -14,7 +14,7 @@ export interface FilterAsset {
   // ── GPU GLSL path — primary renderer (ColorAdjustmentsEffect uniforms) ──
   gradingParams?: import("@clypra-studio/engine").GradingParams;
 
-  // ── V2 MPG path (MPG Playground output) ────────────────────────────────
+  // ── Legacy V2 effect-stack compatibility ───────────────────────────────
   pipeline?: "v2";
   effectStack?: Array<{ type: string; params?: Record<string, unknown> }>;
 

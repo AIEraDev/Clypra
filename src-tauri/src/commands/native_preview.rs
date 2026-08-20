@@ -252,6 +252,7 @@ fn validate_transition(transition: &TransitionSnapshot, layer_ids: &[String], ra
         || !transition.progress.is_finite()
         || !transition.feather.is_finite()
         || !transition.intensity.is_finite()
+        || transition.fade_color.map(|color| color.iter().any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))).unwrap_or(false)
         || !(0.0..=1.0).contains(&transition.progress)
         || !(0.0..=1.0).contains(&transition.feather)
         || transition.intensity < 0.0
@@ -260,7 +261,12 @@ fn validate_transition(transition: &TransitionSnapshot, layer_ids: &[String], ra
     }
     let supported = matches!(
         transition.transition_type.as_str(),
-        "cross-dissolve" | "wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "zoom-blur"
+        "cross-dissolve" | "fade-through-color" | "wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "wipe-diagonal"
+            | "wipe-clockwise" | "circle-wipe" | "diamond-wipe" | "rectangle-wipe"
+            | "slide-left" | "slide-right" | "slide-up" | "slide-down"
+            | "zoom-blur" | "zoom-in" | "zoom-out" | "blur-fade"
+            | "glitch" | "rgb-split" | "chromatic" | "film-burn" | "light-leak" | "whip-pan"
+            | "iris-wipe"
     );
     if !supported {
         return Err(format!("Unsupported native transition type: {}", transition.transition_type));
@@ -634,6 +640,13 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
             grade.distortion_time,
             grade.distortion_frequency,
         ],
+        fire_params: grade.fire_params,
+        fire_color_1: grade.fire_color_1,
+        fire_color_2: grade.fire_color_2,
+        fire_color_3: grade.fire_color_3,
+        particle_params: grade.particle_params,
+        particle_color: grade.particle_color,
+        particle_time: [grade.particle_time, 0.0, 0.0, 0.0],
         ..ColorGradeUniforms::default()
     })
 }
@@ -697,7 +710,26 @@ fn transition_uniforms(transition: &TransitionSnapshot) -> TransitionUniforms {
         "wipe-right" => (1, 0.0),
         "wipe-up" => (1, -std::f32::consts::FRAC_PI_2),
         "wipe-down" => (1, std::f32::consts::FRAC_PI_2),
+        "wipe-diagonal" => (1, std::f32::consts::FRAC_PI_4),
+        "slide-left" => (4, 0.0),
+        "slide-right" => (5, 0.0),
+        "slide-up" => (6, 0.0),
+        "slide-down" => (7, 0.0),
         "zoom-blur" => (2, 0.0),
+        "iris-wipe" => (3, 0.0),
+        "fade-through-color" => (8, 0.0),
+        "blur-fade" => (9, 0.0),
+        "glitch" => (10, 0.0),
+        "rgb-split" | "chromatic" => (11, 0.0),
+        "film-burn" => (12, 0.0),
+        "light-leak" => (13, 0.0),
+        "whip-pan" => (14, 0.0),
+        "wipe-clockwise" => (15, 0.0),
+        "circle-wipe" => (16, 0.0),
+        "diamond-wipe" => (17, 0.0),
+        "rectangle-wipe" => (18, 0.0),
+        "zoom-in" => (19, 0.0),
+        "zoom-out" => (20, 0.0),
         _ => (0, 0.0),
     };
     TransitionUniforms {
@@ -706,6 +738,10 @@ fn transition_uniforms(transition: &TransitionSnapshot) -> TransitionUniforms {
         feather: transition.feather.clamp(0.0, 1.0),
         angle_rad,
         blur_strength: transition.intensity.max(0.0),
+        // Reuse the padding slot as the shader aspect-ratio uniform while
+        // preserving the existing Rust struct/test field contract.
+        _pad0: 16.0 / 9.0,
+        fade_color: transition.fade_color.unwrap_or([0.0, 0.0, 0.0, 1.0]),
         ..TransitionUniforms::default()
     }
 }

@@ -53,7 +53,7 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
  * Styled layers (styleId present) always go through engineEvaluateScene,
  * which is the authoritative pipeline for stroke-blur, glow, bevel, and
  * all post-fx. When ctx.filter is unsupported (WKWebView on macOS),
- * rendering is routed through the WebGLCompositor fallback so visual
+ * rendering is routed through the native compositor so visual
  * output is consistent across platforms.
  *
  * Plain text layers (no styleId) use a minimal Canvas 2D path that

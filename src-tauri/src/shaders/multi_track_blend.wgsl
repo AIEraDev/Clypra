@@ -63,6 +63,13 @@ struct ColorGradeUniforms {
     light_leak_params: vec4<f32>, // angle, time + padding
     glitch_params: vec4<f32>, // intensity, time, slice count, color shift
     distortion_params: vec4<f32>, // type, strength, time, frequency
+    fire_params: vec4<f32>, // height, particle count, intensity, time
+    fire_color_1: vec4<f32>,
+    fire_color_2: vec4<f32>,
+    fire_color_3: vec4<f32>,
+    particle_params: vec4<f32>, // count, size, drift speed, intensity
+    particle_color: vec4<f32>, // RGB + mode/fade flag
+    particle_time: vec4<f32>, // time + padding
 };
 
 struct LayerUniforms {
@@ -255,6 +262,12 @@ fn hash12(p: vec2<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
+fn screen_blend(base: vec3<f32>, overlay: vec3<f32>, amount: f32) -> vec3<f32> {
+    let bounded_amount = clamp(amount, 0.0, 1.0);
+    let screen = vec3<f32>(1.0) - (vec3<f32>(1.0) - base) * (vec3<f32>(1.0) - overlay);
+    return mix(base, screen, bounded_amount);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 1. Branch-Free Crop Margin Clipping
@@ -370,6 +383,83 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 let particles = particle_shape * particle_mask * layer.body_effect.params.y;
                 rgb = clamp(rgb + layer.body_effect.color.xyz * particles, vec3<f32>(0.0), vec3<f32>(1.0));
             }
+        }
+    }
+
+    // Procedural light effects are evaluated in the native fragment pass so
+    // they do not require a browser canvas overlay or a CPU particle buffer.
+    if (layer.color_grade.fire_params.z > 0.0) {
+        let fire_height = clamp(layer.color_grade.fire_params.x, 0.001, 1.0);
+        let fire_intensity = clamp(layer.color_grade.fire_params.z, 0.0, 1.0);
+        let height_from_bottom = 1.0 - in.uv.y;
+        let wave = 0.035 * sin(in.uv.x * 50.2655 + layer.color_grade.fire_params.w * 3.0) +
+            0.018 * sin(in.uv.x * 18.8496 - layer.color_grade.fire_params.w * 2.0);
+        let flame_top = fire_height + wave * (0.35 + 0.65 * height_from_bottom);
+        let flame_mask = 1.0 - smoothstep(flame_top - 0.08, flame_top, height_from_bottom);
+        let vertical = clamp(height_from_bottom / max(flame_top, 0.001), 0.0, 1.0);
+        var fire_color = mix(layer.color_grade.fire_color_1.rgb, layer.color_grade.fire_color_2.rgb, vertical * 2.0);
+        if (vertical > 0.5) {
+            fire_color = mix(layer.color_grade.fire_color_2.rgb, layer.color_grade.fire_color_3.rgb, (vertical - 0.5) * 2.0);
+        }
+        rgb = screen_blend(rgb, fire_color, flame_mask * fire_intensity * 0.6);
+
+        let fire_count = clamp(floor(layer.color_grade.fire_params.y), 0.0, 128.0);
+        for (var fire_index: u32 = 0u; fire_index < 128u; fire_index = fire_index + 1u) {
+            if (f32(fire_index) >= fire_count) { break; }
+            let index_f = f32(fire_index);
+            let progress = fract(layer.color_grade.fire_params.w * 0.5 + index_f * 0.1);
+            let particle_uv = vec2<f32>(
+                sin(layer.color_grade.fire_params.w * 2.0 + index_f * 0.5) * 0.5 + 0.5,
+                1.0 - progress * fire_height * 1.2
+            );
+            let particle_radius = max(0.001, (1.0 - progress) * 0.012 * fire_intensity);
+            let particle_shape = 1.0 - smoothstep(particle_radius * 0.25, particle_radius, distance(in.uv, particle_uv));
+            let particle_color = select(
+                select(layer.color_grade.fire_color_3.rgb, layer.color_grade.fire_color_2.rgb, fire_index % 3u == 1u),
+                layer.color_grade.fire_color_1.rgb,
+                fire_index % 3u == 0u
+            );
+            rgb = screen_blend(rgb, particle_color, particle_shape * (1.0 - progress) * fire_intensity);
+        }
+    }
+
+    if (layer.color_grade.particle_params.w > 0.0) {
+        let particle_count = clamp(floor(layer.color_grade.particle_params.x), 0.0, 128.0);
+        let particle_size = max(layer.color_grade.particle_params.y, 0.001) / 360.0;
+        let drift_speed = max(layer.color_grade.particle_params.z, 0.0);
+        let particle_intensity = clamp(layer.color_grade.particle_params.w, 0.0, 1.0);
+        let particle_mode = floor(layer.color_grade.particle_color.w);
+        let fade_edges = fract(layer.color_grade.particle_color.w) > 0.25;
+        for (var particle_index: u32 = 0u; particle_index < 128u; particle_index = particle_index + 1u) {
+            if (f32(particle_index) >= particle_count) { break; }
+            let index_f = f32(particle_index);
+            let seed = index_f * 0.1;
+            var particle_uv: vec2<f32>;
+            var pulse: f32;
+            if (particle_mode > 1.5) {
+                particle_uv = vec2<f32>(
+                    sin(layer.color_grade.particle_time.x * 0.2 + index_f * 0.05) * 0.5 + 0.5,
+                    cos(layer.color_grade.particle_time.x * 0.15 + index_f * 0.1) * 0.5 + 0.5
+                );
+                pulse = sin(layer.color_grade.particle_time.x + seed * 3.0) * 0.2 + 0.8;
+            } else {
+                let progress = fract(layer.color_grade.particle_time.x * drift_speed * 0.2 + index_f * 0.013);
+                particle_uv = vec2<f32>(
+                    sin(layer.color_grade.particle_time.x * drift_speed * 0.5 + seed) * 0.5 + 0.5,
+                    1.0 - progress
+                );
+                pulse = sin(layer.color_grade.particle_time.x * 2.0 + seed) * 0.3 + 0.7;
+            }
+            let radius = particle_size * pulse * particle_intensity;
+            var alpha = particle_intensity * 0.8;
+            if (particle_mode > 1.5) {
+                alpha = particle_intensity * 0.2;
+            }
+            if (fade_edges) {
+                alpha = alpha * smoothstep(0.0, 0.1, particle_uv.y) * (1.0 - smoothstep(0.9, 1.0, particle_uv.y));
+            }
+            let shape = 1.0 - smoothstep(radius * 0.25, radius, distance(in.uv, particle_uv));
+            rgb = screen_blend(rgb, layer.color_grade.particle_color.rgb, shape * alpha);
         }
     }
 
@@ -510,7 +600,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // Time-driven effects use the evaluated effect time from the request.
-    // Flash follows the existing Pixi screen blend approximation.
+    // Flash follows the native screen-blend approximation.
     if (layer.color_grade.flash_color_strength.w > 0.0) {
         let flash = layer.color_grade.flash_color_strength.xyz * layer.color_grade.flash_color_strength.w;
         rgb = vec3<f32>(1.0) - (vec3<f32>(1.0) - rgb) * (vec3<f32>(1.0) - flash);

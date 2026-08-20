@@ -585,12 +585,17 @@ export const useTimelineStore = create<TimelineStore>(
         // If removing the last clip, reset playhead to 00:00
         if (remainingClips.length === 0) {
           // Import dynamically to avoid circular dependency
-          import("@/core/runtime/ProjectSession").then(({ getActiveSessionOrNull }) => {
-            const session = getActiveSessionOrNull();
-            if (session?.transportAuthority) {
-              session.transportAuthority.seek(0);
-            }
-          });
+          import("@/core/runtime/ProjectSession")
+            .then(({ getActiveSessionOrNull }) => {
+              const session = getActiveSessionOrNull();
+              if (session?.transportAuthority) {
+                session.transportAuthority.seek(0);
+              }
+            })
+            .catch(() => {
+              // The timeline can outlive the optional runtime during teardown
+              // or a project switch; a missing session needs no recovery here.
+            });
         }
 
         // Auto-prune: remove the track when its last clip is deleted,

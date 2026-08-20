@@ -7,9 +7,8 @@ Status: accepted on `codex/native-architecture-migration`
 Clypra will make one platform-neutral Rust media core authoritative for
 timeline frame addressing, native decode, color normalization, compositing,
 playback coordination, thumbnails, filmstrips, and export. Desktop Tauri is
-the first production consumer. React remains the editor UI. Pixi may display a
-final native frame during migration, but it cannot own decode, frame timing,
-color conversion, or export.
+the first production consumer. React remains the editor UI. The native surface
+owns decode presentation, frame timing, color conversion, and export.
 
 ## Performance constraint
 
@@ -26,11 +25,9 @@ fixtures are profiled.
 
 ## Why a staged authority change
 
-The existing browser playback path is retained only while native audio and
-native presentation are incomplete. This prevents a migration regression from
-being disguised as an architectural improvement. Each subsystem changes
-authority only after its gate passes; the final state has no permanent dual
-media runtime.
+Native audio and native presentation are the production authority. Each
+subsystem changes authority only after its gate passes; the final state has no
+permanent dual media runtime.
 
 ## Rejected alternatives
 

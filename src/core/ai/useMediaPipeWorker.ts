@@ -9,7 +9,7 @@
  * - Provides a stable `detectFrame(bitmap)` callback safe to call from
  *   any animation frame without causing re-renders on every call
  *
- * Usage (in a PixiJS canvas component):
+ * Usage (in a preview canvas component):
  *
  *   const { detectFrame, latestDetections, isReady } = useMediaPipeWorker({
  *     modelUrl: '/models/mediapipe/face-detector-short-range.task',

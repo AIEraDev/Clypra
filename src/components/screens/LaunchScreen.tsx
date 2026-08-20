@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Film, Image as ImageIcon, Plus, Trash2, Pencil, MoreHorizontal, Clock, ChevronRight, Sparkles, Settings, Activity, Video, FolderOpen, LayoutTemplate, FileVideo, Play, Layers } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { isMacOSPlatform, WindowControls, WindowDragRegion } from "@/components/ui/WindowControls";
 import { Modal } from "@/components/ui/Modal";
 import { useProjectStore } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -56,6 +57,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
   const [renameValue, setRenameValue] = useState("");
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const isMacNativeWindow = isTauri && isMacOSPlatform();
 
   const [isRecordOpen, setIsRecordOpen] = useState(false);
   const [recordOptions, setRecordOptions] = useState({
@@ -437,9 +439,11 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         .ls-glow-warm    { animation: ls-glow-pulse-warm 8s ease-in-out infinite 1.5s; }
       `}</style>
 
-      {/* Native title bar area */}
-      <div className="h-[37px] select-none flex items-center justify-center bg-transparent" data-tauri-drag-region style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
-        <span className="text-xs font-semibold text-text-muted/60">Clypra</span>
+      {/* Native title bar area. Controls are explicit because the main window is borderless. */}
+      <div className="h-8 shrink-0 flex items-center gap-2 px-1 select-none">
+        {platform.type === "tauri" && !isMacNativeWindow && <WindowControls className="mr-1" />}
+        <span className={`text-xs font-semibold text-text-muted/60 shrink-0 ${isMacNativeWindow ? "ml-[76px]" : ""}`}>Clypra</span>
+        <WindowDragRegion />
       </div>
 
       {/* ── Background gradients ─────────────────────────────────── */}

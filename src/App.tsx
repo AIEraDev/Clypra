@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { LaunchScreen } from "@/components/screens/LaunchScreen";
 import { EditorScreen } from "@/components/screens/EditorScreen";
 import { TooltipProvider } from "@/components/ui/Tooltip";
@@ -29,6 +29,7 @@ const App = () => {
   const [isRestoring, setIsRestoring] = useState(false);
   const [isClosingProject, setIsClosingProject] = useState(false);
   const [projectNameBeforeClose, setProjectNameBeforeClose] = useState<string>("");
+  const closingWindowRef = useRef(false);
   const { isRecording, previewRecording, setPreviewRecording } = useRecordingStore();
   const autoUpdater = useAutoUpdater();
 
@@ -452,7 +453,7 @@ const App = () => {
    * Handle closing the project with visual feedback modal.
    * Coordinates all cleanup steps and ensures everything is saved/stopped.
    */
-  const handleCloseProject = async () => {
+  const handleCloseProject = useCallback(async () => {
     const currentProject = useProjectStore.getState().project;
     if (!currentProject) return;
 
@@ -500,7 +501,42 @@ const App = () => {
 
       // Allow force close on error (modal will show force close button)
     }
-  };
+  }, []);
+
+  // Borderless windows do not have an OS-owned close button. Keep native
+  // close requests on the same save/cleanup path as the custom title bar.
+  useEffect(() => {
+    if (!platform.isTauri()) return;
+
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+
+    void import("@tauri-apps/api/window")
+      .then(async ({ getCurrentWindow }) => {
+        if (disposed) return;
+        const win = getCurrentWindow();
+        unlisten = await win.onCloseRequested(async (event) => {
+          if (closingWindowRef.current) return;
+
+          if (!useProjectStore.getState().project) return;
+
+          event.preventDefault();
+          closingWindowRef.current = true;
+          try {
+            await handleCloseProject();
+            await win.close();
+          } finally {
+            closingWindowRef.current = false;
+          }
+        });
+      })
+      .catch((error) => console.warn("[App] Failed to install native close handler:", error));
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [handleCloseProject]);
 
   if (isLoading) {
     return (
