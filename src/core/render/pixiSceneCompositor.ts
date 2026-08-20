@@ -51,6 +51,7 @@ export class PixiSceneCompositor {
   private nativeFrameImageData: ImageData | null = null;
   private nativeFrameTexture: Texture | null = null;
   private nativeFrameSprite: Sprite | null = null;
+  private lastNativeFrameTraceKey = "";
   private posterImages = new Map<string, { src: string; image: HTMLImageElement; ready: boolean }>();
 
   // Stub render textures used for off-screen pre-warming (1×1 px).
@@ -151,9 +152,7 @@ export class PixiSceneCompositor {
     image.onload = () => {
       if (this.posterImages.get(layer.clipId) !== entry) return;
       entry.ready = true;
-      import("../../store/timelineStore")
-        .then(({ useTimelineStore }) => useTimelineStore.getState().incrementEpoch())
-        .catch(() => undefined);
+      this.mediaPool.markMediaReady();
     };
     image.onerror = () => {
       if (this.posterImages.get(layer.clipId) === entry) this.posterImages.delete(layer.clipId);
@@ -178,6 +177,26 @@ export class PixiSceneCompositor {
       // Resize transition render textures if they exist
       for (const [key, texture] of this.transitionRenderTextures.entries()) {
         texture.resize(width, height);
+      }
+
+      // Pixi's renderer resize can clear the default framebuffer. Re-present
+      // the current stage immediately so a layout/DPR resize cannot turn a
+      // valid native frame into a black monitor between compose passes.
+      this.renderer.render?.();
+
+      if (import.meta.env.DEV) {
+        const app = this.renderer.getApp?.();
+        const sprite = this.nativeFrameSprite;
+        console.debug("[NativePreviewTrace] pixi-resize-render", {
+          width,
+          height,
+          resolution,
+          rendererWidth: app?.screen?.width ?? 0,
+          rendererHeight: app?.screen?.height ?? 0,
+          nativeSpriteVisible: Boolean(sprite?.visible),
+          nativeSpriteParented: Boolean(sprite?.parent),
+          nativeTextureSourceReady: Boolean(sprite?.texture?.source),
+        });
       }
 
       console.log(`[PixiSceneCompositor] Resized to ${width}x${height} @ ${resolution}x DPR`);
@@ -433,8 +452,54 @@ export class PixiSceneCompositor {
     // Use sprite lifecycle manager to reconcile sprite states
     this.spriteLifecycle.reconcileSprites(frameId, baseMediaContainer);
 
+    // Native video is not owned by the legacy media-sprite registry. Keep its
+    // presentation state explicit after legacy reconciliation so a stale
+    // media pass cannot hide the current native frame.
+    if (nativeFrameActive && this.nativeFrameSprite) {
+      this.nativeFrameSprite.visible = true;
+      this.nativeFrameSprite.renderable = true;
+    }
+
+    if (import.meta.env.DEV && nativeFrameActive && this.nativeFrameSprite) {
+      console.debug("[NativePreviewTrace] pixi-native-present", {
+        visible: this.nativeFrameSprite.visible,
+        renderable: this.nativeFrameSprite.renderable,
+        parented: Boolean(this.nativeFrameSprite.parent),
+        parentVisible: this.nativeFrameSprite.parent?.visible ?? false,
+        parentChildren: this.nativeFrameSprite.parent?.children.length ?? 0,
+        width: this.nativeFrameSprite.width,
+        height: this.nativeFrameSprite.height,
+        zIndex: this.nativeFrameSprite.zIndex,
+      });
+    }
+
     // 3. Render stage
     this.renderer.render();
+    this.traceNativeFramebuffer(nativeFrameActive);
+  }
+
+  private traceNativeFramebuffer(nativeFrameActive: boolean): void {
+    if (!import.meta.env.DEV || !nativeFrameActive || !this.canvas) return;
+
+    const gl = (this.canvas.getContext("webgl2") || this.canvas.getContext("webgl")) as WebGLRenderingContext | null;
+    if (!gl || this.canvas.width <= 0 || this.canvas.height <= 0) return;
+
+    const pixel = new Uint8Array(4);
+    const x = Math.max(0, Math.floor(this.canvas.width / 2));
+    const y = Math.max(0, Math.floor(this.canvas.height / 2));
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+
+    console.debug("[NativePreviewTrace] pixi-framebuffer", {
+      canvasWidth: this.canvas.width,
+      canvasHeight: this.canvas.height,
+      sampleX: x,
+      sampleY: y,
+      framebufferR: pixel[0] ?? 0,
+      framebufferG: pixel[1] ?? 0,
+      framebufferB: pixel[2] ?? 0,
+      framebufferA: pixel[3] ?? 0,
+      glError: gl.getError(),
+    });
   }
 
   private updateNativeFrame(frame: NativePreviewFrame): boolean {
@@ -462,6 +527,34 @@ export class PixiSceneCompositor {
     this.nativeFrameImageData.data.set(new Uint8ClampedArray(frame.rgba));
     this.nativeFrameContext.putImageData(this.nativeFrameImageData, 0, 0);
     (this.nativeFrameTexture.source as any)?.update?.();
+
+    if (import.meta.env.DEV) {
+      const pixels = new Uint8Array(frame.rgba);
+      const center = Math.max(0, Math.floor(pixels.length / 2) - 2);
+      const tail = Math.max(0, pixels.length - 4);
+      const traceKey = `${frame.width}x${frame.height}:${frame.rgba.byteLength}:${pixels[0] ?? 0},${pixels[1] ?? 0},${pixels[2] ?? 0},${pixels[3] ?? 0}:${pixels[center] ?? 0},${pixels[center + 1] ?? 0},${pixels[center + 2] ?? 0},${pixels[center + 3] ?? 0}:${pixels[tail] ?? 0},${pixels[tail + 1] ?? 0},${pixels[tail + 2] ?? 0},${pixels[tail + 3] ?? 0}`;
+      if (traceKey !== this.lastNativeFrameTraceKey) {
+        this.lastNativeFrameTraceKey = traceKey;
+        console.debug("[NativePreviewTrace] pixi-native-upload", {
+          width: frame.width,
+          height: frame.height,
+          bytes: frame.rgba.byteLength,
+          firstR: pixels[0] ?? 0,
+          firstG: pixels[1] ?? 0,
+          firstB: pixels[2] ?? 0,
+          firstA: pixels[3] ?? 0,
+          centerR: pixels[center] ?? 0,
+          centerG: pixels[center + 1] ?? 0,
+          centerB: pixels[center + 2] ?? 0,
+          centerA: pixels[center + 3] ?? 0,
+          lastR: pixels[tail] ?? 0,
+          lastG: pixels[tail + 1] ?? 0,
+          lastB: pixels[tail + 2] ?? 0,
+          lastA: pixels[tail + 3] ?? 0,
+          textureSourceReady: Boolean(this.nativeFrameTexture.source),
+        });
+      }
+    }
     return true;
   }
 
@@ -483,6 +576,18 @@ export class PixiSceneCompositor {
     sprite.width = projectWidth;
     sprite.height = projectHeight;
     sprite.zIndex = -900_000;
+
+    if (import.meta.env.DEV && visible) {
+      console.debug("[NativePreviewTrace] pixi-native-sprite", {
+        visible: sprite.visible,
+        parent: sprite.parent === container,
+        parentChildren: container.children.length,
+        width: sprite.width,
+        height: sprite.height,
+        zIndex: sprite.zIndex,
+        textureSourceReady: Boolean(sprite.texture?.source),
+      });
+    }
   }
 
   private renderCanvasBackground(scene: EvaluatedScene, container: Container): void {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/types";
-import { buildNativeVideoProjectRequest, isRenderableNativePreviewFrame } from "../nativeVideoPreview";
+import { buildNativeFrameRequest, buildNativeVideoProjectRequest, isRenderableNativePreviewFrame } from "../nativeVideoPreview";
 
 function makeVideoLayer(overrides: Partial<EvaluatedMediaLayer> = {}): EvaluatedMediaLayer {
   return {
@@ -87,8 +87,8 @@ describe("buildNativeVideoProjectRequest", () => {
 });
 
 describe("isRenderableNativePreviewFrame", () => {
-  it("rejects an opaque black clear frame", () => {
-    expect(isRenderableNativePreviewFrame(new Uint8Array([0, 0, 0, 255]).buffer, 1, 1)).toBe(false);
+  it("accepts a legitimate opaque black video frame", () => {
+    expect(isRenderableNativePreviewFrame(new Uint8Array([0, 0, 0, 255]).buffer, 1, 1)).toBe(true);
   });
 
   it("accepts a visible opaque pixel", () => {
@@ -97,5 +97,25 @@ describe("isRenderableNativePreviewFrame", () => {
 
   it("rejects invalid byte lengths", () => {
     expect(isRenderableNativePreviewFrame(new Uint8Array([12, 24, 36]).buffer, 1, 1)).toBe(false);
+  });
+});
+
+describe("buildNativeFrameRequest", () => {
+  it("uses integer frame addressing and includes the project revision", () => {
+    const request = buildNativeFrameRequest(makeScene([makeVideoLayer({ sourceTime: 2.25 })]), "project-1:7", 67, 30, 960, 540);
+
+    expect(request).toMatchObject({
+      contractVersion: 1,
+      requestId: "project-1:7:67:960x540",
+      frameTime: { frameIndex: 67, ticks: 2_233_333, timescale: 1_000_000 },
+      project: { projectRevision: "project-1:7" },
+      outputWidth: 960,
+      outputHeight: 540,
+    });
+    expect(request?.project.videoLayers[0].sourceTime).toEqual({
+      frameIndex: 68,
+      ticks: 2_250_000,
+      timescale: 1_000_000,
+    });
   });
 });

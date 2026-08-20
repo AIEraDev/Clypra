@@ -29,7 +29,15 @@ import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
-import { isTauriRuntime, renderNativePreviewFrame, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import {
+  getNativePreviewSurfaceGeometry,
+  hideNativeSurface,
+  isTauriRuntime,
+  presentNativeFrame,
+  probeNativeSurface,
+  renderNativeFrame,
+  resizeNativeSurface,
+} from "@/lib/platform/tauri";
 
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
@@ -39,7 +47,8 @@ import { useCaptionStore } from "@/store/captionStore";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
-import { buildNativeVideoProjectRequest, isRenderableNativePreviewFrame } from "./nativeVideoPreview";
+import { buildNativeFrameRequest, isRenderableNativePreviewFrame } from "./nativeVideoPreview";
+import { NativePreviewFrameScheduler, type NativePreviewRequestSource } from "./nativePreviewScheduler";
 
 
 const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: number; height: number }> = {
@@ -51,10 +60,11 @@ const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: numbe
   "4:3": { width: 1440, height: 1080 },
 };
 
-type CachedNativePreviewFrame = {
-  requestKey: string;
-  frame: { rgba: ArrayBuffer; width: number; height: number };
-};
+function traceNativePreview(event: string, details: Record<string, unknown> = {}): void {
+  if (import.meta.env.DEV) {
+    console.debug(`[NativePreviewTrace] ${event}`, details);
+  }
+}
 
 export const PixiProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
@@ -81,7 +91,7 @@ export const PixiProgramPreview: React.FC = () => {
   const [volume, setVolume] = useState(100);
 
   // High-performance Web Audio synchronization engine
-  useAudioSyncEngine({ volume, muted: isMuted });
+  useAudioSyncEngine({ volume, muted: isMuted, nativeMode: isTauriRuntime() });
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [previewScaleMode, setPreviewScaleMode] = useState<"fit" | "fill">("fit");
   const [previewAspectPreset, setPreviewAspectPreset] = useState<AspectRatio>("original");
@@ -93,9 +103,12 @@ export const PixiProgramPreview: React.FC = () => {
   const [telemetryStats, setTelemetryStats] = useState<TelemetryStats | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [compositorReady, setCompositorReady] = useState(false);
+  const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
   const hasStartedPlaybackRef = useRef(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const nativeSurfaceTargetRef = useRef<HTMLDivElement>(null);
+  const nativeSurfaceConfiguredRef = useRef(false);
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const previewContainerCallback = useCallback((node: HTMLDivElement | null) => {
     previewContainerRef.current = node;
@@ -119,9 +132,10 @@ export const PixiProgramPreview: React.FC = () => {
   const qualityMenuRef = useRef<HTMLDivElement>(null);
   const compositorRef = useRef<PixiSceneCompositor | null>(null);
   const qualityManagerRef = useRef<PreviewQualityManager | null>(null);
-  // Native frames are authoritative for paused seeks. Retaining the last
-  // successful frame prevents media-pool epoch updates from hiding it.
-  const nativeFrameRef = useRef<CachedNativePreviewFrame | null>(null);
+  // Native frames are authoritative for representable scenes. Retaining the
+  // last successful frame prevents media-pool updates or native decode latency
+  // from blanking the preview while the next exact frame is being decoded.
+  const nativeDisplayedFrameRef = useRef<{ rgba: ArrayBuffer; width: number; height: number } | null>(null);
   const qualityManagerSigRef = useRef<string>("");
   const telemetryRef = useRef(telemetryStats);
   const lastTelemetryFlushRef = useRef(0);
@@ -184,6 +198,66 @@ export const PixiProgramPreview: React.FC = () => {
   }, [canvasWidth, canvasHeight, viewport.panX, viewport.panY, viewport.zoom, dimensions.width, dimensions.height, previewScaleMode]);
 
   const { scale, offsetX, offsetY, displayWidth, displayHeight } = displayTransform;
+
+  // The native presenter is hosted in a transparent child surface positioned
+  // over the displayed program viewport. It is configured only in Tauri; the
+  // browser path remains entirely DOM/Pixi-owned.
+  useEffect(() => {
+    if (!isTauriRuntime() || !nativeSurfaceTargetRef.current || displayWidth <= 0 || displayHeight <= 0) {
+      return;
+    }
+
+    let active = true;
+    let syncInFlight = false;
+    const syncSurface = async () => {
+      if (!active || syncInFlight || !nativeSurfaceTargetRef.current) return;
+      syncInFlight = true;
+      try {
+        const geometry = await getNativePreviewSurfaceGeometry(nativeSurfaceTargetRef.current);
+        if (!active) return;
+        if (nativeSurfaceConfiguredRef.current) {
+          await resizeNativeSurface(geometry);
+        } else {
+          await probeNativeSurface(geometry);
+          nativeSurfaceConfiguredRef.current = true;
+        }
+        if (active) setNativeSurfaceReady(true);
+      } catch (error) {
+        nativeSurfaceConfiguredRef.current = false;
+        if (active) {
+          setNativeSurfaceReady(false);
+          traceNativePreview("native-surface-unavailable", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } finally {
+        syncInFlight = false;
+      }
+    };
+
+    void syncSurface();
+    const resizeObserver = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => void syncSurface())
+      : null;
+    resizeObserver?.observe(nativeSurfaceTargetRef.current);
+    window.addEventListener("resize", syncSurface);
+
+    return () => {
+      active = false;
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", syncSurface);
+      nativeSurfaceConfiguredRef.current = false;
+      setNativeSurfaceReady(false);
+      void hideNativeSurface().catch(() => undefined);
+    };
+  }, [displayHeight, displayWidth]);
+
+  useEffect(() => {
+    if (nativeSurfaceReady && clockState.state !== "playing") {
+      void hideNativeSurface().catch(() => undefined);
+    }
+  }, [clockState.state, nativeSurfaceReady]);
+
   const previewBackgroundLayer = useMemo(() => {
     return getCanvasBackgroundLayer(project?.canvasBackground);
   }, [project?.canvasBackground]);
@@ -273,7 +347,7 @@ export const PixiProgramPreview: React.FC = () => {
 
   useEffect(() => {
     hasStartedPlaybackRef.current = false;
-    nativeFrameRef.current = null;
+    nativeDisplayedFrameRef.current = null;
   }, [project?.id]);
 
   useEffect(() => {
@@ -433,6 +507,7 @@ export const PixiProgramPreview: React.FC = () => {
     } catch (err) {
       console.error("[PixiProgramPreview] Failed to resize compositor:", err);
     }
+
   }, [displayWidth, displayHeight]);
 
   // ── Render loop ──────────────────────────────────────────────────
@@ -444,6 +519,8 @@ export const PixiProgramPreview: React.FC = () => {
     let forceRenderNeeded = false;
     let lastRenderedFrameIndex = -1;
     let lastRenderedEpoch = -1;
+    let lastRenderedTransportRevision = -1;
+    let lastRenderedMediaReadyRevision = -1;
     let lastRenderedPlaybackState: "playing" | "paused" | "stopped" = "stopped";
     let lastRenderedClips = renderStateRef.current.clips;
     let lastRenderedTracks = renderStateRef.current.tracks;
@@ -453,9 +530,37 @@ export const PixiProgramPreview: React.FC = () => {
     // Resets when this effect restarts (project switch, canvas remount).
     // Used by the Bug 4 refinement to distinguish initial slow-load from mid-seek dips.
     const everReadyClipKeys = new Set<string>();
-    let nativePreviewRequestInFlight = false;
     let nativeRetryAt = 0;
     let nativeRetryKey = "";
+    let nativeFailureKey = "";
+    let nativeFailureCount = 0;
+    let nativeBlockedKey = "";
+    let nativePlaybackInFlight: Promise<void> | null = null;
+    let nativeContinuousFailureStreak = 0;
+    let nativeContinuousBlockedRevision = "";
+    let nativeContinuousObservedRevision = "";
+    let nativeSurfaceShown = false;
+    let visibleRequestKey = "";
+    let visibleRequestGeneration = 0;
+    let prefetchCenterKey = "";
+    let transportRevision = 0;
+    let lastTraceClockState = "";
+
+    const nativePreviewScheduler = new NativePreviewFrameScheduler({
+      maxCacheEntries: 12,
+      maxInFlight: 2,
+      load: async (request) => {
+        const rgba = await renderNativeFrame(request);
+        if (!isRenderableNativePreviewFrame(rgba, request.outputWidth, request.outputHeight)) {
+          throw new Error("Native preview returned an invalid frame payload");
+        }
+        return {
+          rgba,
+          width: request.outputWidth,
+          height: request.outputHeight,
+        };
+      },
+    });
 
     const renderLoop = async () => {
       if (!isActive) return;
@@ -471,25 +576,63 @@ export const PixiProgramPreview: React.FC = () => {
 
       const timeChanged = frameIndex !== lastRenderedFrameIndex;
       const epochChanged = state.epoch !== lastRenderedEpoch;
+      const transportChanged = transportRevision !== lastRenderedTransportRevision;
       const playbackStateChanged = lastRenderedPlaybackState !== playbackState;
       const isFirstFrame = lastRenderedFrameIndex === -1;
 
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
-      const nativeRequest = buildNativeVideoProjectRequest(scene);
+      const nativeRequest = buildNativeFrameRequest(
+        scene,
+        `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
+        frameIndex,
+        frameRate,
+        state.canvasWidth,
+        state.canvasHeight,
+      );
       const nativeRequestKey = nativeRequest ? JSON.stringify(nativeRequest) : "";
       if (nativeRequestKey !== nativeRetryKey) {
         nativeRetryKey = nativeRequestKey;
         nativeRetryAt = 0;
+        nativeFailureKey = nativeRequestKey;
+        nativeFailureCount = 0;
+        nativeBlockedKey = "";
       }
-      const cachedNativeFrame = !isPlaying && nativeRequestKey !== "" && nativeFrameRef.current?.requestKey === nativeRequestKey
-        ? nativeFrameRef.current.frame
+      if (nativeRequestKey !== visibleRequestKey) {
+        visibleRequestKey = nativeRequestKey;
+        visibleRequestGeneration += 1;
+        nativePreviewScheduler.setVisibleGeneration();
+        prefetchCenterKey = "";
+        traceNativePreview("target-change", {
+          frameIndex,
+          frameStartTime,
+          playbackState,
+          isSeeking: state.clock.isSeeking,
+          hasNativeRequest: Boolean(nativeRequest),
+          requestId: nativeRequest?.requestId ?? null,
+          generation: visibleRequestGeneration,
+          nativeBlocked: nativeRequestKey !== "" && nativeBlockedKey === nativeRequestKey,
+        });
+      }
+      const targetGeneration = visibleRequestGeneration;
+      const nativePlaybackPath = isTauriRuntime() && Boolean(nativeRequest) && isPlaying;
+      const nativeRevision = `${state.project?.id ?? "unknown-project"}:${state.epoch}`;
+      if (nativeRevision !== nativeContinuousObservedRevision) {
+        nativeContinuousObservedRevision = nativeRevision;
+        nativeContinuousFailureStreak = 0;
+        nativeContinuousBlockedRevision = "";
+      }
+      const cachedNativeFrame = nativeRequestKey !== ""
+        ? nativePreviewScheduler.getCached(nativeRequestKey)
         : null;
-      const nativeFrameNeedsRetry = !isPlaying && Boolean(nativeRequest) && !cachedNativeFrame && performance.now() >= nativeRetryAt;
+      const nativeFrameNeedsRetry = !isPlaying && Boolean(nativeRequest) && !cachedNativeFrame &&
+        nativeBlockedKey !== nativeRequestKey && performance.now() >= nativeRetryAt;
       const nativePausedPath = isTauriRuntime() && Boolean(nativeRequest) && !isPlaying;
       const targetStillCurrent = () => {
         const current = renderStateRef.current;
         return isActive &&
+          visibleRequestGeneration === targetGeneration &&
           current.project?.id === state.project?.id &&
+          current.epoch === state.epoch &&
           current.clock.state === playbackState &&
           getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex;
       };
@@ -498,9 +641,70 @@ export const PixiProgramPreview: React.FC = () => {
       // Native paused preview owns decode and frame timing when the scene is
       // representable by the Rust/wgpu compositor. The hidden DOM pool is
       // synchronized only for playback or unsupported fallback compositions.
-      const needsSync = isPlaying || (!nativePausedPath && (activeSetChanged || epochChanged || isFirstFrame || playbackStateChanged || (!isPlaying && timeChanged)));
+      const needsFallbackSync = nativePausedPath && !cachedNativeFrame && (isFirstFrame || nativeFrameNeedsRetry || activeSetChanged || epochChanged);
+      const needsSync = isPlaying || needsFallbackSync || (!nativePausedPath && (activeSetChanged || epochChanged || isFirstFrame || playbackStateChanged || (!isPlaying && timeChanged)));
+
+      // Continuous native presentation is intentionally non-blocking. The
+      // render loop keeps the last accepted native frame while one request is
+      // in flight, preventing native decode latency from stalling playback.
+      if (
+        nativePlaybackPath &&
+        nativeRequest &&
+        !cachedNativeFrame &&
+        nativeContinuousBlockedRevision !== nativeRevision &&
+        nativeBlockedKey !== nativeRequestKey &&
+        performance.now() >= nativeRetryAt &&
+        !nativePlaybackInFlight
+      ) {
+        const requestKey = nativeRequestKey;
+        const requestSource: NativePreviewRequestSource = {
+          requestKey,
+          frameIndex,
+          request: nativeRequest,
+        };
+        nativePlaybackInFlight = (nativeSurfaceReady
+          ? presentNativeFrame(nativeRequest).then((presentation) => {
+            if (presentation.presented) nativeSurfaceShown = true;
+          })
+          : nativePreviewScheduler.requestVisible(requestSource))
+          .then((frame) => {
+            const current = renderStateRef.current;
+            if (
+              isActive &&
+              visibleRequestKey === requestKey &&
+              current.clock.state === "playing"
+            ) {
+              if (frame) nativeDisplayedFrameRef.current = frame;
+              nativeContinuousFailureStreak = 0;
+              forceRenderNeeded = true;
+            }
+          })
+          .catch((error) => {
+            nativeContinuousFailureStreak += 1;
+            if (nativeContinuousFailureStreak >= 3) {
+              nativeContinuousBlockedRevision = nativeRevision;
+            }
+            nativeRetryAt = performance.now() + 250;
+            if (nativeSurfaceShown) {
+              nativeSurfaceShown = false;
+              void hideNativeSurface().catch(() => undefined);
+            }
+            traceNativePreview("native-playback-frame-failed", {
+              frameIndex,
+              requestId: nativeRequest.requestId,
+              error: error instanceof Error ? error.message : String(error),
+              attempt: nativeContinuousFailureStreak,
+              blocked: nativeContinuousBlockedRevision === nativeRevision,
+            });
+          })
+          .finally(() => {
+            nativePlaybackInFlight = null;
+          });
+      }
 
       const session = getActiveSessionOrNull();
+      const mediaReadyRevision = session?.getPreviewMediaReadyRevision() ?? 0;
+      const mediaReadyChanged = mediaReadyRevision !== lastRenderedMediaReadyRevision;
 
       if (needsSync && session && session.state === "active") {
         try {
@@ -554,7 +758,8 @@ export const PixiProgramPreview: React.FC = () => {
       const transitionsChanged = state.transitions !== lastRenderedTransitions;
       const projectChanged = state.project !== lastRenderedProject;
 
-      const needsRender = isPlaying || timeChanged || epochChanged || isFirstFrame || forceRenderNeeded || nativeFrameNeedsRetry || hasActiveTransform || clipsChanged || tracksChanged || transitionsChanged || projectChanged;
+      const needsRender = isPlaying || timeChanged || epochChanged || transportChanged || isFirstFrame || forceRenderNeeded || nativeFrameNeedsRetry || hasActiveTransform || clipsChanged || tracksChanged || transitionsChanged || projectChanged ||
+        (mediaReadyChanged && (!nativePausedPath || nativeBlockedKey === nativeRequestKey));
 
       if (needsRender) {
         lastRenderedClips = state.clips;
@@ -586,7 +791,8 @@ export const PixiProgramPreview: React.FC = () => {
           // Hold the previous native image while a new seek is decoding. It
           // is visual continuity only; `cachedNativeFrame` remains the
           // separate exact-target readiness signal below.
-          let nativeFrame = cachedNativeFrame ?? (nativePausedPath ? nativeFrameRef.current?.frame ?? null : null);
+          let exactNativeFrame = cachedNativeFrame;
+          let nativeFrame = exactNativeFrame ?? ((nativePausedPath || nativePlaybackPath) ? nativeDisplayedFrameRef.current : null);
           const requestForRender = nativeRequest;
 
           // The native full-resolution poster is an enhancement, not the
@@ -610,60 +816,126 @@ export const PixiProgramPreview: React.FC = () => {
             isTauriRuntime() &&
             requestForRender !== null &&
             !cachedNativeFrame &&
-            // Native IPC/readback is deterministic for paused editing frames.
-            // Never put an IPC decode/readback in the playback RAF path: the
-            // HTML video element is the smooth playback source.
-            // Paused seeks must be allowed to decode directly even when the
-            // WebView element is still seeking. The native frame is validated
-            // before it can replace the existing Pixi/HTML fallback.
+            // Paused seeks may await an exact native frame. Continuous native
+            // playback is scheduled separately above and never blocks this
+            // render loop; the returned frame is validated before replacing
+            // the existing Pixi/browser fallback.
             !isPlaying &&
-            !nativePreviewRequestInFlight &&
-            performance.now() >= nativeRetryAt;
+            performance.now() >= nativeRetryAt &&
+            nativeBlockedKey !== nativeRequestKey;
 
-          if (canUseNativePreview && requestForRender) {
-            nativePreviewRequestInFlight = true;
+          if (canUseNativePreview && requestForRender && !nativePlaybackPath) {
+            const requestStartedAt = performance.now();
+            traceNativePreview("native-request-start", {
+              frameIndex,
+              requestId: requestForRender.requestId,
+              requestKey: nativeRequestKey,
+              generation: targetGeneration,
+              cached: Boolean(cachedNativeFrame),
+            });
             try {
-              const [layer] = requestForRender.layers;
-              const isDirectFullCanvasVideo =
-                requestForRender.layers.length === 1 &&
-                layer &&
-                Math.abs(layer.x) < 0.5 &&
-                Math.abs(layer.y) < 0.5 &&
-                Math.abs(layer.width - requestForRender.canvasWidth) < 0.5 &&
-                Math.abs(layer.height - requestForRender.canvasHeight) < 0.5 &&
-                Math.abs(layer.rotation ?? 0) < 0.001 &&
-                Math.abs((layer.opacity ?? 1) - 1) < 0.001 &&
-                (layer.blendMode ?? "normal") === "normal";
-              const rgba = isDirectFullCanvasVideo
-                ? await renderNativePreviewFrame(layer.videoPath, layer.timeSecs, requestForRender.canvasWidth, requestForRender.canvasHeight)
-                : await renderNativeVideoProjectFrame(requestForRender);
-              if (!isRenderableNativePreviewFrame(rgba, requestForRender.canvasWidth, requestForRender.canvasHeight)) {
-                throw new Error("Native preview returned an empty or opaque-black frame");
-              }
+              const visibleSource: NativePreviewRequestSource = {
+                requestKey: nativeRequestKey,
+                frameIndex,
+                request: requestForRender,
+              };
+              const loadedFrame = await nativePreviewScheduler.requestVisible(visibleSource);
               // A seek or play action may have happened while native decode
               // was awaiting FFmpeg/GPU readback. Never commit that stale
               // response to the current program canvas.
               if (!targetStillCurrent()) {
+                traceNativePreview("native-response-stale", {
+                  frameIndex,
+                  requestId: requestForRender.requestId,
+                  elapsedMs: Math.round(performance.now() - requestStartedAt),
+                  currentFrameIndex: getFrameIndexAtTime(renderStateRef.current.clock.time, frameRate),
+                  currentState: renderStateRef.current.clock.state,
+                  generation: targetGeneration,
+                  currentGeneration: visibleRequestGeneration,
+                });
                 forceRenderNeeded = true;
                 rafId = requestAnimationFrame(renderLoop);
                 return;
               }
-              nativeFrame = {
-                rgba,
-                width: requestForRender.canvasWidth,
-                height: requestForRender.canvasHeight,
-              };
-              nativeFrameRef.current = { requestKey: nativeRequestKey, frame: nativeFrame };
+              exactNativeFrame = loadedFrame;
+              nativeFrame = loadedFrame;
+              nativeDisplayedFrameRef.current = loadedFrame;
               nativeRetryAt = 0;
+              traceNativePreview("native-response-accepted", {
+                frameIndex,
+                requestId: requestForRender.requestId,
+                elapsedMs: Math.round(performance.now() - requestStartedAt),
+                bytes: loadedFrame.rgba.byteLength,
+              });
             } catch (error) {
               // Keep the fallback visible for this render boundary, then
               // retry this exact request. One failed readback must not
               // permanently disable paused seeking.
+              // Do not pass the previous native frame to Pixi here: that
+              // would make a failed seek look successful but visually frozen.
+              nativeFrame = null;
+              if (nativeFailureKey !== nativeRequestKey) {
+                nativeFailureKey = nativeRequestKey;
+                nativeFailureCount = 0;
+              }
+              nativeFailureCount += 1;
+              if (nativeFailureCount >= 3) {
+                // Repeated invalid payloads are a native-renderer failure, not
+                // a reason to hammer FFmpeg/wgpu every RAF. Fall back until the
+                // user changes the target or explicitly seeks again.
+                nativeBlockedKey = nativeRequestKey;
+              }
               nativeRetryAt = performance.now() + 250;
+              traceNativePreview("native-request-failed", {
+                frameIndex,
+                requestId: requestForRender.requestId,
+                elapsedMs: Math.round(performance.now() - requestStartedAt),
+                error: error instanceof Error ? error.message : String(error),
+                retryInMs: 250,
+                attempt: nativeFailureCount,
+                blocked: nativeBlockedKey === nativeRequestKey,
+              });
               console.warn("[PixiProgramPreview] Native video preview unavailable; using Pixi fallback:", error);
-            } finally {
-              nativePreviewRequestInFlight = false;
             }
+          }
+
+          // Prefetch only after the visible request is satisfied. The visible
+          // frame therefore always wins the decoder/GPU budget over lookahead.
+          if (nativePausedPath && exactNativeFrame && prefetchCenterKey !== nativeRequestKey) {
+            const durationFrames = Math.max(0, Math.ceil(state.clock.duration * frameRate));
+            const prefetchSources: NativePreviewRequestSource[] = [];
+            for (const offset of [1, 2, 3, 4, 5, 6, -1, -2]) {
+              const targetFrameIndex = frameIndex + offset;
+              if (targetFrameIndex < 0 || (durationFrames > 0 && targetFrameIndex >= durationFrames)) continue;
+
+              const targetTime = getFrameStartTime(targetFrameIndex / frameRate, frameRate);
+              const targetScene = evaluateTimelineSceneCached(
+                targetTime,
+                state.clips,
+                state.tracks,
+                state.mediaAssets,
+                state.project,
+                state.epoch,
+                state.transitions,
+              );
+              const targetRequest = buildNativeFrameRequest(
+                targetScene,
+                `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
+                targetFrameIndex,
+                frameRate,
+                state.canvasWidth,
+                state.canvasHeight,
+              );
+              if (!targetRequest) continue;
+              prefetchSources.push({
+                requestKey: JSON.stringify(targetRequest),
+                frameIndex: targetFrameIndex,
+                request: targetRequest,
+                priority: offset > 0 ? offset : 10 + Math.abs(offset),
+              });
+            }
+            nativePreviewScheduler.prefetch(prefetchSources);
+            prefetchCenterKey = nativeRequestKey;
           }
 
           if (!targetStillCurrent()) {
@@ -716,11 +988,27 @@ export const PixiProgramPreview: React.FC = () => {
 
           lastRenderedFrameIndex = frameIndex;
           lastRenderedEpoch = state.epoch;
+          lastRenderedTransportRevision = transportRevision;
+          lastRenderedMediaReadyRevision = mediaReadyRevision;
           lastRenderedPlaybackState = playbackState;
 
           const nativeFrameReady = !isTauriRuntime() || nativeRequest === null ||
-            cachedNativeFrame !== null || nativeFrameRef.current?.requestKey === nativeRequestKey || isPlaying;
+            exactNativeFrame !== null || isPlaying;
+          if (state.clock.isSeeking || transportChanged) {
+            traceNativePreview("compose-commit", {
+              frameIndex,
+              frameStartTime,
+              playbackState,
+              isSeeking: state.clock.isSeeking,
+              nativeRequestId: nativeRequest?.requestId ?? null,
+              hasExactNativeFrame: Boolean(exactNativeFrame),
+              hasDisplayedNativeFrame: Boolean(nativeDisplayedFrameRef.current),
+              nativeFrameReady,
+              transportRevision,
+            });
+          }
           if (state.clock.isSeeking && nativeFrameReady) {
+            traceNativePreview("seek-complete", { frameIndex, frameStartTime });
             state.clock.completeSeek();
           }
 
@@ -747,15 +1035,33 @@ export const PixiProgramPreview: React.FC = () => {
 
     const unsubscribeClock = clock.subscribe(() => {
       forceRenderNeeded = true;
-      // A fresh seek should retry immediately, even when it lands on the same
-      // frame as a previous failed request.
+      transportRevision += 1;
+      visibleRequestGeneration += 1;
+      nativePreviewScheduler.setVisibleGeneration();
+      prefetchCenterKey = "";
+      // An explicit seek is a new opportunity for native decode. Clear the
+      // per-target circuit breaker without re-enabling retries every RAF.
+      nativeBlockedKey = "";
+      nativeFailureCount = 0;
       nativeRetryAt = 0;
+      const clockState = clock.getState();
+      if (clock.isSeeking || clockState.state !== lastTraceClockState) {
+        traceNativePreview("clock-event", {
+          time: clockState.time,
+          frameIndex: getFrameIndexAtTime(clockState.time, clockState.frameRate),
+          state: clockState.state,
+          isSeeking: clock.isSeeking,
+          transportRevision,
+        });
+      }
+      lastTraceClockState = clockState.state;
     });
 
     rafId = requestAnimationFrame(renderLoop);
     return () => {
       isActive = false;
       unsubscribeClock();
+      nativePreviewScheduler.dispose();
       if (thumbnailDebounceTimer) clearTimeout(thumbnailDebounceTimer);
       if (canvasEl) {
         const finalDataUrl = captureCanvasThumbnail(canvasEl, 640, 0.85);
@@ -774,7 +1080,7 @@ export const PixiProgramPreview: React.FC = () => {
     // Without sessionReady here the loop would return early on first run (no compositor yet)
     // and never re-trigger after the compositor is created. React runs effects in source
     // order so the compositor-init effect always fires before this one on the same dep change.
-  }, [canvasEl, project?.id, sessionReady, compositorReady]);
+  }, [canvasEl, project?.id, sessionReady, compositorReady, nativeSurfaceReady]);
 
   useEffect(() => {
     setActiveContext("program");
@@ -813,7 +1119,7 @@ export const PixiProgramPreview: React.FC = () => {
 
       <div className="flex-1 flex items-center justify-center overflow-hidden bg-[#06080a] relative">
         <div ref={previewContainerCallback} onPointerDownCapture={handlePreviewPointerDownCapture} className={cn("w-full h-full flex items-center justify-center relative z-10 overflow-hidden", isPanning && "cursor-grabbing", spacePressed && !isPanning && "cursor-grab")}>
-          <div data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]" style={{ width: displayWidth, height: displayHeight }}>
+          <div ref={nativeSurfaceTargetRef} data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]" style={{ width: displayWidth, height: displayHeight }}>
             <>
               {previewBackgroundLayer && (
                 <div
@@ -884,16 +1190,26 @@ export const PixiProgramPreview: React.FC = () => {
         }}
         onSeek={(time) => {
           if (clips.length === 0) return;
+          traceNativePreview("seek-intent", {
+            requestedTime: time,
+            currentTime: clock.time,
+            currentFrameIndex: getFrameIndexAtTime(clock.time, frameRate),
+            frameRate,
+          });
           seek(time);
         }}
         formatTime={formatTime}
         onStepBack={() => {
           if (clips.length === 0) return;
-          seek(Math.max(0, currentTime - step));
+          const targetTime = Math.max(0, currentTime - step);
+          traceNativePreview("step-intent", { direction: "back", targetTime, currentTime, frameRate });
+          seek(targetTime);
         }}
         onStepForward={() => {
           if (clips.length === 0) return;
-          seek(Math.min(duration, currentTime + step));
+          const targetTime = Math.min(duration, currentTime + step);
+          traceNativePreview("step-intent", { direction: "forward", targetTime, currentTime, frameRate });
+          seek(targetTime);
         }}
         leftActions={
           <div className="flex items-center gap-1">

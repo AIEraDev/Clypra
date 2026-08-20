@@ -208,6 +208,7 @@ export class PreviewMediaPool {
 
   // ─── INSTRUMENTATION ────────────────────────────────────────────────────
   private syncCallCount = 0;
+  private mediaReadyRevision = 0;
   private lastSyncClipIds = new Set<string>();
   private playAttemptLog: Array<{
     timestamp: number;
@@ -806,6 +807,19 @@ export class PreviewMediaPool {
   }
 
   /**
+   * Media readiness is separate from the immutable timeline revision. This
+   * lets the Pixi fallback repaint without invalidating native frame requests.
+   */
+  getMediaReadyRevision(): number {
+    return this.mediaReadyRevision;
+  }
+
+  /** Mark a non-video poster/resource as ready without mutating the timeline. */
+  markMediaReady(): void {
+    this.mediaReadyRevision += 1;
+  }
+
+  /**
    * Get audio elements.
    */
   getAudioElements(): Map<string, HTMLAudioElement> {
@@ -1265,15 +1279,8 @@ export class PreviewMediaPool {
           managed.ready = true;
           captureDimensions();
 
-          // CRITICAL: Trigger epoch increment to force scheduler reconciliation
-          // Now that video has metadata (readyState >= 1), scheduler can generate seek actions
-          import("../../store/timelineStore")
-            .then(({ useTimelineStore }) => {
-              useTimelineStore.getState().incrementEpoch();
-            })
-            .catch((err) => {
-              console.error("[PreviewMediaPool] Failed to increment epoch on loadedmetadata:", err);
-            });
+          // Metadata readiness is media IO, not a timeline mutation.
+          this.mediaReadyRevision += 1;
         },
         { once: true },
       );
@@ -1283,16 +1290,9 @@ export class PreviewMediaPool {
       "loadeddata",
       () => {
         managed.hasDecodedFrame = true;
-        // CRITICAL: Trigger epoch increment to allow first frame render
-        // loadeddata fires when currentTime frame data is decoded and ready (readyState >= 2)
-        // This ensures render loop can proceed after scheduler-initiated seek completes
-        import("../../store/timelineStore")
-          .then(({ useTimelineStore }) => {
-            useTimelineStore.getState().incrementEpoch();
-          })
-          .catch((err) => {
-            console.error("[PreviewMediaPool] Failed to import useTimelineStore on loadeddata", err);
-          });
+        // Keep readiness local so hidden-video events do not invalidate a
+        // native paused frame request or force a duplicate native decode.
+        this.mediaReadyRevision += 1;
       },
       { once: true },
     );
@@ -1314,13 +1314,7 @@ export class PreviewMediaPool {
         if (video.readyState >= 2) {
           managed.hasDecodedFrame = true;
         }
-        import("../../store/timelineStore")
-          .then(({ useTimelineStore }) => {
-            useTimelineStore.getState().incrementEpoch();
-          })
-          .catch((err) => {
-            console.error("[PreviewMediaPool] Failed to import useTimelineStore on seeked", err);
-          });
+        this.mediaReadyRevision += 1;
       }
     });
 
@@ -1454,7 +1448,7 @@ export class PreviewMediaPool {
       .then(() => {
         if (managed.disposing) return;
         video.pause();
-        useTimelineStore.getState().incrementEpoch();
+        this.mediaReadyRevision += 1;
       })
       .catch(() => {
         // Muted priming is best effort. loadeddata/seeked can still expose

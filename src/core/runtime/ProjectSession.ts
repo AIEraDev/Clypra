@@ -54,6 +54,7 @@ import { RenderEngine } from "@/lib/renderEngine/renderEngine";
 import { QualityPreset, RendererMode, type SrpConfig } from "@/lib/renderEngine/types";
 import { PreviewMediaPool, type PreviewSyncState } from "../resources/PreviewMediaPool";
 import { AudioEngine } from "../audio/AudioEngine";
+import { getSharedAudioEngine, stopSharedAudioEngine } from "../audio/audioRuntime";
 import type { Clip, MediaAsset } from "@/types";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { resourceTracker, installDiagnostics } from "@/core/monitoring/ResourceTracker";
@@ -164,7 +165,9 @@ export class ProjectSession {
     try {
       // Use global singletons (single clock/scheduler ensures no divergence)
       this._playback = getPlaybackClock();
-      this._audioEngine = new AudioEngine();
+      // Share the preview engine with React's audio synchronizer. Creating a
+      // second AudioContext here would introduce a second hardware clock.
+      this._audioEngine = getSharedAudioEngine();
 
       // Create playback contexts and transport authority
       this._programContext = new ProgramPlaybackContext(this._playback);
@@ -243,7 +246,7 @@ export class ProjectSession {
 
       // 3. Teardown audio engine
       if (this._audioEngine) {
-        this._audioEngine.dispose();
+        stopSharedAudioEngine();
         this._audioEngine = null;
       }
 
@@ -320,6 +323,11 @@ export class ProjectSession {
    */
   getPreviewVideoElements(): Map<string, HTMLVideoElement> {
     return this._previewMediaPool?.getVideoElements() ?? new Map();
+  }
+
+  /** Readiness revision for repainting the Pixi fallback without changing the timeline snapshot. */
+  getPreviewMediaReadyRevision(): number {
+    return this._previewMediaPool?.getMediaReadyRevision() ?? 0;
   }
 
   /**
