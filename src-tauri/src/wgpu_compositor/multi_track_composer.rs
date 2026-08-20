@@ -164,11 +164,11 @@ struct QuadVertex {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
 pub struct TransitionUniforms {
-    pub progress: f32,          // [0.0..1.0]
-    pub transition_type: u32,   // 0: Cross-Dissolve, 1: Directional Wipe, 2: Zoom Blur
-    pub feather: f32,           // [0.0..1.0]
-    pub angle_rad: f32,         // Angle in radians
-    pub blur_strength: f32,     // Blur intensity
+    pub progress: f32,        // [0.0..1.0]
+    pub transition_type: u32, // 0: Cross-Dissolve, 1: Directional Wipe, 2: Zoom Blur
+    pub feather: f32,         // [0.0..1.0]
+    pub angle_rad: f32,       // Angle in radians
+    pub blur_strength: f32,   // Blur intensity
     pub _pad0: f32,
     pub _pad1: f32,
     pub _pad2: f32,
@@ -217,7 +217,12 @@ impl LayerUniformPool {
         }
     }
 
-    pub fn write_uniforms(&self, queue: &wgpu::Queue, layer_index: usize, uniforms: &LayerUniforms) {
+    pub fn write_uniforms(
+        &self,
+        queue: &wgpu::Queue,
+        layer_index: usize,
+        uniforms: &LayerUniforms,
+    ) {
         if layer_index < self.max_layers {
             let offset = (layer_index as u64) * self.aligned_stride;
             queue.write_buffer(&self.buffer, offset, bytemuck::bytes_of(uniforms));
@@ -238,11 +243,31 @@ pub struct MultiTrackCompositor {
     pub transition_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub sampler: wgpu::Sampler,
     pub default_identity_lut: GpuLut3D,
+    target_format: wgpu::TextureFormat,
     quad_vertex_buffer: wgpu::Buffer,
 }
 
 impl MultiTrackCompositor {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, width: u32, height: u32) -> Self {
+        Self::new_with_target_format(
+            device,
+            queue,
+            width,
+            height,
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
+    }
+
+    /// Create a compositor whose render target matches the color encoding of
+    /// the input layers. Native video layers use sRGB textures and therefore
+    /// must use the sRGB target variant for display-ready readback bytes.
+    pub fn new_with_target_format(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        target_format: wgpu::TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Multi-Track Blend Shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
@@ -271,10 +296,10 @@ impl MultiTrackCompositor {
         let default_identity_lut = GpuLut3D::default_identity(device, queue);
 
         // Group 0: Uniform buffer for layer transforms, color grading, and chroma key
-        let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("MultiTrack Layer Uniform Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("MultiTrack Layer Uniform Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
@@ -283,48 +308,48 @@ impl MultiTrackCompositor {
                         min_binding_size: None,
                     },
                     count: None,
-                },
-            ],
-        });
+                }],
+            });
 
         // Group 1: Diffuse Texture (2D) + Sampler + 3D LUT Texture + 3D LUT Sampler
-        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("MultiTrack Layer Texture + 3D LUT Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("MultiTrack Layer Texture + 3D LUT Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D3,
-                        multisampled: false,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D3,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Compositor Pipeline Layout"),
@@ -333,10 +358,10 @@ impl MultiTrackCompositor {
         });
 
         // Transition Layouts
-        let transition_uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Transition Uniform Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let transition_uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Transition Uniform Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
@@ -345,53 +370,57 @@ impl MultiTrackCompositor {
                         min_binding_size: None,
                     },
                     count: None,
-                },
-            ],
-        });
+                }],
+            });
 
-        let transition_texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Transition Dual Texture Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let transition_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Transition Dual Texture Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
-        let transition_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Transition Pipeline Layout"),
-            bind_group_layouts: &[&transition_uniform_bind_group_layout, &transition_texture_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let transition_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Transition Pipeline Layout"),
+                bind_group_layouts: &[
+                    &transition_uniform_bind_group_layout,
+                    &transition_texture_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
 
         let vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<QuadVertex>() as wgpu::BufferAddress,
@@ -425,7 +454,7 @@ impl MultiTrackCompositor {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    format: target_format,
                     blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -457,7 +486,7 @@ impl MultiTrackCompositor {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    format: target_format,
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::One,
@@ -500,7 +529,7 @@ impl MultiTrackCompositor {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    format: target_format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -519,12 +548,30 @@ impl MultiTrackCompositor {
 
         // Fullscreen quad [-1..1] with texture UVs [0..1]
         let vertices = &[
-            QuadVertex { position: [-1.0, 1.0], uv: [0.0, 0.0] },
-            QuadVertex { position: [-1.0, -1.0], uv: [0.0, 1.0] },
-            QuadVertex { position: [1.0, -1.0], uv: [1.0, 1.0] },
-            QuadVertex { position: [-1.0, 1.0], uv: [0.0, 0.0] },
-            QuadVertex { position: [1.0, -1.0], uv: [1.0, 1.0] },
-            QuadVertex { position: [1.0, 1.0], uv: [1.0, 0.0] },
+            QuadVertex {
+                position: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            QuadVertex {
+                position: [-1.0, -1.0],
+                uv: [0.0, 1.0],
+            },
+            QuadVertex {
+                position: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            QuadVertex {
+                position: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            QuadVertex {
+                position: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            QuadVertex {
+                position: [1.0, 1.0],
+                uv: [1.0, 0.0],
+            },
         ];
 
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -545,6 +592,7 @@ impl MultiTrackCompositor {
             transition_texture_bind_group_layout,
             sampler,
             default_identity_lut,
+            target_format,
             quad_vertex_buffer,
         }
     }
@@ -631,12 +679,10 @@ impl MultiTrackCompositor {
             let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Layer Uniform Bind Group"),
                 layout: &self.uniform_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: uniform_buf.as_entire_binding(),
-                    },
-                ],
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buf.as_entire_binding(),
+                }],
             });
 
             let texture_bind_group = Self::create_layer_texture_bind_group(
@@ -729,7 +775,7 @@ impl MultiTrackCompositor {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: self.target_format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         };
@@ -824,12 +870,10 @@ impl MultiTrackCompositor {
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Transition Uniform Bind Group"),
             layout: &self.transition_uniform_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buf.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buf.as_entire_binding(),
+            }],
         });
 
         let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -912,7 +956,7 @@ impl MultiTrackCompositor {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: self.target_format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         };
@@ -920,7 +964,15 @@ impl MultiTrackCompositor {
         let target_texture = device.create_texture(&texture_desc);
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.composite_transition(device, queue, &target_view, from_view, to_view, uniforms, Some(wgpu::Color::BLACK))?;
+        self.composite_transition(
+            device,
+            queue,
+            &target_view,
+            from_view,
+            to_view,
+            uniforms,
+            Some(wgpu::Color::BLACK),
+        )?;
 
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;

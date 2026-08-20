@@ -1,17 +1,17 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
-pub mod thumbnail_engine;
+pub mod ai;
 pub mod commands;
 pub mod models;
-pub mod wgpu_compositor;
-pub mod ai;
+pub mod native_audio;
+pub mod native_core;
 pub mod preview_golden;
+pub mod thumbnail_engine;
+pub mod wgpu_compositor;
 
-use thumbnail_engine::init_thumbnail_engine;
 use commands::*;
-
-
+use thumbnail_engine::init_thumbnail_engine;
 
 #[tauri::command]
 fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
@@ -24,7 +24,12 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
             ["Clypra", "File", "Edit", "View", "Window", "Help"]
         };
 
-        for (item, label) in menu.items().map_err(|error| error.to_string())?.into_iter().zip(labels) {
+        for (item, label) in menu
+            .items()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .zip(labels)
+        {
             if let tauri::menu::MenuItemKind::Submenu(submenu) = item {
                 submenu.set_text(label).map_err(|error| error.to_string())?;
             }
@@ -61,40 +66,86 @@ pub fn run() {
                     let _ = init_thumbnail_engine(dir).await;
                 }
             });
-            
+
             // Initialize Whisper download state
             app.manage(whisper::init_download_state());
+
+            // Native frame contracts/cache are session-independent runtime
+            // infrastructure. Project sessions provide the snapshot identity.
+            app.manage(tokio::sync::Mutex::new(
+                native_core::NativeFrameService::new(1_073_741_824)
+                    .expect("native frame cache budget must be valid"),
+            ));
+
+            // Keep GPU initialization observable. Native preview callers can
+            // choose a supported fallback and surface diagnostics can explain
+            // why a device-backed path is unavailable on a given OS/driver.
+            let native_gpu_status = Arc::new(Mutex::new(
+                native_core::NativeGpuRuntimeStatus::initializing(),
+            ));
+            app.manage(native_gpu_status.clone());
+            app.manage(Arc::new(Mutex::new(
+                commands::native_surface::NativeSurfaceRuntime::new(),
+            )));
+            app.manage(Arc::new(Mutex::new(
+                commands::native_playback::NativePlaybackRuntime::new(),
+            )));
+            app.manage(Arc::new(Mutex::new(native_audio::NativeAudioClock::new())));
 
             // Initialize MediaPipe AI tracking state
             app.manage(commands::ai::init_ai_state());
 
             // Initialize GPU context and 3D LUT cache
-            let gpu_ctx_res = tauri::async_runtime::block_on(async {
+            let (gpu_ctx_res, surface_available) = tauri::async_runtime::block_on(async {
                 let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-                    backends: wgpu::Backends::PRIMARY,
+                    backends: wgpu::Backends::all(),
                     ..Default::default()
                 });
-                crate::wgpu_compositor::GpuContext::select_best_gpu(&instance).await
+                let surface = app
+                    .get_webview_window("main")
+                    .and_then(|window| instance.create_surface(window).ok());
+                let surface_available = surface.is_some();
+                let gpu_result =
+                    crate::wgpu_compositor::GpuContext::select_best_gpu(&instance, surface.as_ref())
+                        .await;
+                (gpu_result, surface_available)
             });
 
-            if let Ok(gpu_ctx) = gpu_ctx_res {
-                let identity = crate::wgpu_compositor::lut_texture::GpuLut3D::default_identity(
-                    &gpu_ctx.device,
-                    &gpu_ctx.queue,
-                );
-                let lut_cache = std::sync::Arc::new(crate::commands::lut::LutCache {
-                    luts: dashmap::DashMap::new(),
-                    default_identity: std::sync::Arc::new(identity),
-                });
-                let gpu_ctx = Arc::new(gpu_ctx);
-                let preview_session = Arc::new(tokio::sync::Mutex::new(
-                    crate::wgpu_compositor::NativePreviewSession::new(gpu_ctx.clone()),
-                ));
-                app.manage(gpu_ctx);
-                app.manage(preview_session);
-                app.manage(lut_cache);
+            match gpu_ctx_res {
+                Ok(gpu_ctx) => {
+                    if let Ok(mut status) = native_gpu_status.lock() {
+                        *status = native_core::NativeGpuRuntimeStatus::ready(
+                            gpu_ctx.info.name.clone(),
+                            gpu_ctx.info.backend.clone(),
+                            gpu_ctx.info.device_type.clone(),
+                            surface_available,
+                        );
+                    }
+
+                    let identity = crate::wgpu_compositor::lut_texture::GpuLut3D::default_identity(
+                        &gpu_ctx.device,
+                        &gpu_ctx.queue,
+                    );
+                    let lut_cache = std::sync::Arc::new(crate::commands::lut::LutCache {
+                        luts: dashmap::DashMap::new(),
+                        default_identity: std::sync::Arc::new(identity),
+                    });
+                    let gpu_ctx = Arc::new(gpu_ctx);
+                    let preview_session = Arc::new(tokio::sync::Mutex::new(
+                        crate::wgpu_compositor::NativePreviewSession::new(gpu_ctx.clone()),
+                    ));
+                    app.manage(gpu_ctx);
+                    app.manage(preview_session);
+                    app.manage(lut_cache);
+                }
+                Err(error) => {
+                    log::error!("Native GPU initialization failed: {error}");
+                    if let Ok(mut status) = native_gpu_status.lock() {
+                        *status = native_core::NativeGpuRuntimeStatus::failed(error, surface_available);
+                    }
+                }
             }
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -124,6 +175,36 @@ pub fn run() {
             render_native_preview_frame,
             render_native_project_frame,
             render_native_video_project_frame,
+            render_native_frame,
+            present_native_frame,
+            get_native_frame_service_stats,
+            get_native_gpu_status,
+            probe_native_surface,
+            resize_native_surface,
+            hide_native_surface,
+            get_native_surface_status,
+            configure_native_playback,
+            get_native_playback_state,
+            native_play,
+            native_pause,
+            native_seek,
+            native_seek_from_audio,
+            native_tick,
+            native_play_from_audio,
+            native_pause_from_audio,
+            native_tick_from_audio,
+            start_native_audio,
+            stop_native_audio,
+            get_native_audio_status,
+            pause_native_audio,
+            resume_native_audio,
+            set_native_audio_speed,
+            set_native_audio_output,
+            seek_native_audio,
+            load_native_audio_clip,
+            clear_native_audio_clip,
+            get_native_audio_clip,
+            get_native_audio_clips,
             decode_frames_streaming,
             stream_timeline_frames_binary,
             release_video_decoder,

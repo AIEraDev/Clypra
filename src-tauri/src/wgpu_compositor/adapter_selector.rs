@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use wgpu::{Adapter, Device, DeviceType, Instance, Queue};
+use wgpu::{Adapter, Device, DeviceType, Instance, Queue, Surface};
 
 /// Detailed metadata about the active GPU adapter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,6 +13,7 @@ pub struct SelectedGpuInfo {
 }
 
 pub struct GpuContext {
+    pub instance: Instance,
     pub adapter: Adapter,
     pub info: SelectedGpuInfo,
     pub device: Device,
@@ -22,9 +23,15 @@ pub struct GpuContext {
 impl GpuContext {
     /// Enumerates and scores all available graphics adapters to select the optimal discrete GPU
     /// and initializes the associated Device and Queue.
-    pub async fn select_best_gpu(instance: &Instance) -> Result<Self, String> {
-        let adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY);
-        
+    pub async fn select_best_gpu(
+        instance: &Instance,
+        compatible_surface: Option<&Surface<'_>>,
+    ) -> Result<Self, String> {
+        let mut adapters = instance.enumerate_adapters(wgpu::Backends::all());
+        if let Some(surface) = compatible_surface {
+            adapters.retain(|adapter| !surface.get_capabilities(adapter).formats.is_empty());
+        }
+
         let best_adapter = if !adapters.is_empty() {
             // Score adapters: Prioritize Discrete GPUs (1000), then Integrated (200), penalize CPU/Virtual
             let mut scored_adapters: Vec<(u32, Adapter)> = adapters
@@ -50,7 +57,7 @@ impl GpuContext {
             if let Some(adapter) = instance
                 .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
-                    compatible_surface: None,
+                    compatible_surface,
                     force_fallback_adapter: false,
                 })
                 .await
@@ -61,11 +68,13 @@ impl GpuContext {
                 instance
                     .request_adapter(&wgpu::RequestAdapterOptions {
                         power_preference: wgpu::PowerPreference::None,
-                        compatible_surface: None,
+                        compatible_surface,
                         force_fallback_adapter: true,
                     })
                     .await
-                    .ok_or_else(|| "No compatible graphics adapters or software rasterizers found.".to_string())?
+                    .ok_or_else(|| {
+                        "No compatible graphics adapters or software rasterizers found.".to_string()
+                    })?
             }
         };
 
@@ -108,6 +117,7 @@ impl GpuContext {
             .map_err(|e| format!("Failed to request wgpu device: {}", e))?;
 
         Ok(Self {
+            instance: instance.clone(),
             adapter: best_adapter,
             info: gpu_info,
             device,
@@ -127,7 +137,7 @@ mod tests {
             ..Default::default()
         });
 
-        let result = GpuContext::select_best_gpu(&instance).await;
+        let result = GpuContext::select_best_gpu(&instance, None).await;
         if let Ok(gpu_ctx) = result {
             assert!(!gpu_ctx.info.name.is_empty(), "GPU name must not be empty");
             println!(

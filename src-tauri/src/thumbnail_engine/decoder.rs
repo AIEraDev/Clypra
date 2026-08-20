@@ -191,17 +191,23 @@ impl DisplayGeometry {
             // Cap extreme SAR ratios between 1:4 and 4:1 to prevent allocation blowups
             let clamped_ratio = ratio.clamp(0.25, 4.0);
             let w = ((width as f64) * clamped_ratio).round() as u32;
-            (w.clamp(1, MAX_DISPLAY_DIMENSION), height.clamp(1, MAX_DISPLAY_DIMENSION))
+            (
+                w.clamp(1, MAX_DISPLAY_DIMENSION),
+                height.clamp(1, MAX_DISPLAY_DIMENSION),
+            )
         } else {
-            (width.clamp(1, MAX_DISPLAY_DIMENSION), height.clamp(1, MAX_DISPLAY_DIMENSION))
+            (
+                width.clamp(1, MAX_DISPLAY_DIMENSION),
+                height.clamp(1, MAX_DISPLAY_DIMENSION),
+            )
         };
-        
+
         let (final_w, final_h) = if rotation == 90 || rotation == 270 {
             (display_h, display_w)
         } else {
             (display_w, display_h)
         };
-        
+
         Self {
             encoded_width: width,
             encoded_height: height,
@@ -304,8 +310,7 @@ impl VideoDecoder {
     pub fn open(path: &str) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
 
-        let input_ctx = ffmpeg::format::input(&path)
-            .map_err(|e| format!("Cannot open: {}", e))?;
+        let input_ctx = ffmpeg::format::input(&path).map_err(|e| format!("Cannot open: {}", e))?;
 
         let stream = input_ctx
             .streams()
@@ -316,7 +321,7 @@ impl VideoDecoder {
         let time_base = stream.time_base();
         let nominal_frame_rate = stream.rate();
         let average_frame_rate = stream.avg_frame_rate();
-        
+
         let sar = unsafe {
             let codecpar = (*stream.as_ptr()).codecpar;
             if !codecpar.is_null() {
@@ -350,7 +355,7 @@ impl VideoDecoder {
                 )
             }
         };
-        
+
         eprintln!("[VideoDecoder::open] SAR: {}:{}", sar.0, sar.1);
 
         let rotation = {
@@ -373,7 +378,9 @@ impl VideoDecoder {
                         if !sd_arr.is_null() {
                             for i in 0..nb_sd {
                                 let sd = &*sd_arr.add(i);
-                                if sd.type_ == ffmpeg::ffi::AVPacketSideDataType::AV_PKT_DATA_DISPLAYMATRIX {
+                                if sd.type_
+                                    == ffmpeg::ffi::AVPacketSideDataType::AV_PKT_DATA_DISPLAYMATRIX
+                                {
                                     let matrix = sd.data as *const i32;
                                     rot = -(av_display_rotation_get(matrix) as i32);
                                     break;
@@ -398,9 +405,8 @@ impl VideoDecoder {
         }
 
         let duration = input_ctx.duration() as f64 / ffmpeg::ffi::AV_TIME_BASE as f64;
-        let codec_ctx = ffmpeg::codec::context::Context::from_parameters(
-            stream.parameters()
-        ).map_err(|e| e.to_string())?;
+        let codec_ctx = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+            .map_err(|e| e.to_string())?;
 
         let (decoder, width, height) = Self::open_with_hw(codec_ctx)?;
 
@@ -451,9 +457,9 @@ impl VideoDecoder {
         } else {
             None
         };
-        let pts_seconds = best_effort_pts
-            .or(pts)
-            .map(|value| value as f64 * self.time_base.numerator() as f64 / self.time_base.denominator() as f64);
+        let pts_seconds = best_effort_pts.or(pts).map(|value| {
+            value as f64 * self.time_base.numerator() as f64 / self.time_base.denominator() as f64
+        });
 
         DecodedFrameMetadata {
             pts,
@@ -475,12 +481,12 @@ impl VideoDecoder {
             ),
         }
     }
-    
+
     pub fn display_dimensions(&self) -> (u32, u32) {
         let geom = DisplayGeometry::from_encoded(self.width, self.height, self.sar, self.rotation);
         (geom.display_width, geom.display_height)
     }
-    
+
     pub fn sar(&self) -> (i32, i32) {
         self.sar
     }
@@ -488,11 +494,11 @@ impl VideoDecoder {
     pub fn rotation(&self) -> u32 {
         self.rotation
     }
-    
+
     pub fn width(&self) -> u32 {
         self.width
     }
-    
+
     pub fn height(&self) -> u32 {
         self.height
     }
@@ -520,9 +526,8 @@ impl VideoDecoder {
         mut ctx: ffmpeg::codec::context::Context,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
         #[cfg(target_os = "macos")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
-        ];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] =
+            &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX];
         #[cfg(target_os = "windows")]
         let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
             ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
@@ -551,11 +556,13 @@ impl VideoDecoder {
                     0,
                 );
                 if ret >= 0 && !hw_ctx.is_null() {
-                    (*ctx.as_mut_ptr()).hw_device_ctx =
-                        ffmpeg::ffi::av_buffer_ref(hw_ctx);
+                    (*ctx.as_mut_ptr()).hw_device_ctx = ffmpeg::ffi::av_buffer_ref(hw_ctx);
                     ffmpeg::ffi::av_buffer_unref(&mut hw_ctx);
                     hw_attached = true;
-                    eprintln!("[VideoDecoder::open_with_hw] Activated HW acceleration: {:?}", hw_type);
+                    eprintln!(
+                        "[VideoDecoder::open_with_hw] Activated HW acceleration: {:?}",
+                        hw_type
+                    );
                     break;
                 }
             }
@@ -569,7 +576,10 @@ impl VideoDecoder {
         let w = decoder.width();
         let h = decoder.height();
 
-        eprintln!("[VideoDecoder::open] Opened {}x{} decoder (hw={})", w, h, hw_attached);
+        eprintln!(
+            "[VideoDecoder::open] Opened {}x{} decoder (hw={})",
+            w, h, hw_attached
+        );
 
         Ok((decoder, w, h))
     }
@@ -602,7 +612,9 @@ impl VideoDecoder {
                     target_pts,
                     ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
                 );
-                if ret < 0 { return Err(format!("Seek failed at {}s", ts)); }
+                if ret < 0 {
+                    return Err(format!("Seek failed at {}s", ts));
+                }
             }
             self.decoder.flush();
             self.state.current_pts = -1;
@@ -613,8 +625,12 @@ impl VideoDecoder {
         let mut found = false;
 
         'decode: for (stream, packet) in self.input_ctx.packets() {
-            if stream.index() != self.stream_index { continue; }
-            if self.decoder.send_packet(&packet).is_err() { continue; }
+            if stream.index() != self.stream_index {
+                continue;
+            }
+            if self.decoder.send_packet(&packet).is_err() {
+                continue;
+            }
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
                 let pts = frame.pts().unwrap_or(0);
@@ -664,13 +680,12 @@ impl VideoDecoder {
         out_height: u32,
     ) -> Result<Vec<u8>, String> {
         let start = std::time::Instant::now();
-        
+
         // Clamp to video bounds
         let ts = timestamp_secs.max(0.0).min(self.duration - 0.001);
 
         // Convert seconds to stream time base units
-        let target_pts = (ts * self.time_base.1 as f64
-            / self.time_base.0 as f64) as i64;
+        let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
 
         // Sequential window: 2 seconds worth of frames (adjusts based on time_base)
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -687,8 +702,10 @@ impl VideoDecoder {
             true
         } else if self.state.can_decode_forward(target_pts, sequential_window) {
             // Forward within window - decode without seeking
-            eprintln!("[decode_frame] SEQUENTIAL: @{:.3}s (forward decode, no seek, hits={})", 
-                      ts, self.state.sequential_hits);
+            eprintln!(
+                "[decode_frame] SEQUENTIAL: @{:.3}s (forward decode, no seek, hits={})",
+                ts, self.state.sequential_hits
+            );
             false
         } else {
             // Too far forward - seek
@@ -700,7 +717,7 @@ impl VideoDecoder {
 
         if needs_seek {
             let seek_start = std::time::Instant::now();
-            
+
             // Seek to nearest keyframe at or before target
             unsafe {
                 let ret = ffmpeg::ffi::av_seek_frame(
@@ -717,9 +734,12 @@ impl VideoDecoder {
             self.decoder.flush();
             self.state.current_pts = -1; // Reset position after seek
             self.state.gop_start_pts = target_pts; // Approximate GOP start
-            
+
             seek_time = seek_start.elapsed();
-            eprintln!("[decode_frame] SEEK: @{:.3}s (seek_time={:?})", ts, seek_time);
+            eprintln!(
+                "[decode_frame] SEEK: @{:.3}s (seek_time={:?})",
+                ts, seek_time
+            );
         }
 
         // Decode forward until we reach or pass the target timestamp
@@ -739,9 +759,7 @@ impl VideoDecoder {
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
                 let frame_pts = frame.pts().unwrap_or(0);
-                let frame_ts = frame_pts as f64
-                    * self.time_base.0 as f64
-                    / self.time_base.1 as f64;
+                let frame_ts = frame_pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
 
                 // Update decoder position
                 self.state.current_pts = frame_pts;
@@ -766,8 +784,7 @@ impl VideoDecoder {
         // preview.
         if !found && best_frame.width() == 0 {
             let retry_ts = (ts - 1.0).max(0.0);
-            let retry_pts =
-                (retry_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+            let retry_pts = (retry_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
 
             unsafe {
                 let ret = ffmpeg::ffi::av_seek_frame(
@@ -830,70 +847,78 @@ impl VideoDecoder {
 
         // Explicit display geometry calculation (prevents accidental SAR handling)
         let (display_w, display_h) = self.display_dimensions();
-        
-        eprintln!("[decode_frame] Display geometry: {}×{} pixels → {}×{} display (SAR {}:{})",
-                  self.width, self.height, display_w, display_h, self.sar.0, self.sar.1);
-        
+
+        eprintln!(
+            "[decode_frame] Display geometry: {}×{} pixels → {}×{} display (SAR {}:{})",
+            self.width, self.height, display_w, display_h, self.sar.0, self.sar.1
+        );
+
         // Calculate target dimensions maintaining display aspect ratio
         let display_aspect = display_w as f64 / display_h as f64;
         let target_aspect = out_width as f64 / out_height as f64;
-        
+
         let (fit_w, fit_h) = if (display_aspect - target_aspect).abs() < 0.01 {
             (out_width, out_height)
         } else {
-            let scale = (out_width as f64 / display_w as f64)
-                .min(out_height as f64 / display_h as f64);
+            let scale =
+                (out_width as f64 / display_w as f64).min(out_height as f64 / display_h as f64);
             let w = (display_w as f64 * scale).round() as u32;
             let h = (display_h as f64 * scale).round() as u32;
             (w.max(1), h.max(1))
         };
-        
+
         // Account for rotation when determining scale target
         let (scale_target_w, scale_target_h) = if self.rotation == 90 || self.rotation == 270 {
             (fit_h, fit_w)
         } else {
             (fit_w, fit_h)
         };
-        
+
         // Single-pass YUV→RGBA scale with display-aware dimensions
-        let scaled_rgba = self.scale_to_rgba_explicit(&cpu_frame, scale_target_w, scale_target_h)?;
-        
+        let scaled_rgba =
+            self.scale_to_rgba_explicit(&cpu_frame, scale_target_w, scale_target_h)?;
+
         // Rotate if needed
         let rgba = if self.rotation != 0 {
             Self::rotate_rgba(&scaled_rgba, scale_target_w, scale_target_h, self.rotation)
         } else {
             scaled_rgba
         };
-        
+
         let total_time = start.elapsed();
-        
+
         if needs_seek {
-            eprintln!("[decode_frame] @{:.3}s: seek={:?} decode={:?} total={:?} ({} packets)", 
-                      ts, seek_time, decode_time - seek_time, total_time, packets_decoded);
+            eprintln!(
+                "[decode_frame] @{:.3}s: seek={:?} decode={:?} total={:?} ({} packets)",
+                ts,
+                seek_time,
+                decode_time - seek_time,
+                total_time,
+                packets_decoded
+            );
         } else {
-            eprintln!("[decode_frame] @{:.3}s: forward_decode={:?} total={:?} ({} packets, seq_hits={})", 
-                      ts, decode_time, total_time, packets_decoded, self.state.sequential_hits);
+            eprintln!(
+                "[decode_frame] @{:.3}s: forward_decode={:?} total={:?} ({} packets, seq_hits={})",
+                ts, decode_time, total_time, packets_decoded, self.state.sequential_hits
+            );
         }
-        
+
         // Validate RGBA buffer size matches expected dimensions
         // RGBA format = 4 bytes per pixel
         let expected_size = (fit_w * fit_h * 4) as usize;
         let actual_size = rgba.len();
-        
+
         if actual_size != expected_size {
             return Err(format!(
                 "Frame buffer size mismatch: expected {} bytes ({}x{}x4), got {} bytes",
                 expected_size, fit_w, fit_h, actual_size
             ));
         }
-        
+
         Ok(rgba)
     }
 
-    fn to_cpu_frame(
-        &self,
-        frame: ffmpeg::frame::Video,
-    ) -> Result<ffmpeg::frame::Video, String> {
+    fn to_cpu_frame(&self, frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
         // If it's a hardware frame, transfer it to system memory
         if frame.format() == ffmpeg::format::Pixel::VIDEOTOOLBOX
             || frame.format() == ffmpeg::format::Pixel::D3D11
@@ -917,7 +942,10 @@ impl VideoDecoder {
     }
 
     /// Extract raw NV12 planes (Y plane + interleaved UV plane) directly from a decoded frame without CPU sws_scale.
-    pub fn extract_nv12_planes(&self, frame: &ffmpeg::frame::Video) -> Option<(Vec<u8>, Vec<u8>, u32, u32)> {
+    pub fn extract_nv12_planes(
+        &self,
+        frame: &ffmpeg::frame::Video,
+    ) -> Option<(Vec<u8>, Vec<u8>, u32, u32)> {
         if frame.format() == ffmpeg::format::Pixel::NV12 {
             let width = frame.width() as usize;
             let height = frame.height() as usize;
@@ -951,11 +979,12 @@ impl VideoDecoder {
         }
     }
 
-    /// Decode a single frame and return raw NV12 planes directly (Y + UV) for GPU shader consumption.
+    /// Decode a single frame and return raw NV12 planes plus the color metadata
+    /// attached to the actual decoded frame for GPU shader consumption.
     pub fn decode_frame_raw_nv12(
         &mut self,
         timestamp_secs: f64,
-    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32), String> {
+    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata), String> {
         let ts = timestamp_secs.max(0.0).min(self.duration - 0.001);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -1012,8 +1041,7 @@ impl VideoDecoder {
         // preview can use the last available decoded frame.
         if !found && best_frame.width() == 0 {
             let retry_ts = (ts - 1.0).max(0.0);
-            let retry_pts =
-                (retry_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+            let retry_pts = (retry_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
 
             unsafe {
                 let ret = ffmpeg::ffi::av_seek_frame(
@@ -1070,8 +1098,9 @@ impl VideoDecoder {
         }
 
         let cpu_frame = self.to_cpu_frame(best_frame)?;
+        let frame_color = self.frame_metadata(&cpu_frame).color;
         if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
-            Ok(nv12)
+            Ok((nv12.0, nv12.1, nv12.2, nv12.3, frame_color))
         } else {
             use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
             let mut scaler = Context::get(
@@ -1086,14 +1115,17 @@ impl VideoDecoder {
             .map_err(|e| e.to_string())?;
 
             let mut out = ffmpeg::frame::Video::empty();
-            scaler.run(&cpu_frame, &mut out).map_err(|e| e.to_string())?;
+            scaler
+                .run(&cpu_frame, &mut out)
+                .map_err(|e| e.to_string())?;
             self.extract_nv12_planes(&out)
+                .map(|nv12| (nv12.0, nv12.1, nv12.2, nv12.3, frame_color))
                 .ok_or_else(|| "Failed to extract converted NV12 planes".to_string())
         }
     }
 
     /// Scale YUV frame to RGBA
-    /// 
+    ///
     /// Uses raw pixel dimensions to prevent double SAR application.
     /// SAR correction is handled by caller through geometry calculation.
     fn scale_to_rgba_explicit(
@@ -1112,7 +1144,8 @@ impl VideoDecoder {
             out_w,
             out_h,
             Flags::LANCZOS,
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
 
         let mut out = ffmpeg::frame::Video::empty();
         scaler.run(frame, &mut out).map_err(|e| e.to_string())?;
@@ -1122,7 +1155,7 @@ impl VideoDecoder {
         let width = out.width() as usize;
         let height = out.height() as usize;
         let src_data = out.data(0);
-        
+
         // Copy row by row to handle stride
         let mut rgba = Vec::with_capacity(width * height * 4);
         for y in 0..height {
@@ -1130,10 +1163,10 @@ impl VideoDecoder {
             let row_pixels = &src_data[row_start..row_start + (width * 4)];
             rgba.extend_from_slice(row_pixels);
         }
-        
+
         Ok(rgba)
     }
-    
+
     /// Scale an RGBA buffer to new dimensions
     /// Used after rotation to scale display-oriented frames
     pub fn scale_rgba_buffer(
@@ -1145,14 +1178,10 @@ impl VideoDecoder {
         dst_h: u32,
     ) -> Result<Vec<u8>, String> {
         use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
-        
+
         // Create a temporary frame from RGBA buffer
-        let mut src_frame = ffmpeg::frame::Video::new(
-            ffmpeg::format::Pixel::RGBA,
-            src_w,
-            src_h,
-        );
-        
+        let mut src_frame = ffmpeg::frame::Video::new(ffmpeg::format::Pixel::RGBA, src_w, src_h);
+
         // Copy RGBA data into frame (row-by-row to handle stride alignment)
         let stride = src_frame.stride(0);
         let width = src_w as usize;
@@ -1164,7 +1193,7 @@ impl VideoDecoder {
             src_data[row_start..row_start + (width * 4)]
                 .copy_from_slice(&rgba[src_row_start..src_row_start + (width * 4)]);
         }
-        
+
         // Scale to destination size
         let mut scaler = Context::get(
             ffmpeg::format::Pixel::RGBA,
@@ -1174,24 +1203,27 @@ impl VideoDecoder {
             dst_w,
             dst_h,
             Flags::LANCZOS,
-        ).map_err(|e| e.to_string())?;
-        
+        )
+        .map_err(|e| e.to_string())?;
+
         let mut dst_frame = ffmpeg::frame::Video::empty();
-        scaler.run(&src_frame, &mut dst_frame).map_err(|e| e.to_string())?;
-        
+        scaler
+            .run(&src_frame, &mut dst_frame)
+            .map_err(|e| e.to_string())?;
+
         // Extract tightly packed RGBA
         let stride = dst_frame.stride(0);
         let width = dst_frame.width() as usize;
         let height = dst_frame.height() as usize;
         let dst_data = dst_frame.data(0);
-        
+
         let mut result = Vec::with_capacity(width * height * 4);
         for y in 0..height {
             let row_start = y * stride;
             let row_pixels = &dst_data[row_start..row_start + (width * 4)];
             result.extend_from_slice(row_pixels);
         }
-        
+
         Ok(result)
     }
 
@@ -1266,12 +1298,12 @@ pub(crate) struct DecoderEntry {
 
 impl DecoderEntry {
     pub(crate) fn touch(&self) {
-        self.last_accessed_ms.store(current_timestamp_ms(), Ordering::Relaxed);
+        self.last_accessed_ms
+            .store(current_timestamp_ms(), Ordering::Relaxed);
     }
 }
 
-pub(crate) static DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
-    Lazy::new(DashMap::new);
+pub(crate) static DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> = Lazy::new(DashMap::new);
 
 // Pool size limit with lock-free atomic LRU eviction
 const MAX_DECODER_POOL_SIZE: usize = 20;
@@ -1281,10 +1313,10 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
     if let Some(entry) = DECODER_POOL.get(path) {
         entry.touch();
         eprintln!("[get_decoder] Pool HIT for {} (LRU updated)", path);
-        
+
         #[cfg(debug_assertions)]
         eprintln!("[METRIC] decoder_pool.hit=1 path={}", path);
-        
+
         return Ok(entry.decoder.clone());
     }
 
@@ -1295,47 +1327,66 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
     if DECODER_POOL.len() >= MAX_DECODER_POOL_SIZE {
         let oldest = DECODER_POOL
             .iter()
-            .map(|kv| (kv.key().clone(), kv.value().last_accessed_ms.load(Ordering::Relaxed)))
+            .map(|kv| {
+                (
+                    kv.key().clone(),
+                    kv.value().last_accessed_ms.load(Ordering::Relaxed),
+                )
+            })
             .min_by_key(|(_, ts)| *ts);
 
         if let Some((oldest_key, oldest_ts)) = oldest {
             let age_secs = (current_timestamp_ms().saturating_sub(oldest_ts)) as f64 / 1000.0;
             DECODER_POOL.remove(&oldest_key);
-            
+
             #[cfg(debug_assertions)]
-            eprintln!("[METRIC] decoder_pool.eviction=1 age_secs={:.1} reason=lru_full", age_secs);
-            
-            eprintln!("[get_decoder] Pool full ({} decoders), LRU evicted: {} (age: {:.1}s)", 
-                     MAX_DECODER_POOL_SIZE, oldest_key, age_secs);
+            eprintln!(
+                "[METRIC] decoder_pool.eviction=1 age_secs={:.1} reason=lru_full",
+                age_secs
+            );
+
+            eprintln!(
+                "[get_decoder] Pool full ({} decoders), LRU evicted: {} (age: {:.1}s)",
+                MAX_DECODER_POOL_SIZE, oldest_key, age_secs
+            );
         }
     }
 
     // 3. Create new decoder — performed outside any DashMap lock
     let start = std::time::Instant::now();
-    eprintln!("[get_decoder] Pool MISS - creating new decoder for {}", path);
-    
-    let decoder = VideoDecoder::open(path)
-        .map_err(|e| format!("Failed to open {}: {}", path, e))?;
+    eprintln!(
+        "[get_decoder] Pool MISS - creating new decoder for {}",
+        path
+    );
+
+    let decoder =
+        VideoDecoder::open(path).map_err(|e| format!("Failed to open {}: {}", path, e))?;
 
     let creation_time_ms = start.elapsed().as_millis();
-    
+
     #[cfg(debug_assertions)]
-    eprintln!("[METRIC] decoder_pool.creation_time_ms={} path={}", creation_time_ms, path);
+    eprintln!(
+        "[METRIC] decoder_pool.creation_time_ms={} path={}",
+        creation_time_ms, path
+    );
 
     let arc_decoder = Arc::new(Mutex::new(decoder));
     let entry = Arc::new(DecoderEntry {
         decoder: arc_decoder.clone(),
         last_accessed_ms: AtomicU64::new(current_timestamp_ms()),
     });
-    
+
     DECODER_POOL.insert(path.to_string(), entry);
-    
+
     let pool_size = DECODER_POOL.len();
     #[cfg(debug_assertions)]
     eprintln!("[METRIC] decoder_pool.size={}", pool_size);
-    
-    eprintln!("[get_decoder] Created decoder in {:?} (pool size: {})", 
-             start.elapsed(), pool_size);
+
+    eprintln!(
+        "[get_decoder] Created decoder in {:?} (pool size: {})",
+        start.elapsed(),
+        pool_size
+    );
     Ok(arc_decoder)
 }
 
@@ -1353,12 +1404,7 @@ mod display_dimensions_tests {
     use super::ffmpeg;
 
     /// Helper to test display dimension calculation without full decoder
-    fn calc_display_dims(
-        width: u32,
-        height: u32,
-        sar: (i32, i32),
-        rotation: u32,
-    ) -> (u32, u32) {
+    fn calc_display_dims(width: u32, height: u32, sar: (i32, i32), rotation: u32) -> (u32, u32) {
         let geom = super::DisplayGeometry::from_encoded(width, height, sar, rotation);
         (geom.display_width, geom.display_height)
     }
