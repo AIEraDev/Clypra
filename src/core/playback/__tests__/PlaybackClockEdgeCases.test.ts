@@ -28,6 +28,17 @@ describe("PlaybackClock — Deep Edge Cases & Frame Rate Precision", () => {
       clock.seek(Infinity);
       expect(clock.time).toBe(0.0);
     });
+
+    it("accepts a bounded native clock sample without changing the public clock API", () => {
+      clock.setNativeClockPosition(12.5);
+      expect(clock.time).toBe(12.5);
+
+      clock.setNativeClockPosition(999);
+      expect(clock.time).toBe(100);
+
+      clock.clearNativeClockPosition();
+      expect(clock.time).toBe(100);
+    });
   });
 
   // ─── 2. SPEED MULTIPLIERS & TIME REMAPPING ───────────────────────────────

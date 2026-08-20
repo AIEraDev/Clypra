@@ -23,6 +23,15 @@ export class SourcePlaybackContext implements PlaybackContext {
    * Call with `null` to unbind.
    */
   setMediaElement(element: HTMLMediaElement | null): void {
+    // Unbinding is a lifecycle boundary. Pause the old element before
+    // dropping the reference so source audio cannot continue after leaving
+    // the project/session or switching source assets.
+    if (!element && this._mediaElement) {
+      this._mediaElement.pause?.();
+      this._mediaElement.removeAttribute?.("src");
+      this._mediaElement.load?.();
+    }
+
     // Clean up old listeners
     if (this._cleanupMediaListeners) {
       this._cleanupMediaListeners();

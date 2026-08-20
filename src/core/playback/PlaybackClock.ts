@@ -41,6 +41,12 @@ export interface PlaybackClockState {
 
 export type PlaybackClockListener = (state: PlaybackClockState) => void;
 
+function tracePlayback(event: string, details: Record<string, unknown>): void {
+  if (import.meta.env.DEV) {
+    console.debug(`[NativePreviewTrace] ${event}`, details);
+  }
+}
+
 /**
  * Playback Clock - Imperative time signal.
  *
@@ -58,8 +64,10 @@ export class PlaybackClock {
   // RAF loop
   private _rafId: number | null = null;
   private _audioContext: AudioContext | null = null;
+  private _ownsAudioContext = false;
   private _playStartAudioTime: number = 0;
   private _playStartClockTime: number = 0;
+  private _nativeClockPosition: { time: number; receivedAtMs: number; speed: number } | null = null;
 
   // Generation counter to prevent stale RAF ticks
   private _generation: number = 0;
@@ -76,6 +84,23 @@ export class PlaybackClock {
 
   constructor() {
     // Constructor initialization
+  }
+
+  /** Attach the shared audio clock used by the program audio engine. */
+  attachAudioContext(audioContext: AudioContext): void {
+    if (this._audioContext === audioContext) return;
+
+    const wasPlaying = this._state === "playing";
+    if (wasPlaying) this.pause();
+
+    if (this._ownsAudioContext && this._audioContext) {
+      void this._audioContext.close();
+    }
+
+    this._audioContext = audioContext;
+    this._ownsAudioContext = false;
+
+    if (wasPlaying) this.play();
   }
 
   // ─── Getters (Imperative reads) ────────────────────────────────────────────
@@ -95,6 +120,15 @@ export class PlaybackClock {
     if (this._isSeeking) {
       return this._time;
     }
+    // If native audio is authoritative, extrapolate from the latest bounded
+    // native status sample between IPC updates. Rendering consumers still read
+    // one clock signal and do not need to know which platform owns it.
+    if (this._state === "playing" && this._nativeClockPosition) {
+      const elapsed = Math.max(0, performance.now() - this._nativeClockPosition.receivedAtMs) / 1000;
+      const computedTime = this._nativeClockPosition.time + elapsed * this._nativeClockPosition.speed;
+      return Math.min(computedTime, this._duration);
+    }
+
     // If playing, calculate time synchronously based on audio context.
     // This ensures accurate time even if requestAnimationFrame is suspended (e.g. background tab).
     if (this._state === "playing" && this._audioContext && this._audioContext.state === "running") {
@@ -143,6 +177,27 @@ export class PlaybackClock {
    */
   get frameRate(): number {
     return this._frameRate;
+  }
+
+  /**
+   * Feed the latest position from a native hardware audio clock. The value is
+   * intentionally sampled rather than queried synchronously on every render.
+   */
+  setNativeClockPosition(time: number, speed: number = this._speed): void {
+    if (!Number.isFinite(time)) return;
+    const validSpeed = Number.isFinite(speed) ? Math.max(0.1, Math.min(4, speed)) : this._speed;
+    const clampedTime = Math.max(0, Math.min(time, this._duration));
+    this._nativeClockPosition = {
+      time: clampedTime,
+      receivedAtMs: performance.now(),
+      speed: validSpeed,
+    };
+    this._time = clampedTime;
+  }
+
+  /** Stop consuming native samples and return to the local audio clock. */
+  clearNativeClockPosition(): void {
+    this._nativeClockPosition = null;
   }
 
   /**
@@ -226,6 +281,7 @@ export class PlaybackClock {
     // Initialize AudioContext for high-precision timing
     if (!this._audioContext) {
       this._audioContext = new AudioContext();
+      this._ownsAudioContext = true;
     }
 
     if (this._audioContext.state === "suspended") {
@@ -293,6 +349,7 @@ export class PlaybackClock {
     this._state = "stopped";
     this._time = 0;
     this._isSeeking = false;
+    this._nativeClockPosition = null;
 
     // Single notification for all changes
     this._notifyListeners();
@@ -303,6 +360,8 @@ export class PlaybackClock {
    */
   seek(time: number): void {
     const wasPlaying = this._state === "playing";
+    const previousTime = this.time;
+    const previousFrame = getFrameIndexForTrace(previousTime, this._frameRate);
 
     if (wasPlaying) {
       this.pause();
@@ -316,6 +375,16 @@ export class PlaybackClock {
     this._time = Math.round(rawTime * frameRate) / frameRate;
 
     this._isSeeking = true;
+    tracePlayback("clock-seek-apply", {
+      requestedTime: time,
+      previousTime,
+      previousFrame,
+      appliedTime: this._time,
+      appliedFrame: getFrameIndexForTrace(this._time, this._frameRate),
+      frameRate: this._frameRate,
+      wasPlaying,
+      duration: this._duration,
+    });
     this._notifyListeners();
 
     if (wasPlaying) {
@@ -376,7 +445,9 @@ export class PlaybackClock {
     // Calculate elapsed time using AudioContext (high precision)
     const audioContext = this._audioContext!;
     const elapsed = (audioContext.currentTime - this._playStartAudioTime) * this._speed;
-    const newTime = this._playStartClockTime + elapsed;
+    const newTime = this._nativeClockPosition
+      ? this.time
+      : this._playStartClockTime + elapsed;
 
     // Update time
     if (newTime >= this._duration) {
@@ -472,12 +543,19 @@ export class PlaybackClock {
     this._state = "stopped";
     this._time = 0;
     this._listeners.clear();
+    this._nativeClockPosition = null;
 
-    if (this._audioContext) {
+    if (this._audioContext && this._ownsAudioContext) {
       this._audioContext.close();
-      this._audioContext = null;
     }
+    this._audioContext = null;
+    this._ownsAudioContext = false;
   }
+}
+
+function getFrameIndexForTrace(timeSeconds: number, frameRate: number): number {
+  if (!Number.isFinite(timeSeconds) || !Number.isFinite(frameRate) || frameRate <= 0) return 0;
+  return Math.max(0, Math.floor(timeSeconds * frameRate + 1e-9));
 }
 
 /**
@@ -488,9 +566,12 @@ let globalClock: PlaybackClock | null = null;
 /**
  * Get or create global playback clock.
  */
-export function getPlaybackClock(): PlaybackClock {
+export function getPlaybackClock(audioContext?: AudioContext): PlaybackClock {
   if (!globalClock) {
     globalClock = new PlaybackClock();
+  }
+  if (audioContext) {
+    globalClock.attachAudioContext(audioContext);
   }
   return globalClock;
 }
