@@ -108,6 +108,7 @@ mod tests {
                     z_index: 0,
                     blend_mode: "normal".to_string(),
                 }],
+                raster_layers: vec![],
             },
             output_width: 2,
             output_height: 2,

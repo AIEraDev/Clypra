@@ -16,7 +16,7 @@ pub use cache::FrameCache;
 pub use contracts::{
     ColorPolicy, FramePacket, FrameRequest, FrameTime, NativeCoreError, PixelFormat,
     PlaybackClockStatus, PlaybackPlan, PlaybackState, ProjectSnapshot, QualityTier,
-    VideoLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
+    RasterLayerSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
 pub use performance::{NativeFrameServiceStats, PerformanceBudget, PerformanceSample};
 pub use service::NativeFrameService;

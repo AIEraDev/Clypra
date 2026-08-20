@@ -121,6 +121,21 @@ pub struct VideoLayerSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RasterLayerSnapshot {
+    pub asset_id: String,
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub x: f32,
+    pub y: f32,
+    pub rotation: f32,
+    pub opacity: f32,
+    pub z_index: i32,
+    pub blend_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectSnapshot {
     pub schema_version: u32,
     pub project_revision: String,
@@ -128,6 +143,8 @@ pub struct ProjectSnapshot {
     pub canvas_height: u32,
     pub clear_color: [f32; 4],
     pub video_layers: Vec<VideoLayerSnapshot>,
+    #[serde(default)]
+    pub raster_layers: Vec<RasterLayerSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +214,11 @@ impl FrameRequest {
                 "ProjectSnapshot supports at most 256 video layers".to_string(),
             ));
         }
+        if self.project.raster_layers.len() > 64 {
+            return Err(NativeCoreError::InvalidContract(
+                "ProjectSnapshot supports at most 64 raster layers".to_string(),
+            ));
+        }
         for layer in &self.project.video_layers {
             if layer.asset_id.trim().is_empty()
                 || layer.video_path.trim().is_empty()
@@ -218,6 +240,43 @@ impl FrameRequest {
                     "VideoLayerSnapshot source_time timescale must be non-zero".to_string(),
                 ));
             }
+        }
+        let mut raster_bytes = 0usize;
+        for layer in &self.project.raster_layers {
+            let expected_bytes = (layer.width as usize)
+                .checked_mul(layer.height as usize)
+                .and_then(|pixels| pixels.checked_mul(4))
+                .ok_or_else(|| {
+                    NativeCoreError::InvalidContract(
+                        "RasterLayerSnapshot dimensions overflow".to_string(),
+                    )
+                })?;
+            raster_bytes = raster_bytes.saturating_add(expected_bytes);
+            if layer.asset_id.trim().is_empty()
+                || layer.width == 0
+                || layer.height == 0
+                || layer.width > 8192
+                || layer.height > 8192
+                || layer.rgba.len() != expected_bytes
+                || !layer.x.is_finite()
+                || !layer.y.is_finite()
+                || !layer.rotation.is_finite()
+                || !layer.opacity.is_finite()
+            {
+                return Err(NativeCoreError::InvalidContract(
+                    "ProjectSnapshot contains an invalid raster layer".to_string(),
+                ));
+            }
+            if layer.rgba.len() > 64 * 1024 * 1024 {
+                return Err(NativeCoreError::InvalidContract(
+                    "RasterLayerSnapshot exceeds the per-layer byte limit".to_string(),
+                ));
+            }
+        }
+        if raster_bytes > 128 * 1024 * 1024 {
+            return Err(NativeCoreError::InvalidContract(
+                "ProjectSnapshot raster layers exceed the byte limit".to_string(),
+            ));
         }
         Ok(())
     }
@@ -301,6 +360,7 @@ mod tests {
                     z_index: 0,
                     blend_mode: "normal".to_string(),
                 }],
+                raster_layers: vec![],
             },
             output_width: 1920,
             output_height: 1080,
