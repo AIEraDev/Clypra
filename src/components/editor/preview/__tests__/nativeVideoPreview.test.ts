@@ -106,6 +106,20 @@ describe("buildNativeVideoProjectRequest", () => {
     });
   });
 
+  it("routes animated GIF stickers through the native FFmpeg media layer", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([makeVideoLayer({
+      clipKind: "sticker",
+      mediaType: "image",
+      stickerFormat: "gif",
+      sourcePath: "/Users/test/sticker.gif",
+    })]));
+
+    expect(request?.layers[0]).toMatchObject({
+      videoPath: "/Users/test/sticker.gif",
+      timeSecs: 2,
+    });
+  });
+
   it("keeps animated sticker formats out of the native media path", () => {
     expect(buildNativeVideoProjectRequest(makeScene([makeVideoLayer({
       clipKind: "sticker",

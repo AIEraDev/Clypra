@@ -582,9 +582,10 @@ function getNativeBodyEffect(
 
 function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
   const isStaticSticker = layer.clipKind === "sticker" && layer.stickerFormat === "static";
+  const isGifSticker = layer.clipKind === "sticker" && layer.stickerFormat === "gif";
   return (
     (layer.mediaType === "video" || layer.mediaType === "image") &&
-    (layer.clipKind !== "sticker" || isStaticSticker) &&
+    (layer.clipKind !== "sticker" || isStaticSticker || isGifSticker) &&
     isNativeFileSource(layer.sourcePath) &&
     getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects) !== null &&
     (!layer.sourceRotation || layer.sourceRotation === 0) &&

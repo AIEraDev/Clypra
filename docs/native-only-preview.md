@@ -38,8 +38,8 @@ uploaded as immutable native raster assets, then composited by wgpu. The
 browser overlay canvas is hidden after native presentation succeeds, so the
 same card is not drawn twice. Lottie frame evaluation still uses the
 Studio-compatible JS asset library; only the resulting pixels cross the native
-bridge. GIF stickers remain outside this tranche until their decoder/cache
-contract is native.
+bridge. Animated GIF stickers use the native FFmpeg media decoder directly,
+including timestamped seeks during playback.
 
 Raster-only scenes are valid native proof fixtures too: a smart-overlay or
 text asset can be presented on the native surface without requiring a video
