@@ -150,6 +150,7 @@ export interface NativeVideoProjectFrameRequest {
   canvasHeight: number;
   clearColor?: [number, number, number, number];
   layers: NativeProjectVideoLayer[];
+  rasterLayers?: import("./nativeCore").NativeRasterLayerSnapshot[];
 }
 
 /**

@@ -152,6 +152,20 @@ export interface NativeVideoLayerSnapshot {
   blendMode: string;
 }
 
+export interface NativeRasterLayerSnapshot {
+  assetId: string;
+  /** RGBA8 bytes produced by the canonical Clypra Studio text renderer. */
+  rgba: number[];
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  rotation: number;
+  opacity: number;
+  zIndex: number;
+  blendMode: string;
+}
+
 export interface NativeProjectSnapshot {
   schemaVersion: number;
   projectRevision: string;
@@ -159,6 +173,7 @@ export interface NativeProjectSnapshot {
   canvasHeight: number;
   clearColor: [number, number, number, number];
   videoLayers: NativeVideoLayerSnapshot[];
+  rasterLayers?: NativeRasterLayerSnapshot[];
 }
 
 export interface NativeFrameRequest {
