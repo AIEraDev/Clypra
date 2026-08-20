@@ -94,7 +94,8 @@ export class NativeAudioPreviewController {
       await setNativeAudioSpeed(this.clock.speed);
       await setNativeAudioOutput(1, false);
       if (this.clock.state === "playing") {
-        await nativePlayFromAudio();
+        const nativeState = await nativePlayFromAudio();
+        this.adoptNativePosition(nativeState.audioPositionTicks);
       } else {
         await pauseNativeAudio();
       }
@@ -136,19 +137,29 @@ export class NativeAudioPreviewController {
     if (state.state === "playing" && previous?.state !== "playing") {
       this.enqueue(async () => {
         await seekNativeAudio(secondsToTicks(state.time));
-        await nativePlayFromAudio();
+        const nativeState = await nativePlayFromAudio();
+        this.adoptNativePosition(nativeState.audioPositionTicks);
       });
     } else if (state.state !== "playing" && previous?.state === "playing") {
-      this.enqueue(() => nativePauseFromAudio().then(() => undefined));
+      this.enqueue(async () => {
+        const nativeState = await nativePauseFromAudio();
+        this.adoptNativePosition(nativeState.audioPositionTicks);
+      });
     }
 
     const frameDuration = 1 / Math.max(1, state.frameRate);
     if (state.state !== "playing" && previous && Math.abs(state.time - previous.time) > frameDuration * 0.5) {
       this.enqueue(async () => {
         await seekNativeAudio(secondsToTicks(state.time));
-        await nativeSeekFromAudio(Math.max(0, Math.floor(state.time * state.frameRate)));
+        const nativeState = await nativeSeekFromAudio(Math.max(0, Math.floor(state.time * state.frameRate)));
+        this.adoptNativePosition(nativeState.audioPositionTicks);
       });
     }
+  }
+
+  private adoptNativePosition(positionTicks: number): void {
+    if (!Number.isFinite(positionTicks)) return;
+    this.clock.setNativeClockPosition(positionTicks / 1_000_000, this.clock.speed);
   }
 
   private async pollNativeClock(): Promise<void> {

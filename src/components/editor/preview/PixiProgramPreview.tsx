@@ -905,7 +905,12 @@ export const PixiProgramPreview: React.FC = () => {
         });
       }
       const targetGeneration = visibleRequestGeneration;
-      const nativePlaybackPath = isTauriRuntime() && Boolean(nativePlaybackRequest) && isPlaying;
+      // Do not hand the visible surface to native video until native audio has
+      // supplied its first hardware-clock sample. Before that point the
+      // browser/Pixi fallback remains synchronized to the pre-takeover clock;
+      // switching surfaces early causes the exact play-toggle desync/jump.
+      const nativeAudioClockReady = !isTauriRuntime() || state.clock.hasNativeClockPosition;
+      const nativePlaybackPath = isTauriRuntime() && Boolean(nativePlaybackRequest) && isPlaying && nativeAudioClockReady;
       if (nativeSurfaceShown && !nativeRequest) {
         nativeSurfaceShown = false;
         browserMediaPausedForNative = false;

@@ -181,6 +181,11 @@ export class PlaybackClock {
     return this._frameRate;
   }
 
+  /** Whether the native audio authority has supplied a usable position sample. */
+  get hasNativeClockPosition(): boolean {
+    return this._nativeClockPosition !== null;
+  }
+
   /**
    * Feed the latest position from a native hardware audio clock. The value is
    * intentionally sampled rather than queried synchronously on every render.
@@ -243,13 +248,10 @@ export class PlaybackClock {
     const wasPlaying = this._state === "playing";
 
     if (wasPlaying) {
-      // PB-BUG-006: Sync _time from AudioContext BEFORE pausing.
-      // pause() stops the RAF loop, so _time would be stale (last tick value).
-      // Reading the live AudioContext time here eliminates the drift.
-      if (this._audioContext && this._audioContext.state === "running") {
-        const audioElapsed = this._audioContext.currentTime - this._playStartAudioTime;
-        this._time = Math.min(this._playStartClockTime + audioElapsed * this._speed, this._duration);
-      }
+      // Sync from whichever clock is authoritative. During native takeover,
+      // reading AudioContext here would rewind/advance the playhead away from
+      // the CPAL hardware position.
+      this._time = this.time;
       this.pause(true);
     }
 
@@ -314,10 +316,11 @@ export class PlaybackClock {
       return;
     }
 
-    // Sync precise live time from AudioContext before pausing
-    if (!skipTimeSync && this._audioContext && this._audioContext.state === "running") {
-      const elapsed = (this._audioContext.currentTime - this._playStartAudioTime) * this._speed;
-      this._time = Math.max(0, Math.min(this._playStartClockTime + elapsed, this._duration));
+    // Sync precise live time from the authoritative clock before pausing.
+    // `this.time` uses the sampled native audio position when native playback
+    // is active and falls back to AudioContext otherwise.
+    if (!skipTimeSync) {
+      this._time = Math.max(0, Math.min(this.time, this._duration));
     }
 
     // Snap playhead to nearest frame boundary of the project's frame rate
