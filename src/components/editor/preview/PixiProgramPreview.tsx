@@ -104,6 +104,7 @@ export const PixiProgramPreview: React.FC = () => {
   const [sessionReady, setSessionReady] = useState(false);
   const [compositorReady, setCompositorReady] = useState(false);
   const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
+  const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
   const hasStartedPlaybackRef = useRef(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -248,13 +249,17 @@ export const PixiProgramPreview: React.FC = () => {
       window.removeEventListener("resize", syncSurface);
       nativeSurfaceConfiguredRef.current = false;
       setNativeSurfaceReady(false);
+      setNativeSurfacePresenting(false);
       void hideNativeSurface().catch(() => undefined);
     };
   }, [displayHeight, displayWidth]);
 
   useEffect(() => {
-    if (nativeSurfaceReady && clockState.state !== "playing") {
-      void hideNativeSurface().catch(() => undefined);
+    if (clockState.state !== "playing") {
+      setNativeSurfacePresenting(false);
+      if (nativeSurfaceReady) {
+        void hideNativeSurface().catch(() => undefined);
+      }
     }
   }, [clockState.state, nativeSurfaceReady]);
 
@@ -615,6 +620,11 @@ export const PixiProgramPreview: React.FC = () => {
       }
       const targetGeneration = visibleRequestGeneration;
       const nativePlaybackPath = isTauriRuntime() && Boolean(nativeRequest) && isPlaying;
+      if (nativeSurfaceShown && !nativeRequest) {
+        nativeSurfaceShown = false;
+        setNativeSurfacePresenting(false);
+        void hideNativeSurface().catch(() => undefined);
+      }
       const nativeRevision = `${state.project?.id ?? "unknown-project"}:${state.epoch}`;
       if (nativeRevision !== nativeContinuousObservedRevision) {
         nativeContinuousObservedRevision = nativeRevision;
@@ -664,7 +674,17 @@ export const PixiProgramPreview: React.FC = () => {
         };
         nativePlaybackInFlight = (nativeSurfaceReady
           ? presentNativeFrame(nativeRequest).then((presentation) => {
-            if (presentation.presented) nativeSurfaceShown = true;
+            if (presentation.presented && isActive && renderStateRef.current.clock.state === "playing") {
+              nativeSurfaceShown = true;
+              // The direct native surface is the exclusive owner of the base
+              // video layer while playing. Leaving the Pixi canvas visible
+              // underneath creates a second, slightly different frame.
+              setNativeSurfacePresenting(true);
+            } else if (presentation.presented) {
+              // The IPC request completed after a pause/stop. Do not allow a
+              // stale direct frame to reappear above the paused Pixi frame.
+              void hideNativeSurface().catch(() => undefined);
+            }
           })
           : nativePreviewScheduler.requestVisible(requestSource))
           .then((frame) => {
@@ -687,6 +707,7 @@ export const PixiProgramPreview: React.FC = () => {
             nativeRetryAt = performance.now() + 250;
             if (nativeSurfaceShown) {
               nativeSurfaceShown = false;
+              setNativeSurfacePresenting(false);
               void hideNativeSurface().catch(() => undefined);
             }
             traceNativePreview("native-playback-frame-failed", {
@@ -1138,6 +1159,7 @@ export const PixiProgramPreview: React.FC = () => {
                   height: displayHeight,
                   imageRendering: "auto",
                   background: "transparent",
+                  visibility: nativeSurfacePresenting ? "hidden" : "visible",
                 }}
               />
               <canvas
