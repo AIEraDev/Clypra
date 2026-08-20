@@ -59,17 +59,22 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            // macOS should use the real traffic lights and native window
-            // corner treatment. Windows/Linux remain borderless so the
-            // shared custom controls can stay integrated with the app bar.
+            // macOS uses the real traffic lights and native window corner
+            // treatment with an overlay title bar. Windows/Linux switch to
+            // borderless mode so the shared custom controls stay integrated
+            // with the app bar.
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 window
-                    .set_decorations(true)
-                    .map_err(|error| format!("failed to enable macOS decorations: {error}"))?;
-                window
                     .set_title_bar_style(tauri::TitleBarStyle::Overlay)
                     .map_err(|error| format!("failed to enable macOS title bar overlay: {error}"))?;
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            if let Some(window) = app.get_webview_window("main") {
+                window
+                    .set_decorations(false)
+                    .map_err(|error| format!("failed to enable custom title bar: {error}"))?;
             }
 
             // Initialize thumbnail engine
