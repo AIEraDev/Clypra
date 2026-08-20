@@ -603,11 +603,19 @@ function isNativeAnimatedStickerLayer(layer: EvaluatedMediaLayer): boolean {
  * backgrounds must stay on the full Pixi scene path until they have native
  * graph nodes of their own.
  */
-function getNativeClearColor(scene: EvaluatedScene): [number, number, number, number] | null {
+function getNativeClearColor(
+  scene: EvaluatedScene,
+  rasterLayers: NativeRasterLayerSnapshot[] = [],
+): [number, number, number, number] | null {
   const background = scene.metadata.canvasBackground;
   if (!background) return [0, 0, 0, 1];
   if (background.isTransparent) return [0, 0, 0, 0];
-  if (background.type !== "solid") return null;
+  if (background.type !== "solid") {
+    const hasNativeBackground = rasterLayers.some((layer) =>
+      !layer.isMask && layer.assetId.startsWith("native-background:"),
+    );
+    return hasNativeBackground ? [0, 0, 0, 0] : null;
+  }
 
   const color = background.color?.trim() || "#000000";
   if (
@@ -630,7 +638,7 @@ export function buildNativeVideoProjectRequest(
   rasterLayers: NativeRasterLayerSnapshot[] = [],
 ): NativeVideoProjectFrameRequest | null {
   if (scene.visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) return null;
-  const clearColor = getNativeClearColor(scene);
+  const clearColor = getNativeClearColor(scene, rasterLayers);
   if (!clearColor) return null;
 
   const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");

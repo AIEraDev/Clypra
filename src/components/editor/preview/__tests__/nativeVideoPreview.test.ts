@@ -35,6 +35,7 @@ function makeVideoLayer(overrides: Partial<EvaluatedMediaLayer> = {}): Evaluated
 function makeScene(
   visualLayers: EvaluatedScene["visualLayers"],
   transitions: EvaluatedScene["transitions"] = [],
+  canvasBackground: EvaluatedScene["metadata"]["canvasBackground"] = undefined,
 ): EvaluatedScene {
   return {
     visualLayers,
@@ -46,7 +47,7 @@ function makeScene(
       canvasHeight: 1080,
       frameRate: 30,
       isGap: false,
-      canvasBackground: undefined,
+      canvasBackground,
       activeMediaHash: "video",
     },
   } as EvaluatedScene;
@@ -182,6 +183,30 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(request?.rasterLayers?.[0].assetId).toBe("native-overlay:sample");
   });
 
+  it("uses a registered native raster background for non-solid canvas backgrounds", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([], [], {
+      type: "gradient",
+      color: "#000000",
+      opacity: 1,
+      isTransparent: false,
+      gradient: { type: "linear", angle: 135, stops: [{ color: "#111111", offset: 0 }, { color: "#222222", offset: 100 }] },
+    }), [{
+      assetId: "native-background:2:{gradient}",
+      width: 1920,
+      height: 1080,
+      x: 0,
+      y: 0,
+      rotation: 0,
+      opacity: 1,
+      zIndex: -1_000_000,
+      blendMode: "normal",
+      isText: false,
+    }]);
+
+    expect(request?.clearColor).toEqual([0, 0, 0, 0]);
+    expect(request?.rasterLayers?.[0].assetId).toBe("native-background:2:{gradient}");
+  });
+
   it("maps evaluated video layers into a project-sized native request", () => {
     const layer = makeVideoLayer({ x: 100, y: 50, width: 640, height: 360, zIndex: 7 });
 
@@ -290,7 +315,7 @@ describe("buildNativeVideoProjectRequest", () => {
     ]);
   });
 
-  it("keeps animated and media backgrounds on Pixi until native graph support exists", () => {
+  it("keeps backgrounds without a registered native asset off the native path", () => {
     for (const type of ["gradient", "shader", "media"] as const) {
       const scene = {
         ...makeScene([makeVideoLayer()]),

@@ -27,6 +27,7 @@ import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
 import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
 import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
+import { drawCanvasBackground } from "@/core/render/canvasBackground";
 import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import {
@@ -582,10 +583,13 @@ export const PixiProgramPreview: React.FC = () => {
     const nativeAnimatedStickerRenderer = new NativeAnimatedStickerRenderer();
     const nativeAnimatedStickerAssetsById = new Map<string, NativeAnimatedStickerRaster>();
     const registeredNativeAnimatedStickerAssets = new Set<string>();
+    const nativeBackgroundAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
+    const registeredNativeBackgroundAssets = new Set<string>();
     const maxNativeTextRasterCacheEntries = 96;
     const maxNativeBodyMaskCacheEntries = 90;
     const maxNativeSmartOverlayCacheEntries = 48;
     const maxNativeAnimatedStickerCacheEntries = 90;
+    const maxNativeBackgroundCacheEntries = 90;
 
     const ensureNativeTextAssetRegistered = async (
       asset: NativeTextRasterAsset,
@@ -791,6 +795,64 @@ export const PixiProgramPreview: React.FC = () => {
       return assets;
     };
 
+    const ensureNativeBackgroundAssetRegistered = async (
+      asset: NativeRasterLayerSnapshot & { rgba: number[] },
+      force = false,
+    ): Promise<void> => {
+      nativeBackgroundAssetsById.set(asset.assetId, asset);
+      while (nativeBackgroundAssetsById.size > maxNativeBackgroundCacheEntries) {
+        const oldestId = nativeBackgroundAssetsById.keys().next().value as string | undefined;
+        if (!oldestId) break;
+        nativeBackgroundAssetsById.delete(oldestId);
+        registeredNativeBackgroundAssets.delete(oldestId);
+      }
+      if (!force && registeredNativeBackgroundAssets.has(asset.assetId)) return;
+      await registerNativeRasterAsset(asset);
+      registeredNativeBackgroundAssets.add(asset.assetId);
+    };
+
+    const rasterizeNativeBackground = async (
+      scene: EvaluatedScene,
+      frameIndex: number,
+    ): Promise<NativeRasterLayerSnapshot[]> => {
+      if (!isTauriRuntime() || typeof document === "undefined") return [];
+      const background = scene.metadata.canvasBackground;
+      if (
+        !background ||
+        background.isTransparent ||
+        background.type === "solid" ||
+        (background.type !== "gradient" && background.type !== "shader")
+      ) return [];
+
+      const width = Math.max(1, Math.round(scene.metadata.canvasWidth || renderStateRef.current.canvasWidth));
+      const height = Math.max(1, Math.round(scene.metadata.canvasHeight || renderStateRef.current.canvasHeight));
+      const assetId = `native-background:${frameIndex}:${JSON.stringify(background)}`;
+      const cached = nativeBackgroundAssetsById.get(assetId);
+      if (cached) return [{ ...cached, rgba: undefined }];
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) return [];
+      drawCanvasBackground(context, background, width, height, scene.metadata.time);
+      const asset: NativeRasterLayerSnapshot & { rgba: number[] } = {
+        assetId,
+        rgba: Array.from(context.getImageData(0, 0, width, height).data),
+        width,
+        height,
+        x: 0,
+        y: 0,
+        rotation: 0,
+        opacity: 1,
+        zIndex: -1_000_000,
+        blendMode: "normal",
+        isText: false,
+      };
+      await ensureNativeBackgroundAssetRegistered(asset);
+      return [{ ...asset, rgba: undefined }];
+    };
+
     const reRegisterTextAssetsForRequest = async (request: NativeFrameRequest): Promise<boolean> => {
       const references = request.project.rasterLayers ?? [];
       if (references.length === 0) return false;
@@ -803,11 +865,15 @@ export const PixiProgramPreview: React.FC = () => {
       const stickerAssets = references
         .map((reference) => nativeAnimatedStickerAssetsById.get(reference.assetId))
         .filter((asset): asset is NativeAnimatedStickerRaster => Boolean(asset));
-      if (textAssets.length + maskAssets.length + stickerAssets.length !== references.length) return false;
+      const backgroundAssets = references
+        .map((reference) => nativeBackgroundAssetsById.get(reference.assetId))
+        .filter((asset): asset is NativeRasterLayerSnapshot & { rgba: number[] } => Boolean(asset));
+      if (textAssets.length + maskAssets.length + stickerAssets.length + backgroundAssets.length !== references.length) return false;
       await Promise.all([
         ...textAssets.map((asset) => ensureNativeTextAssetRegistered(asset, true)),
         ...maskAssets.map((asset) => ensureNativeBodyMaskAssetRegistered(asset, true)),
         ...stickerAssets.map((asset) => ensureNativeAnimatedStickerAssetRegistered(asset, true)),
+        ...backgroundAssets.map((asset) => ensureNativeBackgroundAssetRegistered(asset, true)),
       ]);
       return true;
     };
@@ -921,6 +987,7 @@ export const PixiProgramPreview: React.FC = () => {
       const isFirstFrame = lastRenderedFrameIndex === -1;
 
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
+      const nativeBackground = await rasterizeNativeBackground(scene, frameIndex);
       const nativeTextRasters = await rasterizeNativeTextLayers(scene);
       const nativeBodyMasks = await rasterizeNativeBodyMasks(
         scene,
@@ -941,6 +1008,7 @@ export const PixiProgramPreview: React.FC = () => {
         frameIndex,
       );
       const nativeRasterLayers = [
+        ...nativeBackground,
         ...nativeTextRasters,
         ...nativeBodyMasks,
         ...nativeAnimatedStickers,
@@ -975,6 +1043,7 @@ export const PixiProgramPreview: React.FC = () => {
               state.epoch,
               state.transitions,
             );
+            const lookAheadBackground = await rasterizeNativeBackground(lookAheadScene, lookAheadFrame);
             const lookAheadTextRasters = await rasterizeNativeTextLayers(lookAheadScene);
             const lookAheadAnimatedStickers = await rasterizeNativeAnimatedStickers(lookAheadScene);
             const lookAheadSmartClips = state.clips.filter(
@@ -997,7 +1066,7 @@ export const PixiProgramPreview: React.FC = () => {
               frameRate,
               state.canvasWidth,
               state.canvasHeight,
-              [...lookAheadTextRasters, ...lookAheadAnimatedStickers, ...lookAheadSmartOverlays],
+              [...lookAheadBackground, ...lookAheadTextRasters, ...lookAheadAnimatedStickers, ...lookAheadSmartOverlays],
             ) ?? nativeRequest;
           }
         }
