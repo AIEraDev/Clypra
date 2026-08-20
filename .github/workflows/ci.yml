@@ -57,6 +57,7 @@ jobs:
             libavdevice-dev \
             libswscale-dev \
             libswresample-dev \
+            libasound2-dev \
             libpostproc-dev \
             libclang-dev \
             pkg-config \

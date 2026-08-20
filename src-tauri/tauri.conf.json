@@ -21,6 +21,7 @@
         "devtools": true
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null,
       "headers": {
