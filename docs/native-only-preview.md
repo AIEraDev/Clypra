@@ -42,6 +42,10 @@ parameters and executed by the wgpu fragment shader. Creative transitions are
 separate graph nodes and remain blocked when their transition contract is not
 supported.
 
+Wave, ripple, bulge, twist, and fisheye effects now share the native bounded
+distortion sampling pass. Their evaluated time and strength travel as compact
+uniforms; no browser canvas effect pass is required.
+
 Static sticker image clips, evaluated Lottie frames, and smart-overlay cards are
 uploaded as immutable native raster assets, then composited by wgpu. The
 browser overlay canvas is hidden after native presentation succeeds, so the

@@ -62,6 +62,7 @@ struct ColorGradeUniforms {
     light_leak_color_strength: vec4<f32>, // RGB + strength
     light_leak_params: vec4<f32>, // angle, time + padding
     glitch_params: vec4<f32>, // intensity, time, slice count, color shift
+    distortion_params: vec4<f32>, // type, strength, time, frequency
 };
 
 struct LayerUniforms {
@@ -271,6 +272,31 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let burst = hash12(vec2<f32>(slice, floor(layer.color_grade.glitch_params.y * 24.0)));
         let offset = (burst - 0.5) * 2.0 * layer.color_grade.glitch_params.x * layer.color_grade.glitch_params.w;
         sample_uv.x = clamp(sample_uv.x + offset / max(source_dimensions.x, 1.0), 0.0, 1.0);
+    }
+    if (layer.color_grade.distortion_params.x > 0.0 && layer.color_grade.distortion_params.y > 0.0) {
+        let distortion_type = layer.color_grade.distortion_params.x;
+        let amount = layer.color_grade.distortion_params.y;
+        let time = layer.color_grade.distortion_params.z;
+        let frequency = layer.color_grade.distortion_params.w;
+        let center = vec2<f32>(0.5, 0.5);
+        let delta = sample_uv - center;
+        let radius = length(delta);
+        let safe_direction = delta / max(radius, 0.001);
+        if (distortion_type < 1.5) {
+            sample_uv.y += sin((sample_uv.x + time * 0.35) * frequency * 6.2831853) * amount * (1.0 - radius);
+        } else if (distortion_type < 2.5) {
+            sample_uv += safe_direction * sin(radius * frequency * 6.2831853 - time * 4.0) * amount * (1.0 - radius);
+        } else if (distortion_type < 3.5) {
+            sample_uv = center + delta * (1.0 - amount * (1.0 - radius));
+        } else if (distortion_type < 4.5) {
+            let angle = amount * (1.0 - radius) * (1.0 - radius);
+            let c = cos(angle);
+            let s = sin(angle);
+            sample_uv = center + vec2<f32>(delta.x * c - delta.y * s, delta.x * s + delta.y * c);
+        } else {
+            sample_uv = center + delta * (1.0 + amount * radius * radius);
+        }
+        sample_uv = clamp(sample_uv, vec2<f32>(0.0), vec2<f32>(1.0));
     }
     if (layer.color_grade.pixelate_size > 0.0) {
         let cell = vec2<f32>(layer.color_grade.pixelate_size) / max(source_dimensions, vec2<f32>(1.0));

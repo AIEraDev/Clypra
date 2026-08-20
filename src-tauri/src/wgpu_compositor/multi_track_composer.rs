@@ -128,6 +128,7 @@ pub struct ColorGradeUniforms {
     pub light_leak_color_strength: [f32; 4], // RGB + strength
     pub light_leak_params: [f32; 4], // angle, time + padding
     pub glitch_params: [f32; 4], // intensity, time, slice count, color shift
+    pub distortion_params: [f32; 4], // type, strength, time, frequency
 }
 
 /// Mask-driven body effect controls matching multi_track_blend.wgsl (32 bytes).
@@ -193,11 +194,12 @@ impl Default for ColorGradeUniforms {
             light_leak_color_strength: [1.0, 1.0, 1.0, 0.0],
             light_leak_params: [0.7853982, 0.0, 0.0, 0.0],
             glitch_params: [0.0, 0.0, 0.0, 0.0],
+            distortion_params: [0.0, 0.0, 0.0, 0.0],
         }
     }
 }
 
-/// GPU Uniform layout matching multi_track_blend.wgsl (496 bytes).
+/// GPU Uniform layout matching multi_track_blend.wgsl (512 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct LayerUniforms {

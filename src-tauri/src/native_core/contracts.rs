@@ -301,6 +301,14 @@ pub struct ColorGradeSnapshot {
     pub glitch_slice_count: f32,
     #[serde(default)]
     pub glitch_color_shift: f32,
+    #[serde(default)]
+    pub distortion_type: f32,
+    #[serde(default)]
+    pub distortion_strength: f32,
+    #[serde(default)]
+    pub distortion_time: f32,
+    #[serde(default = "default_color_grade_distortion_frequency")]
+    pub distortion_frequency: f32,
 }
 
 fn default_color_grade_multiplier() -> f32 { 1.0 }
@@ -313,6 +321,7 @@ fn default_vibrance_protected_hue_b() -> f32 { 0.55 }
 fn default_color_grade_neutral_channel() -> f32 { 1.0 }
 fn default_color_grade_split_balance() -> f32 { 0.5 }
 fn default_color_grade_light_leak_angle() -> f32 { 0.7853982 }
+fn default_color_grade_distortion_frequency() -> f32 { 6.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -516,6 +525,10 @@ impl FrameRequest {
                     || !color_grade.glitch_time.is_finite()
                     || !color_grade.glitch_slice_count.is_finite()
                     || !color_grade.glitch_color_shift.is_finite()
+                    || !color_grade.distortion_type.is_finite()
+                    || !color_grade.distortion_strength.is_finite()
+                    || !color_grade.distortion_time.is_finite()
+                    || !color_grade.distortion_frequency.is_finite()
                     || color_grade.contrast < 0.0
                     || color_grade.saturation < 0.0
                     || color_grade.sepia < 0.0
@@ -619,6 +632,12 @@ impl FrameRequest {
                     || color_grade.glitch_time < 0.0
                     || color_grade.glitch_slice_count < 0.0
                     || color_grade.glitch_color_shift < 0.0
+                    || color_grade.distortion_type < 0.0
+                    || color_grade.distortion_type > 5.0
+                    || color_grade.distortion_strength < 0.0
+                    || color_grade.distortion_strength > 1.0
+                    || color_grade.distortion_time < 0.0
+                    || color_grade.distortion_frequency <= 0.0
                 {
                     return Err(NativeCoreError::InvalidContract(
                         "VideoLayerSnapshot contains invalid color-grade data".to_string(),

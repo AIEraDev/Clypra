@@ -251,6 +251,10 @@ export interface NativeColorGradeSnapshot {
   glitchTime?: number;
   glitchSliceCount?: number;
   glitchColorShift?: number;
+  distortionType?: number;
+  distortionStrength?: number;
+  distortionTime?: number;
+  distortionFrequency?: number;
 }
 
 export interface NativeRasterLayerSnapshot {

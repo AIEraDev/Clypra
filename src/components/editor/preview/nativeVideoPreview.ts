@@ -203,7 +203,7 @@ function getNativeColorGrade(
   if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
   const supportedEffectRenderers = new Set([
     "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
-  "vhs", "glitch", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "body_outline", "body_glow", "body_segmentation_glow", "body_particles", "motion_blur", "radial_blur", "zoom_blur",
+  "vhs", "glitch", "wave", "ripple", "bulge", "twist", "fisheye", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "body_outline", "body_glow", "body_segmentation_glow", "body_particles", "motion_blur", "radial_blur", "zoom_blur",
   ]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
@@ -243,9 +243,24 @@ function getNativeColorGrade(
   let glitchTime = 0;
   let glitchSliceCount = 0;
   let glitchColorShift = 0;
+  let distortionType = 0;
+  let distortionStrength = 0;
+  let distortionTime = 0;
+  let distortionFrequency = 6;
   for (const effect of activeEffects) {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-    if (renderer === "glitch") {
+    if (renderer === "wave" || renderer === "ripple" || renderer === "bulge" || renderer === "twist" || renderer === "fisheye") {
+      const type = renderer === "wave" ? 1 : renderer === "ripple" ? 2 : renderer === "bulge" ? 3 : renderer === "twist" ? 4 : 5;
+      const amount = Number(effect.parameters.amount ?? effect.parameters.strength ?? effect.parameters.distortionStrength ?? (renderer === "twist" ? 0.35 : 0.08));
+      const frequency = Number(effect.parameters.frequency ?? (renderer === "wave" || renderer === "ripple" ? 6 : 1));
+      if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(frequency) || frequency <= 0) return null;
+      if (effect.intensity >= distortionStrength) {
+        distortionType = type;
+        distortionStrength = Math.min(1, amount * effect.intensity);
+        distortionFrequency = Math.min(64, frequency);
+        distortionTime = Math.max(0, effect.localTime);
+      }
+    } else if (renderer === "glitch") {
       const amount = Number(effect.parameters.glitchIntensity ?? effect.parameters.amount ?? 50);
       const sliceCount = Number(effect.parameters.sliceCount ?? 5);
       const colorShift = Number(effect.parameters.colorOffset ?? effect.parameters.splitDistance ?? 12);
@@ -553,6 +568,12 @@ function getNativeColorGrade(
       glitchTime,
       glitchSliceCount,
       glitchColorShift,
+    } : {}),
+    ...(distortionStrength > 0 ? {
+      distortionType,
+      distortionStrength,
+      distortionTime,
+      distortionFrequency,
     } : {}),
   };
 }

@@ -696,6 +696,24 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(request?.layers[0].colorGrade?.glitchColorShift).toBeCloseTo(11.2, 6);
   });
 
+  it("maps distortion effects into the native sampling contract", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([makeVideoLayer({
+      effects: [{
+        effectId: "wave",
+        renderer: "wave",
+        type: "video_effect",
+        intensity: 0.75,
+        localTime: 0.5,
+        parameters: { amount: 0.12, frequency: 9 },
+      }],
+    })]));
+
+    expect(request?.layers[0].colorGrade?.distortionType).toBe(1);
+    expect(request?.layers[0].colorGrade?.distortionStrength).toBeCloseTo(0.09, 6);
+    expect(request?.layers[0].colorGrade?.distortionTime).toBeCloseTo(0.5, 6);
+    expect(request?.layers[0].colorGrade?.distortionFrequency).toBe(9);
+  });
+
   it("maps deterministic VHS and CRT controls into the native grading pass", () => {
     const request = buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ effects: [

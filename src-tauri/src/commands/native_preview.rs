@@ -628,6 +628,12 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
             grade.glitch_slice_count,
             grade.glitch_color_shift,
         ],
+        distortion_params: [
+            grade.distortion_type,
+            grade.distortion_strength,
+            grade.distortion_time,
+            grade.distortion_frequency,
+        ],
         ..ColorGradeUniforms::default()
     })
 }
