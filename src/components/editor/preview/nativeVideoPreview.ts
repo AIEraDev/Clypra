@@ -12,7 +12,6 @@ import {
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
-import type { NativeTextRasterAsset } from "./nativeTextPreview";
 
 const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
 
@@ -165,7 +164,7 @@ export function buildNativeFrameRequest(
   frameRate: number,
   outputWidth: number,
   outputHeight: number,
-  rasterLayers: NativeTextRasterAsset[] = [],
+  rasterLayers: NativeRasterLayerSnapshot[] = [],
 ): NativeFrameRequest | null {
   const request = buildNativeVideoProjectRequest(scene, rasterLayers);
   if (!request) return null;

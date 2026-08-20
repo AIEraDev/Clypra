@@ -154,8 +154,8 @@ export interface NativeVideoLayerSnapshot {
 
 export interface NativeRasterLayerSnapshot {
   assetId: string;
-  /** RGBA8 bytes produced by the canonical Clypra Studio text renderer. */
-  rgba: number[];
+  /** RGBA8 bytes, omitted after native asset registration. */
+  rgba?: number[];
   width: number;
   height: number;
   x: number;

@@ -32,10 +32,15 @@ function hashTextRasterKey(value: string): string {
  * the visible text, style, geometry, or animated time changes.
  */
 export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
+  const animation = layer.styleDefinition?.animation as { type?: string } | undefined;
+  const timeDependent = Boolean(
+    layer.templateId || (animation && animation.type && animation.type !== "none"),
+  );
+
   return JSON.stringify({
     layerId: layer.layerId,
     text: layer.text,
-    time: layer.time,
+    time: timeDependent ? layer.time : undefined,
     x: layer.x,
     y: layer.y,
     width: layer.width,

@@ -14,6 +14,7 @@ import type {
   NativeSurfaceGeometry,
   NativeSurfaceProbe,
   NativeSurfacePresentation,
+  NativeRasterLayerSnapshot,
 } from "./nativeCore";
 
 export const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -237,6 +238,23 @@ export async function queueNativeFrame(request: NativeFrameRequest): Promise<voi
     },
   };
   await invoke("queue_native_frame", { request: nativeRequest });
+}
+
+/** Upload immutable raster pixels once so frame requests can reference them by id. */
+export async function registerNativeRasterAsset(
+  asset: NativeRasterLayerSnapshot & { rgba: number[] },
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("registerNativeRasterAsset requires the Tauri runtime");
+  }
+  await invoke("register_native_raster_asset", {
+    asset: {
+      assetId: asset.assetId,
+      width: asset.width,
+      height: asset.height,
+      rgba: asset.rgba,
+    },
+  });
 }
 
 export async function getNativeFrameServiceStats(): Promise<NativeFrameServiceStats> {

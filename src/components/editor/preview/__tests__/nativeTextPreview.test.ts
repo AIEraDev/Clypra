@@ -41,8 +41,9 @@ describe("native text raster compatibility", () => {
   });
 
   it("invalidates the raster asset when animated time changes", () => {
-    expect(buildNativeTextRasterKey(makeTextLayer({ time: 0 }))).not.toBe(
-      buildNativeTextRasterKey(makeTextLayer({ time: 1 / 30 })),
+    const animated = { animation: { type: "pulse" } } as never;
+    expect(buildNativeTextRasterKey(makeTextLayer({ styleDefinition: animated, time: 0 }))).not.toBe(
+      buildNativeTextRasterKey(makeTextLayer({ styleDefinition: animated, time: 1 / 30 })),
     );
   });
 

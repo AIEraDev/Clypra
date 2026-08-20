@@ -35,6 +35,7 @@ import {
   isTauriRuntime,
   presentNativeFrame,
   queueNativeFrame,
+  registerNativeRasterAsset,
   probeNativeSurface,
   renderNativeFrame,
   resizeNativeSurface,
@@ -60,7 +61,11 @@ import {
   rasterizeTextLayerForNative,
   type NativeTextRasterAsset,
 } from "./nativeTextPreview";
-import { NATIVE_PREVIEW_TRACE_ENABLED } from "@/lib/platform/nativeCore";
+import {
+  NATIVE_PREVIEW_TRACE_ENABLED,
+  type NativeFrameRequest,
+  type NativeRasterLayerSnapshot,
+} from "@/lib/platform/nativeCore";
 
 
 const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: number; height: number }> = {
@@ -571,14 +576,34 @@ export const PixiProgramPreview: React.FC = () => {
     let transportRevision = 0;
     let lastTraceClockState = "";
     const nativeTextRasterCache = new Map<string, Promise<NativeTextRasterAsset>>();
+    const registeredNativeTextAssets = new Set<string>();
+    const nativeTextAssetsById = new Map<string, NativeTextRasterAsset>();
     const maxNativeTextRasterCacheEntries = 96;
 
-    const rasterizeNativeTextLayers = async (scene: EvaluatedScene): Promise<NativeTextRasterAsset[]> => {
+    const ensureNativeTextAssetRegistered = async (
+      asset: NativeTextRasterAsset,
+      force = false,
+    ): Promise<void> => {
+      nativeTextAssetsById.delete(asset.assetId);
+      nativeTextAssetsById.set(asset.assetId, asset);
+      while (nativeTextAssetsById.size > maxNativeTextRasterCacheEntries) {
+        const oldestId = nativeTextAssetsById.keys().next().value as string | undefined;
+        if (!oldestId) break;
+        nativeTextAssetsById.delete(oldestId);
+        registeredNativeTextAssets.delete(oldestId);
+      }
+
+      if (!force && registeredNativeTextAssets.has(asset.assetId)) return;
+      await registerNativeRasterAsset(asset);
+      registeredNativeTextAssets.add(asset.assetId);
+    };
+
+    const rasterizeNativeTextLayers = async (scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> => {
       const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
       if (!isTauriRuntime() || textLayers.length === 0) return [];
 
       try {
-        return await Promise.all(textLayers.map((layer) => {
+        const assets = await Promise.all(textLayers.map((layer) => {
           const key = buildNativeTextRasterKey(layer);
           const cached = nativeTextRasterCache.get(key);
           if (cached) {
@@ -599,6 +624,10 @@ export const PixiProgramPreview: React.FC = () => {
           });
           return raster;
         }));
+
+        await Promise.all(assets.map((asset) => ensureNativeTextAssetRegistered(asset)));
+
+        return assets.map(({ rgba: _rgba, ...asset }) => asset);
       } catch (error) {
         // Keep the full Pixi scene authoritative if the browser canvas or
         // Studio text engine cannot produce a native asset for this frame.
@@ -609,11 +638,27 @@ export const PixiProgramPreview: React.FC = () => {
       }
     };
 
+    const reRegisterTextAssetsForRequest = async (request: NativeFrameRequest): Promise<boolean> => {
+      const references = request.project.rasterLayers ?? [];
+      if (references.length === 0) return false;
+      const assets = references.map((reference) => nativeTextAssetsById.get(reference.assetId));
+      if (assets.some((asset): asset is undefined => asset === undefined)) return false;
+      await Promise.all(assets.map((asset) => ensureNativeTextAssetRegistered(asset!, true)));
+      return true;
+    };
+
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
       maxCacheEntries: 12,
       maxInFlight: 2,
       load: async (request) => {
-        const rgba = await renderNativeFrame(request);
+        const render = () => renderNativeFrame(request);
+        let rgba: ArrayBuffer;
+        try {
+          rgba = await render();
+        } catch (error) {
+          if (!await reRegisterTextAssetsForRequest(request)) throw error;
+          rgba = await render();
+        }
         if (!isRenderableNativePreviewFrame(rgba, request.outputWidth, request.outputHeight)) {
           throw new Error("Native preview returned an invalid frame payload");
         }
@@ -624,6 +669,16 @@ export const PixiProgramPreview: React.FC = () => {
         };
       },
     });
+
+    const presentNativePlaybackFrame = async (request: NativeFrameRequest) => {
+      const present = () => queueNativeFrame(request).then(() => presentNativeFrame(request));
+      try {
+        return await present();
+      } catch (error) {
+        if (!await reRegisterTextAssetsForRequest(request)) throw error;
+        return present();
+      }
+    };
 
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
@@ -793,7 +848,7 @@ export const PixiProgramPreview: React.FC = () => {
           request: requestToPresent,
         };
         nativePlaybackInFlight = (nativeSurfaceReady
-          ? queueNativeFrame(requestToPresent).then(() => presentNativeFrame(requestToPresent)).then((presentation) => {
+          ? presentNativePlaybackFrame(requestToPresent).then((presentation) => {
             const elapsedMs = performance.now() - requestStartedAt;
             nativePresentationLatencyMs = nativePresentationLatencyMs > 0
               ? nativePresentationLatencyMs * 0.75 + elapsedMs * 0.25
