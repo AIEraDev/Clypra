@@ -144,7 +144,7 @@ function getNativeColorGrade(
   if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
   const supportedEffectRenderers = new Set([
     "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
-    "vhs", "crt", "film_grain", "grain", "vignette", "glow", "motion_blur", "radial_blur", "zoom_blur",
+    "vhs", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "motion_blur", "radial_blur", "zoom_blur",
   ]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
@@ -170,6 +170,16 @@ function getNativeColorGrade(
   let glowColor: [number, number, number] = [1, 1, 1];
   let glowStrength = 0;
   let glowRadius = 0;
+  let flashColor: [number, number, number] = [1, 1, 1];
+  let flashStrength = 0;
+  let flickerStrength = 0;
+  let strobeFrequency = 0;
+  let strobeTime = 0;
+  let strobeStrength = 0;
+  let lightLeakColor: [number, number, number] = [1, 0.7843137255, 0.3921568627];
+  let lightLeakStrength = 0;
+  let lightLeakAngle = Math.PI / 4;
+  let lightLeakTime = 0;
   for (const effect of activeEffects) {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
     if (renderer === "pixelate") {
@@ -204,6 +214,39 @@ function getNativeColorGrade(
       if (strength >= glowStrength) glowColor = [red / 255, green / 255, blue / 255];
       glowStrength = Math.max(glowStrength, Math.min(1, strength));
       glowRadius = Math.max(glowRadius, radius * effect.intensity);
+    } else if (renderer === "flash") {
+      const strength = Number(effect.parameters.flashIntensity ?? 1) * effect.intensity;
+      const colorValue = effect.parameters.flashColor ?? "#ffffff";
+      if (!Number.isFinite(strength) || strength < 0 || typeof colorValue !== "string") return null;
+      const [red, green, blue] = parseColor(colorValue);
+      if (strength >= flashStrength) flashColor = [red / 255, green / 255, blue / 255];
+      flashStrength = Math.max(flashStrength, Math.min(1, strength));
+    } else if (renderer === "flicker") {
+      const amount = Number(effect.parameters.flickerAmount ?? 1) * effect.intensity;
+      if (!Number.isFinite(amount) || amount < 0) return null;
+      flickerStrength = Math.max(flickerStrength, Math.min(1, amount));
+    } else if (renderer === "strobe") {
+      const frequency = Number(effect.parameters.frequency ?? 10);
+      const strength = Number(effect.parameters.flashIntensity ?? 0.8) * effect.intensity;
+      if (!Number.isFinite(frequency) || frequency < 0 || !Number.isFinite(strength) || strength < 0) return null;
+      if (strength >= strobeStrength) {
+        strobeFrequency = frequency;
+        strobeTime = Math.max(0, effect.localTime);
+      }
+      strobeStrength = Math.max(strobeStrength, Math.min(1, strength));
+    } else if (renderer === "light_leak" || renderer === "light_leak_2") {
+      const defaultColor = renderer === "light_leak_2" ? "#ff7096" : "#ffc864";
+      const strength = Number(effect.parameters.leakIntensity ?? effect.parameters.intensity ?? 0.3) * effect.intensity;
+      const angle = Number(effect.parameters.angle ?? 45) * Math.PI / 180;
+      const colorValue = effect.parameters.leakColor ?? effect.parameters.color ?? defaultColor;
+      if (!Number.isFinite(strength) || strength < 0 || !Number.isFinite(angle) || typeof colorValue !== "string") return null;
+      const [red, green, blue] = parseColor(colorValue);
+      if (strength >= lightLeakStrength) {
+        lightLeakColor = [red / 255, green / 255, blue / 255];
+        lightLeakAngle = angle;
+        lightLeakTime = Math.max(0, effect.localTime);
+      }
+      lightLeakStrength = Math.max(lightLeakStrength, Math.min(1, strength));
     } else if (renderer === "vhs" || renderer === "crt") {
       const count = Number(effect.parameters.scanlineCount ?? (renderer === "crt" ? 120 : 100));
       if (!Number.isFinite(count) || count <= 0) return null;
@@ -419,6 +462,20 @@ function getNativeColorGrade(
     glowColorB: glowColor[2],
     glowStrength,
     glowRadius,
+    flashColorR: flashColor[0],
+    flashColorG: flashColor[1],
+    flashColorB: flashColor[2],
+    flashStrength,
+    flickerStrength,
+    strobeFrequency,
+    strobeTime,
+    strobeStrength,
+    lightLeakColorR: lightLeakColor[0],
+    lightLeakColorG: lightLeakColor[1],
+    lightLeakColorB: lightLeakColor[2],
+    lightLeakStrength,
+    lightLeakAngle,
+    lightLeakTime,
   };
 }
 

@@ -243,6 +243,20 @@ describe("buildNativeVideoProjectRequest", () => {
       glowColorB: 1,
       glowStrength: 0,
       glowRadius: 0,
+      flashColorR: 1,
+      flashColorG: 1,
+      flashColorB: 1,
+      flashStrength: 0,
+      flickerStrength: 0,
+      strobeFrequency: 0,
+      strobeTime: 0,
+      strobeStrength: 0,
+      lightLeakColorR: 1,
+      lightLeakColorG: 0.7843137255,
+      lightLeakColorB: 0.3921568627,
+      lightLeakStrength: 0,
+      lightLeakAngle: Math.PI / 4,
+      lightLeakTime: 0,
     });
   });
 
@@ -333,6 +347,49 @@ describe("buildNativeVideoProjectRequest", () => {
       glowColorB: 0x99 / 255,
       glowStrength: 0.4,
       glowRadius: 8,
+    });
+  });
+
+  it("maps flash, flicker, and strobe into deterministic native temporal controls", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ effects: [
+        { effectId: "fx-flash", renderer: "flash", type: "video_effect", intensity: 0.5, localTime: 0, parameters: { flashColor: "#336699", flashIntensity: 0.8 } },
+        { effectId: "fx-flicker", renderer: "flicker", type: "video_effect", intensity: 0.25, localTime: 0, parameters: { flickerAmount: 0.6 } },
+        { effectId: "fx-strobe", renderer: "strobe", type: "video_effect", intensity: 0.4, localTime: 0.75, parameters: { frequency: 12, flashIntensity: 0.7 } },
+      ] }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      flashColorR: 0x33 / 255,
+      flashColorG: 0x66 / 255,
+      flashColorB: 0x99 / 255,
+      flashStrength: 0.4,
+      flickerStrength: 0.15,
+      strobeFrequency: 12,
+      strobeTime: 0.75,
+      strobeStrength: 0.27999999999999997,
+    });
+  });
+
+  it("maps light-leak overlays into the native animated grade", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({
+        effects: [{
+          effectId: "light-leak",
+          type: "video_effect",
+          renderer: "light_leak",
+          parameters: { leakColor: "#804020", leakIntensity: 0.6, angle: 90 },
+          intensity: 0.5,
+          localTime: 1.25,
+        }],
+      }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      lightLeakColorR: 128 / 255,
+      lightLeakColorG: 64 / 255,
+      lightLeakColorB: 32 / 255,
+      lightLeakStrength: 0.3,
+      lightLeakAngle: Math.PI / 2,
+      lightLeakTime: 1.25,
     });
   });
 

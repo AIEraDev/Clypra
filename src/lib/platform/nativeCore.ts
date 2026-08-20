@@ -208,6 +208,20 @@ export interface NativeColorGradeSnapshot {
   glowColorB: number;
   glowStrength: number;
   glowRadius: number;
+  flashColorR: number;
+  flashColorG: number;
+  flashColorB: number;
+  flashStrength: number;
+  flickerStrength: number;
+  strobeFrequency: number;
+  strobeTime: number;
+  strobeStrength: number;
+  lightLeakColorR: number;
+  lightLeakColorG: number;
+  lightLeakColorB: number;
+  lightLeakStrength: number;
+  lightLeakAngle: number;
+  lightLeakTime: number;
 }
 
 export interface NativeRasterLayerSnapshot {
