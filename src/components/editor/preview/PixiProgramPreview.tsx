@@ -46,6 +46,7 @@ import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
 import { useCaptionStore } from "@/store/captionStore";
 import type { EvaluatedScene } from "@/core/evaluation/types";
+import { makeBodyMaskCacheKey, segmentBodyMask } from "@/features/body-effects";
 
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
@@ -578,7 +579,11 @@ export const PixiProgramPreview: React.FC = () => {
     const nativeTextRasterCache = new Map<string, Promise<NativeTextRasterAsset>>();
     const registeredNativeTextAssets = new Set<string>();
     const nativeTextAssetsById = new Map<string, NativeTextRasterAsset>();
+    const nativeBodyMaskInFlight = new Map<string, Promise<NativeRasterLayerSnapshot | null>>();
+    const nativeBodyMaskAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
+    const registeredNativeBodyMaskAssets = new Set<string>();
     const maxNativeTextRasterCacheEntries = 96;
+    const maxNativeBodyMaskCacheEntries = 90;
 
     const ensureNativeTextAssetRegistered = async (
       asset: NativeTextRasterAsset,
@@ -638,12 +643,126 @@ export const PixiProgramPreview: React.FC = () => {
       }
     };
 
+    const ensureNativeBodyMaskAssetRegistered = async (
+      asset: NativeRasterLayerSnapshot & { rgba: number[] },
+      force = false,
+    ): Promise<void> => {
+      nativeBodyMaskAssetsById.set(asset.assetId, asset);
+      while (nativeBodyMaskAssetsById.size > maxNativeBodyMaskCacheEntries) {
+        const oldestId = nativeBodyMaskAssetsById.keys().next().value as string | undefined;
+        if (!oldestId) break;
+        nativeBodyMaskAssetsById.delete(oldestId);
+        registeredNativeBodyMaskAssets.delete(oldestId);
+      }
+      if (!force && registeredNativeBodyMaskAssets.has(asset.assetId)) return;
+      await registerNativeRasterAsset(asset);
+      registeredNativeBodyMaskAssets.add(asset.assetId);
+    };
+
+    /**
+     * Promote completed WebView segmentation results into immutable native
+     * mask assets. Segmentation remains demand-driven and in-flight work is
+     * deduplicated, so a missing mask never blocks or thrashes the preview.
+     */
+    const rasterizeNativeBodyMasks = async (
+      scene: EvaluatedScene,
+      videoElements: Map<string, HTMLVideoElement>,
+    ): Promise<NativeRasterLayerSnapshot[]> => {
+      if (!isTauriRuntime()) return [];
+      const assets: NativeRasterLayerSnapshot[] = [];
+      const mediaLayers = scene.visualLayers.filter(
+        (layer): layer is import("@/core/evaluation/types").EvaluatedMediaLayer => layer.layerType === "media",
+      );
+
+      for (const layer of mediaLayers) {
+        const bodyEffects = (layer.effects ?? []).filter((effect) => {
+          const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
+          return effect.intensity > 0.001 && ["body_outline", "body_glow", "body_segmentation_glow"].includes(renderer);
+        });
+        if (bodyEffects.length === 0) continue;
+
+        const source = videoElements.get(`${layer.clipId}-${layer.mediaId}`);
+        if (!source || source.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue;
+        const width = Math.max(1, Math.floor(source.videoWidth || layer.width));
+        const height = Math.max(1, Math.floor(source.videoHeight || layer.height));
+
+        for (const effect of bodyEffects) {
+          const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
+          const maskKey = makeBodyMaskCacheKey({
+            clipId: layer.clipId,
+            effectId: effect.effectId,
+            renderer,
+            time: layer.sourceTime,
+            width,
+            height,
+          });
+          const baseAssetId = `${layer.layerId}_${effect.effectId}`;
+          const assetId = `${baseAssetId}:${maskKey}`;
+          const cachedAsset = nativeBodyMaskAssetsById.get(assetId);
+          if (cachedAsset) {
+            assets.push({ ...cachedAsset, rgba: undefined });
+            continue;
+          }
+
+          let pending = nativeBodyMaskInFlight.get(assetId);
+          if (!pending) {
+            pending = segmentBodyMask(source, {
+              clipId: layer.clipId,
+              effectId: effect.effectId,
+              renderer,
+              time: layer.sourceTime,
+              width,
+              height,
+            }).then(async (mask) => {
+              if (!mask) return null;
+              const nativeAsset: NativeRasterLayerSnapshot & { rgba: number[] } = {
+                assetId,
+                rgba: Array.from(mask.data),
+                width: mask.width,
+                height: mask.height,
+                x: 0,
+                y: 0,
+                rotation: 0,
+                opacity: 0,
+                zIndex: -2147483648,
+                blendMode: "normal",
+                isMask: true,
+              };
+              await ensureNativeBodyMaskAssetRegistered(nativeAsset);
+              return nativeAsset;
+            }).catch((error) => {
+              traceNativePreview("native-body-mask-failed", {
+                effectId: effect.effectId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            }).finally(() => {
+              nativeBodyMaskInFlight.delete(assetId);
+            });
+            nativeBodyMaskInFlight.set(assetId, pending);
+            void pending.then(() => {
+              if (isActive) window.requestAnimationFrame(() => { void renderLoop(); });
+            });
+          }
+        }
+      }
+      return assets;
+    };
+
     const reRegisterTextAssetsForRequest = async (request: NativeFrameRequest): Promise<boolean> => {
       const references = request.project.rasterLayers ?? [];
       if (references.length === 0) return false;
-      const assets = references.map((reference) => nativeTextAssetsById.get(reference.assetId));
-      if (assets.some((asset): asset is undefined => asset === undefined)) return false;
-      await Promise.all(assets.map((asset) => ensureNativeTextAssetRegistered(asset!, true)));
+      const textAssets = references
+        .map((reference) => nativeTextAssetsById.get(reference.assetId))
+        .filter((asset): asset is NativeTextRasterAsset => Boolean(asset));
+      const maskAssets = references
+        .map((reference) => nativeBodyMaskAssetsById.get(reference.assetId))
+        .filter((asset): asset is NativeRasterLayerSnapshot & { rgba: number[] } => Boolean(asset));
+      if (textAssets.length + maskAssets.length !== references.length) return false;
+      await Promise.all([
+        ...textAssets.map((asset) => ensureNativeTextAssetRegistered(asset, true)),
+        ...maskAssets.map((asset) => ensureNativeBodyMaskAssetRegistered(asset, true)),
+      ]);
       return true;
     };
 
@@ -714,6 +833,11 @@ export const PixiProgramPreview: React.FC = () => {
 
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
       const nativeTextRasters = await rasterizeNativeTextLayers(scene);
+      const nativeBodyMasks = await rasterizeNativeBodyMasks(
+        scene,
+        getActiveSessionOrNull()?.getPreviewVideoElements() ?? new Map(),
+      );
+      const nativeRasterLayers = [...nativeTextRasters, ...nativeBodyMasks];
       const nativeRequest = buildNativeFrameRequest(
         scene,
         `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -721,7 +845,7 @@ export const PixiProgramPreview: React.FC = () => {
         frameRate,
         state.canvasWidth,
         state.canvasHeight,
-        nativeTextRasters,
+        nativeRasterLayers,
       );
       let nativePlaybackRequest = nativeRequest;
       if (isPlaying && nativeRequest && nativePresentationLatencyMs > 0) {

@@ -494,10 +494,14 @@ function getNativeBodyEffect(
   const effect = effects.reduce((strongest, candidate) => candidate.intensity > strongest.intensity ? candidate : strongest);
   const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase() as NativeBodyEffectSnapshot["renderer"];
   const requestedMaskId = effect.parameters.maskAssetId;
-  const maskAssetId = typeof requestedMaskId === "string" && requestedMaskId.trim()
-    ? requestedMaskId
-    : `${layer.layerId}_${effect.effectId}`;
-  if (!rasterLayers.some((asset) => asset.isMask && asset.assetId === maskAssetId)) return null;
+  const defaultMaskId = `${layer.layerId}_${effect.effectId}`;
+  const maskAsset = rasterLayers.find((asset) => asset.isMask && (
+    typeof requestedMaskId === "string" && requestedMaskId.trim()
+      ? asset.assetId === requestedMaskId
+      : asset.assetId === defaultMaskId || asset.assetId.startsWith(`${defaultMaskId}:`)
+  ));
+  if (!maskAsset) return null;
+  const maskAssetId = maskAsset.assetId;
 
   const colorValue = renderer === "body_outline"
     ? effect.parameters.outlineColor ?? "#ffffff"
