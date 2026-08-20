@@ -19,6 +19,7 @@ const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "
 const NATIVE_COLOR_GRADE_KEYS = new Set([
   "exposure", "contrast", "saturation", "temperature", "tint",
   "brightness", "sepia", "grayscale", "hue", "vignette", "invert", "grain", "vibrance",
+  "lift", "crossProcess", "channelMix", "duotone", "splitTone",
 ]);
 
 /**
@@ -80,15 +81,18 @@ function getNativeColorGrade(
   const grade = colorGrade as Record<string, unknown> | undefined;
   const hasLut = grade?.hasLut === 1;
   const activeFilter = filter && filter.intensity > 0.001 ? filter : undefined;
+  const preset = activeFilter?.gradingParams as Record<string, unknown> | undefined;
+  const presetIntensity = activeFilter?.intensity ?? 0;
   let filterIR: FilterIR = {};
   if (activeFilter) {
     filterIR = resolveFilterToIR(activeFilter.id, activeFilter.intensity);
-    if (Object.keys(filterIR).length === 0) return null;
+    if (Object.keys(filterIR).length === 0 && !preset) return null;
   }
   const hasGradeValues = Boolean(grade && (
     grade.exposure !== 0 || grade.contrast !== 1 || grade.saturation !== 1 ||
-    grade.temperature !== 0 || grade.tint !== 0 || hasLut
-  ));
+    grade.temperature !== 0 || grade.tint !== 0 || grade.lift !== 0 ||
+    grade.crossProcessAmount !== 0 || hasLut
+  )) || Boolean(preset && Object.keys(preset).length > 0);
   const activeEffects = (effects ?? []).filter((effect) => effect.intensity > 0.001);
   if (!hasMeaningfulObject(adjustments) && !hasGradeValues && !activeFilter && activeEffects.length === 0) return undefined;
   if (hasLut && (typeof grade?.lutId !== "string" || !grade.lutId.trim())) return null;
@@ -97,8 +101,29 @@ function getNativeColorGrade(
     if (value === undefined) return undefined;
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   };
+  let invalidPresetNumber = false;
+  const readPreset = (key: string): number | null | undefined => readNumber(preset?.[key]);
+  const scaledPreset = (key: string): number | undefined => {
+    const value = readPreset(key);
+    if (value === null) {
+      invalidPresetNumber = true;
+      return undefined;
+    }
+    return value === undefined ? undefined : value * presetIntensity;
+  };
   const readAdjustment = (key: string): number | null | undefined => readNumber(values?.[key]);
   const readGrade = (key: string): number | null | undefined => readNumber(grade?.[key]);
+  const readObjectNumber = (value: unknown, key: string): number | null | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "object" || value === null) return null;
+    return readNumber((value as Record<string, unknown>)[key]);
+  };
+  const parseNativeColor = (value: unknown): [number, number, number] | null | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") return null;
+    const [red, green, blue] = parseColor(value);
+    return [red / 255, green / 255, blue / 255];
+  };
   const choose = (key: string, fallback: number, ...fallbacks: Array<number | undefined>): number | null => {
     const adjustment = readAdjustment(key);
     if (adjustment !== undefined) return adjustment;
@@ -111,6 +136,12 @@ function getNativeColorGrade(
   };
   const adjustmentKeys = new Set(Object.keys(values ?? {}));
   if ([...adjustmentKeys].some((key) => !NATIVE_COLOR_GRADE_KEYS.has(key))) return null;
+  const nativePresetKeys = new Set([
+    "exposure", "brightness", "contrast", "saturation", "temperature", "tint",
+    "sepia", "grayscale", "hueRotate", "vignette", "invert", "lift", "grain",
+    "channelMix", "splitTone", "duotone", "vibrance", "crossProcess",
+  ]);
+  if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
   const supportedEffectRenderers = new Set(["blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic"]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
@@ -149,43 +180,71 @@ function getNativeColorGrade(
       rgbSplitY = Math.max(rgbSplitY, scaledShift);
     }
   }
-  const exposure = choose("exposure", 0);
+  const exposure = choose("exposure", 0, scaledPreset("exposure"));
   const contrastAdjustment = readAdjustment("contrast");
   const contrast = contrastAdjustment === null
     ? null
     : contrastAdjustment !== undefined
       ? contrastAdjustment + 1
-      : choose("contrast", 1, filterIR.contrast);
+      : choose("contrast", 1, filterIR.contrast, (() => {
+        const value = scaledPreset("contrast");
+        return value === undefined ? undefined : 1 + value;
+      })());
   const saturationAdjustment = readAdjustment("saturation");
   const saturation = saturationAdjustment === null
     ? null
     : saturationAdjustment !== undefined
       ? saturationAdjustment + 1
-      : choose("saturation", 1, filterIR.saturate);
-  const temperature = choose("temperature", 0);
-  const tint = choose("tint", 0);
-  const brightness = choose("brightness", 0);
-  const sepia = choose("sepia", 0, filterIR.sepia);
-  const grayscale = choose("grayscale", 0, filterIR.grayscale);
+      : choose("saturation", 1, filterIR.saturate, (() => {
+        const value = scaledPreset("saturation");
+        return value === undefined ? undefined : 1 + value;
+      })());
+  const temperature = choose("temperature", 0, scaledPreset("temperature"));
+  const tint = choose("tint", 0, scaledPreset("tint"));
+  const brightness = choose("brightness", 0, scaledPreset("brightness"));
+  const lift = choose("lift", 0, scaledPreset("lift"));
+  const sepia = choose("sepia", 0, filterIR.sepia, scaledPreset("sepia"));
+  const grayscale = choose("grayscale", 0, filterIR.grayscale, scaledPreset("grayscale"));
   const hueAdjustment = readAdjustment("hue");
-  const hue = hueAdjustment !== undefined ? hueAdjustment : filterIR.hueRotate ?? 0;
-  const vignette = choose("vignette", 0);
-  const grainValue = values?.grain;
+  const hue = hueAdjustment !== undefined ? hueAdjustment : filterIR.hueRotate ?? (() => {
+    const value = scaledPreset("hueRotate");
+    return value === undefined ? 0 : (value * 180) / Math.PI;
+  })();
+  const vignette = choose("vignette", 0, scaledPreset("vignette"));
+  const grainValue = values?.grain ?? preset?.grain;
+  const grainScale = values?.grain === undefined ? presetIntensity : 1;
   const grainIntensity = grainValue === undefined
     ? 0
     : typeof grainValue === "object" && grainValue !== null
-      ? readNumber((grainValue as Record<string, unknown>).intensity) ?? null
+      ? (() => {
+        const value = readNumber((grainValue as Record<string, unknown>).intensity);
+        return value === null || value === undefined ? value ?? null : value * grainScale;
+      })()
       : null;
   const grainSize = grainValue === undefined
     ? 1
     : typeof grainValue === "object" && grainValue !== null
       ? readNumber((grainValue as Record<string, unknown>).size) ?? null
       : null;
-  const vibranceValue = values?.vibrance;
+  const vibranceValue = values?.vibrance ?? preset?.vibrance;
+  const vibranceScale = values?.vibrance === undefined ? presetIntensity : 1;
   const vibranceAmount = vibranceValue === undefined
     ? 0
     : typeof vibranceValue === "object" && vibranceValue !== null
-      ? readNumber((vibranceValue as Record<string, unknown>).amount) ?? null
+      ? (() => {
+        const value = readNumber((vibranceValue as Record<string, unknown>).amount);
+        return value === null || value === undefined ? value ?? null : value * vibranceScale;
+      })()
+      : null;
+  const crossProcessValue = values?.crossProcess ?? preset?.crossProcess;
+  const crossProcessScale = values?.crossProcess === undefined ? presetIntensity : 1;
+  const crossProcessAmount = crossProcessValue === undefined
+    ? choose("crossProcessAmount", 0)
+    : typeof crossProcessValue === "object" && crossProcessValue !== null
+      ? (() => {
+        const value = readNumber((crossProcessValue as Record<string, unknown>).amount);
+        return value === null || value === undefined ? value ?? null : value * crossProcessScale;
+      })()
       : null;
   let vibranceProtectedHue: [number, number, number] = [0.91, 0.69, 0.55];
   if (vibranceValue !== undefined && typeof vibranceValue === "object" && vibranceValue !== null) {
@@ -196,6 +255,49 @@ function getNativeColorGrade(
       vibranceProtectedHue = [red / 255, green / 255, blue / 255];
     }
   }
+  if (vibranceValue === preset?.vibrance && vibranceValue !== undefined) {
+    const protectedHue = (vibranceValue as Record<string, unknown>).protectedHue;
+    if (protectedHue !== undefined) {
+      if (typeof protectedHue !== "string") return null;
+      const [red, green, blue] = parseColor(protectedHue);
+      vibranceProtectedHue = [red / 255, green / 255, blue / 255];
+    }
+  }
+
+  const channelMixValue = values?.channelMix ?? preset?.channelMix;
+  const channelMix = channelMixValue === undefined
+    ? [0, 0, 0] as [number, number, number]
+    : (() => {
+      const parsed = [
+        readObjectNumber(channelMixValue, "r"),
+        readObjectNumber(channelMixValue, "g"),
+        readObjectNumber(channelMixValue, "b"),
+      ];
+      return parsed.some((value) => value === null || value === undefined) ? null : parsed as [number, number, number];
+    })();
+  const duotoneValue = values?.duotone ?? preset?.duotone;
+  const duotone = duotoneValue === undefined
+    ? { dark: [0, 0, 0] as [number, number, number], light: [1, 1, 1] as [number, number, number] }
+    : (() => {
+      const dark = parseNativeColor(typeof duotoneValue === "object" && duotoneValue !== null ? (duotoneValue as Record<string, unknown>).darkColor : undefined);
+      const light = parseNativeColor(typeof duotoneValue === "object" && duotoneValue !== null ? (duotoneValue as Record<string, unknown>).lightColor : undefined);
+      return dark && light ? { dark, light } : null;
+    })();
+  const splitToneValue = preset?.splitTone ?? values?.splitTone;
+  const splitTone = splitToneValue === undefined
+    ? { shadow: [1, 1, 1] as [number, number, number], shadowStrength: 0, highlight: [1, 1, 1] as [number, number, number], highlightStrength: 0, balance: 0.5 }
+    : (() => {
+      const split = splitToneValue as Record<string, unknown>;
+      const shadow = parseNativeColor(split.shadowColor);
+      const highlight = parseNativeColor(split.highlightColor);
+      const shadowStrength = readNumber(split.shadowStrength);
+      const highlightStrength = readNumber(split.highlightStrength);
+      const balance = readNumber(split.balance);
+      return shadow && highlight && shadowStrength !== null && shadowStrength !== undefined &&
+        highlightStrength !== null && highlightStrength !== undefined && balance !== null && balance !== undefined
+        ? { shadow, shadowStrength: shadowStrength * (values?.splitTone === undefined ? presetIntensity : 1), highlight, highlightStrength: highlightStrength * (values?.splitTone === undefined ? presetIntensity : 1), balance }
+        : null;
+    })();
   const invertValue = values?.invert;
   const invert = invertValue === undefined
     ? 0
@@ -206,8 +308,9 @@ function getNativeColorGrade(
         : null;
   if (
     exposure === null || contrast === null || saturation === null || temperature === null || tint === null ||
-    brightness === null || sepia === null || grayscale === null || hue === null || vignette === null || invert === null ||
-    grainIntensity === null || grainSize === null || vibranceAmount === null
+    brightness === null || lift === null || sepia === null || grayscale === null || hue === null || vignette === null || invert === null ||
+    grainIntensity === null || grainSize === null || vibranceAmount === null || crossProcessAmount === null ||
+    invalidPresetNumber || channelMix === null || duotone === null || splitTone === null
   ) {
     return null;
   }
@@ -219,6 +322,7 @@ function getNativeColorGrade(
     temperature,
     tint,
     brightness,
+    lift,
     sepia,
     grayscale,
     hueRotate: (hue * Math.PI) / 180,
@@ -242,6 +346,27 @@ function getNativeColorGrade(
     vibranceProtectedHueR: vibranceProtectedHue[0],
     vibranceProtectedHueG: vibranceProtectedHue[1],
     vibranceProtectedHueB: vibranceProtectedHue[2],
+    crossProcessAmount,
+    channelMixR: channelMix[0],
+    channelMixG: channelMix[1],
+    channelMixB: channelMix[2],
+    channelMixEnabled: channelMixValue === undefined ? 0 : 1,
+    duotoneDarkR: duotone.dark[0],
+    duotoneDarkG: duotone.dark[1],
+    duotoneDarkB: duotone.dark[2],
+    duotoneLightR: duotone.light[0],
+    duotoneLightG: duotone.light[1],
+    duotoneLightB: duotone.light[2],
+    duotoneEnabled: duotoneValue === undefined ? 0 : 1,
+    shadowTintR: splitTone.shadow[0],
+    shadowTintG: splitTone.shadow[1],
+    shadowTintB: splitTone.shadow[2],
+    shadowTintStrength: splitTone.shadowStrength,
+    highlightTintR: splitTone.highlight[0],
+    highlightTintG: splitTone.highlight[1],
+    highlightTintB: splitTone.highlight[2],
+    highlightTintStrength: splitTone.highlightStrength,
+    splitBalance: splitTone.balance,
   };
 }
 

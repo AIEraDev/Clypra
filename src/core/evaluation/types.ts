@@ -126,7 +126,12 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
   readonly stickerSourceId?: string;
 
   /** Active color filter on this layer */
-  readonly filter?: { id: string; name: string; intensity: number };
+  readonly filter?: {
+    id: string;
+    name: string;
+    intensity: number;
+    gradingParams?: import("@clypra-studio/engine").GradingParams;
+  };
 
   /** Layout parameters for the clip fitting/cropping/transforming */
   readonly layout?: any;
@@ -377,6 +382,7 @@ export interface EvaluatedScene {
     id: string;
     name: string;
     intensity: number;
+    gradingParams?: import("@clypra-studio/engine").GradingParams;
     pipeline?: "v2";
     effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
   };

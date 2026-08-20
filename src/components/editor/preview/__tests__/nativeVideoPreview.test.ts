@@ -216,6 +216,66 @@ describe("buildNativeVideoProjectRequest", () => {
       vibranceProtectedHueR: 0.91,
       vibranceProtectedHueG: 0.69,
       vibranceProtectedHueB: 0.55,
+      lift: 0,
+      crossProcessAmount: 0,
+      channelMixR: 0,
+      channelMixG: 0,
+      channelMixB: 0,
+      channelMixEnabled: 0,
+      duotoneDarkR: 0,
+      duotoneDarkG: 0,
+      duotoneDarkB: 0,
+      duotoneLightR: 1,
+      duotoneLightG: 1,
+      duotoneLightB: 1,
+      duotoneEnabled: 0,
+      shadowTintR: 1,
+      shadowTintG: 1,
+      shadowTintB: 1,
+      shadowTintStrength: 0,
+      highlightTintR: 1,
+      highlightTintG: 1,
+      highlightTintB: 1,
+      highlightTintStrength: 0,
+      splitBalance: 0.5,
+    });
+  });
+
+  it("maps lift and cross-process controls into the native grade shader", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ adjustments: { lift: 0.2, crossProcess: { amount: 0.4 } } }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      lift: 0.2,
+      crossProcessAmount: 0.4,
+    });
+  });
+
+  it("maps channel mix, duotone, and split-tone controls into native grading", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({
+        adjustments: {
+          channelMix: { r: 0.2, g: 0.7, b: 0.1 },
+          duotone: { darkColor: "#101820", lightColor: "#f0d080" },
+          splitTone: {
+            shadowColor: "#203040",
+            shadowStrength: 0.4,
+            highlightColor: "#ffe0b0",
+            highlightStrength: 0.3,
+            balance: 0.6,
+          },
+        } as never,
+      }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      channelMixR: 0.2,
+      channelMixG: 0.7,
+      channelMixB: 0.1,
+      channelMixEnabled: 1,
+      duotoneEnabled: 1,
+      shadowTintStrength: 0.4,
+      highlightTintStrength: 0.3,
+      splitBalance: 0.6,
     });
   });
 
@@ -264,7 +324,7 @@ describe("buildNativeVideoProjectRequest", () => {
 
   it("keeps unsupported structured color controls on Pixi until their native resources exist", () => {
     expect(buildNativeVideoProjectRequest(makeScene([
-      makeVideoLayer({ adjustments: { crossProcess: { amount: 0.2 } } }),
+      makeVideoLayer({ adjustments: { halation: { color: "#ff0000", threshold: 0.8, intensity: 0.2 } } as never }),
     ]))).toBeNull();
   });
 

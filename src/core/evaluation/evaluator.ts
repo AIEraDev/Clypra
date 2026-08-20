@@ -283,14 +283,19 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       ],
       // Apply filter from clip (if directly attached) OR from activeFilterClip (timeline filter track)
       filter:
-        clip.filter ||
-        (activeFilterClip
+        clip.filter
           ? {
-              id: activeFilterClip.mediaId,
-              name: activeFilterClip.name || "",
-              intensity: normalizeFilterIntensity((activeFilterClip as any).intensity),
+              ...clip.filter,
+              gradingParams: (clip as any).gradingParams,
             }
-          : undefined),
+          : activeFilterClip
+            ? {
+                id: activeFilterClip.mediaId,
+                name: activeFilterClip.name || "",
+                intensity: normalizeFilterIntensity((activeFilterClip as any).intensity),
+                gradingParams: (activeFilterClip as any).gradingParams,
+              }
+            : undefined,
     };
 
     visualLayers.push(mediaLayer);
@@ -379,6 +384,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         id: activeFilterClip.mediaId,
         name: activeFilterClip.name || "",
         intensity: normalizeFilterIntensity((activeFilterClip as any).intensity),
+        gradingParams: (activeFilterClip as any).gradingParams,
         pipeline: (activeFilterClip as any).pipeline as "v2" | undefined,
         effectStack: (activeFilterClip as any).effectStack as Array<{ type: string; params?: Record<string, unknown> }> | undefined,
       }

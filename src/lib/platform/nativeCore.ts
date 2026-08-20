@@ -181,6 +181,28 @@ export interface NativeColorGradeSnapshot {
   vibranceProtectedHueR: number;
   vibranceProtectedHueG: number;
   vibranceProtectedHueB: number;
+  lift: number;
+  crossProcessAmount: number;
+  channelMixR: number;
+  channelMixG: number;
+  channelMixB: number;
+  channelMixEnabled: number;
+  duotoneDarkR: number;
+  duotoneDarkG: number;
+  duotoneDarkB: number;
+  duotoneLightR: number;
+  duotoneLightG: number;
+  duotoneLightB: number;
+  duotoneEnabled: number;
+  shadowTintR: number;
+  shadowTintG: number;
+  shadowTintB: number;
+  shadowTintStrength: number;
+  highlightTintR: number;
+  highlightTintG: number;
+  highlightTintB: number;
+  highlightTintStrength: number;
+  splitBalance: number;
 }
 
 export interface NativeRasterLayerSnapshot {
