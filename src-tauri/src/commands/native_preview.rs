@@ -3,6 +3,7 @@ use crate::native_core::{
     NativeSurfacePresentation, PerformanceSample, PixelFormat, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::native_audio::NativeAudioClock;
+use crate::commands::lut::LutCache;
 use crate::commands::native_surface::NativeSurfaceRuntime;
 use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
 use crate::thumbnail_engine::decoder::{get_decoder, VideoColorMetadata};
@@ -362,7 +363,7 @@ fn to_video_project_request(
                 opacity: layer.opacity,
                 z_index: layer.z_index,
                 blend_mode: layer.blend_mode.clone(),
-                color_grade: layer.color_grade,
+                color_grade: layer.color_grade.clone(),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -441,6 +442,8 @@ struct NativeLayerSpec<'a> {
     z_index: i32,
     blend_mode: &'a str,
     color_grade: ColorGradeUniforms,
+    lut: Option<Arc<crate::wgpu_compositor::GpuLut3D>>,
+    grain_seed: f32,
 }
 
 fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGradeUniforms {
@@ -450,12 +453,50 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
         saturation: grade.saturation,
         temperature: grade.temperature,
         tint: grade.tint,
+        brightness: grade.brightness,
+        sepia: grade.sepia,
+        grayscale: grade.grayscale,
+        hue_rotate: grade.hue_rotate,
+        vignette: grade.vignette,
+        invert: grade.invert,
+        grain_intensity: grade.grain_intensity,
+        grain_size: grade.grain_size,
+        lut_intensity: grade.lut_intensity,
+        lut_size: grade.lut_size,
+        blur_strength: grade.blur_strength,
+        blur_radius: grade.blur_radius,
+        pixelate_size: grade.pixelate_size,
+        scanline_count: grade.scanline_count,
+        scanline_intensity: grade.scanline_intensity,
+        rgb_split_x: grade.rgb_split_x,
+        rgb_split_y: grade.rgb_split_y,
+        vibrance_amount: grade.vibrance_amount,
+        vibrance_protected_hue_r: grade.vibrance_protected_hue_r,
+        vibrance_protected_hue_g: grade.vibrance_protected_hue_g,
+        vibrance_protected_hue_b: grade.vibrance_protected_hue_b,
         ..ColorGradeUniforms::default()
     })
 }
 
+fn resolve_native_lut(
+    snapshot: Option<&ColorGradeSnapshot>,
+    cache: Option<&Arc<LutCache>>,
+) -> Result<Option<Arc<crate::wgpu_compositor::GpuLut3D>>, String> {
+    let Some(lut_id) = snapshot.and_then(|grade| grade.lut_id.as_deref()) else {
+        return Ok(None);
+    };
+    let Some(cache) = cache else {
+        return Err("Native LUT cache is unavailable".to_string());
+    };
+    cache
+        .luts
+        .get(lut_id)
+        .map(|entry| Some(entry.value().clone()))
+        .ok_or_else(|| format!("Native LUT asset is not loaded: {lut_id}"))
+}
+
 fn build_native_composite_layers<'a>(
-    specs: &[NativeLayerSpec<'a>],
+    specs: &'a [NativeLayerSpec<'a>],
     canvas_width: f32,
     canvas_height: f32,
 ) -> Result<Vec<CompositeLayer<'a>>, String> {
@@ -464,7 +505,7 @@ fn build_native_composite_layers<'a>(
         .map(|layer| {
             Ok(CompositeLayer {
                 texture_view: layer.view,
-                lut: None,
+                lut: layer.lut.as_deref(),
                 z_index: layer.z_index,
                 opacity: layer.opacity.clamp(0.0, 1.0),
                 blend_mode: parse_blend_mode(layer.blend_mode)?,
@@ -479,7 +520,10 @@ fn build_native_composite_layers<'a>(
                 ),
                 crop: CropMargins::default(),
                 color_grade: layer.color_grade,
-                chroma_key: ChromaKeyUniforms::default(),
+                chroma_key: ChromaKeyUniforms {
+                    _pad0: layer.grain_seed,
+                    ..ChromaKeyUniforms::default()
+                },
             })
         })
         .collect()
@@ -734,6 +778,9 @@ async fn render_native_video_project_frame_bytes(
     let state = app
         .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
         .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    let lut_cache = app
+        .try_state::<Arc<LutCache>>()
+        .map(|state| state.inner().clone());
     let canvas_width = request.canvas_width as f32;
     let canvas_height = request.canvas_height as f32;
 
@@ -791,6 +838,8 @@ async fn render_native_video_project_frame_bytes(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
+            lut: resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref())?,
+            grain_seed: ((layer.time_secs.max(0.0) * 60.0).floor() * 0.37) as f32,
         });
     }
     let raster_views = views.iter().skip(request.layers.len());
@@ -806,6 +855,8 @@ async fn render_native_video_project_frame_bytes(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: ColorGradeUniforms::default(),
+            lut: None,
+            grain_seed: 0.0,
         });
     }
     let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;
@@ -972,6 +1023,9 @@ pub async fn present_native_frame(
     let surface_state = app
         .try_state::<Arc<std::sync::Mutex<NativeSurfaceRuntime>>>()
         .ok_or_else(|| "Native surface runtime is unavailable".to_string())?;
+    let lut_cache = app
+        .try_state::<Arc<LutCache>>()
+        .map(|state| state.inner().clone());
 
     let mut session = preview_state.lock().await;
     let mut surface = surface_state
@@ -1084,6 +1138,8 @@ pub async fn present_native_frame(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
+            lut: resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref())?,
+            grain_seed: ((layer.time_secs.max(0.0) * 60.0).floor() * 0.37) as f32,
         });
     }
     let raster_views = views.iter().skip(legacy_request.layers.len());
@@ -1099,6 +1155,8 @@ pub async fn present_native_frame(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: ColorGradeUniforms::default(),
+            lut: None,
+            grain_seed: 0.0,
         });
     }
     let layers = build_native_composite_layers(&specs, canvas_width, canvas_height)?;

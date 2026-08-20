@@ -490,6 +490,7 @@ async fn test_lut_identity_and_half_texel_offset() {
                 lut_intensity: 1.0,
                 lut_size: identity_lut.size as f32,
                 has_lut: 1,
+                ..Default::default()
             },
             chroma_key: ChromaKeyUniforms::default(),
         }];

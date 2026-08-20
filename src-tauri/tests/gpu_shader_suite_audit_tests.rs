@@ -133,6 +133,7 @@ async fn test_audit_identity_3d_lut_pass_through() {
                 lut_intensity: 1.0,
                 lut_size: identity_lut.size as f32,
                 has_lut: 1,
+                ..Default::default()
             },
             chroma_key: ChromaKeyUniforms::default(),
         }];

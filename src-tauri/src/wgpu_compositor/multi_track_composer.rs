@@ -81,7 +81,7 @@ impl LayerTransform {
     }
 }
 
-/// Color grading uniforms matching multi_track_blend.wgsl (32 bytes).
+/// Color grading uniforms matching multi_track_blend.wgsl (112 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
 pub struct ColorGradeUniforms {
@@ -90,9 +90,29 @@ pub struct ColorGradeUniforms {
     pub saturation: f32,
     pub temperature: f32,
     pub tint: f32,
+    pub brightness: f32,
+    pub sepia: f32,
+    pub grayscale: f32,
+    pub hue_rotate: f32,
+    pub vignette: f32,
+    pub invert: f32,
+    pub grain_intensity: f32,
+    pub grain_size: f32,
     pub lut_intensity: f32,
     pub lut_size: f32,
     pub has_lut: u32,
+    pub blur_strength: f32,
+    pub blur_radius: f32,
+    pub pixelate_size: f32,
+    pub scanline_count: f32,
+    pub scanline_intensity: f32,
+    pub rgb_split_x: f32,
+    pub rgb_split_y: f32,
+    pub vibrance_amount: f32,
+    pub vibrance_protected_hue_r: f32,
+    pub vibrance_protected_hue_g: f32,
+    pub vibrance_protected_hue_b: f32,
+    pub _padding0: f32,
 }
 
 impl Default for ColorGradeUniforms {
@@ -103,14 +123,34 @@ impl Default for ColorGradeUniforms {
             saturation: 1.0,
             temperature: 0.0,
             tint: 0.0,
+            brightness: 0.0,
+            sepia: 0.0,
+            grayscale: 0.0,
+            hue_rotate: 0.0,
+            vignette: 0.0,
+            invert: 0.0,
+            grain_intensity: 0.0,
+            grain_size: 1.0,
             lut_intensity: 1.0,
             lut_size: 33.0,
             has_lut: 0,
+            blur_strength: 0.0,
+            blur_radius: 0.0,
+            pixelate_size: 0.0,
+            scanline_count: 0.0,
+            scanline_intensity: 0.0,
+            rgb_split_x: 0.0,
+            rgb_split_y: 0.0,
+            vibrance_amount: 0.0,
+            vibrance_protected_hue_r: 0.91,
+            vibrance_protected_hue_g: 0.69,
+            vibrance_protected_hue_b: 0.55,
+            _padding0: 0.0,
         }
     }
 }
 
-/// GPU Uniform layout matching multi_track_blend.wgsl (176 bytes).
+/// GPU Uniform layout matching multi_track_blend.wgsl (224 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct LayerUniforms {
@@ -119,8 +159,8 @@ pub struct LayerUniforms {
     pub opacity: f32,                    // 4 bytes
     pub blend_mode: u32,                 // 4 bytes
     pub is_premultiplied: u32,           // 4 bytes
-    pub _padding: f32,                   // 4 bytes
-    pub color_grade: ColorGradeUniforms, // 32 bytes
+    pub grain_seed: f32,                 // 4 bytes; deterministic per-source-frame grain seed
+    pub color_grade: ColorGradeUniforms, // 112 bytes
     pub chroma_key: ChromaKeyUniforms,   // 48 bytes
 }
 
@@ -665,7 +705,7 @@ impl MultiTrackCompositor {
                 opacity: layer.opacity.clamp(0.0, 1.0),
                 blend_mode: layer.blend_mode as u32,
                 is_premultiplied: 0,
-                _padding: 0.0,
+                grain_seed: layer.chroma_key._pad0,
                 color_grade,
                 chroma_key: layer.chroma_key,
             };

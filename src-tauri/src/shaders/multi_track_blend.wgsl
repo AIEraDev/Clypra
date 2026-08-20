@@ -22,10 +22,32 @@ struct ColorGradeUniforms {
     temperature: f32,    // Kelvin shift [-1.0, 1.0], default 0.0
     tint: f32,           // Green-Magenta shift [-1.0, 1.0], default 0.0
 
+    // Clypra Studio ColorAdjustments controls
+    brightness: f32,     // Additive offset [-1.0, 1.0]
+    sepia: f32,          // Mix amount [0.0, 1.0]
+    grayscale: f32,      // Mix amount [0.0, 1.0]
+    hue_rotate: f32,     // Radians
+    vignette: f32,       // Edge darkening [0.0, 1.0]
+    invert: f32,         // Mix amount [0.0, 1.0]
+    grain_intensity: f32,
+    grain_size: f32,
+
     // 3D LUT Parameters
     lut_intensity: f32,  // Blend factor [0.0, 1.0], default 1.0
     lut_size: f32,       // e.g., 33.0
     has_lut: u32,        // 0: Disabled, 1: Enabled
+    blur_strength: f32,  // 0: Disabled, 1: Enabled
+    blur_radius: f32,    // Radius in source pixels
+    pixelate_size: f32,  // Pixel block size in source pixels
+    scanline_count: f32,
+    scanline_intensity: f32,
+    rgb_split_x: f32,    // Channel offset in source pixels
+    rgb_split_y: f32,
+    vibrance_amount: f32,
+    vibrance_protected_hue_r: f32,
+    vibrance_protected_hue_g: f32,
+    vibrance_protected_hue_b: f32,
+    _padding0: f32,
 };
 
 struct LayerUniforms {
@@ -34,7 +56,7 @@ struct LayerUniforms {
     opacity: f32,
     blend_mode: u32,
     is_premultiplied: u32,
-    _padding: f32,
+    grain_seed: f32,
     color_grade: ColorGradeUniforms,
     chroma_key: ChromaKeyUniforms,
 };
@@ -158,6 +180,46 @@ fn get_luminance(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
+fn hue_rotate_color(color: vec3<f32>, angle: f32) -> vec3<f32> {
+    let axis = vec3<f32>(0.57735, 0.57735, 0.57735);
+    let c = cos(angle);
+    return color * c + cross(axis, color) * sin(angle) + axis * dot(axis, color) * (1.0 - c);
+}
+
+fn film_grain(uv: vec2<f32>, size: f32) -> f32 {
+    return fract(sin(dot(uv * size, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+}
+
+fn rgb_to_hsv(color: vec3<f32>) -> vec3<f32> {
+    let k = vec4<f32>(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    let p = mix(vec4<f32>(color.bg, k.wz), vec4<f32>(color.gb, k.xy), step(color.b, color.g));
+    let q = mix(vec4<f32>(p.xyw, color.r), vec4<f32>(color.r, p.yzx), step(p.x, color.r));
+    let d = q.x - min(q.w, q.y);
+    let e = 1.0e-10;
+    return vec3<f32>(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+fn hsv_to_rgb(color: vec3<f32>) -> vec3<f32> {
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(color.xxx + k.xyz) * 6.0 - k.www);
+    return color.z * mix(k.xxx, clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), color.y);
+}
+
+fn sample_blurred_color(uv: vec2<f32>, radius: f32) -> vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_diffuse));
+    let offset = vec2<f32>(radius) / max(dimensions, vec2<f32>(1.0));
+    var color = textureSample(t_diffuse, s_diffuse, uv) * 0.227027;
+    color += textureSample(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, 0.0)) * 0.1945946;
+    color += textureSample(t_diffuse, s_diffuse, uv - vec2<f32>(offset.x, 0.0)) * 0.1945946;
+    color += textureSample(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, offset.y)) * 0.1945946;
+    color += textureSample(t_diffuse, s_diffuse, uv - vec2<f32>(0.0, offset.y)) * 0.1945946;
+    color += textureSample(t_diffuse, s_diffuse, uv + offset) * 0.024393;
+    color += textureSample(t_diffuse, s_diffuse, uv - offset) * 0.024393;
+    color += textureSample(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, -offset.y)) * 0.024393;
+    color += textureSample(t_diffuse, s_diffuse, uv + vec2<f32>(-offset.x, offset.y)) * 0.024393;
+    return color;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 1. Branch-Free Crop Margin Clipping
@@ -167,7 +229,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    var sample_color = textureSample(t_diffuse, s_diffuse, in.uv);
+    var sample_uv = in.uv;
+    let source_dimensions = vec2<f32>(textureDimensions(t_diffuse));
+    if (layer.color_grade.pixelate_size > 0.0) {
+        let cell = vec2<f32>(layer.color_grade.pixelate_size) / max(source_dimensions, vec2<f32>(1.0));
+        sample_uv = floor(in.uv / cell) * cell + cell * 0.5;
+    }
+
+    var sample_color = textureSample(t_diffuse, s_diffuse, sample_uv);
+    if (layer.color_grade.blur_strength > 0.0 && layer.color_grade.blur_radius > 0.0) {
+        sample_color = sample_blurred_color(sample_uv, layer.color_grade.blur_radius);
+    }
+    if (layer.color_grade.rgb_split_x > 0.0 || layer.color_grade.rgb_split_y > 0.0) {
+        let split_offset = vec2<f32>(layer.color_grade.rgb_split_x, layer.color_grade.rgb_split_y) /
+            max(source_dimensions, vec2<f32>(1.0));
+        let center = textureSample(t_diffuse, s_diffuse, sample_uv);
+        let red = textureSample(t_diffuse, s_diffuse, sample_uv - split_offset).r;
+        let blue = textureSample(t_diffuse, s_diffuse, sample_uv + split_offset).b;
+        sample_color = vec4<f32>(red, center.g, blue, center.a);
+    }
     if (sample_color.a <= 0.0001) {
         discard;
     }
@@ -180,22 +260,78 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var rgb = keyed_color.rgb;
 
-    // 3. Exposure Adjustment (Linear light scaling in EV stops)
+    // 3. Clypra Studio ColorAdjustments order: invert, exposure, brightness,
+    // contrast, saturation, grayscale, sepia, hue, white balance, grain, vignette.
+    if (layer.color_grade.invert > 0.0) {
+        rgb = mix(rgb, vec3<f32>(1.0) - rgb, layer.color_grade.invert);
+    }
+
+    // Exposure Adjustment (Linear light scaling in EV stops)
     if (layer.color_grade.exposure != 0.0) {
         rgb = rgb * pow(2.0, layer.color_grade.exposure);
     }
 
-    // 4. White Balance (Temperature & Tint)
-    if (layer.color_grade.temperature != 0.0 || layer.color_grade.tint != 0.0) {
-        rgb = apply_white_balance(rgb, layer.color_grade.temperature, layer.color_grade.tint);
+    if (layer.color_grade.brightness != 0.0) {
+        rgb = rgb + vec3<f32>(layer.color_grade.brightness);
     }
 
-    // 5. Contrast Adjustment around mid-gray (0.5)
+    // Contrast Adjustment around mid-gray (0.5)
     if (layer.color_grade.contrast != 1.0) {
         rgb = clamp((rgb - vec3<f32>(0.5)) * layer.color_grade.contrast + vec3<f32>(0.5), vec3<f32>(0.0), vec3<f32>(1.0));
     }
 
-    // 6. 3D LUT Color Transformation
+    if (layer.color_grade.saturation != 1.0) {
+        let luma = get_luminance(rgb);
+        rgb = mix(vec3<f32>(luma), rgb, layer.color_grade.saturation);
+    }
+
+    if (layer.color_grade.vibrance_amount != 0.0) {
+        let hsv = rgb_to_hsv(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)));
+        let protected_hsv = rgb_to_hsv(vec3<f32>(
+            layer.color_grade.vibrance_protected_hue_r,
+            layer.color_grade.vibrance_protected_hue_g,
+            layer.color_grade.vibrance_protected_hue_b
+        ));
+        var hue_distance = abs(hsv.x - protected_hsv.x);
+        hue_distance = min(hue_distance, 1.0 - hue_distance);
+        let protection = smoothstep(0.0, 0.15, hue_distance);
+        var adjusted_hsv = hsv;
+        adjusted_hsv.y = clamp(hsv.y + layer.color_grade.vibrance_amount * protection, 0.0, 1.0);
+        rgb = hsv_to_rgb(adjusted_hsv);
+    }
+
+    if (layer.color_grade.grayscale > 0.0) {
+        let luma = get_luminance(rgb);
+        rgb = mix(rgb, vec3<f32>(luma), layer.color_grade.grayscale);
+    }
+
+    if (layer.color_grade.sepia > 0.0) {
+        let sepia_rgb = vec3<f32>(
+            dot(rgb, vec3<f32>(0.393, 0.769, 0.189)),
+            dot(rgb, vec3<f32>(0.349, 0.686, 0.168)),
+            dot(rgb, vec3<f32>(0.272, 0.534, 0.131))
+        );
+        rgb = mix(rgb, sepia_rgb, layer.color_grade.sepia);
+    }
+
+    if (layer.color_grade.hue_rotate != 0.0) {
+        rgb = hue_rotate_color(rgb, layer.color_grade.hue_rotate);
+    }
+
+    // White Balance (Temperature & Tint)
+    if (layer.color_grade.temperature != 0.0 || layer.color_grade.tint != 0.0) {
+        rgb = apply_white_balance(rgb, layer.color_grade.temperature, layer.color_grade.tint);
+    }
+
+    if (layer.color_grade.grain_intensity > 0.0) {
+        let grain = film_grain(
+            in.uv + vec2<f32>(layer.grain_seed),
+            max(layer.color_grade.grain_size, 0.1)
+        );
+        rgb = rgb + vec3<f32>((grain - 0.5) * layer.color_grade.grain_intensity);
+    }
+
+    // 4. 3D LUT Color Transformation
     if (layer.color_grade.has_lut == 1u) {
         let n = layer.color_grade.lut_size;
         let scale = (n - 1.0) / n;
@@ -209,13 +345,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = mix(rgb, lut_graded, layer.color_grade.lut_intensity);
     }
 
-    // 7. Saturation Adjustment
-    if (layer.color_grade.saturation != 1.0) {
-        let luma = get_luminance(rgb);
-        rgb = clamp(mix(vec3<f32>(luma), rgb, layer.color_grade.saturation), vec3<f32>(0.0), vec3<f32>(1.0));
+    if (layer.color_grade.vignette > 0.0) {
+        let distance_from_center = length(in.uv - vec2<f32>(0.5));
+        let edge = smoothstep(0.45, 1.0, distance_from_center);
+        rgb = mix(rgb, vec3<f32>(0.0), edge * layer.color_grade.vignette);
     }
 
-    // 8. Layer Opacity & Premultiplied Alpha
+    if (layer.color_grade.scanline_intensity > 0.0 && layer.color_grade.scanline_count > 0.0) {
+        let scanline = sin(in.uv.y * layer.color_grade.scanline_count * 3.14159) * 0.5 + 0.5;
+        let dark = rgb * (1.0 - layer.color_grade.scanline_intensity * 0.5);
+        rgb = mix(dark, rgb, scanline);
+    }
+
+    // 5. Layer Opacity & Premultiplied Alpha
     let final_alpha = keyed_color.a * layer.opacity;
     let final_rgb = rgb * final_alpha;
 

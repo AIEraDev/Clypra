@@ -121,15 +121,72 @@ pub struct VideoLayerSnapshot {
     pub color_grade: Option<ColorGradeSnapshot>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColorGradeSnapshot {
+    #[serde(default)]
     pub exposure: f32,
+    #[serde(default = "default_color_grade_multiplier")]
     pub contrast: f32,
+    #[serde(default = "default_color_grade_multiplier")]
     pub saturation: f32,
+    #[serde(default)]
     pub temperature: f32,
+    #[serde(default)]
     pub tint: f32,
+    #[serde(default)]
+    pub brightness: f32,
+    #[serde(default)]
+    pub sepia: f32,
+    #[serde(default)]
+    pub grayscale: f32,
+    #[serde(default)]
+    pub hue_rotate: f32,
+    #[serde(default)]
+    pub vignette: f32,
+    #[serde(default)]
+    pub invert: f32,
+    #[serde(default)]
+    pub grain_intensity: f32,
+    #[serde(default = "default_color_grade_grain_size")]
+    pub grain_size: f32,
+    #[serde(default)]
+    pub lut_id: Option<String>,
+    #[serde(default = "default_color_grade_lut_intensity")]
+    pub lut_intensity: f32,
+    #[serde(default = "default_color_grade_lut_size")]
+    pub lut_size: f32,
+    #[serde(default)]
+    pub blur_strength: f32,
+    #[serde(default)]
+    pub blur_radius: f32,
+    #[serde(default)]
+    pub pixelate_size: f32,
+    #[serde(default)]
+    pub scanline_count: f32,
+    #[serde(default)]
+    pub scanline_intensity: f32,
+    #[serde(default)]
+    pub rgb_split_x: f32,
+    #[serde(default)]
+    pub rgb_split_y: f32,
+    #[serde(default)]
+    pub vibrance_amount: f32,
+    #[serde(default = "default_vibrance_protected_hue_r")]
+    pub vibrance_protected_hue_r: f32,
+    #[serde(default = "default_vibrance_protected_hue_g")]
+    pub vibrance_protected_hue_g: f32,
+    #[serde(default = "default_vibrance_protected_hue_b")]
+    pub vibrance_protected_hue_b: f32,
 }
+
+fn default_color_grade_multiplier() -> f32 { 1.0 }
+fn default_color_grade_grain_size() -> f32 { 1.0 }
+fn default_color_grade_lut_intensity() -> f32 { 1.0 }
+fn default_color_grade_lut_size() -> f32 { 33.0 }
+fn default_vibrance_protected_hue_r() -> f32 { 0.91 }
+fn default_vibrance_protected_hue_g() -> f32 { 0.69 }
+fn default_vibrance_protected_hue_b() -> f32 { 0.55 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -255,14 +312,64 @@ impl FrameRequest {
                     "VideoLayerSnapshot source_time timescale must be non-zero".to_string(),
                 ));
             }
-            if let Some(color_grade) = layer.color_grade {
+            if let Some(color_grade) = layer.color_grade.as_ref() {
                 if !color_grade.exposure.is_finite()
                     || !color_grade.contrast.is_finite()
                     || !color_grade.saturation.is_finite()
                     || !color_grade.temperature.is_finite()
                     || !color_grade.tint.is_finite()
+                    || !color_grade.brightness.is_finite()
+                    || !color_grade.sepia.is_finite()
+                    || !color_grade.grayscale.is_finite()
+                    || !color_grade.hue_rotate.is_finite()
+                    || !color_grade.vignette.is_finite()
+                    || !color_grade.invert.is_finite()
+                    || !color_grade.grain_intensity.is_finite()
+                    || !color_grade.grain_size.is_finite()
+                    || !color_grade.lut_intensity.is_finite()
+                    || !color_grade.lut_size.is_finite()
+                    || !color_grade.blur_strength.is_finite()
+                    || !color_grade.blur_radius.is_finite()
+                    || !color_grade.pixelate_size.is_finite()
+                    || !color_grade.scanline_count.is_finite()
+                    || !color_grade.scanline_intensity.is_finite()
+                    || !color_grade.rgb_split_x.is_finite()
+                    || !color_grade.rgb_split_y.is_finite()
+                    || !color_grade.vibrance_amount.is_finite()
+                    || !color_grade.vibrance_protected_hue_r.is_finite()
+                    || !color_grade.vibrance_protected_hue_g.is_finite()
+                    || !color_grade.vibrance_protected_hue_b.is_finite()
                     || color_grade.contrast < 0.0
                     || color_grade.saturation < 0.0
+                    || color_grade.sepia < 0.0
+                    || color_grade.sepia > 1.0
+                    || color_grade.grayscale < 0.0
+                    || color_grade.grayscale > 1.0
+                    || color_grade.vignette < 0.0
+                    || color_grade.vignette > 1.0
+                    || color_grade.invert < 0.0
+                    || color_grade.invert > 1.0
+                    || color_grade.grain_intensity < 0.0
+                    || color_grade.grain_size <= 0.0
+                    || color_grade.lut_intensity < 0.0
+                    || color_grade.lut_intensity > 1.0
+                    || color_grade.lut_size <= 0.0
+                    || color_grade.blur_strength < 0.0
+                    || color_grade.blur_radius < 0.0
+                    || color_grade.pixelate_size < 0.0
+                    || color_grade.scanline_count < 0.0
+                    || color_grade.scanline_intensity < 0.0
+                    || color_grade.scanline_intensity > 1.0
+                    || color_grade.rgb_split_x < 0.0
+                    || color_grade.rgb_split_y < 0.0
+                    || color_grade.vibrance_amount < -1.0
+                    || color_grade.vibrance_amount > 1.0
+                    || color_grade.vibrance_protected_hue_r < 0.0
+                    || color_grade.vibrance_protected_hue_r > 1.0
+                    || color_grade.vibrance_protected_hue_g < 0.0
+                    || color_grade.vibrance_protected_hue_g > 1.0
+                    || color_grade.vibrance_protected_hue_b < 0.0
+                    || color_grade.vibrance_protected_hue_b > 1.0
                 {
                     return Err(NativeCoreError::InvalidContract(
                         "VideoLayerSnapshot contains invalid color-grade data".to_string(),
