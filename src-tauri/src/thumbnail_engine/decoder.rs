@@ -307,6 +307,18 @@ pub struct VideoDecoder {
 }
 
 impl VideoDecoder {
+    fn clamp_timestamp(&self, timestamp_secs: f64) -> f64 {
+        let timestamp_secs = timestamp_secs.max(0.0);
+        // Still-image demuxers commonly report an unknown/zero container
+        // duration. They still expose one decodable video packet, so do not
+        // clamp a valid request to a negative timestamp in that case.
+        if self.duration > 0.001 {
+            timestamp_secs.min(self.duration - 0.001)
+        } else {
+            timestamp_secs
+        }
+    }
+
     pub fn open(path: &str) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
 
@@ -469,7 +481,13 @@ impl VideoDecoder {
             height: frame.height(),
             pixel_format: pixel_format_name(frame),
             linesize_y: frame.stride(0).min(i32::MAX as usize) as i32,
-            linesize_uv: frame.stride(1).min(i32::MAX as usize) as i32,
+            // RGB/still-image frames can have one packed plane. UV stride is
+            // only meaningful for planar YUV formats.
+            linesize_uv: if frame.planes() > 1 {
+                frame.stride(1).min(i32::MAX as usize) as i32
+            } else {
+                0
+            },
             sample_aspect_ratio_num: raw.sample_aspect_ratio.num,
             sample_aspect_ratio_den: raw.sample_aspect_ratio.den,
             color: color_metadata(
@@ -595,7 +613,7 @@ impl VideoDecoder {
         &mut self,
         timestamp_secs: f64,
     ) -> Result<(Vec<u8>, u32, u32), String> {
-        let ts = timestamp_secs.max(0.0).min(self.duration - 0.001);
+        let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         self.state.update_sequential(target_pts);
@@ -682,7 +700,7 @@ impl VideoDecoder {
         let start = std::time::Instant::now();
 
         // Clamp to video bounds
-        let ts = timestamp_secs.max(0.0).min(self.duration - 0.001);
+        let ts = self.clamp_timestamp(timestamp_secs);
 
         // Convert seconds to stream time base units
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -985,7 +1003,7 @@ impl VideoDecoder {
         &mut self,
         timestamp_secs: f64,
     ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata), String> {
-        let ts = timestamp_secs.max(0.0).min(self.duration - 0.001);
+        let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         self.state.update_sequential(target_pts);
@@ -1606,5 +1624,29 @@ mod display_dimensions_tests {
         let json = serde_json::to_value(&metadata).expect("metadata should serialize");
         assert_eq!(json["range"], "unspecified");
         assert_eq!(json["rangeCode"], 0);
+    }
+}
+
+#[cfg(test)]
+mod still_image_tests {
+    use super::VideoDecoder;
+
+    #[test]
+    fn durationless_png_decodes_at_zero_timestamp() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/clypra.png");
+        let mut decoder = VideoDecoder::open(
+            fixture
+                .to_str()
+                .expect("repository fixture path should be valid UTF-8"),
+        )
+        .expect("repository PNG fixture should open through FFmpeg");
+        let (y_plane, uv_plane, width, height, _) = decoder
+            .decode_frame_raw_nv12(0.0)
+            .expect("durationless PNG should expose a decodable video packet");
+
+        assert!(width > 0);
+        assert!(height > 0);
+        assert_eq!(y_plane.len(), (width * height) as usize);
+        assert_eq!(uv_plane.len(), (width * height / 2) as usize);
     }
 }

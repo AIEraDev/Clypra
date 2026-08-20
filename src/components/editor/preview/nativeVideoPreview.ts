@@ -49,7 +49,7 @@ function isNativeFileSource(sourcePath: string): boolean {
 
 function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
   return (
-    layer.mediaType === "video" &&
+    (layer.mediaType === "video" || layer.mediaType === "image") &&
     layer.clipKind !== "sticker" &&
     isNativeFileSource(layer.sourcePath) &&
     !layer.filter &&

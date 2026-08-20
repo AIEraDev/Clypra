@@ -81,8 +81,8 @@ describe("buildNativeVideoProjectRequest", () => {
     ]))).toBeNull();
     expect(buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer(),
-      { ...makeVideoLayer({ mediaId: "image-1" }), mediaType: "image" } as never,
-    ]))).toBeNull();
+      { ...makeVideoLayer({ mediaId: "image-1" }), mediaType: "image", sourceTime: 0 } as never,
+    ]))).not.toBeNull();
   });
 
   it("does not drop text or active track filters from the native scene", () => {
