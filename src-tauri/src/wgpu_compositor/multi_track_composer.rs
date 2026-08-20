@@ -81,7 +81,7 @@ impl LayerTransform {
     }
 }
 
-/// Color grading uniforms matching multi_track_blend.wgsl (256 bytes).
+/// Color grading uniforms matching multi_track_blend.wgsl (320 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
 pub struct ColorGradeUniforms {
@@ -123,6 +123,10 @@ pub struct ColorGradeUniforms {
     pub split_params: [f32; 4], // balance + padding
     pub glow_color_strength: [f32; 4], // RGB + strength
     pub glow_params: [f32; 4], // radius + padding
+    pub flash_color_strength: [f32; 4], // RGB + strength
+    pub temporal_effects: [f32; 4], // flicker, strobe frequency/time/strength
+    pub light_leak_color_strength: [f32; 4], // RGB + strength
+    pub light_leak_params: [f32; 4], // angle, time + padding
 }
 
 impl Default for ColorGradeUniforms {
@@ -166,11 +170,15 @@ impl Default for ColorGradeUniforms {
             split_params: [0.5, 0.0, 0.0, 0.0],
             glow_color_strength: [1.0, 1.0, 1.0, 0.0],
             glow_params: [0.0, 0.0, 0.0, 0.0],
+            flash_color_strength: [1.0, 1.0, 1.0, 0.0],
+            temporal_effects: [0.0, 0.0, 0.0, 0.0],
+            light_leak_color_strength: [1.0, 1.0, 1.0, 0.0],
+            light_leak_params: [0.7853982, 0.0, 0.0, 0.0],
         }
     }
 }
 
-/// GPU Uniform layout matching multi_track_blend.wgsl (400 bytes).
+/// GPU Uniform layout matching multi_track_blend.wgsl (464 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct LayerUniforms {
@@ -180,7 +188,7 @@ pub struct LayerUniforms {
     pub blend_mode: u32,                 // 4 bytes
     pub is_premultiplied: u32,           // 4 bytes
     pub grain_seed: f32,                 // 4 bytes; deterministic per-source-frame grain seed
-    pub color_grade: ColorGradeUniforms, // 256 bytes
+    pub color_grade: ColorGradeUniforms, // 320 bytes
     pub chroma_key: ChromaKeyUniforms,   // 48 bytes
 }
 

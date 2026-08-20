@@ -232,6 +232,34 @@ pub struct ColorGradeSnapshot {
     pub glow_strength: f32,
     #[serde(default)]
     pub glow_radius: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub flash_color_r: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub flash_color_g: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub flash_color_b: f32,
+    #[serde(default)]
+    pub flash_strength: f32,
+    #[serde(default)]
+    pub flicker_strength: f32,
+    #[serde(default)]
+    pub strobe_frequency: f32,
+    #[serde(default)]
+    pub strobe_time: f32,
+    #[serde(default)]
+    pub strobe_strength: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub light_leak_color_r: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub light_leak_color_g: f32,
+    #[serde(default = "default_color_grade_neutral_channel")]
+    pub light_leak_color_b: f32,
+    #[serde(default)]
+    pub light_leak_strength: f32,
+    #[serde(default = "default_color_grade_light_leak_angle")]
+    pub light_leak_angle: f32,
+    #[serde(default)]
+    pub light_leak_time: f32,
 }
 
 fn default_color_grade_multiplier() -> f32 { 1.0 }
@@ -243,6 +271,7 @@ fn default_vibrance_protected_hue_g() -> f32 { 0.69 }
 fn default_vibrance_protected_hue_b() -> f32 { 0.55 }
 fn default_color_grade_neutral_channel() -> f32 { 1.0 }
 fn default_color_grade_split_balance() -> f32 { 0.5 }
+fn default_color_grade_light_leak_angle() -> f32 { 0.7853982 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -422,6 +451,20 @@ impl FrameRequest {
                     || !color_grade.glow_color_b.is_finite()
                     || !color_grade.glow_strength.is_finite()
                     || !color_grade.glow_radius.is_finite()
+                    || !color_grade.flash_color_r.is_finite()
+                    || !color_grade.flash_color_g.is_finite()
+                    || !color_grade.flash_color_b.is_finite()
+                    || !color_grade.flash_strength.is_finite()
+                    || !color_grade.flicker_strength.is_finite()
+                    || !color_grade.strobe_frequency.is_finite()
+                    || !color_grade.strobe_time.is_finite()
+                    || !color_grade.strobe_strength.is_finite()
+                    || !color_grade.light_leak_color_r.is_finite()
+                    || !color_grade.light_leak_color_g.is_finite()
+                    || !color_grade.light_leak_color_b.is_finite()
+                    || !color_grade.light_leak_strength.is_finite()
+                    || !color_grade.light_leak_angle.is_finite()
+                    || !color_grade.light_leak_time.is_finite()
                     || color_grade.contrast < 0.0
                     || color_grade.saturation < 0.0
                     || color_grade.sepia < 0.0
@@ -497,6 +540,29 @@ impl FrameRequest {
                     || color_grade.glow_strength < 0.0
                     || color_grade.glow_strength > 1.0
                     || color_grade.glow_radius < 0.0
+                    || color_grade.flash_color_r < 0.0
+                    || color_grade.flash_color_r > 1.0
+                    || color_grade.flash_color_g < 0.0
+                    || color_grade.flash_color_g > 1.0
+                    || color_grade.flash_color_b < 0.0
+                    || color_grade.flash_color_b > 1.0
+                    || color_grade.flash_strength < 0.0
+                    || color_grade.flash_strength > 1.0
+                    || color_grade.flicker_strength < 0.0
+                    || color_grade.flicker_strength > 1.0
+                    || color_grade.strobe_frequency < 0.0
+                    || color_grade.strobe_time < 0.0
+                    || color_grade.strobe_strength < 0.0
+                    || color_grade.strobe_strength > 1.0
+                    || color_grade.light_leak_color_r < 0.0
+                    || color_grade.light_leak_color_r > 1.0
+                    || color_grade.light_leak_color_g < 0.0
+                    || color_grade.light_leak_color_g > 1.0
+                    || color_grade.light_leak_color_b < 0.0
+                    || color_grade.light_leak_color_b > 1.0
+                    || color_grade.light_leak_strength < 0.0
+                    || color_grade.light_leak_strength > 1.0
+                    || color_grade.light_leak_time < 0.0
                 {
                     return Err(NativeCoreError::InvalidContract(
                         "VideoLayerSnapshot contains invalid color-grade data".to_string(),

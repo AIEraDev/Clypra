@@ -57,6 +57,10 @@ struct ColorGradeUniforms {
     split_params: vec4<f32>, // balance + padding
     glow_color_strength: vec4<f32>, // RGB + strength
     glow_params: vec4<f32>, // radius + padding
+    flash_color_strength: vec4<f32>, // RGB + strength
+    temporal_effects: vec4<f32>, // flicker, strobe frequency/time/strength
+    light_leak_color_strength: vec4<f32>, // RGB + strength
+    light_leak_params: vec4<f32>, // angle, time + padding
 };
 
 struct LayerUniforms {
@@ -405,8 +409,40 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = mix(dark, rgb, scanline);
     }
 
+    // Time-driven effects use the evaluated effect time from the request.
+    // Flash follows the existing Pixi screen blend approximation.
+    if (layer.color_grade.flash_color_strength.w > 0.0) {
+        let flash = layer.color_grade.flash_color_strength.xyz * layer.color_grade.flash_color_strength.w;
+        rgb = vec3<f32>(1.0) - (vec3<f32>(1.0) - rgb) * (vec3<f32>(1.0) - flash);
+    }
+    if (layer.color_grade.temporal_effects.w > 0.0 && layer.color_grade.temporal_effects.y > 0.0) {
+        let strobe_on = sin(layer.color_grade.temporal_effects.z * layer.color_grade.temporal_effects.y * 3.14159265) > 0.0;
+        if (strobe_on) {
+            let flash = vec3<f32>(layer.color_grade.temporal_effects.w);
+            rgb = vec3<f32>(1.0) - (vec3<f32>(1.0) - rgb) * (vec3<f32>(1.0) - flash);
+        }
+    }
+
     // 5. Layer Opacity & Premultiplied Alpha
-    let final_alpha = keyed_color.a * layer.opacity;
+    var alpha_multiplier = 1.0;
+    if (layer.color_grade.temporal_effects.x > 0.0) {
+        let flicker_noise = fract(sin(layer.grain_seed * 12.9898 + 17.0) * 43758.5453);
+        alpha_multiplier = 1.0 - flicker_noise * layer.color_grade.temporal_effects.x * 0.5;
+    }
+
+    // Bounded animated diagonal screen blend. The evaluated effect time is
+    // carried in the frame request, so this does not require a JS overlay.
+    if (layer.color_grade.light_leak_color_strength.w > 0.0) {
+        let angle = layer.color_grade.light_leak_params.x;
+        let axis = vec2<f32>(cos(angle), sin(angle));
+        let projected = dot(in.uv - vec2<f32>(0.5), axis);
+        let drift = sin(layer.color_grade.light_leak_params.y * 0.7) * 0.22;
+        let band = 1.0 - smoothstep(0.02, 0.62, abs(projected + drift));
+        let leak = layer.color_grade.light_leak_color_strength.xyz *
+            layer.color_grade.light_leak_color_strength.w * band;
+        rgb = vec3<f32>(1.0) - (vec3<f32>(1.0) - rgb) * (vec3<f32>(1.0) - leak);
+    }
+    let final_alpha = keyed_color.a * layer.opacity * alpha_multiplier;
     let final_rgb = rgb * final_alpha;
 
     return vec4<f32>(final_rgb, final_alpha);

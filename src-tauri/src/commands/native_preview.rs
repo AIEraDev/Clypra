@@ -514,6 +514,25 @@ fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGrad
             grade.glow_strength,
         ],
         glow_params: [grade.glow_radius, 0.0, 0.0, 0.0],
+        flash_color_strength: [
+            grade.flash_color_r,
+            grade.flash_color_g,
+            grade.flash_color_b,
+            grade.flash_strength,
+        ],
+        temporal_effects: [
+            grade.flicker_strength,
+            grade.strobe_frequency,
+            grade.strobe_time,
+            grade.strobe_strength,
+        ],
+        light_leak_color_strength: [
+            grade.light_leak_color_r,
+            grade.light_leak_color_g,
+            grade.light_leak_color_b,
+            grade.light_leak_strength,
+        ],
+        light_leak_params: [grade.light_leak_angle, grade.light_leak_time, 0.0, 0.0],
         ..ColorGradeUniforms::default()
     })
 }
