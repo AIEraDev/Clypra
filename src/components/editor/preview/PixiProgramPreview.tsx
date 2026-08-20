@@ -34,6 +34,7 @@ import {
   hideNativeSurface,
   isTauriRuntime,
   presentNativeFrame,
+  queueNativeFrame,
   probeNativeSurface,
   renderNativeFrame,
   resizeNativeSurface,
@@ -739,7 +740,7 @@ export const PixiProgramPreview: React.FC = () => {
           request: requestToPresent,
         };
         nativePlaybackInFlight = (nativeSurfaceReady
-          ? presentNativeFrame(requestToPresent).then((presentation) => {
+          ? queueNativeFrame(requestToPresent).then(() => presentNativeFrame(requestToPresent)).then((presentation) => {
             const elapsedMs = performance.now() - requestStartedAt;
             nativePresentationLatencyMs = nativePresentationLatencyMs > 0
               ? nativePresentationLatencyMs * 0.75 + elapsedMs * 0.25
@@ -773,6 +774,7 @@ export const PixiProgramPreview: React.FC = () => {
           })
           .catch((error) => {
             nativeContinuousFailureStreak += 1;
+            lastNativePlaybackRequestKey = "";
             if (nativeContinuousFailureStreak >= 3) {
               nativeContinuousBlockedRevision = nativeRevision;
             }

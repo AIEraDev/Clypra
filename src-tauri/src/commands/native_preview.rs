@@ -9,6 +9,7 @@ use crate::wgpu_compositor::{
     CropMargins, LayerTransform, MultiTrackCompositor, NativePreviewSession, NativeWgpuRenderer,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -16,6 +17,65 @@ use tauri::Manager;
 
 type DecodedNativeVideoFrame = (Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// Bounded native decode-ahead storage for continuous preview playback.
+///
+/// The queue owns decoded NV12 planes, not GPU textures. Decoding can happen
+/// ahead of the audio clock without holding the GPU session lock; presentation
+/// consumes the entry and performs only color conversion/compositing/surface
+/// submission.
+pub struct NativePreviewFrameQueue {
+    entries: HashMap<String, Vec<DecodedNativeVideoFrame>>,
+    order: VecDeque<String>,
+    pending: std::collections::HashSet<String>,
+    max_entries: usize,
+}
+
+impl NativePreviewFrameQueue {
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            pending: std::collections::HashSet::new(),
+            max_entries: max_entries.max(1),
+        }
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        self.entries.contains_key(key) || self.pending.contains(key)
+    }
+
+    fn begin(&mut self, key: &str) -> bool {
+        if self.contains(key) {
+            return false;
+        }
+        self.pending.insert(key.to_string());
+        true
+    }
+
+    fn complete(&mut self, key: String, decoded: Vec<DecodedNativeVideoFrame>) {
+        self.pending.remove(&key);
+        self.order.retain(|entry| entry != &key);
+        self.entries.insert(key.clone(), decoded);
+        self.order.push_back(key);
+        while self.entries.len() > self.max_entries {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.entries.remove(&oldest);
+        }
+    }
+
+    fn fail(&mut self, key: &str) {
+        self.pending.remove(key);
+    }
+
+    fn take(&mut self, key: &str) -> Option<Vec<DecodedNativeVideoFrame>> {
+        let decoded = self.entries.remove(key)?;
+        self.order.retain(|entry| entry != key);
+        Some(decoded)
+    }
+}
 
 fn default_clear_color() -> [f32; 4] {
     [0.0, 0.0, 0.0, 1.0]
@@ -604,6 +664,44 @@ async fn decode_native_video_layers(
     Ok(decoded_frames)
 }
 
+/// Decode a frame into the bounded native playback queue without presenting
+/// it. The following presentation command can then reuse the decoded planes
+/// and spend its critical path only on GPU conversion/compositing/surface
+/// submission.
+#[tauri::command]
+pub async fn queue_native_frame(
+    app: tauri::AppHandle,
+    request: FrameRequest,
+) -> Result<(), String> {
+    request.validate().map_err(|error| error.to_string())?;
+    let key = request.cache_key().map_err(|error| error.to_string())?;
+    let legacy_request = to_video_project_request(&request)?;
+    validate_video_project_request(&legacy_request)?;
+
+    let queue = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
+        .ok_or_else(|| "Native preview frame queue is not initialized".to_string())?
+        .inner()
+        .clone();
+    {
+        let mut queue_state = queue.lock().await;
+        if !queue_state.begin(&key) {
+            return Ok(());
+        }
+    }
+
+    match decode_native_video_layers(&legacy_request).await {
+        Ok(decoded_frames) => {
+            queue.lock().await.complete(key, decoded_frames);
+            Ok(())
+        }
+        Err(error) => {
+            queue.lock().await.fail(&key);
+            Err(error)
+        }
+    }
+}
+
 /// Present a versioned frame directly to the retained native surface.
 ///
 /// This is deliberately a sibling of the readback renderer rather than a
@@ -626,7 +724,18 @@ pub async fn present_native_frame(
     }
     let legacy_request = to_video_project_request(&request)?;
     validate_video_project_request(&legacy_request)?;
-    let decoded_frames = decode_native_video_layers(&legacy_request).await?;
+    let queued_key = request.cache_key().map_err(|error| error.to_string())?;
+    let queued_frames = if let Some(queue) =
+        app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
+    {
+        queue.inner().clone().lock().await.take(&queued_key)
+    } else {
+        None
+    };
+    let decoded_frames = match queued_frames {
+        Some(decoded_frames) => decoded_frames,
+        None => decode_native_video_layers(&legacy_request).await?,
+    };
 
     let preview_state = app
         .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
@@ -848,7 +957,7 @@ mod tests {
     use super::{
         color_params, merge_color_metadata, parse_blend_mode, project_layer_transform,
         validate_project_request, validate_video_project_request, NativeProjectFrameRequest,
-        NativeVideoProjectFrameRequest,
+        NativePreviewFrameQueue, NativeVideoProjectFrameRequest,
     };
     use crate::thumbnail_engine::decoder::VideoColorMetadata;
 
@@ -969,5 +1078,26 @@ mod tests {
         assert_eq!(request.layers[0].opacity, 1.0);
         assert_eq!(request.layers[0].blend_mode, "normal");
         validate_video_project_request(&request).expect("default request should validate");
+    }
+
+    #[test]
+    fn native_preview_queue_is_bounded_and_consumable() {
+        let mut queue = NativePreviewFrameQueue::new(2);
+        assert!(queue.begin("frame-1"));
+        assert!(!queue.begin("frame-1"));
+        queue.complete("frame-1".to_string(), Vec::new());
+        assert!(queue.contains("frame-1"));
+        assert!(queue.take("frame-1").is_some());
+        assert!(!queue.contains("frame-1"));
+
+        assert!(queue.begin("frame-2"));
+        queue.complete("frame-2".to_string(), Vec::new());
+        assert!(queue.begin("frame-3"));
+        queue.complete("frame-3".to_string(), Vec::new());
+        assert!(queue.begin("frame-4"));
+        queue.complete("frame-4".to_string(), Vec::new());
+        assert!(!queue.contains("frame-2"));
+        assert!(queue.contains("frame-3"));
+        assert!(queue.contains("frame-4"));
     }
 }

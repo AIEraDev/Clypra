@@ -219,6 +219,25 @@ export async function presentNativeFrame(
   return invoke<NativeSurfacePresentation>("present_native_frame", { request: nativeRequest });
 }
 
+/** Decode a native playback frame ahead of presentation. */
+export async function queueNativeFrame(request: NativeFrameRequest): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("queueNativeFrame requires the Tauri runtime");
+  }
+
+  const nativeRequest: NativeFrameRequest = {
+    ...request,
+    project: {
+      ...request.project,
+      videoLayers: request.project.videoLayers.map((layer) => ({
+        ...layer,
+        videoPath: toNativePath(layer.videoPath),
+      })),
+    },
+  };
+  await invoke("queue_native_frame", { request: nativeRequest });
+}
+
 export async function getNativeFrameServiceStats(): Promise<NativeFrameServiceStats> {
   if (!isTauriRuntime()) {
     throw new Error("getNativeFrameServiceStats requires the Tauri runtime");
