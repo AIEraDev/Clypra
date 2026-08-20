@@ -67,12 +67,28 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   useEffect(() => {
     if (!options.nativeMode || !isTauriRuntime() || !project) return;
 
+    // Project metadata can legitimately lag behind the timeline after media
+    // import (the preview clock derives the real duration from clip bounds).
+    // Native audio must use that same duration contract or a stale `0` makes
+    // its first position sample look like an end-of-timeline event.
+    const timelineDuration = clips.reduce(
+      (maximum, clip) => Math.max(maximum, clip.startTime + clip.duration),
+      0,
+    );
+    const playbackDuration = getPlaybackClock().duration;
+    const nativeDuration = Math.max(
+      0,
+      project.duration || 0,
+      timelineDuration,
+      playbackDuration,
+    );
+
     const controller = new NativeAudioPreviewController({
       clock: getPlaybackClock(),
       source: {
         projectRevision: `${project.id}:${timelineEpoch}`,
         frameRate: project.frameRate,
-        duration: project.duration,
+        duration: nativeDuration,
         audioTrackCount: tracks.filter((track) => track.type === "audio" && !track.muted).length,
         clips,
         tracks,

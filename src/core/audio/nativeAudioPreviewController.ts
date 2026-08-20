@@ -157,7 +157,11 @@ export class NativeAudioPreviewController {
       const nativeState = this.clock.state === "playing" ? await nativeTickFromAudio() : await getNativeAudioStatus();
       const positionTicks = "audioPositionTicks" in nativeState ? nativeState.audioPositionTicks : 0;
       this.clock.setNativeClockPosition(positionTicks / 1_000_000, this.clock.speed);
-      if (this.clock.state === "playing" && positionTicks >= secondsToTicks(this.source.duration)) {
+      // A native graph can report position 0 while it is warming up. Never
+      // treat a missing/stale zero duration as an end signal; the timeline
+      // duration is the only valid terminal boundary.
+      const durationTicks = secondsToTicks(this.source.duration);
+      if (this.clock.state === "playing" && durationTicks > 0 && positionTicks >= durationTicks) {
         this.clock.pause();
       }
     } catch (error) {
