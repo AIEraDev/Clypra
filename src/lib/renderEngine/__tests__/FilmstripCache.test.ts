@@ -8,10 +8,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SpatialTier, VelocityState } from "../types";
 import type { RenderEpochId } from "../types";
 
-// Mock requestProgressiveTiers BEFORE importing FilmstripCache
-const mockRequestProgressiveTiers = vi.fn();
+// Mock the native FrameRequest transport before importing FilmstripCache.
+const mockRequestNativeFilmstripArtifacts = vi.fn();
+const mockRequestProgressiveTiers = mockRequestNativeFilmstripArtifacts;
 vi.mock("../transport", () => ({
-  requestProgressiveTiers: mockRequestProgressiveTiers,
+  requestFilmstripArtifacts: mockRequestNativeFilmstripArtifacts,
 }));
 
 // Import AFTER mock is registered
@@ -45,7 +46,7 @@ describe("FilmstripCache RAF Batching", () => {
       rafCallbacks.delete(id);
     });
 
-    mockRequestProgressiveTiers.mockClear();
+    mockRequestNativeFilmstripArtifacts.mockClear();
   });
 
   afterEach(() => {
@@ -77,7 +78,7 @@ describe("FilmstripCache RAF Batching", () => {
     let capturedOnArtifact: ((artifact: any) => void) | null = null;
     const onUpdate = vi.fn();
 
-    mockRequestProgressiveTiers.mockImplementation((opts: any) => {
+    mockRequestNativeFilmstripArtifacts.mockImplementation((opts: any) => {
       capturedOnArtifact = opts.onArtifact;
       return vi.fn();
     });

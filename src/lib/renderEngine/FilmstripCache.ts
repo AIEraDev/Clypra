@@ -27,7 +27,7 @@
  */
 
 import { SpatialTier, VelocityState, type RenderEpochId } from "./types";
-import { requestProgressiveTiers, type TransportArtifact } from "./transport";
+import { requestFilmstripArtifacts, type TransportArtifact } from "./transport";
 import { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
 import { generateViewportTileAddresses, findNearestTileAddress, getTileKey, type FilmstripTileAddress } from "../filmstrip/filmstripTiers";
 
@@ -454,12 +454,12 @@ export class FilmstripCache {
       onUpdate([...keptArtifacts]);
     }
 
-    // Request artifacts (transport still uses timestamps)
-    const cancelFn = requestProgressiveTiers({
+    // Request artifacts through the same native FrameRequest path used by the
+    // program preview. FilmstripCache still owns epochs and bitmap lifetime.
+    const cancelFn = requestFilmstripArtifacts({
       videoPath,
       timestampsMs,
-      startTier: SpatialTier.L0,
-      targetTier: spatialTier,
+      spatialTier,
       epochId,
       clipId,
       onArtifact: (artifact) => {
@@ -507,7 +507,7 @@ export class FilmstripCache {
         }
       },
       onError: (err) => {
-        console.error(`[FilmstripCache DEBUG] requestProgressiveTiers onError for clipId=${clipId}:`, err);
+        console.error(`[FilmstripCache DEBUG] requestFilmstripArtifacts onError for clipId=${clipId}:`, err);
       },
     });
 
