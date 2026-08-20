@@ -3,6 +3,7 @@ import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/type
 import {
   buildNativeFrameRequest,
   buildNativeVideoProjectRequest,
+  getNativePreviewBlockers,
   getNativeFrameRequestKey,
   isRenderableNativePreviewFrame,
 } from "../nativeVideoPreview";
@@ -91,6 +92,21 @@ describe("buildNativeVideoProjectRequest", () => {
       incomingLayer: "incoming",
       blendMode: "normal",
     }]))).toBeNull();
+  });
+
+  it("reports the native migration blocker for unsupported transitions", () => {
+    const outgoing = makeVideoLayer({ layerId: "outgoing", clipId: "outgoing" });
+    const incoming = makeVideoLayer({ layerId: "incoming", clipId: "incoming" });
+    expect(getNativePreviewBlockers(makeScene([outgoing, incoming], [{
+      transitionId: "transition-1",
+      type: "glitch",
+      renderer: "glitch",
+      progress: 0.5,
+      duration: 1,
+      outgoingLayer: "outgoing",
+      incomingLayer: "incoming",
+      blendMode: "normal",
+    }]))).toContain("The active transition is not implemented in the native compositor.");
   });
 
   it("routes static sticker image clips through the native media layer", () => {

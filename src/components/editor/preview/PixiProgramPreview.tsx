@@ -54,6 +54,7 @@ import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
 import {
   buildNativeFrameRequest,
+  getNativePreviewBlockers,
   getNativeFrameRequestKey,
   isRenderableNativePreviewFrame,
 } from "./nativeVideoPreview";
@@ -127,7 +128,9 @@ export const PixiProgramPreview: React.FC = () => {
   const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
   const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
   const [nativeOnlyBlocked, setNativeOnlyBlocked] = useState(false);
+  const [nativeOnlyBlockers, setNativeOnlyBlockers] = useState<string[]>([]);
   const nativeOnlyBlockedRef = useRef(false);
+  const nativeOnlyBlockersKeyRef = useRef("");
   const hasStartedPlaybackRef = useRef(false);
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -1112,6 +1115,17 @@ export const PixiProgramPreview: React.FC = () => {
       );
       const nativeOnlyMode = isTauriRuntime() && NATIVE_PREVIEW_ONLY;
       const nativeOnlySceneBlocked = nativeOnlyMode && (!nativeRequest || !nativeSurfaceReady);
+      if (nativeOnlyMode) {
+        const blockers = [
+          ...(!nativeRequest ? getNativePreviewBlockers(scene, nativeRasterLayers) : []),
+          ...(!nativeSurfaceReady ? ["The retained native wgpu surface is not ready."] : []),
+        ];
+        const blockerKey = blockers.join("\n");
+        if (nativeOnlyBlockersKeyRef.current !== blockerKey) {
+          nativeOnlyBlockersKeyRef.current = blockerKey;
+          setNativeOnlyBlockers(blockers);
+        }
+      }
       if (nativeOnlyBlockedRef.current !== nativeOnlySceneBlocked) {
         nativeOnlyBlockedRef.current = nativeOnlySceneBlocked;
         setNativeOnlyBlocked(nativeOnlySceneBlocked);
@@ -1751,7 +1765,9 @@ export const PixiProgramPreview: React.FC = () => {
             <div className="rounded-lg border border-accent/30 bg-black/80 px-4 py-3 text-center shadow-xl">
               <div className="text-sm font-semibold text-text-primary">Native-only proof mode</div>
               <div className="mt-1 max-w-xs text-xs text-text-muted">
-                This scene is waiting for a native wgpu surface or contains a graph feature not migrated yet.
+                {nativeOnlyBlockers.length > 0 ? nativeOnlyBlockers.map((blocker) => (
+                  <div key={blocker}>• {blocker}</div>
+                )) : "This scene is waiting for a native wgpu surface or contains a graph feature not migrated yet."}
               </div>
             </div>
           </div>

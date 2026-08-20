@@ -737,6 +737,82 @@ export function buildNativeVideoProjectRequest(
 }
 
 /**
+ * Explain why a scene cannot currently be represented by the native graph.
+ * This is intentionally diagnostic rather than authoritative: the request
+ * builder remains the final validator, while proof mode uses these messages to
+ * make migration gaps visible during manual testing.
+ */
+export function getNativePreviewBlockers(
+  scene: EvaluatedScene,
+  rasterLayers: NativeRasterLayerSnapshot[] = [],
+): string[] {
+  const blockers: string[] = [];
+  const add = (message: string) => {
+    if (!blockers.includes(message)) blockers.push(message);
+  };
+  if (scene.visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) {
+    add("The scene contains a visual layer type without a native compositor contract.");
+  }
+
+  const background = scene.metadata.canvasBackground;
+  if (background?.type === "media" && getNativeBackgroundMediaPath(scene) === null) {
+    add("The media background has no native filesystem or Tauri asset source.");
+  }
+  if ((background?.type === "gradient" || background?.type === "shader") && !rasterLayers.some((layer) =>
+    !layer.isMask && layer.assetId.startsWith("native-background:"),
+  )) {
+    add("The animated or gradient background has not produced its native raster asset yet.");
+  }
+
+  const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+  const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
+  const textRasterCount = visibleRasterLayers.filter((layer) =>
+    layer.isText || (layer.isText === undefined && textLayers.length === visibleRasterLayers.length),
+  ).length;
+  if (textLayers.length !== textRasterCount) {
+    add("One or more text layers do not have a registered native raster asset.");
+  }
+
+  const mediaLayers = scene.visualLayers.filter(
+    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && !isNativeAnimatedStickerLayer(layer),
+  );
+  const animatedStickerLayers = scene.visualLayers.filter(
+    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeAnimatedStickerLayer(layer),
+  );
+  for (const layer of animatedStickerLayers) {
+    if (!rasterLayers.some((asset) => !asset.isMask && asset.assetId.startsWith(`native-sticker:${layer.layerId}:`))) {
+      add(`Animated sticker ${layer.layerId} is waiting for its native raster frame.`);
+    }
+  }
+  const transition = getNativeTransitionSnapshot(scene, mediaLayers);
+  if (transition === null) add("The active transition is not implemented in the native compositor.");
+  if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) {
+    add("Native transitions currently require two video layers without text or mask layers.");
+  }
+  if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) {
+    add("The active filter track does not resolve consistently across native media layers.");
+  }
+  for (const layer of mediaLayers) {
+    if (!isSupportedNativeVideoLayer(layer)) {
+      add(`Media layer ${layer.layerId} uses a source, transform, blend mode, or effect outside the native contract.`);
+    }
+    if (getNativeBodyEffect(layer, rasterLayers) === null) {
+      add(`Body effect on media layer ${layer.layerId} is missing its native segmentation mask.`);
+    }
+  }
+  if (
+    mediaLayers.length === 0 &&
+    animatedStickerLayers.length === 0 &&
+    textLayers.length === 0 &&
+    visibleRasterLayers.length === 0 &&
+    getNativeBackgroundMediaPath(scene) === null
+  ) {
+    add("The scene has no native-renderable visual content at the current time.");
+  }
+  return blockers;
+}
+
+/**
  * Build the versioned native-core request used by all new frame callers.
  * The existing request builder remains available only as a compatibility
  * adapter while the rest of the graph migrates to ProjectSnapshot.
