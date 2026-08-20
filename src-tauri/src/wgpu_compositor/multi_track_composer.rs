@@ -129,6 +129,23 @@ pub struct ColorGradeUniforms {
     pub light_leak_params: [f32; 4], // angle, time + padding
 }
 
+/// Mask-driven body effect controls matching multi_track_blend.wgsl (32 bytes).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
+pub struct BodyEffectUniforms {
+    pub color: [f32; 4], // RGB + padding
+    pub params: [f32; 4], // renderer type, strength, radius, time
+}
+
+impl Default for BodyEffectUniforms {
+    fn default() -> Self {
+        Self {
+            color: [1.0, 1.0, 1.0, 0.0],
+            params: [0.0, 0.0, 0.0, 0.0],
+        }
+    }
+}
+
 impl Default for ColorGradeUniforms {
     fn default() -> Self {
         Self {
@@ -178,7 +195,7 @@ impl Default for ColorGradeUniforms {
     }
 }
 
-/// GPU Uniform layout matching multi_track_blend.wgsl (464 bytes).
+/// GPU Uniform layout matching multi_track_blend.wgsl (496 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct LayerUniforms {
@@ -190,6 +207,7 @@ pub struct LayerUniforms {
     pub grain_seed: f32,                 // 4 bytes; deterministic per-source-frame grain seed
     pub color_grade: ColorGradeUniforms, // 320 bytes
     pub chroma_key: ChromaKeyUniforms,   // 48 bytes
+    pub body_effect: BodyEffectUniforms, // 32 bytes
 }
 
 /// A single renderable layer on the timeline.
@@ -203,6 +221,8 @@ pub struct CompositeLayer<'a> {
     pub crop: CropMargins,
     pub color_grade: ColorGradeUniforms,
     pub chroma_key: ChromaKeyUniforms,
+    pub mask_view: Option<&'a wgpu::TextureView>,
+    pub body_effect: BodyEffectUniforms,
 }
 
 impl<'a> CompositeLayer<'a> {
@@ -217,6 +237,8 @@ impl<'a> CompositeLayer<'a> {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         }
     }
 }
@@ -311,6 +333,8 @@ pub struct MultiTrackCompositor {
     pub transition_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub sampler: wgpu::Sampler,
     pub default_identity_lut: GpuLut3D,
+    _default_mask_texture: wgpu::Texture,
+    default_mask_view: wgpu::TextureView,
     target_format: wgpu::TextureFormat,
     quad_vertex_buffer: wgpu::Buffer,
 }
@@ -363,6 +387,31 @@ impl MultiTrackCompositor {
 
         let default_identity_lut = GpuLut3D::default_identity(device, queue);
 
+        // A white default mask keeps the mask binding valid for every normal
+        // layer without branching the bind-group layout or shader pipeline.
+        let default_mask_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Compositor Default Body Mask"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &default_mask_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255, 255, 255, 255],
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: Some(1) },
+            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+        let default_mask_view = default_mask_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         // Group 0: Uniform buffer for layer transforms, color grading, and chroma key
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -379,7 +428,7 @@ impl MultiTrackCompositor {
                 }],
             });
 
-        // Group 1: Diffuse Texture (2D) + Sampler + 3D LUT Texture + 3D LUT Sampler
+        // Group 1: diffuse + LUT + optional body-mask texture/sampler.
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("MultiTrack Layer Texture + 3D LUT Bind Group Layout"),
@@ -412,6 +461,22 @@ impl MultiTrackCompositor {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -660,6 +725,8 @@ impl MultiTrackCompositor {
             transition_texture_bind_group_layout,
             sampler,
             default_identity_lut,
+            _default_mask_texture: default_mask_texture,
+            default_mask_view,
             target_format,
             quad_vertex_buffer,
         }
@@ -672,6 +739,8 @@ impl MultiTrackCompositor {
         sampler_2d: &wgpu::Sampler,
         diffuse_view: &wgpu::TextureView,
         lut: &GpuLut3D,
+        mask_view: &wgpu::TextureView,
+        mask_sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Layer Texture + 3D LUT BindGroup"),
@@ -692,6 +761,14 @@ impl MultiTrackCompositor {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&lut.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(mask_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(mask_sampler),
                 },
             ],
         })
@@ -736,6 +813,7 @@ impl MultiTrackCompositor {
                 grain_seed: layer.chroma_key._pad0,
                 color_grade,
                 chroma_key: layer.chroma_key,
+                body_effect: layer.body_effect,
             };
 
             let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -759,6 +837,8 @@ impl MultiTrackCompositor {
                 &self.sampler,
                 layer.texture_view,
                 lut,
+                layer.mask_view.unwrap_or(&self.default_mask_view),
+                &self.sampler,
             );
 
             uniform_buffers.push(uniform_buf);

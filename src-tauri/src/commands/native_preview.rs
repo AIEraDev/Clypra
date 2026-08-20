@@ -1,5 +1,5 @@
 use crate::native_core::{
-    ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime, NativeFrameService, NativeFrameServiceStats,
+    BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime, NativeFrameService, NativeFrameServiceStats,
     NativeSurfacePresentation, PerformanceSample, PixelFormat, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::native_audio::NativeAudioClock;
@@ -8,7 +8,7 @@ use crate::commands::native_surface::NativeSurfaceRuntime;
 use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
 use crate::thumbnail_engine::decoder::{get_decoder, VideoColorMetadata};
 use crate::wgpu_compositor::{
-    BlendMode, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms, CompositeLayer,
+    BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms, CompositeLayer,
     CropMargins, LayerTransform, MultiTrackCompositor, NativePreviewSession, NativeWgpuRenderer,
 };
 use serde::{Deserialize, Serialize};
@@ -160,6 +160,8 @@ pub struct NativeProjectVideoLayer {
     pub blend_mode: String,
     #[serde(default)]
     pub color_grade: Option<ColorGradeSnapshot>,
+    #[serde(default)]
+    pub body_effect: Option<BodyEffectSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +183,8 @@ pub struct NativeProjectRasterLayer {
     pub z_index: i32,
     #[serde(default = "default_blend_mode")]
     pub blend_mode: String,
+    #[serde(default)]
+    pub is_mask: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,6 +296,25 @@ fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> R
             return Err("Native project video layer contains invalid data".to_string());
         }
         parse_blend_mode(&layer.blend_mode)?;
+        if let Some(effect) = &layer.body_effect {
+            if effect.mask_asset_id.trim().is_empty()
+                || !matches!(effect.renderer.as_str(), "body_outline" | "body_glow" | "body_segmentation_glow")
+                || !effect.color_r.is_finite()
+                || !effect.color_g.is_finite()
+                || !effect.color_b.is_finite()
+                || !effect.strength.is_finite()
+                || !effect.radius.is_finite()
+                || !effect.time.is_finite()
+                || effect.color_r < 0.0 || effect.color_r > 1.0
+                || effect.color_g < 0.0 || effect.color_g > 1.0
+                || effect.color_b < 0.0 || effect.color_b > 1.0
+                || effect.strength < 0.0 || effect.strength > 1.0
+                || effect.radius < 0.0 || effect.time < 0.0
+                || !request.raster_layers.iter().any(|mask| mask.is_mask && mask.asset_id == effect.mask_asset_id)
+            {
+                return Err("Native body effect contains an invalid or missing mask asset".to_string());
+            }
+        }
     }
     let mut raster_bytes = 0usize;
     for layer in &request.raster_layers {
@@ -364,6 +387,7 @@ fn to_video_project_request(
                 z_index: layer.z_index,
                 blend_mode: layer.blend_mode.clone(),
                 color_grade: layer.color_grade.clone(),
+                body_effect: layer.body_effect.clone(),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -382,6 +406,7 @@ fn to_video_project_request(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: layer.blend_mode.clone(),
+            is_mask: layer.is_mask,
         })
         .collect();
 
@@ -442,8 +467,25 @@ struct NativeLayerSpec<'a> {
     z_index: i32,
     blend_mode: &'a str,
     color_grade: ColorGradeUniforms,
+    mask_view: Option<&'a wgpu::TextureView>,
+    body_effect: BodyEffectUniforms,
     lut: Option<Arc<crate::wgpu_compositor::GpuLut3D>>,
     grain_seed: f32,
+}
+
+fn body_effect_from_snapshot(snapshot: Option<&BodyEffectSnapshot>) -> BodyEffectUniforms {
+    let Some(effect) = snapshot else {
+        return BodyEffectUniforms::default();
+    };
+    let renderer_type = match effect.renderer.as_str() {
+        "body_outline" => 1.0,
+        "body_glow" | "body_segmentation_glow" => 2.0,
+        _ => 0.0,
+    };
+    BodyEffectUniforms {
+        color: [effect.color_r, effect.color_g, effect.color_b, 0.0],
+        params: [renderer_type, effect.strength, effect.radius, effect.time],
+    }
 }
 
 fn color_grade_from_snapshot(snapshot: Option<&ColorGradeSnapshot>) -> ColorGradeUniforms {
@@ -579,6 +621,8 @@ fn build_native_composite_layers<'a>(
                 ),
                 crop: CropMargins::default(),
                 color_grade: layer.color_grade,
+                mask_view: layer.mask_view,
+                body_effect: layer.body_effect,
                 chroma_key: ChromaKeyUniforms {
                     _pad0: layer.grain_seed,
                     ..ChromaKeyUniforms::default()
@@ -798,6 +842,8 @@ pub async fn render_native_project_frame(
                 transform: project_layer_transform(layer, canvas_width, canvas_height),
                 crop: CropMargins::default(),
                 color_grade: ColorGradeUniforms::default(),
+                mask_view: None,
+                body_effect: BodyEffectUniforms::default(),
                 chroma_key: ChromaKeyUniforms::default(),
             })
         })
@@ -885,6 +931,13 @@ async fn render_native_video_project_frame_bytes(
         wgpu::TextureFormat::Rgba8UnormSrgb,
     );
     let mut specs = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
+    let mask_views: HashMap<&str, &wgpu::TextureView> = request
+        .raster_layers
+        .iter()
+        .zip(views.iter().skip(request.layers.len()))
+        .filter(|(layer, _)| layer.is_mask)
+        .map(|(layer, view)| (layer.asset_id.as_str(), view))
+        .collect();
     for (layer, view) in request.layers.iter().zip(views.iter()) {
         specs.push(NativeLayerSpec {
             view,
@@ -897,12 +950,14 @@ async fn render_native_video_project_frame_bytes(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
+            mask_view: layer.body_effect.as_ref().and_then(|effect| mask_views.get(effect.mask_asset_id.as_str()).copied()),
+            body_effect: body_effect_from_snapshot(layer.body_effect.as_ref()),
             lut: resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref())?,
             grain_seed: ((layer.time_secs.max(0.0) * 60.0).floor() * 0.37) as f32,
         });
     }
     let raster_views = views.iter().skip(request.layers.len());
-    for (layer, view) in request.raster_layers.iter().zip(raster_views) {
+    for (layer, view) in request.raster_layers.iter().zip(raster_views).filter(|(layer, _)| !layer.is_mask) {
         specs.push(NativeLayerSpec {
             view,
             x: layer.x,
@@ -914,6 +969,8 @@ async fn render_native_video_project_frame_bytes(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: ColorGradeUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
             lut: None,
             grain_seed: 0.0,
         });
@@ -1185,6 +1242,13 @@ pub async fn present_native_frame(
     let mut specs = Vec::with_capacity(
         legacy_request.layers.len() + legacy_request.raster_layers.len(),
     );
+    let mask_views: HashMap<&str, &wgpu::TextureView> = legacy_request
+        .raster_layers
+        .iter()
+        .zip(views.iter().skip(legacy_request.layers.len()))
+        .filter(|(layer, _)| layer.is_mask)
+        .map(|(layer, view)| (layer.asset_id.as_str(), view))
+        .collect();
     for (layer, view) in legacy_request.layers.iter().zip(views.iter()) {
         specs.push(NativeLayerSpec {
             view,
@@ -1197,12 +1261,14 @@ pub async fn present_native_frame(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
+            mask_view: layer.body_effect.as_ref().and_then(|effect| mask_views.get(effect.mask_asset_id.as_str()).copied()),
+            body_effect: body_effect_from_snapshot(layer.body_effect.as_ref()),
             lut: resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref())?,
             grain_seed: ((layer.time_secs.max(0.0) * 60.0).floor() * 0.37) as f32,
         });
     }
     let raster_views = views.iter().skip(legacy_request.layers.len());
-    for (layer, view) in legacy_request.raster_layers.iter().zip(raster_views) {
+    for (layer, view) in legacy_request.raster_layers.iter().zip(raster_views).filter(|(layer, _)| !layer.is_mask) {
         specs.push(NativeLayerSpec {
             view,
             x: layer.x,
@@ -1214,6 +1280,8 @@ pub async fn present_native_frame(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: ColorGradeUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
             lut: None,
             grain_seed: 0.0,
         });

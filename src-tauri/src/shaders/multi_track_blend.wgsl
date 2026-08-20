@@ -72,6 +72,12 @@ struct LayerUniforms {
     grain_seed: f32,
     color_grade: ColorGradeUniforms,
     chroma_key: ChromaKeyUniforms,
+    body_effect: BodyEffectUniforms,
+};
+
+struct BodyEffectUniforms {
+    color: vec4<f32>, // RGB + padding
+    params: vec4<f32>, // renderer type, strength, radius, time
 };
 
 @group(0) @binding(0) var<uniform> layer: LayerUniforms;
@@ -79,6 +85,8 @@ struct LayerUniforms {
 @group(1) @binding(1) var s_diffuse: sampler;
 @group(1) @binding(2) var t_lut_3d: texture_3d<f32>;
 @group(1) @binding(3) var s_lut_3d: sampler;
+@group(1) @binding(4) var t_mask: texture_2d<f32>;
+@group(1) @binding(5) var s_mask: sampler;
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -233,6 +241,10 @@ fn sample_blurred_color(uv: vec2<f32>, radius: f32) -> vec4<f32> {
     return color;
 }
 
+fn sample_body_mask(uv: vec2<f32>) -> f32 {
+    return textureSample(t_mask, s_mask, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).a;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 1. Branch-Free Crop Margin Clipping
@@ -272,6 +284,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     var rgb = keyed_color.rgb;
+
+    // Body effects use the segmentation alpha channel as a native texture
+    // binding. Type 1 is outline and type 2 is glow; zero means no mask node.
+    let body_type = layer.body_effect.params.x;
+    if (body_type > 0.0 && layer.body_effect.params.y > 0.0) {
+        let body_dimensions = vec2<f32>(textureDimensions(t_mask));
+        let body_offset = vec2<f32>(max(layer.body_effect.params.z, 1.0)) /
+            max(body_dimensions, vec2<f32>(1.0));
+        let center_mask = sample_body_mask(sample_uv);
+        var neighbor_max = center_mask;
+        neighbor_max = max(neighbor_max, sample_body_mask(sample_uv + vec2<f32>(body_offset.x, 0.0)));
+        neighbor_max = max(neighbor_max, sample_body_mask(sample_uv - vec2<f32>(body_offset.x, 0.0)));
+        neighbor_max = max(neighbor_max, sample_body_mask(sample_uv + vec2<f32>(0.0, body_offset.y)));
+        neighbor_max = max(neighbor_max, sample_body_mask(sample_uv - vec2<f32>(0.0, body_offset.y)));
+        if (body_type < 1.5) {
+            let edge = max(neighbor_max - center_mask, 0.0) * layer.body_effect.params.y;
+            rgb = clamp(rgb + layer.body_effect.color.xyz * edge, vec3<f32>(0.0), vec3<f32>(1.0));
+        } else {
+            let halo = (neighbor_max + center_mask) * 0.5 * layer.body_effect.params.y;
+            rgb = clamp(rgb + layer.body_effect.color.xyz * halo, vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+    }
 
     // Regular video glow: a bounded blur-plus-add pass. Body glow remains a
     // separate mask-driven path and is intentionally not represented here.

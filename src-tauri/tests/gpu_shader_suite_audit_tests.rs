@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 use tauri_app_lib::wgpu_compositor::chroma_key::ChromaKeyUniforms;
 use tauri_app_lib::wgpu_compositor::lut_texture::GpuLut3D;
 use tauri_app_lib::wgpu_compositor::multi_track_composer::{
-    BlendMode, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform,
+    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform,
     LayerUniforms, MultiTrackCompositor, TransitionUniforms,
 };
 
@@ -136,6 +136,8 @@ async fn test_audit_identity_3d_lut_pass_through() {
                 ..Default::default()
             },
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         }];
 
         let output = compositor
@@ -174,6 +176,8 @@ async fn test_audit_ultrakey_matte_extraction() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &fg_green_view,
@@ -196,6 +200,8 @@ async fn test_audit_ultrakey_matte_extraction() {
                 _pad0: 0.0,
                 _pad1: 0.0,
             },
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 
@@ -220,6 +226,8 @@ async fn test_audit_ultrakey_matte_extraction() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &fg_red_view,
@@ -242,6 +250,8 @@ async fn test_audit_ultrakey_matte_extraction() {
                 _pad0: 0.0,
                 _pad1: 0.0,
             },
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 

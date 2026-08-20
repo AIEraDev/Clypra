@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 use wgpu::util::DeviceExt;
 
 use tauri_app_lib::wgpu_compositor::multi_track_composer::{
-    BlendMode, CompositeLayer, CropMargins, LayerTransform, MultiTrackCompositor,
+    BlendMode, BodyEffectUniforms, CompositeLayer, CropMargins, LayerTransform, MultiTrackCompositor,
 };
 use tauri_app_lib::wgpu_compositor::texture_pool::{
     create_nv12_bind_group_layout, create_nv12_render_pipeline, create_nv12_sampler,
@@ -379,6 +379,8 @@ async fn test_regression_multi_track_layer_pooling() {
                 crop: CropMargins::default(),
                 color_grade: Default::default(),
                 chroma_key: Default::default(),
+                mask_view: None,
+                body_effect: BodyEffectUniforms::default(),
             },
             CompositeLayer {
                 texture_view: &view2,
@@ -401,6 +403,8 @@ async fn test_regression_multi_track_layer_pooling() {
                 },
                 color_grade: Default::default(),
                 chroma_key: Default::default(),
+                mask_view: None,
+                body_effect: BodyEffectUniforms::default(),
             },
             CompositeLayer {
                 texture_view: &view3,
@@ -412,6 +416,8 @@ async fn test_regression_multi_track_layer_pooling() {
                 crop: CropMargins::default(),
                 color_grade: Default::default(),
                 chroma_key: Default::default(),
+                mask_view: None,
+                body_effect: BodyEffectUniforms::default(),
             },
         ];
 

@@ -35,7 +35,7 @@ pub use chroma_key::ChromaKeyUniforms;
 
 pub mod multi_track_composer;
 pub use multi_track_composer::{
-    BlendMode, ColorGradeUniforms, CompositeLayer, CropMargins, LayerBlendMode, LayerTransform,
+    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerBlendMode, LayerTransform,
     LayerUniforms, MultiTrackCompositor,
 };
 

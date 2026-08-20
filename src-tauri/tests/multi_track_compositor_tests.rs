@@ -4,7 +4,7 @@ use tauri_app_lib::wgpu_compositor::chroma_key::ChromaKeyUniforms;
 use tauri_app_lib::wgpu_compositor::lut_parser::ParsedLut3D;
 use tauri_app_lib::wgpu_compositor::lut_texture::GpuLut3D;
 use tauri_app_lib::wgpu_compositor::multi_track_composer::{
-    BlendMode, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform, MultiTrackCompositor,
+    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform, MultiTrackCompositor,
 };
 
 /// Headless GPU context for CI & testing
@@ -138,6 +138,8 @@ async fn test_z_index_layer_sorting() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -149,6 +151,8 @@ async fn test_z_index_layer_sorting() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &view_green,
@@ -160,6 +164,8 @@ async fn test_z_index_layer_sorting() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 
@@ -201,6 +207,8 @@ async fn test_premultiplied_alpha_opacity_blend() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -212,6 +220,8 @@ async fn test_premultiplied_alpha_opacity_blend() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 
@@ -253,6 +263,8 @@ async fn test_additive_blend_mode() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &view_green,
@@ -264,6 +276,8 @@ async fn test_additive_blend_mode() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 
@@ -306,6 +320,8 @@ async fn test_crop_margins_clipping() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &view_white,
@@ -322,6 +338,8 @@ async fn test_crop_margins_clipping() {
             },
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 
@@ -368,6 +386,8 @@ async fn test_affine_transform_pip_placement() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -385,6 +405,8 @@ async fn test_affine_transform_pip_placement() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 
@@ -434,6 +456,8 @@ async fn test_16_track_density_stress() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         });
     }
 
@@ -493,6 +517,8 @@ async fn test_lut_identity_and_half_texel_offset() {
                 ..Default::default()
             },
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         }];
 
         let output = compositor
@@ -538,6 +564,8 @@ async fn test_exposure_ev_adjustments() {
             ..Default::default()
         },
         chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
     }];
 
     let out_plus = compositor
@@ -562,6 +590,8 @@ async fn test_exposure_ev_adjustments() {
             ..Default::default()
         },
         chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
     }];
 
     let out_minus = compositor
@@ -574,7 +604,45 @@ async fn test_exposure_ev_adjustments() {
 }
 
 // -----------------------------------------------------------------------------
-// Test 9: Custom .cube Inversion LUT Color Transformation
+// Test 9: Native body mask bind group and glow node
+// -----------------------------------------------------------------------------
+#[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
+async fn test_body_glow_mask_binding() {
+    let ctx = HeadlessGpuContext::new().await;
+    let width = 64;
+    let height = 64;
+    let compositor = MultiTrackCompositor::new(&ctx.device, &ctx.queue, width, height);
+    let (_source_texture, source_view) = ctx.create_solid_texture(width, height, [100, 100, 100, 255]);
+    let (_mask_texture, mask_view) = ctx.create_solid_texture(width, height, [255, 255, 255, 255]);
+
+    let layers = vec![CompositeLayer {
+        texture_view: &source_view,
+        lut: None,
+        z_index: 0,
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        transform: LayerTransform::default(),
+        crop: CropMargins::default(),
+        color_grade: ColorGradeUniforms::default(),
+        chroma_key: ChromaKeyUniforms::default(),
+        mask_view: Some(&mask_view),
+        body_effect: BodyEffectUniforms {
+            color: [1.0, 0.0, 0.0, 0.0],
+            params: [2.0, 0.5, 2.0, 0.0],
+        },
+    }];
+
+    let output = compositor
+        .render_to_rgba_bytes(&ctx.device, &ctx.queue, &layers)
+        .await
+        .expect("Body mask glow render failed");
+    let sample = get_pixel(&output, width, width / 2, height / 2);
+    assert!(sample[0] > sample[1], "body glow should add the configured red channel");
+}
+
+// -----------------------------------------------------------------------------
+// Test 10: Custom .cube Inversion LUT Color Transformation
 // -----------------------------------------------------------------------------
 #[tokio::test]
 #[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
@@ -624,6 +692,8 @@ DOMAIN_MAX 1.0 1.0 1.0
             ..Default::default()
         },
         chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
     }];
 
     let out_full = compositor
@@ -650,6 +720,8 @@ DOMAIN_MAX 1.0 1.0 1.0
             ..Default::default()
         },
         chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
     }];
 
     let out_half = compositor
@@ -689,6 +761,8 @@ async fn test_chroma_key_green_screen_removal() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &view_green,
@@ -711,6 +785,8 @@ async fn test_chroma_key_green_screen_removal() {
                 _pad0: 0.0,
                 _pad1: 0.0,
             },
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 
@@ -752,6 +828,8 @@ async fn test_chroma_key_subject_retention() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &view_red,
@@ -774,6 +852,8 @@ async fn test_chroma_key_subject_retention() {
                 _pad0: 0.0,
                 _pad1: 0.0,
             },
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 

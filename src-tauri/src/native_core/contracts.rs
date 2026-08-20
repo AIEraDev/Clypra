@@ -119,6 +119,21 @@ pub struct VideoLayerSnapshot {
     pub blend_mode: String,
     #[serde(default)]
     pub color_grade: Option<ColorGradeSnapshot>,
+    #[serde(default)]
+    pub body_effect: Option<BodyEffectSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BodyEffectSnapshot {
+    pub mask_asset_id: String,
+    pub renderer: String,
+    pub color_r: f32,
+    pub color_g: f32,
+    pub color_b: f32,
+    pub strength: f32,
+    pub radius: f32,
+    pub time: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -289,6 +304,8 @@ pub struct RasterLayerSnapshot {
     pub opacity: f32,
     pub z_index: i32,
     pub blend_mode: String,
+    #[serde(default)]
+    pub is_mask: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -569,6 +586,26 @@ impl FrameRequest {
                     ));
                 }
             }
+            if let Some(body_effect) = layer.body_effect.as_ref() {
+                if body_effect.mask_asset_id.trim().is_empty()
+                    || !matches!(body_effect.renderer.as_str(), "body_outline" | "body_glow" | "body_segmentation_glow")
+                    || !body_effect.color_r.is_finite()
+                    || !body_effect.color_g.is_finite()
+                    || !body_effect.color_b.is_finite()
+                    || !body_effect.strength.is_finite()
+                    || !body_effect.radius.is_finite()
+                    || !body_effect.time.is_finite()
+                    || body_effect.color_r < 0.0 || body_effect.color_r > 1.0
+                    || body_effect.color_g < 0.0 || body_effect.color_g > 1.0
+                    || body_effect.color_b < 0.0 || body_effect.color_b > 1.0
+                    || body_effect.strength < 0.0 || body_effect.strength > 1.0
+                    || body_effect.radius < 0.0 || body_effect.time < 0.0
+                {
+                    return Err(NativeCoreError::InvalidContract(
+                        "VideoLayerSnapshot contains invalid body-effect data".to_string(),
+                    ));
+                }
+            }
         }
         let mut raster_bytes = 0usize;
         for layer in &self.project.raster_layers {
@@ -601,6 +638,15 @@ impl FrameRequest {
                 return Err(NativeCoreError::InvalidContract(
                     "ProjectSnapshot contains an invalid raster layer".to_string(),
                 ));
+            }
+        }
+        for video_layer in &self.project.video_layers {
+            if let Some(body_effect) = video_layer.body_effect.as_ref() {
+                if !self.project.raster_layers.iter().any(|mask| mask.is_mask && mask.asset_id == body_effect.mask_asset_id) {
+                    return Err(NativeCoreError::InvalidContract(
+                        "Body effect references a missing mask asset".to_string(),
+                    ));
+                }
             }
         }
         if raster_bytes > 128 * 1024 * 1024 {
@@ -690,6 +736,7 @@ mod tests {
                     z_index: 0,
                     blend_mode: "normal".to_string(),
                     color_grade: None,
+                    body_effect: None,
                 }],
                 raster_layers: vec![],
             },
@@ -740,6 +787,7 @@ mod tests {
             opacity: 1.0,
             z_index: 1,
             blend_mode: "normal".to_string(),
+            is_mask: false,
         }];
 
         value

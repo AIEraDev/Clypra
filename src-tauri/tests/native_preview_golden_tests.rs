@@ -1,7 +1,7 @@
 use tauri_app_lib::preview_golden::{compare_rgba8, write_rgba8_png};
 use tauri_app_lib::wgpu_compositor::chroma_key::ChromaKeyUniforms;
 use tauri_app_lib::wgpu_compositor::{
-    BlendMode, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform,
+    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform,
     MultiTrackCompositor,
 };
 
@@ -147,6 +147,8 @@ async fn native_project_frame_matches_geometry_golden() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
         CompositeLayer {
             texture_view: &foreground_view,
@@ -158,6 +160,8 @@ async fn native_project_frame_matches_geometry_golden() {
             crop: CropMargins::default(),
             color_grade: ColorGradeUniforms::default(),
             chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
         },
     ];
 
