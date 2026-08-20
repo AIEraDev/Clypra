@@ -3,6 +3,7 @@ import type {
   NativeProjectVideoLayer,
   NativeVideoProjectFrameRequest,
 } from "@/lib/platform/tauri";
+import { parseColor } from "@/core/evaluation/animation";
 import {
   DEFAULT_NATIVE_COLOR_POLICY,
   createNativeFrameRequest,
@@ -59,10 +60,42 @@ function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
   );
 }
 
+/**
+ * Return a native clear color only for backgrounds whose semantics can be
+ * represented exactly by the wgpu surface. Gradients, shaders, and media
+ * backgrounds must stay on the full Pixi scene path until they have native
+ * graph nodes of their own.
+ */
+function getNativeClearColor(scene: EvaluatedScene): [number, number, number, number] | null {
+  const background = scene.metadata.canvasBackground;
+  if (!background) return [0, 0, 0, 1];
+  if (background.isTransparent) return [0, 0, 0, 0];
+  if (background.type !== "solid") return null;
+
+  const color = background.color?.trim() || "#000000";
+  if (
+    color !== "transparent" &&
+    !/^#[0-9a-f]{3,4}$|^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(color) &&
+    !/^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(\s*,\s*[\d.]+\s*)?\)$/i.test(color)
+  ) {
+    return null;
+  }
+
+  const [red, green, blue, alpha] = parseColor(color);
+  const requestedOpacity = background.opacity ?? 1;
+  if (!Number.isFinite(requestedOpacity)) return null;
+  const opacity = Math.min(1, Math.max(0, requestedOpacity));
+  return [red / 255, green / 255, blue / 255, alpha * opacity];
+}
+
 export function buildNativeVideoProjectRequest(
   scene: EvaluatedScene,
 ): NativeVideoProjectFrameRequest | null {
   if (scene.transitions.length > 0) return null;
+  if (scene.activeFilter) return null;
+  if (scene.visualLayers.some((layer) => layer.layerType !== "media")) return null;
+  const clearColor = getNativeClearColor(scene);
+  if (!clearColor) return null;
 
   const mediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
@@ -91,7 +124,7 @@ export function buildNativeVideoProjectRequest(
   return {
     canvasWidth: scene.metadata.canvasWidth || 1920,
     canvasHeight: scene.metadata.canvasHeight || 1080,
-    clearColor: [0, 0, 0, 1],
+    clearColor,
     layers,
   };
 }

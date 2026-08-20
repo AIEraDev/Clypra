@@ -84,6 +84,47 @@ describe("buildNativeVideoProjectRequest", () => {
       { ...makeVideoLayer({ mediaId: "image-1" }), mediaType: "image" } as never,
     ]))).toBeNull();
   });
+
+  it("does not drop text or active track filters from the native scene", () => {
+    const textLayer = {
+      ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title" }),
+      layerType: "text",
+    } as never;
+    expect(buildNativeVideoProjectRequest(makeScene([makeVideoLayer(), textLayer]))).toBeNull();
+    expect(buildNativeVideoProjectRequest({
+      ...makeScene([makeVideoLayer()]),
+      activeFilter: { id: "blur", name: "Blur", intensity: 1 },
+    })).toBeNull();
+  });
+
+  it("propagates deterministic solid canvas backgrounds", () => {
+    const scene = {
+      ...makeScene([makeVideoLayer()]),
+      metadata: {
+        ...makeScene([makeVideoLayer()]).metadata,
+        canvasBackground: { type: "solid", color: "#336699", opacity: 0.5, isTransparent: false },
+      },
+    } as EvaluatedScene;
+    expect(buildNativeVideoProjectRequest(scene)?.clearColor).toEqual([
+      0x33 / 255,
+      0x66 / 255,
+      0x99 / 255,
+      0.5,
+    ]);
+  });
+
+  it("keeps animated and media backgrounds on Pixi until native graph support exists", () => {
+    for (const type of ["gradient", "shader", "media"] as const) {
+      const scene = {
+        ...makeScene([makeVideoLayer()]),
+        metadata: {
+          ...makeScene([makeVideoLayer()]).metadata,
+          canvasBackground: { type } as never,
+        },
+      } as EvaluatedScene;
+      expect(buildNativeVideoProjectRequest(scene)).toBeNull();
+    }
+  });
 });
 
 describe("isRenderableNativePreviewFrame", () => {
