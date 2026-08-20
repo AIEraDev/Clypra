@@ -545,6 +545,7 @@ export const PixiProgramPreview: React.FC = () => {
     let nativeBlockedKey = "";
     let nativePlaybackInFlight: Promise<void> | null = null;
     let nativeContinuousFailureStreak = 0;
+    let nativeDroppedFrameCount = 0;
     let nativeContinuousBlockedRevision = "";
     let nativeContinuousObservedRevision = "";
     // Native frame decode/presentation is asynchronous. A small measured
@@ -747,6 +748,16 @@ export const PixiProgramPreview: React.FC = () => {
               : elapsedMs;
             if (!presentation.presented) {
               lastNativePlaybackRequestKey = "";
+              if (presentation.dropped) {
+                nativeDroppedFrameCount += 1;
+                traceNativePreview("native-playback-frame-dropped", {
+                  frameIndex: presentation.frameIndex,
+                  requestId: presentation.requestId,
+                  audioPositionTicks: presentation.audioPositionTicks,
+                  frameAgeTicks: presentation.frameAgeTicks,
+                  droppedFrameCount: nativeDroppedFrameCount,
+                });
+              }
             } else if (isActive && renderStateRef.current.clock.state === "playing") {
               nativeSurfaceShown = true;
               // The direct native surface is the exclusive owner of the base

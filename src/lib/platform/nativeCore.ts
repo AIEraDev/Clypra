@@ -118,6 +118,9 @@ export interface NativeSurfacePresentation {
   requestId: string;
   frameIndex: number;
   presented: boolean;
+  dropped: boolean;
+  audioPositionTicks: number;
+  frameAgeTicks: number;
   surface: NativeSurfaceProbe;
 }
 

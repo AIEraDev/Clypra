@@ -129,6 +129,13 @@ pub struct NativeSurfacePresentation {
     pub request_id: String,
     pub frame_index: u64,
     pub presented: bool,
+    /// True when the frame was intentionally discarded because it was stale
+    /// relative to the native audio clock or superseded by a newer request.
+    pub dropped: bool,
+    /// Native audio position in the audio clock's canonical 1 MHz ticks.
+    pub audio_position_ticks: u64,
+    /// Audio position minus frame position in canonical 1 MHz ticks.
+    pub frame_age_ticks: i64,
     pub surface: NativeSurfaceProbe,
 }
 

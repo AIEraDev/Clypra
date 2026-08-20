@@ -2,7 +2,9 @@ use crate::native_core::{
     FramePacket, FrameRequest, FrameTime, NativeFrameService, NativeFrameServiceStats,
     NativeSurfacePresentation, PerformanceSample, PixelFormat, NATIVE_CORE_CONTRACT_VERSION,
 };
+use crate::native_audio::NativeAudioClock;
 use crate::commands::native_surface::NativeSurfaceRuntime;
+use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
 use crate::thumbnail_engine::decoder::{get_decoder, VideoColorMetadata};
 use crate::wgpu_compositor::{
     BlendMode, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms, CompositeLayer,
@@ -17,6 +19,37 @@ use tauri::Manager;
 
 type DecodedNativeVideoFrame = (Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+fn native_presentation_timing(
+    app: &tauri::AppHandle,
+    frame_ticks: i64,
+    frame_timescale: u32,
+) -> (u64, i64, bool) {
+    let Some(clock_state) = app.try_state::<Arc<std::sync::Mutex<NativeAudioClock>>>() else {
+        return (0, 0, false);
+    };
+    let Ok(clock) = clock_state.lock() else {
+        return (0, 0, false);
+    };
+    let status = clock.status();
+    if !status.running || frame_timescale == 0 {
+        return (status.audio_position_ticks, 0, false);
+    }
+
+    // The audio clock is canonical 1 MHz. Convert the request timestamp once
+    // at the boundary so the drop decision is independent of source timescale.
+    let frame_position_ticks = (frame_ticks.max(0) as u128)
+        .saturating_mul(1_000_000)
+        .checked_div(frame_timescale as u128)
+        .unwrap_or(0);
+    let age = status.audio_position_ticks as i128 - frame_position_ticks as i128;
+    let frame_age_ticks = age.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+    (
+        status.audio_position_ticks,
+        frame_age_ticks,
+        frame_age_ticks > VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ,
+    )
+}
 
 /// Bounded native decode-ahead storage for continuous preview playback.
 ///
@@ -754,12 +787,32 @@ pub async fn present_native_frame(
     let probe = surface
         .probe()
         .ok_or_else(|| "Native surface lost its readiness probe".to_string())?;
+    let (audio_position_ticks, frame_age_ticks, late_for_audio) = native_presentation_timing(
+        &app,
+        request.frame_time.ticks,
+        request.frame_time.timescale,
+    );
     if !surface.accept_presentation(presentation_sequence) {
         return Ok(NativeSurfacePresentation {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
             frame_index: request.frame_time.frame_index,
             presented: false,
+            dropped: true,
+            audio_position_ticks,
+            frame_age_ticks,
+            surface: probe,
+        });
+    }
+    if late_for_audio {
+        return Ok(NativeSurfacePresentation {
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
+            request_id: request.request_id,
+            frame_index: request.frame_time.frame_index,
+            presented: false,
+            dropped: true,
+            audio_position_ticks,
+            frame_age_ticks,
             surface: probe,
         });
     }
@@ -853,6 +906,9 @@ pub async fn present_native_frame(
         request_id: request.request_id,
         frame_index: request.frame_time.frame_index,
         presented: true,
+        dropped: false,
+        audio_position_ticks,
+        frame_age_ticks,
         surface: probe,
     })
 }
