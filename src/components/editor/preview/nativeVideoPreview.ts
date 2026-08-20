@@ -9,11 +9,13 @@ import {
   createNativeFrameRequest,
   frameIndexToNativeTime,
   secondsToNativeTime,
+  type NativeColorGradeSnapshot,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
 
 const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
+const NATIVE_COLOR_GRADE_KEYS = new Set(["exposure", "contrast", "saturation", "temperature", "tint"]);
 
 /**
  * Build a scheduler identity without serializing large RGBA payloads on every
@@ -65,13 +67,43 @@ function isNativeFileSource(sourcePath: string): boolean {
   return true;
 }
 
+function getNativeColorGrade(
+  adjustments: EvaluatedMediaLayer["adjustments"],
+): NativeColorGradeSnapshot | null | undefined {
+  if (!hasMeaningfulObject(adjustments)) return undefined;
+  const values = adjustments as Record<string, unknown>;
+  if (Object.keys(values).some((key) => !NATIVE_COLOR_GRADE_KEYS.has(key))) return null;
+
+  const read = (key: string, fallback: number): number | null => {
+    const value = values[key];
+    if (value === undefined) return fallback;
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  };
+  const exposure = read("exposure", 0);
+  const contrast = read("contrast", 0);
+  const saturation = read("saturation", 0);
+  const temperature = read("temperature", 0);
+  const tint = read("tint", 0);
+  if (exposure === null || contrast === null || saturation === null || temperature === null || tint === null) {
+    return null;
+  }
+
+  return {
+    exposure,
+    contrast: 1 + contrast,
+    saturation: 1 + saturation,
+    temperature,
+    tint,
+  };
+}
+
 function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
   return (
     (layer.mediaType === "video" || layer.mediaType === "image") &&
     layer.clipKind !== "sticker" &&
     isNativeFileSource(layer.sourcePath) &&
     !layer.filter &&
-    !hasMeaningfulObject(layer.adjustments) &&
+    getNativeColorGrade(layer.adjustments) !== null &&
     !layer.effects?.length &&
     (!layer.sourceRotation || layer.sourceRotation === 0) &&
     NATIVE_BLEND_MODES.has(layer.blendMode)
@@ -126,18 +158,22 @@ export function buildNativeVideoProjectRequest(
     return null;
   }
 
-  const layers: NativeProjectVideoLayer[] = mediaLayers.map((layer, index) => ({
-    videoPath: layer.sourcePath,
-    timeSecs: layer.sourceTime,
-    x: layer.x,
-    y: layer.y,
-    width: layer.width,
-    height: layer.height,
-    rotation: layer.rotation,
-    opacity: layer.opacity,
-    zIndex: layer.zIndex,
-    blendMode: layer.blendMode,
-  }));
+  const layers: NativeProjectVideoLayer[] = mediaLayers.map((layer) => {
+    const colorGrade = getNativeColorGrade(layer.adjustments);
+    return {
+      videoPath: layer.sourcePath,
+      timeSecs: layer.sourceTime,
+      x: layer.x,
+      y: layer.y,
+      width: layer.width,
+      height: layer.height,
+      rotation: layer.rotation,
+      opacity: layer.opacity,
+      zIndex: layer.zIndex,
+      blendMode: layer.blendMode,
+      ...(colorGrade ? { colorGrade } : {}),
+    };
+  });
 
   if (layers.some((layer) => !Number.isFinite(layer.timeSecs) || layer.timeSecs < 0)) {
     return null;
@@ -171,7 +207,9 @@ export function buildNativeFrameRequest(
 
   const videoLayers = scene.visualLayers
     .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media")
-    .map((layer, index) => ({
+    .map((layer, index) => {
+      const colorGrade = getNativeColorGrade(layer.adjustments);
+      return {
       assetId: layer.mediaId,
       videoPath: request.layers[index].videoPath,
       sourceTime: secondsToNativeTime(layer.sourceTime, Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1)))),
@@ -183,7 +221,9 @@ export function buildNativeFrameRequest(
       opacity: layer.opacity,
       zIndex: layer.zIndex,
       blendMode: layer.blendMode,
-    }));
+      ...(colorGrade ? { colorGrade } : {}),
+      };
+    });
 
   return createNativeFrameRequest({
     requestId: `${projectRevision}:${frameIndex}:${outputWidth}x${outputHeight}`,

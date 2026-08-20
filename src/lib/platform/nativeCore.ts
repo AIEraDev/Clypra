@@ -150,6 +150,15 @@ export interface NativeVideoLayerSnapshot {
   opacity: number;
   zIndex: number;
   blendMode: string;
+  colorGrade?: NativeColorGradeSnapshot;
+}
+
+export interface NativeColorGradeSnapshot {
+  exposure: number;
+  contrast: number;
+  saturation: number;
+  temperature: number;
+  tint: number;
 }
 
 export interface NativeRasterLayerSnapshot {

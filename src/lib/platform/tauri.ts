@@ -144,6 +144,7 @@ export interface NativeProjectVideoLayer {
   opacity?: number;
   zIndex?: number;
   blendMode?: string;
+  colorGrade?: import("./nativeCore").NativeColorGradeSnapshot;
 }
 
 export interface NativeVideoProjectFrameRequest {

@@ -157,6 +157,34 @@ describe("buildNativeVideoProjectRequest", () => {
       expect(buildNativeVideoProjectRequest(scene)).toBeNull();
     }
   });
+
+  it("maps supported color adjustments to the native grade shader", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({
+        adjustments: {
+          exposure: 0.5,
+          contrast: 0.2,
+          saturation: -0.3,
+          temperature: 0.1,
+          tint: -0.2,
+        },
+      }),
+    ]));
+
+    expect(request?.layers[0].colorGrade).toEqual({
+      exposure: 0.5,
+      contrast: 1.2,
+      saturation: 0.7,
+      temperature: 0.1,
+      tint: -0.2,
+    });
+  });
+
+  it("keeps unsupported color controls on Pixi", () => {
+    expect(buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ adjustments: { brightness: 0.2 } }),
+    ]))).toBeNull();
+  });
 });
 
 describe("isRenderableNativePreviewFrame", () => {
