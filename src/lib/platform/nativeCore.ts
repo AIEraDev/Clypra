@@ -203,6 +203,11 @@ export interface NativeColorGradeSnapshot {
   highlightTintB: number;
   highlightTintStrength: number;
   splitBalance: number;
+  glowColorR: number;
+  glowColorG: number;
+  glowColorB: number;
+  glowStrength: number;
+  glowRadius: number;
 }
 
 export interface NativeRasterLayerSnapshot {

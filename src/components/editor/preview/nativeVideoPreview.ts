@@ -144,7 +144,7 @@ function getNativeColorGrade(
   if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
   const supportedEffectRenderers = new Set([
     "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
-    "vhs", "crt", "film_grain", "grain", "vignette", "motion_blur", "radial_blur", "zoom_blur",
+    "vhs", "crt", "film_grain", "grain", "vignette", "glow", "motion_blur", "radial_blur", "zoom_blur",
   ]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
@@ -167,6 +167,9 @@ function getNativeColorGrade(
   let effectGrainIntensity = 0;
   let effectGrainSize = 1;
   let effectVignette = 0;
+  let glowColor: [number, number, number] = [1, 1, 1];
+  let glowStrength = 0;
+  let glowRadius = 0;
   for (const effect of activeEffects) {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
     if (renderer === "pixelate") {
@@ -192,6 +195,15 @@ function getNativeColorGrade(
       effectGrainSize = Math.max(effectGrainSize, size);
     } else if (renderer === "vignette") {
       effectVignette = Math.max(effectVignette, effect.intensity);
+    } else if (renderer === "glow") {
+      const radius = Number(effect.parameters.glowAmount ?? effect.parameters.blurAmount ?? 10);
+      const strength = Number(effect.parameters.glowIntensity ?? 0.8) * effect.intensity;
+      const colorValue = effect.parameters.glowColor ?? "#ffffff";
+      if (!Number.isFinite(radius) || radius < 0 || !Number.isFinite(strength) || strength < 0 || typeof colorValue !== "string") return null;
+      const [red, green, blue] = parseColor(colorValue);
+      if (strength >= glowStrength) glowColor = [red / 255, green / 255, blue / 255];
+      glowStrength = Math.max(glowStrength, Math.min(1, strength));
+      glowRadius = Math.max(glowRadius, radius * effect.intensity);
     } else if (renderer === "vhs" || renderer === "crt") {
       const count = Number(effect.parameters.scanlineCount ?? (renderer === "crt" ? 120 : 100));
       if (!Number.isFinite(count) || count <= 0) return null;
@@ -402,6 +414,11 @@ function getNativeColorGrade(
     highlightTintB: splitTone.highlight[2],
     highlightTintStrength: splitTone.highlightStrength,
     splitBalance: splitTone.balance,
+    glowColorR: glowColor[0],
+    glowColorG: glowColor[1],
+    glowColorB: glowColor[2],
+    glowStrength,
+    glowRadius,
   };
 }
 

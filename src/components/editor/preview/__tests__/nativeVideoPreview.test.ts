@@ -238,6 +238,11 @@ describe("buildNativeVideoProjectRequest", () => {
       highlightTintB: 1,
       highlightTintStrength: 0,
       splitBalance: 0.5,
+      glowColorR: 1,
+      glowColorG: 1,
+      glowColorB: 1,
+      glowStrength: 0,
+      glowRadius: 0,
     });
   });
 
@@ -314,6 +319,21 @@ describe("buildNativeVideoProjectRequest", () => {
       ] }),
     ]));
     expect(request?.layers[0].colorGrade).toMatchObject({ blurStrength: 1, blurRadius: 10.6 });
+  });
+
+  it("maps regular glow into the native bounded blur-plus-add pass", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ effects: [
+        { effectId: "fx-glow", renderer: "glow", type: "video_effect", intensity: 0.5, localTime: 0, parameters: { glowAmount: 16, glowIntensity: 0.8, glowColor: "#336699" } },
+      ] }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      glowColorR: 0x33 / 255,
+      glowColorG: 0x66 / 255,
+      glowColorB: 0x99 / 255,
+      glowStrength: 0.4,
+      glowRadius: 8,
+    });
   });
 
   it("maps deterministic stylized shader effects into native grading", () => {
