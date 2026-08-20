@@ -637,7 +637,11 @@ export function buildNativeVideoProjectRequest(
   const mediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
-  if (mediaLayers.length === 0 && textLayers.length === 0) return null;
+  if (
+    mediaLayers.length === 0 &&
+    textLayers.length === 0 &&
+    rasterLayers.filter((layer) => !layer.isMask).length === 0
+  ) return null;
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
   if (transition === null) return null;
   if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) return null;

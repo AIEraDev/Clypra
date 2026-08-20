@@ -115,6 +115,24 @@ describe("buildNativeVideoProjectRequest", () => {
     })]))).toBeNull();
   });
 
+  it("accepts a raster-only native scene for overlay and text mockups", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([]), [{
+      assetId: "native-overlay:sample",
+      width: 64,
+      height: 64,
+      x: 928,
+      y: 508,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 1,
+      blendMode: "normal",
+      isText: false,
+    }]);
+
+    expect(request?.layers).toEqual([]);
+    expect(request?.rasterLayers?.[0].assetId).toBe("native-overlay:sample");
+  });
+
   it("maps evaluated video layers into a project-sized native request", () => {
     const layer = makeVideoLayer({ x: 100, y: 50, width: 640, height: 360, zIndex: 7 });
 

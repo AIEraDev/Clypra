@@ -37,3 +37,8 @@ Static sticker image clips and smart-overlay cards are also uploaded as
 immutable native raster assets, then composited by wgpu. The browser overlay
 canvas is hidden after native presentation succeeds, so the same card is not
 drawn twice. Animated Lottie/GIF stickers remain outside this tranche.
+
+Raster-only scenes are valid native proof fixtures too: a smart-overlay or
+text asset can be presented on the native surface without requiring a video
+layer. This is useful for isolating surface, registration, and composition
+problems before testing a full timeline.
