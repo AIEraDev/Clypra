@@ -305,6 +305,17 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(request?.layers[0].colorGrade).toMatchObject({ blurStrength: 1, blurRadius: 6 });
   });
 
+  it("maps the existing radial, zoom, and motion blur fallbacks into bounded native blur", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ effects: [
+        { effectId: "fx-radial", renderer: "radial_blur", type: "video_effect", intensity: 0.25, localTime: 0, parameters: { blurAmount: 16 } },
+        { effectId: "fx-zoom", renderer: "zoom_blur", type: "video_effect", intensity: 0.5, localTime: 0, parameters: { blurAmount: 10 } },
+        { effectId: "fx-motion", renderer: "motion_blur", type: "video_effect", intensity: 0.2, localTime: 0, parameters: { blurAmount: 8 } },
+      ] }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({ blurStrength: 1, blurRadius: 10.6 });
+  });
+
   it("maps deterministic stylized shader effects into native grading", () => {
     const request = buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ effects: [
@@ -319,6 +330,23 @@ describe("buildNativeVideoProjectRequest", () => {
       scanlineIntensity: 0.4,
       rgbSplitX: 2,
       rgbSplitY: 2,
+    });
+  });
+
+  it("maps deterministic VHS and CRT controls into the native grading pass", () => {
+    const request = buildNativeVideoProjectRequest(makeScene([
+      makeVideoLayer({ effects: [
+        { effectId: "fx-vhs", renderer: "vhs", type: "video_effect", intensity: 0.5, localTime: 0, parameters: { scanlineCount: 100, colorOffset: 6, noiseAmount: 0.2 } },
+        { effectId: "fx-crt", renderer: "crt", type: "video_effect", intensity: 0.25, localTime: 0, parameters: { scanlineCount: 140 } },
+      ] }),
+    ]));
+    expect(request?.layers[0].colorGrade).toMatchObject({
+      scanlineCount: 140,
+      scanlineIntensity: 0.5,
+      rgbSplitX: 3,
+      rgbSplitY: 3,
+      grainIntensity: 0.1,
+      vignette: 0.25,
     });
   });
 

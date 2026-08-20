@@ -142,14 +142,17 @@ function getNativeColorGrade(
     "channelMix", "splitTone", "duotone", "vibrance", "crossProcess",
   ]);
   if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
-  const supportedEffectRenderers = new Set(["blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic"]);
+  const supportedEffectRenderers = new Set([
+    "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
+    "vhs", "crt", "film_grain", "grain", "vignette", "motion_blur", "radial_blur", "zoom_blur",
+  ]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
     return !supportedEffectRenderers.has(renderer);
   })) return null;
   const blurEffects = activeEffects.filter((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
-    return renderer === "blur";
+    return renderer === "blur" || renderer === "motion_blur" || renderer === "radial_blur" || renderer === "zoom_blur";
   });
   const blurRadius = blurEffects.reduce((total, effect) => {
     const amount = Number(effect.parameters.blur ?? effect.parameters.blurAmount ?? 10);
@@ -161,6 +164,9 @@ function getNativeColorGrade(
   let scanlineIntensity = 0;
   let rgbSplitX = 0;
   let rgbSplitY = 0;
+  let effectGrainIntensity = 0;
+  let effectGrainSize = 1;
+  let effectVignette = 0;
   for (const effect of activeEffects) {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
     if (renderer === "pixelate") {
@@ -178,6 +184,30 @@ function getNativeColorGrade(
       const scaledShift = shift * effect.intensity;
       rgbSplitX = Math.max(rgbSplitX, scaledShift);
       rgbSplitY = Math.max(rgbSplitY, scaledShift);
+    } else if (renderer === "film_grain" || renderer === "grain") {
+      const intensity = Number(effect.parameters.grainIntensity ?? 0.1);
+      const size = Number(effect.parameters.grainSize ?? 1);
+      if (!Number.isFinite(intensity) || intensity < 0 || !Number.isFinite(size) || size <= 0) return null;
+      effectGrainIntensity = Math.max(effectGrainIntensity, intensity * effect.intensity);
+      effectGrainSize = Math.max(effectGrainSize, size);
+    } else if (renderer === "vignette") {
+      effectVignette = Math.max(effectVignette, effect.intensity);
+    } else if (renderer === "vhs" || renderer === "crt") {
+      const count = Number(effect.parameters.scanlineCount ?? (renderer === "crt" ? 120 : 100));
+      if (!Number.isFinite(count) || count <= 0) return null;
+      scanlineCount = Math.max(scanlineCount, count);
+      scanlineIntensity = Math.max(scanlineIntensity, effect.intensity);
+      if (renderer === "vhs") {
+        const shift = Number(effect.parameters.colorOffset ?? 5);
+        const noise = Number(effect.parameters.noiseAmount ?? 0.1);
+        if (!Number.isFinite(shift) || shift < 0 || !Number.isFinite(noise) || noise < 0) return null;
+        const scaledShift = shift * effect.intensity;
+        rgbSplitX = Math.max(rgbSplitX, scaledShift);
+        rgbSplitY = Math.max(rgbSplitY, scaledShift);
+        effectGrainIntensity = Math.max(effectGrainIntensity, noise * effect.intensity);
+      } else {
+        effectVignette = Math.max(effectVignette, effect.intensity);
+      }
     }
   }
   const exposure = choose("exposure", 0, scaledPreset("exposure"));
@@ -210,10 +240,11 @@ function getNativeColorGrade(
     const value = scaledPreset("hueRotate");
     return value === undefined ? 0 : (value * 180) / Math.PI;
   })();
-  const vignette = choose("vignette", 0, scaledPreset("vignette"));
+  const vignetteValue = choose("vignette", 0, scaledPreset("vignette"));
+  const vignette = vignetteValue === null ? null : Math.max(vignetteValue, effectVignette);
   const grainValue = values?.grain ?? preset?.grain;
   const grainScale = values?.grain === undefined ? presetIntensity : 1;
-  const grainIntensity = grainValue === undefined
+  const adjustmentGrainIntensity = grainValue === undefined
     ? 0
     : typeof grainValue === "object" && grainValue !== null
       ? (() => {
@@ -221,11 +252,15 @@ function getNativeColorGrade(
         return value === null || value === undefined ? value ?? null : value * grainScale;
       })()
       : null;
-  const grainSize = grainValue === undefined
+  const adjustmentGrainSize = grainValue === undefined
     ? 1
     : typeof grainValue === "object" && grainValue !== null
       ? readNumber((grainValue as Record<string, unknown>).size) ?? null
       : null;
+  const grainIntensity = adjustmentGrainIntensity === null ? null : Math.max(adjustmentGrainIntensity, effectGrainIntensity);
+  const grainSize = adjustmentGrainSize === null
+    ? null
+    : grainValue === undefined ? effectGrainSize : Math.max(adjustmentGrainSize, effectGrainSize);
   const vibranceValue = values?.vibrance ?? preset?.vibrance;
   const vibranceScale = values?.vibrance === undefined ? presetIntensity : 1;
   const vibranceAmount = vibranceValue === undefined
