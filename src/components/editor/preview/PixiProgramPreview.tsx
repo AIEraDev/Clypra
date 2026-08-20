@@ -48,8 +48,17 @@ import { useCaptionStore } from "@/store/captionStore";
 
 import { PixiSceneCompositor } from "@/core/render/pixiSceneCompositor";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
-import { buildNativeFrameRequest, isRenderableNativePreviewFrame } from "./nativeVideoPreview";
+import {
+  buildNativeFrameRequest,
+  getNativeFrameRequestKey,
+  isRenderableNativePreviewFrame,
+} from "./nativeVideoPreview";
 import { NativePreviewFrameScheduler, type NativePreviewRequestSource } from "./nativePreviewScheduler";
+import {
+  buildNativeTextRasterKey,
+  rasterizeTextLayerForNative,
+  type NativeTextRasterAsset,
+} from "./nativeTextPreview";
 import { NATIVE_PREVIEW_TRACE_ENABLED } from "@/lib/platform/nativeCore";
 
 
@@ -560,6 +569,7 @@ export const PixiProgramPreview: React.FC = () => {
     let prefetchCenterKey = "";
     let transportRevision = 0;
     let lastTraceClockState = "";
+    const nativeTextRasterCache = new Map<string, Promise<NativeTextRasterAsset>>();
 
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
       maxCacheEntries: 12,
@@ -610,6 +620,32 @@ export const PixiProgramPreview: React.FC = () => {
       const isFirstFrame = lastRenderedFrameIndex === -1;
 
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
+      let nativeTextRasters: NativeTextRasterAsset[] = [];
+      const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+      if (isTauriRuntime() && textLayers.length > 0) {
+        try {
+          nativeTextRasters = await Promise.all(textLayers.map((layer) => {
+            const key = buildNativeTextRasterKey(layer);
+            const cached = nativeTextRasterCache.get(key);
+            if (cached) return cached;
+
+            const raster = rasterizeTextLayerForNative(layer);
+            nativeTextRasterCache.set(key, raster);
+            void raster.catch(() => {
+              if (nativeTextRasterCache.get(key) === raster) nativeTextRasterCache.delete(key);
+            });
+            return raster;
+          }));
+        } catch (error) {
+          // Keep the full Pixi scene authoritative if the browser canvas or
+          // Studio text engine cannot produce a native asset for this frame.
+          nativeTextRasters = [];
+          traceNativePreview("native-text-raster-failed", {
+            frameIndex,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       const nativeRequest = buildNativeFrameRequest(
         scene,
         `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
@@ -617,9 +653,13 @@ export const PixiProgramPreview: React.FC = () => {
         frameRate,
         state.canvasWidth,
         state.canvasHeight,
+        nativeTextRasters,
       );
       let nativePlaybackRequest = nativeRequest;
-      if (isPlaying && nativeRequest && nativePresentationLatencyMs > 0) {
+      // Text rasters are time-dependent assets. Do not submit a look-ahead
+      // video request with the current frame's text bitmap; native text
+      // look-ahead becomes safe once its own raster assets are prepared.
+      if (isPlaying && nativeRequest && nativeTextRasters.length === 0 && nativePresentationLatencyMs > 0) {
         const leadFrames = Math.min(
           6,
           Math.max(0, Math.round((nativePresentationLatencyMs * frameRate) / 1000)),
@@ -649,7 +689,7 @@ export const PixiProgramPreview: React.FC = () => {
           }
         }
       }
-      const nativeRequestKey = nativeRequest ? JSON.stringify(nativeRequest) : "";
+      const nativeRequestKey = nativeRequest ? getNativeFrameRequestKey(nativeRequest) : "";
       if (nativeRequestKey !== nativeRetryKey) {
         nativeRetryKey = nativeRequestKey;
         nativeRetryAt = 0;
@@ -728,7 +768,7 @@ export const PixiProgramPreview: React.FC = () => {
           rafId = requestAnimationFrame(renderLoop);
           return;
         }
-        const requestKey = JSON.stringify(requestToPresent);
+        const requestKey = getNativeFrameRequestKey(requestToPresent);
         if (requestKey === lastNativePlaybackRequestKey) {
           rafId = requestAnimationFrame(renderLoop);
           return;
@@ -1046,7 +1086,7 @@ export const PixiProgramPreview: React.FC = () => {
               );
               if (!targetRequest) continue;
               prefetchSources.push({
-                requestKey: JSON.stringify(targetRequest),
+                requestKey: getNativeFrameRequestKey(targetRequest),
                 frameIndex: targetFrameIndex,
                 request: targetRequest,
                 priority: offset > 0 ? offset : 10 + Math.abs(offset),

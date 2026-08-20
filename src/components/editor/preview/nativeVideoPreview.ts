@@ -10,9 +10,28 @@ import {
   frameIndexToNativeTime,
   secondsToNativeTime,
   type NativeFrameRequest,
+  type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
+import type { NativeTextRasterAsset } from "./nativeTextPreview";
 
 const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
+
+/**
+ * Build a scheduler identity without serializing large RGBA payloads on every
+ * animation frame. The raster asset id is content-addressed by the Studio
+ * text inputs, so excluding the bytes here cannot alias two visible assets.
+ */
+export function getNativeFrameRequestKey(request: NativeFrameRequest): string {
+  if (!request.project.rasterLayers?.length) return JSON.stringify(request);
+
+  return JSON.stringify({
+    ...request,
+    project: {
+      ...request.project,
+      rasterLayers: request.project.rasterLayers.map(({ rgba: _rgba, ...layer }) => layer),
+    },
+  });
+}
 
 function hasMeaningfulObject(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && Object.keys(value as Record<string, unknown>).length > 0);
@@ -90,17 +109,21 @@ function getNativeClearColor(scene: EvaluatedScene): [number, number, number, nu
 
 export function buildNativeVideoProjectRequest(
   scene: EvaluatedScene,
+  rasterLayers: NativeRasterLayerSnapshot[] = [],
 ): NativeVideoProjectFrameRequest | null {
   if (scene.transitions.length > 0) return null;
   if (scene.activeFilter) return null;
-  if (scene.visualLayers.some((layer) => layer.layerType !== "media")) return null;
+  if (scene.visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) return null;
   const clearColor = getNativeClearColor(scene);
   if (!clearColor) return null;
 
+  const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+  if (textLayers.length !== rasterLayers.length) return null;
   const mediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
-  if (mediaLayers.length === 0 || !mediaLayers.every(isSupportedNativeVideoLayer)) {
+  if (mediaLayers.length === 0 && textLayers.length === 0) return null;
+  if (!mediaLayers.every(isSupportedNativeVideoLayer)) {
     return null;
   }
 
@@ -113,7 +136,7 @@ export function buildNativeVideoProjectRequest(
     height: layer.height,
     rotation: layer.rotation,
     opacity: layer.opacity,
-    zIndex: index,
+    zIndex: layer.zIndex,
     blendMode: layer.blendMode,
   }));
 
@@ -126,6 +149,7 @@ export function buildNativeVideoProjectRequest(
     canvasHeight: scene.metadata.canvasHeight || 1080,
     clearColor,
     layers,
+    ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
   };
 }
 
@@ -141,8 +165,9 @@ export function buildNativeFrameRequest(
   frameRate: number,
   outputWidth: number,
   outputHeight: number,
+  rasterLayers: NativeTextRasterAsset[] = [],
 ): NativeFrameRequest | null {
-  const request = buildNativeVideoProjectRequest(scene);
+  const request = buildNativeVideoProjectRequest(scene, rasterLayers);
   if (!request) return null;
 
   const videoLayers = scene.visualLayers
@@ -157,7 +182,7 @@ export function buildNativeFrameRequest(
       height: layer.height,
       rotation: layer.rotation,
       opacity: layer.opacity,
-      zIndex: index,
+      zIndex: layer.zIndex,
       blendMode: layer.blendMode,
     }));
 
@@ -171,6 +196,7 @@ export function buildNativeFrameRequest(
       canvasHeight: request.canvasHeight,
       clearColor: request.clearColor ?? [0, 0, 0, 1],
       videoLayers,
+      ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
     },
     outputWidth,
     outputHeight,

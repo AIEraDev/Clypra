@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/types";
-import { buildNativeFrameRequest, buildNativeVideoProjectRequest, isRenderableNativePreviewFrame } from "../nativeVideoPreview";
+import {
+  buildNativeFrameRequest,
+  buildNativeVideoProjectRequest,
+  getNativeFrameRequestKey,
+  isRenderableNativePreviewFrame,
+} from "../nativeVideoPreview";
 
 function makeVideoLayer(overrides: Partial<EvaluatedMediaLayer> = {}): EvaluatedMediaLayer {
   return {
@@ -61,7 +66,7 @@ describe("buildNativeVideoProjectRequest", () => {
         height: 360,
         rotation: 0,
         opacity: 1,
-        zIndex: 0,
+        zIndex: 7,
         blendMode: "normal",
       }],
     });
@@ -95,6 +100,33 @@ describe("buildNativeVideoProjectRequest", () => {
       ...makeScene([makeVideoLayer()]),
       activeFilter: { id: "blur", name: "Blur", intensity: 1 },
     })).toBeNull();
+  });
+
+  it("composes Studio-rasterized text layers alongside native video", () => {
+    const textLayer = {
+      ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title", zIndex: 1 }),
+      layerType: "text",
+    } as never;
+    const rasterLayer = {
+      assetId: "native-text:title:abcd1234",
+      rgba: [255, 255, 255, 255],
+      width: 1,
+      height: 1,
+      x: 10,
+      y: 20,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 1,
+      blendMode: "normal",
+    };
+
+    const request = buildNativeVideoProjectRequest(
+      makeScene([makeVideoLayer({ zIndex: 0 }), textLayer]),
+      [rasterLayer],
+    );
+
+    expect(request?.layers[0].zIndex).toBe(0);
+    expect(request?.rasterLayers).toEqual([rasterLayer]);
   });
 
   it("propagates deterministic solid canvas backgrounds", () => {
@@ -158,5 +190,36 @@ describe("buildNativeFrameRequest", () => {
       ticks: 2_250_000,
       timescale: 1_000_000,
     });
+  });
+
+  it("does not serialize raster bytes into the per-frame scheduler key", () => {
+    const textLayer = {
+      ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title", zIndex: 1 }),
+      layerType: "text",
+    } as never;
+    const request = buildNativeFrameRequest(
+      makeScene([makeVideoLayer(), textLayer]),
+      "project-1:7",
+      67,
+      30,
+      960,
+      540,
+      [{
+        assetId: "native-text:title:abcd1234",
+        rgba: Array.from({ length: 32 * 32 * 4 }, () => 255),
+        width: 32,
+        height: 32,
+        x: 10,
+        y: 20,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 1,
+        blendMode: "normal",
+      }],
+    );
+
+    const key = getNativeFrameRequestKey(request!);
+    expect(key).not.toContain("255,255,255,255");
+    expect(key).toContain("native-text:title:abcd1234");
   });
 });
