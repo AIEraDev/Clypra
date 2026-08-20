@@ -393,6 +393,44 @@ describe("buildNativeVideoProjectRequest", () => {
     });
   });
 
+  it("binds a registered segmentation mask to native body glow", () => {
+    const request = buildNativeVideoProjectRequest(
+      makeScene([makeVideoLayer({
+        effects: [{
+          effectId: "fx-body-glow",
+          renderer: "body_glow",
+          type: "body_effect",
+          parameters: { glowColor: "#00ffff", glowRadius: 18, glowIntensity: 0.75 },
+          intensity: 0.8,
+          localTime: 1.5,
+        }],
+      })]),
+      [{
+        assetId: "clip-1_fx-body-glow",
+        width: 1920,
+        height: 1080,
+        x: 0,
+        y: 0,
+        rotation: 0,
+        opacity: 0,
+        zIndex: -2147483648,
+        blendMode: "normal",
+        isMask: true,
+      }],
+    );
+
+    expect(request?.layers[0].bodyEffect).toEqual({
+      maskAssetId: "clip-1_fx-body-glow",
+      renderer: "body_glow",
+      colorR: 0,
+      colorG: 1,
+      colorB: 1,
+      strength: 0.6000000000000001,
+      radius: 14.4,
+      time: 1.5,
+    });
+  });
+
   it("maps deterministic stylized shader effects into native grading", () => {
     const request = buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ effects: [

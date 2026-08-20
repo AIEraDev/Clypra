@@ -11,6 +11,7 @@ import {
   frameIndexToNativeTime,
   secondsToNativeTime,
   type NativeColorGradeSnapshot,
+  type NativeBodyEffectSnapshot,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
@@ -21,6 +22,7 @@ const NATIVE_COLOR_GRADE_KEYS = new Set([
   "brightness", "sepia", "grayscale", "hue", "vignette", "invert", "grain", "vibrance",
   "lift", "crossProcess", "channelMix", "duotone", "splitTone",
 ]);
+const NATIVE_BODY_EFFECT_RENDERERS = new Set(["body_outline", "body_glow", "body_segmentation_glow"]);
 
 /**
  * Build a scheduler identity without serializing large RGBA payloads on every
@@ -144,7 +146,7 @@ function getNativeColorGrade(
   if (preset && Object.keys(preset).some((key) => !nativePresetKeys.has(key))) return null;
   const supportedEffectRenderers = new Set([
     "blur", "pixelate", "scanlines", "rgb_split", "chromatic_aberration", "chromatic",
-    "vhs", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "motion_blur", "radial_blur", "zoom_blur",
+    "vhs", "crt", "film_grain", "grain", "vignette", "glow", "flash", "flicker", "strobe", "light_leak", "light_leak_2", "body_outline", "body_glow", "body_segmentation_glow", "motion_blur", "radial_blur", "zoom_blur",
   ]);
   if (activeEffects.some((effect) => {
     const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
@@ -479,6 +481,49 @@ function getNativeColorGrade(
   };
 }
 
+function getNativeBodyEffect(
+  layer: EvaluatedMediaLayer,
+  rasterLayers: NativeRasterLayerSnapshot[],
+): NativeBodyEffectSnapshot | null | undefined {
+  const effects = (layer.effects ?? []).filter((effect) => {
+    const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase();
+    return effect.intensity > 0.001 && NATIVE_BODY_EFFECT_RENDERERS.has(renderer);
+  });
+  if (effects.length === 0) return undefined;
+
+  const effect = effects.reduce((strongest, candidate) => candidate.intensity > strongest.intensity ? candidate : strongest);
+  const renderer = (effect.renderer || effect.effectId).replace(/^fx-/, "").replace(/-/g, "_").toLowerCase() as NativeBodyEffectSnapshot["renderer"];
+  const requestedMaskId = effect.parameters.maskAssetId;
+  const maskAssetId = typeof requestedMaskId === "string" && requestedMaskId.trim()
+    ? requestedMaskId
+    : `${layer.layerId}_${effect.effectId}`;
+  if (!rasterLayers.some((asset) => asset.isMask && asset.assetId === maskAssetId)) return null;
+
+  const colorValue = renderer === "body_outline"
+    ? effect.parameters.outlineColor ?? "#ffffff"
+    : effect.parameters.glowColor ?? "#00ffff";
+  if (typeof colorValue !== "string") return null;
+  const [red, green, blue] = parseColor(colorValue);
+  const strength = renderer === "body_outline"
+    ? effect.intensity
+    : Number(effect.parameters.glowIntensity ?? 0.8) * effect.intensity;
+  const radius = renderer === "body_outline"
+    ? Number(effect.parameters.thickness ?? 5) * effect.intensity
+    : Number(effect.parameters.glowRadius ?? 22) * effect.intensity;
+  if (!Number.isFinite(strength) || strength < 0 || !Number.isFinite(radius) || radius < 0) return null;
+
+  return {
+    maskAssetId,
+    renderer,
+    colorR: red / 255,
+    colorG: green / 255,
+    colorB: blue / 255,
+    strength: Math.min(1, strength),
+    radius,
+    time: Math.max(0, effect.localTime),
+  };
+}
+
 function isSupportedNativeVideoLayer(layer: EvaluatedMediaLayer): boolean {
   return (
     (layer.mediaType === "video" || layer.mediaType === "image") &&
@@ -528,7 +573,8 @@ export function buildNativeVideoProjectRequest(
   if (!clearColor) return null;
 
   const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-  if (textLayers.length !== rasterLayers.length) return null;
+  const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
+  if (textLayers.length !== visibleRasterLayers.length) return null;
   const mediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
@@ -540,6 +586,7 @@ export function buildNativeVideoProjectRequest(
 
   const layers: NativeProjectVideoLayer[] = mediaLayers.map((layer) => {
     const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects);
+    const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
     return {
       videoPath: layer.sourcePath,
       timeSecs: layer.sourceTime,
@@ -552,8 +599,11 @@ export function buildNativeVideoProjectRequest(
       zIndex: layer.zIndex,
       blendMode: layer.blendMode,
       ...(colorGrade ? { colorGrade } : {}),
+      ...(bodyEffect ? { bodyEffect } : {}),
     };
   });
+
+  if (mediaLayers.some((layer) => getNativeBodyEffect(layer, rasterLayers) === null)) return null;
 
   if (layers.some((layer) => !Number.isFinite(layer.timeSecs) || layer.timeSecs < 0)) {
     return null;
@@ -602,6 +652,7 @@ export function buildNativeFrameRequest(
       zIndex: layer.zIndex,
       blendMode: layer.blendMode,
       ...(colorGrade ? { colorGrade } : {}),
+      ...(request.layers[index].bodyEffect ? { bodyEffect: request.layers[index].bodyEffect } : {}),
       };
     });
 

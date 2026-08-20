@@ -145,6 +145,7 @@ export interface NativeProjectVideoLayer {
   zIndex?: number;
   blendMode?: string;
   colorGrade?: import("./nativeCore").NativeColorGradeSnapshot;
+  bodyEffect?: import("./nativeCore").NativeBodyEffectSnapshot;
 }
 
 export interface NativeVideoProjectFrameRequest {

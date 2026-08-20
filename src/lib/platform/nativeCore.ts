@@ -151,6 +151,18 @@ export interface NativeVideoLayerSnapshot {
   zIndex: number;
   blendMode: string;
   colorGrade?: NativeColorGradeSnapshot;
+  bodyEffect?: NativeBodyEffectSnapshot;
+}
+
+export interface NativeBodyEffectSnapshot {
+  maskAssetId: string;
+  renderer: "body_outline" | "body_glow" | "body_segmentation_glow";
+  colorR: number;
+  colorG: number;
+  colorB: number;
+  strength: number;
+  radius: number;
+  time: number;
 }
 
 export interface NativeColorGradeSnapshot {
@@ -236,6 +248,8 @@ export interface NativeRasterLayerSnapshot {
   opacity: number;
   zIndex: number;
   blendMode: string;
+  /** Mask-only assets are uploaded but omitted from visible compositing. */
+  isMask?: boolean;
 }
 
 export interface NativeProjectSnapshot {
