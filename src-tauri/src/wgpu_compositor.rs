@@ -6,6 +6,7 @@
  */
 
 use std::borrow::Cow;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 pub mod texture_pool;
@@ -66,6 +67,89 @@ pub struct NativePreviewSession {
     sampler: wgpu::Sampler,
     pipeline: wgpu::RenderPipeline,
     ring: Option<YuvTextureRingBuffer>,
+    rgba_layers: RgbaLayerTextureCache,
+}
+
+const RGBA_LAYER_CACHE_BYTES: usize = 128 * 1024 * 1024;
+
+struct RgbaLayerTextureCacheEntry {
+    texture: Arc<wgpu::Texture>,
+    width: u32,
+    height: u32,
+    bytes: usize,
+}
+
+/// Bounded GPU cache for browser-rendered assets such as Clypra Studio text.
+/// Geometry and opacity remain per-frame compositor uniforms; only immutable
+/// pixel data is retained here.
+struct RgbaLayerTextureCache {
+    entries: HashMap<String, RgbaLayerTextureCacheEntry>,
+    order: VecDeque<String>,
+    current_bytes: usize,
+}
+
+impl RgbaLayerTextureCache {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            current_bytes: 0,
+        }
+    }
+
+    fn get(&mut self, asset_id: &str, width: u32, height: u32) -> Option<Arc<wgpu::Texture>> {
+        let entry = self.entries.get(asset_id)?;
+        if entry.width != width || entry.height != height {
+            self.remove(asset_id);
+            return None;
+        }
+        let texture = Arc::clone(&entry.texture);
+        self.touch(asset_id);
+        Some(texture)
+    }
+
+    fn insert(&mut self, asset_id: String, texture: Arc<wgpu::Texture>, width: u32, height: u32) {
+        let bytes = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        if bytes == 0 || bytes > RGBA_LAYER_CACHE_BYTES {
+            return;
+        }
+
+        self.remove(&asset_id);
+        while self.current_bytes.saturating_add(bytes) > RGBA_LAYER_CACHE_BYTES {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(removed) = self.entries.remove(&oldest) {
+                self.current_bytes = self.current_bytes.saturating_sub(removed.bytes);
+            }
+        }
+
+        self.current_bytes = self.current_bytes.saturating_add(bytes);
+        self.order.push_back(asset_id.clone());
+        self.entries.insert(
+            asset_id,
+            RgbaLayerTextureCacheEntry {
+                texture,
+                width,
+                height,
+                bytes,
+            },
+        );
+    }
+
+    fn touch(&mut self, asset_id: &str) {
+        self.order.retain(|item| item != asset_id);
+        self.order.push_back(asset_id.to_string());
+    }
+
+    fn remove(&mut self, asset_id: &str) {
+        self.order.retain(|item| item != asset_id);
+        if let Some(removed) = self.entries.remove(asset_id) {
+            self.current_bytes = self.current_bytes.saturating_sub(removed.bytes);
+        }
+    }
 }
 
 impl NativePreviewSession {
@@ -84,6 +168,7 @@ impl NativePreviewSession {
             sampler,
             pipeline,
             ring: None,
+            rgba_layers: RgbaLayerTextureCache::new(),
         }
     }
 
@@ -160,15 +245,13 @@ impl NativePreviewSession {
     }
 
     /// Upload a small RGBA layer produced by a canonical browser-side
-    /// renderer (currently Clypra Studio text effects) for composition with
-    /// native video. The layer is uploaded only at this frame boundary; a
-    /// later asset-cache tranche will retain these textures across frames.
-    pub fn upload_rgba_layer_to_texture(
+    /// renderer (currently Clypra Studio text effects).
+    fn create_rgba_layer_texture(
         &self,
         width: u32,
         height: u32,
         rgba: &[u8],
-    ) -> Result<wgpu::Texture, String> {
+    ) -> Result<Arc<wgpu::Texture>, String> {
         if width == 0 || height == 0 {
             return Err("RGBA layer dimensions must be non-zero".to_string());
         }
@@ -184,7 +267,7 @@ impl NativePreviewSession {
             ));
         }
 
-        let texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+        let texture = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Native RGBA Raster Layer"),
             size: wgpu::Extent3d {
                 width,
@@ -197,7 +280,7 @@ impl NativePreviewSession {
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
-        });
+        }));
         self.gpu.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -217,6 +300,30 @@ impl NativePreviewSession {
                 depth_or_array_layers: 1,
             },
         );
+        Ok(texture)
+    }
+
+    /// Return a resident RGBA asset when possible, uploading it once on a
+    /// cache miss. Empty asset ids intentionally bypass caching for legacy
+    /// callers that do not provide stable identity.
+    pub fn get_or_upload_rgba_layer_to_texture(
+        &mut self,
+        asset_id: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<Arc<wgpu::Texture>, String> {
+        if !asset_id.trim().is_empty() {
+            if let Some(texture) = self.rgba_layers.get(asset_id, width, height) {
+                return Ok(texture);
+            }
+        }
+
+        let texture = self.create_rgba_layer_texture(width, height, rgba)?;
+        if !asset_id.trim().is_empty() {
+            self.rgba_layers
+                .insert(asset_id.to_string(), Arc::clone(&texture), width, height);
+        }
         Ok(texture)
     }
 

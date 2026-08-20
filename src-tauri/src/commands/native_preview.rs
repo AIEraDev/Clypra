@@ -162,6 +162,8 @@ pub struct NativeProjectVideoLayer {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeProjectRasterLayer {
+    #[serde(default)]
+    pub asset_id: String,
     pub rgba: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -351,6 +353,7 @@ fn to_video_project_request(
         .raster_layers
         .iter()
         .map(|layer| NativeProjectRasterLayer {
+            asset_id: layer.asset_id.clone(),
             rgba: layer.rgba.clone(),
             width: layer.width,
             height: layer.height,
@@ -715,7 +718,7 @@ async fn render_native_video_project_frame_bytes(
         request.layers.iter().zip(decoded_frames.iter())
     {
         let params = color_params(color)?;
-        let texture = session.render_nv12_frame_to_texture(
+        let texture = Arc::new(session.render_nv12_frame_to_texture(
             *width,
             *height,
             layer.width.max(1.0).round() as u32,
@@ -723,12 +726,13 @@ async fn render_native_video_project_frame_bytes(
             y_plane,
             uv_plane,
             &params,
-        )?;
+        )?);
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
     for layer in &request.raster_layers {
-        let texture = session.upload_rgba_layer_to_texture(
+        let texture = session.get_or_upload_rgba_layer_to_texture(
+            &layer.asset_id,
             layer.width,
             layer.height,
             &layer.rgba,
@@ -964,7 +968,7 @@ pub async fn present_native_frame(
         .zip(decoded_frames.iter())
     {
         let params = color_params(color)?;
-        let texture = session.render_nv12_frame_to_texture(
+        let texture = Arc::new(session.render_nv12_frame_to_texture(
             *width,
             *height,
             layer.width.max(1.0).round() as u32,
@@ -972,12 +976,13 @@ pub async fn present_native_frame(
             y_plane,
             uv_plane,
             &params,
-        )?;
+        )?);
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
     for layer in &legacy_request.raster_layers {
-        let texture = session.upload_rgba_layer_to_texture(
+        let texture = session.get_or_upload_rgba_layer_to_texture(
+            &layer.asset_id,
             layer.width,
             layer.height,
             &layer.rgba,
