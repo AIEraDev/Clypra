@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useCallback, useMemo } from "react";
+import { Film, Upload } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
@@ -38,6 +39,8 @@ export const Timeline: React.FC = () => {
   const wasPlayingRef = useRef(false);
   const runtime = useRenderRuntime();
   const isProgramPreviewActive = previewMode === "program";
+  const hasTimelineContent = hasClips || tracks.length > 0;
+  const showInactivePreviewOverlay = !isProgramPreviewActive && hasTimelineContent;
 
   // Consume extracted hooks
   useTimelineZoom(containerRef);
@@ -331,7 +334,7 @@ export const Timeline: React.FC = () => {
     >
       <TimelineToolbar />
 
-      {!isProgramPreviewActive && (
+      {showInactivePreviewOverlay && (
         <div
           data-testid="timeline-program-inactive-overlay"
           aria-hidden="true"
@@ -397,8 +400,29 @@ export const Timeline: React.FC = () => {
 
           {/* ── Row 2+: Track labels (sticky left) + Track clips ─────── */}
           {!hasClips ? (
-            <div className="relative flex-1 flex flex-col min-h-0">
-              <div className="absolute top-1/2 left-3 text-xl text-white pointer-events-none font-mono">Drop media here • I to import</div>
+            <div className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(124,92,255,0.12),transparent_42%)]">
+                <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] [background-size:32px_32px]" />
+                <div className="relative flex h-full items-center justify-center px-6 py-8">
+                  <div className="w-full max-w-md rounded-2xl border border-white/10 bg-surface/55 px-8 py-7 text-center shadow-2xl shadow-black/20 backdrop-blur-sm">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-accent-soft shadow-[0_0_30px_rgba(124,92,255,0.16)]">
+                      <Film className="h-7 w-7" strokeWidth={1.7} />
+                    </div>
+                    <h3 className="text-base font-semibold tracking-tight text-text-primary">Start building your timeline</h3>
+                    <p className="mx-auto mt-2 max-w-xs text-xs leading-5 text-text-muted">Bring in your first video, image, or audio clip and shape your story here.</p>
+                    <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[10px] text-text-muted">
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+                        <Upload className="h-3.5 w-3.5 text-accent-soft" />
+                        Drag media here
+                      </span>
+                      <span className="text-white/25">or</span>
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+                        Press <kbd className="rounded border border-white/15 bg-black/20 px-1.5 py-0.5 font-mono text-text-primary">I</kbd> to import
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <EmptyTimelineDropZone isDragging={isDraggingMedia} />
             </div>
           ) : (
