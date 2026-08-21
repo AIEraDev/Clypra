@@ -15,6 +15,8 @@
  */
 
 import type { Clip } from "@/types";
+import { timeToPixel } from "./timelineViewport";
+
 
 export interface DisplayPositionsInput {
   /** All clips on track, sorted by startTime */
@@ -140,8 +142,9 @@ export function findInsertionIndex(input: {
   }
   positions.push(time); // End boundary
 
-  // Convert to pixels
-  const positionsPx = positions.map((t) => t * pixelsPerSecond);
+  // Convert to pixels via timeToPixel so gap-center positions match rendered clip boundaries.
+  const positionsPx = positions.map((t) => timeToPixel(t, pixelsPerSecond));
+
 
   // Calculate gap centers between adjacent clips
   const gapCenters: number[] = [];
