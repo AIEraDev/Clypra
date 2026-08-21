@@ -1,0 +1,203 @@
+name: Native Golden Parity
+
+# Runs on every PR and on pushes to the integration branches.
+# Purpose (Phase 0):
+#   1. Build clypra-native-cli on macOS (Metal), Windows (DX12), and Linux (Vulkan/Lavapipe).
+#   2. Render the checked-in fixture requests on each platform.
+#   3. Diff each platform's output against the macOS Metal reference PNGs that
+#      live in the repo, reporting GoldenDiff JSON so drift is visible even
+#      when it is within tolerance.
+#   4. Upload all rendered PNGs as artifacts for visual inspection on failures.
+#
+# Cross-platform tolerance:
+#   Native–native  (Metal ↔ DX12 ↔ Vulkan): tolerance 4 per-channel.
+#   The WASM–native parity check (Phase 1) will be added as a fourth matrix
+#   entry once clypra-render-wasm exists, using the same fixture corpus and
+#   the same diff command — tolerance TBD from real measured data.
+#
+# Golden reference update workflow:
+#   If a shader or compositor change intentionally changes pixels, regenerate
+#   the Metal reference on macOS, commit the new PNGs, and the cross-platform
+#   jobs will re-baseline against them on the next run.
+
+on:
+  push:
+    branches: [main, develop, master, "feat/**"]
+    paths:
+      - "src-tauri/src/wgpu_compositor/**"
+      - "src-tauri/src/shaders/**"
+      - "src-tauri/src/native_core/**"
+      - "crates/clypra-native-cli/**"
+      - "crates/clypra-native-core/**"
+      - ".github/workflows/native-golden.yml"
+  pull_request:
+    paths:
+      - "src-tauri/src/wgpu_compositor/**"
+      - "src-tauri/src/shaders/**"
+      - "src-tauri/src/native_core/**"
+      - "crates/clypra-native-cli/**"
+      - "crates/clypra-native-core/**"
+      - ".github/workflows/native-golden.yml"
+
+jobs:
+  golden:
+    name: Golden [${{ matrix.platform.name }}]
+    runs-on: ${{ matrix.platform.os }}
+
+    strategy:
+      fail-fast: false   # always run all platforms so we get data from each
+      matrix:
+        platform:
+          - name: "macOS Metal"
+            os: macos-latest
+            backend: Metal
+
+          - name: "Windows DX12"
+            os: windows-latest
+            backend: DX12
+
+          - name: "Linux Vulkan"
+            os: ubuntu-24.04
+            backend: Vulkan
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust toolchain ────────────────────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            crates/clypra-native-cli
+            crates/clypra-native-core
+
+      # ── Platform-specific GPU / Vulkan setup ──────────────────────────────
+      - name: Install Vulkan + Mesa Lavapipe (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 \
+            mesa-vulkan-drivers \
+            vulkan-tools
+          # Point wgpu at the software ICD so it uses Lavapipe on the
+          # headless GitHub Actions runner (no GPU passthrough available).
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+
+      # Windows and macOS runners on GitHub Actions have real GPU access
+      # (DX12 / Metal respectively) — no extra setup required.
+
+      # ── Build clypra-native-cli ───────────────────────────────────────────
+      - name: Build clypra-native-cli
+        run: cargo build --release
+        working-directory: crates/clypra-native-cli
+
+      # ── Render fixtures ───────────────────────────────────────────────────
+      - name: Render minimal fixture
+        run: |
+          cargo run --release -- render \
+            fixtures/minimal-request.json \
+            ../../artifacts/minimal-${{ matrix.platform.backend }}.png
+        working-directory: crates/clypra-native-cli
+        shell: bash
+
+      - name: Render raster fixture
+        run: |
+          cargo run --release -- render \
+            fixtures/raster-request.json \
+            ../../artifacts/raster-${{ matrix.platform.backend }}.png
+        working-directory: crates/clypra-native-cli
+        shell: bash
+
+      # Create artifacts dir on Windows where bash mkdir -p may not run first
+      - name: Ensure artifacts directory exists
+        run: mkdir -p artifacts
+        shell: bash
+
+      # ── Diff against Metal reference ──────────────────────────────────────
+      # Tolerance 4 per-channel for cross-backend native comparisons.
+      # The diff command always prints GoldenDiff JSON to stdout regardless
+      # of pass/fail — this is intentional so CI logs show real numbers.
+      - name: Diff minimal (vs Metal reference, tol=4)
+        id: diff_minimal
+        run: |
+          cargo run --release -- diff \
+            ../../artifacts/minimal-${{ matrix.platform.backend }}.png \
+            fixtures/minimal-expected.png \
+            4 \
+            | tee ../../artifacts/diff-minimal-${{ matrix.platform.backend }}.json
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        # Don't fail the step — capture exit code so we can report drift
+        # without blocking the artifact upload.
+        continue-on-error: true
+
+      - name: Diff raster (vs Metal reference, tol=4)
+        id: diff_raster
+        run: |
+          cargo run --release -- diff \
+            ../../artifacts/raster-${{ matrix.platform.backend }}.png \
+            fixtures/raster-expected.png \
+            4 \
+            | tee ../../artifacts/diff-raster-${{ matrix.platform.backend }}.json
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        continue-on-error: true
+
+      # ── Job summary ───────────────────────────────────────────────────────
+      # Write a Markdown summary table so the drift numbers are visible in the
+      # GitHub Actions UI without downloading artifacts.
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Native Golden Parity — ${{ matrix.platform.name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Fixture | maxChannelError | differing_pixels | mean_error | result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|----------------|-----------------|------------|--------|" >> "$GITHUB_STEP_SUMMARY"
+
+          for fixture in minimal raster; do
+            diff_file="artifacts/diff-${fixture}-${{ matrix.platform.backend }}.json"
+            if [ -f "$diff_file" ]; then
+              max=$(python3 -c "import json,sys; d=json.load(open('$diff_file')); print(d['maxChannelError'])" 2>/dev/null || echo "?")
+              dp=$(python3  -c "import json,sys; d=json.load(open('$diff_file')); print(d['differingPixels'])" 2>/dev/null || echo "?")
+              mean=$(python3 -c "import json,sys; d=json.load(open('$diff_file')); print(round(d['meanChannelError'],4))" 2>/dev/null || echo "?")
+              result="✅"
+              if [ "$max" != "?" ] && [ "$max" -gt 4 ] 2>/dev/null; then result="❌"; fi
+            else
+              max="N/A"; dp="N/A"; mean="N/A"; result="⚠️ render failed"
+            fi
+            echo "| $fixture | $max | $dp | $mean | $result |" >> "$GITHUB_STEP_SUMMARY"
+          done
+        shell: bash
+
+      # ── Enforce tolerance as a hard gate ─────────────────────────────────
+      # These steps fail the job (exit 1) if tolerance was exceeded.
+      # Placed after summary so the numbers are always visible even on failure.
+      - name: Enforce minimal diff
+        if: steps.diff_minimal.outcome == 'failure'
+        run: |
+          echo "::error::minimal fixture exceeds cross-platform tolerance (max 4 per-channel)"
+          exit 1
+        shell: bash
+
+      - name: Enforce raster diff
+        if: steps.diff_raster.outcome == 'failure'
+        run: |
+          echo "::error::raster fixture exceeds cross-platform tolerance (max 4 per-channel)"
+          exit 1
+        shell: bash
+
+      # ── Upload artifacts ──────────────────────────────────────────────────
+      - name: Upload rendered PNGs and diff reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.platform.backend }}
+          path: artifacts/
+          retention-days: 30
