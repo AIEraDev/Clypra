@@ -326,15 +326,17 @@ export const Timeline: React.FC = () => {
   return (
     <div
       data-preview-mode={previewMode}
-      className={`h-60 md:h-80 flex flex-col select-none relative ${isProgramPreviewActive ? "" : "ring-1 ring-inset ring-sky-400/35"}`}
+      className="h-60 md:h-80 flex flex-col select-none relative"
       style={{ backgroundColor: "var(--color-timeline-bg)" }}
     >
       <TimelineToolbar />
 
       {!isProgramPreviewActive && (
-        <div className="absolute top-9 right-2 z-[180] pointer-events-none rounded-full border border-sky-300/35 bg-sky-950/85 px-2.5 py-1 text-[10px] font-medium tracking-wide text-sky-100 shadow-lg">
-          Source preview active · program preview paused
-        </div>
+        <div
+          data-testid="timeline-program-inactive-overlay"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-10 bottom-0 z-[170] bg-gray-500/25"
+        />
       )}
 
       {hasClips && <div className="absolute top-[40px] left-0 right-0 bottom-0 bg-(--color-timeline-ruler-bg)" style={{ zIndex: 120, width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`, minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px` }}></div>}
