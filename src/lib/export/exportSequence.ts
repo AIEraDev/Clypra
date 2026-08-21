@@ -147,17 +147,21 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
   // Provide a typed cancel function to the caller for session-scoped cancellation.
   onCancelReady?.(() => abortController.abort());
 
+  // EX-4 fix: hoist canvas + context outside nativeFrameToBlob so they are created once
+  // per export, not once per frame. A 1000-frame export previously allocated 1000 separate
+  // GPU-backed canvas objects that were GC'd only after the loop completed.
+  const readbackCanvas = document.createElement("canvas");
+  readbackCanvas.width = width;
+  readbackCanvas.height = height;
+  const readbackContext = readbackCanvas.getContext("2d");
+  if (!readbackContext) throw new Error("[ExportSequence] Failed to create native readback canvas");
+
   const nativeFrameToBlob = async (rgba: ArrayBuffer): Promise<Blob> => {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("[ExportSequence] Failed to create native readback canvas");
-    const image = context.createImageData(width, height);
+    const image = readbackContext.createImageData(width, height);
     image.data.set(new Uint8ClampedArray(rgba));
-    context.putImageData(image, 0, 0);
+    readbackContext.putImageData(image, 0, 0);
     return new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
+      readbackCanvas.toBlob(
         (blob) => blob ? resolve(blob) : reject(new Error("[ExportSequence] Failed to encode native frame")),
         format === "jpeg" ? "image/jpeg" : "image/png",
         quality,
