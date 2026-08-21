@@ -170,6 +170,26 @@ describe("PreviewMediaPool — Re-entrancy Protection", () => {
     expect(pool.getAudioElements().get("clip-1")).toBe(firstAudio);
   });
 
+  it("keeps the native pool video-only and never creates HTML audio", () => {
+    const nativePool = new PreviewMediaPool(undefined, undefined, { audioEnabled: false });
+    const clips = [createMockClip("clip-1", "media-1", 0, 5)];
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "video" }];
+
+    nativePool.sync(clips, assets, tracks, {
+      time: 2.5,
+      state: "playing",
+      speed: 1,
+      muted: false,
+      volume: 100,
+      frameRate: 30,
+    });
+
+    expect(nativePool.getVideoElements().size).toBeGreaterThan(0);
+    expect(nativePool.getAudioElements()).toEqual(new Map());
+    nativePool.dispose();
+  });
+
   it("keeps video elements muted when paired audio elements are active", () => {
     const clips = [createMockClip("clip-1", "media-1", 0, 5)];
     const assets = [createMockAsset("media-1", "/path/to/video.mp4")];

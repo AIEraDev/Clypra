@@ -34,7 +34,7 @@ export interface NativeAudioPreviewControllerOptions {
 
 /**
  * Bridges the native audio clock to the existing PlaybackClock contract.
- * This is deliberately opt-in until the native surface is also authoritative.
+ * In Tauri this controller is the sole program-preview audio/time authority.
  */
 export class NativeAudioPreviewController {
   private readonly clock: PlaybackClock;
@@ -64,6 +64,9 @@ export class NativeAudioPreviewController {
 
   async initialize(): Promise<boolean> {
     if (this.disposed || !isTauriRuntime()) return false;
+    // Claim the clock before the first awaited native load so an early Play
+    // action cannot create a temporary Web Audio clock during initialization.
+    this.clock.setNativeClockAuthority(true);
 
     try {
       await syncNativeAudioTimeline(
@@ -117,6 +120,7 @@ export class NativeAudioPreviewController {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
     this.clock.clearNativeClockPosition();
+    this.clock.setNativeClockAuthority(false);
     const pendingCommands = this.commandQueue;
     this.commandQueue = Promise.resolve();
     await pendingCommands;

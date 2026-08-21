@@ -24,6 +24,7 @@ import { getPlaybackClock, type PlaybackClockState } from "../core/playback";
 import type { TransportAuthority, PlaybackContextStateSnapshot } from "../core/playback";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { resumeGlobalAudioEngine } from "@/hooks/useAudioSyncEngine";
+import { isTauriRuntime } from "@/lib/platform/tauri";
 
 /**
  * Hook for UI snapshots of playback state.
@@ -90,13 +91,19 @@ export function useTransportControls() {
   return useMemo(
     () => ({
       play: () => {
-        resumeGlobalAudioEngine();
-        getActiveSessionOrNull()?.unlockPreviewAudio();
+        // Program preview in Tauri is native-only. Resuming Web Audio here
+        // would create a competing audible path before CPAL receives play.
+        if (!(isTauriRuntime() && authority?.getActiveType() === "program")) {
+          resumeGlobalAudioEngine();
+          getActiveSessionOrNull()?.unlockPreviewAudio();
+        }
         authority?.play();
       },
       togglePlayback: () => {
-        resumeGlobalAudioEngine();
-        getActiveSessionOrNull()?.unlockPreviewAudio();
+        if (!(isTauriRuntime() && authority?.getActiveType() === "program")) {
+          resumeGlobalAudioEngine();
+          getActiveSessionOrNull()?.unlockPreviewAudio();
+        }
         authority?.togglePlayback();
       },
       pause: () => authority?.pause(),

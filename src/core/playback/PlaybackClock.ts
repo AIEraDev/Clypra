@@ -67,6 +67,8 @@ export class PlaybackClock {
   private _rafId: number | null = null;
   private _audioContext: AudioContext | null = null;
   private _ownsAudioContext = false;
+  /** True while native CPAL is the sole program-preview clock authority. */
+  private _nativeClockAuthority = false;
   private _playStartAudioTime: number = 0;
   private _playStartClockTime: number = 0;
   private _nativeClockPosition: { time: number; receivedAtMs: number; speed: number } | null = null;
@@ -90,6 +92,9 @@ export class PlaybackClock {
 
   /** Attach the shared audio clock used by the program audio engine. */
   attachAudioContext(audioContext: AudioContext): void {
+    // A browser engine may be retained from an earlier session, but it must
+    // never retake clock ownership while native playback is authoritative.
+    if (this._nativeClockAuthority) return;
     if (this._audioContext === audioContext) return;
 
     const wasPlaying = this._state === "playing";
@@ -129,6 +134,12 @@ export class PlaybackClock {
       const elapsed = Math.max(0, performance.now() - this._nativeClockPosition.receivedAtMs) / 1000;
       const computedTime = this._nativeClockPosition.time + elapsed * this._nativeClockPosition.speed;
       return Math.min(computedTime, this._duration);
+    }
+
+    // Native playback may not have delivered its first sample yet. Keep the
+    // last bounded position instead of consulting a stale Web Audio context.
+    if (this._nativeClockAuthority) {
+      return this._time;
     }
 
     // If playing, calculate time synchronously based on audio context.
@@ -184,6 +195,20 @@ export class PlaybackClock {
   /** Whether the native audio authority has supplied a usable position sample. */
   get hasNativeClockPosition(): boolean {
     return this._nativeClockPosition !== null;
+  }
+
+  /** Whether native CPAL owns program-preview playback time. */
+  get isNativeClockAuthority(): boolean {
+    return this._nativeClockAuthority;
+  }
+
+  /**
+   * Select the native clock as the sole program-preview time authority.
+   * This does not start audio; it only prevents Web Audio clock takeover.
+   */
+  setNativeClockAuthority(enabled: boolean): void {
+    this._nativeClockAuthority = enabled;
+    if (enabled) this._stallStartAudioTime = null;
   }
 
   /**
@@ -282,19 +307,21 @@ export class PlaybackClock {
       this._isSeeking = false;
     }
 
-    // Initialize AudioContext for high-precision timing
-    if (!this._audioContext) {
-      this._audioContext = new AudioContext();
-      this._ownsAudioContext = true;
-    }
+    if (!this._nativeClockAuthority) {
+      // Initialize AudioContext for high-precision browser timing.
+      if (!this._audioContext) {
+        this._audioContext = new AudioContext();
+        this._ownsAudioContext = true;
+      }
 
-    if (this._audioContext.state === "suspended") {
-      this._audioContext.resume();
-    }
+      if (this._audioContext.state === "suspended") {
+        void this._audioContext.resume();
+      }
 
-    // Record start times
-    this._playStartAudioTime = this._audioContext.currentTime;
-    this._playStartClockTime = this._time;
+      // Record start times for the browser clock.
+      this._playStartAudioTime = this._audioContext.currentTime;
+      this._playStartClockTime = this._time;
+    }
 
     this._state = "playing";
     this._notifyListeners();
@@ -403,7 +430,7 @@ export class PlaybackClock {
   completeSeek(): void {
     if (!this._isSeeking) return;
     this._isSeeking = false;
-    if (this._state === "playing" && this._audioContext) {
+    if (this._state === "playing" && this._audioContext && !this._nativeClockAuthority) {
       this._playStartAudioTime = this._audioContext.currentTime;
       this._playStartClockTime = this._time;
     }
@@ -447,12 +474,18 @@ export class PlaybackClock {
       return;
     }
 
-    // Calculate elapsed time using AudioContext (high precision)
-    const audioContext = this._audioContext!;
-    const elapsed = (audioContext.currentTime - this._playStartAudioTime) * this._speed;
-    const newTime = this._nativeClockPosition
-      ? this.time
-      : this._playStartClockTime + elapsed;
+    // Native samples drive the clock during Tauri program playback. Browser
+    // preview uses AudioContext as its local high-precision time source.
+    let newTime: number;
+    if (this._nativeClockAuthority || this._nativeClockPosition) {
+      newTime = this.time;
+    } else if (this._audioContext) {
+      const elapsed = (this._audioContext.currentTime - this._playStartAudioTime) * this._speed;
+      newTime = this._playStartClockTime + elapsed;
+    } else {
+      // Keep the handoff safe before native delivers its first sample.
+      newTime = this._time;
+    }
 
     // Update time
     if (newTime >= this._duration) {
@@ -549,6 +582,7 @@ export class PlaybackClock {
     this._time = 0;
     this._listeners.clear();
     this._nativeClockPosition = null;
+    this._nativeClockAuthority = false;
 
     if (this._audioContext && this._ownsAudioContext) {
       this._audioContext.close();

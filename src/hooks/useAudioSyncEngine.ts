@@ -33,16 +33,21 @@ interface UseAudioSyncEngineOptions {
 }
 
 export function getGlobalAudioEngine(): AudioEngine {
+  if (isTauriRuntime()) {
+    throw new Error("Web Audio is not available for native Tauri program preview");
+  }
   return getSharedAudioEngine();
 }
 
 /** Resume the shared audible engine from a user-gesture transport action. */
 export function resumeGlobalAudioEngine(): void {
+  if (isTauriRuntime()) return;
   resumeSharedAudioEngine();
 }
 
 /** Flush shared voices when the project preview is leaving the editor. */
 export function stopGlobalAudioEngine(): void {
+  if (isTauriRuntime()) return;
   stopSharedAudioEngine();
 }
 
@@ -53,14 +58,15 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   const mediaAssets = useProjectStore((s) => s.mediaAssets);
   const project = useProjectStore((s) => s.project);
 
-  const engineRef = useRef<AudioEngine>(
-    options.audioEngine ?? getSharedAudioEngine(),
+  // Tauri program preview is native-only. Do not even construct a Web Audio
+  // graph there: an inactive fallback still owns buffers, a context clock,
+  // and can resume voices during a native handoff. Browser preview retains
+  // the shared engine as its single browser authority.
+  const engineRef = useRef<AudioEngine | null>(
+    options.nativeMode ? null : options.audioEngine ?? getSharedAudioEngine(),
   );
   const rafRef = useRef<number | null>(null);
   const nativeControllerRef = useRef<NativeAudioPreviewController | null>(null);
-  const nativeActiveRef = useRef(false);
-  const nativeInitializingRef = useRef(false);
-  const nativeFallbackAllowedRef = useRef(false);
   const nativeDisposeChainRef = useRef<Promise<void>>(Promise.resolve());
 
   // Native audio is brought up before transport starts. While it is warming,
@@ -100,13 +106,15 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
         console.warn("[useAudioSyncEngine] Native audio controller error:", error);
       },
     });
-    nativeActiveRef.current = false;
-    nativeInitializingRef.current = true;
-    nativeFallbackAllowedRef.current = false;
+    // Claim the clock synchronously, before any awaited native loading. A
+    // user can press Play during decode/configuration; that must not make
+    // PlaybackClock create a temporary Web Audio context in the gap.
+    getPlaybackClock().setNativeClockAuthority(true);
+    // A stale browser graph must be silent before native initialization begins.
     // Native mode has one audible authority. Quiesce any voices left by a
     // previous controller before the native stream is initialized; otherwise
     // native startup can overlap the old Web Audio graph for one or more RAFs.
-    engineRef.current.stopAllVoices(false);
+    engineRef.current?.stopAllVoices(false);
     let cancelled = false;
     let initializeStarted = false;
 
@@ -119,13 +127,17 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
         nativeControllerRef.current = controller;
         const enabled = await controller.initialize();
         if (cancelled || !enabled) {
-          nativeInitializingRef.current = false;
-          nativeFallbackAllowedRef.current = true;
+          // Native Tauri playback is mandatory. Staying silent is safer than
+          // silently switching to a second clock/audio implementation.
+          engineRef.current?.stopAllVoices(true);
+          if (!cancelled) {
+            console.error(
+              "[useAudioSyncEngine] Native program-preview audio could not initialize; browser fallback is disabled.",
+            );
+          }
           return;
         }
-        engineRef.current.stopAllVoices(true);
-        nativeActiveRef.current = true;
-        nativeInitializingRef.current = false;
+        engineRef.current?.stopAllVoices(true);
         controller.setOutput(options.volume ?? 100, options.muted ?? false);
       })();
     };
@@ -136,10 +148,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
 
     return () => {
       cancelled = true;
-      nativeInitializingRef.current = false;
-      nativeFallbackAllowedRef.current = false;
-      nativeActiveRef.current = false;
-      engineRef.current.stopAllVoices(false);
+      engineRef.current?.stopAllVoices(false);
       if (nativeControllerRef.current === controller) {
         nativeControllerRef.current = null;
       }
@@ -162,7 +171,9 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
 
   // 1. Asynchronously pre-decode and cache audio buffers whenever timeline clips change
   useEffect(() => {
+    if (options.nativeMode) return;
     const engine = engineRef.current;
+    if (!engine) return;
     const pool = engine.bufferPool;
 
     for (const clip of clips) {
@@ -194,8 +205,10 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
 
   // 2. High-performance RAF playback synchronizer loop (ZERO REACT DOM RE-RENDERS)
   useEffect(() => {
+    if (options.nativeMode) return;
     const clock = getPlaybackClock();
     const engine = engineRef.current;
+    if (!engine) return;
     let lastPlayState = clock.state;
 
     const syncLoop = () => {
@@ -203,29 +216,19 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       const isPlaying = clock.state === "playing";
       const speed = clock.speed;
 
-      const nativeModeBooting = options.nativeMode && nativeInitializingRef.current;
-      const nativeModeFallback = options.nativeMode && nativeFallbackAllowedRef.current;
-      if (nativeModeBooting) {
-        // A controller refresh can happen while old browser voices are still
-        // ending. Keep the browser graph silent for the entire native handoff.
-        engine.stopAllVoices(false);
-      } else if (!options.nativeMode || nativeModeFallback || !nativeActiveRef.current) {
-        // Synchronize browser audio voices only while native takeover is not
-        // active. This prevents two independent audible graphs from playing.
-        engine.syncPlayback(
-          clips,
-          tracks,
-          currentTime,
-          isPlaying,
-          speed,
-          options.volume ?? 100,
-          options.muted ?? false,
-        );
+      engine.syncPlayback(
+        clips,
+        tracks,
+        currentTime,
+        isPlaying,
+        speed,
+        options.volume ?? 100,
+        options.muted ?? false,
+      );
 
-        // Instant flush on play -> pause/stop transition
-        if (lastPlayState === "playing" && !isPlaying) {
-          engine.stopAllVoices(true);
-        }
+      // Instant flush on play -> pause/stop transition
+      if (lastPlayState === "playing" && !isPlaying) {
+        engine.stopAllVoices(true);
       }
       lastPlayState = clock.state;
 
@@ -250,6 +253,6 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
 
   return {
     audioEngine: engineRef.current,
-    bufferPool: engineRef.current.bufferPool,
+    bufferPool: engineRef.current?.bufferPool ?? null,
   };
 }

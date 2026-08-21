@@ -53,6 +53,11 @@ export interface PreviewSyncState {
   frameRate: 24 | 30 | 60;
 }
 
+export interface PreviewMediaPoolOptions {
+  /** Enable the legacy HTML audio path. Native Tauri preview disables it. */
+  audioEnabled?: boolean;
+}
+
 interface ManagedVideo {
   element: HTMLVideoElement;
   /** Currently bound clip ID (can change as clips are reassigned) */
@@ -253,14 +258,16 @@ export class PreviewMediaPool {
   // ─── RESOURCE TRACKING (LEAK-003 / MED-002) ─────────────────────────────
   private _projectId: string | null = null;
   private _sessionId: string | null = null;
+  private readonly audioEnabled: boolean;
 
   // ─── BOUNDARY COMPONENTS ─────────────────────────────────────────────────
   private scheduler: PreviewPlaybackScheduler;
   private textureManager: VideoTextureManager;
 
-  constructor(projectId?: string, sessionId?: string) {
+  constructor(projectId?: string, sessionId?: string, options: PreviewMediaPoolOptions = {}) {
     this._projectId = projectId ?? null;
     this._sessionId = sessionId ?? null;
+    this.audioEnabled = options.audioEnabled ?? true;
 
     // Initialize boundary components
     this.scheduler = new PreviewPlaybackScheduler();
@@ -421,10 +428,10 @@ export class PreviewMediaPool {
           // Video clips also get a managed <audio> element for preview sound.
           // Keep its key in the desired set so it is not disposed and recreated
           // on every sync tick.
-          desiredAudioKeys.add(clip.id);
+          if (this.audioEnabled) desiredAudioKeys.add(clip.id);
         } else if (asset?.type === "audio" || (clip.kind === "audio" && (clip as any).audioPath)) {
           const key = clip.id;
-          desiredAudioKeys.add(key);
+          if (this.audioEnabled) desiredAudioKeys.add(key);
         }
       }
 
@@ -590,8 +597,9 @@ export class PreviewMediaPool {
       // LRU eviction: Remove unused cached elements (not just inactive ones)
       this.evictUnusedElements(clips, assets, syncState);
 
-      // Create or update audio elements (for both audio clips AND video clips with audio tracks)
-      for (const clip of clips) {
+      // Create or update legacy HTML audio elements only in browser preview.
+      // Native Tauri audio is loaded/mixed by the CPAL timeline authority.
+      if (this.audioEnabled) for (const clip of clips) {
         const asset = assets.find((a) => a.id === clip.mediaId);
         const directAudioPath = (clip as any).audioPath as string | undefined;
         const hasAudio = asset?.type === "audio" || asset?.type === "video" || clip.kind === "audio" || clip.kind === "video" || !!directAudioPath;
@@ -773,6 +781,7 @@ export class PreviewMediaPool {
    * Get audio elements.
    */
   getAudioElements(): Map<string, HTMLAudioElement> {
+    if (!this.audioEnabled) return new Map();
     const result = new Map<string, HTMLAudioElement>();
     for (const [key, managed] of this.audios) {
       result.set(key, managed.element);
@@ -847,8 +856,9 @@ export class PreviewMediaPool {
       });
     }
 
-    // CRITICAL: Also include audio elements so scheduler monitors audio sync & generates seek/play/pause actions
-    for (const [clipId, managed] of this.audios) {
+    // CRITICAL: Also include browser audio elements so the legacy scheduler
+    // monitors audio sync. Native pools never contain audible audio elements.
+    for (const [clipId, managed] of this.audioEnabled ? this.audios : []) {
       if (states.has(clipId)) continue; // Handled by videoCache
 
       const audio = managed.element;
@@ -1077,6 +1087,7 @@ export class PreviewMediaPool {
    * MUST be called synchronously inside a user gesture event handler (like click).
    */
   unlockAudio(): void {
+    if (!this.audioEnabled) return;
     //  Check if we're in an active user gesture context
     // This is more reliable than timestamp-based checking
     const hasUserActivation = typeof navigator !== "undefined" && navigator.userActivation && navigator.userActivation.isActive;
