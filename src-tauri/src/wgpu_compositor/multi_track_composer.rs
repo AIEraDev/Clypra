@@ -991,15 +991,23 @@ impl MultiTrackCompositor {
         queue.submit(Some(encoder.finish()));
 
         let buffer_slice = output_buffer.slice(..);
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+        // tokio::sync::oneshot is not available on wasm32. Use a
+        // std::sync::Mutex-based flag instead — works on all targets.
+        // On WASM, device.poll(Maintain::Wait) drives the callback
+        // synchronously via the browser event loop.
+        let map_result: std::sync::Arc<std::sync::Mutex<Option<Result<(), wgpu::BufferAsyncError>>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let map_result_cb = map_result.clone();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
+            *map_result_cb.lock().unwrap() = Some(result);
         });
 
         device.poll(wgpu::Maintain::Wait);
-        receiver
-            .await
-            .map_err(|e| e.to_string())?
+        map_result
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| "map_async callback was not invoked".to_string())?
             .map_err(|e| e.to_string())?;
 
         let mapped_range = buffer_slice.get_mapped_range();
@@ -1180,15 +1188,23 @@ impl MultiTrackCompositor {
         queue.submit(Some(encoder.finish()));
 
         let buffer_slice = output_buffer.slice(..);
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+        // tokio::sync::oneshot is not available on wasm32. Use a
+        // std::sync::Mutex-based flag instead — works on all targets.
+        // On WASM, device.poll(Maintain::Wait) drives the callback
+        // synchronously via the browser event loop.
+        let map_result: std::sync::Arc<std::sync::Mutex<Option<Result<(), wgpu::BufferAsyncError>>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let map_result_cb = map_result.clone();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
+            *map_result_cb.lock().unwrap() = Some(result);
         });
 
         device.poll(wgpu::Maintain::Wait);
-        receiver
-            .await
-            .map_err(|e| e.to_string())?
+        map_result
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| "map_async callback was not invoked".to_string())?
             .map_err(|e| e.to_string())?;
 
         let mapped_range = buffer_slice.get_mapped_range();

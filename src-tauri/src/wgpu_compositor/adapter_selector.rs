@@ -27,56 +27,75 @@ impl GpuContext {
         instance: &Instance,
         compatible_surface: Option<&Surface<'_>>,
     ) -> Result<Self, String> {
-        let mut adapters = instance.enumerate_adapters(wgpu::Backends::all());
-        if let Some(surface) = compatible_surface {
-            adapters.retain(|adapter| !surface.get_capabilities(adapter).formats.is_empty());
-        }
+        // enumerate_adapters is not available on wasm32 (no enumeration API in
+        // the browser sandbox). The WASM crate uses init_gpu() directly and
+        // never calls select_best_gpu on that target, but the function must
+        // still compile. Guard the native-only path.
+        #[cfg(not(target_arch = "wasm32"))]
+        let best_adapter = {
+            let mut adapters = instance.enumerate_adapters(wgpu::Backends::all());
+            if let Some(surface) = compatible_surface {
+                adapters.retain(|adapter| !surface.get_capabilities(adapter).formats.is_empty());
+            }
 
-        let best_adapter = if !adapters.is_empty() {
-            // Score adapters: Prioritize Discrete GPUs (1000), then Integrated (200), penalize CPU/Virtual
-            let mut scored_adapters: Vec<(u32, Adapter)> = adapters
-                .into_iter()
-                .map(|adapter| {
-                    let info = adapter.get_info();
-                    let score = match info.device_type {
-                        DeviceType::DiscreteGpu => 1000,
-                        DeviceType::IntegratedGpu => 200,
-                        DeviceType::VirtualGpu => 50,
-                        DeviceType::Cpu => 10,
-                        DeviceType::Other => 0,
-                    };
-                    (score, adapter)
-                })
-                .collect();
+            if !adapters.is_empty() {
+                // Score adapters: Prioritize Discrete GPUs (1000), then Integrated (200), penalize CPU/Virtual
+                let mut scored_adapters: Vec<(u32, Adapter)> = adapters
+                    .into_iter()
+                    .map(|adapter| {
+                        let info = adapter.get_info();
+                        let score = match info.device_type {
+                            DeviceType::DiscreteGpu  => 1000,
+                            DeviceType::IntegratedGpu => 200,
+                            DeviceType::VirtualGpu    => 50,
+                            DeviceType::Cpu           => 10,
+                            DeviceType::Other         => 0,
+                        };
+                        (score, adapter)
+                    })
+                    .collect();
 
-            // Sort descending by score
-            scored_adapters.sort_by_key(|b| std::cmp::Reverse(b.0));
-            scored_adapters.remove(0).1
-        } else {
-            // Fallback to request_adapter if enumerate_adapters returns empty on some platforms
-            if let Some(adapter) = instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    compatible_surface,
-                    force_fallback_adapter: false,
-                })
-                .await
-            {
-                adapter
+                scored_adapters.sort_by_key(|b| std::cmp::Reverse(b.0));
+                scored_adapters.remove(0).1
             } else {
-                // Graceful degradation: Fallback to software rasterizer (WARP / Lavapipe / SwiftShader)
-                instance
+                // Fallback to request_adapter if enumerate_adapters returns empty on some platforms
+                if let Some(adapter) = instance
                     .request_adapter(&wgpu::RequestAdapterOptions {
-                        power_preference: wgpu::PowerPreference::None,
+                        power_preference:       wgpu::PowerPreference::HighPerformance,
                         compatible_surface,
-                        force_fallback_adapter: true,
+                        force_fallback_adapter: false,
                     })
                     .await
-                    .ok_or_else(|| {
-                        "No compatible graphics adapters or software rasterizers found.".to_string()
-                    })?
+                {
+                    adapter
+                } else {
+                    // Graceful degradation: Fallback to software rasterizer (WARP / Lavapipe / SwiftShader)
+                    instance
+                        .request_adapter(&wgpu::RequestAdapterOptions {
+                            power_preference:       wgpu::PowerPreference::None,
+                            compatible_surface,
+                            force_fallback_adapter: true,
+                        })
+                        .await
+                        .ok_or_else(|| {
+                            "No compatible graphics adapters or software rasterizers found.".to_string()
+                        })?
+                }
             }
         };
+
+        // On wasm32 we fall back to a simple request_adapter — select_best_gpu
+        // is not the primary path (init_gpu() in clypra-render-wasm is), but
+        // we need this to compile.
+        #[cfg(target_arch = "wasm32")]
+        let best_adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference:       wgpu::PowerPreference::HighPerformance,
+                compatible_surface:     None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or_else(|| "No WebGPU adapter found".to_string())?;
 
         let info = best_adapter.get_info();
         let is_discrete = info.device_type == DeviceType::DiscreteGpu;
@@ -130,6 +149,7 @@ impl GpuContext {
 mod tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_adapter_selection_scoring() {
         let instance = Instance::new(&wgpu::InstanceDescriptor {
