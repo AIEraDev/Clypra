@@ -25,8 +25,8 @@ export const EmptyTimelineDropZone: React.FC<EmptyTimelineDropZoneProps> = ({ is
   return (
     <div
       ref={drop as unknown as React.Ref<HTMLDivElement>}
-      className={`absolute inset-0 z-20 rounded-xl transition-colors ${isDragging ? "pointer-events-auto border-2 border-dashed border-accent/60 bg-accent/10" : "pointer-events-none"}`}
-      aria-hidden="true"
+      className={`absolute inset-0 z-30 rounded-xl pointer-events-auto transition-colors ${isDragging ? "border-2 border-dashed border-accent/60 bg-accent/10" : ""}`}
+      aria-label="Timeline drop area"
     />
   );
 };
