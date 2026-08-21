@@ -209,25 +209,28 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     }
   }
 
-  // PERFORMANCE OPTIMIZATION: Batch frame writes to reduce IPC overhead
-  // Batch size of 30 frames reduces memory spikes while keeping IPC overhead negligible
-  const BATCH_SIZE = 30; // 1 second at 30fps
+  // EX-2 fix: Batch size reduced from 30 → 10 frames.
+  // At 1080p a single frame is ~8 MB (1920×1080×4). BATCH_SIZE=30 caused a ~248 MB
+  // contiguous allocation per flush (plus the 30 source frames still in memory = ~496 MB peak).
+  // BATCH_SIZE=10 caps that at ~83 MB batch + ~83 MB source = ~166 MB peak — safe on 4 GB machines.
+  const BATCH_SIZE = 10;
   const frameBuffer: Uint8Array[] = [];
-  const frameSize = width * height * 4; // RGBA
+  const frameSize = width * height * 4; // RGBA bytes per frame
 
   /**
    * Flush accumulated frames to backend in a single batch.
-   * Reduces IPC overhead by 90% compared to per-frame writes.
+   * Reduces IPC overhead vs. per-frame writes while keeping peak memory manageable.
    */
   async function flushFrameBatch(batch: Uint8Array[]) {
     if (batch.length === 0) return;
 
-    // Concatenate all frames into single buffer
-    const batchSize = batch.length * frameSize;
-    const batchBuffer = new Uint8Array(batchSize);
-
+    // Concatenate all frames into single buffer for binary IPC.
+    const batchBuffer = new Uint8Array(batch.length * frameSize);
     for (let i = 0; i < batch.length; i++) {
       batchBuffer.set(batch[i], i * frameSize);
+      // EX-2 fix: null the source reference immediately after copying so the GC
+      // can reclaim each frame's ~8 MB before we finish building the concat buffer.
+      (batch as (Uint8Array | null)[])[i] = null;
     }
 
     // Send batch with frame count in header
@@ -241,24 +244,11 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
   let inFlightWritePromise: Promise<void> | null = null;
 
-  // Create an AudioContext and play a silent loop to prevent background throttling
-  let audioCtx: AudioContext | null = null;
-  let oscillator: OscillatorNode | null = null;
-  let gainNode: GainNode | null = null;
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
-      oscillator = audioCtx.createOscillator();
-      gainNode = audioCtx.createGain();
-      gainNode.gain.value = 0; // 100% silent (zero amplitude) keepalive
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      oscillator.start();
-    }
-  } catch (e) {
-    console.warn("[videoExport] Failed to start silent audio context for background keep-alive:", e);
-  }
+  // EX-3 fix: Removed AudioContext/OscillatorNode keepalive. The pattern was intended
+  // to prevent Chromium background-tab throttling of setTimeout, but Tauri's WebView is
+  // never considered a "background" tab — it is always active. The keepalive added an
+  // unnecessary low-latency audio thread for the entire export with zero measurable benefit.
+  // The setTimeout(r, 0) yield at the frame loop is sufficient.
 
   try {
     // Render and write frames
@@ -324,10 +314,20 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     // Check if cancelled
     if (error instanceof Error && error.message.includes("cancelled")) {
       cancelled = true;
+      // EX-1 fix: drain any in-flight batch write before telling Rust to cancel.
+      // Without this, Rust may receive cancel_video_export while a batch IPC write
+      // is still in-flight, leaving the session in an inconsistent partial-write state.
+      if (inFlightWritePromise) {
+        await inFlightWritePromise.catch(() => {}); // drain silently — cancel supersedes
+      }
       await invoke("cancel_video_export", { sessionId }).catch(() => {
         // Ignore errors during cancellation
       });
     } else {
+      // EX-1 fix: same drain on unexpected error paths.
+      if (inFlightWritePromise) {
+        await inFlightWritePromise.catch(() => {});
+      }
       // Try to cancel on error
       await invoke("cancel_video_export", { sessionId }).catch(() => {
         // Ignore errors during cancellation
@@ -335,21 +335,6 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       throw error;
     }
   } finally {
-    if (oscillator) {
-      try {
-        oscillator.stop();
-      } catch (e) {
-        // ignore
-      }
-    }
-    if (audioCtx) {
-      try {
-        audioCtx.close();
-      } catch (e) {
-        // ignore
-      }
-    }
-
     // Release global image bitmaps and evaluated frames to free up memory
     try {
       getResourceCache().clear();
