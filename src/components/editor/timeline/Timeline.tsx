@@ -5,12 +5,28 @@ import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
 import { EditingActions } from "@/core/interactions";
 import { usePreviewMode } from "@/hooks/usePreviewMode";
-import { usePlaybackClock, usePlaybackControls, getPlaybackClock } from "@/hooks/usePlaybackClock";
-import { getTimelineViewportEnd, getTimelineCanvasDuration } from "@/lib/timeline/timelineClip";
-import { useTimelineDrag, useTimelineTauriDrop, useTimelineZoom } from "@/hooks";
+import {
+  usePlaybackClock,
+  usePlaybackControls,
+  getPlaybackClock,
+} from "@/hooks/usePlaybackClock";
+import {
+  getTimelineViewportEnd,
+  getTimelineCanvasDuration,
+} from "@/lib/timeline/timelineClip";
+import {
+  useTimelineDrag,
+  useTimelineTauriDrop,
+  useTimelineZoom,
+} from "@/hooks";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
-import { TIMELINE_TRACK_LABEL_WIDTH_PX, getTimelineLabelColumnWidth, getTimelineLaneWidth, getTimelineMaxScrollLeft, timeToPixel } from "@/lib/timeline/timelineViewport";
-
+import {
+  TIMELINE_TRACK_LABEL_WIDTH_PX,
+  getTimelineLabelColumnWidth,
+  getTimelineLaneWidth,
+  getTimelineMaxScrollLeft,
+  timeToPixel,
+} from "@/lib/timeline/timelineViewport";
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -25,7 +41,16 @@ const traceSelect = (...args: unknown[]) => {
 };
 
 export const Timeline: React.FC = () => {
-  const { tracks, clips, pixelsPerSecond, scrollLeft, setScrollLeft, getTimelineEndTime, setViewportWidth, snapGuides } = useTimelineStore();
+  const {
+    tracks,
+    clips,
+    pixelsPerSecond,
+    scrollLeft,
+    setScrollLeft,
+    getTimelineEndTime,
+    setViewportWidth,
+    snapGuides,
+  } = useTimelineStore();
   const hasClips = clips.length > 0;
 
   const { previewMode, clearSelection } = useUIStore();
@@ -40,12 +65,19 @@ export const Timeline: React.FC = () => {
   const runtime = useRenderRuntime();
   const isProgramPreviewActive = previewMode === "program";
   const hasTimelineContent = hasClips || tracks.length > 0;
-  const showInactivePreviewOverlay = !isProgramPreviewActive && hasTimelineContent;
+  const showInactivePreviewOverlay =
+    !isProgramPreviewActive && hasTimelineContent;
 
   // Consume extracted hooks
   useTimelineZoom(containerRef, hasTimelineContent);
-  const { isDraggingOver, isDraggingMedia } = useTimelineTauriDrop(containerRef);
-  const { dragState, handleClipDragStart, handleClipDragMove, handleClipDragEnd } = useTimelineDrag(containerRef);
+  const { isDraggingOver, isDraggingMedia } =
+    useTimelineTauriDrop(containerRef);
+  const {
+    dragState,
+    handleClipDragStart,
+    handleClipDragMove,
+    handleClipDragEnd,
+  } = useTimelineDrag(containerRef);
 
   // Measure container width and observe resize
   useEffect(() => {
@@ -121,7 +153,12 @@ export const Timeline: React.FC = () => {
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
       const canvasDuration = getTimelineCanvasDuration(duration);
-      const maxScrollLeft = getTimelineMaxScrollLeft(container.clientWidth, canvasDuration, pixelsPerSecond, hasClips);
+      const maxScrollLeft = getTimelineMaxScrollLeft(
+        container.clientWidth,
+        canvasDuration,
+        pixelsPerSecond,
+        hasClips,
+      );
 
       if (playheadX < leftEdge || playheadX > rightEdge) {
         // Place playhead at 15% from left edge ("look-ahead" position)
@@ -141,7 +178,12 @@ export const Timeline: React.FC = () => {
       const liveTime = getPlaybackClock().time;
       const playheadX = Math.round(liveTime * pixelsPerSecond);
       const canvasDuration = getTimelineCanvasDuration(duration);
-      const maxScrollLeft = getTimelineMaxScrollLeft(container.clientWidth, canvasDuration, pixelsPerSecond, hasClips);
+      const maxScrollLeft = getTimelineMaxScrollLeft(
+        container.clientWidth,
+        canvasDuration,
+        pixelsPerSecond,
+        hasClips,
+      );
       let newScrollLeft = container.scrollLeft;
 
       const isAtAbsoluteEnd = liveTime >= duration - 0.01;
@@ -198,7 +240,11 @@ export const Timeline: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       // Ignore if typing in input/textarea
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
         return;
       }
 
@@ -317,11 +363,20 @@ export const Timeline: React.FC = () => {
 
       const rect = container.getBoundingClientRect();
       const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
-      const x = event.clientX - rect.left - labelColumnWidth + container.scrollLeft;
+      const x =
+        event.clientX - rect.left - labelColumnWidth + container.scrollLeft;
       const time = Math.max(0, Math.min(x / pixelsPerSecond, duration));
       seek(time);
     },
-    [duration, pixelsPerSecond, seek, previewMode, exitSourceMode, clearSelection, hasClips],
+    [
+      duration,
+      pixelsPerSecond,
+      seek,
+      previewMode,
+      exitSourceMode,
+      clearSelection,
+      hasClips,
+    ],
   );
 
   // Simple scroll handler — no cross-container sync needed
@@ -345,7 +400,16 @@ export const Timeline: React.FC = () => {
         />
       )}
 
-      {hasClips && <div className="absolute top-[40px] left-0 right-0 bottom-0 bg-(--color-timeline-ruler-bg)" style={{ zIndex: 120, width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`, minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px` }}></div>}
+      {hasClips && (
+        <div
+          className="absolute top-[40px] left-0 right-0 bottom-0 bg-(--color-timeline-ruler-bg)"
+          style={{
+            zIndex: 120,
+            width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
+            minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
+          }}
+        ></div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {/* ── Single scroll container with CSS Grid ─────────────────────── */}
@@ -358,8 +422,14 @@ export const Timeline: React.FC = () => {
           className={`h-full overflow-auto scrollbar-thin relative transition-colors ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}
           style={{
             display: "grid",
-            gridTemplateColumns: hasClips ? `${TIMELINE_TRACK_LABEL_WIDTH_PX}px 1fr` : "1fr",
-            gridTemplateRows: hasTimelineContent ? (hasClips ? "auto 1fr" : "24px minmax(0, 1fr)") : "minmax(0, 1fr)",
+            gridTemplateColumns: hasClips
+              ? `${TIMELINE_TRACK_LABEL_WIDTH_PX}px 1fr`
+              : "1fr",
+            gridTemplateRows: hasTimelineContent
+              ? hasClips
+                ? "auto 1fr"
+                : "24px minmax(0, 1fr)"
+              : "minmax(0, 1fr)",
             alignContent: hasClips ? "start" : "stretch",
             scrollbarWidth: "none",
             rowGap: 0,
@@ -382,7 +452,9 @@ export const Timeline: React.FC = () => {
                 borderRight: "1px solid var(--color-timeline-track-border)",
               }}
             >
-              <span className="text-[11px] font-semibold tracking-wide text-timeline-track-label uppercase">Track</span>
+              <span className="text-[11px] font-semibold tracking-wide text-timeline-track-label uppercase">
+                Track
+              </span>
             </div>
           )}
 
@@ -398,10 +470,13 @@ export const Timeline: React.FC = () => {
                 borderBottom: "1px solid var(--color-timeline-track-border)",
               }}
             >
-              <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} sequenceDuration={contentEnd} />
+              <TimelineRuler
+                pixelsPerSecond={pixelsPerSecond}
+                scrollLeft={scrollLeft}
+                sequenceDuration={contentEnd}
+              />
             </div>
           )}
-
 
           {/* ── Row 2+: Track labels (sticky left) + Track clips ─────── */}
           {!hasClips ? (
@@ -413,7 +488,9 @@ export const Timeline: React.FC = () => {
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted">
                     <Film className="h-7 w-7" strokeWidth={1.5} />
                   </div>
-                  <span className="text-lg font-medium tracking-tight text-text-primary/90">Drag material here and start to create</span>
+                  <span className="text-lg font-medium tracking-tight text-text-primary/90">
+                    Drag material here and start to create
+                  </span>
                 </div>
               </div>
               <EmptyTimelineDropZone />
@@ -430,22 +507,26 @@ export const Timeline: React.FC = () => {
                   rowGap: 0,
                 }}
               >
-                {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "above" && (
-                  <div
-                    className="pointer-events-none z-50"
-                    style={{
-                      gridColumn: "1 / -1",
-                      height: "2px",
-                      background: "var(--color-timeline-drop-indicator)",
-                      boxShadow: "0 0 8px var(--color-timeline-drop-indicator)",
-                    }}
-                  />
-                )}
+                {dragState?.willCreateNewTrack &&
+                  dragState?.newTrackPosition === "above" && (
+                    <div
+                      className="pointer-events-none z-50"
+                      style={{
+                        gridColumn: "1 / -1",
+                        height: "2px",
+                        background: "var(--color-timeline-drop-indicator)",
+                        boxShadow:
+                          "0 0 8px var(--color-timeline-drop-indicator)",
+                      }}
+                    />
+                  )}
 
                 {tracks.map((track) => {
                   // FIX: Filter clips per track to avoid passing entire clips array
                   // This prevents tracks from re-rendering when clips on OTHER tracks change
-                  const trackClips = clips.filter((c) => c.trackId === track.id);
+                  const trackClips = clips.filter(
+                    (c) => c.trackId === track.id,
+                  );
 
                   // FIX: Memoize dragState prop to prevent inline object creation
                   // Inline object literals break React.memo even when values are unchanged
@@ -476,53 +557,67 @@ export const Timeline: React.FC = () => {
                           height: `${track.height}px`,
                         }}
                       >
-                        <Track track={track} pixelsPerSecond={pixelsPerSecond} clips={trackClips} onClipDragStart={handleClipDragStart} onClipDragMove={handleClipDragMove} onClipDragEnd={handleClipDragEnd} dragState={trackDragState} />
+                        <Track
+                          track={track}
+                          pixelsPerSecond={pixelsPerSecond}
+                          clips={trackClips}
+                          onClipDragStart={handleClipDragStart}
+                          onClipDragMove={handleClipDragMove}
+                          onClipDragEnd={handleClipDragEnd}
+                          dragState={trackDragState}
+                        />
                       </div>
 
                       {/* Between-track indicator */}
-                      {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "between" && dragState?.betweenTrackIds?.aboveId === track.id && (
-                        <div
-                          className="relative pointer-events-none z-50 flex items-center justify-center"
-                          style={{
-                            gridColumn: "1 / -1",
-                            height: "4px",
-                            marginTop: "-2px",
-                            marginBottom: "-2px",
-                          }}
-                        >
+                      {dragState?.willCreateNewTrack &&
+                        dragState?.newTrackPosition === "between" &&
+                        dragState?.betweenTrackIds?.aboveId === track.id && (
                           <div
-                            className="absolute inset-0"
+                            className="relative pointer-events-none z-50 flex items-center justify-center"
                             style={{
-                              background: `linear-gradient(90deg, transparent, var(--color-timeline-drop-indicator) 10%, var(--color-timeline-drop-indicator) 90%, transparent)`,
-                              boxShadow: "0 0 12px var(--color-timeline-drop-indicator)",
-                            }}
-                          />
-                          <div
-                            className="relative text-xs font-medium px-3 py-1 rounded-full text-white"
-                            style={{
-                              background: "var(--color-timeline-drop-indicator)",
-                              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
+                              gridColumn: "1 / -1",
+                              height: "4px",
+                              marginTop: "-2px",
+                              marginBottom: "-2px",
                             }}
                           >
-                            Create New Track
+                            <div
+                              className="absolute inset-0"
+                              style={{
+                                background: `linear-gradient(90deg, transparent, var(--color-timeline-drop-indicator) 10%, var(--color-timeline-drop-indicator) 90%, transparent)`,
+                                boxShadow:
+                                  "0 0 12px var(--color-timeline-drop-indicator)",
+                              }}
+                            />
+                            <div
+                              className="relative text-xs font-medium px-3 py-1 rounded-full text-white"
+                              style={{
+                                background:
+                                  "var(--color-timeline-drop-indicator)",
+                                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
+                              }}
+                            >
+                              Create New Track
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
                     </React.Fragment>
                   );
                 })}
 
-                {dragState?.willCreateNewTrack && dragState?.newTrackPosition === "below" && (
-                  <div
-                    className="pointer-events-none z-50"
-                    style={{
-                      gridColumn: "1 / -1",
-                      height: "2px",
-                      background: "var(--color-timeline-drop-indicator)",
-                      boxShadow: "0 0 8px var(--color-timeline-drop-indicator)",
-                    }}
-                  />
-                )}
+                {dragState?.willCreateNewTrack &&
+                  dragState?.newTrackPosition === "below" && (
+                    <div
+                      className="pointer-events-none z-50"
+                      style={{
+                        gridColumn: "1 / -1",
+                        height: "2px",
+                        background: "var(--color-timeline-drop-indicator)",
+                        boxShadow:
+                          "0 0 8px var(--color-timeline-drop-indicator)",
+                      }}
+                    />
+                  )}
               </div>
 
               {/* Playhead spans the visible viewport (clips area only) */}
@@ -536,27 +631,23 @@ export const Timeline: React.FC = () => {
                   zIndex: 100,
                 }}
               >
-                <Playhead pixelsPerSecond={pixelsPerSecond} duration={duration} containerRef={containerRef} />
-              </div>
-
-              {/* Sequence End Line across track area */}
-              {contentEnd > 0 && (
-                <div
-                  className="pointer-events-none absolute top-0 bottom-0 z-40"
-                  style={{
-                    left: `${getTimelineLabelColumnWidth(hasClips) + timeToPixel(contentEnd, pixelsPerSecond)}px`,
-                    width: "2px",
-                    background: "rgba(239, 68, 68, 0.4)",
-                    borderRight: "1px dashed rgba(239, 68, 68, 0.7)",
-                  }}
+                <Playhead
+                  pixelsPerSecond={pixelsPerSecond}
+                  duration={duration}
+                  containerRef={containerRef}
                 />
-              )}
+              </div>
 
               {/* Snap Guides - Vertical alignment indicators */}
 
               {snapGuides.map((guide, index) => {
-                const guideLeft = guide.time * pixelsPerSecond + getTimelineLabelColumnWidth(hasClips);
-                const guideColor = guide.type === "playhead" ? "var(--color-timeline-drop-indicator)" : "var(--color-snap-guide-clip)";
+                const guideLeft =
+                  guide.time * pixelsPerSecond +
+                  getTimelineLabelColumnWidth(hasClips);
+                const guideColor =
+                  guide.type === "playhead"
+                    ? "var(--color-timeline-drop-indicator)"
+                    : "var(--color-snap-guide-clip)";
 
                 return (
                   <div
