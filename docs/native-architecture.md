@@ -140,3 +140,27 @@ CI workflow running the same fixtures through the WASM build and diffing
 against the Metal native reference. Tolerance TBD from first real measured run.
 The WASM leg measures "browser WebGPU vs. native Metal compositor" drift —
 a different claim than cross-platform native consistency, tracked separately.
+
+### WASM browser validation — required before v0.1.0
+
+The WASM parity CI job runs headless Chrome which uses SwiftShader (software
+Vulkan). This validates shader portability, not real-hardware browser parity.
+Before v0.1.0 ships, the smoke-test page (`crates/clypra-render-wasm/test/`)
+must be run manually in both Chrome and Firefox and results recorded below.
+
+**Procedure:**
+
+1. Start a local server: `cd crates/clypra-render-wasm && wasm-pack build --target web && python3 -m http.server 8792`
+2. Open `http://localhost:8792` in Chrome → click "Run (auto-detect backend)"
+3. Click "Force WebGL2 path" in Chrome → confirm WebGL2 fallback works
+4. Open in Firefox → run both auto-detect and force-WebGL2
+5. Record all four runs in the log below
+
+**Format:** same as the native hardware log above.
+
+| Date       | Browser        | Adapter   | Backend       | px(0,0)     | px(1,1)       | bytes | Software? |
+| ---------- | -------------- | --------- | ------------- | ----------- | ------------- | ----- | --------- |
+| 2026-08-21 | Chrome/macOS   | Apple M1  | BrowserWebGpu | (0,0,0,255) | (255,0,0,255) | 132   | No        |
+| —          | Chrome WebGL2  | _pending_ | Gl            | —           | —             | —     | —         |
+| —          | Firefox/macOS  | _pending_ | Gl            | —           | —             | —     | —         |
+| —          | Firefox WebGL2 | _pending_ | Gl            | —           | —             | —     | —         |

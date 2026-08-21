@@ -1,0 +1,322 @@
+name: WASM Parity — Browser WebGPU vs Native Metal Reference
+
+# Renders the same fixture corpus through clypra-render-wasm in headless
+# Chrome and diffs the output against the committed Metal reference PNGs.
+#
+# What this job proves:
+#   ✅ clypra-render-wasm compiles and render_frame() returns pixels
+#   ✅ WGSL shaders are accepted by Chrome's WebGPU validator
+#   ✅ Compositor logic produces output within tolerance of the native path
+#   ⚠️  GitHub-hosted runners have NO dedicated GPU. Chrome will use
+#       SwiftShader (CPU software Vulkan/D3D12) for WebGPU unless the
+#       runner explicitly has GPU passthrough configured. The adapter name
+#       is logged in every run — a green check here with SwiftShader means
+#       "shader logic is portable and math is consistent," NOT "real Chrome
+#       GPU parity confirmed."
+#
+# Real browser GPU validation:
+#   Must be done manually using the smoke-test page at
+#   crates/clypra-render-wasm/test/index.html served locally, run in Chrome
+#   and Firefox with "Force WebGL2 path" tested explicitly. Record results in
+#   docs/native-architecture.md §Hardware Validation Log.
+#
+# Tolerance:
+#   WASM (SwiftShader) vs native Metal: 8 per-channel (conservative; will be
+#   tightened once real GPU data exists). The diff JSON is always uploaded so
+#   actual numbers are visible even when the check passes.
+
+on:
+  push:
+    branches: [main, develop, master, "feat/**"]
+    paths:
+      - "src-tauri/src/wgpu_compositor/**"
+      - "src-tauri/src/shaders/**"
+      - "src-tauri/src/native_core/**"
+      - "crates/clypra-render-wasm/**"
+      - "crates/clypra-native-cli/**"
+      - "crates/clypra-native-core/**"
+      - ".github/workflows/wasm-parity.yml"
+  pull_request:
+    paths:
+      - "src-tauri/src/wgpu_compositor/**"
+      - "src-tauri/src/shaders/**"
+      - "src-tauri/src/native_core/**"
+      - "crates/clypra-render-wasm/**"
+      - "crates/clypra-native-cli/**"
+      - "crates/clypra-native-core/**"
+      - ".github/workflows/wasm-parity.yml"
+
+jobs:
+  wasm-parity:
+    name: WASM Parity [ubuntu]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust + wasm-pack ──────────────────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates/clypra-render-wasm
+            crates/clypra-native-cli
+            crates/clypra-native-core
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      # ── Build WASM package ────────────────────────────────────────────────
+      - name: Build clypra-render-wasm
+        run: wasm-pack build --target web --release
+        working-directory: crates/clypra-render-wasm
+
+      # ── Build native CLI (for golden diff) ───────────────────────────────
+      - name: Install Vulkan + Mesa Lavapipe (for native CLI render)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+
+      - name: Build clypra-native-cli
+        run: cargo build --release
+        working-directory: crates/clypra-native-cli
+
+      # ── Render native reference frames ────────────────────────────────────
+      # These are the ground truth for this job's diff. The committed
+      # fixtures/minimal-expected.png and raster-expected.png are the Metal
+      # reference; we render fresh native-CLI outputs here so the diff is
+      # CLI→WASM on the same machine, not CLI-on-mac→WASM-on-linux.
+      - name: Render native reference (Lavapipe)
+        run: |
+          mkdir -p artifacts
+          cargo run --release -- render \
+            fixtures/minimal-request.json \
+            ../../artifacts/minimal-native.png \
+            2>&1 | tee /tmp/render-native-minimal.log
+          GPU_LINE=$(grep "^GPU:" /tmp/render-native-minimal.log || echo "GPU: unknown")
+          echo "NATIVE_GPU=${GPU_LINE}" >> "$GITHUB_ENV"
+          cargo run --release -- render \
+            fixtures/raster-request.json \
+            ../../artifacts/raster-native.png \
+            2>/dev/null
+        working-directory: crates/clypra-native-cli
+        shell: bash
+
+      # ── Render WASM frames via headless Chrome ────────────────────────────
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install puppeteer
+        run: npm install puppeteer
+        working-directory: /tmp
+
+      - name: Copy WASM pkg and fixtures to test dir
+        run: |
+          mkdir -p /tmp/wasm-ci-test/pkg
+          cp -r crates/clypra-render-wasm/pkg/* /tmp/wasm-ci-test/pkg/
+          cp crates/clypra-native-cli/fixtures/minimal-request.json /tmp/wasm-ci-test/
+          cp crates/clypra-native-cli/fixtures/raster-request.json  /tmp/wasm-ci-test/
+
+      # Write the CI render script that runs headless Chrome via Puppeteer,
+      # calls create_renderer() + render_frame(), saves PNG output, and
+      # prints the adapter info for the job summary.
+      - name: Write CI render script
+        run: |
+          cat > /tmp/wasm-ci-render.mjs << 'EOF'
+          import puppeteer from "/tmp/node_modules/puppeteer/lib/esm/puppeteer/node/index.js";
+          import { readFileSync, writeFileSync, mkdirSync } from "fs";
+          import { createServer } from "http";
+          import { extname, join } from "path";
+
+          // Serve /tmp/wasm-ci-test statically
+          const SERVE_DIR = "/tmp/wasm-ci-test";
+          const PORT = 8799;
+          const MIME = {
+            ".html": "text/html",
+            ".js": "application/javascript",
+            ".wasm": "application/wasm",
+            ".json": "application/json",
+          };
+          const server = createServer((req, res) => {
+            try {
+              const file = join(SERVE_DIR, req.url.split("?")[0]);
+              const data = readFileSync(file);
+              res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream" });
+              res.end(data);
+            } catch {
+              res.writeHead(404); res.end();
+            }
+          }).listen(PORT);
+
+          const browser = await puppeteer.launch({
+            args: [
+              "--no-sandbox",
+              "--disable-setuid-sandbox",
+              "--enable-unsafe-webgpu",
+              "--enable-features=Vulkan,UseSkiaRenderer",
+              "--use-angle=vulkan",
+            ],
+            headless: true,
+          });
+
+          const page = await browser.newPage();
+          page.on("console", m => process.stderr.write(`[browser] ${m.text()}\n`));
+          page.on("pageerror", e => process.stderr.write(`[error] ${e}\n`));
+
+          await page.goto(`http://localhost:${PORT}/render.html`);
+
+          // Inject the render page inline
+          await page.setContent(`<!DOCTYPE html>
+          <html><body><script type="module">
+            import init, { create_renderer } from "http://localhost:${PORT}/pkg/clypra_render_wasm.js";
+            async function run() {
+              await init();
+              const r = await create_renderer();
+              window._adapterInfo = r.adapter_info();
+              const fixtures = ["minimal", "raster"];
+              window._results = {};
+              for (const name of fixtures) {
+                const json = await fetch("http://localhost:${PORT}/" + name + "-request.json").then(x=>x.text());
+                const bytes = await r.render_frame(json);
+                window._results[name] = Array.from(bytes);
+              }
+              window._done = true;
+            }
+            run().catch(e => { window._error = String(e); window._done = true; });
+          </script></body></html>`);
+
+          // Wait for render to complete (up to 60s)
+          await page.waitForFunction("window._done === true", { timeout: 60000 });
+
+          const error = await page.evaluate(() => window._error);
+          if (error) {
+            console.error("RENDER_ERROR:" + error);
+            process.exit(1);
+          }
+
+          const adapterInfo = await page.evaluate(() => window._adapterInfo);
+          console.log("ADAPTER_INFO:" + adapterInfo);
+
+          const results = await page.evaluate(() => window._results);
+          mkdirSync("/tmp/wasm-ci-out", { recursive: true });
+          for (const [name, bytes] of Object.entries(results)) {
+            writeFileSync(`/tmp/wasm-ci-out/${name}-wasm.png`, Buffer.from(bytes));
+            console.log(`RENDERED:${name}:${bytes.length}`);
+          }
+
+          await browser.close();
+          server.close();
+          EOF
+
+      - name: Render WASM frames (headless Chrome)
+        id: wasm_render
+        run: |
+          node /tmp/wasm-ci-render.mjs 2>&1 | tee /tmp/wasm-render.log
+          ADAPTER=$(grep "^ADAPTER_INFO:" /tmp/wasm-render.log | sed 's/ADAPTER_INFO://' || echo "{}")
+          echo "WASM_ADAPTER=${ADAPTER}" >> "$GITHUB_ENV"
+          cp /tmp/wasm-ci-out/minimal-wasm.png artifacts/ 2>/dev/null || true
+          cp /tmp/wasm-ci-out/raster-wasm.png  artifacts/ 2>/dev/null || true
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        continue-on-error: true
+
+      # ── Diff WASM vs native ───────────────────────────────────────────────
+      - name: Diff minimal (WASM vs native, tol=8)
+        id: diff_minimal
+        run: |
+          cargo run --release -- diff \
+            ../../artifacts/minimal-wasm.png \
+            ../../artifacts/minimal-native.png \
+            8 | tee ../../artifacts/diff-minimal-wasm.json
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        continue-on-error: true
+
+      - name: Diff raster (WASM vs native, tol=8)
+        id: diff_raster
+        run: |
+          cargo run --release -- diff \
+            ../../artifacts/raster-wasm.png \
+            ../../artifacts/raster-native.png \
+            8 | tee ../../artifacts/diff-raster-wasm.json
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        continue-on-error: true
+
+      # ── Job summary ───────────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## WASM Parity — Browser WebGPU vs Native" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Native adapter (Lavapipe on CI)
+          echo "**Native adapter (CI):** \`${NATIVE_GPU:-unknown}\`" >> "$GITHUB_STEP_SUMMARY"
+
+          # WASM adapter — critical for knowing if this is SwiftShader
+          WASM_NAME=$(python3 -c "import json,sys; d=json.loads('''${WASM_ADAPTER}'''); print(d.get('name','unknown'))" 2>/dev/null || echo "unknown")
+          WASM_BACKEND=$(python3 -c "import json,sys; d=json.loads('''${WASM_ADAPTER}'''); print(d.get('backend','unknown'))" 2>/dev/null || echo "unknown")
+          WASM_TYPE=$(python3 -c "import json,sys; d=json.loads('''${WASM_ADAPTER}'''); print(d.get('deviceType','unknown'))" 2>/dev/null || echo "unknown")
+          echo "**WASM adapter (CI):** \`${WASM_NAME}\` backend=\`${WASM_BACKEND}\` type=\`${WASM_TYPE}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Software rasterizer warning
+          if echo "${WASM_NAME} ${WASM_TYPE}" | grep -qiE "swiftshader|llvmpipe|software|warp|lavapipe|cpu|basic render"; then
+            echo "> ⚠️ **Software rasterizer (${WASM_NAME}).** This run validates shader portability only. It does NOT confirm real browser GPU parity. Run the smoke-test page in Chrome/Firefox manually to get real hardware numbers." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "> ✅ **Hardware GPU in WASM path.** Results count toward browser parity." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "| Fixture | maxChannelError | differing_pixels | mean_error | result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|----------------|-----------------|------------|--------|" >> "$GITHUB_STEP_SUMMARY"
+
+          for fixture in minimal raster; do
+            diff_file="artifacts/diff-${fixture}-wasm.json"
+            if [ -f "$diff_file" ]; then
+              max=$(python3 -c "import json; d=json.load(open('$diff_file')); print(d['maxChannelError'])" 2>/dev/null || echo "?")
+              dp=$(python3  -c "import json; d=json.load(open('$diff_file')); print(d['differingPixels'])" 2>/dev/null || echo "?")
+              mean=$(python3 -c "import json; d=json.load(open('$diff_file')); print(round(d['meanChannelError'],4))" 2>/dev/null || echo "?")
+              result="✅"
+              if [ "$max" != "?" ] && [ "$max" -gt 8 ] 2>/dev/null; then result="❌"; fi
+            else
+              max="N/A"; dp="N/A"; mean="N/A"; result="⚠️ render failed"
+            fi
+            echo "| $fixture | $max | $dp | $mean | $result |" >> "$GITHUB_STEP_SUMMARY"
+          done
+        shell: bash
+
+      # ── Enforce tolerance ─────────────────────────────────────────────────
+      - name: Enforce minimal parity
+        if: steps.diff_minimal.outcome == 'failure'
+        run: |
+          echo "::error::minimal fixture exceeds WASM parity tolerance (max 8 per-channel)"
+          exit 1
+        shell: bash
+
+      - name: Enforce raster parity
+        if: steps.diff_raster.outcome == 'failure'
+        run: |
+          echo "::error::raster fixture exceeds WASM parity tolerance (max 8 per-channel)"
+          exit 1
+        shell: bash
+
+      # ── Upload artifacts ──────────────────────────────────────────────────
+      - name: Upload WASM render outputs and diff reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-parity
+          path: crates/clypra-native-cli/artifacts/
+          retention-days: 30
