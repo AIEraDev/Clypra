@@ -9,10 +9,12 @@ import {
 import type { Clip as ClipType, MediaAsset } from "@/types";
 import { ClipFilmstrip } from "./ClipFilmstrip";
 import { TimelineWaveform } from "./TimelineWaveform";
+import { VolumeWaveform } from "./VolumeWaveform";
 import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-import { timeToPixel } from "@/lib/timeline/timelineViewport";
+import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
+
 
 const isExternalOrDataUrl = (value: string) =>
   value.startsWith("data:") ||
@@ -40,6 +42,7 @@ interface ClipProps {
   clip: ClipType;
   mediaAsset?: MediaAsset;
   pixelsPerSecond: number;
+  trackHeightPx?: number;
   selected?: boolean;
   locked?: boolean;
   onDragStart?: (
@@ -69,6 +72,7 @@ const ClipInner: React.FC<ClipProps> = ({
   clip,
   mediaAsset,
   pixelsPerSecond,
+  trackHeightPx = 80,
   selected,
   locked = false,
   onDragStart,
@@ -119,6 +123,12 @@ const ClipInner: React.FC<ClipProps> = ({
   const left = timeToPixel(clip.startTime, pixelsPerSecond);
   const right = timeToPixel(clip.startTime + clip.duration, pixelsPerSecond);
   const width = right - left;
+  const clipMetaRowHeightPx = 20;
+  const clipAudioRowHeightPx = 16;
+  const clipFilmstripHeightPx = Math.max(
+    1,
+    trackHeightPx - clipMetaRowHeightPx - clipAudioRowHeightPx,
+  );
 
   // Log clip renders during resize for debugging
   useEffect(() => {
@@ -387,7 +397,8 @@ const ClipInner: React.FC<ClipProps> = ({
         return;
       }
       const deltaX = e.clientX - resizeStart.x;
-      const deltaTime = deltaX / pixelsPerSecond;
+      const deltaTime = pixelToTime(deltaX, pixelsPerSecond);
+
       const isRippleActive = e.shiftKey || rippleEditEnabled;
 
       traceResize("📍 pointermove", {
@@ -885,7 +896,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className="pointer-events-none absolute left-0 top-1/2 flex h-9 w-2 -translate-y-1/2 flex-col items-center justify-center gap-1 rounded-r border border-l-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
+          className="pointer-events-none absolute inset-y-0 left-0 flex h-full w-2 flex-col items-center justify-center gap-1 rounded-r border border-l-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
           style={getHandleBackgroundStyle()}
         >
           <span className="h-px w-1 bg-white/70" />
@@ -975,24 +986,31 @@ const ClipInner: React.FC<ClipProps> = ({
           {mediaAsset &&
           (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-              <div className="h-11 shrink-0 overflow-hidden bg-black/10">
+              <div className="min-h-0 flex-1 overflow-hidden bg-black/10">
                 <ClipFilmstrip
-                  className="h-11 w-full"
+                  className="h-full w-full"
                   clip={clip}
                   mediaAsset={mediaAsset}
                   clipWidthPx={width}
                   pixelsPerSecond={pixelsPerSecond}
-                  stripHeightPx={44}
+                  stripHeightPx={clipFilmstripHeightPx}
                 />
               </div>
               {mediaAsset.type === "video" && mediaAsset.path && (
-                <div className="h-4 shrink-0 border-t border-black/20 bg-black/20 px-0.5">
-                  <TimelineWaveform
-                    audioPath={mediaAsset.path}
+                <div
+                  data-testid="clip-audio-waveform"
+                  className="h-4 shrink-0 border-t border-black/20 bg-black/20 px-0.5"
+                >
+                  <VolumeWaveform
+                    audioPath={(clip as any).audioPath || mediaAsset.path}
                     clipWidthPx={width}
                     duration={clip.duration}
                     trimIn={clip.trimIn}
                     trimOut={clip.trimOut}
+                    volume={clip.volume}
+                    volumeKeyframes={clip.volumeKeyframes}
+                    fadeIn={clip.fadeIn}
+                    fadeOut={clip.fadeOut}
                     heightPx={16}
                     className="opacity-75"
                   />
@@ -1060,7 +1078,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className="pointer-events-none absolute right-0 top-1/2 flex h-9 w-2 -translate-y-1/2 flex-col items-center justify-center gap-1 rounded-l border border-r-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
+          className="pointer-events-none absolute inset-y-0 right-0 flex h-full w-2 flex-col items-center justify-center gap-1 rounded-l border border-r-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
           style={getHandleBackgroundStyle()}
         >
           <span className="h-px w-1 bg-white/70" />
@@ -1091,7 +1109,8 @@ const arePropsEqual = (prevProps: ClipProps, nextProps: ClipProps) => {
   if (
     prevProps.clip.volume !== nextProps.clip.volume ||
     prevProps.clip.fadeIn !== nextProps.clip.fadeIn ||
-    prevProps.clip.fadeOut !== nextProps.clip.fadeOut
+    prevProps.clip.fadeOut !== nextProps.clip.fadeOut ||
+    prevProps.clip.volumeKeyframes !== nextProps.clip.volumeKeyframes
   ) {
     return false;
   }
@@ -1099,6 +1118,7 @@ const arePropsEqual = (prevProps: ClipProps, nextProps: ClipProps) => {
   // Check other props
   if (
     prevProps.pixelsPerSecond !== nextProps.pixelsPerSecond ||
+    prevProps.trackHeightPx !== nextProps.trackHeightPx ||
     prevProps.selected !== nextProps.selected ||
     prevProps.locked !== nextProps.locked ||
     prevProps.isBeingShifted !== nextProps.isBeingShifted

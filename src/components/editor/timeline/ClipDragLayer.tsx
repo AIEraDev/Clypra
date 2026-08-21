@@ -4,6 +4,7 @@ import { useDragLayer } from "react-dnd";
 import { useDragStateStore } from "@/store/dragStateStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
+import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
 
 export const ClipDragLayer: React.FC = () => {
   const { draggingClip, grabOffsetX, grabOffsetY } = useDragStateStore();
@@ -21,7 +22,7 @@ export const ClipDragLayer: React.FC = () => {
 
   const mediaAsset = mediaAssets.find((a) => a.id === draggingClip.mediaId);
   const clipWidth = Math.min(Math.round(draggingClip.duration * pixelsPerSecond), 360);
-  const trackHeight = 80; // Standard video track height
+  const trackHeight = TRACK_TYPE_CONFIG.video.height;
 
   // Determine background color based on media asset type
   const getBackgroundColor = () => {

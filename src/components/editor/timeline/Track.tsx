@@ -8,9 +8,9 @@ import { Clip } from "./Clip";
 import { GapIndicator } from "./GapIndicator";
 import { TransitionIndicator } from "./TransitionIndicator";
 import { handleDropOnTrack } from "@/lib/timeline/timelineUtils";
-import { timeToPixel } from "@/lib/timeline/timelineViewport";
-import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
+import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 import { getTimelineLaneClientX } from "@/lib/timeline/timelineViewport";
+import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
 import { resolveClipDuration } from "@/lib/timeline/timelineClip";
 import { useProjectStore } from "@/store/projectStore";
 import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
@@ -58,7 +58,8 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
         const container = document.getElementById("timeline-tracks-container");
         if (!offset || !container) return;
         const rect = container.getBoundingClientRect();
-        const requestedTime = (getTimelineLaneClientX(offset.x, rect.left, allClips.length > 0) + scrollLeft) / pixelsPerSecond;
+        const requestedTime = pixelToTime(getTimelineLaneClientX(offset.x, rect.left, allClips.length > 0) + scrollLeft, pixelsPerSecond);
+
         const decision = resolveInsertEdit({ track, asset: item.asset, clips: allClips, requestedTime, frameRate });
         setMediaDropPreview(
           decision.accepted
@@ -165,9 +166,10 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
           const firstDraggedClipId = dragState.draggedClipIds[0];
           const placement = firstDraggedClipId ? dragState.originalPlacements[firstDraggedClipId] : null;
           if (placement) {
-            const clipLeftOriginal = placement.startTime * pixelsPerSecond;
+            const clipLeftOriginal = timeToPixel(placement.startTime, pixelsPerSecond);
             const clipLeftLive = clipLeftOriginal + (dragState.offsetX || 0);
-            const liveStartTime = clipLeftLive / pixelsPerSecond;
+            const liveStartTime = pixelToTime(clipLeftLive, pixelsPerSecond);
+
 
             return {
               displayPositions: null,
@@ -234,6 +236,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
               clip={displayClip}
               mediaAsset={getMediaAsset(clip.mediaId)}
               pixelsPerSecond={pixelsPerSecond}
+              trackHeightPx={track.height}
               selected={selectedClipIds.includes(clip.id)}
               locked={track.locked}
               onDragStart={onClipDragStart}
@@ -263,9 +266,10 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
             <div
               className="pointer-events-none absolute top-1 bottom-1 z-10 rounded border border-accent/60 bg-accent/20"
               style={{
-                left: `${Math.round((mediaDropPreview.startTime + mediaDropPreview.duration) * pixelsPerSecond)}px`,
-                width: `${Math.max(1, Math.round(rightDuration * pixelsPerSecond))}px`,
+                left: `${timeToPixel(mediaDropPreview.startTime + mediaDropPreview.duration, pixelsPerSecond)}px`,
+                width: `${Math.max(1, timeToPixel(rightDuration, pixelsPerSecond))}px`,
               }}
+
               aria-hidden
             />
           );
@@ -329,7 +333,8 @@ const arePropsEqual = (prevProps: TrackProps, nextProps: TrackProps) => {
     return false;
   }
 
-  // Check clips array - compare by length and IDs only (shallow check)
+  // Check clips array - include audio-envelope fields so volume edits repaint
+  // immediately instead of waiting for another parent render (for example save).
   if (prevProps.clips.length !== nextProps.clips.length) {
     return false;
   }
@@ -338,7 +343,15 @@ const arePropsEqual = (prevProps: TrackProps, nextProps: TrackProps) => {
   for (let i = 0; i < prevProps.clips.length; i++) {
     const prevClip = prevProps.clips[i];
     const nextClip = nextProps.clips[i];
-    if (prevClip.id !== nextClip.id || prevClip.startTime !== nextClip.startTime || prevClip.duration !== nextClip.duration) {
+    if (
+      prevClip.id !== nextClip.id ||
+      prevClip.startTime !== nextClip.startTime ||
+      prevClip.duration !== nextClip.duration ||
+      prevClip.volume !== nextClip.volume ||
+      prevClip.fadeIn !== nextClip.fadeIn ||
+      prevClip.fadeOut !== nextClip.fadeOut ||
+      prevClip.volumeKeyframes !== nextClip.volumeKeyframes
+    ) {
       return false;
     }
   }

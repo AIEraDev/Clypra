@@ -228,14 +228,23 @@ export const useTimelineStore = create<TimelineStore>(
 
     withBatch: (fn) => {
       set((state) => ({ _batchDepth: state._batchDepth + 1 }));
+      // Audit 6.5 fix: only commit the epoch increment when fn() completes successfully.
+      // An exception inside fn() could otherwise leave _pendingEpochIncrement=true and
+      // cause the next mutation to increment epoch for a timeline that was not actually changed.
+      let completedSuccessfully = false;
       try {
         fn();
+        completedSuccessfully = true;
       } finally {
         set((state) => {
           const newDepth = Math.max(0, state._batchDepth - 1);
-          if (newDepth === 0 && state._pendingEpochIncrement) {
+          if (newDepth === 0 && state._pendingEpochIncrement && completedSuccessfully) {
             console.log(`📊 [TIMELINE] ✅ Epoch incremented: ${state.epoch} → ${state.epoch + 1}`);
             return { _batchDepth: 0, _pendingEpochIncrement: false, epoch: state.epoch + 1 };
+          }
+          // If fn() threw, clear the pending flag but do NOT increment epoch.
+          if (newDepth === 0 && !completedSuccessfully) {
+            return { _batchDepth: 0, _pendingEpochIncrement: false };
           }
           return { _batchDepth: newDepth };
         });
@@ -308,16 +317,11 @@ export const useTimelineStore = create<TimelineStore>(
         _pendingEpochIncrement: false,
       });
 
-      // If no gaps in project file (legacy), detect them once after state is loaded
+      // Audit 2.7 fix: detect gaps synchronously instead of via requestAnimationFrame so
+      // there is no window where the store holds clips but an empty gaps array. Matches
+      // the pattern used in removeClip which also calls detectAndSyncGaps() synchronously.
       if (finalGaps.length === 0 && normalizedClips.length > 0) {
-        // Use requestAnimationFrame instead of setTimeout for better timing
-        requestAnimationFrame(() => {
-          // Double-check we still have no gaps (race condition protection)
-          const currentState = get();
-          if (currentState.gaps.length === 0) {
-            currentState.detectAndSyncGaps();
-          }
-        });
+        get().detectAndSyncGaps();
       }
     },
 
@@ -655,14 +659,14 @@ export const useTimelineStore = create<TimelineStore>(
         return next;
       });
 
-      // Detect and sync gaps on the affected track after clip removal
-      // Use requestAnimationFrame to ensure state update is complete
+      // Detect and sync gaps on the affected track after clip removal.
+      // Called synchronously (not via rAF) so there is no single-frame window
+      // where the store has stale gap entities after a clip is removed.
       if (removedTrackId) {
-        requestAnimationFrame(() => {
-          get().detectAndSyncGaps(removedTrackId);
-        });
+        get().detectAndSyncGaps(removedTrackId);
       }
     },
+
 
     addTransition: (transition) => {
       set((state) => {

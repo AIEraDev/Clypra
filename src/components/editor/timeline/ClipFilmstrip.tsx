@@ -8,8 +8,7 @@
  *
  * This component:
  *   - Renders a <canvas> backed by RasterSurface
- *   - Falls back to posterFrame <img> while artifacts load
- *   - Falls back to an empty div if no posterFrame available
+ *   - Shows a neutral surface until the first exact tile set is complete
  *   - Dims slightly during ballistic scroll (ISM hint)
  */
 
@@ -19,9 +18,11 @@ import { cn } from "@/lib/utils";
 import { createRasterSurface, type AnyRasterSurface } from "@/lib/renderEngine/webglRasterSurface";
 import { useFilmstrip } from "@/lib/filmstrip/useFilmstrip";
 import { getFilmstripRenderWindow, getFilmstripTileWidthForTier } from "@/lib/filmstrip/filmstripLayout";
+import { generateViewportTileAddresses, hasExactFilmstripArtifacts } from "@/lib/filmstrip/filmstripTiers";
 import { normalizePathForTauriInvoke } from "@/lib/platform/tauri";
 import { useTimelineStore } from "@/store/timelineStore";
 import type { Clip, MediaAsset } from "@/types";
+import type { RenderEpochId, SpatialTier } from "@/lib/renderEngine/types";
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif)$/i;
 
@@ -57,6 +58,13 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
   const surfaceRef = useRef<AnyRasterSurface | null>(null);
   const imageCanvasRef = useRef<HTMLCanvasElement>(null);
   const cachedImageRef = useRef<HTMLImageElement | null>(null);
+  const [committedFilmstrip, setCommittedFilmstrip] = useState<{
+    clipId: string;
+    epochId: RenderEpochId;
+    spatialTier: SpatialTier;
+    signature: string;
+    renderWindow: ReturnType<typeof getFilmstripRenderWindow>;
+  } | null>(null);
 
   // PERF-5: Debounce image redraws during active resize to avoid canvas reallocation overhead
   const [debouncedClipWidthPx, setDebouncedClipWidthPx] = useState(clipWidthPx);
@@ -75,7 +83,7 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
   const videoPath = isVideoSource && mediaAsset.path ? normalizePathForTauriInvoke(mediaAsset.path) : "";
 
   // ── Filmstrip data (pure projection from RenderEngine) ─────────────────────
-  const { artifacts, isFallback, interactionState, spatialTier } = useFilmstrip({
+  const { artifacts, spatialTier, epochId } = useFilmstrip({
     clipId: clip.id,
     videoPath,
     trimIn: clip.trimIn,
@@ -106,6 +114,37 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     viewportWidth,
     pixelsPerSecond,
   }), [clip.startTime, clip.trimIn, clip.trimOut, clipWidthPx, pixelsPerSecond, viewportScrollLeft, viewportWidth]);
+
+  const tileAddresses = useMemo(() => generateViewportTileAddresses({
+    clipId: clip.id,
+    videoPath,
+    zoomTier: spatialTier,
+    trimIn: clip.trimIn,
+    trimOut: clip.trimOut,
+    clipStartTime: clip.startTime,
+    clipWidthPx,
+    viewportScrollLeft,
+    viewportWidth,
+    pixelsPerSecond,
+    overscanFactor: 2.0,
+    videoDuration: mediaAsset.duration ?? 0,
+  }), [clip.id, videoPath, spatialTier, clip.trimIn, clip.trimOut, clip.startTime, clipWidthPx, viewportScrollLeft, viewportWidth, pixelsPerSecond, mediaAsset.duration]);
+
+  const tileSignature = useMemo(() => tileAddresses
+    .map((address) => `${address.zoomTier}:${Math.round(address.timestamp * 1000)}`)
+    .join("|"), [tileAddresses]);
+
+  const currentArtifactsReady = useMemo(() => hasExactFilmstripArtifacts(
+    artifacts,
+    tileAddresses,
+    epochId,
+    spatialTier,
+  ), [artifacts, tileAddresses, epochId, spatialTier]);
+
+  // A reused Clip component must not briefly display the previous clip's committed pixels.
+  useEffect(() => {
+    setCommittedFilmstrip(null);
+  }, [clip.id, videoPath]);
 
   // ── RasterSurface lifecycle ───────────────────────────────────────────────
   useEffect(() => {
@@ -141,14 +180,37 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
       tileWidthPx,
       trimIn: renderWindow.trimIn,
       trimOut: renderWindow.trimOut,
+      tileAddresses,
     };
 
-    if (artifacts.length > 0) {
-      surface.drawFilmstrip(artifacts, layout);
-    } else {
+    if (currentArtifactsReady) {
+      const currentEpochArtifacts = artifacts.filter(
+        (artifact) => artifact.epochId === epochId && artifact.spatialTier === spatialTier,
+      );
+      surface.drawFilmstrip(currentEpochArtifacts, layout);
+      setCommittedFilmstrip((previous) => {
+        if (
+          previous?.clipId === clip.id &&
+          previous.epochId === epochId &&
+          previous.spatialTier === spatialTier &&
+          previous.signature === tileSignature &&
+          previous.renderWindow === renderWindow
+        ) {
+          return previous;
+        }
+        return {
+          clipId: clip.id,
+          epochId,
+          spatialTier,
+          signature: tileSignature,
+          renderWindow,
+        };
+      });
+    } else if (!committedFilmstrip) {
+      // Cold start only: use a neutral background and never stretch the poster.
       surface.drawPlaceholder(layout);
     }
-  }, [artifacts, renderWindow, stripHeightPx, tileWidthPx, clip.id]);
+  }, [artifacts, currentArtifactsReady, renderWindow, stripHeightPx, tileWidthPx, tileAddresses, clip.id, epochId, spatialTier, tileSignature, committedFilmstrip]);
 
   // ── Image tile rendering (still-image clips) ──────────────────────────────
   useEffect(() => {
@@ -242,39 +304,23 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
 
   // Video filmstrip — canvas surface
   if (isVideoSource) {
+    const visibleWindow = committedFilmstrip?.clipId === clip.id
+      ? committedFilmstrip.renderWindow
+      : renderWindow;
+
     return (
       <div data-testid="clip-filmstrip" className={cn("relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border bg-timeline-filmstrip-bg", className)} style={{ height: stripHeightPx, width: "100%", opacity: 1, transition: "opacity 80ms linear" }}>
         <canvas
           ref={canvasRef}
           style={{
             position: "absolute",
-            left: `${renderWindow.leftPx}px`,
+            left: `${visibleWindow.leftPx}px`,
             top: 0,
             display: "block",
-            width: `${renderWindow.widthPx}px`,
+            width: `${visibleWindow.widthPx}px`,
             height: "100%",
           }}
         />
-        {/* SMOOTH-4 fix: poster cross-fades out instead of hard pop */}
-        {mediaAsset.posterFrame && (
-          <img
-            src={resolveMediaSrc(mediaAsset.posterFrame)}
-            alt=""
-            aria-hidden
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              objectPosition: "center",
-              pointerEvents: "none",
-              opacity: isFallback ? 1 : 0,
-              transition: "opacity 200ms ease-out",
-            }}
-            draggable={false}
-          />
-        )}
       </div>
     );
   }

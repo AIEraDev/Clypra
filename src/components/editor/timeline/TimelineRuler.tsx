@@ -9,8 +9,10 @@ import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import {
   timeToPixel,
+  pixelToTime,
   getTimelineCanvasDuration,
 } from "@/lib/timeline/timelineViewport";
+
 import type { TimelineMarker } from "@/types";
 
 interface TimelineRulerProps {
@@ -97,7 +99,7 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
       const onMove = (ev: MouseEvent) => {
         if (!dragging.current) return;
         const dx = ev.clientX - dragStartX.current;
-        const dt = dx / pixelsPerSecond;
+        const dt = pixelToTime(dx, pixelsPerSecond);
         const newTime = Math.max(0, dragStartTime.current + dt);
         // Live visual update via a CSS custom property on the element
         pin.current?.style.setProperty(
@@ -110,12 +112,13 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
         if (!dragging.current) return;
         dragging.current = false;
         const dx = ev.clientX - dragStartX.current;
-        const dt = dx / pixelsPerSecond;
+        const dt = pixelToTime(dx, pixelsPerSecond);
         const newTime = Math.max(0, dragStartTime.current + dt);
         onDragEnd(marker.id, newTime);
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
       };
+
 
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
@@ -438,7 +441,8 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const clickX = e.clientX - rect.left;
-      const time = Math.max(0, clickX / pixelsPerSecond);
+      const time = Math.max(0, pixelToTime(clickX, pixelsPerSecond));
+
       addMarker(time);
     },
     [pixelsPerSecond, addMarker],

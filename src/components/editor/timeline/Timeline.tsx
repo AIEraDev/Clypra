@@ -26,7 +26,9 @@ import {
   getTimelineLaneWidth,
   getTimelineMaxScrollLeft,
   timeToPixel,
+  pixelToTime,
 } from "@/lib/timeline/timelineViewport";
+
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -47,7 +49,6 @@ export const Timeline: React.FC = () => {
     pixelsPerSecond,
     scrollLeft,
     setScrollLeft,
-    getTimelineEndTime,
     setViewportWidth,
     snapGuides,
   } = useTimelineStore();
@@ -56,7 +57,7 @@ export const Timeline: React.FC = () => {
   const { previewMode, clearSelection } = useUIStore();
   const { exitSourceMode } = usePreviewMode();
   const clockState = usePlaybackClock();
-  const { seek, setDuration } = usePlaybackControls();
+  const { seek } = usePlaybackControls();
   const currentTime = clockState.time;
   const duration = clockState.duration;
   const isPlaying = clockState.state === "playing";
@@ -107,12 +108,6 @@ export const Timeline: React.FC = () => {
     runtime.notifyZoom(pixelsPerSecond / 100);
   }, [runtime, pixelsPerSecond]);
 
-  // ── Set playback duration based on actual sequence content ──────────────────
-  useEffect(() => {
-    const sequenceDuration = getTimelineEndTime();
-    setDuration(sequenceDuration);
-  }, [clips, getTimelineEndTime, setDuration]);
-
   // ── Clamp playhead to sequence bounds ──────────────────────────────────────
   useEffect(() => {
     if (duration > 0 && currentTime > duration) {
@@ -123,6 +118,11 @@ export const Timeline: React.FC = () => {
   // ✅ PERFORMANCE OPTIMIZED: RAF-based auto-scroll with throttled state updates
   const autoScrollRafRef = useRef<number | null>(null);
   const lastScrollStateUpdateRef = useRef(0);
+  // Audit 6.2 fix: keep pixelsPerSecond in a ref so the RAF tick reads live zoom
+  // without restarting the loop. Previously pixelsPerSecond was in the effect deps,
+  // which cancelled the RAF on every zoom step and created a ~16ms auto-scroll gap.
+  const pixelsPerSecondRef = useRef(pixelsPerSecond);
+  pixelsPerSecondRef.current = pixelsPerSecond;
   const SCROLL_STATE_THROTTLE = 100; // Update React state only every 100ms during playback
 
   // Auto-scroll during playback: viewport tracking
@@ -149,14 +149,16 @@ export const Timeline: React.FC = () => {
     wasPlayingRef.current = isPlaying;
 
     if (justStartedPlaying) {
-      const playheadX = Math.round(currentTime * pixelsPerSecond);
+      // Audit 6.2 fix: read from ref so snap uses current zoom at play-start
+      const pps = pixelsPerSecondRef.current;
+      const playheadX = Math.round(currentTime * pps);
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
       const canvasDuration = getTimelineCanvasDuration(duration);
       const maxScrollLeft = getTimelineMaxScrollLeft(
         container.clientWidth,
         canvasDuration,
-        pixelsPerSecond,
+        pps,
         hasClips,
       );
 
@@ -175,13 +177,16 @@ export const Timeline: React.FC = () => {
 
       const now = performance.now();
       // SMOOTH-2: Read live clock inside tick instead of closing over stale currentTime
+      // Audit 6.2 fix: read pixelsPerSecondRef.current so zoom changes are picked up
+      // immediately without restarting the RAF loop (which caused a ~16ms scroll gap).
+      const pps = pixelsPerSecondRef.current;
       const liveTime = getPlaybackClock().time;
-      const playheadX = Math.round(liveTime * pixelsPerSecond);
+      const playheadX = Math.round(liveTime * pps);
       const canvasDuration = getTimelineCanvasDuration(duration);
       const maxScrollLeft = getTimelineMaxScrollLeft(
         container.clientWidth,
         canvasDuration,
-        pixelsPerSecond,
+        pps,
         hasClips,
       );
       let newScrollLeft = container.scrollLeft;
@@ -233,7 +238,9 @@ export const Timeline: React.FC = () => {
         autoScrollRafRef.current = null;
       }
     };
-  }, [pixelsPerSecond, isPlaying, duration, setScrollLeft, hasClips]);
+    // Audit 6.2 fix: pixelsPerSecond removed — read imperatively from pixelsPerSecondRef
+    // inside the tick so zoom changes don't restart the loop and cause a scroll gap.
+  }, [isPlaying, duration, setScrollLeft, hasClips]);
 
   // Handle keyboard shortcuts for timeline operations
   useEffect(() => {
@@ -365,7 +372,8 @@ export const Timeline: React.FC = () => {
       const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
       const x =
         event.clientX - rect.left - labelColumnWidth + container.scrollLeft;
-      const time = Math.max(0, Math.min(x / pixelsPerSecond, duration));
+      const time = Math.max(0, Math.min(pixelToTime(x, pixelsPerSecond), duration));
+
       seek(time);
     },
     [

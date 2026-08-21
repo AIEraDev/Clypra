@@ -12,11 +12,19 @@ vi.mock("react-dnd", () => ({
   useDrag: () => [{ isDragging: false }, () => undefined],
 }));
 
-vi.mock("@/hooks/useTimeline", () => ({
+vi.mock("@/hooks", () => ({
   useTimeline: () => ({
     addClipFromAsset,
     getMediaAsset,
   }),
+}));
+
+vi.mock("../TimelineWaveform", () => ({
+  TimelineWaveform: () => null,
+}));
+
+vi.mock("../ClipFilmstrip", () => ({
+  ClipFilmstrip: () => null,
 }));
 
 describe("Track timeline behavior", () => {
@@ -45,5 +53,47 @@ describe("Track timeline behavior", () => {
 
     fireEvent.click(screen.getByTestId("clip-clip-1"));
     expect(useUIStore.getState().selectedClipIds).toHaveLength(0);
+  });
+
+  it("repaints the clip volume immediately when the track receives an update", () => {
+    const track = { id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: true, height: 80 } as any;
+    const clip = {
+      id: "clip-1",
+      trackId: "track-1",
+      mediaId: "asset-1",
+      name: "Clip A",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1,
+      rotation: 0,
+      volume: 0.66,
+    };
+
+    const { rerender } = render(
+      <Track track={track} pixelsPerSecond={100} clips={[clip] as any} />,
+    );
+    expect(screen.getByRole("slider", { name: "Clip volume" })).toHaveAttribute(
+      "aria-valuenow",
+      "66",
+    );
+
+    rerender(
+      <Track
+        track={track}
+        pixelsPerSecond={100}
+        clips={[{ ...clip, volume: 0.31 }] as any}
+      />,
+    );
+
+    expect(screen.getByRole("slider", { name: "Clip volume" })).toHaveAttribute(
+      "aria-valuenow",
+      "31",
+    );
   });
 });

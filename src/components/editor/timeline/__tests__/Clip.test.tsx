@@ -152,6 +152,12 @@ describe("Clip Component", () => {
       }
     });
 
+    it("renders a dedicated audio waveform lane for video clips", () => {
+      renderClip(createMockClip(), createMockMediaAsset());
+
+      expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
+    });
+
     it("applies selected styling when selected", () => {
       const clip = createMockClip();
       renderClip(clip, undefined, { selected: true });
@@ -238,6 +244,17 @@ describe("Clip Component", () => {
 
       expect(leftHandle.className).toContain("w-3");
       expect(rightHandle.className).toContain("w-3");
+    });
+
+    it("renders the visible trim grips at full clip height", () => {
+      const clip = createMockClip();
+      renderClip(clip);
+
+      const leftGrip = screen.getByTestId("clip-clip-1-resize-left").firstElementChild;
+      const rightGrip = screen.getByTestId("clip-clip-1-resize-right").firstElementChild;
+
+      expect(leftGrip?.className).toContain("h-full");
+      expect(rightGrip?.className).toContain("h-full");
     });
   });
 

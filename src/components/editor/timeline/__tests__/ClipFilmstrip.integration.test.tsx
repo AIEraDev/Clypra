@@ -188,6 +188,9 @@ describe("ClipFilmstrip Integration Tests", () => {
     // Filmstrip canvas is rendered — the core observable invariant
     const filmstrip = screen.getByTestId("clip-filmstrip");
     expect(filmstrip).toBeInTheDocument();
+    // Cold video loads use a neutral surface; the poster is never stretched
+    // across the filmstrip as a fallback.
+    expect(filmstrip.querySelector("img")).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(100);

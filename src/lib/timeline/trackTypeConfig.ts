@@ -141,7 +141,9 @@ export function shouldAutoPruneTrack(
     return false; // Protect primary video track
   }
 
-  const config = (TRACK_TYPE_CONFIG as Record<string, TrackTypeConfig>)[track.type];
+  const config = (TRACK_TYPE_CONFIG as Record<string, TrackTypeConfig>)[
+    track.type
+  ];
   return config?.autoPrune ?? true;
 }
 
@@ -151,7 +153,10 @@ export function shouldAutoPruneTrack(
  *
  * Replaces the scattered `getInsertIndexForNewTrack` if-chain.
  */
-export function getTrackInsertionIndex(tracks: Track[], trackType: TrackType): number {
+export function getTrackInsertionIndex(
+  tracks: Track[],
+  trackType: TrackType,
+): number {
   const config = TRACK_TYPE_CONFIG[trackType];
 
   switch (config.placement) {
