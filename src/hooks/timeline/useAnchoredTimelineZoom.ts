@@ -25,10 +25,11 @@ function clampTime(time: number, viewportEndSeconds: number): number {
 
 export function useAnchoredTimelineZoom() {
   const captureZoomAnchor = useCallback((): TimelineZoomAnchor | null => {
+    const state = useTimelineStore.getState();
+    if (state.tracks.length === 0 && state.clips.length === 0) return null;
     const container = getTimelineContainer();
     if (!container) return null;
 
-    const state = useTimelineStore.getState();
     const hasClips = state.clips.length > 0;
     const oldPps = state.pixelsPerSecond;
     const viewportEndSeconds = getTimelineViewportEndForDuration(state.getTimelineEndTime());
@@ -51,13 +52,14 @@ export function useAnchoredTimelineZoom() {
   }, []);
 
   const applyZoomLevel = useCallback((zoomLevel: number, anchor?: TimelineZoomAnchor | null) => {
+    const state = useTimelineStore.getState();
+    if (state.tracks.length === 0 && state.clips.length === 0) return;
     const container = getTimelineContainer();
     if (!container) {
-      useTimelineStore.getState().setZoom(zoomLevel);
+      state.setZoom(zoomLevel);
       return;
     }
 
-    const state = useTimelineStore.getState();
     const hasClips = state.clips.length > 0;
     const viewportEndSeconds = getTimelineViewportEndForDuration(state.getTimelineEndTime());
     const nextPps = zoomToPixelsPerSecond(zoomLevel);
@@ -82,6 +84,7 @@ export function useAnchoredTimelineZoom() {
 
   const zoomByStep = useCallback((direction: 1 | -1) => {
     const state = useTimelineStore.getState();
+    if (state.tracks.length === 0 && state.clips.length === 0) return;
     const anchor = captureZoomAnchor();
     applyZoomLevel(clampTimelineZoom(state.zoomLevel + direction * TIMELINE_ZOOM_STEP), anchor);
   }, [applyZoomLevel, captureZoomAnchor]);
@@ -90,6 +93,7 @@ export function useAnchoredTimelineZoom() {
     const container = getTimelineContainer();
     if (!container) return;
     const state = useTimelineStore.getState();
+    if (state.tracks.length === 0 && state.clips.length === 0) return;
     const pixelsPerSecond = getFitSequencePixelsPerSecond(container.clientWidth, state.getTimelineEndTime(), state.clips.length > 0);
     state.setPixelsPerSecond(pixelsPerSecond);
     container.scrollLeft = 0;

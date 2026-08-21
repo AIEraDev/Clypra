@@ -17,10 +17,10 @@ function normalizeWheelDeltaY(e: WheelEvent, viewportClientHeight: number): numb
   }
 }
 
-export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>) {
+export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>, enabled = true) {
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || !enabled) return;
 
     let pendingDy = 0;
     let pendingClientX = 0;
@@ -152,5 +152,5 @@ export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>) 
       container.removeEventListener("touchcancel", onTouchEnd);
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [containerRef]);
+  }, [containerRef, enabled]);
 }

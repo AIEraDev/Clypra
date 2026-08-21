@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback, useMemo } from "react";
-import { Film, Upload } from "lucide-react";
+import { Film } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
@@ -43,7 +43,7 @@ export const Timeline: React.FC = () => {
   const showInactivePreviewOverlay = !isProgramPreviewActive && hasTimelineContent;
 
   // Consume extracted hooks
-  useTimelineZoom(containerRef);
+  useTimelineZoom(containerRef, hasTimelineContent);
   const { isDraggingOver, isDraggingMedia } = useTimelineTauriDrop(containerRef);
   const { dragState, handleClipDragStart, handleClipDragMove, handleClipDragEnd } = useTimelineDrag(containerRef);
 
@@ -292,7 +292,10 @@ export const Timeline: React.FC = () => {
     [dragState],
   );
 
-  const contentEnd = duration;
+  // A source preview can leave the shared playback clock with a duration,
+  // but that is not timeline content. Keep the empty timeline on its own
+  // canonical ruler range so the ruler/zoom never inherit source duration.
+  const contentEnd = hasClips ? duration : 0;
   const canvasDuration = getTimelineCanvasDuration(contentEnd);
   const contentWidth = Math.round(canvasDuration * pixelsPerSecond);
 
@@ -356,7 +359,7 @@ export const Timeline: React.FC = () => {
           style={{
             display: "grid",
             gridTemplateColumns: hasClips ? `${TIMELINE_TRACK_LABEL_WIDTH_PX}px 1fr` : "1fr",
-            gridTemplateRows: hasClips ? "auto 1fr" : "24px minmax(0, 1fr)",
+            gridTemplateRows: hasTimelineContent ? (hasClips ? "auto 1fr" : "24px minmax(0, 1fr)") : "minmax(0, 1fr)",
             alignContent: hasClips ? "start" : "stretch",
             scrollbarWidth: "none",
             rowGap: 0,
@@ -383,44 +386,34 @@ export const Timeline: React.FC = () => {
             </div>
           )}
 
-          <div
-            className="bg-timeline-bg overflow-hidden"
-            style={{
-              position: "sticky",
-              top: 0,
-              zIndex: 20,
-              height: "24px",
-              width: `${contentWidth}px`,
-              borderBottom: "1px solid var(--color-timeline-track-border)",
-            }}
-          >
-            <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} sequenceDuration={contentEnd} />
-          </div>
+          {hasTimelineContent && (
+            <div
+              className="bg-timeline-bg overflow-hidden"
+              style={{
+                position: "sticky",
+                top: 0,
+                zIndex: 20,
+                height: "24px",
+                width: `${contentWidth}px`,
+                borderBottom: "1px solid var(--color-timeline-track-border)",
+              }}
+            >
+              <TimelineRuler pixelsPerSecond={pixelsPerSecond} scrollLeft={scrollLeft} sequenceDuration={contentEnd} />
+            </div>
+          )}
 
 
           {/* ── Row 2+: Track labels (sticky left) + Track clips ─────── */}
           {!hasClips ? (
             <div className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(124,92,255,0.12),transparent_42%)]">
-                <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] [background-size:32px_32px]" />
-                <div className="relative flex h-full items-center justify-center px-6 py-8">
-                  <div className="w-full max-w-md rounded-2xl border border-white/10 bg-surface/55 px-8 py-7 text-center shadow-2xl shadow-black/20 backdrop-blur-sm">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-accent-soft shadow-[0_0_30px_rgba(124,92,255,0.16)]">
-                      <Film className="h-7 w-7" strokeWidth={1.7} />
-                    </div>
-                    <h3 className="text-base font-semibold tracking-tight text-text-primary">Start building your timeline</h3>
-                    <p className="mx-auto mt-2 max-w-xs text-xs leading-5 text-text-muted">Bring in your first video, image, or audio clip and shape your story here.</p>
-                    <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[10px] text-text-muted">
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-                        <Upload className="h-3.5 w-3.5 text-accent-soft" />
-                        Drag media here
-                      </span>
-                      <span className="text-white/25">or</span>
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-                        Press <kbd className="rounded border border-white/15 bg-black/20 px-1.5 py-0.5 font-mono text-text-primary">I</kbd> to import
-                      </span>
-                    </div>
+              <div className="relative flex h-full items-center px-8 py-8 md:px-16">
+                <div
+                  className={`flex h-32 w-full items-center gap-5 rounded-xl border border-dashed px-10 transition-colors ${isDraggingMedia ? "border-accent/70 bg-accent/10" : "border-white/15 bg-white/[0.015]"}`}
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted">
+                    <Film className="h-7 w-7" strokeWidth={1.5} />
                   </div>
+                  <span className="text-lg font-medium tracking-tight text-text-primary/90">Drag material here and start to create</span>
                 </div>
               </div>
               <EmptyTimelineDropZone isDragging={isDraggingMedia} />
