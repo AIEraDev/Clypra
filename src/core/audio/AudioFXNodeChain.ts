@@ -45,8 +45,19 @@ export class AudioFXNodeChain {
       this.pannerNode = ctx.createStereoPanner();
     }
 
-    // Connect default chain:
-    // eqLow -> eqMid -> eqHigh -> [panner] -> gainNode
+    // AU-3 fix: always create and wire compressorNode into the chain so clip-level
+    // compression settings take effect. Previously it was created on demand in
+    // applyClipConfig but never connected — audio never passed through it.
+    // Default params (threshold=0, ratio=1) are transparent/passthrough.
+    this.compressorNode = ctx.createDynamicsCompressor();
+    this.compressorNode.threshold.value = 0;   // 0dBFS = never triggers
+    this.compressorNode.knee.value = 0;
+    this.compressorNode.ratio.value = 1;       // 1:1 = unity gain / transparent
+    this.compressorNode.attack.value = 0.003;
+    this.compressorNode.release.value = 0.25;
+
+    // Connect chain:
+    // eqLow → eqMid → eqHigh → [panner] → gainNode → compressorNode (output)
     this.inputNode = this.eqLow;
     this.eqLow.connect(this.eqMid);
     this.eqMid.connect(this.eqHigh);
@@ -58,7 +69,8 @@ export class AudioFXNodeChain {
       this.eqHigh.connect(this.gainNode);
     }
 
-    this.outputNode = this.gainNode;
+    this.gainNode.connect(this.compressorNode);
+    this.outputNode = this.compressorNode;
   }
 
   /**
@@ -97,13 +109,17 @@ export class AudioFXNodeChain {
       this.pannerNode.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), now);
     }
 
-    // 3. Configure Compressor if enabled
+    // 3. Configure Compressor (AU-3 fix: always-connected, configure or reset to passthrough)
     if (fx?.compressor) {
-      if (!this.compressorNode) {
-        this.compressorNode = this.ctx.createDynamicsCompressor();
-      }
-      this.compressorNode.threshold.setValueAtTime(fx.compressor.threshold ?? -24, now);
-      this.compressorNode.ratio.setValueAtTime(fx.compressor.ratio ?? 4, now);
+      this.compressorNode!.threshold.setValueAtTime(fx.compressor.threshold ?? -24, now);
+      this.compressorNode!.ratio.setValueAtTime(fx.compressor.ratio ?? 4, now);
+      this.compressorNode!.knee.setValueAtTime(3, now);
+      this.compressorNode!.attack.setValueAtTime(0.003, now);
+      this.compressorNode!.release.setValueAtTime(0.25, now);
+    } else {
+      // Reset to transparent passthrough: 0dBFS threshold, 1:1 ratio → no compression
+      this.compressorNode!.threshold.setValueAtTime(0, now);
+      this.compressorNode!.ratio.setValueAtTime(1, now);
     }
 
     // 4. Configure Volume & Automation Envelopes
@@ -115,8 +131,10 @@ export class AudioFXNodeChain {
       : [];
 
     const effectiveClipMultiplier = clipVolume * trackVolume * masterVolume;
+    // AU-4 fix: pass presorted=true so evaluateKeyframes skips its internal O(n log n) sort —
+    // sortedKeyframes is already ordered above.
     const startKeyframeGain = hasKeyframes
-      ? evaluateKeyframes(sortedKeyframes, timeIntoClip, 1.0)
+      ? evaluateKeyframes(sortedKeyframes, timeIntoClip, 1.0, true)
       : 1.0;
 
     const startTargetVolume = isMuted
@@ -186,7 +204,7 @@ export class AudioFXNodeChain {
         const fadeOutAudioTime = now + timeUntilFadeOut;
         const fadeOutAudioEnd = now + (clipDuration - timeIntoClip) / Math.max(0.01, playbackSpeed);
         const endVolBeforeFade = hasKeyframes
-          ? Math.max(0.0001, Math.min(2.0, evaluateKeyframes(sortedKeyframes, fadeOutStartTimeOffset, 1.0) * effectiveClipMultiplier))
+          ? Math.max(0.0001, Math.min(2.0, evaluateKeyframes(sortedKeyframes, fadeOutStartTimeOffset, 1.0, true) * effectiveClipMultiplier))
           : startTargetVolume;
         this.applyFadeCurve(fadeOutAudioTime, fadeOutAudioEnd, endVolBeforeFade, 0.0001, clip.fadeOutCurve ?? "linear");
       }
@@ -251,8 +269,8 @@ export class AudioFXNodeChain {
           this.eqMid.disconnect();
           this.eqHigh.disconnect();
           if (this.pannerNode) this.pannerNode.disconnect();
-          if (this.compressorNode) this.compressorNode.disconnect();
           this.gainNode.disconnect();
+          if (this.compressorNode) this.compressorNode.disconnect();
         } catch {
           // Ignore if already disconnected
         }
@@ -264,15 +282,21 @@ export class AudioFXNodeChain {
 
 /**
  * Mathematically evaluates volume keyframe value at a relative clip timestamp.
+ *
+ * @param presorted - When true, skips the internal sort (caller guarantees ascending order).
+ *   Pass true when you already have a sorted copy (e.g. from applyClipConfig) to avoid
+ *   O(n log n) re-allocation on every voice spawn.
  */
 export function evaluateKeyframes(
   keyframes: AudioKeyframe[],
   time: number,
-  defaultGain: number = 1.0
+  defaultGain: number = 1.0,
+  presorted: boolean = false,
 ): number {
   if (!keyframes || keyframes.length === 0) return defaultGain;
 
-  const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+  // AU-4 fix: skip sort+copy when caller guarantees order (e.g. applyClipConfig).
+  const sorted = presorted ? keyframes : [...keyframes].sort((a, b) => a.time - b.time);
 
   if (time <= sorted[0].time) {
     return sorted[0].gain;

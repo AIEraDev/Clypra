@@ -69,9 +69,9 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   const nativeControllerRef = useRef<NativeAudioPreviewController | null>(null);
   const nativeDisposeChainRef = useRef<Promise<void>>(Promise.resolve());
 
-  // Native audio is brought up before transport starts. While it is warming,
-  // browser voices stay silent so the first Play action cannot switch audio
-  // authorities halfway through a frame.
+  // AU-1 fix: Native audio controller lifecycle — create and initialize once per project mount/switch.
+  // Clips, tracks, and mediaAssets are removed from deps so non-epoch React renders do NOT
+  // tear down and reload CPAL native audio from disk.
   useEffect(() => {
     if (!options.nativeMode || !isTauriRuntime() || !project) return;
 
@@ -158,11 +158,44 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     options.nativeMode,
     project?.id,
     project?.frameRate,
+  ]);
+
+  // AU-2 fix: Update the native audio timeline dynamically when timelineEpoch or project duration changes.
+  // This uses controller.updateSource() without tearing down the CPAL audio stream or disposing the controller.
+  const lastProjectIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!options.nativeMode || !isTauriRuntime() || !project || !nativeControllerRef.current) return;
+    if (lastProjectIdRef.current !== project.id) {
+      lastProjectIdRef.current = project.id;
+      return; // Initial setup for this project is handled by the lifecycle effect
+    }
+
+    const timelineDuration = clips.reduce(
+      (maximum, clip) => Math.max(maximum, clip.startTime + clip.duration),
+      0,
+    );
+    const playbackDuration = getPlaybackClock().duration;
+    const nativeDuration = Math.max(
+      0,
+      project.duration || 0,
+      timelineDuration,
+      playbackDuration,
+    );
+
+    nativeControllerRef.current.updateSource({
+      projectRevision: `${project.id}:${timelineEpoch}`,
+      frameRate: project.frameRate,
+      duration: nativeDuration,
+      audioTrackCount: tracks.filter((track) => track.type === "audio" && !track.muted).length,
+      clips,
+      tracks,
+      assets: mediaAssets,
+    });
+  }, [
+    options.nativeMode,
+    project?.id,
     project?.duration,
     timelineEpoch,
-    clips,
-    tracks,
-    mediaAssets,
   ]);
 
   useEffect(() => {

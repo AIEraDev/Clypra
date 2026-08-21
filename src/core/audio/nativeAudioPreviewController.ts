@@ -38,7 +38,7 @@ export interface NativeAudioPreviewControllerOptions {
  */
 export class NativeAudioPreviewController {
   private readonly clock: PlaybackClock;
-  private readonly source: NativeAudioPreviewSource;
+  private source: NativeAudioPreviewSource;
   private readonly onError?: (error: Error) => void;
   private unsubscribe: (() => void) | null = null;
   private pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -60,6 +60,31 @@ export class NativeAudioPreviewController {
   setOutput(volume: number, muted: boolean): void {
     if (!this.active || this.disposed) return;
     this.enqueue(() => setNativeAudioOutput(Math.max(0, Math.min(1, volume / 100)), muted));
+  }
+
+  /**
+   * AU-2 fix: Update the timeline audio graph dynamically without tearing down
+   * the active CPAL playback stream or clock authority.
+   */
+  updateSource(source: NativeAudioPreviewSource): void {
+    this.source = source;
+    if (!this.active || this.disposed) return;
+    this.enqueue(async () => {
+      await syncNativeAudioTimeline(
+        this.source.clips,
+        this.source.tracks,
+        this.source.assets,
+        0,
+        this.source.duration,
+      );
+      await configureNativePlayback({
+        contractVersion: 1,
+        projectRevision: this.source.projectRevision,
+        frameRate: Math.max(1, Math.round(this.source.frameRate)),
+        durationFrames: Math.max(1, Math.ceil(this.source.duration * this.source.frameRate)),
+        audioTrackCount: Math.max(0, Math.round(this.source.audioTrackCount)),
+      });
+    });
   }
 
   async initialize(): Promise<boolean> {
@@ -89,9 +114,7 @@ export class NativeAudioPreviewController {
       this.active = true;
       this.lastState = this.clock.getState();
       this.unsubscribe = this.clock.subscribe((state) => this.handleClockState(state));
-      this.pollHandle = setInterval(() => {
-        void this.pollNativeClock();
-      }, 33);
+      this.restartPolling(this.clock.state === "playing");
 
       await seekNativeAudio(secondsToTicks(this.clock.time));
       await setNativeAudioSpeed(this.clock.speed);
@@ -133,6 +156,22 @@ export class NativeAudioPreviewController {
     }
   }
 
+  /**
+   * AU-6 fix: Adaptive polling — 33ms (~30fps) during playback for responsive playhead updates;
+   * 250ms (4Hz) while paused to reduce idle Tauri IPC overhead by ~87%.
+   */
+  private restartPolling(isPlaying: boolean): void {
+    if (this.pollHandle) {
+      clearInterval(this.pollHandle);
+      this.pollHandle = null;
+    }
+    if (this.disposed || !this.active) return;
+    const intervalMs = isPlaying ? 33 : 250;
+    this.pollHandle = setInterval(() => {
+      void this.pollNativeClock();
+    }, intervalMs);
+  }
+
   private handleClockState(state: PlaybackClockState): void {
     if (!this.active || this.disposed) return;
     const previous = this.lastState;
@@ -142,12 +181,14 @@ export class NativeAudioPreviewController {
       this.enqueue(() => setNativeAudioSpeed(state.speed));
     }
     if (state.state === "playing" && previous?.state !== "playing") {
+      this.restartPolling(true);
       this.enqueue(async () => {
         await seekNativeAudio(secondsToTicks(state.time));
         const nativeState = await nativePlayFromAudio();
         this.adoptNativePosition(nativeState.audioPositionTicks);
       });
     } else if (state.state !== "playing" && previous?.state === "playing") {
+      this.restartPolling(false);
       this.enqueue(async () => {
         const nativeState = await nativePauseFromAudio();
         this.adoptNativePosition(nativeState.audioPositionTicks);
