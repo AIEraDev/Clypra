@@ -30,7 +30,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     initialVolume: number;
     initialFadeIn: number;
     initialFadeOut: number;
-    clipHeight: number;
+    clipWidth: number;
   } | null>(null);
 
   const volume = clip.volume ?? 1.0;
@@ -44,7 +44,6 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   // Height is 100% of container. Volume maps to Y position:
   // Volume 1.0 => 10% (top padding)
   // Volume 0.0 => 90% (bottom padding)
-  const volumePercent = volume * 100;
   const volumeYPercent = 90 - volume * 80; // 0.0 -> 90%, 1.0 -> 10%
 
   // Build SVG path for envelope visual overlay
@@ -67,7 +66,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     if (!container) return;
 
     const rect = container.getBoundingClientRect();
-    const clipHeight = rect.height || 40;
+    const clipWidth = rect.width || clipWidthPx || 1;
 
     dragStartRef.current = {
       startX: e.clientX,
@@ -75,7 +74,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       initialVolume: volume,
       initialFadeIn: fadeIn,
       initialFadeOut: fadeOut,
-      clipHeight,
+      clipWidth,
     };
 
     setActiveDrag(type);
@@ -89,8 +88,6 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
     const start = dragStartRef.current;
     const deltaX = e.clientX - start.startX;
-    const deltaY = e.clientY - start.startY;
-
     if (activeDrag === "fadeIn") {
       const deltaTime = deltaX / pixelsPerSecond;
       const nextFadeIn = Math.max(0, Math.min(clip.duration - start.initialFadeOut, start.initialFadeIn + deltaTime));
@@ -102,8 +99,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       updateClip(clip.id, { fadeOut: nextFadeOut });
       setDragValue(nextFadeOut);
     } else if (activeDrag === "volume") {
-      // Dragging UP decreases Y coordinate, so -deltaY increases volume
-      const deltaVol = -deltaY / (start.clipHeight * 0.8);
+      // Volume is controlled by the bottom rail: left is quieter, right is louder.
+      const deltaVol = deltaX / start.clipWidth;
       const nextVol = Math.max(0, Math.min(1.0, start.initialVolume + deltaVol));
       updateClip(clip.id, { volume: nextVol });
       setDragValue(nextVol);
@@ -209,12 +206,6 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           stroke="none"
         />
         {/* Envelope boundary line */}
-        <polyline
-          points={`0,100 ${(fadeInPx / clipWidthPx) * 100},${volumeYPercent} ${((clipWidthPx - fadeOutPx) / clipWidthPx) * 100},${volumeYPercent} 100,100`}
-          fill="none"
-          stroke="rgba(16, 185, 129, 0.65)"
-          strokeWidth="1.5"
-        />
       </svg>
 
       {/* Render Keyframe Points */}
@@ -268,25 +259,38 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         title={`Fade Out: ${fadeOut.toFixed(1)}s`}
       />
 
-      {/* Draggable volume bar line */}
+      {/* Bottom volume rail: keeps the control out of the filmstrip content. */}
       <div
-        className={`absolute left-0 w-full h-[6px] -translate-y-1/2 cursor-ns-resize pointer-events-auto flex items-center transition-all ${
-          isHovered || activeDrag === "volume" ? "opacity-100" : "opacity-0"
+        role="slider"
+        aria-label="Clip volume"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(volume * 100)}
+        className={`absolute bottom-1 left-1 right-1 z-40 h-3 cursor-ew-resize pointer-events-auto transition-opacity ${
+          isHovered || activeDrag === "volume" ? "opacity-100" : "opacity-70"
         }`}
         style={{
-          top: `${volumeYPercent}%`,
+          touchAction: "none",
         }}
         onPointerDown={(e) => handleDragStart(e, "volume")}
         onDoubleClick={handleVolumeDoubleClick}
-        title="Double-click to reset volume"
+        title={`Volume: ${Math.round(volume * 100)}%. Drag horizontally to adjust; double-click to reset.`}
       >
-        <div className="w-full h-[1.5px] bg-emerald-400/90 shadow-[0_0_4px_rgba(52,211,153,0.5)] hover:bg-white" />
+        <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-black/35" />
+        <div
+          className="absolute left-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-emerald-400/90 shadow-[0_0_4px_rgba(52,211,153,0.5)]"
+          style={{ width: `${volume * 100}%` }}
+        />
+        <div
+          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.75)]"
+          style={{ left: `${volume * 100}%` }}
+        />
       </div>
 
       {/* Value drag Tooltip indicator */}
       {activeDrag && dragValue !== null && (
         <div
-          className="absolute left-1/2 bottom-1.5 -translate-x-1/2 bg-slate-950/85 text-[9px] font-bold text-white px-2 py-0.5 rounded border border-white/10 shadow-md flex items-center gap-1 backdrop-blur-sm z-30"
+          className="absolute left-1/2 bottom-5 -translate-x-1/2 bg-slate-950/85 text-[9px] font-bold text-white px-2 py-0.5 rounded border border-white/10 shadow-md flex items-center gap-1 backdrop-blur-sm z-50"
         >
           <span>
             {activeDrag === "volume"
