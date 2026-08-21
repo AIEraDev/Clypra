@@ -62,7 +62,7 @@ export interface TrackTypeConfig {
  */
 export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
   video: {
-    height: 84,
+    height: 80,
     placement: "top",
     reuseStrategy: "primary",
     autoPrune: true,

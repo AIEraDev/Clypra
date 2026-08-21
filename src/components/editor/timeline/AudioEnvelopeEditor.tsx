@@ -19,6 +19,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const { execute } = useHistoryStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const dragTargetRef = useRef<HTMLDivElement | null>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [activeDrag, setActiveDrag] = useState<"fadeIn" | "fadeOut" | "volume" | null>(null);
   const [dragValue, setDragValue] = useState<number | null>(null);
@@ -79,7 +80,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
     setActiveDrag(type);
     setDragValue(type === "volume" ? volume : type === "fadeIn" ? fadeIn : fadeOut);
-    container.setPointerCapture(e.pointerId);
+    dragTargetRef.current = e.currentTarget;
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   // Pointer move handler
@@ -117,7 +119,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     const finalFadeIn = clip.fadeIn ?? 0;
     const finalFadeOut = clip.fadeOut ?? 0;
 
-    containerRef.current?.releasePointerCapture(e.pointerId);
+    dragTargetRef.current?.releasePointerCapture(e.pointerId);
+    dragTargetRef.current = null;
     dragStartRef.current = null;
     setActiveDrag(null);
     setDragValue(null);
@@ -267,7 +270,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(volume * 100)}
-        className={`absolute bottom-1 left-1 right-1 z-40 h-3 cursor-ns-resize pointer-events-auto transition-opacity ${
+        className={`absolute bottom-1 left-1 right-1 z-40 h-2 cursor-ns-resize pointer-events-auto transition-opacity ${
           isHovered || activeDrag === "volume" ? "opacity-100" : "opacity-70"
         }`}
         style={{
@@ -277,20 +280,20 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         onDoubleClick={handleVolumeDoubleClick}
         title={`Volume: ${Math.round(volume * 100)}%. Drag vertically to adjust; double-click to reset.`}
       >
-        <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-black/35" />
+        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 rounded-full bg-black/45" />
         <div
-          className="absolute left-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-emerald-400/90 shadow-[0_0_4px_rgba(52,211,153,0.5)]"
+          className="absolute left-0 top-1/2 h-px -translate-y-1/2 rounded-full bg-emerald-300 shadow-[0_0_4px_rgba(52,211,153,0.75)]"
           style={{ width: `${volume * 100}%` }}
         />
         <div
-          className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize rounded-full border border-white bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.75)]"
+          className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize rounded-full border border-white bg-emerald-300 shadow-[0_0_5px_rgba(52,211,153,0.9)]"
         />
       </div>
 
       {/* Value drag Tooltip indicator */}
       {activeDrag && dragValue !== null && (
         <div
-          className="absolute left-1/2 bottom-5 -translate-x-1/2 bg-slate-950/85 text-[9px] font-bold text-white px-2 py-0.5 rounded border border-white/10 shadow-md flex items-center gap-1 backdrop-blur-sm z-50"
+          className="absolute bottom-5 left-1/2 z-[60] flex min-w-20 -translate-x-1/2 items-center justify-center rounded border border-emerald-200/70 bg-emerald-300 px-2 py-0.5 text-[9px] font-bold text-slate-950 shadow-[0_0_8px_rgba(52,211,153,0.55)]"
         >
           <span>
             {activeDrag === "volume"
