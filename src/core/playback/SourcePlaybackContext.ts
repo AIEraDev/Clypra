@@ -50,12 +50,18 @@ export class SourcePlaybackContext implements PlaybackContext {
 
     const onTimeUpdate = () => this._notifyListeners();
     const onLoadedMetadata = () => this._notifyListeners();
+    const onLoadedData = () => this._notifyListeners();
+    const onCanPlay = () => this._notifyListeners();
+    const onDurationChange = () => this._notifyListeners();
     const onEnded = () => this._notifyListeners();
     const onPlay = () => this._notifyListeners();
     const onPause = () => this._notifyListeners();
 
     element.addEventListener("timeupdate", onTimeUpdate);
     element.addEventListener("loadedmetadata", onLoadedMetadata);
+    element.addEventListener("loadeddata", onLoadedData);
+    element.addEventListener("canplay", onCanPlay);
+    element.addEventListener("durationchange", onDurationChange);
     element.addEventListener("ended", onEnded);
     element.addEventListener("play", onPlay);
     element.addEventListener("pause", onPause);
@@ -63,10 +69,20 @@ export class SourcePlaybackContext implements PlaybackContext {
     this._cleanupMediaListeners = () => {
       element.removeEventListener("timeupdate", onTimeUpdate);
       element.removeEventListener("loadedmetadata", onLoadedMetadata);
+      element.removeEventListener("loadeddata", onLoadedData);
+      element.removeEventListener("canplay", onCanPlay);
+      element.removeEventListener("durationchange", onDurationChange);
       element.removeEventListener("ended", onEnded);
       element.removeEventListener("play", onPlay);
       element.removeEventListener("pause", onPause);
     };
+
+    // The element receives its src during React commit, before this context
+    // binds. Explicitly restart an uninitialized source so source preview
+    // reliably reaches metadata/first-frame readiness in the Tauri webview.
+    if (element.readyState === 0 && (element.currentSrc || element.src)) {
+      element.load?.();
+    }
 
     this._notifyListeners();
   }
@@ -120,11 +136,13 @@ export class SourcePlaybackContext implements PlaybackContext {
   // ─── State Queries ───────────────────────────────────────────────────────
 
   getTime(): number {
-    return this._mediaElement?.currentTime ?? 0;
+    const time = this._mediaElement?.currentTime ?? 0;
+    return Number.isFinite(time) && time >= 0 ? time : 0;
   }
 
   getDuration(): number {
-    return this._mediaElement?.duration ?? 0;
+    const duration = this._mediaElement?.duration ?? 0;
+    return Number.isFinite(duration) && duration > 0 ? duration : 0;
   }
 
   /**

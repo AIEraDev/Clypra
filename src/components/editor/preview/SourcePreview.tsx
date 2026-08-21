@@ -35,6 +35,7 @@ export const SourcePreview: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [sourceVideoState, setSourceVideoState] = useState<"loading" | "ready" | "error">("loading");
   const sourceCtxRef = useRef<SourcePlaybackContext | null>(null);
 
   const [lottieData, setLottieData] = useState<object | null>(null);
@@ -42,9 +43,13 @@ export const SourcePreview: React.FC = () => {
 
   // Get source context from active session and bind media element
   useEffect(() => {
+    const session = getActiveSessionOrNull();
+    // Source Preview owns a separate transport/media space from Program
+    // Preview. Claim the source context before binding any HTML media element.
+    session?.transportAuthority?.setActiveContext("source");
+
     if (sourceAsset?.type === "text") return;
 
-    const session = getActiveSessionOrNull();
     const ctx = session?.sourceContext;
     if (!ctx) return;
 
@@ -72,6 +77,10 @@ export const SourcePreview: React.FC = () => {
       sourceCtxRef.current = null;
     };
   }, [sourceAsset?.id, sourceAsset?.type]);
+
+  useEffect(() => {
+    setSourceVideoState(sourceAsset?.type === "video" ? "loading" : "ready");
+  }, [sourceAsset?.id, sourceAsset?.type, sourceAsset?.path]);
 
   // Virtual clock for text preview
   useEffect(() => {
@@ -234,6 +243,9 @@ export const SourcePreview: React.FC = () => {
   );
 
   const handlePlayPause = useCallback(() => {
+    const session = getActiveSessionOrNull();
+    if (session?.transportAuthority?.getActiveType() !== "source") return;
+
     if (sourceAsset?.type === "text") {
       setIsPlaying((prev) => {
         const next = !prev;
@@ -269,6 +281,7 @@ export const SourcePreview: React.FC = () => {
   }, [sourceAsset?.type, sourceAsset?.path, sourceAsset?.stickerFormat, currentTime, duration]);
 
   const handlePlayMarkedRegion = useCallback(() => {
+    if (getActiveSessionOrNull()?.transportAuthority?.getActiveType() !== "source") return;
     sourceCtxRef.current?.playMarkedRegion();
   }, []);
 
@@ -435,10 +448,11 @@ export const SourcePreview: React.FC = () => {
 
   /** Format time as HH:MM:SS:FF (frame-accurate) */
   const formatTC = (seconds: number): string => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    const f = Math.floor((seconds % 1) * 30);
+    const safeSeconds = Number.isFinite(seconds) && seconds >= 0 ? seconds : 0;
+    const h = Math.floor(safeSeconds / 3600);
+    const m = Math.floor((safeSeconds % 3600) / 60);
+    const s = Math.floor(safeSeconds % 60);
+    const f = Math.floor((safeSeconds % 1) * 30);
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}:${String(f).padStart(2, "0")}`;
   };
 
@@ -448,10 +462,13 @@ export const SourcePreview: React.FC = () => {
   const hasCompleteMarks = sourceInPoint !== null && sourceOutPoint !== null;
 
   const sourcePath = sourceAsset.path ? (isExternalOrDataUrl(sourceAsset.path) ? sourceAsset.path : platform.convertFileSrc(sourceAsset.path)) : "";
+  const sourcePoster = sourceAsset.type === "video" && sourceAsset.posterFrame
+    ? (isExternalOrDataUrl(sourceAsset.posterFrame) ? sourceAsset.posterFrame : platform.convertFileSrc(sourceAsset.posterFrame))
+    : undefined;
   const mediaLabel = sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-bg">
+    <div data-preview-space="source" className="flex-1 flex flex-col min-h-0 bg-bg">
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 h-10 shrink-0 border-b border-border/50">
         <div className="flex items-baseline gap-2">
@@ -503,7 +520,26 @@ export const SourcePreview: React.FC = () => {
       <div className="flex-1 flex items-center justify-center overflow-hidden checkerboard relative">
         <div className="w-full h-full flex items-center justify-center relative z-10">
           {sourceAsset.type === "video" ? (
-            <VideoSourcePreview videoRef={videoRef} src={sourcePath} />
+            <div className="relative w-full h-full flex items-center justify-center">
+              <VideoSourcePreview
+                videoRef={videoRef}
+                src={sourcePath}
+                poster={sourcePoster}
+                onLoadedData={() => setSourceVideoState("ready")}
+                onCanPlay={() => setSourceVideoState("ready")}
+                onError={() => setSourceVideoState("error")}
+              />
+              {sourceVideoState === "loading" && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/35 pointer-events-none">
+                  <span className="rounded bg-black/70 px-3 py-1.5 text-xs text-white/80">Loading source video…</span>
+                </div>
+              )}
+              {sourceVideoState === "error" && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/55 pointer-events-none">
+                  <span className="rounded bg-black/80 px-3 py-1.5 text-xs text-red-200">Unable to load source video</span>
+                </div>
+              )}
+            </div>
           ) : sourceAsset.type === "image" ? (
             sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json") ? (
               lottieError ? (
