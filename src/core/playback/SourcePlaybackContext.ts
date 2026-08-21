@@ -28,8 +28,6 @@ export class SourcePlaybackContext implements PlaybackContext {
     // the project/session or switching source assets.
     if (!element && this._mediaElement) {
       this._mediaElement.pause?.();
-      this._mediaElement.removeAttribute?.("src");
-      this._mediaElement.load?.();
     }
 
     // Clean up old listeners
@@ -77,13 +75,6 @@ export class SourcePlaybackContext implements PlaybackContext {
       element.removeEventListener("pause", onPause);
     };
 
-    // The element receives its src during React commit, before this context
-    // binds. Explicitly restart an uninitialized source so source preview
-    // reliably reaches metadata/first-frame readiness in the Tauri webview.
-    if (element.readyState === 0 && (element.currentSrc || element.src)) {
-      element.load?.();
-    }
-
     this._notifyListeners();
   }
 
@@ -101,6 +92,10 @@ export class SourcePlaybackContext implements PlaybackContext {
     }
 
     this._mediaElement.play().catch((err) => {
+      // A source can be replaced or unbound while play() is resolving. The
+      // browser reports that normal lifecycle cancellation as AbortError;
+      // it is not a playback failure and should not pollute the console.
+      if ((err as { name?: string } | null)?.name === "AbortError") return;
       console.warn("[SourcePlaybackContext] Play failed:", err);
     });
     this._startOutPointCheck();

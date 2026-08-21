@@ -35,7 +35,7 @@ export const SourcePreview: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [sourceVideoState, setSourceVideoState] = useState<"loading" | "ready" | "error">("loading");
+  const [sourceVideoError, setSourceVideoError] = useState(false);
   const sourceCtxRef = useRef<SourcePlaybackContext | null>(null);
 
   const [lottieData, setLottieData] = useState<object | null>(null);
@@ -79,76 +79,10 @@ export const SourcePreview: React.FC = () => {
   }, [sourceAsset?.id, sourceAsset?.type]);
 
   useEffect(() => {
-    setSourceVideoState(sourceAsset?.type === "video" ? "loading" : "ready");
+    setSourceVideoError(false);
     const assetDuration = sourceAsset?.duration;
     setDuration(typeof assetDuration === "number" && Number.isFinite(assetDuration) && assetDuration > 0 ? assetDuration : 0);
   }, [sourceAsset?.id, sourceAsset?.type, sourceAsset?.path]);
-
-  // The source monitor is a plain HTMLMediaElement, but its readiness events
-  // can occur during the same commit in which the element is rebound to the
-  // source transport. Keep a small DOM-level bridge here so a missed event
-  // cannot leave the overlay or timecode stale forever.
-  useEffect(() => {
-    if (sourceAsset?.type !== "video") return;
-
-    const video = videoRef.current;
-    if (!video) return;
-
-    let active = true;
-    let pollId: number | null = null;
-    const syncVideoReadiness = () => {
-      if (!active) return;
-
-      if (video.error) {
-        setSourceVideoState("error");
-        if (pollId !== null) {
-          window.clearInterval(pollId);
-          pollId = null;
-        }
-        return;
-      }
-
-      const mediaDuration = Number(video.duration);
-      if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
-        setDuration(mediaDuration);
-      }
-
-      // HAVE_CURRENT_DATA is enough for the first frame. Do not wait for
-      // canplaythrough; that event is intentionally not required for preview.
-      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        setSourceVideoState("ready");
-        if (pollId !== null) {
-          window.clearInterval(pollId);
-          pollId = null;
-        }
-      }
-    };
-
-    video.addEventListener("loadedmetadata", syncVideoReadiness);
-    video.addEventListener("loadeddata", syncVideoReadiness);
-    video.addEventListener("canplay", syncVideoReadiness);
-    video.addEventListener("durationchange", syncVideoReadiness);
-    video.addEventListener("error", syncVideoReadiness);
-
-    syncVideoReadiness();
-    if (video.readyState === HTMLMediaElement.HAVE_NOTHING && video.src) {
-      video.load();
-    }
-
-    // This is only a readiness reconciliation loop, not a playback loop. It
-    // covers WebKit/Tauri cases where the event fires before React attaches
-    // the handler, while stopping immediately once the first frame is ready.
-    pollId = window.setInterval(syncVideoReadiness, 100);
-    return () => {
-      active = false;
-      if (pollId !== null) window.clearInterval(pollId);
-      video.removeEventListener("loadedmetadata", syncVideoReadiness);
-      video.removeEventListener("loadeddata", syncVideoReadiness);
-      video.removeEventListener("canplay", syncVideoReadiness);
-      video.removeEventListener("durationchange", syncVideoReadiness);
-      video.removeEventListener("error", syncVideoReadiness);
-    };
-  }, [sourceAsset?.id, sourceAsset?.path, sourceAsset?.type]);
 
   // Virtual clock for text preview
   useEffect(() => {
@@ -530,9 +464,6 @@ export const SourcePreview: React.FC = () => {
   const hasCompleteMarks = sourceInPoint !== null && sourceOutPoint !== null;
 
   const sourcePath = sourceAsset.path ? (isExternalOrDataUrl(sourceAsset.path) ? sourceAsset.path : platform.convertFileSrc(sourceAsset.path)) : "";
-  const sourcePoster = sourceAsset.type === "video" && sourceAsset.posterFrame
-    ? (isExternalOrDataUrl(sourceAsset.posterFrame) ? sourceAsset.posterFrame : platform.convertFileSrc(sourceAsset.posterFrame))
-    : undefined;
   const mediaLabel = sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
 
   return (
@@ -592,23 +523,15 @@ export const SourcePreview: React.FC = () => {
               <VideoSourcePreview
                 videoRef={videoRef}
                 src={sourcePath}
-                poster={sourcePoster}
                 onLoadedMetadata={(event) => {
                   const mediaDuration = Number(event.currentTarget.duration);
                   if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
                     setDuration(mediaDuration);
                   }
                 }}
-                onLoadedData={() => setSourceVideoState("ready")}
-                onCanPlay={() => setSourceVideoState("ready")}
-                onError={() => setSourceVideoState("error")}
+                onError={() => setSourceVideoError(true)}
               />
-              {sourceVideoState === "loading" && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/35 pointer-events-none">
-                  <span className="rounded bg-black/70 px-3 py-1.5 text-xs text-white/80">Loading source video…</span>
-                </div>
-              )}
-              {sourceVideoState === "error" && (
+              {sourceVideoError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/55 pointer-events-none">
                   <span className="rounded bg-black/80 px-3 py-1.5 text-xs text-red-200">Unable to load source video</span>
                 </div>
