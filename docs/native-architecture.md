@@ -63,3 +63,80 @@ continuous native-frame path. Direct
 surface presentation is now implemented as a retained child-surface command
 with physical-pixel positioning, stale-request rejection, and swapchain
 recovery. Full native effects/text and legacy retirement remain gated work.
+
+## Cross-Platform Tolerance
+
+### What CI proves vs. what requires hardware validation
+
+The `native-golden` CI workflow (`.github/workflows/native-golden.yml`) runs
+`clypra-native-cli render` + `diff` on macOS (Metal), Windows, and Linux on
+every PR that touches the compositor or shaders. **What this proves:**
+
+- WGSL shaders compile and execute on all three wgpu backends.
+- Compositor math is self-consistent (same-machine determinism confirmed).
+- Any shader logic regression produces a measurable pixel delta and fails CI.
+
+**What this does not prove:** Real hardware GPU parity. GitHub-hosted Windows
+and Linux runners have no dedicated GPU. wgpu falls back to software
+rasterizers (WARP on Windows, Mesa Lavapipe on Linux). The CI adapter line in
+each job summary confirms which path ran. A software-rasterizer run validates
+portability, not driver behaviour.
+
+### Mandatory hardware validation gate — required before v0.1.0
+
+Real cross-platform hardware parity must be verified on at least one physical
+Windows GPU and one physical Linux GPU before v0.1.0 ships. This is a hard
+pre-release gate, not an open-ended TODO.
+
+**Procedure:**
+
+1. Build `clypra-native-cli` on the target machine.
+2. Run `clypra-native-cli render fixtures/minimal-request.json /tmp/minimal.png`
+   and `clypra-native-cli render fixtures/raster-request.json /tmp/raster.png`.
+3. Copy the PNGs back and run `clypra-native-cli diff` against the Metal
+   reference PNGs in `fixtures/`.
+4. Record the full result in the **Hardware Validation Log** section below.
+
+### Hardware Validation Log
+
+Each entry must record: platform, GPU model, driver version, wgpu backend,
+and the full `GoldenDiff` JSON output for each fixture. "Passed" alone is not
+an acceptable entry — the raw numbers are required so future regressions can
+be distinguished from driver-update-induced drift.
+
+**Format:**
+
+```
+Date:     YYYY-MM-DD
+Platform: Windows 11 / Linux (distro + kernel)
+GPU:      <adapter name from clypra-native-cli output>
+Driver:   <version string — Device Manager on Windows, `glxinfo`/`vulkaninfo` on Linux>
+Backend:  DX12 / Vulkan
+Fixture: minimal-request.json
+  maxChannelError:  N
+  differingPixels:  N / 57600
+  meanChannelError: N.NNNN
+Fixture: raster-request.json
+  maxChannelError:  N
+  differingPixels:  N / 16
+  meanChannelError: N.NNNN
+Notes: <anything relevant — driver quirks, fallback path, etc.>
+```
+
+**Completed runs:**
+
+| Date       | Platform         | GPU                                | Driver        | Backend | minimal max err | raster max err |
+| ---------- | ---------------- | ---------------------------------- | ------------- | ------- | --------------- | -------------- |
+| 2026-08-21 | macOS (Apple M1) | Apple M1                           | Metal default | Metal   | 0               | 0              |
+| —          | Windows          | _pending — required before v0.1.0_ | —             | DX12    | —               | —              |
+| —          | Linux            | _pending — required before v0.1.0_ | —             | Vulkan  | —               | —              |
+
+The macOS Metal reference is the baseline. All other platforms diff against it.
+
+### WASM parity (Phase 1 — pending `clypra-render-wasm`)
+
+Once `clypra-render-wasm` exists, a fourth matrix entry will be added to the
+CI workflow running the same fixtures through the WASM build and diffing
+against the Metal native reference. Tolerance TBD from first real measured run.
+The WASM leg measures "browser WebGPU vs. native Metal compositor" drift —
+a different claim than cross-platform native consistency, tracked separately.
