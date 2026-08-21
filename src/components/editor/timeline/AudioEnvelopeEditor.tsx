@@ -21,7 +21,9 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const dragTargetRef = useRef<HTMLDivElement | null>(null);
   const [isHovered, setIsHovered] = useState(false);
-  const [activeDrag, setActiveDrag] = useState<"fadeIn" | "fadeOut" | "volume" | null>(null);
+  const [activeDrag, setActiveDrag] = useState<
+    "fadeIn" | "fadeOut" | "volume" | null
+  >(null);
   const [dragValue, setDragValue] = useState<number | null>(null);
 
   // Drag tracking refs
@@ -40,7 +42,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
   // Calculate pixel positions for SVG paths
   const fadeInPx = Math.max(0, Math.min(clipWidthPx, fadeIn * pixelsPerSecond));
-  const fadeOutPx = Math.max(0, Math.min(clipWidthPx, fadeOut * pixelsPerSecond));
+  const fadeOutPx = Math.max(
+    0,
+    Math.min(clipWidthPx, fadeOut * pixelsPerSecond),
+  );
 
   // Height is 100% of container. Volume maps to Y position:
   // Volume 1.0 => 10% (top padding)
@@ -58,7 +63,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   // Start drag handler
   const handleDragStart = (
     e: React.PointerEvent<HTMLDivElement>,
-    type: "fadeIn" | "fadeOut" | "volume"
+    type: "fadeIn" | "fadeOut" | "volume",
   ) => {
     e.stopPropagation();
     e.preventDefault();
@@ -79,7 +84,9 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     };
 
     setActiveDrag(type);
-    setDragValue(type === "volume" ? volume : type === "fadeIn" ? fadeIn : fadeOut);
+    setDragValue(
+      type === "volume" ? volume : type === "fadeIn" ? fadeIn : fadeOut,
+    );
     dragTargetRef.current = e.currentTarget;
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -93,18 +100,33 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     const deltaY = e.clientY - start.startY;
     if (activeDrag === "fadeIn") {
       const deltaTime = deltaX / pixelsPerSecond;
-      const nextFadeIn = Math.max(0, Math.min(clip.duration - start.initialFadeOut, start.initialFadeIn + deltaTime));
+      const nextFadeIn = Math.max(
+        0,
+        Math.min(
+          clip.duration - start.initialFadeOut,
+          start.initialFadeIn + deltaTime,
+        ),
+      );
       updateClip(clip.id, { fadeIn: nextFadeIn });
       setDragValue(nextFadeIn);
     } else if (activeDrag === "fadeOut") {
       const deltaTime = -deltaX / pixelsPerSecond;
-      const nextFadeOut = Math.max(0, Math.min(clip.duration - start.initialFadeIn, start.initialFadeOut + deltaTime));
+      const nextFadeOut = Math.max(
+        0,
+        Math.min(
+          clip.duration - start.initialFadeIn,
+          start.initialFadeOut + deltaTime,
+        ),
+      );
       updateClip(clip.id, { fadeOut: nextFadeOut });
       setDragValue(nextFadeOut);
     } else if (activeDrag === "volume") {
       // Volume is controlled by the bottom rail: up is louder, down is quieter.
       const deltaVol = -deltaY / (start.clipHeight * 0.8);
-      const nextVol = Math.max(0, Math.min(1.0, start.initialVolume + deltaVol));
+      const nextVol = Math.max(
+        0,
+        Math.min(1.0, start.initialVolume + deltaVol),
+      );
       updateClip(clip.id, { volume: nextVol });
       setDragValue(nextVol);
     }
@@ -143,8 +165,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
             volume: finalVolume,
             fadeIn: finalFadeIn,
             fadeOut: finalFadeOut,
-          }
-        )
+          },
+        ),
       );
     }
   };
@@ -153,13 +175,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const handleVolumeDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (volume !== 1.0) {
-      execute(
-        new TransformClipCommand(
-          clip.id,
-          { volume },
-          { volume: 1.0 }
-        )
-      );
+      execute(new TransformClipCommand(clip.id, { volume }, { volume: 1.0 }));
     }
   };
 
@@ -180,7 +196,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    const relTime = Math.max(0, Math.min(clip.duration, clickX / pixelsPerSecond));
+    const relTime = Math.max(
+      0,
+      Math.min(clip.duration, clickX / pixelsPerSecond),
+    );
     const gain = Math.max(0, Math.min(2.0, (1 - clickY / rect.height) * 1.25));
 
     addAudioKeyframe(clip.id, relTime, gain);
@@ -214,7 +233,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
       {/* Render Keyframe Points */}
       {keyframes.map((kf) => {
-        const kfX = Math.max(0, Math.min(clipWidthPx, kf.time * pixelsPerSecond));
+        const kfX = Math.max(
+          0,
+          Math.min(clipWidthPx, kf.time * pixelsPerSecond),
+        );
         const kfYPercent = 90 - (kf.gain / 1.25) * 80;
         return (
           <div
@@ -238,12 +260,13 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       {/* Draggable fade-in handle (knob) */}
       <div
         className={`absolute w-3 h-3 bg-emerald-400 border border-white rounded-bl-lg cursor-ew-resize pointer-events-auto transition-opacity duration-150 flex items-center justify-center shadow-lg ${
-          isHovered || activeDrag === "fadeIn" ? "opacity-100 animate-fade-in" : "opacity-0"
+          isHovered || activeDrag === "fadeIn"
+            ? "opacity-100 animate-fade-in"
+            : "opacity-0"
         }`}
         style={{
-          left: `${fadeInPx}px`,
+          left: `${Math.max(0, fadeInPx - 6)}px`,
           top: "0px",
-          transform: "translateX(-50%)",
         }}
         onPointerDown={(e) => handleDragStart(e, "fadeIn")}
         title={`Fade In: ${fadeIn.toFixed(1)}s`}
@@ -252,12 +275,13 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       {/* Draggable fade-out handle (knob) */}
       <div
         className={`absolute w-3 h-3 bg-emerald-400 border border-white rounded-br-lg cursor-ew-resize pointer-events-auto transition-opacity duration-150 flex items-center justify-center shadow-lg ${
-          isHovered || activeDrag === "fadeOut" ? "opacity-100 animate-fade-in" : "opacity-0"
+          isHovered || activeDrag === "fadeOut"
+            ? "opacity-100 animate-fade-in"
+            : "opacity-0"
         }`}
         style={{
-          right: `${fadeOutPx}px`,
+          right: `${Math.max(0, fadeOutPx - 6)}px`,
           top: "0px",
-          transform: "translateX(50%)",
         }}
         onPointerDown={(e) => handleDragStart(e, "fadeOut")}
         title={`Fade Out: ${fadeOut.toFixed(1)}s`}
@@ -285,22 +309,18 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           className="absolute left-0 top-1/2 h-px -translate-y-1/2 rounded-full bg-emerald-300 shadow-[0_0_4px_rgba(52,211,153,0.75)]"
           style={{ width: `${volume * 100}%` }}
         />
-        <div
-          className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize rounded-full border border-white bg-emerald-300 shadow-[0_0_5px_rgba(52,211,153,0.9)]"
-        />
+        <div className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize rounded-full border border-white bg-emerald-300 shadow-[0_0_5px_rgba(52,211,153,0.9)]" />
       </div>
 
       {/* Value drag Tooltip indicator */}
       {activeDrag && dragValue !== null && (
-        <div
-          className="absolute bottom-5 left-1/2 z-[60] flex min-w-20 -translate-x-1/2 items-center justify-center rounded border border-emerald-200/70 bg-emerald-300 px-2 py-0.5 text-[9px] font-bold text-slate-950 shadow-[0_0_8px_rgba(52,211,153,0.55)]"
-        >
+        <div className="absolute bottom-5 left-1/2 z-[60] flex min-w-20 -translate-x-1/2 items-center justify-center rounded border border-emerald-200/70 bg-emerald-300 px-2 py-0.5 text-[9px] font-bold text-slate-950 shadow-[0_0_8px_rgba(52,211,153,0.55)]">
           <span>
             {activeDrag === "volume"
               ? `Volume: ${Math.round(dragValue * 100)}%`
               : activeDrag === "fadeIn"
-              ? `Fade In: ${dragValue.toFixed(1)}s`
-              : `Fade Out: ${dragValue.toFixed(1)}s`}
+                ? `Fade In: ${dragValue.toFixed(1)}s`
+                : `Fade Out: ${dragValue.toFixed(1)}s`}
           </span>
         </div>
       )}
