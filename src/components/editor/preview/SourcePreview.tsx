@@ -177,7 +177,8 @@ export const SourcePreview: React.FC = () => {
     }
   }, [lottieDuration, sourceAsset?.path, sourceAsset?.stickerFormat]);
 
-  // Keep Lottie play state in sync with isPlaying
+  // SP-3 fix: Keep Lottie play state in sync with isPlaying without running a conflicting
+  // setInterval loop that calls goToFrame() on every tick during active playback.
   useEffect(() => {
     if (!lottiePlayerRef.current) return;
     if (isPlaying) {
@@ -186,41 +187,6 @@ export const SourcePreview: React.FC = () => {
       lottiePlayerRef.current.pause();
     }
   }, [isPlaying]);
-
-  // Virtual clock for Lottie playback
-  useEffect(() => {
-    const isLottie = sourceAsset && sourceAsset.type === "image" && (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json"));
-    if (!isLottie) return;
-    if (!isPlaying) return;
-
-    const timer = setInterval(() => {
-      setCurrentTime((prev) => {
-        if (prev >= duration) {
-          if (lottiePlayerRef.current) {
-            lottiePlayerRef.current.goToFrame(0);
-          }
-          return 0;
-        }
-        const next = prev + 0.016;
-        if (next >= duration) {
-          if (lottiePlayerRef.current) {
-            lottiePlayerRef.current.goToFrame(0);
-          }
-          return 0;
-        }
-
-        if (lottiePlayerRef.current && lottieData) {
-          const { fr } = lottieData as any;
-          const frameRate = fr || 30;
-          lottiePlayerRef.current.goToFrame(next * frameRate);
-        }
-
-        return next;
-      });
-    }, 16);
-
-    return () => clearInterval(timer);
-  }, [isPlaying, duration, lottieData, sourceAsset?.id, sourceAsset?.path, sourceAsset?.stickerFormat]);
 
   const handleSeek = useCallback(
     (time: number) => {
@@ -293,17 +259,18 @@ export const SourcePreview: React.FC = () => {
     sourceCtxRef.current?.clearMarks();
   }, [markSourceIn, markSourceOut]);
 
+  // SP-4 fix: Fallback to local currentTime when sourceCtxRef is not bound (e.g. for procedural text or stickers)
   const handleMarkIn = useCallback(() => {
-    const t = sourceCtxRef.current?.getTime() ?? 0;
+    const t = sourceCtxRef.current ? sourceCtxRef.current.getTime() : currentTime;
     markSourceIn(t);
     sourceCtxRef.current?.setInPoint(t);
-  }, [markSourceIn]);
+  }, [markSourceIn, currentTime]);
 
   const handleMarkOut = useCallback(() => {
-    const t = sourceCtxRef.current?.getTime() ?? 0;
+    const t = sourceCtxRef.current ? sourceCtxRef.current.getTime() : currentTime;
     markSourceOut(t);
     sourceCtxRef.current?.setOutPoint(t);
-  }, [markSourceOut]);
+  }, [markSourceOut, currentTime]);
 
   if (!sourceAsset) return null;
 
@@ -542,7 +509,19 @@ export const SourcePreview: React.FC = () => {
               lottieError ? (
                 <div className="text-red-400 text-xs">{lottieError}</div>
               ) : lottieData ? (
-                <StickerSourcePreview ref={lottiePlayerRef} lottieData={lottieData} isPlaying={isPlaying} loop={true} speed={1} className="max-w-full max-h-full" />
+                <StickerSourcePreview
+                  ref={lottiePlayerRef}
+                  lottieData={lottieData}
+                  isPlaying={isPlaying}
+                  loop={true}
+                  speed={1}
+                  onFrameChange={(frame, total) => {
+                    if (total > 0 && lottieDuration > 0) {
+                      setCurrentTime((frame / total) * lottieDuration);
+                    }
+                  }}
+                  className="max-w-full max-h-full"
+                />
               ) : (
                 <div className="text-text-muted text-xs flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -594,9 +573,24 @@ export const SourcePreview: React.FC = () => {
               )}
               <div className="w-px h-4 bg-white/10 mx-1" />
               {(() => {
-                const isAddEnabled = sourceAsset.type === "image" || hasCompleteMarks;
+                // SP-2 fix: Allow adding any valid source asset to the timeline.
+                // If In/Out marks are set, it adds the marked slice; if not, it adds the full duration.
+                const isAddEnabled = Boolean(sourceAsset);
                 return (
-                  <button onClick={handleAddToTimeline} disabled={!isAddEnabled} className={`flex items-center gap-1 px-2.5 h-6 rounded text-[10px] font-semibold transition-all ${isAddEnabled ? "bg-accent hover:bg-accent-soft text-white cursor-pointer" : "bg-text-muted/70 hover:bg-text-muted/90 text-white cursor-not-allowed"}`} title={isAddEnabled ? (sourceAsset.type === "image" ? "Add to Timeline" : `Add ${markedDuration?.toFixed(2)}s to Timeline`) : "Add to Track"}>
+                  <button
+                    onClick={handleAddToTimeline}
+                    disabled={!isAddEnabled}
+                    className={`flex items-center gap-1 px-2.5 h-6 rounded text-[10px] font-semibold transition-all ${
+                      isAddEnabled
+                        ? "bg-accent hover:bg-accent-soft text-white cursor-pointer"
+                        : "bg-text-muted/70 hover:bg-text-muted/90 text-white cursor-not-allowed"
+                    }`}
+                    title={
+                      hasCompleteMarks && markedDuration !== null
+                        ? `Add ${markedDuration.toFixed(2)}s to Timeline`
+                        : "Add to Timeline"
+                    }
+                  >
                     <Plus className="w-3 h-3" />
                     Add
                   </button>
