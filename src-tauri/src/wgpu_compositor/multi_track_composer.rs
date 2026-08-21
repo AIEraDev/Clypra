@@ -911,6 +911,7 @@ impl MultiTrackCompositor {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layers: &[CompositeLayer<'_>],
+        #[cfg(target_arch = "wasm32")] is_gl: bool,
     ) -> Result<Vec<u8>, String> {
         self.render_to_rgba_bytes_with_size(
             device,
@@ -919,6 +920,7 @@ impl MultiTrackCompositor {
             self.height,
             layers,
             Some(wgpu::Color::BLACK),
+            #[cfg(target_arch = "wasm32")] is_gl,
         )
         .await
     }
@@ -932,6 +934,7 @@ impl MultiTrackCompositor {
         height: u32,
         layers: &[CompositeLayer<'_>],
         clear_color: Option<wgpu::Color>,
+        #[cfg(target_arch = "wasm32")] is_gl: bool,
     ) -> Result<Vec<u8>, String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Compositor Render Target"),
@@ -1023,16 +1026,40 @@ impl MultiTrackCompositor {
 
         #[cfg(target_arch = "wasm32")]
         let map_err: Result<(), wgpu::BufferAsyncError> = {
-            let (sender, receiver) = futures::channel::oneshot::channel();
-            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-                // send() may fail if the receiver was dropped; that means the
-                // caller already gave up, so silently discard.
-                let _ = sender.send(result);
-            });
-            // device.poll() is a no-op on WebGPU — the browser event loop
-            // drives callback delivery. .await here yields to that loop.
-            device.poll(wgpu::Maintain::Poll);
-            receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            // On WebGPU: the callback fires as a JS microtask → need .await.
+            // On WebGL2/ANGLE: the GL backend maps synchronously inside
+            // map_async — the callback fires before map_async returns, so
+            // futures::channel::oneshot + .await hangs forever because nothing
+            // drives the future on the single-threaded WASM main thread.
+            //
+            // Distinguish at runtime using the backend string stored in GpuContext.
+            // This avoids any compile-time cfg chain and correctly handles the
+            // case where the same binary runs both paths (e.g. "Force WebGL2" test).
+
+            if !is_gl {
+                // WebGPU path: callback is a JS microtask, .await yields to the loop.
+                let (sender, receiver) = futures::channel::oneshot::channel();
+                buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                    let _ = sender.send(result);
+                });
+                device.poll(wgpu::Maintain::Poll);
+                receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            } else {
+                // WebGL2/ANGLE path: callback fires synchronously inside map_async.
+                // Mutex flag is Some() immediately — no async needed.
+                let flag = std::sync::Arc::new(
+                    std::sync::Mutex::new(None::<Result<(), wgpu::BufferAsyncError>>)
+                );
+                let flag_cb = flag.clone();
+                buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                    *flag_cb.lock().unwrap() = Some(result);
+                });
+                device.poll(wgpu::Maintain::Wait);
+                flag.lock().unwrap()
+                    .take()
+                    .ok_or_else(|| "GL map_async callback was not invoked".to_string())?
+                    .map_err(|e| e.to_string())?;
+            }
             Ok(())
         };
 
@@ -1149,6 +1176,7 @@ impl MultiTrackCompositor {
         from_view: &wgpu::TextureView,
         to_view: &wgpu::TextureView,
         uniforms: &TransitionUniforms,
+        #[cfg(target_arch = "wasm32")] is_gl: bool,
     ) -> Result<Vec<u8>, String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Transition Render Target"),
@@ -1248,16 +1276,40 @@ impl MultiTrackCompositor {
 
         #[cfg(target_arch = "wasm32")]
         let map_err: Result<(), wgpu::BufferAsyncError> = {
-            let (sender, receiver) = futures::channel::oneshot::channel();
-            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-                // send() may fail if the receiver was dropped; that means the
-                // caller already gave up, so silently discard.
-                let _ = sender.send(result);
-            });
-            // device.poll() is a no-op on WebGPU — the browser event loop
-            // drives callback delivery. .await here yields to that loop.
-            device.poll(wgpu::Maintain::Poll);
-            receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            // On WebGPU: the callback fires as a JS microtask → need .await.
+            // On WebGL2/ANGLE: the GL backend maps synchronously inside
+            // map_async — the callback fires before map_async returns, so
+            // futures::channel::oneshot + .await hangs forever because nothing
+            // drives the future on the single-threaded WASM main thread.
+            //
+            // Distinguish at runtime using the backend string stored in GpuContext.
+            // This avoids any compile-time cfg chain and correctly handles the
+            // case where the same binary runs both paths (e.g. "Force WebGL2" test).
+
+            if !is_gl {
+                // WebGPU path: callback is a JS microtask, .await yields to the loop.
+                let (sender, receiver) = futures::channel::oneshot::channel();
+                buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                    let _ = sender.send(result);
+                });
+                device.poll(wgpu::Maintain::Poll);
+                receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            } else {
+                // WebGL2/ANGLE path: callback fires synchronously inside map_async.
+                // Mutex flag is Some() immediately — no async needed.
+                let flag = std::sync::Arc::new(
+                    std::sync::Mutex::new(None::<Result<(), wgpu::BufferAsyncError>>)
+                );
+                let flag_cb = flag.clone();
+                buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                    *flag_cb.lock().unwrap() = Some(result);
+                });
+                device.poll(wgpu::Maintain::Wait);
+                flag.lock().unwrap()
+                    .take()
+                    .ok_or_else(|| "GL map_async callback was not invoked".to_string())?
+                    .map_err(|e| e.to_string())?;
+            }
             Ok(())
         };
 

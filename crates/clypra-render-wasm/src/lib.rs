@@ -130,6 +130,8 @@ async fn render_raster_frame(
     gpu: &GpuContext,
     request: &FrameRequest,
 ) -> Result<Vec<u8>, String> {
+    #[cfg(target_arch = "wasm32")]
+    let is_gl = gpu.info.backend == "Gl" || gpu.info.backend == "WebGl";
     if !request.project.video_layers.is_empty() {
         return Err(
             "WASM compositor does not decode video — pass pre-decoded RGBA via rasterLayers".into(),
@@ -227,6 +229,7 @@ async fn render_raster_frame(
                 request.output_width, request.output_height,
                 &views[from_index], &views[to_index],
                 &uniforms,
+                #[cfg(target_arch = "wasm32")] is_gl,
             )
             .await;
     }
@@ -271,6 +274,7 @@ async fn render_raster_frame(
                 b: request.project.clear_color[2].clamp(0.0, 1.0) as f64,
                 a: request.project.clear_color[3].clamp(0.0, 1.0) as f64,
             }),
+            #[cfg(target_arch = "wasm32")] is_gl,
         )
         .await
 }
