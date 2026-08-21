@@ -7,5 +7,10 @@ license = "MIT"
 
 [dependencies]
 clypra-native-core = { path = "../clypra-native-core" }
+bytemuck = { version = "1.21", features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+wgpu = "24.0"
