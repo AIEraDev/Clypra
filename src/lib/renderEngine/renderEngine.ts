@@ -177,6 +177,7 @@ export class RenderEngine {
 
     const currentTier: RenderTier = { spatialTier, temporalTier };
     const epochId = computeEpochId(state.epochDimensions ?? this._buildEpochDimensions(clipId, state as any));
+    const previousState = this._clipStates.get(clipId)?.renderState;
 
     return {
       clipId,
@@ -184,8 +185,10 @@ export class RenderEngine {
       targetTier: currentTier, // Phase 1: target = current (no pending transitions yet)
       epochId,
       interactionState: this._currentInteractionState,
-      visibleArtifacts: [], // Populated in Phase 3 by transport layer
-      isFallback: true,
+      // Keep the last projection available while the new epoch converges. The
+      // surface validates epoch/tier/timestamp before it commits those pixels.
+      visibleArtifacts: previousState?.visibleArtifacts ?? [],
+      isFallback: previousState?.isFallback ?? true,
     };
   }
 
@@ -220,12 +223,26 @@ export class RenderEngine {
         state.renderState = {
           ...state.renderState,
           visibleArtifacts: artifacts,
-          isFallback: artifacts.length === 0,
+          // Once a valid projection has existed, an empty/partial transition
+          // is convergence, not a return to the poster fallback state.
+          isFallback: artifacts.length > 0 ? false : state.renderState.isFallback,
         };
 
         // Notify subscribers
         this._notifyListeners(options.clipId, state.renderState);
       },
+    });
+  }
+
+  /** Populate adjacent filmstrip tiers/viewport regions after interaction settles. */
+  prefetchFilmstrip(options: { clipId: string; videoPath: string; trimIn: number; trimOut: number; duration: number; clipStartTime: number; clipWidthPx: number; viewportScrollLeft: number; viewportWidth: number; pixelsPerSecond: number }): void {
+    const state = this._clipStates.get(options.clipId);
+    if (!state) return;
+
+    this._filmstripCache.prefetchFilmstrip({
+      ...options,
+      spatialTier: state.renderState.currentTier.spatialTier,
+      epochId: state.renderState.epochId,
     });
   }
 

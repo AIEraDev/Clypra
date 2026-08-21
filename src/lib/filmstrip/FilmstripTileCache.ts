@@ -6,7 +6,8 @@
  *   - Tile-level invalidation (not clip-level)
  *   - Zoom tier transitions reuse center tiles
  *   - Scales to 2hr videos (bounded by viewport, not duration)
- *   - Supports "aggressive cheating" — nearest-tile lookup during scroll
+ *   - Retains nearest-tile lookup for diagnostics/legacy callers; active
+ *     filmstrip rendering uses exact addresses only
  *
  * Architecture:
  *   FilmstripTileCache → Map<tileKey, TileCacheEntry>

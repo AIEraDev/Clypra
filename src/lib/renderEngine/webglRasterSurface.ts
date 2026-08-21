@@ -17,6 +17,7 @@
 
 import { RasterSurface, type FilmstripLayout } from "./rasterSurface";
 import type { TransportArtifact } from "./transport";
+import { getFilmstripTileSlots } from "../filmstrip/filmstripLayout";
 
 // ─── Shaders ──────────────────────────────────────────────────────────────────
 
@@ -168,7 +169,6 @@ export class WebGLRasterSurface {
     const safeStripHeight = Number.isFinite(stripHeightPx) && stripHeightPx > 0 ? stripHeightPx : 1;
     const safeDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
 
-    const tileCount = Math.max(1, Math.ceil(safeClipWidth / targetTileW));
     const backingW = Math.max(1, Math.round(safeClipWidth * safeDpr));
     const backingH = Math.max(1, Math.round(safeStripHeight * safeDpr));
 
@@ -210,48 +210,40 @@ export class WebGLRasterSurface {
     // slots. This avoids stretching low-resolution artifacts across the slot.
     const FLOATS_PER_VERTEX = 4;
     const VERTS_PER_TILE = 6;
-    const tileW = Math.round(targetTileW * dpr);
     const tileH = backingH;
     const rects: Array<{ pos: [number, number, number, number]; uv: [number, number, number, number] }> = [];
 
-    // Map tiles to artifacts based on timestamp, not array index.
-    // This prevents blank gaps when artifacts.length < tileCount (heavy zoom).
-    const hasTrim = layout.trimIn !== undefined && layout.trimOut !== undefined;
-    const firstTimestamp = hasTrim ? layout.trimIn! * 1000 : (validArtifacts[0]?.timestampMs ?? 0);
-    const lastTimestamp = hasTrim ? layout.trimOut! * 1000 : (validArtifacts[validArtifacts.length - 1]?.timestampMs ?? 0);
-    const timeSpan = lastTimestamp - firstTimestamp;
-
-    // Calculate pixelsPerSecond derived from total clip duration in seconds
-    const duration = hasTrim ? layout.trimOut! - layout.trimIn! : timeSpan / 1000;
-    const pixelsPerSecond = duration > 0 ? clipWidthPx / duration : 100;
-
-    for (let i = 0; i < tileCount; i++) {
-      // Find the artifact closest to this tile's physical timeline position
-      let targetTimestamp = firstTimestamp;
-      if (hasTrim) {
-        // Linear mapping of the tile start index to timeline time
-        targetTimestamp = (layout.trimIn! + (i * targetTileW) / pixelsPerSecond) * 1000;
-      } else {
-        const tileRatio = tileCount > 1 ? i / (tileCount - 1) : 0;
-        targetTimestamp = firstTimestamp + timeSpan * tileRatio;
+    const drawSlots: Array<{ art: TransportArtifact; cell: AtlasCell; tileX: number; tileW: number }> = [];
+    if (layout.tileAddresses && layout.trimIn !== undefined && layout.trimOut !== undefined) {
+      const artifactByTimestamp = new Map<number, { art: TransportArtifact; cell: AtlasCell }>();
+      for (let i = 0; i < validArtifacts.length; i++) {
+        artifactByTimestamp.set(Math.round(validArtifacts[i].timestampMs), { art: validArtifacts[i], cell: cells[i] });
       }
-
-      // Find closest valid artifact by timestamp (unbounded - no threshold)
-      let artIdx = 0;
-      let minDiff = Infinity;
-      for (let j = 0; j < validArtifacts.length; j++) {
-        const art = validArtifacts[j];
-        const diff = Math.abs(art.timestampMs - targetTimestamp);
-        if (diff < minDiff) {
-          minDiff = diff;
-          artIdx = j;
-        }
+      const slots = getFilmstripTileSlots({
+        addresses: layout.tileAddresses,
+        clipWidthPx: safeClipWidth,
+        trimIn: layout.trimIn,
+        trimOut: layout.trimOut,
+        tileWidthPx: targetTileW,
+      });
+      for (const slot of slots) {
+        const match = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
+        if (!match) continue;
+        drawSlots.push({
+          ...match,
+          tileX: Math.round(slot.leftPx * safeDpr),
+          tileW: Math.max(1, Math.round(slot.widthPx * safeDpr)),
+        });
       }
+    } else {
+      const tileCount = Math.max(1, Math.ceil(safeClipWidth / targetTileW));
+      const tileW = Math.round(targetTileW * safeDpr);
+      for (let i = 0; i < Math.min(tileCount, validArtifacts.length); i++) {
+        drawSlots.push({ art: validArtifacts[i], cell: cells[i], tileX: i * tileW, tileW });
+      }
+    }
 
-      const cell = cells[artIdx];
-      const art = validArtifacts[artIdx];
-
-      const tileX = i * tileW;
+    for (const { art, cell, tileX, tileW } of drawSlots) {
 
       // Center-crop: scale bitmap to cover tile, then crop to fit
       const bmpAspect = art.width / art.height;

@@ -1,4 +1,5 @@
 import { SpatialTier, SPATIAL_TIER_DIMS } from "../renderEngine/types";
+import type { FilmstripTileAddress } from "./filmstripTiers";
 
 /**
  * Professional timeline filmstrips keep a stable visual tile cadence in screen
@@ -60,6 +61,44 @@ export interface FilmstripRenderWindow {
   trimOut: number;
   /** Whether the clip intersects the current timeline viewport. */
   isVisible: boolean;
+}
+
+export interface FilmstripTileSlot {
+  address: FilmstripTileAddress;
+  /** Left edge in CSS pixels within the bounded render window. */
+  leftPx: number;
+  /** Temporal coverage width in CSS pixels for this exact sampled frame. */
+  widthPx: number;
+}
+
+/**
+ * Convert exact source-time tile addresses into deterministic fixed-width
+ * visual slots. The timestamp is used only for the address match; position is
+ * carried by the ordered slot metadata so renderers never infer or substitute
+ * a nearest frame. The final slot is clipped by the surface bounds.
+ */
+export function getFilmstripTileSlots(options: {
+  addresses: readonly FilmstripTileAddress[];
+  clipWidthPx: number;
+  trimIn: number;
+  trimOut: number;
+  tileWidthPx: number;
+}): FilmstripTileSlot[] {
+  const { addresses, clipWidthPx, trimIn, trimOut, tileWidthPx } = options;
+  const start = Math.min(trimIn, trimOut);
+  const end = Math.max(trimIn, trimOut);
+  if (!Number.isFinite(clipWidthPx) || clipWidthPx <= 0 || end - start <= 0 || !Number.isFinite(tileWidthPx) || tileWidthPx <= 0) {
+    return [];
+  }
+
+  const sorted = [...addresses]
+    .filter((address) => address.timestamp >= start && address.timestamp <= end)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  return sorted.map((address, index) => ({
+      address,
+      leftPx: index * tileWidthPx,
+      widthPx: tileWidthPx,
+    }));
 }
 
 /**

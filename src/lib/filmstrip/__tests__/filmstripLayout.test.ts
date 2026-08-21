@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getFilmstripRenderWindow } from "../filmstripLayout";
+import { getFilmstripRenderWindow, getFilmstripTileSlots } from "../filmstripLayout";
+import { SpatialTier } from "../../renderEngine/types";
 
 describe("getFilmstripRenderWindow", () => {
   it("keeps the raster surface bounded at deep zoom", () => {
@@ -42,5 +43,28 @@ describe("getFilmstripRenderWindow", () => {
 
     expect(second.leftPx).toBeGreaterThan(first.leftPx);
     expect(second.trimIn).toBeGreaterThan(first.trimIn);
+  });
+});
+
+describe("getFilmstripTileSlots", () => {
+  it("uses deterministic fixed-width slots for exact addresses", () => {
+    const slots = getFilmstripTileSlots({
+      addresses: [0, 5, 10].map((timestamp, tileIndex) => ({
+        clipId: "clip-1",
+        zoomTier: SpatialTier.L1,
+        tileIndex,
+        timestamp,
+      })),
+      clipWidthPx: 100,
+      trimIn: 0,
+      trimOut: 10,
+      tileWidthPx: 50,
+    });
+
+    expect(slots.map((slot) => [slot.leftPx, slot.widthPx])).toEqual([
+      [0, 50],
+      [50, 50],
+      [100, 50],
+    ]);
   });
 });

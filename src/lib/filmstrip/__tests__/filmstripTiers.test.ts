@@ -6,7 +6,21 @@
 
 import { describe, it, expect } from "vitest";
 import { SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier } from "../../renderEngine/types";
-import { FILMSTRIP_DENSITY_TIERS, generateViewportTileAddresses, findNearestTileAddress, getTileKey } from "../filmstripTiers";
+import { FILMSTRIP_DENSITY_TIERS, generateViewportTileAddresses, findNearestTileAddress, getTileKey, hasExactFilmstripArtifacts } from "../filmstripTiers";
+import type { TransportArtifact } from "../../renderEngine/transport";
+import type { RenderEpochId } from "../../renderEngine/types";
+
+const eid = (value: string) => value as RenderEpochId;
+const artifact = (timestampMs: number, epochId = eid("epoch-1"), spatialTier = SpatialTier.L1): TransportArtifact => ({
+  frameId: `frame-${timestampMs}`,
+  contentHash: `hash-${timestampMs}`,
+  spatialTier,
+  bitmap: { width: 240, height: 135 } as ImageBitmap,
+  width: 240,
+  height: 135,
+  timestampMs,
+  epochId,
+});
 
 describe("FILMSTRIP_DENSITY_TIERS", () => {
   it("has fixed intervals per spatial tier", () => {
@@ -245,5 +259,21 @@ describe("getTileKey", () => {
     expect(getTileKey(a2)).toBe("c1:1:1");
     expect(getTileKey(a3)).toBe("c2:1:0");
     expect(getTileKey(a1)).not.toBe(getTileKey(a2));
+  });
+});
+
+describe("hasExactFilmstripArtifacts", () => {
+  const addresses = [0, 1, 2].map((timestamp, tileIndex) => ({
+    clipId: "clip-1",
+    zoomTier: SpatialTier.L1,
+    tileIndex,
+    timestamp,
+  }));
+
+  it("requires every timestamp, epoch, tier, and valid bitmap", () => {
+    expect(hasExactFilmstripArtifacts([artifact(0), artifact(1000), artifact(2000)], addresses, eid("epoch-1"), SpatialTier.L1)).toBe(true);
+    expect(hasExactFilmstripArtifacts([artifact(0), artifact(1000)], addresses, eid("epoch-1"), SpatialTier.L1)).toBe(false);
+    expect(hasExactFilmstripArtifacts([artifact(0), artifact(1000), artifact(2000, eid("stale"))], addresses, eid("epoch-1"), SpatialTier.L1)).toBe(false);
+    expect(hasExactFilmstripArtifacts([artifact(0), artifact(1000), artifact(2000, eid("epoch-1"), SpatialTier.L2)], addresses, eid("epoch-1"), SpatialTier.L1)).toBe(false);
   });
 });

@@ -18,7 +18,7 @@
 import { useEffect } from "react";
 import { useRenderRuntime } from "../../hooks/useRenderRuntime";
 import { useRenderState } from "../renderEngine/hooks";
-import { SpatialTier, InteractionState } from "../renderEngine/types";
+import { SpatialTier, InteractionState, type RenderEpochId } from "../renderEngine/types";
 import type { TransportArtifact } from "../renderEngine/transport";
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -42,12 +42,14 @@ export interface UseFilmstripResult {
   artifacts: readonly TransportArtifact[];
   /** True while the first batch is loading */
   isLoading: boolean;
-  /** True if no tier has been decoded yet — show posterFrame fallback */
+  /** True before the first valid filmstrip projection; transition UI stays neutral. */
   isFallback: boolean;
   /** Current interaction state — surface can dim during ballistic scroll */
   interactionState: InteractionState;
   /** SRP-selected tier used for UI-only layout decisions. */
   spatialTier: SpatialTier;
+  /** Epoch that produced the current artifact projection. */
+  epochId: RenderEpochId;
 }
 
 /**
@@ -94,6 +96,43 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     renderState.epochId, // Re-request on epoch change
   ]);
 
+  // Keep active viewport requests transactional, then warm a bounded
+  // neighborhood only after the interaction has settled.
+  useEffect(() => {
+    if (!runtime || !enabled || !opts.videoPath || !opts.duration || !runtime.prefetchFilmstrip) return;
+
+    const timeoutId = setTimeout(() => {
+      runtime.prefetchFilmstrip({
+        clipId: opts.clipId,
+        videoPath: opts.videoPath,
+        trimIn: opts.trimIn,
+        trimOut: opts.trimOut,
+        duration: opts.duration,
+        clipStartTime: opts.clipStartTime,
+        clipWidthPx: opts.clipWidthPx,
+        viewportScrollLeft: opts.viewportScrollLeft,
+        viewportWidth: opts.viewportWidth,
+        pixelsPerSecond: opts.pixelsPerSecond,
+      });
+    }, 250);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    runtime,
+    enabled,
+    opts.clipId,
+    opts.videoPath,
+    opts.trimIn,
+    opts.trimOut,
+    opts.duration,
+    opts.clipStartTime,
+    opts.clipWidthPx,
+    opts.viewportScrollLeft,
+    opts.viewportWidth,
+    opts.pixelsPerSecond,
+    renderState.epochId,
+  ]);
+
   // Return immutable projection
   return {
     artifacts: renderState.visibleArtifacts as readonly TransportArtifact[],
@@ -101,5 +140,6 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     isFallback: renderState.isFallback,
     interactionState: renderState.interactionState,
     spatialTier: renderState.currentTier.spatialTier,
+    epochId: renderState.epochId,
   };
 }

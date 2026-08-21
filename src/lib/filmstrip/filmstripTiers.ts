@@ -13,6 +13,10 @@
  */
 
 import { SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier } from "../renderEngine/types";
+import { timeToPixel, pixelToTime } from "../timeline/timelineViewport";
+import type { RenderEpochId } from "../renderEngine/types";
+import type { TransportArtifact } from "../renderEngine/transport";
+
 
 export interface FilmstripDensityTier {
   /** Thumbnail interval in seconds */
@@ -85,8 +89,8 @@ export function generateViewportTileAddresses(options: {
   const expandedStartPx = Math.max(0, viewportStartPx - overscanPx);
   const expandedEndPx = viewportEndPx + overscanPx;
 
-  // Clip bounds in timeline space
-  const clipStartPx = clipStartTime * pixelsPerSecond;
+  // Clip bounds in timeline space — use timeToPixel for rounded pixel-grid consistency.
+  const clipStartPx = timeToPixel(clipStartTime, pixelsPerSecond);
   const clipEndPx = clipStartPx + clipWidthPx;
 
   // Check if clip is visible
@@ -98,9 +102,10 @@ export function generateViewportTileAddresses(options: {
   const visibleClipStartPx = Math.max(clipStartPx, expandedStartPx);
   const visibleClipEndPx = Math.min(clipEndPx, expandedEndPx);
 
-  // Convert to clip-local time
-  const visibleStartTime = (visibleClipStartPx - clipStartPx) / pixelsPerSecond + trimIn;
-  const visibleEndTime = (visibleClipEndPx - clipStartPx) / pixelsPerSecond + trimIn;
+  // Convert to clip-local time — use pixelToTime for canonical inverse.
+  const visibleStartTime = pixelToTime(visibleClipStartPx - clipStartPx, pixelsPerSecond) + trimIn;
+  const visibleEndTime = pixelToTime(visibleClipEndPx - clipStartPx, pixelsPerSecond) + trimIn;
+
 
   // Clamp to trim range (and video duration if provided)
   const effectiveEnd = videoDuration !== undefined ? Math.min(trimOut, videoDuration) : trimOut;
@@ -169,4 +174,33 @@ export function findNearestTileAddress(targetTimestamp: number, addresses: Films
   }
 
   return nearest;
+}
+
+/**
+ * A filmstrip can be committed only when every requested address has an
+ * artifact from the active epoch and spatial tier. Partial sets are kept in
+ * cache but must not be rendered into a new layout.
+ */
+export function hasExactFilmstripArtifacts(
+  artifacts: readonly TransportArtifact[],
+  addresses: readonly FilmstripTileAddress[],
+  epochId: RenderEpochId,
+  spatialTier: SpatialTier,
+): boolean {
+  if (addresses.length === 0) return false;
+
+  const matching = new Set(
+    artifacts
+      .filter(
+        (artifact) =>
+          artifact.epochId === epochId &&
+          artifact.spatialTier === spatialTier &&
+          !!artifact.bitmap &&
+          artifact.bitmap.width > 0 &&
+          artifact.bitmap.height > 0,
+      )
+      .map((artifact) => Math.round(artifact.timestampMs)),
+  );
+
+  return addresses.every((address) => matching.has(Math.round(address.timestamp * 1000)));
 }
