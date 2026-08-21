@@ -17,6 +17,7 @@ import { generateId } from "@/lib/utils/id";
 import { resolveInsertEdit } from "./insertEdit";
 import { getTimelineLaneClientX } from "./timelineViewport";
 import { traceTimelineDnd } from "./timelineDndTrace";
+import { TRACK_TYPE_CONFIG } from "./trackTypeConfig";
 
 // Density configurations mapping zoom levels to extraction densities. Each configuration defines the time interval between thumbnails and the zoom range.
 export const DENSITY_CONFIGS: DensityConfig[] = [
@@ -114,7 +115,7 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
     muted: false,
     locked: false,
     visible: true,
-    height: trackType === "video" ? 68 : trackType === "audio" ? 52 : 56,
+    height: TRACK_TYPE_CONFIG[trackType].height,
   };
 
   // Use command to add track (enables undo/redo)

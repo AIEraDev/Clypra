@@ -270,6 +270,14 @@ export const useTimelineStore = create<TimelineStore>(
         });
       }
 
+      // Adopt the larger video row for projects created with the previous
+      // compact 68px default. Explicitly taller user rows are preserved.
+      finalTracks = finalTracks.map((track: any) =>
+        track.type === "video" && track.height === 68
+          ? { ...track, height: trackHeights.video }
+          : track,
+      );
+
       // Normalize clip timing with media asset data
       const mediaAssets = useProjectStore.getState().mediaAssets;
 

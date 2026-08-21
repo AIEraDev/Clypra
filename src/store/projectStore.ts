@@ -36,6 +36,7 @@ import { calculateTextClipSize } from "@/lib/text/textClip";
 import { useSettingsStore } from "./settingsStore";
 import { saveSnapshot, clearSnapshot } from "@/core/runtime/CrashRecoveryService";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
+import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
 interface ProjectStore {
@@ -311,7 +312,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       muted: false,
       locked: false,
       visible: true,
-      height: t.type === "video" ? 68 : t.type === "audio" ? 52 : 30,
+      height: TRACK_TYPE_CONFIG[t.type as keyof typeof TRACK_TYPE_CONFIG]?.height ?? 30,
     }));
 
     useTimelineStore.getState().hydrateFromProject({
