@@ -1037,7 +1037,7 @@ const ClipInner: React.FC<ClipProps> = ({
       <div
         data-testid={`clip-${clip.id}-resize-right`}
         data-clip-resize-handle="true"
-        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${showResizeHandles ? "opacity-100 pointer-events-auto" : "pointer-events-none opacity-0"} ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "hover:bg-white/80"}`}
+        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${showResizeHandles ? "opacity-100 pointer-events-auto" : "pointer-events-none opacity-0"} ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           traceResize("right-handle pointerdown", {
@@ -1058,7 +1058,16 @@ const ClipInner: React.FC<ClipProps> = ({
             ? "Ripple trim (Shift to disable)"
             : "Normal trim (Shift for ripple)"
         }
-      ></div>
+      >
+        <div
+          className="pointer-events-none absolute right-0 top-1/2 flex h-9 w-2 -translate-y-1/2 flex-col items-center justify-center gap-1 rounded-l border border-r-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
+          style={getHandleBackgroundStyle()}
+        >
+          <span className="h-px w-1 bg-white/70" />
+          <span className="h-px w-1 bg-white/70" />
+          <span className="h-px w-1 bg-white/70" />
+        </div>
+      </div>
     </div>
   );
 };
