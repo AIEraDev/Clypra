@@ -89,29 +89,32 @@ export function useTransportControls() {
   const authority = useTransport();
 
   return useMemo(
-    () => ({
-      play: () => {
-        // Program preview in Tauri is native-only. Resuming Web Audio here
-        // would create a competing audible path before CPAL receives play.
-        if (!(isTauriRuntime() && authority?.getActiveType() === "program")) {
-          resumeGlobalAudioEngine();
-          getActiveSessionOrNull()?.unlockPreviewAudio();
-        }
-        authority?.play();
-      },
-      togglePlayback: () => {
-        if (!(isTauriRuntime() && authority?.getActiveType() === "program")) {
-          resumeGlobalAudioEngine();
-          getActiveSessionOrNull()?.unlockPreviewAudio();
-        }
-        authority?.togglePlayback();
-      },
-      pause: () => authority?.pause(),
-      stop: () => authority?.stop(),
-      seek: (time: number) => authority?.seek(time),
-      setSpeed: (speed: number) => authority?.setSpeed(speed),
-      setActiveContext: (type: "program" | "source") => authority?.setActiveContext(type),
-    }),
+    () => {
+      const prepareProgramPreviewAudio = () => {
+        // Source Preview owns its visible HTMLMediaElement. Never unlock or
+        // resume the program-preview pool/engine while source media is active.
+        if (authority?.getActiveType() !== "program") return;
+        if (isTauriRuntime()) return;
+        resumeGlobalAudioEngine();
+        getActiveSessionOrNull()?.unlockProgramPreviewAudio();
+      };
+
+      return {
+        play: () => {
+          prepareProgramPreviewAudio();
+          authority?.play();
+        },
+        togglePlayback: () => {
+          prepareProgramPreviewAudio();
+          authority?.togglePlayback();
+        },
+        pause: () => authority?.pause(),
+        stop: () => authority?.stop(),
+        seek: (time: number) => authority?.seek(time),
+        setSpeed: (speed: number) => authority?.setSpeed(speed),
+        setActiveContext: (type: "program" | "source") => authority?.setActiveContext(type),
+      };
+    },
     [authority],
   );
 }

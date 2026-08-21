@@ -355,10 +355,12 @@ export class ProjectSession {
   }
 
   /**
-   * Unlock autoplay restrictions for all video/audio preview elements.
-   * MUST be called synchronously inside a user gesture handler.
+   * Unlock the program-preview media pool and browser program engine.
+   *
+   * Source Preview never calls this method: source playback owns its visible
+   * HTML media element through SourcePlaybackContext.
    */
-  unlockPreviewAudio(): void {
+  unlockProgramPreviewAudio(): void {
     this._previewMediaPool?.unlockAudio();
     this._audioEngine?.resume();
   }

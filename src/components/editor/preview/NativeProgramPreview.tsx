@@ -1593,7 +1593,7 @@ export const NativeProgramPreview: React.FC = () => {
   const step = 1 / Math.max(1, frameRate);
 
   return (
-    <div className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
+    <div data-preview-space="program" className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
       <div className="flex items-center px-4 h-10 shrink-0 gap-2 overflow-hidden">
         <span className="text-[13px] font-semibold text-text-primary tracking-tight leading-none">
           {isTauriRuntime() ? "Program Preview (Native)" : "Program Preview (Desktop required)"}
