@@ -21,6 +21,7 @@ wasm-bindgen         = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys               = "0.3"
 console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", features = ["OffscreenCanvas"] }
 
 # futures::channel::oneshot — WASM-compatible async channel for map_async readback.
 # Used in the wasm32 path of multi_track_composer.rs instead of

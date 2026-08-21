@@ -289,21 +289,67 @@ async fn render_raster_frame(
 ///   - Full discrete-GPU scoring from `adapter_selector.rs`.
 #[cfg(target_arch = "wasm32")]
 async fn init_gpu() -> Result<GpuContext, String> {
+    use wgpu_compositor::adapter_selector::SelectedGpuInfo;
+
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
         ..Default::default()
     });
-    // On WASM, wgpu maps request_adapter to navigator.gpu.requestAdapter().
-    // Enumeration-based scoring is not available — the browser exposes only
-    // a powerPreference hint.
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference:       wgpu::PowerPreference::HighPerformance,
-            compatible_surface:     None,
-            force_fallback_adapter: false,
-        })
-        .await
-        .ok_or("WebGPU adapter unavailable — check browser support and GPU drivers")?;
+
+    // Try WebGPU first (compatible_surface: None works because WebGPU
+    // doesn't need a surface to enumerate adapters).
+    // If navigator.gpu is absent (Firefox, or forced WebGL2 test), fall
+    // through to the WebGL2 path which DOES require a canvas surface.
+    let webgpu_available = js_sys::Reflect::has(
+        &js_sys::global(),
+        &wasm_bindgen::JsValue::from_str("navigator"),
+    ).unwrap_or(false) && {
+        let nav = js_sys::Reflect::get(
+            &js_sys::global(),
+            &wasm_bindgen::JsValue::from_str("navigator"),
+        ).unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+        !js_sys::Reflect::get(&nav, &wasm_bindgen::JsValue::from_str("gpu"))
+            .unwrap_or(wasm_bindgen::JsValue::UNDEFINED)
+            .is_undefined()
+    };
+
+    let (adapter, surface_holder) = if webgpu_available {
+        // WebGPU path — no canvas needed
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference:       wgpu::PowerPreference::HighPerformance,
+                compatible_surface:     None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or("WebGPU adapter unavailable — check browser support and GPU drivers")?;
+        (adapter, None::<wgpu::Surface<'static>>)
+    } else {
+        // WebGL2 fallback — wgpu's GL backend requires a canvas surface to
+        // create a device. Create a small OffscreenCanvas as the surface
+        // anchor; it is only used for adapter/device creation and is not
+        // used for rendering (all rendering goes to off-screen textures).
+        let canvas = web_sys::OffscreenCanvas::new(1, 1)
+            .map_err(|e| format!("OffscreenCanvas creation failed: {e:?}"))?;
+
+        let surface = instance
+            .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(canvas))
+            .map_err(|e| format!("WebGL2 surface creation failed: {e}"))?;
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference:       wgpu::PowerPreference::HighPerformance,
+                compatible_surface:     Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or("WebGL2 adapter unavailable — this browser or context does not support WebGL2")?;
+
+        // Drop the surface after adapter creation; rendering uses off-screen textures.
+        drop(surface);
+        (adapter, None::<wgpu::Surface<'static>>)
+    };
+    let _ = surface_holder; // suppress unused warning
 
     let info = adapter.get_info();
     log::info!(
@@ -322,12 +368,8 @@ async fn init_gpu() -> Result<GpuContext, String> {
             None,
         )
         .await
-        .map_err(|e| format!("WebGPU device request failed: {e}"))?;
+        .map_err(|e| format!("GPU device request failed: {e}"))?;
 
-    // Build a minimal GpuContext. The native GpuContext::select_best_gpu
-    // helper is not used here because it relies on adapter enumeration which
-    // is unavailable in the browser sandbox.
-    use wgpu_compositor::adapter_selector::SelectedGpuInfo;
     Ok(GpuContext {
         instance,
         adapter,
