@@ -9,6 +9,7 @@ import { Film, Plus } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { MediaCardWaveform } from "./MediaCardWaveform";
+import { traceTimelineDnd } from "@/lib/timeline/timelineDndTrace";
 
 // MediaCard Component
 interface MediaCardProps {
@@ -25,11 +26,25 @@ export const MediaCard: React.FC<MediaCardProps> = ({ asset, isSelected, isUsedI
 
   const [{ isDragging }, drag] = useDrag(() => ({
     type: "MEDIA_ASSET",
-    item: { type: "MEDIA_ASSET", asset },
+    // React DnD v16 invokes a function-valued item at drag start. The old
+    // spec.begin callback was removed in v14 and throws before HTML5 drag
+    // events can reach the timeline target.
+    item: () => {
+      traceTimelineDnd("asset-drag-begin", { assetId: asset.id, name: asset.name, type: asset.type });
+      return { type: "MEDIA_ASSET", asset };
+    },
+    end: (item: any, monitor: any) => {
+      traceTimelineDnd("asset-drag-end", {
+        assetId: item?.asset?.id ?? asset.id,
+        didDrop: monitor.didDrop(),
+        dropResult: monitor.getDropResult?.() ?? null,
+        clientOffset: monitor.getClientOffset?.() ?? null,
+      });
+    },
     collect: (monitor: any) => ({
       isDragging: monitor.isDragging(),
     }),
-  }));
+  }), [asset]);
 
   const handleClick = () => {
     onClick(); // Keep selection state
