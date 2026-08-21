@@ -117,6 +117,9 @@ export class NativeAudioPreviewController {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
     this.clock.clearNativeClockPosition();
+    const pendingCommands = this.commandQueue;
+    this.commandQueue = Promise.resolve();
+    await pendingCommands;
     if (isTauriRuntime()) {
       try {
         await stopNativeAudio();
@@ -181,7 +184,12 @@ export class NativeAudioPreviewController {
   }
 
   private enqueue(operation: () => Promise<void>): void {
-    this.commandQueue = this.commandQueue.then(operation).catch((error) => this.reportError(error));
+    this.commandQueue = this.commandQueue
+      .then(async () => {
+        if (this.disposed || !this.active) return;
+        await operation();
+      })
+      .catch((error) => this.reportError(error));
   }
 
   private reportError(error: unknown): void {

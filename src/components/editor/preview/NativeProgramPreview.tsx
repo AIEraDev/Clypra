@@ -33,6 +33,7 @@ import {
   getNativePreviewSurfaceGeometry,
   hideNativeSurface,
   isTauriRuntime,
+  onNativePreviewWindowMoved,
   presentNativeFrame,
   queueNativeFrame,
   registerNativeRasterAsset,
@@ -250,9 +251,7 @@ export const NativeProgramPreview: React.FC = () => {
     let active = true;
     let syncInFlight = false;
     let syncRequested = false;
-    let observedGeometryKey = "";
     let appliedGeometryKey = "";
-    let monitorRaf: number | null = null;
 
     const geometryKey = (geometry: NativeSurfaceGeometry): string => [
       geometry.xPhysical,
@@ -280,11 +279,12 @@ export const NativeProgramPreview: React.FC = () => {
             if (nextGeometryKey === appliedGeometryKey && nativeSurfaceConfiguredRef.current) continue;
 
             // Do not keep presenting into the old child-window position while
-            // the DOM viewport is moving. The next frame will only use the
-            // native surface after this geometry has been applied.
+            // the DOM viewport is moving. Complete the hide before resizing so
+            // an older hide cannot race a later native presentation.
             nativeSurfaceGeometrySettledRef.current = false;
             setNativeSurfacePresenting(false);
-            void hideNativeSurface().catch(() => undefined);
+            await hideNativeSurface().catch(() => undefined);
+            if (!active) break;
 
             if (nativeSurfaceConfiguredRef.current) {
               await resizeNativeSurface(geometry);
@@ -314,30 +314,19 @@ export const NativeProgramPreview: React.FC = () => {
       })();
     };
 
-    const monitorGeometry = () => {
-      if (!active) return;
-      const target = nativeSurfaceTargetRef.current;
-      if (target) {
-        const rect = target.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        const key = [
-          Math.round(rect.left * dpr),
-          Math.round(rect.top * dpr),
-          Math.max(1, Math.round(rect.width * dpr)),
-          Math.max(1, Math.round(rect.height * dpr)),
-          dpr,
-        ].join(":");
-        if (key !== observedGeometryKey) {
-          observedGeometryKey = key;
-          syncSurface();
-        }
-      }
-      monitorRaf = requestAnimationFrame(monitorGeometry);
-    };
     const handleWindowResize = () => syncSurface();
 
     syncSurface();
-    monitorRaf = requestAnimationFrame(monitorGeometry);
+    let unlistenWindowMoved: (() => void) | null = null;
+    void onNativePreviewWindowMoved(syncSurface)
+      .then((unlisten) => {
+        if (active) {
+          unlistenWindowMoved = unlisten;
+        } else {
+          unlisten();
+        }
+      })
+      .catch(() => undefined);
     const resizeObserver = typeof ResizeObserver !== "undefined"
       ? new ResizeObserver(() => syncSurface())
       : null;
@@ -347,7 +336,7 @@ export const NativeProgramPreview: React.FC = () => {
     return () => {
       active = false;
       resizeObserver?.disconnect();
-      if (monitorRaf !== null) cancelAnimationFrame(monitorRaf);
+      unlistenWindowMoved?.();
       window.removeEventListener("resize", handleWindowResize);
       nativeSurfaceConfiguredRef.current = false;
       nativeSurfaceGeometrySettledRef.current = false;
@@ -554,6 +543,8 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeDroppedFrameCount = 0;
     let nativeContinuousBlockedRevision = "";
     let nativeContinuousObservedRevision = "";
+    let frameScheduled = false;
+    let lastRenderLoopError = "";
 
     // Native frame decode/presentation is asynchronous. A small measured
     // look-ahead keeps the frame that completes aligned with the audio clock
@@ -958,6 +949,15 @@ export const NativeProgramPreview: React.FC = () => {
       }
     };
 
+    const scheduleNextFrame = () => {
+      if (!isActive || frameScheduled) return;
+      frameScheduled = true;
+      rafId = requestAnimationFrame(() => {
+        frameScheduled = false;
+        void renderLoop();
+      });
+    };
+
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
       renderInFlight = true;
@@ -1101,11 +1101,6 @@ export const NativeProgramPreview: React.FC = () => {
       const nativePlaybackRequestKey = nativePlaybackRequest
         ? getNativeFrameRequestKey(nativePlaybackRequest)
         : nativeRequestKey;
-      const nativeSurfaceOwnsCurrentFrame = nativeSurfaceShown && isPlaying &&
-        lastNativePlaybackRequestKey === nativePlaybackRequestKey && nativeAudioClockReady &&
-        nativeSurfaceGeometrySettledRef.current;
-      const nativeDirectSurfacePath = nativeSurfaceReady && nativeSurfaceGeometrySettledRef.current &&
-        Boolean(nativeRequest) && nativePlaybackPath;
       const nativeOnlyMode = isTauriRuntime() && NATIVE_PREVIEW_ONLY;
       const nativeOnlySceneBlocked = nativeOnlyMode && !nativeRequest;
       if (nativeOnlyMode) {
@@ -1128,17 +1123,24 @@ export const NativeProgramPreview: React.FC = () => {
           frameIndex,
         });
       }
-      if (nativeSurfaceShown && !nativeDirectSurfacePath && !nativeSurfaceOwnsCurrentFrame) {
-        nativeSurfaceShown = false;
-        lastNativePlaybackRequestKey = "";
-        setNativeSurfacePresenting(false);
-        void hideNativeSurface().catch(() => undefined);
-      }
       const nativeRevision = `${state.project?.id ?? "unknown-project"}:${state.epoch}`;
       if (nativeRevision !== nativeContinuousObservedRevision) {
         nativeContinuousObservedRevision = nativeRevision;
         nativeContinuousFailureStreak = 0;
         nativeContinuousBlockedRevision = "";
+      }
+      const nativeSurfaceUsable = nativeSurfaceReady && nativeSurfaceGeometrySettledRef.current &&
+        nativeContinuousBlockedRevision !== nativeRevision;
+      const nativeSurfaceOwnsCurrentFrame = nativeSurfaceShown && isPlaying &&
+        lastNativePlaybackRequestKey === nativePlaybackRequestKey && nativeAudioClockReady &&
+        nativeSurfaceUsable;
+      const nativeDirectSurfacePath = nativeSurfaceUsable && Boolean(nativeRequest) && nativePlaybackPath;
+      const nativeReadbackFallbackPath = isPlaying && nativePlaybackPath && !nativeSurfaceUsable;
+      if (nativeSurfaceShown && !nativeDirectSurfacePath && !nativeSurfaceOwnsCurrentFrame) {
+        nativeSurfaceShown = false;
+        lastNativePlaybackRequestKey = "";
+        setNativeSurfacePresenting(false);
+        void hideNativeSurface().catch(() => undefined);
       }
       const cachedNativeFrame = nativeRequestKey !== ""
         ? nativePreviewScheduler.getCached(nativeRequestKey)
@@ -1161,22 +1163,17 @@ export const NativeProgramPreview: React.FC = () => {
       // render loop keeps the last accepted native frame while one request is
       // in flight, preventing native decode latency from stalling playback.
       if (
-        (nativeDirectSurfacePath || (!nativeSurfaceReady && nativePlaybackPath)) &&
-        (nativePlaybackRequest || nativeRequest) &&
+        (nativeDirectSurfacePath || nativeReadbackFallbackPath) &&
+        nativeRequest &&
         (isPlaying ? !cachedNativeFrame : true) &&
-        nativeContinuousBlockedRevision !== nativeRevision &&
         nativeBlockedKey !== nativeRequestKey &&
         performance.now() >= nativeRetryAt &&
         !nativePlaybackInFlight
       ) {
-        const requestToPresent = isPlaying ? nativePlaybackRequest : nativeRequest;
-        if (!requestToPresent) {
-          rafId = requestAnimationFrame(renderLoop);
-          return;
-        }
+        const requestToPresent = isPlaying && nativeSurfaceUsable ? nativePlaybackRequest : nativeRequest;
+        if (!requestToPresent) return;
         const requestKey = getNativeFrameRequestKey(requestToPresent);
         if (requestKey === lastNativePlaybackRequestKey) {
-          rafId = requestAnimationFrame(renderLoop);
           return;
         }
         lastNativePlaybackRequestKey = requestKey;
@@ -1186,7 +1183,7 @@ export const NativeProgramPreview: React.FC = () => {
           frameIndex: requestToPresent.frameTime.frameIndex,
           request: requestToPresent,
         };
-        nativePlaybackInFlight = (nativeSurfaceReady
+        nativePlaybackInFlight = (nativeSurfaceUsable
           ? presentNativePlaybackFrame(requestToPresent).then((presentation) => {
             const elapsedMs = performance.now() - requestStartedAt;
             nativePresentationLatencyMs = nativePresentationLatencyMs > 0
@@ -1204,22 +1201,32 @@ export const NativeProgramPreview: React.FC = () => {
                   droppedFrameCount: nativeDroppedFrameCount,
                 });
               }
-            } else if (
-              isActive &&
-              nativeSurfaceGeometrySettledRef.current &&
-              visibleRequestGeneration === targetGeneration &&
-              renderStateRef.current.clock.state === playbackState
-            ) {
-              nativeSurfaceShown = true;
-              if (nativeSurfaceReady) {
-                // The direct native surface is the exclusive owner of the base
-                // video layer for playback and paused seeks.
-                setNativeSurfacePresenting(true);
+            } else {
+              const current = renderStateRef.current;
+              if (
+                isActive &&
+                nativeSurfaceGeometrySettledRef.current &&
+                current.project?.id === state.project?.id &&
+                current.epoch === state.epoch &&
+                current.clock.state === "playing"
+              ) {
+                nativeSurfaceShown = true;
+                if (nativeSurfaceReady) {
+                  // The direct native surface is the exclusive owner of the base
+                  // video layer for continuous playback. The native presentation
+                  // sequence is authoritative for ordering in the IPC/GPU path.
+                  setNativeSurfacePresenting(true);
+                }
+              } else if (presentation.presented) {
+                // The session was paused, changed, or torn down while the IPC
+                // request was in flight. Do not allow that frame to reappear.
+                if (lastNativePlaybackRequestKey === requestKey) {
+                  lastNativePlaybackRequestKey = "";
+                  nativeSurfaceShown = false;
+                  setNativeSurfacePresenting(false);
+                  void hideNativeSurface().catch(() => undefined);
+                }
               }
-            } else if (presentation.presented) {
-              // The IPC request completed after the target changed. Do not
-              // allow a stale direct frame to reappear above the current one.
-              void hideNativeSurface().catch(() => undefined);
             }
           })
           : nativePreviewScheduler.requestVisible(requestSource))
@@ -1304,7 +1311,7 @@ export const NativeProgramPreview: React.FC = () => {
             // playback is scheduled separately above and never blocks this
             // render loop; the returned frame is validated before replacing
             // the existing native readback frame.
-            !isPlaying &&
+            (!isPlaying || nativeReadbackFallbackPath) &&
             !nativeDirectSurfacePath &&
             performance.now() >= nativeRetryAt &&
             nativeBlockedKey !== nativeRequestKey;
@@ -1339,7 +1346,6 @@ export const NativeProgramPreview: React.FC = () => {
                   currentGeneration: visibleRequestGeneration,
                 });
                 forceRenderNeeded = true;
-                rafId = requestAnimationFrame(renderLoop);
                 return;
               }
               exactNativeFrame = loadedFrame;
@@ -1426,7 +1432,6 @@ export const NativeProgramPreview: React.FC = () => {
 
           if (!targetStillCurrent()) {
             forceRenderNeeded = true;
-            rafId = requestAnimationFrame(renderLoop);
             return;
           }
 
@@ -1441,7 +1446,6 @@ export const NativeProgramPreview: React.FC = () => {
 
           if (!targetStillCurrent()) {
             forceRenderNeeded = true;
-            rafId = requestAnimationFrame(renderLoop);
             return;
           }
 
@@ -1492,9 +1496,25 @@ export const NativeProgramPreview: React.FC = () => {
         }
       }
 
-      rafId = requestAnimationFrame(renderLoop);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const currentState = renderStateRef.current;
+        const currentFrameIndex = getFrameIndexAtTime(currentState.clock.time, currentState.clock.frameRate);
+        const errorKey = `${currentState.project?.id ?? "unknown-project"}:${currentState.epoch}:${currentFrameIndex}:${message}`;
+        if (errorKey !== lastRenderLoopError) {
+          lastRenderLoopError = errorKey;
+          console.error("[NativeProgramPreview] render loop preparation error:", error);
+          traceNativePreview("render-loop-error", {
+            frameIndex: currentFrameIndex,
+            requestId: null,
+            error: message,
+          });
+        }
+        forceRenderNeeded = true;
+        nativeRetryAt = performance.now() + 250;
       } finally {
         renderInFlight = false;
+        scheduleNextFrame();
       }
     };
 
@@ -1524,7 +1544,7 @@ export const NativeProgramPreview: React.FC = () => {
       lastTraceClockState = clockState.state;
     });
 
-    rafId = requestAnimationFrame(renderLoop);
+    scheduleNextFrame();
     return () => {
       isActive = false;
       unsubscribeClock();
@@ -1538,6 +1558,7 @@ export const NativeProgramPreview: React.FC = () => {
         }
       }
       if (rafId !== null) cancelAnimationFrame(rafId);
+      frameScheduled = false;
     };
     // Bug 3 fix: viewport values (scale, offsetX, offsetY, canvasWidth, canvasHeight) are
     // now read from renderStateRef inside the loop, so they are NOT listed as deps here.
@@ -1572,11 +1593,11 @@ export const NativeProgramPreview: React.FC = () => {
 
   return (
     <div className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
-      <div className="flex items-center px-4 h-10 shrink-0 gap-2">
-        <span className="text-[13px] font-semibold text-text-primary tracking-tight">
+      <div className="flex items-center px-4 h-10 shrink-0 gap-2 overflow-hidden">
+        <span className="text-[13px] font-semibold text-text-primary tracking-tight leading-none">
           {isTauriRuntime() ? "Program Preview (Native)" : "Program Preview (Desktop required)"}
         </span>
-        <span className="text-[13px] text-text-muted">
+        <span className="text-[13px] text-text-muted leading-none">
           — {isTauriRuntime() ? (nativeSurfacePresenting ? "wgpu Surface" : "Native readback") : "Open the desktop runtime"}
         </span>
         <button onClick={() => setShowSafeOverlay((s) => !s)} className={cn("ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer", showSafeOverlay ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text-primary hover:bg-white/6")}>

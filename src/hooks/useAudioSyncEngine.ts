@@ -103,6 +103,10 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     nativeActiveRef.current = false;
     nativeInitializingRef.current = true;
     nativeFallbackAllowedRef.current = false;
+    // Native mode has one audible authority. Quiesce any voices left by a
+    // previous controller before the native stream is initialized; otherwise
+    // native startup can overlap the old Web Audio graph for one or more RAFs.
+    engineRef.current.stopAllVoices(false);
     let cancelled = false;
     let initializeStarted = false;
 
@@ -135,6 +139,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       nativeInitializingRef.current = false;
       nativeFallbackAllowedRef.current = false;
       nativeActiveRef.current = false;
+      engineRef.current.stopAllVoices(false);
       if (nativeControllerRef.current === controller) {
         nativeControllerRef.current = null;
       }
@@ -200,7 +205,11 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
 
       const nativeModeBooting = options.nativeMode && nativeInitializingRef.current;
       const nativeModeFallback = options.nativeMode && nativeFallbackAllowedRef.current;
-      if (!options.nativeMode || nativeModeFallback || (!nativeModeBooting && !nativeActiveRef.current)) {
+      if (nativeModeBooting) {
+        // A controller refresh can happen while old browser voices are still
+        // ending. Keep the browser graph silent for the entire native handoff.
+        engine.stopAllVoices(false);
+      } else if (!options.nativeMode || nativeModeFallback || !nativeActiveRef.current) {
         // Synchronize browser audio voices only while native takeover is not
         // active. This prevents two independent audible graphs from playing.
         engine.syncPlayback(

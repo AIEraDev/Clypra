@@ -501,7 +501,10 @@ impl NativeAudioClock {
         self.inner.channels = Some(channels);
         self.inner.sample_format = Some(format!("{sample_format:?}"));
         self.inner.stream = Some(stream);
-        self.inner.playing.store(true, Ordering::Release);
+        // Opening the device must not make the timeline audible. Playback is
+        // enabled only by native_play_from_audio after the shared transport
+        // explicitly enters the playing state.
+        self.inner.playing.store(false, Ordering::Release);
         Ok(self.status())
     }
 
