@@ -664,7 +664,7 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
       <div
         data-testid={`clip-${clip.id}-resize-left`}
         data-clip-resize-handle="true"
-        className={`absolute left-0 top-0 w-3 h-full z-30 cursor-col-resize ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"} ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-white/25 hover:bg-white/35"} transition-colors`}
+        className={`group/resize absolute left-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${showResizeHandles ? "opacity-100 pointer-events-auto" : "pointer-events-none opacity-0"} ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent hover:bg-white/10"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           traceResize("left-handle pointerdown", {
@@ -681,7 +681,11 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
         }}
         title={rippleEditEnabled ? "Ripple trim (Shift to disable)" : "Normal trim (Shift for ripple)"}
       >
-        <div className="absolute left-[5px] top-1/2 h-[70%] w-[2px] -translate-y-1/2 rounded bg-white/90" />
+        <div className="pointer-events-none absolute left-0 top-1/2 flex h-9 w-2 -translate-y-1/2 flex-col items-center justify-center gap-1 rounded-r border border-l-0 border-white/70 bg-slate-950/70 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white group-hover/resize:bg-slate-900">
+          <span className="h-px w-1 bg-white/90" />
+          <span className="h-px w-1 bg-white/90" />
+          <span className="h-px w-1 bg-white/90" />
+        </div>
       </div>
 
       {/* Clip content */}
@@ -725,23 +729,39 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           <span className="text-[10px] font-bold text-white/90 truncate">{mediaAsset?.name || "Sticker"}</span>
         </div>
       ) : (
-        <div className="flex h-full min-h-0 w-full flex-col gap-1 overflow-hidden px-1 py-1">
-          <div className="flex shrink-0 items-center gap-3">
-            <div className="text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text truncate">{mediaAsset?.name || "Clip"}</div>
-            <div className="text-[9px] font-medium text-timeline-clip-duration shrink-0">{formatDuration(clip.duration)}</div>
+        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+          {/* CapCut-style hierarchy: metadata, visual strip, then audio strip. */}
+          <div className="flex h-5 shrink-0 items-center gap-3 border-b border-black/20 bg-black/15 px-1.5">
+            <div className="min-w-0 truncate text-[10px] font-semibold tracking-[0.01em] text-timeline-clip-text">{mediaAsset?.name || "Clip"}</div>
+            <div className="shrink-0 text-[10px] font-medium text-timeline-clip-duration">{formatDuration(clip.duration)}</div>
           </div>
           {mediaAsset && (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
-            <div className="flex min-h-0 w-full flex-1 items-center">
-              <ClipFilmstrip className="w-full shrink-0" clip={clip} mediaAsset={mediaAsset} clipWidthPx={width} pixelsPerSecond={pixelsPerSecond} stripHeightPx={40} />
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-hidden bg-black/10">
+                <ClipFilmstrip className="h-full w-full" clip={clip} mediaAsset={mediaAsset} clipWidthPx={width} pixelsPerSecond={pixelsPerSecond} stripHeightPx={40} fillHeight />
+              </div>
+              {mediaAsset.type === "video" && mediaAsset.path && (
+                <div className="h-5 shrink-0 border-t border-black/20 bg-black/20 px-0.5">
+                  <TimelineWaveform
+                    audioPath={mediaAsset.path}
+                    clipWidthPx={width}
+                    duration={clip.duration}
+                    trimIn={clip.trimIn}
+                    trimOut={clip.trimOut}
+                    heightPx={20}
+                    className="opacity-75"
+                  />
+                </div>
+              )}
             </div>
           ) : mediaAsset?.type === "audio" || (clip as any).audioPath ? (
-            <div className="flex min-h-0 w-full flex-1 items-center">
-              <TimelineWaveform audioPath={(clip as any).audioPath || mediaAsset?.path || ""} clipWidthPx={width} duration={clip.duration} trimIn={clip.trimIn} trimOut={clip.trimOut} className="rounded-[2px]" />
+            <div className="flex min-h-0 w-full flex-1 items-center px-0.5">
+              <TimelineWaveform audioPath={(clip as any).audioPath || mediaAsset?.path || ""} clipWidthPx={width} duration={clip.duration} trimIn={clip.trimIn} trimOut={clip.trimOut} heightPx={40} className="rounded-[2px]" />
             </div>
           ) : mediaAsset?.posterFrame ? (
-            <img src={mediaAsset.posterFrame} alt="" className="h-8 w-full rounded-[2px] border border-black/20 object-cover" draggable={false} />
+            <img src={mediaAsset.posterFrame} alt="" className="min-h-0 w-full flex-1 object-cover" draggable={false} />
           ) : (
-            <div className="h-8 w-full rounded-[2px] bg-timeline-filmstrip-empty" />
+            <div className="min-h-0 w-full flex-1 bg-timeline-filmstrip-empty" />
           )}
         </div>
       )}
@@ -753,7 +773,7 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
       <div
         data-testid={`clip-${clip.id}-resize-right`}
         data-clip-resize-handle="true"
-        className={`absolute right-0 top-0 w-3 h-full z-30 cursor-col-resize ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"} ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-white/25 hover:bg-white/35"} transition-colors`}
+        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${showResizeHandles ? "opacity-100 pointer-events-auto" : "pointer-events-none opacity-0"} ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent hover:bg-white/10"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           traceResize("right-handle pointerdown", {
@@ -771,7 +791,11 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
         // BUG-6 fix: removed duplicate onMouseDown (PointerEvents sufficient for Chromium/Tauri)
         title={rippleEditEnabled ? "Ripple trim (Shift to disable)" : "Normal trim (Shift for ripple)"}
       >
-        <div className="absolute right-[5px] top-1/2 h-[70%] w-[2px] -translate-y-1/2 rounded bg-white/90" />
+        <div className="pointer-events-none absolute right-0 top-1/2 flex h-9 w-2 -translate-y-1/2 flex-col items-center justify-center gap-1 rounded-l border border-r-0 border-white/70 bg-slate-950/70 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white group-hover/resize:bg-slate-900">
+          <span className="h-px w-1 bg-white/90" />
+          <span className="h-px w-1 bg-white/90" />
+          <span className="h-px w-1 bg-white/90" />
+        </div>
       </div>
     </div>
   );
