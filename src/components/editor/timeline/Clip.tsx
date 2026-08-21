@@ -737,8 +737,8 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           </div>
           {mediaAsset && (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 overflow-hidden bg-black/10">
-                <ClipFilmstrip className="h-full w-full" clip={clip} mediaAsset={mediaAsset} clipWidthPx={width} pixelsPerSecond={pixelsPerSecond} stripHeightPx={40} fillHeight />
+              <div className="h-11 shrink-0 overflow-hidden bg-black/10">
+                <ClipFilmstrip className="h-11 w-full" clip={clip} mediaAsset={mediaAsset} clipWidthPx={width} pixelsPerSecond={pixelsPerSecond} stripHeightPx={44} />
               </div>
               {mediaAsset.type === "video" && mediaAsset.path && (
                 <div className="h-5 shrink-0 border-t border-black/20 bg-black/20 px-0.5">

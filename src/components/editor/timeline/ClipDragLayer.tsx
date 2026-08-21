@@ -21,7 +21,7 @@ export const ClipDragLayer: React.FC = () => {
 
   const mediaAsset = mediaAssets.find((a) => a.id === draggingClip.mediaId);
   const clipWidth = Math.min(Math.round(draggingClip.duration * pixelsPerSecond), 360);
-  const trackHeight = 68; // Standard video track height
+  const trackHeight = 84; // Standard video track height
 
   // Determine background color based on media asset type
   const getBackgroundColor = () => {

@@ -45,11 +45,10 @@ export interface ClipFilmstripProps {
   clipWidthPx: number;
   pixelsPerSecond: number;
   stripHeightPx?: number;
-  fillHeight?: boolean;
   className?: string;
 }
 
-export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, stripHeightPx = 40, fillHeight = false, className }: ClipFilmstripProps) {
+export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, stripHeightPx = 40, className }: ClipFilmstripProps) {
   // PERF: Read viewport scroll state only in ClipFilmstrip (not in parent Clip component)
   // This prevents all clips from re-rendering on scroll - only filmstrips re-render
   const viewportScrollLeft = useTimelineStore((s) => s.scrollLeft);
@@ -244,7 +243,7 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
   // Video filmstrip — canvas surface
   if (isVideoSource) {
     return (
-      <div data-testid="clip-filmstrip" className={cn("relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border bg-timeline-filmstrip-bg", className)} style={{ height: fillHeight ? "100%" : stripHeightPx, width: "100%", opacity: 1, transition: "opacity 80ms linear" }}>
+      <div data-testid="clip-filmstrip" className={cn("relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border bg-timeline-filmstrip-bg", className)} style={{ height: stripHeightPx, width: "100%", opacity: 1, transition: "opacity 80ms linear" }}>
         <canvas
           ref={canvasRef}
           style={{
@@ -283,12 +282,12 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
   // Image asset — tiled canvas rendering (one decoded bitmap, many timeline tiles)
   if (mediaAsset.type === "image" && (mediaAsset.posterFrame || mediaAsset.path)) {
     return (
-      <div data-testid="clip-filmstrip-image" className={cn("relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border", className)} style={{ height: fillHeight ? "100%" : stripHeightPx, width: "100%" }}>
+      <div data-testid="clip-filmstrip-image" className={cn("relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border", className)} style={{ height: stripHeightPx, width: "100%" }}>
         <canvas ref={imageCanvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
       </div>
     );
   }
 
   // Empty placeholder
-  return <div data-testid="clip-filmstrip-empty" className={cn("w-full rounded-[2px] bg-timeline-filmstrip-empty", className)} style={{ height: fillHeight ? "100%" : stripHeightPx }} />;
+  return <div data-testid="clip-filmstrip-empty" className={cn("w-full rounded-[2px] bg-timeline-filmstrip-empty", className)} style={{ height: stripHeightPx }} />;
 }
