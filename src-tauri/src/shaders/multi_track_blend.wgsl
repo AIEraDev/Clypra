@@ -238,20 +238,25 @@ fn hsv_to_rgb(color: vec3<f32>) -> vec3<f32> {
 fn sample_blurred_color(uv: vec2<f32>, radius: f32) -> vec4<f32> {
     let dimensions = vec2<f32>(textureDimensions(t_diffuse));
     let offset = vec2<f32>(radius) / max(dimensions, vec2<f32>(1.0));
-    var color = textureSample(t_diffuse, s_diffuse, uv) * 0.227027;
-    color += textureSample(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, 0.0)) * 0.1945946;
-    color += textureSample(t_diffuse, s_diffuse, uv - vec2<f32>(offset.x, 0.0)) * 0.1945946;
-    color += textureSample(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, offset.y)) * 0.1945946;
-    color += textureSample(t_diffuse, s_diffuse, uv - vec2<f32>(0.0, offset.y)) * 0.1945946;
-    color += textureSample(t_diffuse, s_diffuse, uv + offset) * 0.024393;
-    color += textureSample(t_diffuse, s_diffuse, uv - offset) * 0.024393;
-    color += textureSample(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, -offset.y)) * 0.024393;
-    color += textureSample(t_diffuse, s_diffuse, uv + vec2<f32>(-offset.x, offset.y)) * 0.024393;
+    var color = textureSampleLevel(t_diffuse, s_diffuse, uv, 0.0) * 0.227027;
+    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, 0.0), 0.0) * 0.1945946;
+    color += textureSampleLevel(t_diffuse, s_diffuse, uv - vec2<f32>(offset.x, 0.0), 0.0) * 0.1945946;
+    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(0.0, offset.y), 0.0) * 0.1945946;
+    color += textureSampleLevel(t_diffuse, s_diffuse, uv - vec2<f32>(0.0, offset.y), 0.0) * 0.1945946;
+    color += textureSampleLevel(t_diffuse, s_diffuse, uv + offset, 0.0) * 0.024393;
+    color += textureSampleLevel(t_diffuse, s_diffuse, uv - offset, 0.0) * 0.024393;
+    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(offset.x, -offset.y), 0.0) * 0.024393;
+    color += textureSampleLevel(t_diffuse, s_diffuse, uv + vec2<f32>(-offset.x, offset.y), 0.0) * 0.024393;
     return color;
 }
 
 fn sample_body_mask(uv: vec2<f32>) -> f32 {
-    return textureSample(t_mask, s_mask, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).a;
+    // textureSampleLevel (explicit LOD=0) is used here instead of textureSample
+    // because this function is called from non-uniform control flow
+    // (inside a loop gated by cell_index < count). WebGPU's validator requires
+    // that textureSample only appears in uniform control flow; the explicit-LOD
+    // variant has no such restriction and produces identical output at LOD 0.
+    return textureSampleLevel(t_mask, s_mask, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0).a;
 }
 
 // Stable pseudo-random values keep body particles deterministic for a given
@@ -316,16 +321,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         sample_uv = floor(in.uv / cell) * cell + cell * 0.5;
     }
 
-    var sample_color = textureSample(t_diffuse, s_diffuse, sample_uv);
+    var sample_color = textureSampleLevel(t_diffuse, s_diffuse, sample_uv, 0.0);
     if (layer.color_grade.blur_strength > 0.0 && layer.color_grade.blur_radius > 0.0) {
         sample_color = sample_blurred_color(sample_uv, layer.color_grade.blur_radius);
     }
     if (layer.color_grade.rgb_split_x > 0.0 || layer.color_grade.rgb_split_y > 0.0) {
         let split_offset = vec2<f32>(layer.color_grade.rgb_split_x, layer.color_grade.rgb_split_y) /
             max(source_dimensions, vec2<f32>(1.0));
-        let center = textureSample(t_diffuse, s_diffuse, sample_uv);
-        let red = textureSample(t_diffuse, s_diffuse, sample_uv - split_offset).r;
-        let blue = textureSample(t_diffuse, s_diffuse, sample_uv + split_offset).b;
+        let center = textureSampleLevel(t_diffuse, s_diffuse, sample_uv, 0.0);
+        let red = textureSampleLevel(t_diffuse, s_diffuse, sample_uv - split_offset, 0.0).r;
+        let blue = textureSampleLevel(t_diffuse, s_diffuse, sample_uv + split_offset, 0.0).b;
         sample_color = vec4<f32>(red, center.g, blue, center.a);
     }
     if (sample_color.a <= 0.0001) {
@@ -581,7 +586,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // Map [0.0, 1.0] to texel center volume coords
         let lut_coord = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * scale + offset;
-        let lut_graded = textureSample(t_lut_3d, s_lut_3d, lut_coord).rgb;
+        let lut_graded = textureSampleLevel(t_lut_3d, s_lut_3d, lut_coord, 0.0).rgb;
 
         // Blend graded result by lut_intensity slider
         rgb = mix(rgb, lut_graded, layer.color_grade.lut_intensity);

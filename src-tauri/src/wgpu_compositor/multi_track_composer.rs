@@ -991,24 +991,52 @@ impl MultiTrackCompositor {
         queue.submit(Some(encoder.finish()));
 
         let buffer_slice = output_buffer.slice(..);
-        // tokio::sync::oneshot is not available on wasm32. Use a
-        // std::sync::Mutex-based flag instead — works on all targets.
-        // On WASM, device.poll(Maintain::Wait) drives the callback
-        // synchronously via the browser event loop.
-        let map_result: std::sync::Arc<std::sync::Mutex<Option<Result<(), wgpu::BufferAsyncError>>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(None));
-        let map_result_cb = map_result.clone();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            *map_result_cb.lock().unwrap() = Some(result);
-        });
 
-        device.poll(wgpu::Maintain::Wait);
-        map_result
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or_else(|| "map_async callback was not invoked".to_string())?
-            .map_err(|e| e.to_string())?;
+        // map_async bridges a GPU callback into async/await. The two targets
+        // need different channel primitives:
+        //
+        // Native (tokio): tokio::sync::oneshot is a real Future with Waker
+        //   semantics — .await suspends without blocking the thread while
+        //   device.poll(Maintain::Wait) drives the callback.
+        //
+        // WASM (browser): tokio is unavailable. futures::channel::oneshot is
+        //   also a real Future/Waker channel and works correctly on the
+        //   single-threaded browser main thread. device.poll() is a no-op on
+        //   WASM — wgpu-on-WebGPU fires the map_async callback as a JS
+        //   microtask when the GPU work completes, and .await yields to the
+        //   event loop so that microtask can run before we try to read.
+        //
+        // Do NOT use std::sync::Mutex here: a bare lock().unwrap().take()
+        //   after poll() runs before the JS microtask callback on WASM and
+        //   always returns None (fast-fail, not deadlock, but still wrong).
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let map_err: Result<(), wgpu::BufferAsyncError> = {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+            device.poll(wgpu::Maintain::Wait);
+            receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            Ok(())
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let map_err: Result<(), wgpu::BufferAsyncError> = {
+            let (sender, receiver) = futures::channel::oneshot::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                // send() may fail if the receiver was dropped; that means the
+                // caller already gave up, so silently discard.
+                let _ = sender.send(result);
+            });
+            // device.poll() is a no-op on WebGPU — the browser event loop
+            // drives callback delivery. .await here yields to that loop.
+            device.poll(wgpu::Maintain::Poll);
+            receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            Ok(())
+        };
+
+        map_err.map_err(|e| e.to_string())?;
 
         let mapped_range = buffer_slice.get_mapped_range();
         let mut unpadded_rgba = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
@@ -1188,24 +1216,52 @@ impl MultiTrackCompositor {
         queue.submit(Some(encoder.finish()));
 
         let buffer_slice = output_buffer.slice(..);
-        // tokio::sync::oneshot is not available on wasm32. Use a
-        // std::sync::Mutex-based flag instead — works on all targets.
-        // On WASM, device.poll(Maintain::Wait) drives the callback
-        // synchronously via the browser event loop.
-        let map_result: std::sync::Arc<std::sync::Mutex<Option<Result<(), wgpu::BufferAsyncError>>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(None));
-        let map_result_cb = map_result.clone();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            *map_result_cb.lock().unwrap() = Some(result);
-        });
 
-        device.poll(wgpu::Maintain::Wait);
-        map_result
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or_else(|| "map_async callback was not invoked".to_string())?
-            .map_err(|e| e.to_string())?;
+        // map_async bridges a GPU callback into async/await. The two targets
+        // need different channel primitives:
+        //
+        // Native (tokio): tokio::sync::oneshot is a real Future with Waker
+        //   semantics — .await suspends without blocking the thread while
+        //   device.poll(Maintain::Wait) drives the callback.
+        //
+        // WASM (browser): tokio is unavailable. futures::channel::oneshot is
+        //   also a real Future/Waker channel and works correctly on the
+        //   single-threaded browser main thread. device.poll() is a no-op on
+        //   WASM — wgpu-on-WebGPU fires the map_async callback as a JS
+        //   microtask when the GPU work completes, and .await yields to the
+        //   event loop so that microtask can run before we try to read.
+        //
+        // Do NOT use std::sync::Mutex here: a bare lock().unwrap().take()
+        //   after poll() runs before the JS microtask callback on WASM and
+        //   always returns None (fast-fail, not deadlock, but still wrong).
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let map_err: Result<(), wgpu::BufferAsyncError> = {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+            device.poll(wgpu::Maintain::Wait);
+            receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            Ok(())
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let map_err: Result<(), wgpu::BufferAsyncError> = {
+            let (sender, receiver) = futures::channel::oneshot::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                // send() may fail if the receiver was dropped; that means the
+                // caller already gave up, so silently discard.
+                let _ = sender.send(result);
+            });
+            // device.poll() is a no-op on WebGPU — the browser event loop
+            // drives callback delivery. .await here yields to that loop.
+            device.poll(wgpu::Maintain::Poll);
+            receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            Ok(())
+        };
+
+        map_err.map_err(|e| e.to_string())?;
 
         let mapped_range = buffer_slice.get_mapped_range();
         let mut unpadded_rgba = Vec::with_capacity((width * height * bytes_per_pixel) as usize);

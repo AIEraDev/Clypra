@@ -39,14 +39,14 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
 // 1. Equal-Power & Linear Cross-Dissolve
 fn blend_cross_dissolve(uv: vec2<f32>, progress: f32) -> vec4<f32> {
-    let col_from = textureSample(t_from, s_from, uv);
-    let col_to = textureSample(t_to, s_to, uv);
+    let col_from = textureSampleLevel(t_from, s_from, uv, 0.0);
+    let col_to = textureSampleLevel(t_to, s_to, uv, 0.0);
     return mix(col_from, col_to, progress);
 }
 
 fn blend_fade_through_color(uv: vec2<f32>, progress: f32, fade_color: vec4<f32>) -> vec4<f32> {
-    let col_from = textureSample(t_from, s_from, uv);
-    let col_to = textureSample(t_to, s_to, uv);
+    let col_from = textureSampleLevel(t_from, s_from, uv, 0.0);
+    let col_to = textureSampleLevel(t_to, s_to, uv, 0.0);
     if (progress < 0.5) {
         return mix(col_from, fade_color, progress * 2.0);
     }
@@ -64,8 +64,8 @@ fn blend_blur_fade(uv: vec2<f32>, progress: f32, strength: f32) -> vec4<f32> {
     for (var i = 0; i < 5; i++) {
         let offset = (f32(i) - 2.0) * radius;
         let sample_uv = clamp(uv + vec2<f32>(offset, 0.0), vec2<f32>(0.0), vec2<f32>(1.0));
-        from_acc += textureSample(t_from, s_from, sample_uv);
-        to_acc += textureSample(t_to, s_to, sample_uv);
+        from_acc += textureSampleLevel(t_from, s_from, sample_uv, 0.0);
+        to_acc += textureSampleLevel(t_to, s_to, sample_uv, 0.0);
     }
     return mix(from_acc / 5.0, to_acc / 5.0, progress);
 }
@@ -74,8 +74,8 @@ fn blend_glitch(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     let band = floor(uv.y * 32.0);
     let amount = sin(progress * 3.14159265) * 0.08;
     let shift = (transition_hash(vec2<f32>(band, floor(progress * 12.0))) - 0.5) * amount;
-    let from_color = textureSample(t_from, s_from, clamp(uv + vec2<f32>(shift, 0.0), vec2<f32>(0.0), vec2<f32>(1.0)));
-    let to_color = textureSample(t_to, s_to, clamp(uv - vec2<f32>(shift, 0.0), vec2<f32>(0.0), vec2<f32>(1.0)));
+    let from_color = textureSampleLevel(t_from, s_from, clamp(uv + vec2<f32>(shift, 0.0), vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
+    let to_color = textureSampleLevel(t_to, s_to, clamp(uv - vec2<f32>(shift, 0.0), vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
     return mix(from_color, to_color, progress);
 }
 
@@ -83,10 +83,10 @@ fn blend_rgb_split(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     let offset = sin(progress * 3.14159265) * 0.015;
     let left = clamp(uv - vec2<f32>(offset, 0.0), vec2<f32>(0.0), vec2<f32>(1.0));
     let right = clamp(uv + vec2<f32>(offset, 0.0), vec2<f32>(0.0), vec2<f32>(1.0));
-    let from_left = textureSample(t_from, s_from, left);
-    let from_right = textureSample(t_from, s_from, right);
-    let to_left = textureSample(t_to, s_to, left);
-    let to_right = textureSample(t_to, s_to, right);
+    let from_left = textureSampleLevel(t_from, s_from, left, 0.0);
+    let from_right = textureSampleLevel(t_from, s_from, right, 0.0);
+    let to_left = textureSampleLevel(t_to, s_to, left, 0.0);
+    let to_right = textureSampleLevel(t_to, s_to, right, 0.0);
     return vec4<f32>(mix(from_left.r, to_left.r, progress), mix(from_left.g, to_left.g, progress), mix(from_right.b, to_right.b, progress), 1.0);
 }
 
@@ -106,7 +106,7 @@ fn blend_whip_pan(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     let offset = sin(progress * 3.14159265) * 0.22;
     let from_uv = clamp(uv + vec2<f32>(progress * offset, 0.0), vec2<f32>(0.0), vec2<f32>(1.0));
     let to_uv = clamp(uv - vec2<f32>((1.0 - progress) * offset, 0.0), vec2<f32>(0.0), vec2<f32>(1.0));
-    return mix(textureSample(t_from, s_from, from_uv), textureSample(t_to, s_to, to_uv), progress);
+    return mix(textureSampleLevel(t_from, s_from, from_uv, 0.0), textureSampleLevel(t_to, s_to, to_uv, 0.0), progress);
 }
 
 fn blend_clock_wipe(uv: vec2<f32>, progress: f32, feather: f32) -> vec4<f32> {
@@ -115,7 +115,7 @@ fn blend_clock_wipe(uv: vec2<f32>, progress: f32, feather: f32) -> vec4<f32> {
     let normalized = fract(angle / 6.2831853 + 1.0);
     let softness = max(feather, 1e-4);
     let to_factor = 1.0 - smoothstep(progress - softness, progress + softness, normalized);
-    return mix(textureSample(t_from, s_from, uv), textureSample(t_to, s_to, uv), to_factor);
+    return mix(textureSampleLevel(t_from, s_from, uv, 0.0), textureSampleLevel(t_to, s_to, uv, 0.0), to_factor);
 }
 
 fn blend_shape_wipe(uv: vec2<f32>, progress: f32, shape: u32, aspect: f32, feather: f32) -> vec4<f32> {
@@ -131,7 +131,7 @@ fn blend_shape_wipe(uv: vec2<f32>, progress: f32, shape: u32, aspect: f32, feath
     let softness = max(feather, 1e-4);
     let threshold = progress * (0.5 * max(aspect, 1.0) + 0.5);
     let to_factor = 1.0 - smoothstep(threshold - softness, threshold + softness, distance);
-    return mix(textureSample(t_from, s_from, uv), textureSample(t_to, s_to, uv), to_factor);
+    return mix(textureSampleLevel(t_from, s_from, uv, 0.0), textureSampleLevel(t_to, s_to, uv, 0.0), to_factor);
 }
 
 fn blend_zoom_transform(uv: vec2<f32>, progress: f32, direction: f32) -> vec4<f32> {
@@ -140,7 +140,7 @@ fn blend_zoom_transform(uv: vec2<f32>, progress: f32, direction: f32) -> vec4<f3
         scale = 1.0 + progress * 0.3;
     }
     let from_uv = clamp((uv - vec2<f32>(0.5)) * scale + vec2<f32>(0.5), vec2<f32>(0.0), vec2<f32>(1.0));
-    return mix(textureSample(t_from, s_from, from_uv), textureSample(t_to, s_to, uv), progress);
+    return mix(textureSampleLevel(t_from, s_from, from_uv, 0.0), textureSampleLevel(t_to, s_to, uv, 0.0), progress);
 }
 
 // 2. Directional Wipe with Continuous Angle & Anti-Aliased Feathering
@@ -154,8 +154,8 @@ fn blend_directional_wipe(uv: vec2<f32>, progress: f32, angle: f32, feather: f32
     let edge_max = progress + f;
     let factor = smoothstep(edge_min, edge_max, projection);
 
-    let col_from = textureSample(t_from, s_from, uv);
-    let col_to = textureSample(t_to, s_to, uv);
+    let col_from = textureSampleLevel(t_from, s_from, uv, 0.0);
+    let col_to = textureSampleLevel(t_to, s_to, uv, 0.0);
     return mix(col_to, col_from, factor);
 }
 
@@ -170,8 +170,8 @@ fn blend_zoom_blur(uv: vec2<f32>, progress: f32, strength: f32) -> vec4<f32> {
     for (var i = 0; i < samples; i++) {
         let scale = 1.0 + f32(i) / f32(samples) * blur_factor;
         let sampled_uv = clamp((uv - center) * scale + center, vec2<f32>(0.0), vec2<f32>(1.0));
-        acc_from += textureSample(t_from, s_from, sampled_uv);
-        acc_to += textureSample(t_to, s_to, sampled_uv);
+        acc_from += textureSampleLevel(t_from, s_from, sampled_uv, 0.0);
+        acc_to += textureSampleLevel(t_to, s_to, sampled_uv, 0.0);
     }
 
     let col_from = acc_from / f32(samples);
@@ -188,8 +188,8 @@ fn blend_iris_wipe(uv: vec2<f32>, progress: f32, feather: f32, aspect: f32) -> v
     let softness = max(feather, 1e-4);
     let radius = progress * (max_radius + softness);
     let factor = smoothstep(radius - softness, radius, distance);
-    let col_from = textureSample(t_from, s_from, uv);
-    let col_to = textureSample(t_to, s_to, uv);
+    let col_from = textureSampleLevel(t_from, s_from, uv, 0.0);
+    let col_to = textureSampleLevel(t_to, s_to, uv, 0.0);
     return mix(col_to, col_from, factor);
 }
 
@@ -204,10 +204,13 @@ fn blend_slide_push(uv: vec2<f32>, progress: f32, direction: f32) -> vec4<f32> {
         to_uv.x = uv.x + (1.0 - progress);
     }
     if (uv.x < 0.0 || uv.x > 1.0) {
-        return textureSample(t_to, s_to, clamp(to_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+        // textureSampleLevel (explicit LOD=0) is required here because this
+        // branch depends on uv.x which is a non-uniform per-fragment value.
+        // WebGPU's validator rejects textureSample in non-uniform control flow.
+        return textureSampleLevel(t_to, s_to, clamp(to_uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
     }
-    let from_color = textureSample(t_from, s_from, clamp(from_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
-    let to_color = textureSample(t_to, s_to, clamp(to_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let from_color = textureSampleLevel(t_from, s_from, clamp(from_uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
+    let to_color = textureSampleLevel(t_to, s_to, clamp(to_uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
     return select(to_color, from_color, (direction < 0.0 && uv.x < 1.0 - progress) || (direction >= 0.0 && uv.x > progress));
 }
 
@@ -221,8 +224,8 @@ fn blend_slide_push_vertical(uv: vec2<f32>, progress: f32, direction: f32) -> ve
         from_uv.y = uv.y - progress;
         to_uv.y = uv.y + (1.0 - progress);
     }
-    let from_color = textureSample(t_from, s_from, clamp(from_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
-    let to_color = textureSample(t_to, s_to, clamp(to_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let from_color = textureSampleLevel(t_from, s_from, clamp(from_uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
+    let to_color = textureSampleLevel(t_to, s_to, clamp(to_uv, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
     return select(to_color, from_color, (direction < 0.0 && uv.y < 1.0 - progress) || (direction >= 0.0 && uv.y > progress));
 }
 

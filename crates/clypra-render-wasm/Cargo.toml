@@ -22,6 +22,14 @@ wasm-bindgen-futures = "0.4"
 js-sys               = "0.3"
 console_error_panic_hook = "0.1"
 
+# futures::channel::oneshot — WASM-compatible async channel for map_async readback.
+# Used in the wasm32 path of multi_track_composer.rs instead of
+# tokio::sync::oneshot (which is not available on wasm32).
+[dependencies.futures]
+version = "0.3"
+default-features = false
+features = ["alloc"]   # provides futures::channel without std executor
+
 # wgpu — BROWSER_WEBGPU primary, WebGL2 fallback for Firefox/Linux
 [dependencies.wgpu]
 version  = "24.0"
