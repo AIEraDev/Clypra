@@ -22,7 +22,7 @@ import { AudioSourcePreview } from "./AudioSourcePreview";
 import { ImageSourcePreview } from "./ImageSourcePreview";
 import { StickerSourcePreview, type StickerSourcePreviewHandle } from "./StickerSourcePreview";
 
-const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
+const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("blob:");
 
 export const SourcePreview: React.FC = () => {
   const { sourceAsset, sourceTextPreset, sourceInPoint, sourceOutPoint, markSourceIn, markSourceOut } = useUIStore();
@@ -80,7 +80,75 @@ export const SourcePreview: React.FC = () => {
 
   useEffect(() => {
     setSourceVideoState(sourceAsset?.type === "video" ? "loading" : "ready");
+    const assetDuration = sourceAsset?.duration;
+    setDuration(typeof assetDuration === "number" && Number.isFinite(assetDuration) && assetDuration > 0 ? assetDuration : 0);
   }, [sourceAsset?.id, sourceAsset?.type, sourceAsset?.path]);
+
+  // The source monitor is a plain HTMLMediaElement, but its readiness events
+  // can occur during the same commit in which the element is rebound to the
+  // source transport. Keep a small DOM-level bridge here so a missed event
+  // cannot leave the overlay or timecode stale forever.
+  useEffect(() => {
+    if (sourceAsset?.type !== "video") return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    let active = true;
+    let pollId: number | null = null;
+    const syncVideoReadiness = () => {
+      if (!active) return;
+
+      if (video.error) {
+        setSourceVideoState("error");
+        if (pollId !== null) {
+          window.clearInterval(pollId);
+          pollId = null;
+        }
+        return;
+      }
+
+      const mediaDuration = Number(video.duration);
+      if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+        setDuration(mediaDuration);
+      }
+
+      // HAVE_CURRENT_DATA is enough for the first frame. Do not wait for
+      // canplaythrough; that event is intentionally not required for preview.
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        setSourceVideoState("ready");
+        if (pollId !== null) {
+          window.clearInterval(pollId);
+          pollId = null;
+        }
+      }
+    };
+
+    video.addEventListener("loadedmetadata", syncVideoReadiness);
+    video.addEventListener("loadeddata", syncVideoReadiness);
+    video.addEventListener("canplay", syncVideoReadiness);
+    video.addEventListener("durationchange", syncVideoReadiness);
+    video.addEventListener("error", syncVideoReadiness);
+
+    syncVideoReadiness();
+    if (video.readyState === HTMLMediaElement.HAVE_NOTHING && video.src) {
+      video.load();
+    }
+
+    // This is only a readiness reconciliation loop, not a playback loop. It
+    // covers WebKit/Tauri cases where the event fires before React attaches
+    // the handler, while stopping immediately once the first frame is ready.
+    pollId = window.setInterval(syncVideoReadiness, 100);
+    return () => {
+      active = false;
+      if (pollId !== null) window.clearInterval(pollId);
+      video.removeEventListener("loadedmetadata", syncVideoReadiness);
+      video.removeEventListener("loadeddata", syncVideoReadiness);
+      video.removeEventListener("canplay", syncVideoReadiness);
+      video.removeEventListener("durationchange", syncVideoReadiness);
+      video.removeEventListener("error", syncVideoReadiness);
+    };
+  }, [sourceAsset?.id, sourceAsset?.path, sourceAsset?.type]);
 
   // Virtual clock for text preview
   useEffect(() => {
@@ -525,6 +593,12 @@ export const SourcePreview: React.FC = () => {
                 videoRef={videoRef}
                 src={sourcePath}
                 poster={sourcePoster}
+                onLoadedMetadata={(event) => {
+                  const mediaDuration = Number(event.currentTarget.duration);
+                  if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+                    setDuration(mediaDuration);
+                  }
+                }}
                 onLoadedData={() => setSourceVideoState("ready")}
                 onCanPlay={() => setSourceVideoState("ready")}
                 onError={() => setSourceVideoState("error")}

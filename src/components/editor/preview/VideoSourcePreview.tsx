@@ -5,6 +5,7 @@ interface VideoSourcePreviewProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   src: string;
   poster?: string;
+  onLoadedMetadata?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onLoadedData?: () => void;
   onCanPlay?: () => void;
   onError?: () => void;
@@ -15,6 +16,7 @@ export const VideoSourcePreview: React.FC<VideoSourcePreviewProps> = ({
   videoRef,
   src,
   poster,
+  onLoadedMetadata,
   onLoadedData,
   onCanPlay,
   onError,
@@ -25,6 +27,7 @@ export const VideoSourcePreview: React.FC<VideoSourcePreviewProps> = ({
       ref={videoRef}
       src={src}
       poster={poster}
+      onLoadedMetadata={onLoadedMetadata}
       onLoadedData={onLoadedData}
       onCanPlay={onCanPlay}
       onError={onError}
