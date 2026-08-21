@@ -329,7 +329,7 @@ export const Timeline: React.FC = () => {
   return (
     <div
       data-preview-mode={previewMode}
-      className="h-60 md:h-80 flex flex-col select-none relative"
+      className="h-full min-h-0 flex flex-col select-none relative"
       style={{ backgroundColor: "var(--color-timeline-bg)" }}
     >
       <TimelineToolbar />
@@ -344,7 +344,7 @@ export const Timeline: React.FC = () => {
 
       {hasClips && <div className="absolute top-[40px] left-0 right-0 bottom-0 bg-(--color-timeline-ruler-bg)" style={{ zIndex: 120, width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`, minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px` }}></div>}
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {/* ── Single scroll container with CSS Grid ─────────────────────── */}
         <div
           ref={containerRef}
@@ -356,8 +356,8 @@ export const Timeline: React.FC = () => {
           style={{
             display: "grid",
             gridTemplateColumns: hasClips ? `${TIMELINE_TRACK_LABEL_WIDTH_PX}px 1fr` : "1fr",
-            gridTemplateRows: hasClips ? "auto 1fr" : undefined,
-            alignContent: "start",
+            gridTemplateRows: hasClips ? "auto 1fr" : "24px minmax(0, 1fr)",
+            alignContent: hasClips ? "start" : "stretch",
             scrollbarWidth: "none",
             rowGap: 0,
           }}
