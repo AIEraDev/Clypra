@@ -213,7 +213,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      className="absolute inset-0 z-20 pointer-events-none select-none overflow-hidden"
+      className="absolute inset-0 z-35 pointer-events-none select-none overflow-hidden"
     >
       {/* Visual Envelope Shape (SVG) */}
       <svg
@@ -259,31 +259,37 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
       {/* Draggable fade-in handle (knob) */}
       <div
-        className={`absolute w-3 h-3 bg-emerald-400 border border-white rounded-bl-lg cursor-ew-resize pointer-events-auto transition-opacity duration-150 flex items-center justify-center shadow-lg ${
+        className={`absolute w-4 h-4 bg-emerald-400 border border-white rounded-br-lg cursor-ew-resize pointer-events-auto transition-opacity duration-150 flex items-center justify-center shadow-lg z-40 ${
           isHovered || activeDrag === "fadeIn"
             ? "opacity-100 animate-fade-in"
             : "opacity-0"
         }`}
         style={{
-          left: `${Math.max(0, fadeInPx - 6)}px`,
-          top: "0px",
+          left: `${Math.max(4, fadeInPx)}px`,
+          top: "4px",
         }}
-        onPointerDown={(e) => handleDragStart(e, "fadeIn")}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          handleDragStart(e, "fadeIn");
+        }}
         title={`Fade In: ${fadeIn.toFixed(1)}s`}
       />
 
       {/* Draggable fade-out handle (knob) */}
       <div
-        className={`absolute w-3 h-3 bg-emerald-400 border border-white rounded-br-lg cursor-ew-resize pointer-events-auto transition-opacity duration-150 flex items-center justify-center shadow-lg ${
+        className={`absolute w-4 h-4 bg-emerald-400 border border-white rounded-bl-lg cursor-ew-resize pointer-events-auto transition-opacity duration-150 flex items-center justify-center shadow-lg z-40 ${
           isHovered || activeDrag === "fadeOut"
             ? "opacity-100 animate-fade-in"
             : "opacity-0"
         }`}
         style={{
-          right: `${Math.max(0, fadeOutPx - 6)}px`,
-          top: "0px",
+          right: `${Math.max(4, fadeOutPx)}px`,
+          top: "4px",
         }}
-        onPointerDown={(e) => handleDragStart(e, "fadeOut")}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          handleDragStart(e, "fadeOut");
+        }}
         title={`Fade Out: ${fadeOut.toFixed(1)}s`}
       />
 
