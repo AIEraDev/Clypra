@@ -59,11 +59,13 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   const rafRef = useRef<number | null>(null);
   const nativeControllerRef = useRef<NativeAudioPreviewController | null>(null);
   const nativeActiveRef = useRef(false);
+  const nativeInitializingRef = useRef(false);
+  const nativeFallbackAllowedRef = useRef(false);
   const nativeDisposeChainRef = useRef<Promise<void>>(Promise.resolve());
 
-  // Native audio is brought up as a controlled replacement. Until its graph is
-  // ready, the existing Web Audio path continues to provide audio; once ready,
-  // browser voices are flushed before the native clock is allowed to run.
+  // Native audio is brought up before transport starts. While it is warming,
+  // browser voices stay silent so the first Play action cannot switch audio
+  // authorities halfway through a frame.
   useEffect(() => {
     if (!options.nativeMode || !isTauriRuntime() || !project) return;
 
@@ -99,29 +101,39 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       },
     });
     nativeActiveRef.current = false;
+    nativeInitializingRef.current = true;
+    nativeFallbackAllowedRef.current = false;
     let cancelled = false;
     let initializeStarted = false;
 
-    const initializeOnPlay = (state = getPlaybackClock().getState()) => {
-      if (initializeStarted || cancelled || state.state !== "playing") return;
+    const initializeNativeController = () => {
+      if (initializeStarted || cancelled) return;
       initializeStarted = true;
       void (async () => {
         await nativeDisposeChainRef.current;
         if (cancelled) return;
         nativeControllerRef.current = controller;
         const enabled = await controller.initialize();
-        if (cancelled || !enabled) return;
+        if (cancelled || !enabled) {
+          nativeInitializingRef.current = false;
+          nativeFallbackAllowedRef.current = true;
+          return;
+        }
         engineRef.current.stopAllVoices(true);
         nativeActiveRef.current = true;
+        nativeInitializingRef.current = false;
         controller.setOutput(options.volume ?? 100, options.muted ?? false);
       })();
     };
-    const unsubscribeClock = getPlaybackClock().subscribe(initializeOnPlay);
-    initializeOnPlay();
+    // Warm the native graph while paused. Starting native audio lazily from
+    // the first Play click allowed WebAudio to begin immediately and then be
+    // replaced by CPAL mid-play, which caused the initial A/V discontinuity.
+    initializeNativeController();
 
     return () => {
       cancelled = true;
-      unsubscribeClock();
+      nativeInitializingRef.current = false;
+      nativeFallbackAllowedRef.current = false;
       nativeActiveRef.current = false;
       if (nativeControllerRef.current === controller) {
         nativeControllerRef.current = null;
@@ -186,7 +198,9 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       const isPlaying = clock.state === "playing";
       const speed = clock.speed;
 
-      if (!nativeActiveRef.current) {
+      const nativeModeBooting = options.nativeMode && nativeInitializingRef.current;
+      const nativeModeFallback = options.nativeMode && nativeFallbackAllowedRef.current;
+      if (!options.nativeMode || nativeModeFallback || (!nativeModeBooting && !nativeActiveRef.current)) {
         // Synchronize browser audio voices only while native takeover is not
         // active. This prevents two independent audible graphs from playing.
         engine.syncPlayback(

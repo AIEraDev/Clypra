@@ -40,6 +40,7 @@ import {
   renderNativeFrame,
   resizeNativeSurface,
 } from "@/lib/platform/tauri";
+import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
 
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
@@ -150,6 +151,7 @@ export const NativeProgramPreview: React.FC = () => {
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const nativeSurfaceTargetRef = useRef<HTMLDivElement>(null);
   const nativeSurfaceConfiguredRef = useRef(false);
+  const nativeSurfaceGeometrySettledRef = useRef(false);
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const previewContainerCallback = useCallback((node: HTMLDivElement | null) => {
     previewContainerRef.current = node;
@@ -247,49 +249,124 @@ export const NativeProgramPreview: React.FC = () => {
 
     let active = true;
     let syncInFlight = false;
-    const syncSurface = async () => {
-      if (!active || syncInFlight || !nativeSurfaceTargetRef.current) return;
+    let syncRequested = false;
+    let observedGeometryKey = "";
+    let appliedGeometryKey = "";
+    let monitorRaf: number | null = null;
+
+    const geometryKey = (geometry: NativeSurfaceGeometry): string => [
+      geometry.xPhysical,
+      geometry.yPhysical,
+      geometry.widthPhysical,
+      geometry.heightPhysical,
+      geometry.devicePixelRatio,
+    ].join(":");
+
+    const syncSurface = () => {
+      syncRequested = true;
+      if (syncInFlight) return;
       syncInFlight = true;
-      try {
-        const geometry = await getNativePreviewSurfaceGeometry(nativeSurfaceTargetRef.current);
-        if (!active) return;
-        if (nativeSurfaceConfiguredRef.current) {
-          await resizeNativeSurface(geometry);
-        } else {
-          await probeNativeSurface(geometry);
-          nativeSurfaceConfiguredRef.current = true;
+
+      void (async () => {
+        try {
+          while (active && syncRequested) {
+            syncRequested = false;
+            const target = nativeSurfaceTargetRef.current;
+            if (!target) break;
+
+            const geometry = await getNativePreviewSurfaceGeometry(target);
+            if (!active) break;
+            const nextGeometryKey = geometryKey(geometry);
+            if (nextGeometryKey === appliedGeometryKey && nativeSurfaceConfiguredRef.current) continue;
+
+            // Do not keep presenting into the old child-window position while
+            // the DOM viewport is moving. The next frame will only use the
+            // native surface after this geometry has been applied.
+            nativeSurfaceGeometrySettledRef.current = false;
+            setNativeSurfacePresenting(false);
+            void hideNativeSurface().catch(() => undefined);
+
+            if (nativeSurfaceConfiguredRef.current) {
+              await resizeNativeSurface(geometry);
+            } else {
+              await probeNativeSurface(geometry);
+              nativeSurfaceConfiguredRef.current = true;
+            }
+            appliedGeometryKey = nextGeometryKey;
+            nativeSurfaceGeometrySettledRef.current = true;
+            if (active) setNativeSurfaceReady(true);
+          }
+        } catch (error) {
+          nativeSurfaceConfiguredRef.current = false;
+          nativeSurfaceGeometrySettledRef.current = false;
+          if (active) {
+            setNativeSurfaceReady(false);
+            traceNativePreview("native-surface-unavailable", {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        } finally {
+          syncInFlight = false;
+          // A ResizeObserver/position sample can arrive while the IPC resize
+          // is in flight. Drain the newest geometry instead of losing it.
+          if (active && syncRequested) syncSurface();
         }
-        if (active) setNativeSurfaceReady(true);
-      } catch (error) {
-        nativeSurfaceConfiguredRef.current = false;
-        if (active) {
-          setNativeSurfaceReady(false);
-          traceNativePreview("native-surface-unavailable", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      } finally {
-        syncInFlight = false;
-      }
+      })();
     };
 
-    void syncSurface();
+    const monitorGeometry = () => {
+      if (!active) return;
+      const target = nativeSurfaceTargetRef.current;
+      if (target) {
+        const rect = target.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const key = [
+          Math.round(rect.left * dpr),
+          Math.round(rect.top * dpr),
+          Math.max(1, Math.round(rect.width * dpr)),
+          Math.max(1, Math.round(rect.height * dpr)),
+          dpr,
+        ].join(":");
+        if (key !== observedGeometryKey) {
+          observedGeometryKey = key;
+          syncSurface();
+        }
+      }
+      monitorRaf = requestAnimationFrame(monitorGeometry);
+    };
+    const handleWindowResize = () => syncSurface();
+
+    syncSurface();
+    monitorRaf = requestAnimationFrame(monitorGeometry);
     const resizeObserver = typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(() => void syncSurface())
+      ? new ResizeObserver(() => syncSurface())
       : null;
     resizeObserver?.observe(nativeSurfaceTargetRef.current);
-    window.addEventListener("resize", syncSurface);
+    window.addEventListener("resize", handleWindowResize);
 
     return () => {
       active = false;
       resizeObserver?.disconnect();
-      window.removeEventListener("resize", syncSurface);
+      if (monitorRaf !== null) cancelAnimationFrame(monitorRaf);
+      window.removeEventListener("resize", handleWindowResize);
       nativeSurfaceConfiguredRef.current = false;
+      nativeSurfaceGeometrySettledRef.current = false;
       setNativeSurfaceReady(false);
       setNativeSurfacePresenting(false);
       void hideNativeSurface().catch(() => undefined);
     };
   }, [displayHeight, displayWidth]);
+
+  // Keep paused/seeking frames on the DOM canvas. The native surface is a
+  // separate child window, so leaving it visible after a pause can make the
+  // same frame appear at stale coordinates while the canvas is laid out in
+  // the current preview viewport.
+  useEffect(() => {
+    if (!nativeSurfaceReady || clockState.state === "playing") return;
+
+    setNativeSurfacePresenting(false);
+    void hideNativeSurface().catch(() => undefined);
+  }, [clockState.state, nativeSurfaceReady]);
 
   const previewBackgroundLayer = useMemo(() => {
     return getCanvasBackgroundLayer(project?.canvasBackground);
@@ -484,7 +561,6 @@ export const NativeProgramPreview: React.FC = () => {
     let nativePresentationLatencyMs = 0;
     let nativeSurfaceShown = false;
     let lastNativePlaybackRequestKey = "";
-    let nativeSurfaceFailureKey = "";
     let visibleRequestKey = "";
     let visibleRequestGeneration = 0;
     let prefetchCenterKey = "";
@@ -994,7 +1070,6 @@ export const NativeProgramPreview: React.FC = () => {
         nativeFailureKey = nativeRequestKey;
         nativeFailureCount = 0;
         nativeBlockedKey = "";
-        nativeSurfaceFailureKey = "";
       }
       if (nativeRequestKey !== visibleRequestKey) {
         visibleRequestKey = nativeRequestKey;
@@ -1020,12 +1095,17 @@ export const NativeProgramPreview: React.FC = () => {
       const nativeAudioClockReady = !isTauriRuntime() || state.clock.hasNativeClockPosition;
       const nativePlaybackPath = isTauriRuntime() && Boolean(nativePlaybackRequest) && isPlaying && nativeAudioClockReady;
       const nativePausedPath = isTauriRuntime() && Boolean(nativeRequest) && !isPlaying;
-      const nativeSurfaceOwnsCurrentFrame = nativeSurfaceShown && lastNativePlaybackRequestKey === nativeRequestKey &&
-        (!isPlaying || nativeAudioClockReady);
-      const nativePausedSurfacePath = nativePausedPath && nativeSurfaceReady && nativeSurfaceFailureKey !== nativeRequestKey && !nativeSurfaceOwnsCurrentFrame;
-      const nativeDirectSurfacePath = nativeSurfaceReady && Boolean(nativeRequest) && (
-        nativePlaybackPath || nativePausedSurfacePath
-      );
+      // The child surface is playback-only. Paused and seeking frames must be
+      // committed to the DOM canvas so they share the exact same placement as
+      // the editor overlays and transport layout.
+      const nativePlaybackRequestKey = nativePlaybackRequest
+        ? getNativeFrameRequestKey(nativePlaybackRequest)
+        : nativeRequestKey;
+      const nativeSurfaceOwnsCurrentFrame = nativeSurfaceShown && isPlaying &&
+        lastNativePlaybackRequestKey === nativePlaybackRequestKey && nativeAudioClockReady &&
+        nativeSurfaceGeometrySettledRef.current;
+      const nativeDirectSurfacePath = nativeSurfaceReady && nativeSurfaceGeometrySettledRef.current &&
+        Boolean(nativeRequest) && nativePlaybackPath;
       const nativeOnlyMode = isTauriRuntime() && NATIVE_PREVIEW_ONLY;
       const nativeOnlySceneBlocked = nativeOnlyMode && !nativeRequest;
       if (nativeOnlyMode) {
@@ -1063,7 +1143,7 @@ export const NativeProgramPreview: React.FC = () => {
       const cachedNativeFrame = nativeRequestKey !== ""
         ? nativePreviewScheduler.getCached(nativeRequestKey)
         : null;
-      const nativePausedReadbackPath = nativePausedPath && !nativePausedSurfacePath;
+      const nativePausedReadbackPath = nativePausedPath;
       const nativeFrameNeedsRetry = nativePausedReadbackPath && Boolean(nativeRequest) && !cachedNativeFrame &&
         nativeBlockedKey !== nativeRequestKey && performance.now() >= nativeRetryAt;
       const targetStillCurrent = () => {
@@ -1103,7 +1183,7 @@ export const NativeProgramPreview: React.FC = () => {
         const requestStartedAt = performance.now();
         const requestSource: NativePreviewRequestSource = {
           requestKey,
-          frameIndex,
+          frameIndex: requestToPresent.frameTime.frameIndex,
           request: requestToPresent,
         };
         nativePlaybackInFlight = (nativeSurfaceReady
@@ -1113,9 +1193,6 @@ export const NativeProgramPreview: React.FC = () => {
               ? nativePresentationLatencyMs * 0.75 + elapsedMs * 0.25
               : elapsedMs;
             if (!presentation.presented) {
-              if (!isPlaying) {
-                nativeSurfaceFailureKey = nativeRequestKey;
-              }
               lastNativePlaybackRequestKey = "";
               if (presentation.dropped) {
                 nativeDroppedFrameCount += 1;
@@ -1127,7 +1204,12 @@ export const NativeProgramPreview: React.FC = () => {
                   droppedFrameCount: nativeDroppedFrameCount,
                 });
               }
-            } else if (isActive && renderStateRef.current.clock.state === playbackState) {
+            } else if (
+              isActive &&
+              nativeSurfaceGeometrySettledRef.current &&
+              visibleRequestGeneration === targetGeneration &&
+              renderStateRef.current.clock.state === playbackState
+            ) {
               nativeSurfaceShown = true;
               if (nativeSurfaceReady) {
                 // The direct native surface is the exclusive owner of the base
@@ -1154,9 +1236,6 @@ export const NativeProgramPreview: React.FC = () => {
             }
           })
           .catch((error) => {
-            if (!isPlaying) {
-              nativeSurfaceFailureKey = nativeRequestKey;
-            }
             nativeContinuousFailureStreak += 1;
             lastNativePlaybackRequestKey = "";
             if (nativeContinuousFailureStreak >= 3) {

@@ -18,7 +18,7 @@ import { platform } from "@/core/platform";
 import { cn } from "@/lib/utils";
 import { createRasterSurface, type AnyRasterSurface } from "@/lib/renderEngine/webglRasterSurface";
 import { useFilmstrip } from "@/lib/filmstrip/useFilmstrip";
-import { getFilmstripTileWidthForTier } from "@/lib/filmstrip/filmstripLayout";
+import { getFilmstripRenderWindow, getFilmstripTileWidthForTier } from "@/lib/filmstrip/filmstripLayout";
 import { normalizePathForTauriInvoke } from "@/lib/platform/tauri";
 import { useTimelineStore } from "@/store/timelineStore";
 import type { Clip, MediaAsset } from "@/types";
@@ -93,6 +93,20 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     return getFilmstripTileWidthForTier(spatialTier);
   }, [spatialTier]);
 
+  // Keep the canvas bounded to the current viewport. At deep zoom the clip's
+  // DOM width can be very large, but a full-clip canvas would exceed the
+  // platform's device-pixel/GPU backing-store limit. The native tile request
+  // remains viewport-bounded; this is only the presentation window.
+  const renderWindow = useMemo(() => getFilmstripRenderWindow({
+    clipStartTime: clip.startTime,
+    clipWidthPx,
+    trimIn: clip.trimIn,
+    trimOut: clip.trimOut,
+    viewportScrollLeft,
+    viewportWidth,
+    pixelsPerSecond,
+  }), [clip.startTime, clip.trimIn, clip.trimOut, clipWidthPx, pixelsPerSecond, viewportScrollLeft, viewportWidth]);
+
   // ── RasterSurface lifecycle ───────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -121,12 +135,12 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
 
     const dpr = window.devicePixelRatio || 1;
     const layout = {
-      clipWidthPx,
+      clipWidthPx: renderWindow.widthPx,
       stripHeightPx,
       dpr,
       tileWidthPx,
-      trimIn: clip.trimIn,
-      trimOut: clip.trimOut,
+      trimIn: renderWindow.trimIn,
+      trimOut: renderWindow.trimOut,
     };
 
     if (artifacts.length > 0) {
@@ -134,7 +148,7 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     } else {
       surface.drawPlaceholder(layout);
     }
-  }, [artifacts, clipWidthPx, stripHeightPx, tileWidthPx, clip.trimIn, clip.trimOut, clip.id]);
+  }, [artifacts, renderWindow, stripHeightPx, tileWidthPx, clip.id]);
 
   // ── Image tile rendering (still-image clips) ──────────────────────────────
   useEffect(() => {
@@ -230,7 +244,17 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
   if (isVideoSource) {
     return (
       <div data-testid="clip-filmstrip" className={cn("relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border bg-timeline-filmstrip-bg", className)} style={{ height: stripHeightPx, width: "100%", opacity: 1, transition: "opacity 80ms linear" }}>
-        <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: "absolute",
+            left: `${renderWindow.leftPx}px`,
+            top: 0,
+            display: "block",
+            width: `${renderWindow.widthPx}px`,
+            height: "100%",
+          }}
+        />
         {/* SMOOTH-4 fix: poster cross-fades out instead of hard pop */}
         {mediaAsset.posterFrame && (
           <img
