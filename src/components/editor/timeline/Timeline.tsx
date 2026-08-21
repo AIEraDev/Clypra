@@ -416,7 +416,7 @@ export const Timeline: React.FC = () => {
                   <span className="text-lg font-medium tracking-tight text-text-primary/90">Drag material here and start to create</span>
                 </div>
               </div>
-              <EmptyTimelineDropZone isDragging={isDraggingMedia} />
+              <EmptyTimelineDropZone />
             </div>
           ) : (
             <>

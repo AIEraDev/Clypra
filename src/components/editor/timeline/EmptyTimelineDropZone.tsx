@@ -5,11 +5,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { handleCreateTrackAndDrop } from "@/lib/timeline/timelineUtils";
 import type { DragItem } from "@/types";
 
-interface EmptyTimelineDropZoneProps {
-  isDragging: boolean;
-}
-
-export const EmptyTimelineDropZone: React.FC<EmptyTimelineDropZoneProps> = ({ isDragging }) => {
+export const EmptyTimelineDropZone: React.FC = () => {
   const tracks = useTimelineStore((s) => s.tracks);
 
   const [, drop] = useDrop(
@@ -25,7 +21,7 @@ export const EmptyTimelineDropZone: React.FC<EmptyTimelineDropZoneProps> = ({ is
   return (
     <div
       ref={drop as unknown as React.Ref<HTMLDivElement>}
-      className={`absolute inset-0 z-30 rounded-xl pointer-events-auto transition-colors ${isDragging ? "border-2 border-dashed border-accent/60 bg-accent/10" : ""}`}
+      className="absolute inset-0 z-30 pointer-events-auto"
       aria-label="Timeline drop area"
     />
   );
