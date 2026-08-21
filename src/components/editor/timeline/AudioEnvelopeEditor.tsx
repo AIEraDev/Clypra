@@ -30,7 +30,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     initialVolume: number;
     initialFadeIn: number;
     initialFadeOut: number;
-    clipWidth: number;
+    clipHeight: number;
   } | null>(null);
 
   const volume = clip.volume ?? 1.0;
@@ -66,7 +66,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     if (!container) return;
 
     const rect = container.getBoundingClientRect();
-    const clipWidth = rect.width || clipWidthPx || 1;
+    const clipHeight = rect.height || 40;
 
     dragStartRef.current = {
       startX: e.clientX,
@@ -74,7 +74,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       initialVolume: volume,
       initialFadeIn: fadeIn,
       initialFadeOut: fadeOut,
-      clipWidth,
+      clipHeight,
     };
 
     setActiveDrag(type);
@@ -88,6 +88,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
     const start = dragStartRef.current;
     const deltaX = e.clientX - start.startX;
+    const deltaY = e.clientY - start.startY;
     if (activeDrag === "fadeIn") {
       const deltaTime = deltaX / pixelsPerSecond;
       const nextFadeIn = Math.max(0, Math.min(clip.duration - start.initialFadeOut, start.initialFadeIn + deltaTime));
@@ -99,8 +100,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       updateClip(clip.id, { fadeOut: nextFadeOut });
       setDragValue(nextFadeOut);
     } else if (activeDrag === "volume") {
-      // Volume is controlled by the bottom rail: left is quieter, right is louder.
-      const deltaVol = deltaX / start.clipWidth;
+      // Volume is controlled by the bottom rail: up is louder, down is quieter.
+      const deltaVol = -deltaY / (start.clipHeight * 0.8);
       const nextVol = Math.max(0, Math.min(1.0, start.initialVolume + deltaVol));
       updateClip(clip.id, { volume: nextVol });
       setDragValue(nextVol);
@@ -266,7 +267,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(volume * 100)}
-        className={`absolute bottom-1 left-1 right-1 z-40 h-3 cursor-ew-resize pointer-events-auto transition-opacity ${
+        className={`absolute bottom-1 left-1 right-1 z-40 h-3 cursor-ns-resize pointer-events-auto transition-opacity ${
           isHovered || activeDrag === "volume" ? "opacity-100" : "opacity-70"
         }`}
         style={{
@@ -274,7 +275,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         }}
         onPointerDown={(e) => handleDragStart(e, "volume")}
         onDoubleClick={handleVolumeDoubleClick}
-        title={`Volume: ${Math.round(volume * 100)}%. Drag horizontally to adjust; double-click to reset.`}
+        title={`Volume: ${Math.round(volume * 100)}%. Drag vertically to adjust; double-click to reset.`}
       >
         <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-black/35" />
         <div
@@ -282,8 +283,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           style={{ width: `${volume * 100}%` }}
         />
         <div
-          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.75)]"
-          style={{ left: `${volume * 100}%` }}
+          className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize rounded-full border border-white bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.75)]"
         />
       </div>
 
