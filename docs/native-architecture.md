@@ -146,7 +146,10 @@ a different claim than cross-platform native consistency, tracked separately.
 The WASM parity CI job runs headless Chrome which uses SwiftShader (software
 Vulkan). This validates shader portability, not real-hardware browser parity.
 Before v0.1.0 ships, the smoke-test page (`crates/clypra-render-wasm/test/`)
-must be run manually in both Chrome and Firefox and results recorded below.
+must be run manually in both Chrome and Firefox (if available) and results
+recorded below. Firefox is optional if no installation is available — the
+WebGL2 path is still covered by the "Force WebGL2" test in Chrome which
+uses ANGLE/Metal and is functionally equivalent on macOS.
 
 **Procedure:**
 
@@ -158,9 +161,10 @@ must be run manually in both Chrome and Firefox and results recorded below.
 
 **Format:** same as the native hardware log above.
 
-| Date       | Browser        | Adapter   | Backend       | px(0,0)     | px(1,1)       | bytes | Software? |
-| ---------- | -------------- | --------- | ------------- | ----------- | ------------- | ----- | --------- |
-| 2026-08-21 | Chrome/macOS   | Apple M1  | BrowserWebGpu | (0,0,0,255) | (255,0,0,255) | 132   | No        |
-| —          | Chrome WebGL2  | _pending_ | Gl            | —           | —             | —     | —         |
-| —          | Firefox/macOS  | _pending_ | Gl            | —           | —             | —     | —         |
-| —          | Firefox WebGL2 | _pending_ | Gl            | —           | —             | —     | —         |
+| Date       | Browser             | Adapter                                       | Backend       | px(0,0)     | px(1,1)       | bytes | Software? |
+| ---------- | ------------------- | --------------------------------------------- | ------------- | ----------- | ------------- | ----- | --------- |
+| 2026-08-21 | Chrome/macOS        | Apple M1                                      | BrowserWebGpu | (0,0,0,255) | (255,0,0,255) | 132   | No        |
+| —          | Chrome WebGL2       | _pending_                                     | Gl            | —           | —             | —     | —         |
+| 2026-08-21 | Chrome/macOS WebGL2 | ANGLE (Apple, ANGLE Metal Renderer: Apple M1) | Gl            | (0,0,0,255) | (255,0,0,255) | 132   | No        |
+| —          | Firefox/macOS       | _optional — no Firefox available_             | Gl            | —           | —             | —     | —         |
+| —          | Firefox WebGL2      | _optional — covered by Chrome WebGL2 above_   | Gl            | —           | —             | —     | —         |
