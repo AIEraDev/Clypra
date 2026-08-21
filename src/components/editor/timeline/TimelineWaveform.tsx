@@ -12,6 +12,7 @@ interface TimelineWaveformProps {
   duration: number;
   trimIn?: number;
   trimOut?: number;
+  heightPx?: number;
   className?: string;
 }
 
@@ -65,7 +66,7 @@ function subscribeToThemeChanges(listener: ThemeListener): () => void {
   };
 }
 
-export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, clipWidthPx, duration, trimIn = 0, trimOut, className = "" }) => {
+export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, clipWidthPx, duration, trimIn = 0, trimOut, heightPx = 40, className = "" }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [waveformData, setWaveformData] = useState<WaveformBucket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -227,7 +228,7 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, c
 
     const dpr = window.devicePixelRatio || 1;
     const logicalW = Math.max(1, validClipWidth);
-    const logicalH = 40; // Match strip height
+    const logicalH = Math.max(12, heightPx);
     canvas.width = logicalW * dpr;
     canvas.height = logicalH * dpr;
     ctx.scale(dpr, dpr);
@@ -238,19 +239,20 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, c
 
     // Use professional dense bar renderer with logical dimensions
     drawProfessionalWaveform(canvas, waveformData, color, logicalW, logicalH);
-  }, [waveformData, themeRevision, validClipWidth]);
+  }, [waveformData, themeRevision, validClipWidth, heightPx]);
 
   if (hasError) {
     return <div className={`w-full h-full rounded-[2px] border border-border/30 bg-surface-raised/30 ${className}`} title="Waveform unavailable" />;
   }
 
   return (
-    <div className="relative w-full h-full min-h-[36px] flex items-center">
+    <div className="relative flex h-full min-h-0 w-full items-center">
       {isLoading && <div className={`absolute inset-0 rounded-[2px] bg-accent/10 animate-pulse border border-accent/20 ${className}`} />}
       <canvas
         ref={canvasRef}
         className={`w-full h-full block ${className}`}
         style={{
+          minHeight: heightPx,
           opacity: isLoading ? 0 : 1,
           transition: "opacity 300ms ease-out",
         }}
