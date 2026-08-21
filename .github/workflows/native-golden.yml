@@ -1,4 +1,4 @@
-name: Native Golden Parity
+name: Native Golden — Shader Logic & Cross-Platform Portability
 
 # Runs on every PR and on pushes to the integration branches.
 # Purpose (Phase 0):
@@ -9,16 +9,32 @@ name: Native Golden Parity
 #      when it is within tolerance.
 #   4. Upload all rendered PNGs as artifacts for visual inspection on failures.
 #
-# Cross-platform tolerance:
-#   Native–native  (Metal ↔ DX12 ↔ Vulkan): tolerance 4 per-channel.
-#   The WASM–native parity check (Phase 1) will be added as a fourth matrix
-#   entry once clypra-render-wasm exists, using the same fixture corpus and
-#   the same diff command — tolerance TBD from real measured data.
+# What this job proves:
+#   ✅ The WGSL shaders compile and run on all three wgpu backends.
+#   ✅ The compositor math is self-consistent (same-machine determinism verified locally).
+#   ✅ Any shader logic regression produces a pixel delta and fails CI.
+#   ⚠️  Windows and Linux GitHub-hosted runners have NO dedicated GPU.
+#       wgpu will fall back to a software rasterizer:
+#         - Linux:   Mesa Lavapipe (VK_ICD_FILENAMES forced below)
+#         - Windows: WARP (Microsoft's software D3D12 adapter)
+#       The adapter name printed in each job's logs will confirm this.
+#       A green check here means "shader logic is portable and math is
+#       consistent across backends" — NOT "real hardware GPU parity confirmed."
 #
-# Golden reference update workflow:
-#   If a shader or compositor change intentionally changes pixels, regenerate
-#   the Metal reference on macOS, commit the new PNGs, and the cross-platform
-#   jobs will re-baseline against them on the next run.
+# Hardware GPU validation (what this does NOT replace):
+#   Cross-platform parity on real NVIDIA/AMD/Intel hardware must be verified
+#   separately — at minimum once before v0.1.0, either manually on a physical
+#   Windows/Linux box or via a self-hosted runner with GPU passthrough.
+#   See docs/native-architecture.md §Cross-Platform Tolerance.
+#
+# Cross-platform tolerance:
+#   Software-rasterizer vs. Metal hardware: tolerance 4 per-channel.
+#   This may need adjustment once real hardware runs exist for comparison.
+#
+# WASM parity (Phase 1):
+#   The WASM–native parity check will be added as a fourth matrix entry once
+#   clypra-render-wasm exists, using the same fixture corpus and diff command.
+#   Tolerance TBD from first real measured run.
 
 on:
   push:
@@ -45,7 +61,7 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
 
     strategy:
-      fail-fast: false   # always run all platforms so we get data from each
+      fail-fast: false # always run all platforms so we get data from each
       matrix:
         platform:
           - name: "macOS Metal"
@@ -103,7 +119,11 @@ jobs:
         run: |
           cargo run --release -- render \
             fixtures/minimal-request.json \
-            ../../artifacts/minimal-${{ matrix.platform.backend }}.png
+            ../../artifacts/minimal-${{ matrix.platform.backend }}.png \
+            2>&1 | tee /tmp/render-minimal.log
+          # Capture the GPU line for the job summary
+          GPU_LINE=$(grep "^GPU:" /tmp/render-minimal.log || echo "GPU: unknown")
+          echo "GPU_INFO=${GPU_LINE}" >> "$GITHUB_ENV"
         working-directory: crates/clypra-native-cli
         shell: bash
 
@@ -111,7 +131,8 @@ jobs:
         run: |
           cargo run --release -- render \
             fixtures/raster-request.json \
-            ../../artifacts/raster-${{ matrix.platform.backend }}.png
+            ../../artifacts/raster-${{ matrix.platform.backend }}.png \
+            2>/dev/null
         working-directory: crates/clypra-native-cli
         shell: bash
 
@@ -156,8 +177,22 @@ jobs:
       - name: Write job summary
         if: always()
         run: |
-          echo "## Native Golden Parity — ${{ matrix.platform.name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Native Golden — ${{ matrix.platform.name }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Surface the adapter that actually ran — critical for knowing whether
+          # this is real hardware or a software rasterizer (WARP / Lavapipe).
+          echo "**Adapter:** \`${GPU_INFO:-unknown}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Warn loudly if this looks like a software rasterizer.
+          if echo "${GPU_INFO}" | grep -qiE "llvmpipe|software|warp|basic render|lavapipe|cpu"; then
+            echo "> ⚠️ **Software rasterizer detected.** This run validates shader portability and math consistency — it does NOT confirm real hardware GPU parity. See workflow comments." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "> ✅ **Hardware GPU detected.** Results count toward cross-platform hardware parity." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
           echo "| Fixture | maxChannelError | differing_pixels | mean_error | result |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---------|----------------|-----------------|------------|--------|" >> "$GITHUB_STEP_SUMMARY"
 
