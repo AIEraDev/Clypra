@@ -25,7 +25,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { resolveConform } from "@clypra-studio/engine";
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
-import { getEvaluationCache, computeClipVersion, computeAssetsVersion, computeCanvasBackgroundVersion } from "./cache";
+import { getEvaluationCache, computeClipVersion, computeAssetsVersion, computeCanvasBackgroundVersion, computeEffectsStoreVersion } from "./cache";
 import { evaluateProperty } from "./animation";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
@@ -474,14 +474,52 @@ function evaluateTransitionState(
  * Evaluate the NLE timeline with LRU caching and epoch-based invalidation.
  * This is the recommended entry point for all preview/render paths.
  */
-export function evaluateTimelineSceneCached(time: number, clips: Clip[], tracks: Track[], assets: MediaAsset[], project: Project | null, epoch: number = 0, transitions: TransitionTimelineItem[] = []): EvaluatedScene {
+/**
+ * Pre-computed version strings for evaluateTimelineSceneCached.
+ * Pass these from the render loop to avoid re-running the O(n log n)
+ * sort+hash on every RAF tick (Audit 1.3 fix).
+ */
+export interface PrecomputedSceneVersions {
+  clipVersion: string;
+  assetsVersion: string;
+  effectsStoreVersion: string;
+}
+
+export function evaluateTimelineSceneCached(
+  time: number,
+  clips: Clip[],
+  tracks: Track[],
+  assets: MediaAsset[],
+  project: Project | null,
+  epoch: number = 0,
+  transitions: TransitionTimelineItem[] = [],
+  /** Optional: pass memoized hashes to skip O(n log n) recomputation on every RAF tick. */
+  precomputed?: PrecomputedSceneVersions,
+): EvaluatedScene {
   const cache = getEvaluationCache();
-  const clipVersion = computeClipVersion(clips, transitions);
-  const assetsVersion = computeAssetsVersion(assets);
+
+  // Audit 2.3 fix: apply the same end-of-timeline clamp the evaluator uses internally
+  // (evalTime = maxEndTime - 0.001 when time ∈ [maxEndTime, maxEndTime + 0.001)).
+  // Without this, the cache key embeds raw `time` while the evaluated scene is always
+  // identical in that window → every RAF tick at end-of-playback is a cache miss.
+  // One O(n) reduce is cheaper than the O(n log n) hash below and much cheaper than
+  // a full re-evaluation.
+  const maxEndTime = clips.reduce((max, clip) => Math.max(max, clip.startTime + clip.duration), 0);
+  const cacheTime =
+    maxEndTime > 0 && time >= maxEndTime && time < maxEndTime + 0.001
+      ? Math.max(0, maxEndTime - 0.001)
+      : time;
+
+  // Audit 1.3 fix: use caller-supplied precomputed hashes when available so the RAF
+  // loop doesn't re-run the full sort+hash pipeline on every frame.
+  const clipVersion = precomputed?.clipVersion ?? computeClipVersion(clips, transitions);
+  const assetsVersion = precomputed?.assetsVersion ?? computeAssetsVersion(assets);
+  const effectsStoreVersion = precomputed?.effectsStoreVersion
+    ?? computeEffectsStoreVersion(useEffectsStore.getState().definitions);
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
   const backgroundVersion = computeCanvasBackgroundVersion(project?.canvasBackground);
-  const cacheKey = { time, epoch, clipVersion, assetsVersion, canvasWidth, canvasHeight, backgroundVersion };
+  const cacheKey = { time: cacheTime, epoch, clipVersion, assetsVersion, canvasWidth, canvasHeight, backgroundVersion, effectsStoreVersion };
 
   const cached = cache.get(cacheKey);
   if (cached) {

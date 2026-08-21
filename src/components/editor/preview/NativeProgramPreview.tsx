@@ -49,9 +49,11 @@ import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
 import { useCaptionStore } from "@/store/captionStore";
 import type { EvaluatedScene } from "@/core/evaluation/types";
 import { makeBodyMaskCacheKey, segmentBodyMask } from "@/features/body-effects";
+import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 
 
-import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
+import { evaluateTimelineSceneCached, type PrecomputedSceneVersions } from "@/core/evaluation/evaluator";
+import { computeClipVersion, computeAssetsVersion, computeEffectsStoreVersion } from "@/core/evaluation/cache";
 import {
   buildNativeFrameRequest,
   getNativePreviewBlockers,
@@ -144,6 +146,11 @@ export const NativeProgramPreview: React.FC = () => {
   const [showSafeOverlay, setShowSafeOverlay] = useState(false);
   const [telemetryStats, setTelemetryStats] = useState<TelemetryStats | null>(null);
   const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
+  // Audit 4.6 fix: mirror nativeSurfaceReady in a ref so the render loop can read the
+  // latest value imperatively without nativeSurfaceReady being listed in the effect deps.
+  // Having it in deps caused the entire render loop to restart (RAF cancelled, blank frame)
+  // on every native surface probe and window resize.
+  const nativeSurfaceReadyRef = useRef(false);
   const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
   const [nativeOnlyBlocked, setNativeOnlyBlocked] = useState(false);
   const [nativeOnlyBlockers, setNativeOnlyBlockers] = useState<string[]>([]);
@@ -215,6 +222,14 @@ export const NativeProgramPreview: React.FC = () => {
     offsetY: 0,
     dpr: window.devicePixelRatio || 1,
     previewQuality,
+    // Audit 1.3 fix: version hashes are expensive to compute (O(n log n) sort+hash).
+    // Memoize at React-render time (driven by Zustand subscriptions) so the RAF loop
+    // can pass them directly to evaluateTimelineSceneCached without rehashing every frame.
+    sceneVersions: {
+      clipVersion: computeClipVersion(clips, transitions),
+      assetsVersion: computeAssetsVersion(mediaAssets),
+      effectsStoreVersion: computeEffectsStoreVersion(useEffectsStore.getState().definitions),
+    } satisfies PrecomputedSceneVersions,
   });
 
   showTelemetryRef.current = showTelemetry;
@@ -228,6 +243,14 @@ export const NativeProgramPreview: React.FC = () => {
   renderStateRef.current.clockState = clockState;
   renderStateRef.current.dpr = window.devicePixelRatio || 1;
   renderStateRef.current.previewQuality = previewQuality;
+  // Audit 1.3 fix: recompute version hashes here (React-render time) rather than in
+  // the RAF loop. Zustand only triggers a React render when the relevant slices change,
+  // so this runs at most once per actual timeline/effects change, not 60× per second.
+  renderStateRef.current.sceneVersions = {
+    clipVersion: computeClipVersion(clips, transitions),
+    assetsVersion: computeAssetsVersion(mediaAssets),
+    effectsStoreVersion: computeEffectsStoreVersion(useEffectsStore.getState().definitions),
+  };
 
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
@@ -295,12 +318,13 @@ export const NativeProgramPreview: React.FC = () => {
             }
             appliedGeometryKey = nextGeometryKey;
             nativeSurfaceGeometrySettledRef.current = true;
-            if (active) setNativeSurfaceReady(true);
+            if (active) { nativeSurfaceReadyRef.current = true; setNativeSurfaceReady(true); }
           }
         } catch (error) {
           nativeSurfaceConfiguredRef.current = false;
           nativeSurfaceGeometrySettledRef.current = false;
           if (active) {
+            nativeSurfaceReadyRef.current = false;
             setNativeSurfaceReady(false);
             traceNativePreview("native-surface-unavailable", {
               error: error instanceof Error ? error.message : String(error),
@@ -341,11 +365,17 @@ export const NativeProgramPreview: React.FC = () => {
       window.removeEventListener("resize", handleWindowResize);
       nativeSurfaceConfiguredRef.current = false;
       nativeSurfaceGeometrySettledRef.current = false;
+      nativeSurfaceReadyRef.current = false;
       setNativeSurfaceReady(false);
       setNativeSurfacePresenting(false);
       void hideNativeSurface().catch(() => undefined);
     };
-  }, [displayHeight, displayWidth]);
+    // Audit 5.4 fix: empty deps — mount once per component lifetime.
+    // The ResizeObserver + window 'resize' handler inside already call syncSurface()
+    // on every dimension change; displayWidth/displayHeight in deps caused the effect
+    // to re-mount on every pixel change during resize, accumulating window-moved
+    // listeners before the async unlistenWindowMoved Promise could resolve and clean up.
+  }, []);
 
   // Keep paused/seeking frames on the DOM canvas. The native surface is a
   // separate child window, so leaving it visible after a pause can make the
@@ -732,7 +762,12 @@ export const NativeProgramPreview: React.FC = () => {
             });
             nativeBodyMaskInFlight.set(assetId, pending);
             void pending.then(() => {
-              if (isActive) window.requestAnimationFrame(() => { void renderLoop(); });
+              // Audit finding 3 fix: use scheduleNextFrame() instead of a raw
+              // window.requestAnimationFrame call. The raw call bypassed the
+              // frameScheduled guard (risking a concurrent render loop), skipped
+              // setting rafId (so unmount cleanup couldn't cancel it), and left
+              // frameScheduled in an inconsistent state for the rest of the loop's life.
+              if (isActive) scheduleNextFrame();
             });
           }
         }
@@ -811,7 +846,12 @@ export const NativeProgramPreview: React.FC = () => {
 
       const width = Math.max(1, Math.round(scene.metadata.canvasWidth || renderStateRef.current.canvasWidth));
       const height = Math.max(1, Math.round(scene.metadata.canvasHeight || renderStateRef.current.canvasHeight));
-      const assetId = `native-background:${frameIndex}:${JSON.stringify(background)}`;
+      // Audit 3.2 fix: use a stable sorted-key serializer instead of JSON.stringify.
+      // Plain JSON.stringify does not guarantee property order across different creation
+      // paths (spread, deserialization, etc.), causing false cache misses for identical
+      // gradient/shader configs.
+      const stableBackgroundKey = JSON.stringify(background, Object.keys(background as object).sort());
+      const assetId = `native-background:${frameIndex}:${stableBackgroundKey}`;
       const cached = nativeBackgroundAssetsById.get(assetId);
       if (cached) return [{ ...cached, rgba: undefined }];
 
@@ -979,7 +1019,7 @@ export const NativeProgramPreview: React.FC = () => {
       const transportChanged = transportRevision !== lastRenderedTransportRevision;
       const isFirstFrame = lastRenderedFrameIndex === -1;
 
-      const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions);
+      const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions, state.sceneVersions);
       const nativeBackground = await rasterizeNativeBackground(scene, frameIndex);
       const nativeTextRasters = await rasterizeNativeTextLayers(scene);
       const nativeBodyMasks = await rasterizeNativeBodyMasks(
@@ -991,7 +1031,9 @@ export const NativeProgramPreview: React.FC = () => {
         (clip): clip is SmartOverlayClip =>
           clip.kind === "smart-overlay" &&
           frameStartTime >= clip.startTime &&
-          frameStartTime <= clip.startTime + clip.duration,
+          // Audit 3.5 fix: use strict < to match the evaluator's boundary convention
+          // (startTime <= evalTime < clipEnd). Was <= which rendered overlays one extra frame.
+          frameStartTime < clip.startTime + clip.duration,
       );
       const nativeSmartOverlays = await rasterizeNativeSmartOverlays(
         nativeActiveSmartClips,
@@ -1035,6 +1077,7 @@ export const NativeProgramPreview: React.FC = () => {
               state.project,
               state.epoch,
               state.transitions,
+              state.sceneVersions,
             );
             const lookAheadBackground = await rasterizeNativeBackground(lookAheadScene, lookAheadFrame);
             const lookAheadTextRasters = await rasterizeNativeTextLayers(lookAheadScene);
@@ -1104,10 +1147,13 @@ export const NativeProgramPreview: React.FC = () => {
         : nativeRequestKey;
       const nativeOnlyMode = isTauriRuntime() && NATIVE_PREVIEW_ONLY;
       const nativeOnlySceneBlocked = nativeOnlyMode && !nativeRequest;
+      // Audit 4.6 fix: read nativeSurfaceReadyRef.current (imperative ref) rather than
+      // the React state `nativeSurfaceReady` to avoid having the state in the effect deps.
+      const nativeSurfaceReadyNow = nativeSurfaceReadyRef.current;
       if (nativeOnlyMode) {
         const blockers = [
           ...(!nativeRequest ? getNativePreviewBlockers(scene, nativeRasterLayers) : []),
-          ...(!nativeSurfaceReady ? ["The retained native wgpu surface is not ready."] : []),
+          ...(!nativeSurfaceReadyNow ? ["The retained native wgpu surface is not ready."] : []),
         ];
         const blockerKey = blockers.join("\n");
         if (nativeOnlyBlockersKeyRef.current !== blockerKey) {
@@ -1120,7 +1166,7 @@ export const NativeProgramPreview: React.FC = () => {
         setNativeOnlyBlocked(nativeOnlySceneBlocked);
         traceNativePreview(nativeOnlySceneBlocked ? "native-only-blocked" : "native-only-ready", {
           hasNativeRequest: Boolean(nativeRequest),
-          nativeSurfaceReady,
+          nativeSurfaceReady: nativeSurfaceReadyNow,
           frameIndex,
         });
       }
@@ -1130,7 +1176,7 @@ export const NativeProgramPreview: React.FC = () => {
         nativeContinuousFailureStreak = 0;
         nativeContinuousBlockedRevision = "";
       }
-      const nativeSurfaceUsable = nativeSurfaceReady && nativeSurfaceGeometrySettledRef.current &&
+      const nativeSurfaceUsable = nativeSurfaceReadyNow && nativeSurfaceGeometrySettledRef.current &&
         nativeContinuousBlockedRevision !== nativeRevision;
       const nativeSurfaceOwnsCurrentFrame = nativeSurfaceShown && isPlaying &&
         lastNativePlaybackRequestKey === nativePlaybackRequestKey && nativeAudioClockReady &&
@@ -1212,7 +1258,7 @@ export const NativeProgramPreview: React.FC = () => {
                 current.clock.state === "playing"
               ) {
                 nativeSurfaceShown = true;
-                if (nativeSurfaceReady) {
+                if (nativeSurfaceReadyRef.current) {
                   // The direct native surface is the exclusive owner of the base
                   // video layer for continuous playback. The native presentation
                   // sequence is authoritative for ordering in the IPC/GPU path.
@@ -1410,6 +1456,7 @@ export const NativeProgramPreview: React.FC = () => {
                 state.project,
                 state.epoch,
                 state.transitions,
+                state.sceneVersions,
               );
               const targetRequest = buildNativeFrameRequest(
                 targetScene,
@@ -1481,8 +1528,10 @@ export const NativeProgramPreview: React.FC = () => {
             state.clock.completeSeek();
           }
 
-          // Live program preview thumbnail sync: capture frame snapshot when paused / seeking finished
-          if (!playbackState && nativeFrameReady && !state.clock.isSeeking) {
+          // Live program preview thumbnail sync: capture frame snapshot when paused / seeking finished.
+          // Audit 1.6 fix: `!playbackState` was always false because playbackState is a non-empty
+          // string. Replaced with an explicit check for non-playing states.
+          if (playbackState !== "playing" && nativeFrameReady && !state.clock.isSeeking) {
             if (thumbnailDebounceTimer) clearTimeout(thumbnailDebounceTimer);
             thumbnailDebounceTimer = setTimeout(() => {
               if (!isActive || !canvasEl) return;
@@ -1565,7 +1614,10 @@ export const NativeProgramPreview: React.FC = () => {
     // now read from renderStateRef inside the loop, so they are NOT listed as deps here.
     // Bug 6 fix: project?.id instead of full project object (updateProject always creates
     // a new reference, so `project` as a dep would restart the loop on every store write).
-  }, [canvasEl, project?.id, nativeSurfaceReady]);
+    // Audit 4.6 fix: nativeSurfaceReady removed from deps — it is now read from
+    // nativeSurfaceReadyRef.current inside the loop, preventing the loop from restarting
+    // (and emitting a blank frame) on every native surface probe and window resize.
+  }, [canvasEl, project?.id]);
 
   useEffect(() => {
     setActiveContext("program");
