@@ -87,12 +87,12 @@ describe("Playback Context System", () => {
 
     it("should bind media element, register listeners, and sync playback rate", () => {
       context.setMediaElement(mockElement);
-      expect(mockElement.addEventListener).toHaveBeenCalledTimes(5);
+      expect(mockElement.addEventListener).toHaveBeenCalledTimes(8);
       expect(mockElement.playbackRate).toBe(1.0);
 
       // Verify unbind cleans up listeners
       context.setMediaElement(null);
-      expect(mockElement.removeEventListener).toHaveBeenCalledTimes(5);
+      expect(mockElement.removeEventListener).toHaveBeenCalledTimes(8);
     });
 
     it("should resolve transport state looking at ended flag before paused flag", () => {

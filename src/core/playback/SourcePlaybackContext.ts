@@ -23,6 +23,13 @@ export class SourcePlaybackContext implements PlaybackContext {
    * Call with `null` to unbind.
    */
   setMediaElement(element: HTMLMediaElement | null): void {
+    // Unbinding is a lifecycle boundary. Pause the old element before
+    // dropping the reference so source audio cannot continue after leaving
+    // the project/session or switching source assets.
+    if (!element && this._mediaElement) {
+      this._mediaElement.pause?.();
+    }
+
     // Clean up old listeners
     if (this._cleanupMediaListeners) {
       this._cleanupMediaListeners();
@@ -41,12 +48,18 @@ export class SourcePlaybackContext implements PlaybackContext {
 
     const onTimeUpdate = () => this._notifyListeners();
     const onLoadedMetadata = () => this._notifyListeners();
+    const onLoadedData = () => this._notifyListeners();
+    const onCanPlay = () => this._notifyListeners();
+    const onDurationChange = () => this._notifyListeners();
     const onEnded = () => this._notifyListeners();
     const onPlay = () => this._notifyListeners();
     const onPause = () => this._notifyListeners();
 
     element.addEventListener("timeupdate", onTimeUpdate);
     element.addEventListener("loadedmetadata", onLoadedMetadata);
+    element.addEventListener("loadeddata", onLoadedData);
+    element.addEventListener("canplay", onCanPlay);
+    element.addEventListener("durationchange", onDurationChange);
     element.addEventListener("ended", onEnded);
     element.addEventListener("play", onPlay);
     element.addEventListener("pause", onPause);
@@ -54,6 +67,9 @@ export class SourcePlaybackContext implements PlaybackContext {
     this._cleanupMediaListeners = () => {
       element.removeEventListener("timeupdate", onTimeUpdate);
       element.removeEventListener("loadedmetadata", onLoadedMetadata);
+      element.removeEventListener("loadeddata", onLoadedData);
+      element.removeEventListener("canplay", onCanPlay);
+      element.removeEventListener("durationchange", onDurationChange);
       element.removeEventListener("ended", onEnded);
       element.removeEventListener("play", onPlay);
       element.removeEventListener("pause", onPause);
@@ -68,14 +84,16 @@ export class SourcePlaybackContext implements PlaybackContext {
     if (!this._mediaElement) return;
 
     if (this._outPoint !== null && this.getTime() >= this._outPoint) {
-      if (this._inPoint !== null) {
-        this.seek(this._inPoint);
-      } else {
-        return;
-      }
+      // SP-5 fix: If playhead is at or past outPoint, wrap to inPoint (or 0 if no inPoint is set)
+      // so pressing Play restarts playback across the active region.
+      this.seek(this._inPoint !== null ? this._inPoint : 0);
     }
 
     this._mediaElement.play().catch((err) => {
+      // A source can be replaced or unbound while play() is resolving. The
+      // browser reports that normal lifecycle cancellation as AbortError;
+      // it is not a playback failure and should not pollute the console.
+      if ((err as { name?: string } | null)?.name === "AbortError") return;
       console.warn("[SourcePlaybackContext] Play failed:", err);
     });
     this._startOutPointCheck();
@@ -111,11 +129,13 @@ export class SourcePlaybackContext implements PlaybackContext {
   // ─── State Queries ───────────────────────────────────────────────────────
 
   getTime(): number {
-    return this._mediaElement?.currentTime ?? 0;
+    const time = this._mediaElement?.currentTime ?? 0;
+    return Number.isFinite(time) && time >= 0 ? time : 0;
   }
 
   getDuration(): number {
-    return this._mediaElement?.duration ?? 0;
+    const duration = this._mediaElement?.duration ?? 0;
+    return Number.isFinite(duration) && duration > 0 ? duration : 0;
   }
 
   /**

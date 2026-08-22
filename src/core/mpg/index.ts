@@ -13,10 +13,5 @@ export { scaleEffectStackByIntensity } from "./filterStack";
 export {
   compileManifest,
   validateGraph,
-  renderMPGFrame,
-  initMPGPreviewBackend,
-  resizeMPGPreviewBackend,
-  renderMPGPreviewFrame,
-  destroyMPGPreviewBackend,
   type MPGRenderOptions,
 } from "./mpgFrameRunner";

@@ -2,17 +2,16 @@
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import * as PIXI from 'pixi.js';
 import { useTimelineStore } from '../../store/timelineStore';
 import { useUIStore } from '../../store/uiStore';
-import { useEyedropper } from '../../core/hooks/useEyedropper';
+import { useEyedropper, type EyedropperTarget } from '../../core/hooks/useEyedropper';
 import { defaultChromaKeyConfig, defaultColorGradeUniforms } from '../../types/compositor';
 
 export interface InspectorPanelProps {
-  pixiAppRef: React.RefObject<PIXI.Application | null>;
+  surfaceRef: React.RefObject<EyedropperTarget | null>;
 }
 
-export const InspectorPanel: React.FC<InspectorPanelProps> = ({ pixiAppRef }) => {
+export const InspectorPanel: React.FC<InspectorPanelProps> = ({ surfaceRef }) => {
   const selectedClipId = useUIStore((state) => state.selectedClipIds[0] ?? null);
   const clip = useTimelineStore((state) => 
     selectedClipId ? state.clips.find((c) => c.id === selectedClipId) ?? null : null
@@ -20,7 +19,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ pixiAppRef }) =>
 
   const updateChroma = useTimelineStore((state) => state.updateClipChromaKey);
   const updateColor = useTimelineStore((state) => state.updateClipColorGrade);
-  const { pickColor, isPicking } = useEyedropper(pixiAppRef);
+  const { pickColor, isPicking } = useEyedropper(surfaceRef);
 
   if (!clip || !selectedClipId) {
     return (

@@ -15,6 +15,13 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { SpatialTier, SPATIAL_TIER_DIMS } from "./types";
 import type { RenderEpochId } from "./types";
 import { generateId } from "@/lib/utils/id";
+import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
+import {
+  DEFAULT_NATIVE_COLOR_POLICY,
+  frameIndexToNativeTime,
+  secondsToNativeTime,
+  NATIVE_CORE_CONTRACT_VERSION,
+} from "@/lib/platform/nativeCore";
 
 // ─── SAB Detection ────────────────────────────────────────────────────────────
 
@@ -128,9 +135,14 @@ export function isEpochStillValid(epochId: RenderEpochId, clipId?: string): bool
  *
  * Copies into ImageData and uses createImageBitmap.
  */
-async function rgbaToImageBitmap(rgba: number[] | Uint8ClampedArray, width: number, height: number, _tileKey?: string): Promise<ImageBitmap> {
-  const clamped = new Uint8ClampedArray(rgba.length);
-  clamped.set(rgba);
+async function rgbaToImageBitmap(
+  rgba: number[] | Uint8ClampedArray | ArrayBuffer,
+  width: number,
+  height: number,
+  _tileKey?: string,
+): Promise<ImageBitmap> {
+  const clamped = rgba instanceof ArrayBuffer ? new Uint8ClampedArray(rgba) : new Uint8ClampedArray(rgba.length);
+  if (!(rgba instanceof ArrayBuffer)) clamped.set(rgba);
 
   const imageData = new ImageData(clamped, width, height);
   return createImageBitmap(imageData);
@@ -147,6 +159,140 @@ export interface RequestRenderArtifactsOptions {
   onArtifact: (artifact: TransportArtifact) => void;
   onComplete?: () => void;
   onError?: (err: unknown) => void;
+}
+
+export interface RequestNativeFilmstripArtifactsOptions {
+  videoPath: string;
+  timestampsMs: number[];
+  spatialTier: SpatialTier;
+  epochId: RenderEpochId;
+  clipId: string;
+  onArtifact: (artifact: TransportArtifact) => void;
+  onComplete?: () => void;
+  onError?: (err: unknown) => void;
+  concurrency?: number;
+}
+
+/**
+ * Native-core filmstrip transport. Filmstrip tiles use the same versioned
+ * FrameRequest and native decode/color path as paused program frames. The
+ * existing epoch/cache ownership remains in FilmstripCache; this function is
+ * only an IPC adapter and never owns a bitmap after delivery.
+ */
+export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArtifactsOptions): () => void {
+  const { videoPath, timestampsMs, spatialTier, epochId, clipId, onArtifact, onComplete, onError, concurrency = 3 } = opts;
+  const [width, height] = SPATIAL_TIER_DIMS[spatialTier];
+  let cancelled = false;
+  let nextIndex = 0;
+  let active = 0;
+  let completed = 0;
+  const total = timestampsMs.length;
+
+  const cancel = () => {
+    cancelled = true;
+  };
+
+  if (total === 0) {
+    onComplete?.();
+    return cancel;
+  }
+
+  const dispatch = () => {
+    while (!cancelled && active < Math.max(1, concurrency) && nextIndex < total) {
+      const timestampMs = Math.max(0, Math.round(timestampsMs[nextIndex++]));
+      active++;
+      const seconds = timestampMs / 1000;
+      const frameIndex = Math.max(0, Math.round(seconds * 30));
+      const projectRevision = `${clipId}:${epochId}`;
+      const request = {
+        contractVersion: NATIVE_CORE_CONTRACT_VERSION,
+        requestId: `filmstrip:${projectRevision}:${timestampMs}:${spatialTier}`,
+        frameTime: frameIndexToNativeTime(frameIndex, 30),
+        project: {
+          schemaVersion: 1,
+          projectRevision,
+          canvasWidth: width,
+          canvasHeight: height,
+          clearColor: [0, 0, 0, 1] as [number, number, number, number],
+          videoLayers: [{
+            assetId: clipId,
+            videoPath,
+            sourceTime: secondsToNativeTime(seconds, frameIndex),
+            x: 0,
+            y: 0,
+            width,
+            height,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 0,
+            blendMode: "normal",
+          }],
+        },
+        outputWidth: width,
+        outputHeight: height,
+        quality: "full" as const,
+        colorPolicy: DEFAULT_NATIVE_COLOR_POLICY,
+        renderGraphVersion: 1,
+      };
+
+      renderNativeFrame(request)
+        .then(async (rgba) => {
+          if (cancelled || !isEpochStillValid(epochId, clipId)) return;
+          const bitmap = await rgbaToImageBitmap(rgba, width, height, `${clipId}:${timestampMs}`);
+          if (cancelled || !isEpochStillValid(epochId, clipId)) {
+            bitmap.close();
+            return;
+          }
+          onArtifact({
+            frameId: request.requestId,
+            contentHash: request.requestId,
+            spatialTier,
+            bitmap,
+            width,
+            height,
+            timestampMs,
+            epochId,
+            source: "native-core",
+          });
+        })
+        .catch((error) => {
+          if (!cancelled) onError?.(error);
+        })
+        .finally(() => {
+          active--;
+          completed++;
+          if (completed >= total) {
+            if (!cancelled) onComplete?.();
+          } else {
+            dispatch();
+          }
+        });
+    }
+  };
+
+  dispatch();
+  return cancel;
+}
+
+/**
+ * Runtime adapter for the migration boundary. Desktop Tauri is native-core
+ * authoritative; frozen web/mobile adapters retain their existing transport
+ * until those runtimes are intentionally revisited.
+ */
+export function requestFilmstripArtifacts(opts: RequestNativeFilmstripArtifactsOptions): () => void {
+  if (isTauriRuntime()) return requestNativeFilmstripArtifacts(opts);
+  return requestProgressiveTiers({
+    videoPath: opts.videoPath,
+    timestampsMs: opts.timestampsMs,
+    startTier: SpatialTier.L0,
+    targetTier: opts.spatialTier,
+    epochId: opts.epochId,
+    clipId: opts.clipId,
+    onArtifact: opts.onArtifact,
+    onComplete: opts.onComplete,
+    onError: opts.onError,
+    concurrency: opts.concurrency,
+  });
 }
 
 /**
@@ -365,7 +511,6 @@ export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOpt
       }
     })
     .catch((err) => {
-      console.error(`[Transport DEBUG] get_render_artifacts_batch catch() reqId=${reqId} error:`, err);
       if (!cancelled) {
         onError?.(err);
       }

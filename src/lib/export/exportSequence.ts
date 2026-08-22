@@ -2,20 +2,14 @@
  * Image Sequence Export
  *
  * Exports a range of frames as an image sequence.
- * Migrated to headless PixiJS WebGL compositor for exact visual parity
- * with preview and correct rendering of all filters and GPU transitions.
+ * Uses the native compositor for desktop scenes. Unsupported scenes fail
+ * explicitly instead of changing renderers.
  */
 
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
-import { createPixiExportCompositor, destroyPixiExportCompositor, renderFrameWithPixi } from "./pixiExportRenderer";
-import { VideoElementPool } from "../../core/resources/VideoElementPool";
-import { resolveClipSourceTime } from "../../core/timeline/sourceTime";
 import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
-import { ALL_TRANSITIONS } from "@clypra-studio/engine";
-import { resolveTransitionDefinition, mergeTransitionParams } from "../../core/render/utils/transitionResolver";
-import { getActiveVideoClipsForTime } from "./exportUtils";
+import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
+import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
 
 /**
  * Image sequence export options.
@@ -97,7 +91,8 @@ export interface ExportSequenceResult {
 /**
  * Export an image sequence.
  *
- * Headless PixiJS rendering ensures preview and export use the same pipeline.
+ * Native rendering is authoritative. Browser exports are rejected because the
+ * main editor has no second renderer with independent semantics.
  *
  * @param options - Export options
  * @returns Export result
@@ -152,41 +147,34 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
   // Provide a typed cancel function to the caller for session-scoped cancellation.
   onCancelReady?.(() => abortController.abort());
 
-  const pixiHandle = createPixiExportCompositor(width, height);
+  // EX-4 fix: hoist canvas + context outside nativeFrameToBlob so they are created once
+  // per export, not once per frame. A 1000-frame export previously allocated 1000 separate
+  // GPU-backed canvas objects that were GC'd only after the loop completed.
+  const readbackCanvas = document.createElement("canvas");
+  readbackCanvas.width = width;
+  readbackCanvas.height = height;
+  const readbackContext = readbackCanvas.getContext("2d");
+  if (!readbackContext) throw new Error("[ExportSequence] Failed to create native readback canvas");
 
-  // FIX (BUG-C1): Wait for WebGL context to be fully initialized before rendering.
-  // Without this, composeFrame() returns early (isReady=false) producing blank frames.
-  await pixiHandle.compositor.waitForReady();
-
-  // Pre-warm transition shaders before the render loop starts.
-  // This avoids compile-time hiccups/stalls during sequence export.
-  if (transitions && transitions.length > 0) {
-    for (const transition of transitions) {
-      const resolved = resolveTransitionDefinition(
-        transition.type,
-        ALL_TRANSITIONS,
-        transition.renderer
+  const nativeFrameToBlob = async (rgba: ArrayBuffer): Promise<Blob> => {
+    const image = readbackContext.createImageData(width, height);
+    image.data.set(new Uint8ClampedArray(rgba));
+    readbackContext.putImageData(image, 0, 0);
+    return new Promise<Blob>((resolve, reject) => {
+      readbackCanvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error("[ExportSequence] Failed to encode native frame")),
+        format === "jpeg" ? "image/jpeg" : "image/png",
+        quality,
       );
-      if (resolved) {
-        const { definition, params } = resolved;
-        const runtimeParams = {
-          easing: transition.easing,
-          ...(transition.metadata?.params as Record<string, any> || {}),
-        };
-        const mergedParams = mergeTransitionParams(definition.params, params, runtimeParams);
-        pixiHandle.compositor.prewarmTransitionShader(definition, mergedParams);
-      }
-    }
-  }
-
-  const videoPool = new VideoElementPool({
-    maxConcurrent: 10,
-    debug: false,
-    isExport: true,
-  });
+    });
+  };
 
   let completedFrames = 0;
   let cancelled = false;
+
+  if (!isTauriRuntime()) {
+    throw new Error("[ExportSequence] Native image-sequence export requires the desktop runtime");
+  }
 
   try {
     for (let i = 0; i < frameTimes.length; i++) {
@@ -195,47 +183,20 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
       }
 
       const time = frameTimes[i];
-      const frameVideoElements: HTMLVideoElement[] = [];
-
       try {
-        const videoElements = new Map<string, HTMLVideoElement>();
-
-        const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
-        for (const clip of activeVideoClips) {
-          const asset = assets.find((a) => a.id === clip.mediaId)!;
-
-          const { sourceTime } = resolveClipSourceTime(clip, time, {
-            clampToRange: true,
-            frameRate,
-          });
-
-          const resolvedPath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
-          const key = `${clip.id}-${clip.mediaId}`;
-          const video = await videoPool.acquire(resolvedPath, sourceTime);
-          videoElements.set(key, video);
-          frameVideoElements.push(video);
-        }
-
-        if (signal.aborted) {
-          throw new Error("Job cancelled");
-        }
-
         const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
-        await renderFrameWithPixi(pixiHandle, scene, videoElements);
-
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          pixiHandle.readbackCanvas.toBlob(
-            (b) => {
-              if (b) resolve(b);
-              else reject(new Error("[ExportSequence] Failed to create blob"));
-            },
-            format === "jpeg" ? "image/jpeg" : "image/png",
-            quality,
-          );
-        });
-
-        for (const vid of frameVideoElements) {
-          videoPool.releaseElement(vid);
+        let blob: Blob;
+        const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
+          ? buildNativeVideoProjectRequest(scene)
+          : null;
+        if (nativeRequest) {
+          try {
+            blob = await nativeFrameToBlob(await renderNativeVideoProjectFrame(nativeRequest));
+          } catch (error) {
+            throw new Error(`[ExportSequence] Native frame failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        } else {
+          throw new Error("[ExportSequence] Frame is outside the native compositor contract");
         }
 
         if (onFrame) {
@@ -248,9 +209,6 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
           onProgress(completedFrames / totalFrames, completedFrames, totalFrames);
         }
       } catch (err) {
-        for (const vid of frameVideoElements) {
-          videoPool.releaseElement(vid);
-        }
         throw err;
       }
     }
@@ -261,8 +219,6 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
       throw error;
     }
   } finally {
-    videoPool.clear();
-    destroyPixiExportCompositor(pixiHandle);
   }
 
   const totalTimeMs = Date.now() - startTimeMs;

@@ -1,4 +1,5 @@
 import { SpatialTier, SPATIAL_TIER_DIMS } from "../renderEngine/types";
+import type { FilmstripTileAddress } from "./filmstripTiers";
 
 /**
  * Professional timeline filmstrips keep a stable visual tile cadence in screen
@@ -47,6 +48,109 @@ export function computeFilmstripTileCount(clipWidthPx: number, tileWidthPx: numb
   if (!Number.isFinite(clipWidthPx) || clipWidthPx <= 0) return 1;
   if (!Number.isFinite(tileWidthPx) || tileWidthPx <= 0) return 1;
   return Math.max(1, Math.ceil(clipWidthPx / tileWidthPx));
+}
+
+export interface FilmstripRenderWindow {
+  /** Offset inside the full clip where the bounded surface is positioned. */
+  leftPx: number;
+  /** Width of the bounded surface in CSS pixels. */
+  widthPx: number;
+  /** Source time represented by the left edge of the surface. */
+  trimIn: number;
+  /** Source time represented by the right edge of the surface. */
+  trimOut: number;
+  /** Whether the clip intersects the current timeline viewport. */
+  isVisible: boolean;
+}
+
+export interface FilmstripTileSlot {
+  address: FilmstripTileAddress;
+  /** Left edge in CSS pixels within the bounded render window. */
+  leftPx: number;
+  /** Temporal coverage width in CSS pixels for this exact sampled frame. */
+  widthPx: number;
+}
+
+/**
+ * Convert exact source-time tile addresses into deterministic fixed-width
+ * visual slots. The timestamp is used only for the address match; position is
+ * carried by the ordered slot metadata so renderers never infer or substitute
+ * a nearest frame. The final slot is clipped by the surface bounds.
+ */
+export function getFilmstripTileSlots(options: {
+  addresses: readonly FilmstripTileAddress[];
+  clipWidthPx: number;
+  trimIn: number;
+  trimOut: number;
+  tileWidthPx: number;
+}): FilmstripTileSlot[] {
+  const { addresses, clipWidthPx, trimIn, trimOut, tileWidthPx } = options;
+  const start = Math.min(trimIn, trimOut);
+  const end = Math.max(trimIn, trimOut);
+  if (!Number.isFinite(clipWidthPx) || clipWidthPx <= 0 || end - start <= 0 || !Number.isFinite(tileWidthPx) || tileWidthPx <= 0) {
+    return [];
+  }
+
+  const sorted = [...addresses]
+    .filter((address) => address.timestamp >= start && address.timestamp <= end)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  return sorted.map((address, index) => ({
+      address,
+      leftPx: index * tileWidthPx,
+      widthPx: tileWidthPx,
+    }));
+}
+
+/**
+ * Compute a bounded render surface for a filmstrip.
+ *
+ * The clip itself may be tens of thousands of CSS pixels wide at deep zoom.
+ * A canvas of that width is not portable: its device-pixel backing store can
+ * exceed Safari/WebGL limits even though the DOM element remains valid. Keep
+ * the surface local to the viewport (plus the same 1x overscan used by tile
+ * requests) and position it inside the full-width clip instead.
+ */
+export function getFilmstripRenderWindow(options: {
+  clipStartTime: number;
+  clipWidthPx: number;
+  trimIn: number;
+  trimOut: number;
+  viewportScrollLeft: number;
+  viewportWidth: number;
+  pixelsPerSecond: number;
+}): FilmstripRenderWindow {
+  const safeClipWidth = Number.isFinite(options.clipWidthPx) && options.clipWidthPx > 0 ? options.clipWidthPx : 1;
+  const safePps = Number.isFinite(options.pixelsPerSecond) && options.pixelsPerSecond > 0 ? options.pixelsPerSecond : 1;
+  const safeScrollLeft = Number.isFinite(options.viewportScrollLeft) ? Math.max(0, options.viewportScrollLeft) : 0;
+  const safeViewportWidth = Number.isFinite(options.viewportWidth) && options.viewportWidth > 0 ? options.viewportWidth : 1;
+  const clipStartPx = (Number.isFinite(options.clipStartTime) ? options.clipStartTime : 0) * safePps;
+  const viewportEndPx = safeScrollLeft + safeViewportWidth;
+  const overscanPx = safeViewportWidth * 0.5;
+
+  const rawStartPx = safeScrollLeft - clipStartPx - overscanPx;
+  const rawEndPx = viewportEndPx - clipStartPx + overscanPx;
+  const leftPx = Math.max(0, Math.min(safeClipWidth, rawStartPx));
+  const rightPx = Math.max(leftPx, Math.min(safeClipWidth, rawEndPx));
+  const isVisible = rightPx > leftPx;
+  const widthPx = isVisible ? Math.max(1, rightPx - leftPx) : 1;
+
+  if (!isVisible) {
+    return {
+      leftPx,
+      widthPx,
+      trimIn: options.trimIn,
+      trimOut: options.trimIn,
+      isVisible: false,
+    };
+  }
+
+  return {
+    leftPx,
+    widthPx,
+    trimIn: Math.max(options.trimIn, options.trimIn + leftPx / safePps),
+    trimOut: Math.min(options.trimOut, options.trimIn + rightPx / safePps),
+    isVisible: true,
+  };
 }
 
 export function generateFilmstripSlotTimestamps(options: { trimIn: number; trimOut: number; duration: number; clipWidthPx: number; tileWidthPx: number }): number[] {

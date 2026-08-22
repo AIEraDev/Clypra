@@ -1,4 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
+import {
+  DEFAULT_NATIVE_COLOR_POLICY,
+  createNativeFrameRequest,
+  frameIndexToNativeTime,
+  secondsToNativeTime,
+} from "@/lib/platform/nativeCore";
 
 export type ExportVideoSource = HTMLVideoElement | HTMLCanvasElement;
 
@@ -8,7 +15,7 @@ interface NativeFrameSurface {
   imageData: ImageData;
 }
 
-interface NativeFrameRequest {
+interface ExportFrameRequest {
   key: string;
   videoPath: string;
   timeSecs: number;
@@ -47,15 +54,15 @@ function toUint8Array(value: ArrayBuffer | Uint8Array | number[]): Uint8Array {
 }
 
 /**
- * Supplies Pixi with stable canvas-backed video sources whose pixels come from
- * Clypra's native sequential FFmpeg decoder. Reusing one canvas per clip keeps
- * the Pixi texture stable while avoiding WebKit's slow paused-video seek path.
+ * Supplies the compatibility exporter with stable canvas-backed video sources
+ * whose pixels come from Clypra's native sequential FFmpeg decoder, avoiding
+ * WebKit's slow paused-video seek path.
  */
 export class NativeExportFramePool {
   private readonly surfaces = new Map<string, NativeFrameSurface>();
   private readonly videoPaths = new Set<string>();
 
-  async acquire(request: NativeFrameRequest): Promise<HTMLCanvasElement> {
+  async acquire(request: ExportFrameRequest): Promise<HTMLCanvasElement> {
     const width = Math.max(1, Math.round(request.width));
     const height = Math.max(1, Math.round(request.height));
     let surface = this.surfaces.get(request.key);
@@ -93,15 +100,47 @@ export class NativeExportFramePool {
     const backoffs = [10, 25, 50];
     for (let attempt = 0; attempt <= backoffs.length; attempt++) {
       try {
-        const response = await invoke<ArrayBuffer | Uint8Array | number[]>(
-          "decode_export_frame",
-          {
+        const frameIndex = Math.max(0, Math.round(request.timeSecs * 30));
+        const nativeRequest = createNativeFrameRequest({
+          requestId: `export:${request.key}:${frameIndex}:${width}x${height}`,
+          frameTime: frameIndexToNativeTime(frameIndex, 30),
+          project: {
+            schemaVersion: 1,
+            projectRevision: `export:${request.key}`,
+            canvasWidth: width,
+            canvasHeight: height,
+            clearColor: [0, 0, 0, 1],
+            videoLayers: [{
+              assetId: request.key,
+              videoPath: request.videoPath,
+              sourceTime: secondsToNativeTime(request.timeSecs, frameIndex),
+              x: 0,
+              y: 0,
+              width,
+              height,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 0,
+              blendMode: "normal",
+            }],
+          },
+          outputWidth: width,
+          outputHeight: height,
+          quality: "full",
+          colorPolicy: DEFAULT_NATIVE_COLOR_POLICY,
+          renderGraphVersion: 1,
+        });
+        // Desktop uses the versioned native frame service. The old command is
+        // retained only for non-Tauri adapter tests/web callers until export
+        // itself is fully native and no canvas bridge remains.
+        const response = isTauriRuntime()
+          ? await renderNativeFrame(nativeRequest)
+          : await invoke<ArrayBuffer | Uint8Array | number[]>("decode_export_frame", {
             videoPath: request.videoPath,
             timeSecs: request.timeSecs,
             width,
             height,
-          },
-        );
+          });
         const candidate = toUint8Array(response);
         if (candidate.byteLength === expectedBytes) {
           rgba = candidate;

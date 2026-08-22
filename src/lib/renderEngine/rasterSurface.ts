@@ -18,6 +18,8 @@
  */
 
 import type { TransportArtifact } from "./transport";
+import { getFilmstripTileSlots } from "../filmstrip/filmstripLayout";
+import type { FilmstripTileAddress } from "../filmstrip/filmstripTiers";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,8 @@ export type FilmstripLayout = {
   trimIn?: number;
   /** End time of clip trimming boundary in seconds */
   trimOut?: number;
+  /** Exact source-time address for every render slot. */
+  tileAddresses?: readonly FilmstripTileAddress[];
 };
 
 // ─── RasterSurface ────────────────────────────────────────────────────────────
@@ -77,7 +81,8 @@ export class RasterSurface {
    *
    * Artifacts should be sorted by timestamp (ascending).
    * Tile count is driven by clipWidthPx / tileWidthPx — never by artifact count.
-   * Artifacts are sampled (nearest-neighbour in time) to fill tile slots.
+   * When tileAddresses are supplied, every slot is matched by its exact
+   * source timestamp. Missing slots remain background.
    *
    * Filmstrip frames are drawn in physical backing-store pixels. Tile slots are
    * fixed width, and native bitmaps are clipped into those slots without passing
@@ -102,53 +107,51 @@ export class RasterSurface {
     ctx.fillStyle = "#0c2730";
     ctx.fillRect(0, 0, backingW, backingH);
 
-    // Tile layout is quantized. The final tile may overflow and is clipped by canvas bounds.
+    if (layout.tileAddresses && layout.trimIn !== undefined && layout.trimOut !== undefined) {
+      const artifactByTimestamp = new Map<number, TransportArtifact>();
+      for (const artifact of artifacts) {
+        if (!artifact.bitmap || artifact.bitmap.width === 0 || artifact.bitmap.height === 0) continue;
+        artifactByTimestamp.set(Math.round(artifact.timestampMs), artifact);
+      }
+
+      const slots = getFilmstripTileSlots({
+        addresses: layout.tileAddresses,
+        clipWidthPx,
+        trimIn: layout.trimIn,
+        trimOut: layout.trimOut,
+        tileWidthPx: targetTileW,
+      });
+
+      for (const slot of slots) {
+        const artifact = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
+        if (!artifact) continue;
+        this._drawTile(
+          ctx,
+          artifact.bitmap,
+          artifact.width,
+          artifact.height,
+          Math.round(slot.leftPx * dpr),
+          0,
+          Math.max(1, Math.round(slot.widthPx * dpr)),
+          Math.max(1, Math.round(stripHeightPx * dpr)),
+        );
+      }
+
+      this._drawEdgeFade(ctx, backingW, backingH);
+      return;
+    }
+
+    // Legacy callers without exact addresses still use deterministic slots,
+    // but never substitute or repeat a nearest artifact.
     const tileCount = Math.max(1, Math.ceil(clipWidthPx / targetTileW));
     const tileW = Math.round(targetTileW * dpr);
     const tileH = Math.round(stripHeightPx * dpr);
 
-    // Map tiles to artifacts based on timestamp, not array index.
-    // This prevents blank gaps when artifacts.length < tileCount (heavy zoom).
-    const hasTrim = layout.trimIn !== undefined && layout.trimOut !== undefined;
-    const firstTimestamp = hasTrim ? layout.trimIn! * 1000 : (artifacts[0]?.timestampMs ?? 0);
-    const lastTimestamp = hasTrim ? layout.trimOut! * 1000 : (artifacts[artifacts.length - 1]?.timestampMs ?? 0);
-    const timeSpan = lastTimestamp - firstTimestamp;
-
-    // Calculate pixelsPerSecond derived from total clip duration in seconds
-    const duration = hasTrim ? (layout.trimOut! - layout.trimIn!) : (timeSpan / 1000);
-    const pixelsPerSecond = duration > 0 ? (clipWidthPx / duration) : 100;
-
     for (let i = 0; i < tileCount; i++) {
-      // Find the artifact closest to this tile's physical timeline position
-      let targetTimestamp = firstTimestamp;
-      if (hasTrim) {
-        // Linear mapping of the tile start index to timeline time
-        targetTimestamp = (layout.trimIn! + (i * targetTileW) / pixelsPerSecond) * 1000;
-      } else {
-        const tileRatio = tileCount > 1 ? i / (tileCount - 1) : 0;
-        targetTimestamp = firstTimestamp + timeSpan * tileRatio;
-      }
-
-      // Find closest valid artifact by timestamp (unbounded - no threshold)
-      let idx = 0;
-      let minDiff = Infinity;
-      for (let j = 0; j < artifacts.length; j++) {
-        const art = artifacts[j];
-        // DEFENSIVE: Skip invalid/closed bitmaps
-        if (!art.bitmap || art.bitmap.width === 0 || art.bitmap.height === 0) {
-          continue;
-        }
-        const diff = Math.abs(art.timestampMs - targetTimestamp);
-        if (diff < minDiff) {
-          minDiff = diff;
-          idx = j;
-        }
-      }
-
-      const art = artifacts[idx];
+      const art = artifacts[i];
 
       // DEFENSIVE: Skip this tile if the selected artifact is invalid
-      if (!art.bitmap || art.bitmap.width === 0 || art.bitmap.height === 0) {
+      if (!art?.bitmap || art.bitmap.width === 0 || art.bitmap.height === 0) {
         continue;
       }
 

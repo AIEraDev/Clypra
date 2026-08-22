@@ -10,15 +10,15 @@ import { PropertySlider } from './primitives/PropertySlider';
 
 interface ChromaKeySectionProps {
   selectedClip: Clip;
-  pixiAppRef?: React.RefObject<any>;
+  surfaceRef?: React.RefObject<any>;
 }
 
 export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
   selectedClip,
-  pixiAppRef,
+  surfaceRef,
 }) => {
   const updateClipChromaKey = useTimelineStore((state) => state.updateClipChromaKey);
-  const { pickColor, isPicking } = useEyedropper(pixiAppRef ?? { current: null });
+  const { pickColor, isPicking } = useEyedropper(surfaceRef ?? { current: null });
 
   const chromaKey = selectedClip.chromaKey ?? defaultChromaKeyConfig;
 

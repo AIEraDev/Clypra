@@ -4,9 +4,9 @@
  * Manages GPU texture updates for video elements using requestVideoFrameCallback.
  *
  * CRITICAL ARCHITECTURAL BOUNDARY:
- * - This component marks textures dirty when frames arrive
- * - PixiSceneCompositor consumes and clears dirty flags
- * - NO component may call texture.source.update() except compositor
+ * - This component marks decoded frames dirty when frames arrive
+ * - The native compositor owns GPU upload and presentation
+ * - No component may upload a frame outside the compositor boundary
  *
  * Key Features:
  * - Frame-driven updates (not RAF polling)
@@ -20,8 +20,6 @@
  * - Updates only when new frames arrive
  * - No wasted GPU bandwidth on paused/stalled videos
  */
-
-import type { Texture } from "pixi.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 

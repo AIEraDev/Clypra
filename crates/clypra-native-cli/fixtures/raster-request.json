@@ -1,0 +1,45 @@
+{
+  "contractVersion": 1,
+  "requestId": "fixture:raster:0",
+  "frameTime": { "frameIndex": 0, "ticks": 0, "timescale": 1000000 },
+  "project": {
+    "schemaVersion": 1,
+    "projectRevision": "fixture-raster",
+    "canvasWidth": 4,
+    "canvasHeight": 4,
+    "clearColor": [0, 0, 0, 1],
+    "videoLayers": [],
+    "rasterLayers": [
+      {
+        "assetId": "red-square",
+        "rgba": [255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255],
+        "width": 2,
+        "height": 2,
+        "x": 1,
+        "y": 1,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 1,
+        "blendMode": "normal",
+        "colorGrade": {
+          "contrast": 1.1,
+          "saturation": 1.0,
+          "grainSize": 1.0
+        },
+        "isMask": false,
+        "isText": true
+      }
+    ]
+  },
+  "outputWidth": 4,
+  "outputHeight": 4,
+  "quality": "full",
+  "colorPolicy": {
+    "version": 1,
+    "workingSpace": "linear-rec709",
+    "outputFormat": "rgba8Srgb",
+    "toneMapHdrToSdr": true,
+    "displayProfile": "srgb-reference"
+  },
+  "renderGraphVersion": 1
+}

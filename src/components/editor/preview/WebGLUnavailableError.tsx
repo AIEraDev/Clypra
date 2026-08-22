@@ -1,8 +1,8 @@
 import React from "react";
 
 /**
- * Shown when the PreviewErrorBoundary catches a WebGL / Pixi initialization error.
- * Clypra requires WebGL — there is no Canvas 2D fallback renderer.
+ * Shown when the native preview cannot initialize. The desktop editor does
+ * not silently switch to a different renderer.
  */
 export const WebGLUnavailableError: React.FC = () => {
   return (
@@ -37,11 +37,11 @@ export const WebGLUnavailableError: React.FC = () => {
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
       <p style={{ fontSize: "15px", fontWeight: 600, margin: 0, color: "#fafafa" }}>
-        WebGL is unavailable
+        Preview is unavailable
       </p>
       <p style={{ fontSize: "13px", margin: 0, color: "#9ca3af", maxWidth: "320px", lineHeight: 1.5 }}>
-        Clypra requires WebGL to render the preview. Please update your graphics drivers
-        or try a different browser.
+        Clypra could not initialize the native preview. Please check your graphics
+        drivers and restart the editor.
       </p>
     </div>
   );

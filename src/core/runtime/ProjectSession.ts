@@ -54,6 +54,8 @@ import { RenderEngine } from "@/lib/renderEngine/renderEngine";
 import { QualityPreset, RendererMode, type SrpConfig } from "@/lib/renderEngine/types";
 import { PreviewMediaPool, type PreviewSyncState } from "../resources/PreviewMediaPool";
 import { AudioEngine } from "../audio/AudioEngine";
+import { getSharedAudioEngine, stopSharedAudioEngine } from "../audio/audioRuntime";
+import { isTauriRuntime } from "@/lib/platform/tauri";
 import type { Clip, MediaAsset } from "@/types";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { resourceTracker, installDiagnostics } from "@/core/monitoring/ResourceTracker";
@@ -164,7 +166,10 @@ export class ProjectSession {
     try {
       // Use global singletons (single clock/scheduler ensures no divergence)
       this._playback = getPlaybackClock();
-      this._audioEngine = new AudioEngine();
+      // Browser program preview uses the shared Web Audio engine. Tauri
+      // program preview is native-only (CPAL owns audio and time), so creating
+      // an AudioContext here would reintroduce a second clock/authority.
+      this._audioEngine = isTauriRuntime() ? null : getSharedAudioEngine();
 
       // Create playback contexts and transport authority
       this._programContext = new ProgramPlaybackContext(this._playback);
@@ -182,8 +187,11 @@ export class ProjectSession {
         rendererMode: RendererMode.Canvas2D,
       });
 
-      // Create preview media pool (headless video/audio elements)
-      this._previewMediaPool = new PreviewMediaPool(this.projectId, this.sessionId);
+      // Keep the hidden video pool for native frame extraction, but never let
+      // it create a second audible HTML-media path in Tauri.
+      this._previewMediaPool = new PreviewMediaPool(this.projectId, this.sessionId, {
+        audioEnabled: !isTauriRuntime(),
+      });
 
       // Initialize stores (timeline, UI)
       await this._initializeStores();
@@ -243,7 +251,7 @@ export class ProjectSession {
 
       // 3. Teardown audio engine
       if (this._audioEngine) {
-        this._audioEngine.dispose();
+        stopSharedAudioEngine();
         this._audioEngine = null;
       }
 
@@ -322,10 +330,12 @@ export class ProjectSession {
     return this._previewMediaPool?.getVideoElements() ?? new Map();
   }
 
-  /**
-   * Get the PreviewMediaPool instance for compositor integration.
-   * @internal Used by PixiSceneCompositor for texture management
-   */
+  /** Readiness revision for repainting the native preview without changing the timeline snapshot. */
+  getPreviewMediaReadyRevision(): number {
+    return this._previewMediaPool?.getMediaReadyRevision() ?? 0;
+  }
+
+  /** Get the PreviewMediaPool instance for media lifecycle integration. */
   getPreviewMediaPool(): PreviewMediaPool | null {
     return this._previewMediaPool;
   }
@@ -345,10 +355,12 @@ export class ProjectSession {
   }
 
   /**
-   * Unlock autoplay restrictions for all video/audio preview elements.
-   * MUST be called synchronously inside a user gesture handler.
+   * Unlock the program-preview media pool and browser program engine.
+   *
+   * Source Preview never calls this method: source playback owns its visible
+   * HTML media element through SourcePlaybackContext.
    */
-  unlockPreviewAudio(): void {
+  unlockProgramPreviewAudio(): void {
     this._previewMediaPool?.unlockAudio();
     this._audioEngine?.resume();
   }

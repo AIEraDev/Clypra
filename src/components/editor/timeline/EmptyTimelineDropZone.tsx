@@ -5,28 +5,36 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { handleCreateTrackAndDrop } from "@/lib/timeline/timelineUtils";
 import type { DragItem } from "@/types";
 
-interface EmptyTimelineDropZoneProps {
-  isDragging: boolean;
-}
-
-export const EmptyTimelineDropZone: React.FC<EmptyTimelineDropZoneProps> = ({ isDragging }) => {
+export const EmptyTimelineDropZone: React.FC = () => {
   const tracks = useTimelineStore((s) => s.tracks);
 
-  const [, drop] = useDrop(
+  const [{ isOver, canDrop }, drop] = useDrop(
     () => ({
       accept: ["MEDIA_ASSET"], // Only accept media assets, not clips
       drop: (item: DragItem, monitor: any) => {
-        handleCreateTrackAndDrop(item, monitor, tracks.length); // append at end
+        try {
+          handleCreateTrackAndDrop(item, monitor, tracks.length); // append at end
+          return { accepted: true };
+        } catch (error) {
+          throw error;
+        }
       },
+      collect: (monitor: any) => ({
+        isOver: monitor.isOver({ shallow: true }),
+        canDrop: monitor.canDrop(),
+      }),
     }),
     [tracks.length],
   );
 
   return (
     <div
-      ref={drop as unknown as React.Ref<HTMLDivElement>}
-      className={`w-full ${isDragging ? "flex-1 min-h-[120px]" : "h-0"} ${!isDragging ? "pointer-events-none" : ""}`}
-      // No background — completely invisible unless hovering
+      ref={(node) => {
+        drop(node);
+      }}
+      className="absolute inset-0 z-30 pointer-events-auto"
+      aria-label="Timeline drop area"
+      data-dnd-target="empty-timeline"
     />
   );
 };

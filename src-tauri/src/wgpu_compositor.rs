@@ -6,6 +6,7 @@
  */
 
 use std::borrow::Cow;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 pub mod texture_pool;
@@ -34,7 +35,7 @@ pub use chroma_key::ChromaKeyUniforms;
 
 pub mod multi_track_composer;
 pub use multi_track_composer::{
-    BlendMode, ColorGradeUniforms, CompositeLayer, CropMargins, LayerBlendMode, LayerTransform,
+    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerBlendMode, LayerTransform,
     LayerUniforms, MultiTrackCompositor,
 };
 
@@ -66,6 +67,89 @@ pub struct NativePreviewSession {
     sampler: wgpu::Sampler,
     pipeline: wgpu::RenderPipeline,
     ring: Option<YuvTextureRingBuffer>,
+    rgba_layers: RgbaLayerTextureCache,
+}
+
+const RGBA_LAYER_CACHE_BYTES: usize = 128 * 1024 * 1024;
+
+struct RgbaLayerTextureCacheEntry {
+    texture: Arc<wgpu::Texture>,
+    width: u32,
+    height: u32,
+    bytes: usize,
+}
+
+/// Bounded GPU cache for browser-rendered assets such as Clypra Studio text.
+/// Geometry and opacity remain per-frame compositor uniforms; only immutable
+/// pixel data is retained here.
+struct RgbaLayerTextureCache {
+    entries: HashMap<String, RgbaLayerTextureCacheEntry>,
+    order: VecDeque<String>,
+    current_bytes: usize,
+}
+
+impl RgbaLayerTextureCache {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            current_bytes: 0,
+        }
+    }
+
+    fn get(&mut self, asset_id: &str, width: u32, height: u32) -> Option<Arc<wgpu::Texture>> {
+        let entry = self.entries.get(asset_id)?;
+        if entry.width != width || entry.height != height {
+            self.remove(asset_id);
+            return None;
+        }
+        let texture = Arc::clone(&entry.texture);
+        self.touch(asset_id);
+        Some(texture)
+    }
+
+    fn insert(&mut self, asset_id: String, texture: Arc<wgpu::Texture>, width: u32, height: u32) {
+        let bytes = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        if bytes == 0 || bytes > RGBA_LAYER_CACHE_BYTES {
+            return;
+        }
+
+        self.remove(&asset_id);
+        while self.current_bytes.saturating_add(bytes) > RGBA_LAYER_CACHE_BYTES {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(removed) = self.entries.remove(&oldest) {
+                self.current_bytes = self.current_bytes.saturating_sub(removed.bytes);
+            }
+        }
+
+        self.current_bytes = self.current_bytes.saturating_add(bytes);
+        self.order.push_back(asset_id.clone());
+        self.entries.insert(
+            asset_id,
+            RgbaLayerTextureCacheEntry {
+                texture,
+                width,
+                height,
+                bytes,
+            },
+        );
+    }
+
+    fn touch(&mut self, asset_id: &str) {
+        self.order.retain(|item| item != asset_id);
+        self.order.push_back(asset_id.to_string());
+    }
+
+    fn remove(&mut self, asset_id: &str) {
+        self.order.retain(|item| item != asset_id);
+        if let Some(removed) = self.entries.remove(asset_id) {
+            self.current_bytes = self.current_bytes.saturating_sub(removed.bytes);
+        }
+    }
 }
 
 impl NativePreviewSession {
@@ -84,12 +168,14 @@ impl NativePreviewSession {
             sampler,
             pipeline,
             ring: None,
+            rgba_layers: RgbaLayerTextureCache::new(),
         }
     }
 
     /// Convert one decoded NV12 frame into a GPU texture for timeline compositing.
     /// The texture is owned by the caller and remains valid until the compositor
     /// has submitted the project frame that samples it.
+    #[allow(clippy::too_many_arguments)]
     pub fn render_nv12_frame_to_texture(
         &mut self,
         source_width: u32,
@@ -100,11 +186,7 @@ impl NativePreviewSession {
         uv_plane: &[u8],
         params: &ColorTransformUniforms,
     ) -> Result<wgpu::Texture, String> {
-        if source_width == 0
-            || source_height == 0
-            || output_width == 0
-            || output_height == 0
-        {
+        if source_width == 0 || source_height == 0 || output_width == 0 || output_height == 0 {
             return Err("Source and output dimensions must be non-zero".to_string());
         }
 
@@ -162,6 +244,93 @@ impl NativePreviewSession {
         Ok(target_texture)
     }
 
+    /// Upload a small RGBA layer produced by a canonical browser-side
+    /// renderer (currently Clypra Studio text effects).
+    fn create_rgba_layer_texture(
+        &self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<Arc<wgpu::Texture>, String> {
+        if width == 0 || height == 0 {
+            return Err("RGBA layer dimensions must be non-zero".to_string());
+        }
+        let expected_bytes = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or_else(|| "RGBA layer dimensions overflow".to_string())?;
+        if rgba.len() != expected_bytes {
+            return Err(format!(
+                "RGBA layer byte length mismatch: expected {}, got {}",
+                expected_bytes,
+                rgba.len()
+            ));
+        }
+
+        let texture = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Native RGBA Raster Layer"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        }));
+        self.gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width.saturating_mul(4)),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        Ok(texture)
+    }
+
+    /// Return a resident RGBA asset when possible, uploading it once on a
+    /// cache miss. Empty asset ids intentionally bypass caching for legacy
+    /// callers that do not provide stable identity.
+    pub fn get_or_upload_rgba_layer_to_texture(
+        &mut self,
+        asset_id: &str,
+        width: u32,
+        height: u32,
+        rgba: Option<&[u8]>,
+    ) -> Result<Arc<wgpu::Texture>, String> {
+        if !asset_id.trim().is_empty() {
+            if let Some(texture) = self.rgba_layers.get(asset_id, width, height) {
+                return Ok(texture);
+            }
+        }
+
+        let rgba = rgba.ok_or_else(|| {
+            format!("Native RGBA raster asset is not registered: {asset_id}")
+        })?;
+        let texture = self.create_rgba_layer_texture(width, height, rgba)?;
+        if !asset_id.trim().is_empty() {
+            self.rgba_layers
+                .insert(asset_id.to_string(), Arc::clone(&texture), width, height);
+        }
+        Ok(texture)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub async fn render_nv12_frame(
         &mut self,
         source_width: u32,
@@ -172,11 +341,7 @@ impl NativePreviewSession {
         uv_plane: &[u8],
         params: &ColorTransformUniforms,
     ) -> Result<Vec<u8>, String> {
-        if source_width == 0
-            || source_height == 0
-            || output_width == 0
-            || output_height == 0
-        {
+        if source_width == 0 || source_height == 0 || output_width == 0 || output_height == 0 {
             return Err("Source and output dimensions must be non-zero".to_string());
         }
 
@@ -300,12 +465,12 @@ impl NativePreviewSession {
 impl NativeWgpuRenderer {
     pub async fn new() -> Result<Self, String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
+            backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::default(),
             backend_options: Default::default(),
         });
 
-        let gpu_ctx = GpuContext::select_best_gpu(&instance).await?;
+        let gpu_ctx = GpuContext::select_best_gpu(&instance, None).await?;
 
         Ok(Self {
             instance,
@@ -434,48 +599,52 @@ impl NativeWgpuRenderer {
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let shader_source = include_str!("shaders/yuv_to_rgb.wgsl");
-        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("NV12 YUV to RGB Shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(shader_source)),
-        });
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("NV12 YUV to RGB Shader"),
+                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(shader_source)),
+            });
 
-        let bind_group_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("NV12 Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let bind_group_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("NV12 Bind Group Layout"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("NV12 Bind Group"),
@@ -500,41 +669,47 @@ impl NativeWgpuRenderer {
             ],
         });
 
-        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("NV12 Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("NV12 Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
-        let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("NV12 Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let render_pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("NV12 Render Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("NV12 Render Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("NV12 Render Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -710,9 +885,11 @@ impl NativeWgpuRenderer {
             mapped_at_creation: false,
         });
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Native Preview Readback Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Native Preview Readback Encoder"),
+            });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &target_texture,
@@ -861,46 +1038,54 @@ impl NativeWgpuRenderer {
             node.opacity
         );
 
-        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Document Node Shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Owned(shader_source)),
-        });
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Document Node Shader"),
+                source: wgpu::ShaderSource::Wgsl(Cow::Owned(shader_source)),
+            });
 
-        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Doc Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Doc Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
 
-        let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Doc Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let render_pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Doc Render Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Doc Command Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Doc Command Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -993,7 +1178,12 @@ impl NativeWgpuRenderer {
     }
 
     /// Render a single animated rectangle frame onto an offscreen texture
-    pub async fn render_rectangle_frame(&self, width: u32, height: u32, t: f64) -> Result<Vec<u8>, String> {
+    pub async fn render_rectangle_frame(
+        &self,
+        width: u32,
+        height: u32,
+        t: f64,
+    ) -> Result<Vec<u8>, String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Offscreen Target Texture"),
             size: wgpu::Extent3d {
@@ -1070,46 +1260,54 @@ impl NativeWgpuRenderer {
             t
         );
 
-        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Rectangle Shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Owned(shader_source)),
-        });
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Rectangle Shader"),
+                source: wgpu::ShaderSource::Wgsl(Cow::Owned(shader_source)),
+            });
 
-        let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
 
-        let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Rectangle Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let render_pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Rectangle Render Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Command Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Command Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1236,7 +1434,13 @@ mod tests {
             assert_eq!(a, 255, "Alpha channel must be 255");
             let diff_rg = (r as i32 - g as i32).abs();
             let diff_gb = (g as i32 - b as i32).abs();
-            assert!(diff_rg <= 10 && diff_gb <= 10, "Color should be neutral gray, got R={} G={} B={}", r, g, b);
+            assert!(
+                diff_rg <= 10 && diff_gb <= 10,
+                "Color should be neutral gray, got R={} G={} B={}",
+                r,
+                g,
+                b
+            );
         }
     }
 
@@ -1245,7 +1449,10 @@ mod tests {
         let renderer = match NativeWgpuRenderer::new().await {
             Ok(renderer) => renderer,
             Err(error) => {
-                eprintln!("Skipping metadata-driven YUV test (no GPU adapter): {}", error);
+                eprintln!(
+                    "Skipping metadata-driven YUV test (no GPU adapter): {}",
+                    error
+                );
                 return;
             }
         };
@@ -1280,12 +1487,16 @@ mod tests {
         let renderer = match NativeWgpuRenderer::new().await {
             Ok(renderer) => renderer,
             Err(error) => {
-                eprintln!("Skipping native preview session test (no GPU adapter): {}", error);
+                eprintln!(
+                    "Skipping native preview session test (no GPU adapter): {}",
+                    error
+                );
                 return;
             }
         };
 
         let gpu = Arc::new(GpuContext {
+            instance: renderer.instance.clone(),
             adapter: renderer.adapter,
             info: renderer.gpu_info,
             device: renderer.device,
@@ -1297,8 +1508,8 @@ mod tests {
         let output_width = 32u32;
         let output_height = 16u32;
         let y_plane = vec![128u8; (source_width * source_height) as usize];
-        let uv_plane = vec![128u8;
-            (source_width.div_ceil(2) * source_height.div_ceil(2) * 2) as usize];
+        let uv_plane =
+            vec![128u8; (source_width.div_ceil(2) * source_height.div_ceil(2) * 2) as usize];
 
         let rgba = session
             .render_nv12_frame(

@@ -36,11 +36,6 @@
 import { create } from "zustand";
 import type { MediaAsset } from "@/types";
 
-const SELECT_TRACE = import.meta.env.DEV;
-const traceSelect = (...args: unknown[]) => {
-  if (!SELECT_TRACE) return;
-};
-
 interface UIStore {
   selectedClipIds: string[]; // Multi-select support
   selectedGapId: string | null; // Gap selection (exclusive with clip selection)
@@ -101,7 +96,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   sourceOutPoint: null,
 
   selectClip: (clipId) => {
-    traceSelect("selectClip", { clipId, prev: get().selectedClipIds });
     set({
       selectedClipIds: clipId ? [clipId] : [],
       selectedGapId: null, // Clear gap selection when selecting clip
@@ -110,7 +104,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   selectGap: (gapId) => {
-    traceSelect("selectGap", { gapId, prev: get().selectedGapId });
     set({
       selectedGapId: gapId,
       selectedClipIds: [], // Clear clip selection when selecting gap
@@ -129,7 +122,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleClipSelection: (clipId) => {
     set((state) => {
       const already = state.selectedClipIds.includes(clipId);
-      traceSelect("toggleClipSelection", { clipId, already, prev: state.selectedClipIds });
       return {
         selectedClipIds: already ? state.selectedClipIds.filter((id) => id !== clipId) : [...state.selectedClipIds, clipId],
         selectedTransitionId: null,
@@ -139,7 +131,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   clearSelection: () => {
-    traceSelect("clearSelection", { prev: get().selectedClipIds, prevGap: get().selectedGapId });
     set({
       selectedClipIds: [],
       selectedGapId: null,

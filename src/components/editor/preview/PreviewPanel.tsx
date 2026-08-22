@@ -6,14 +6,13 @@ import { ProgramPreview } from "./ProgramPreview";
 const PreviewPanelComponent: React.FC = () => {
   const { previewMode } = useUIStore();
 
-  console.info("[PreviewLifecycle] PreviewPanel rendering, mode:", previewMode);
-
-  // If in source mode, show SourcePreview
+  // Mount exactly one playback space at a time. Source media and program
+  // preview therefore cannot share DOM media elements or render lifecycles.
   if (previewMode === "source") {
-    return <SourcePreview />;
+    return <SourcePreview key="source-preview-space" />;
   }
 
-  return <ProgramPreview />;
+  return <ProgramPreview key="program-preview-space" />;
 };
 
 // Memoize to prevent re-renders when parent (EditorLayout) re-renders due to window resize

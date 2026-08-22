@@ -27,13 +27,6 @@ import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import { resolveConform } from "@clypra-studio/engine";
 
-const SELECT_TRACE = import.meta.env.DEV;
-const traceSelect = (...args: unknown[]) => {
-  if (!SELECT_TRACE) return;
-};
-// const CENTER_GUIDE_SNAP_PX = 8;
-// const CENTER_MAGNET_SNAP_PX = 12;
-
 export function shouldScaleTextFontForHandle(handle: TransformHandle): boolean {
   return handle !== "move" && handle !== "rotate";
 }
@@ -260,15 +253,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   // Using mousedown (instead of click) avoids click-tail races after drag.
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      traceSelect("canvas mousedown", {
-        target: (e.target as HTMLElement)?.tagName,
-        selectedClipIds,
-        isDragging,
-        currentTime,
-      });
       // Don't handle if clicking on a handle or during drag
       if (isDragging || (e.target as HTMLElement).closest("[data-transform-handle]")) {
-        traceSelect("canvas mousedown ignored", { reason: "dragging-or-handle" });
         return;
       }
 
@@ -282,7 +268,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       // This avoids deselect-on-second-mousedown when playhead/time filtering excludes
       // the clip from the generic hit-candidate list.
       if (selectedClip && hitTestClip(canvasCoords.x, canvasCoords.y, selectedClip)) {
-        traceSelect("mousedown inside selected clip", { clipId: selectedClip.id, modifiers: { shift: e.shiftKey, meta: e.metaKey, ctrl: e.ctrlKey } });
         if (e.shiftKey || e.metaKey || e.ctrlKey) {
           toggleClipSelection(selectedClip.id);
         } else {
@@ -321,7 +306,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         .map(({ clip }) => clip);
 
       if (hitCandidates.length > 0) {
-        traceSelect("hitCandidates", { ids: hitCandidates.map((c) => c.id) });
         // Multi-select modifier: toggle topmost hit only.
         if (e.shiftKey || e.metaKey || e.ctrlKey) {
           toggleClipSelection(hitCandidates[0].id);
@@ -339,7 +323,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         selectClip(hitCandidates[nextIndex].id);
       } else {
         // Clicked on empty area - deselect
-        traceSelect("empty area deselect");
         clickCycleRef.current = { signature: "", index: -1 };
         selectClip(null);
       }
@@ -831,8 +814,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         }
       }
 
-      traceSelect("transform mousemove", { clipId: activeTransform.clipId, handle: activeTransform.handle, x: newTransform.x, y: newTransform.y, width: newTransform.width, height: newTransform.height });
-
       // Optimistic preview: update clip for visual feedback during drag
       // Skip epoch increment to avoid cache thrashing during high-frequency updates
       // The overlay reads from selectedClip (timeline store) for handle positioning
@@ -843,7 +824,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   const handleMouseUp = useCallback(() => {
     if (!isDragging || !activeTransform) return;
-    traceSelect("transform mouseup", { clipId: activeTransform.clipId, selectedClipIds });
 
     setIsDragging(false);
     setSnappedX(false);

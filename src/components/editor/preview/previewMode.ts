@@ -1,5 +1,4 @@
-// Pixi/WebGL is the single preview pipeline for all builds.
-// Canvas 2D preview (ComplexProgramPreview) has been retired.
-// If WebGL is unavailable, ProgramPreview renders WebGLUnavailableError.
-export const PREVIEW_MODE = "complex-pixi" as const;
+// The desktop editor is native-only. Browser/mobile compatibility workspaces
+// are separate products and must not change the desktop render authority.
+export const PREVIEW_MODE = "native" as const;
 export type PreviewMode = typeof PREVIEW_MODE;

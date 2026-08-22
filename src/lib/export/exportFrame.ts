@@ -2,18 +2,14 @@
  * Frame Export Utilities
  *
  * High-level API for exporting single frames.
- * Migrated to PixiJS WebGL pipeline for exact visual parity with preview
- * and correct rendering of filters and GPU transitions.
+ * Uses the native compositor for representable desktop scenes. Unsupported
+ * scenes fail with an actionable contract error rather than changing renderers.
  */
 
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
-import { createPixiExportCompositor, destroyPixiExportCompositor, renderFrameWithPixi } from "./pixiExportRenderer";
-import { VideoElementPool } from "../../core/resources/VideoElementPool";
-import { resolveClipSourceTime } from "../../core/timeline/sourceTime";
 import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
-import { getActiveVideoClipsForTime } from "./exportUtils";
+import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
+import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
 
 export interface ExportFrameOptions {
   /** Timeline time to export */
@@ -53,7 +49,8 @@ export interface ExportFrameOptions {
 /**
  * Export a single frame as PNG or JPEG.
  *
- * Headless PixiJS rendering ensures preview and export use the same pipeline.
+ * Native rendering is authoritative for Tauri-compatible frames. Browser export
+ * backends are intentionally not supported.
  *
  * @param options - Export options
  * @returns Blob containing the exported frame
@@ -73,60 +70,43 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
     quality = 0.92,
   } = options;
 
-  // Create headless Pixi compositor for single frame
-  const pixiHandle = createPixiExportCompositor(width, height);
+  const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
 
-  // FIX (BUG-C1): Wait for WebGL context to be fully initialized before rendering.
-  // Without this, composeFrame() returns early (isReady=false) producing a blank PNG.
-  await pixiHandle.compositor.waitForReady();
-
-  const { NativeExportFramePool } = await import("./nativeExportFramePool");
-  const { toNativePath } = await import("../platform/pathConversion");
-  const nativeFramePool = new NativeExportFramePool();
-
-  try {
-    const videoElements = new Map<string, HTMLCanvasElement>();
-
-    // Find all video clips active at this time (including transition windows) and acquire them
-    const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
-    for (const clip of activeVideoClips) {
-      const asset = assets.find((a) => a.id === clip.mediaId)!;
-
-      const { sourceTime } = resolveClipSourceTime(clip, time, {
-        clampToRange: true,
-        frameRate: project?.frameRate || 30,
-      });
-
-      const nativePath = toNativePath(asset.path);
-      const key = `${clip.id}-${clip.mediaId}`;
-      const canvas = await nativeFramePool.acquire({
-        key,
-        videoPath: nativePath,
-        timeSecs: sourceTime,
-        width: clip.width || width,
-        height: clip.height || height,
-      });
-      videoElements.set(key, canvas);
-    }
-
-    const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
-    await renderFrameWithPixi(pixiHandle, scene, videoElements as any);
-
-    // Convert canvas to Blob
-    return await new Promise<Blob>((resolve, reject) => {
-      pixiHandle.readbackCanvas.toBlob(
-        (b) => {
-          if (b) resolve(b);
-          else reject(new Error("[ExportFrame] Failed to create blob from readback canvas"));
-        },
-        format === "jpeg" ? "image/jpeg" : "image/png",
-        quality,
-      );
-    });
-  } finally {
-    await nativeFramePool.clear();
-    destroyPixiExportCompositor(pixiHandle);
+  // Native Tauri export is authoritative for a project-sized scene that the
+  // native graph can represent. Only explicit native errors are returned to
+  // the caller.
+  if (!isTauriRuntime()) {
+    throw new Error("[ExportFrame] Native frame export requires the desktop runtime");
   }
+
+  if (width !== scene.metadata.canvasWidth || height !== scene.metadata.canvasHeight) {
+    throw new Error("[ExportFrame] Native export requires project-sized output dimensions");
+  }
+  const nativeRequest = buildNativeVideoProjectRequest(scene);
+  if (!nativeRequest) {
+    throw new Error("[ExportFrame] Frame is outside the native compositor contract");
+  }
+  let rgba: ArrayBuffer;
+  try {
+    rgba = await renderNativeVideoProjectFrame(nativeRequest);
+  } catch (error) {
+    throw new Error(`[ExportFrame] Native frame export failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("[ExportFrame] Failed to create native export canvas");
+  const image = context.createImageData(width, height);
+  image.data.set(new Uint8ClampedArray(rgba));
+  context.putImageData(image, 0, 0);
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error("[ExportFrame] Failed to encode native frame")),
+      format === "jpeg" ? "image/jpeg" : "image/png",
+      quality,
+    );
+  });
 }
 
 /**

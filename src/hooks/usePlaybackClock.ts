@@ -24,6 +24,7 @@ import { getPlaybackClock, type PlaybackClockState } from "../core/playback";
 import type { TransportAuthority, PlaybackContextStateSnapshot } from "../core/playback";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { resumeGlobalAudioEngine } from "@/hooks/useAudioSyncEngine";
+import { isTauriRuntime } from "@/lib/platform/tauri";
 
 /**
  * Hook for UI snapshots of playback state.
@@ -88,23 +89,32 @@ export function useTransportControls() {
   const authority = useTransport();
 
   return useMemo(
-    () => ({
-      play: () => {
+    () => {
+      const prepareProgramPreviewAudio = () => {
+        // Source Preview owns its visible HTMLMediaElement. Never unlock or
+        // resume the program-preview pool/engine while source media is active.
+        if (authority?.getActiveType() !== "program") return;
+        if (isTauriRuntime()) return;
         resumeGlobalAudioEngine();
-        getActiveSessionOrNull()?.unlockPreviewAudio();
-        authority?.play();
-      },
-      togglePlayback: () => {
-        resumeGlobalAudioEngine();
-        getActiveSessionOrNull()?.unlockPreviewAudio();
-        authority?.togglePlayback();
-      },
-      pause: () => authority?.pause(),
-      stop: () => authority?.stop(),
-      seek: (time: number) => authority?.seek(time),
-      setSpeed: (speed: number) => authority?.setSpeed(speed),
-      setActiveContext: (type: "program" | "source") => authority?.setActiveContext(type),
-    }),
+        getActiveSessionOrNull()?.unlockProgramPreviewAudio();
+      };
+
+      return {
+        play: () => {
+          prepareProgramPreviewAudio();
+          authority?.play();
+        },
+        togglePlayback: () => {
+          prepareProgramPreviewAudio();
+          authority?.togglePlayback();
+        },
+        pause: () => authority?.pause(),
+        stop: () => authority?.stop(),
+        seek: (time: number) => authority?.seek(time),
+        setSpeed: (speed: number) => authority?.setSpeed(speed),
+        setActiveContext: (type: "program" | "source") => authority?.setActiveContext(type),
+      };
+    },
     [authority],
   );
 }

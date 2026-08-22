@@ -1,8 +1,14 @@
 // src/core/hooks/useEyedropper.ts
 import { useCallback, useState } from 'react';
-import * as PIXI from 'pixi.js';
 
-export function useEyedropper(pixiAppRef: React.RefObject<PIXI.Application | null>) {
+export interface EyedropperSurface {
+  canvas?: HTMLCanvasElement;
+  view?: HTMLCanvasElement;
+}
+
+export type EyedropperTarget = EyedropperSurface | HTMLCanvasElement;
+
+export function useEyedropper(surfaceRef: React.RefObject<EyedropperTarget | null>) {
   const [isPicking, setIsPicking] = useState(false);
 
   const pickColor = useCallback(async (): Promise<[number, number, number] | null> => {
@@ -19,11 +25,11 @@ export function useEyedropper(pixiAppRef: React.RefObject<PIXI.Application | nul
       }
     }
 
-    // 2. macOS WebKit Fallback: PixiJS WebGL Pixel Extraction
+    // 2. Canvas fallback for runtimes without the native OS eyedropper.
     return new Promise((resolve) => {
-      const app = pixiAppRef.current;
-      const canvas = (app?.view || (app as unknown as { canvas?: HTMLCanvasElement })?.canvas) as HTMLCanvasElement | undefined;
-      if (!app || !canvas) return resolve(null);
+      const target = surfaceRef.current;
+      const canvas = target instanceof HTMLCanvasElement ? target : target?.view || target?.canvas;
+      if (!target || !canvas) return resolve(null);
 
       setIsPicking(true);
       canvas.style.cursor = 'crosshair';
@@ -31,39 +37,25 @@ export function useEyedropper(pixiAppRef: React.RefObject<PIXI.Application | nul
       const handlePointerDown = async (e: PointerEvent) => {
         cleanup();
         
-        // Get canvas bounds to map screen coords to WebGL render coords
+        // Get canvas bounds to map screen coordinates to canvas pixels.
         const rect = canvas.getBoundingClientRect();
-        const resolution = (app.renderer as unknown as { resolution?: number })?.resolution ?? 1;
-        const rendererWidth = (app.renderer as unknown as { width?: number })?.width ?? canvas.width;
-        const rendererHeight = (app.renderer as unknown as { height?: number })?.height ?? canvas.height;
-        
-        const x = ((e.clientX - rect.left) * (rendererWidth / rect.width)) / resolution;
-        const y = ((e.clientY - rect.top) * (rendererHeight / rect.height)) / resolution;
+        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
 
         try {
-          const region = new PIXI.Rectangle(Math.max(0, Math.floor(x)), Math.max(0, Math.floor(y)), 1, 1);
-          const extract = app.renderer?.extract as unknown as {
-            pixels?: (target?: unknown, frame?: PIXI.Rectangle) => unknown;
-          };
-
-          if (extract && typeof extract.pixels === 'function') {
-            const rawResult = await extract.pixels(app.stage, region);
-            let pixels: ArrayLike<number> | null = null;
-
-            if (rawResult && typeof rawResult === 'object') {
-              if ('pixels' in (rawResult as Record<string, unknown>)) {
-                pixels = (rawResult as { pixels: ArrayLike<number> }).pixels;
-              } else if (ArrayBuffer.isView(rawResult) || Array.isArray(rawResult)) {
-                pixels = rawResult as ArrayLike<number>;
-              }
-            }
-
-            if (pixels && pixels.length >= 3) {
-              return resolve([pixels[0] / 255, pixels[1] / 255, pixels[2] / 255]);
-            }
+          const context = canvas.getContext('2d', { willReadFrequently: true });
+          if (!context) return resolve(null);
+          const pixel = context.getImageData(
+            Math.max(0, Math.min(canvas.width - 1, Math.floor(x))),
+            Math.max(0, Math.min(canvas.height - 1, Math.floor(y))),
+            1,
+            1,
+          ).data;
+          if (pixel.length >= 3) {
+            return resolve([pixel[0] / 255, pixel[1] / 255, pixel[2] / 255]);
           }
         } catch (err) {
-          console.warn('WebGL pixel extraction fallback failed:', err);
+          console.warn('Canvas pixel extraction fallback failed:', err);
         }
 
         resolve(null);
@@ -80,7 +72,7 @@ export function useEyedropper(pixiAppRef: React.RefObject<PIXI.Application | nul
       // Add to window with once: true so clicking once anywhere resolves
       window.addEventListener('pointerdown', handlePointerDown, { once: true });
     });
-  }, [pixiAppRef]);
+  }, [surfaceRef]);
 
   return { pickColor, isPicking };
 }

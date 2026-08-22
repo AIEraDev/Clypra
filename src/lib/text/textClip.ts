@@ -1144,14 +1144,11 @@ export function recalculateTextClipBounds(
   canvasWidth: number,
   _canvasHeight: number,
 ): TextClip {
-  const traceReason = (
-    updates as Partial<TextClip> & { _boundsReason?: string }
-  )._boundsReason;
   const cleanUpdates = { ...updates } as Partial<TextClip> & {
     _boundsReason?: string;
   };
   delete cleanUpdates._boundsReason;
-  const { merged, sizing, transform } = calculateTextClipContentTransform(
+  const { merged, transform } = calculateTextClipContentTransform(
     clip,
     cleanUpdates,
     canvasWidth,

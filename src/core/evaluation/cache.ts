@@ -4,7 +4,7 @@
  * Caches evaluated scenes to avoid re-evaluation.
  * Invalidates on epoch changes.
  *
- * Cache Key: time + epoch + clipVersion
+ * Cache Key: time + epoch + clipVersion + effectsStoreVersion
  * Cache Strategy: LRU (Least Recently Used)
  */
 
@@ -35,6 +35,13 @@ interface CacheKey {
 
   /** Project canvas background version */
   backgroundVersion?: string;
+
+  /**
+   * Effects store version — hash of text style definitions.
+   * Invalidates the cache when a style definition is edited so the evaluator
+   * picks up the updated definition on the next call.
+   */
+  effectsStoreVersion?: string;
 }
 
 /**
@@ -215,7 +222,8 @@ export class EvaluationCache {
     const h = key.canvasHeight ?? 1080;
     const assetsVer = key.assetsVersion ?? "";
     const bgVer = key.backgroundVersion ?? "";
-    return `${roundedTime}:${key.epoch}:${w}x${h}:${key.clipVersion}:${assetsVer}:${bgVer}`;
+    const effectsVer = key.effectsStoreVersion ?? "";
+    return `${roundedTime}:${key.epoch}:${w}x${h}:${key.clipVersion}:${assetsVer}:${bgVer}:${effectsVer}`;
   }
 }
 
@@ -346,6 +354,21 @@ export function computeAssetsVersion(assets: MediaAsset[]): string {
 
 export function computeCanvasBackgroundVersion(background?: CanvasBackgroundConfig): string {
   return hashString(JSON.stringify(background ?? null));
+}
+
+/**
+ * Compute a version hash for the text effects store's definitions map.
+ * Pass `definitions` from `useEffectsStore.getState().definitions`.
+ * Any edit to any style definition changes this hash and busts the LRU cache
+ * so the evaluator never returns a stale EvaluatedScene for text clips.
+ */
+export function computeEffectsStoreVersion(definitions: Record<string, unknown>): string {
+  // Stable sort by key to avoid insertion-order differences between calls.
+  const sig = Object.keys(definitions)
+    .sort()
+    .map((k) => `${k}:${JSON.stringify(definitions[k])}`)
+    .join("|");
+  return hashString(sig);
 }
 
 /**

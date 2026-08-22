@@ -21,6 +21,7 @@ export const TEXT_EFFECT_CATEGORIES = [
   "glitch", // VHS/retro digital — consistent top performer
   "gradient", // versatile, works across all content types
   "outline", // clean, readable, popular for captions + lower thirds
+  "clean", // legacy published catalog category retained for backwards compatibility
 ] as const;
 
 export const TextEffectsApi = {

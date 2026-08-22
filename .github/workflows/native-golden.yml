@@ -1,0 +1,371 @@
+name: Native Golden — Shader Logic, Cross-Platform & WASM Parity
+
+# Runs on every PR and push that touches the compositor, shaders, contracts,
+# CLI, or the WASM crate.
+#
+# What this job proves:
+#   ✅ WGSL shaders compile and run on Metal, DX12, Vulkan, and WebGPU.
+#   ✅ Compositor math is self-consistent (same-machine determinism).
+#   ✅ Any shader regression produces a measurable pixel delta and fails CI.
+#   ⚠️  Windows and Linux runners have NO dedicated GPU — wgpu uses software
+#       rasterizers (WARP / Lavapipe / SwiftShader). The adapter name in each
+#       job summary confirms what actually ran. Green = shader portability,
+#       NOT real hardware GPU parity.
+#
+# Hardware validation (what this does NOT replace):
+#   See docs/native-architecture.md §Hardware Validation Log.
+#
+# Tolerances:
+#   Native cross-backend (software vs Metal reference): 4 per-channel
+#   WASM vs native (same runner, SwiftShader vs Lavapipe):  8 per-channel
+
+on:
+  push:
+    branches: [main, develop, master, "feat/**"]
+    paths:
+      - "src-tauri/src/wgpu_compositor/**"
+      - "src-tauri/src/shaders/**"
+      - "src-tauri/src/native_core/**"
+      - "crates/clypra-native-cli/**"
+      - "crates/clypra-native-core/**"
+      - "crates/clypra-render-wasm/**"
+      - ".github/workflows/native-golden.yml"
+  pull_request:
+    paths:
+      - "src-tauri/src/wgpu_compositor/**"
+      - "src-tauri/src/shaders/**"
+      - "src-tauri/src/native_core/**"
+      - "crates/clypra-native-cli/**"
+      - "crates/clypra-native-core/**"
+      - "crates/clypra-render-wasm/**"
+      - ".github/workflows/native-golden.yml"
+
+jobs:
+  golden:
+    name: Golden [${{ matrix.platform.name }}]
+    runs-on: ${{ matrix.platform.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: "macOS Metal"
+            os: macos-latest
+            backend: Metal
+            wasm: false
+
+          - name: "Windows DX12"
+            os: windows-latest
+            backend: DX12
+            wasm: false
+
+          - name: "Linux Vulkan"
+            os: ubuntu-24.04
+            backend: Vulkan
+            wasm: false
+
+          - name: "WASM WebGPU (Chrome)"
+            os: ubuntu-latest
+            backend: WASM
+            wasm: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust toolchain ────────────────────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.wasm && 'wasm32-unknown-unknown' || '' }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            crates/clypra-native-cli
+            crates/clypra-native-core
+            crates/clypra-render-wasm
+
+      # ── Platform-specific GPU setup (native only) ─────────────────────────
+      - name: Install Vulkan + Mesa Lavapipe (Linux native)
+        if: runner.os == 'Linux' && !matrix.platform.wasm
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+
+      # ── WASM platform setup ───────────────────────────────────────────────
+      - name: Install wasm-pack + Node + Vulkan/Lavapipe (WASM runner)
+        if: matrix.platform.wasm
+        run: |
+          # Lavapipe for the native-CLI reference render on this runner
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+          # wasm-pack
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Setup Node.js (WASM only)
+        if: matrix.platform.wasm
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ── Build clypra-native-cli (all platforms need it for diff) ──────────
+      - name: Build clypra-native-cli
+        run: cargo build --release
+        working-directory: crates/clypra-native-cli
+
+      # ── Render fixtures — native path ─────────────────────────────────────
+      - name: Render minimal fixture (native)
+        if: "!matrix.platform.wasm"
+        run: |
+          mkdir -p ../../artifacts
+          cargo run --release -- render \
+            fixtures/minimal-request.json \
+            ../../artifacts/minimal-${{ matrix.platform.backend }}.png \
+            2>&1 | tee /tmp/render-minimal.log
+          GPU_LINE=$(grep "^GPU:" /tmp/render-minimal.log || echo "GPU: unknown")
+          echo "GPU_INFO=${GPU_LINE}" >> "$GITHUB_ENV"
+        working-directory: crates/clypra-native-cli
+        shell: bash
+
+      - name: Render raster fixture (native)
+        if: "!matrix.platform.wasm"
+        run: |
+          cargo run --release -- render \
+            fixtures/raster-request.json \
+            ../../artifacts/raster-${{ matrix.platform.backend }}.png \
+            2>/dev/null
+        working-directory: crates/clypra-native-cli
+        shell: bash
+
+      # ── Render fixtures — WASM path ───────────────────────────────────────
+      - name: Build clypra-render-wasm
+        if: matrix.platform.wasm
+        run: wasm-pack build --target web --release
+        working-directory: crates/clypra-render-wasm
+
+      - name: Render native reference for WASM diff (Lavapipe)
+        if: matrix.platform.wasm
+        run: |
+          mkdir -p ../../artifacts
+          cargo run --release -- render \
+            fixtures/minimal-request.json \
+            ../../artifacts/minimal-native-ref.png \
+            2>&1 | tee /tmp/render-native-ref.log
+          GPU_LINE=$(grep "^GPU:" /tmp/render-native-ref.log || echo "GPU: unknown")
+          echo "NATIVE_GPU=${GPU_LINE}" >> "$GITHUB_ENV"
+          cargo run --release -- render \
+            fixtures/raster-request.json \
+            ../../artifacts/raster-native-ref.png \
+            2>/dev/null
+        working-directory: crates/clypra-native-cli
+        shell: bash
+
+      - name: Install puppeteer
+        if: matrix.platform.wasm
+        run: npm install puppeteer
+        working-directory: /tmp
+
+      - name: Copy WASM pkg and fixtures for headless render
+        if: matrix.platform.wasm
+        run: |
+          mkdir -p /tmp/wasm-ci/pkg
+          cp -r crates/clypra-render-wasm/pkg/* /tmp/wasm-ci/pkg/
+          cp crates/clypra-native-cli/fixtures/minimal-request.json /tmp/wasm-ci/
+          cp crates/clypra-native-cli/fixtures/raster-request.json  /tmp/wasm-ci/
+        shell: bash
+
+      - name: Render WASM frames via headless Chrome
+        if: matrix.platform.wasm
+        id: wasm_render
+        run: |
+          cat > /tmp/wasm-render.mjs << 'SCRIPT'
+          import puppeteer from "/tmp/node_modules/puppeteer/lib/esm/puppeteer/node/index.js";
+          import { readFileSync, writeFileSync, mkdirSync } from "fs";
+          import { createServer } from "http";
+          import { extname, join } from "path";
+          const SERVE_DIR = "/tmp/wasm-ci";
+          const PORT = 8799;
+          const MIME = { ".js": "application/javascript", ".wasm": "application/wasm", ".json": "application/json" };
+          const server = createServer((req, res) => {
+            try {
+              const data = readFileSync(join(SERVE_DIR, req.url.split("?")[0]));
+              res.writeHead(200, { "Content-Type": MIME[extname(req.url.split("?")[0])] ?? "application/octet-stream" });
+              res.end(data);
+            } catch { res.writeHead(404); res.end(); }
+          }).listen(PORT);
+          const browser = await puppeteer.launch({
+            args: ["--no-sandbox","--disable-setuid-sandbox","--enable-unsafe-webgpu",
+                   "--enable-features=Vulkan,UseSkiaRenderer","--use-angle=vulkan"],
+            headless: true,
+          });
+          const page = await browser.newPage();
+          page.on("pageerror", e => process.stderr.write(`[error] ${e}\n`));
+          await page.setContent(`<!DOCTYPE html><html><body><script type="module">
+            import init, { create_renderer } from "http://localhost:${PORT}/pkg/clypra_render_wasm.js";
+            async function run() {
+              await init();
+              const r = await create_renderer();
+              window._adapter = r.adapter_info();
+              const fixtures = ["minimal","raster"];
+              window._out = {};
+              for (const f of fixtures) {
+                const json = await fetch("http://localhost:${PORT}/" + f + "-request.json").then(x=>x.text());
+                window._out[f] = Array.from(await r.render_frame(json));
+              }
+              window._done = true;
+            }
+            run().catch(e => { window._err = String(e); window._done = true; });
+          <\/script></body></html>`);
+          await page.waitForFunction("window._done === true", { timeout: 60000 });
+          const err = await page.evaluate(() => window._err);
+          if (err) { console.error("WASM_ERROR:" + err); process.exit(1); }
+          const adapter = await page.evaluate(() => window._adapter);
+          console.log("WASM_ADAPTER:" + adapter);
+          const out = await page.evaluate(() => window._out);
+          mkdirSync("/tmp/wasm-out", { recursive: true });
+          for (const [name, bytes] of Object.entries(out)) {
+            writeFileSync(`/tmp/wasm-out/${name}-WASM.png`, Buffer.from(bytes));
+            console.log(`WASM_RENDERED:${name}:${bytes.length}`);
+          }
+          await browser.close(); server.close();
+          SCRIPT
+          node /tmp/wasm-render.mjs 2>&1 | tee /tmp/wasm-render.log
+          ADAPTER=$(grep "^WASM_ADAPTER:" /tmp/wasm-render.log | sed 's/WASM_ADAPTER://' || echo "{}")
+          echo "WASM_ADAPTER=${ADAPTER}" >> "$GITHUB_ENV"
+          cp /tmp/wasm-out/minimal-WASM.png artifacts/ 2>/dev/null || true
+          cp /tmp/wasm-out/raster-WASM.png  artifacts/ 2>/dev/null || true
+        shell: bash
+        continue-on-error: true
+
+      # ── Diff — native platforms vs Metal reference ─────────────────────────
+      - name: Diff minimal (vs Metal reference, tol=4)
+        if: "!matrix.platform.wasm"
+        id: diff_minimal
+        run: |
+          cargo run --release -- diff \
+            ../../artifacts/minimal-${{ matrix.platform.backend }}.png \
+            fixtures/minimal-expected.png \
+            4 | tee ../../artifacts/diff-minimal-${{ matrix.platform.backend }}.json
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        continue-on-error: true
+
+      - name: Diff raster (vs Metal reference, tol=4)
+        if: "!matrix.platform.wasm"
+        id: diff_raster
+        run: |
+          cargo run --release -- diff \
+            ../../artifacts/raster-${{ matrix.platform.backend }}.png \
+            fixtures/raster-expected.png \
+            4 | tee ../../artifacts/diff-raster-${{ matrix.platform.backend }}.json
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        continue-on-error: true
+
+      # ── Diff — WASM vs same-runner native reference ───────────────────────
+      - name: Diff minimal (WASM vs native-ref, tol=8)
+        if: matrix.platform.wasm
+        id: diff_minimal
+        run: |
+          cargo run --release -- diff \
+            ../../artifacts/minimal-WASM.png \
+            ../../artifacts/minimal-native-ref.png \
+            8 | tee ../../artifacts/diff-minimal-WASM.json
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        continue-on-error: true
+
+      - name: Diff raster (WASM vs native-ref, tol=8)
+        if: matrix.platform.wasm
+        id: diff_raster
+        run: |
+          cargo run --release -- diff \
+            ../../artifacts/raster-WASM.png \
+            ../../artifacts/raster-native-ref.png \
+            8 | tee ../../artifacts/diff-raster-WASM.json
+        working-directory: crates/clypra-native-cli
+        shell: bash
+        continue-on-error: true
+
+      # ── Job summary ───────────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Golden — ${{ matrix.platform.name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ matrix.platform.wasm }}" = "true" ]; then
+            echo "**Native ref (Lavapipe):** \`${NATIVE_GPU:-unknown}\`" >> "$GITHUB_STEP_SUMMARY"
+            WASM_NAME=$(python3 -c "import json; d=json.loads('''${WASM_ADAPTER}'''); print(d.get('name','unknown'))" 2>/dev/null || echo "unknown")
+            WASM_BACKEND=$(python3 -c "import json; d=json.loads('''${WASM_ADAPTER}'''); print(d.get('backend','unknown'))" 2>/dev/null || echo "unknown")
+            echo "**WASM adapter:** \`${WASM_NAME}\` backend=\`${WASM_BACKEND}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            if echo "${WASM_NAME}" | grep -qiE "swiftshader|llvmpipe|software|warp|lavapipe|cpu"; then
+              echo "> ⚠️ **Software rasterizer (${WASM_NAME}).** Validates shader portability only — not real browser GPU parity." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "> ✅ **Hardware GPU in WASM path.**" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            DIFF_SUFFIX="WASM"
+          else
+            echo "**Adapter:** \`${GPU_INFO:-unknown}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            if echo "${GPU_INFO}" | grep -qiE "llvmpipe|software|warp|basic render|lavapipe|cpu"; then
+              echo "> ⚠️ **Software rasterizer.** Validates shader portability only — not real hardware parity." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "> ✅ **Hardware GPU detected.**" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            DIFF_SUFFIX="${{ matrix.platform.backend }}"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Fixture | maxChannelError | differing_pixels | mean_error | result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|----------------|-----------------|------------|--------|" >> "$GITHUB_STEP_SUMMARY"
+
+          TOL=${{ matrix.platform.wasm && '8' || '4' }}
+          for fixture in minimal raster; do
+            diff_file="artifacts/diff-${fixture}-${DIFF_SUFFIX}.json"
+            if [ -f "$diff_file" ]; then
+              max=$(python3 -c "import json; d=json.load(open('$diff_file')); print(d['maxChannelError'])" 2>/dev/null || echo "?")
+              dp=$(python3  -c "import json; d=json.load(open('$diff_file')); print(d['differingPixels'])" 2>/dev/null || echo "?")
+              mean=$(python3 -c "import json; d=json.load(open('$diff_file')); print(round(d['meanChannelError'],4))" 2>/dev/null || echo "?")
+              result="✅"
+              if [ "$max" != "?" ] && [ "$max" -gt "$TOL" ] 2>/dev/null; then result="❌"; fi
+            else
+              max="N/A"; dp="N/A"; mean="N/A"; result="⚠️ render failed"
+            fi
+            echo "| $fixture | $max | $dp | $mean | $result |" >> "$GITHUB_STEP_SUMMARY"
+          done
+        shell: bash
+
+      # ── Enforce tolerance ─────────────────────────────────────────────────
+      - name: Enforce minimal diff
+        if: steps.diff_minimal.outcome == 'failure'
+        run: |
+          echo "::error::minimal fixture exceeds tolerance for ${{ matrix.platform.name }}"
+          exit 1
+        shell: bash
+
+      - name: Enforce raster diff
+        if: steps.diff_raster.outcome == 'failure'
+        run: |
+          echo "::error::raster fixture exceeds tolerance for ${{ matrix.platform.name }}"
+          exit 1
+        shell: bash
+
+      # ── Upload artifacts ──────────────────────────────────────────────────
+      - name: Upload rendered PNGs and diff reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.platform.backend }}
+          path: artifacts/
+          retention-days: 30

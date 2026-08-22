@@ -1,10 +1,9 @@
 /**
  * Core Render Module
  *
- * Headless compositor for WebGL/PixiJS scene rendering.
+ * Native render support utilities shared by preview and export.
  */
 
-export * from "./pixiSceneCompositor";
-export * from "./filterCache";
-export * from "./stickerBridge";
-export * from "./textBridge";
+export * from "./canvasBackground";
+export * from "./filterIR";
+export * from "./VideoTextureManager";

@@ -2,27 +2,22 @@
  * Video Export
  *
  * High-level API for exporting videos using FFmpeg.
- * Migrated to the PixiJS pipeline so all 21 GPU transitions render correctly
- * in exported video (16 of them were silently broken on the Canvas 2D path).
+ * Desktop scenes render through the native compositor. Unsupported scenes fail
+ * explicitly until their native contract is implemented.
  *
  * Architecture:
- *   Timeline → evaluateTimelineSceneCached → PixiSceneCompositor → RGBA Frames → FFmpeg → MP4/MOV
+ *   Timeline → evaluateTimelineSceneCached → native compositor → RGBA Frames → FFmpeg → MP4/MOV
  */
 
 import { platform } from "../../core/platform";
-import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { evaluateTimelineSceneCached, clearEvaluationCache } from "../../core/evaluation/evaluator";
-import { createPixiExportCompositor, destroyPixiExportCompositor, renderFrameWithPixi } from "./pixiExportRenderer";
-import { VideoElementPool } from "../../core/resources/VideoElementPool";
 import { getResourceCache } from "../../core/resources/ResourceCache";
-import { resolveClipSourceTime } from "../../core/timeline/sourceTime";
 import { getActiveAudioClips } from "../../core/timeline/audioClips";
 import { PRESET_CONFIGS } from "./exportPresets";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
 import type { ExportAudioClip, ExportProgress } from "../../types/export";
-import { ALL_TRANSITIONS } from "@clypra-studio/engine";
-import { resolveTransitionDefinition, mergeTransitionParams } from "../../core/render/utils/transitionResolver";
-import { getActiveVideoClipsForTime } from "./exportUtils";
+import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
+import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
 
 /**
  * Video export progress - Re-exported from types/export
@@ -131,8 +126,10 @@ export function isWebCodecsSupported(): boolean {
 
 export async function exportVideo(config: VideoExportConfig): Promise<VideoExportResult> {
   if (platform.isCapacitor()) {
-    const { exportVideoMobile } = await import("./mobileExport");
-    return exportVideoMobile(config);
+    throw new Error("[videoExport] Native video export is not available in the Capacitor runtime");
+  }
+  if (!isTauriRuntime()) {
+    throw new Error("[videoExport] Native video export requires the desktop runtime");
   }
 
   const { invoke, Channel } = await import("@tauri-apps/api/core");
@@ -155,41 +152,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     throw new Error("No frames to export");
   }
 
-  // Create native frame surface pool (bypasses browser DOM video element seeking)
-  const { NativeExportFramePool } = await import("./nativeExportFramePool");
   const { toNativePath } = await import("../platform/pathConversion");
-  const nativeFramePool = new NativeExportFramePool();
-
-  // Create headless Pixi compositor for this export session.
-  // All 21 GPU transitions render correctly on this path.
-  const pixiHandle = createPixiExportCompositor(width, height);
-
-  // Wait for the WebGL/Pixi context to be fully initialized and ready.
-  // Without this, the export loop starts composing frames before Pixi is ready,
-  // resulting in completely blank/black frames being written.
-  await pixiHandle.compositor.waitForReady();
-
-  // Pre-warm transition shaders before the render loop starts.
-  // This avoids compile-time hiccups/stalls during video export.
-  if (transitions && transitions.length > 0) {
-    for (const transition of transitions) {
-      const resolved = resolveTransitionDefinition(
-        transition.type,
-        ALL_TRANSITIONS,
-        transition.renderer
-      );
-      if (resolved) {
-        const { definition, params } = resolved;
-        const runtimeParams = {
-          easing: transition.easing,
-          ...(transition.metadata?.params as Record<string, any> || {}),
-        };
-        const mergedParams = mergeTransitionParams(definition.params, params, runtimeParams);
-        pixiHandle.compositor.prewarmTransitionShader(definition, mergedParams);
-      }
-    }
-  }
-
   // Create progress channel
   const progressChannel = new Channel<VideoExportProgress>();
   progressChannel.onmessage = (progress) => {
@@ -246,25 +209,28 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     }
   }
 
-  // PERFORMANCE OPTIMIZATION: Batch frame writes to reduce IPC overhead
-  // Batch size of 30 frames reduces memory spikes while keeping IPC overhead negligible
-  const BATCH_SIZE = 30; // 1 second at 30fps
+  // EX-2 fix: Batch size reduced from 30 → 10 frames.
+  // At 1080p a single frame is ~8 MB (1920×1080×4). BATCH_SIZE=30 caused a ~248 MB
+  // contiguous allocation per flush (plus the 30 source frames still in memory = ~496 MB peak).
+  // BATCH_SIZE=10 caps that at ~83 MB batch + ~83 MB source = ~166 MB peak — safe on 4 GB machines.
+  const BATCH_SIZE = 10;
   const frameBuffer: Uint8Array[] = [];
-  const frameSize = width * height * 4; // RGBA
+  const frameSize = width * height * 4; // RGBA bytes per frame
 
   /**
    * Flush accumulated frames to backend in a single batch.
-   * Reduces IPC overhead by 90% compared to per-frame writes.
+   * Reduces IPC overhead vs. per-frame writes while keeping peak memory manageable.
    */
   async function flushFrameBatch(batch: Uint8Array[]) {
     if (batch.length === 0) return;
 
-    // Concatenate all frames into single buffer
-    const batchSize = batch.length * frameSize;
-    const batchBuffer = new Uint8Array(batchSize);
-
+    // Concatenate all frames into single buffer for binary IPC.
+    const batchBuffer = new Uint8Array(batch.length * frameSize);
     for (let i = 0; i < batch.length; i++) {
       batchBuffer.set(batch[i], i * frameSize);
+      // EX-2 fix: null the source reference immediately after copying so the GC
+      // can reclaim each frame's ~8 MB before we finish building the concat buffer.
+      (batch as (Uint8Array | null)[])[i] = null;
     }
 
     // Send batch with frame count in header
@@ -278,24 +244,11 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
   let inFlightWritePromise: Promise<void> | null = null;
 
-  // Create an AudioContext and play a silent loop to prevent background throttling
-  let audioCtx: AudioContext | null = null;
-  let oscillator: OscillatorNode | null = null;
-  let gainNode: GainNode | null = null;
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
-      oscillator = audioCtx.createOscillator();
-      gainNode = audioCtx.createGain();
-      gainNode.gain.value = 0; // 100% silent (zero amplitude) keepalive
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      oscillator.start();
-    }
-  } catch (e) {
-    console.warn("[videoExport] Failed to start silent audio context for background keep-alive:", e);
-  }
+  // EX-3 fix: Removed AudioContext/OscillatorNode keepalive. The pattern was intended
+  // to prevent Chromium background-tab throttling of setTimeout, but Tauri's WebView is
+  // never considered a "background" tab — it is always active. The keepalive added an
+  // unnecessary low-latency audio thread for the entire export with zero measurable benefit.
+  // The setTimeout(r, 0) yield at the frame loop is sufficient.
 
   try {
     // Render and write frames
@@ -313,55 +266,23 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         await new Promise((r) => setTimeout(r, 0));
       }
 
-      // Check for WebGL context loss during export
-      if (pixiHandle.compositor.isContextLost) {
-        throw new Error("WebGL context was lost during video export. Aborting to prevent black frames.");
-      }
-
       const time = frameTimes[i];
-
-      // Pre-load frames for all active video clips via NativeExportFramePool (Rust C++/FFmpeg decoder)
-      const videoElements = new Map<string, HTMLCanvasElement>();
-
-      // Find all active video clips at this time (including clips in active transition windows)
-      const activeVideoClips = getActiveVideoClipsForTime(time, clips, assets, transitions);
-
-      // Acquire native frame canvas surfaces in parallel (zero DOM video seeking)
-      const acquirePromises = activeVideoClips.map(async (clip) => {
-        const asset = assets.find((a) => a.id === clip.mediaId)!;
-        const { sourceTime } = resolveClipSourceTime(clip, time, {
-          clampToRange: true,
-          frameRate,
-        });
-
-        const nativePath = toNativePath(asset.path);
-        const key = `${clip.id}-${clip.mediaId}`;
-
-        const canvas = await nativeFramePool.acquire({
-          key,
-          videoPath: nativePath,
-          timeSecs: sourceTime,
-          width: clip.width || width,
-          height: clip.height || height,
-        });
-        return { key, canvas };
-      });
-
-      try {
-        const acquired = await Promise.all(acquirePromises);
-        for (const { key, canvas } of acquired) {
-          videoElements.set(key, canvas);
-        }
-      } catch (error) {
-        throw new Error(`Failed to acquire frame for clip at time ${time}s: ${error}. Export aborted to prevent output corruption.`);
-      }
 
       // Evaluate scene for this frame using the canonical evaluator
       const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
-
-      // Render frame through the Pixi WebGL compositor.
-      // Direct WebGL readback: true. Returns a Uint8Array with raw pixel bytes directly.
-      const frameBytes = await renderFrameWithPixi(pixiHandle, scene, videoElements as any, true) as Uint8Array;
+      let frameBytes: Uint8Array;
+      const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
+        ? buildNativeVideoProjectRequest(scene)
+        : null;
+      if (nativeRequest) {
+        try {
+          frameBytes = new Uint8Array(await renderNativeVideoProjectFrame(nativeRequest));
+        } catch (error) {
+          throw new Error(`[videoExport] Native frame ${i} failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } else {
+        throw new Error(`[videoExport] Frame ${i} is outside the native compositor contract`);
+      }
       frameBuffer.push(frameBytes);
 
       completedFrames++;
@@ -393,10 +314,20 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     // Check if cancelled
     if (error instanceof Error && error.message.includes("cancelled")) {
       cancelled = true;
+      // EX-1 fix: drain any in-flight batch write before telling Rust to cancel.
+      // Without this, Rust may receive cancel_video_export while a batch IPC write
+      // is still in-flight, leaving the session in an inconsistent partial-write state.
+      if (inFlightWritePromise) {
+        await inFlightWritePromise.catch(() => {}); // drain silently — cancel supersedes
+      }
       await invoke("cancel_video_export", { sessionId }).catch(() => {
         // Ignore errors during cancellation
       });
     } else {
+      // EX-1 fix: same drain on unexpected error paths.
+      if (inFlightWritePromise) {
+        await inFlightWritePromise.catch(() => {});
+      }
       // Try to cancel on error
       await invoke("cancel_video_export", { sessionId }).catch(() => {
         // Ignore errors during cancellation
@@ -404,25 +335,6 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       throw error;
     }
   } finally {
-    if (oscillator) {
-      try {
-        oscillator.stop();
-      } catch (e) {
-        // ignore
-      }
-    }
-    if (audioCtx) {
-      try {
-        audioCtx.close();
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    // Always clean up native frame pool decoders and Pixi compositor
-    await nativeFramePool.clear();
-    destroyPixiExportCompositor(pixiHandle);
-
     // Release global image bitmaps and evaluated frames to free up memory
     try {
       getResourceCache().clear();

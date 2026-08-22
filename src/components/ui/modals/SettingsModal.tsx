@@ -294,8 +294,8 @@ function CustomThemeEditor() {
                   <div key={key} className="flex items-center gap-2">
                     <ClypraColorPicker
                       value={editingColors[key] || "#000000"}
-                      onChange={(c) => handleColorChange(key, c)}
-                      onChangeComplete={(c) => handleColorChange(key, c)}
+                      onChange={(c: string) => handleColorChange(key, c)}
+                      onChangeComplete={(c: string) => handleColorChange(key, c)}
                       format="hex"
                       showAlpha={true}
                       size="sm"

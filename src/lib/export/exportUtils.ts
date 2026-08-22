@@ -27,7 +27,10 @@ export function getActiveVideoClipsForTime(
     const start = t.placement.startTime;
     const duration = t.placement.duration;
     const end = start + duration;
-    return duration > 0 && time >= start && time <= end;
+    // EX-5 fix: use exclusive upper bound `time < end` (was `time <= end`) to match
+    // the evaluator's clip boundary semantics. Inclusive `<=` caused a double-activation
+    // at the frame where a transition ends and the next clip's normal range begins.
+    return duration > 0 && time >= start && time < end;
   });
 
   const transitionClipIds = new Set<string>();

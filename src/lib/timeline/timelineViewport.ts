@@ -42,7 +42,8 @@ export function getAnchoredZoomScrollLeft(input: {
   nextPixelsPerSecond: number;
   hasClips: boolean;
 }): number {
-  const nextScrollLeft = input.anchorTime * input.nextPixelsPerSecond - input.localTimelineX;
+  // Use timeToPixel so the anchor pixel is consistent with clip/playhead rendering.
+  const nextScrollLeft = timeToPixel(input.anchorTime, input.nextPixelsPerSecond) - input.localTimelineX;
   return clampTimelineScrollLeft(nextScrollLeft, input.containerWidth, input.viewportEndSeconds, input.nextPixelsPerSecond, input.hasClips);
 }
 
@@ -58,6 +59,17 @@ export function timeToPixel(timeInSeconds: number, pixelsPerSecond: number): num
   const validPPS = typeof pixelsPerSecond === "number" && !isNaN(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
   const validTime = typeof timeInSeconds === "number" && !isNaN(timeInSeconds) ? timeInSeconds : 0;
   return Math.round(validTime * validPPS);
+}
+
+/**
+ * Canonical inverse of timeToPixel. Converts a pixel offset back to seconds.
+ * All pixel→time conversions in the timeline must go through this function
+ * so that the reverse path is consistently defined alongside the forward path.
+ */
+export function pixelToTime(pixelOffset: number, pixelsPerSecond: number): number {
+  const validPPS = typeof pixelsPerSecond === "number" && !isNaN(pixelsPerSecond) && pixelsPerSecond > 0 ? pixelsPerSecond : 50;
+  const validPixel = typeof pixelOffset === "number" && !isNaN(pixelOffset) ? pixelOffset : 0;
+  return validPixel / validPPS;
 }
 
 /** Compute the density needed to show the entire sequence in the usable lane. */
@@ -78,7 +90,8 @@ export function getScrollLeftToRevealTime(input: {
 }): number {
   const laneWidth = getTimelineLaneWidth(input.containerWidth, input.hasClips);
   const inset = laneWidth * (input.insetRatio ?? 0.15);
-  const editPointPixels = input.time * input.pixelsPerSecond;
+  // Use timeToPixel so the edit-point pixel is consistent with how clips are rendered.
+  const editPointPixels = timeToPixel(input.time, input.pixelsPerSecond);
   const visibleLeft = input.currentScrollLeft + inset;
   const visibleRight = input.currentScrollLeft + laneWidth - inset;
   let next = input.currentScrollLeft;
@@ -86,3 +99,4 @@ export function getScrollLeftToRevealTime(input: {
   if (editPointPixels > visibleRight) next = editPointPixels - laneWidth + inset;
   return clampTimelineScrollLeft(next, input.containerWidth, input.viewportEndSeconds, input.pixelsPerSecond, input.hasClips);
 }
+

@@ -5,7 +5,7 @@
 //! - Frames are downscaled to 256×256 or 512×512 before inference (10–15 FPS cadence).
 //! - A [`CancellationToken`] allows the caller to abort mid-sequence (e.g., clip deleted).
 //! - The returned bounding boxes are timestamp-keyed; the frontend Kalman smoother
-//!   interpolates them to 60 FPS for the PixiJS overlay.
+//!   interpolates them to 60 FPS for native overlay consumers.
 //!
 //! Execution provider fallback chain per platform:
 //! - macOS:   CoreML → CPU

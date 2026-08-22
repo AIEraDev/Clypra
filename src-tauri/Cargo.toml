@@ -18,7 +18,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.11", features = ["protocol-asset"] }
+clypra-native-core = { path = "../crates/clypra-native-core" }
+tauri = { version = "2.11", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
@@ -45,6 +46,9 @@ futures-util = "0.3"
 parking_lot = "0.12"
 log = "0.4"
 
+# Cross-platform native audio output and hardware-clock adapter.
+cpal = "0.18.2"
+
 # Native GPU rendering via wgpu
 wgpu = "24.0"
 bytemuck = { version = "1.21", features = ["derive"] }
@@ -66,4 +70,3 @@ sha2 = "0.10"
 
 [dev-dependencies]
 proptest = "1"
-

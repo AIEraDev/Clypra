@@ -28,6 +28,40 @@ describe("PlaybackClock — Deep Edge Cases & Frame Rate Precision", () => {
       clock.seek(Infinity);
       expect(clock.time).toBe(0.0);
     });
+
+    it("accepts a bounded native clock sample without changing the public clock API", () => {
+      clock.setNativeClockPosition(12.5);
+      expect(clock.time).toBe(12.5);
+      expect(clock.hasNativeClockPosition).toBe(true);
+
+      clock.setNativeClockPosition(999);
+      expect(clock.time).toBe(100);
+
+      clock.clearNativeClockPosition();
+      expect(clock.time).toBe(100);
+      expect(clock.hasNativeClockPosition).toBe(false);
+    });
+
+    it("pauses at the native audio position instead of the stale browser clock", () => {
+      clock.play();
+      clock.setNativeClockPosition(12.5);
+
+      clock.pause();
+
+      expect(clock.time).toBe(12.5);
+      expect(clock.state).toBe("paused");
+    });
+
+    it("does not create or consult Web Audio when native clock authority is enabled", () => {
+      clock.setNativeClockAuthority(true);
+      clock.play();
+
+      expect(clock.isNativeClockAuthority).toBe(true);
+      expect((clock as any)._audioContext).toBeNull();
+
+      clock.setNativeClockPosition(12.5);
+      expect(clock.time).toBeCloseTo(12.5, 3);
+    });
   });
 
   // ─── 2. SPEED MULTIPLIERS & TIME REMAPPING ───────────────────────────────

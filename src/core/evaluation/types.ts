@@ -126,7 +126,12 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
   readonly stickerSourceId?: string;
 
   /** Active color filter on this layer */
-  readonly filter?: { id: string; name: string; intensity: number };
+  readonly filter?: {
+    id: string;
+    name: string;
+    intensity: number;
+    gradingParams?: import("@clypra-studio/engine").GradingParams;
+  };
 
   /** Layout parameters for the clip fitting/cropping/transforming */
   readonly layout?: any;
@@ -134,6 +139,8 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
   /** Professional conform settings */
   readonly conform?: import("@clypra-studio/engine").ClipConform;
   readonly adjustments?: import("@clypra-studio/engine").ColorAdjustments;
+  /** Native-capable clip color grade and LUT binding. */
+  readonly colorGrade?: import("@/types/compositor").ColorGradeUniforms;
 
   /** Dimensions of the original source media file */
   readonly sourceWidth?: number;
@@ -375,6 +382,7 @@ export interface EvaluatedScene {
     id: string;
     name: string;
     intensity: number;
+    gradingParams?: import("@clypra-studio/engine").GradingParams;
     pipeline?: "v2";
     effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
   };

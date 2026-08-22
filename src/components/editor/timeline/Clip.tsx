@@ -2,17 +2,24 @@ import React, { useState, useEffect, useRef } from "react";
 import { Sparkles } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
-import { getPlaybackClock, useTransportControls } from "@/hooks/usePlaybackClock";
+import {
+  getPlaybackClock,
+  useTransportControls,
+} from "@/hooks/usePlaybackClock";
 import type { Clip as ClipType, MediaAsset } from "@/types";
 import { ClipFilmstrip } from "./ClipFilmstrip";
 import { TimelineWaveform } from "./TimelineWaveform";
+import { VolumeWaveform } from "./VolumeWaveform";
 import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-import { timeToPixel } from "@/lib/timeline/timelineViewport";
+import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 
-const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
+const isExternalOrDataUrl = (value: string) =>
+  value.startsWith("data:") ||
+  value.startsWith("http") ||
+  value.startsWith("asset://");
 
 const resolveMediaSrc = (path: string) => {
   if (!path) return "";
@@ -21,24 +28,30 @@ const resolveMediaSrc = (path: string) => {
 
 /** Movement past this (px) starts a clip drag; below it, release is still a click (selection set on pointerDown). */
 const DRAG_THRESHOLD_PX = 6;
-/** Set to true to enable resize operation tracing in console */
-const RESIZE_TRACE = false;
 const MAX_STILL_CLIP_DURATION_SEC = 60 * 60; // 1 hour guardrail for stills
 const MIN_TRIM_DURATION_SEC = 1;
 const SNAP_THRESHOLD_SECONDS = 0.1; // Snap when within 100ms
-const traceResize = (...args: unknown[]) => {
-  if (!RESIZE_TRACE) return;
-  console.log("[RESIZE]", ...args);
-};
 
 interface ClipProps {
   clip: ClipType;
   mediaAsset?: MediaAsset;
   pixelsPerSecond: number;
+  trackHeightPx?: number;
   selected?: boolean;
   locked?: boolean;
-  onDragStart?: (clipId: string, startX: number, startY: number, pointerOffsetFromLeft?: number) => void;
-  onDragMove?: (clipId: string, deltaX: number, deltaY: number, clientX: number, clientY: number) => void;
+  onDragStart?: (
+    clipId: string,
+    startX: number,
+    startY: number,
+    pointerOffsetFromLeft?: number,
+  ) => void;
+  onDragMove?: (
+    clipId: string,
+    deltaX: number,
+    deltaY: number,
+    clientX: number,
+    clientY: number,
+  ) => void;
   onDragEnd?: (clipId: string) => void;
   isBeingShifted?: boolean;
   dragState?: {
@@ -49,7 +62,19 @@ interface ClipProps {
   };
 }
 
-const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, selected, locked = false, onDragStart, onDragMove, onDragEnd, isBeingShifted = false, dragState }) => {
+const ClipInner: React.FC<ClipProps> = ({
+  clip,
+  mediaAsset,
+  pixelsPerSecond,
+  trackHeightPx = 80,
+  selected,
+  locked = false,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+  isBeingShifted = false,
+  dragState,
+}) => {
   const selectClip = useUIStore((s) => s.selectClip);
   const toggleClipSelection = useUIStore((s) => s.toggleClipSelection);
   // PERF-4 fix: granular selectors prevent all clips re-rendering on every scroll/clip change
@@ -63,10 +88,25 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
 
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const [isHovered, setIsHovered] = useState(false);
-  const resizeStartRef = useRef<{ x: number; startTime: number; duration: number; trimIn: number; trimOut: number; isRipple: boolean } | null>(null);
+  const resizeStartRef = useRef<{
+    x: number;
+    startTime: number;
+    duration: number;
+    trimIn: number;
+    trimOut: number;
+    isRipple: boolean;
+  } | null>(null);
   const [isRippleResize, setIsRippleResize] = useState(false);
   const clipRef = useRef<HTMLDivElement>(null);
-  const dragStartRef = useRef<{ startX: number; startY: number; startTime: number; hasMoved: boolean; hasDragStarted: boolean; pointerId: number; pointerOffsetFromLeft?: number } | null>(null);
+  const dragStartRef = useRef<{
+    startX: number;
+    startY: number;
+    startTime: number;
+    hasMoved: boolean;
+    hasDragStarted: boolean;
+    pointerId: number;
+    pointerOffsetFromLeft?: number;
+  } | null>(null);
   const isPointerOnResizeHandle = (target: EventTarget | null) => {
     const el = target as HTMLElement | null;
     if (!el) return false;
@@ -77,25 +117,12 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
   const left = timeToPixel(clip.startTime, pixelsPerSecond);
   const right = timeToPixel(clip.startTime + clip.duration, pixelsPerSecond);
   const width = right - left;
-
-
-
-  // Log clip renders during resize for debugging
-  useEffect(() => {
-    if (isResizing) {
-      traceResize("🔄 CLIP RENDER", {
-        clipId: clip.id,
-        currentState: {
-          startTime: clip.startTime,
-          duration: clip.duration,
-          trimIn: clip.trimIn,
-          trimOut: clip.trimOut,
-        },
-        displayDimensions: { left, width },
-        isResizing,
-      });
-    }
-  });
+  const clipMetaRowHeightPx = 20;
+  const clipAudioRowHeightPx = 16;
+  const clipFilmstripHeightPx = Math.max(
+    1,
+    trackHeightPx - clipMetaRowHeightPx - clipAudioRowHeightPx,
+  );
 
   // Apply drag offset if dragging
   const isDragging = dragState?.isDragging || false;
@@ -106,7 +133,8 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
   // Handle pointer-based drag
   const handlePointerDown = (e: React.PointerEvent) => {
     // Ignore if locked, resizing, or not left button
-    if (locked || isResizing || (e.button !== 0 && e.pointerType === "mouse")) return;
+    if (locked || isResizing || (e.button !== 0 && e.pointerType === "mouse"))
+      return;
 
     // Check if clicking resize handle
     if (isPointerOnResizeHandle(e.target)) {
@@ -120,7 +148,9 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
 
     // Select on press so a real click always selects; drag only starts after DRAG_THRESHOLD_PX.
     const isMultiKey = e.shiftKey || e.metaKey || e.ctrlKey;
-    const alreadySelected = useUIStore.getState().selectedClipIds.includes(clip.id);
+    const alreadySelected = useUIStore
+      .getState()
+      .selectedClipIds.includes(clip.id);
     if (isMultiKey) {
       toggleClipSelection(clip.id);
     } else if (!alreadySelected) {
@@ -155,13 +185,22 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     const deltaY = e.clientY - dragStartRef.current.startY;
 
     // Mark as moved if threshold exceeded
-    if (!dragStartRef.current.hasMoved && (Math.abs(deltaX) > DRAG_THRESHOLD_PX || Math.abs(deltaY) > DRAG_THRESHOLD_PX)) {
+    if (
+      !dragStartRef.current.hasMoved &&
+      (Math.abs(deltaX) > DRAG_THRESHOLD_PX ||
+        Math.abs(deltaY) > DRAG_THRESHOLD_PX)
+    ) {
       dragStartRef.current.hasMoved = true;
       if (!dragStartRef.current.hasDragStarted) {
         dragStartRef.current.hasDragStarted = true;
 
         // Pass original pointer-down values - NEVER recompute the anchor
-        onDragStart?.(clip.id, dragStartRef.current.startX, dragStartRef.current.startY, dragStartRef.current.pointerOffsetFromLeft);
+        onDragStart?.(
+          clip.id,
+          dragStartRef.current.startX,
+          dragStartRef.current.startY,
+          dragStartRef.current.pointerOffsetFromLeft,
+        );
 
         return;
       }
@@ -198,11 +237,9 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     e.stopPropagation();
     e.preventDefault();
     if (e.button !== 0 && e.pointerType === "mouse") {
-      traceResize("❌ handleResizeStart BLOCKED - not left button", { button: e.button });
       return;
     }
     if (locked) {
-      traceResize("❌ handleResizeStart BLOCKED - track locked");
       return;
     }
 
@@ -210,29 +247,12 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
 
     // Let's check if ripple mode is active (Shift key OR global ripple mode enabled)
     const isRipple = e.shiftKey || rippleEditEnabled;
-    traceResize("✅ handleResizeStart INITIATED", {
-      clipId: clip.id,
-      side,
-      pointerId: e.pointerId,
-      button: e.button,
-      clientX: e.clientX,
-      isRipple,
-      selected,
-      locked,
-      currentClipState: {
-        startTime: clip.startTime,
-        duration: clip.duration,
-        trimIn: clip.trimIn,
-        trimOut: clip.trimOut,
-      },
-    });
     resizePointerIdRef.current = e.pointerId;
     activeResizeHandleRef.current = e.currentTarget as HTMLElement;
     try {
       activeResizeHandleRef.current.setPointerCapture(e.pointerId);
-      traceResize("  ✓ Pointer capture set");
-    } catch (err) {
-      traceResize("  ⚠ Pointer capture failed", err);
+    } catch {
+      // ignore
     }
 
     setIsResizing(side);
@@ -245,44 +265,17 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
       trimOut: clip.trimOut,
       isRipple,
     };
-    traceResize("  ✓ resizeStartRef set", resizeStartRef.current);
-    traceResize("  ✓ setIsResizing called with", side);
 
     // Let's prevent text selection during resize
     document.body.style.userSelect = "none";
   };
 
   useEffect(() => {
-    if (!RESIZE_TRACE) return;
-    const onDocPointerDownCapture = (e: PointerEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      const handle = target.closest("[data-clip-resize-handle='true']") as HTMLElement | null;
-      if (!handle) return;
-      traceResize("document pointerdown-capture hit resize handle", {
-        clipId: clip.id,
-        pointerId: e.pointerId,
-        button: e.button,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        handleTestId: handle.getAttribute("data-testid"),
-        handleAttr: handle.getAttribute("data-clip-resize-handle"),
-      });
-    };
-    document.addEventListener("pointerdown", onDocPointerDownCapture, true);
-    return () => {
-      document.removeEventListener("pointerdown", onDocPointerDownCapture, true);
-    };
-  }, [clip.id]);
-
-  useEffect(() => {
     const initialResizeStart = resizeStartRef.current;
     if (!isResizing) {
-      traceResize("⏸ useEffect: isResizing is null, skipping effect setup");
       return;
     }
     if (!initialResizeStart) {
-      traceResize("❌ useEffect: resizeStartRef.current is null! Effect cannot proceed");
       return;
     }
 
@@ -294,45 +287,28 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     const clipId = clip.id;
     const trackId = clip.trackId;
 
-    traceResize("🚀 useEffect: RESIZE EFFECT SETUP STARTING", {
-      clipId,
-      trackId,
-      side: isResizing,
-      pointerId: resizePointerIdRef.current,
-      resizeStart: initialResizeStart,
-      effectDeps: { pixelsPerSecond, mediaAsset: !!mediaAsset, rippleEditEnabled, snapEnabled },
-    });
-
     const handlePointerMove = (e: PointerEvent) => {
-      if (resizePointerIdRef.current !== null && e.pointerId !== resizePointerIdRef.current) {
-        traceResize("⏭ pointermove IGNORED - pointer ID mismatch", {
-          expected: resizePointerIdRef.current,
-          actual: e.pointerId,
-        });
+      if (
+        resizePointerIdRef.current !== null &&
+        e.pointerId !== resizePointerIdRef.current
+      ) {
         return;
       }
       const resizeStart = resizeStartRef.current;
       if (!resizeStart) {
-        traceResize("❌ pointermove BLOCKED - resizeStartRef.current is null!");
         return;
       }
       const deltaX = e.clientX - resizeStart.x;
-      const deltaTime = deltaX / pixelsPerSecond;
+      const deltaTime = pixelToTime(deltaX, pixelsPerSecond);
+
       const isRippleActive = e.shiftKey || rippleEditEnabled;
 
-      traceResize("📍 pointermove", {
-        clipId,
-        clientX: e.clientX,
-        deltaX,
-        deltaTime,
-        resizeStart: { ...resizeStart },
-        isRippleActive,
-      });
-
-      // BUG-3 fix: read clips from store snapshot instead of stale closure
+      // read clips from store snapshot instead of stale closure
       const storeState = useTimelineStore.getState();
       const liveClips = storeState.clips;
-      const trackClips = liveClips.filter((c) => c.trackId === trackId && c.id !== clipId);
+      const trackClips = liveClips.filter(
+        (c) => c.trackId === trackId && c.id !== clipId,
+      );
       const allClips = liveClips.filter((c) => c.id !== clipId);
 
       const prevClipEnd = trackClips.reduce((maxEnd, c) => {
@@ -341,20 +317,30 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
         return maxEnd;
       }, 0);
       const nextClipStart = trackClips.reduce((minStart, c) => {
-        if (c.startTime >= resizeStart.startTime + resizeStart.duration - 1e-6) return Math.min(minStart, c.startTime);
+        if (c.startTime >= resizeStart.startTime + resizeStart.duration - 1e-6)
+          return Math.min(minStart, c.startTime);
         return minStart;
       }, Number.POSITIVE_INFINITY);
 
       // Snap detection logic
       let snappedTime: number | null = null;
-      let snapGuides: Array<{ time: number; type: "clip-start" | "clip-end" | "playhead" }> = [];
+      let snapGuides: Array<{
+        time: number;
+        type: "clip-start" | "clip-end" | "playhead";
+      }> = [];
 
       if (snapEnabled) {
         // Calculate the edge time we're moving
-        const currentEdgeTime = isResizing === "left" ? resizeStart.startTime + deltaTime : resizeStart.startTime + resizeStart.duration + deltaTime;
+        const currentEdgeTime =
+          isResizing === "left"
+            ? resizeStart.startTime + deltaTime
+            : resizeStart.startTime + resizeStart.duration + deltaTime;
 
         // Build snap candidates
-        const snapCandidates: Array<{ time: number; type: "clip-start" | "clip-end" | "playhead" }> = [];
+        const snapCandidates: Array<{
+          time: number;
+          type: "clip-start" | "clip-end" | "playhead";
+        }> = [];
 
         // Read playhead time imperatively (no subscription - only read when actually needed during resize)
         // This avoids re-rendering all clips on every playback frame
@@ -367,7 +353,10 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
         // Add all other clip edges (across all tracks for professional alignment)
         for (const c of allClips) {
           snapCandidates.push({ time: c.startTime, type: "clip-start" });
-          snapCandidates.push({ time: c.startTime + c.duration, type: "clip-end" });
+          snapCandidates.push({
+            time: c.startTime + c.duration,
+            type: "clip-end",
+          });
         }
 
         // Find closest snap point
@@ -395,24 +384,8 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
         clearSnapGuides();
       }
 
-      traceResize("pointermove", {
-        clipId: clip.id,
-        side: isResizing,
-        pointerId: e.pointerId,
-        clientX: e.clientX,
-        deltaX,
-        deltaTime,
-        ripple: isRippleActive,
-        snappedTime,
-      });
-
       if (isRippleActive) {
         // RIPPLE MODE: Shift downstream clips
-        traceResize("apply-ripple-trim", {
-          clipId,
-          side: isResizing,
-          deltaTime,
-        });
         rippleTrimClip(clipId, isResizing, deltaTime);
 
         // Update resizeStart to track cumulative changes
@@ -429,7 +402,8 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           if (isResizing === "left") {
             adjustedDeltaTime = snappedTime - resizeStart.startTime;
           } else {
-            adjustedDeltaTime = snappedTime - (resizeStart.startTime + resizeStart.duration);
+            adjustedDeltaTime =
+              snappedTime - (resizeStart.startTime + resizeStart.duration);
           }
         }
 
@@ -437,22 +411,35 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           // Resize from left (trim in)
           const minDuration = MIN_TRIM_DURATION_SEC;
           const isStill = !mediaAsset || mediaAsset.type === "image";
-          const maxMediaTime = isStill ? MAX_STILL_CLIP_DURATION_SEC : (mediaAsset?.duration ?? resizeStart.trimOut);
+          const maxMediaTime = isStill
+            ? MAX_STILL_CLIP_DURATION_SEC
+            : (mediaAsset?.duration ?? resizeStart.trimOut);
           const maxTrimIn = Math.min(maxMediaTime, resizeStart.trimOut - 0.001);
 
           // Calculate minimum start time (collision with previous clip or timeline start)
           const minStartTimeByPrevClip = prevClipEnd;
           const minStartTimeByTimeline = 0;
-          const minStartTime = Math.max(minStartTimeByPrevClip, minStartTimeByTimeline);
+          const minStartTime = Math.max(
+            minStartTimeByPrevClip,
+            minStartTimeByTimeline,
+          );
 
           // Calculate maximum start time (maintain minimum duration and media bounds)
-          const maxStartTimeByDuration = resizeStart.startTime + resizeStart.duration - minDuration;
-          const maxStartTimeByMedia = resizeStart.startTime + (maxTrimIn - resizeStart.trimIn);
-          const maxStartTime = Math.min(maxStartTimeByDuration, maxStartTimeByMedia);
+          const maxStartTimeByDuration =
+            resizeStart.startTime + resizeStart.duration - minDuration;
+          const maxStartTimeByMedia =
+            resizeStart.startTime + (maxTrimIn - resizeStart.trimIn);
+          const maxStartTime = Math.min(
+            maxStartTimeByDuration,
+            maxStartTimeByMedia,
+          );
 
           // Calculate desired start time with snap adjustment, then clamp to valid range
           const desiredStartTime = resizeStart.startTime + adjustedDeltaTime;
-          const newStartTime = Math.max(minStartTime, Math.min(desiredStartTime, maxStartTime));
+          const newStartTime = Math.max(
+            minStartTime,
+            Math.min(desiredStartTime, maxStartTime),
+          );
 
           // Calculate new duration and trimIn based on the new start time
           const clipEndTime = resizeStart.startTime + resizeStart.duration;
@@ -460,63 +447,57 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
           const startTimeDelta = newStartTime - resizeStart.startTime;
           const newTrimIn = resizeStart.trimIn + startTimeDelta;
 
-          traceResize("💾 CALLING updateClip (left trim)", {
-            clipId,
-            updates: {
-              startTime: newStartTime,
-              duration: newDuration,
-              trimIn: newTrimIn,
-            },
-            oldValues: {
-              startTime: resizeStart.startTime,
-              duration: resizeStart.duration,
-              trimIn: resizeStart.trimIn,
-            },
-          });
           updateClip(clipId, {
             startTime: newStartTime,
             duration: newDuration,
             trimIn: newTrimIn,
           });
-          traceResize("  ✓ updateClip called successfully");
         } else {
           // Resize from right (trim out)
           const minDuration = MIN_TRIM_DURATION_SEC;
           const isStill = !mediaAsset || mediaAsset.type === "image";
-          const maxMediaTime = isStill ? MAX_STILL_CLIP_DURATION_SEC : (mediaAsset?.duration ?? resizeStart.trimOut);
-          const maxDurationByMedia = Math.max(minDuration, maxMediaTime - resizeStart.trimIn);
-          const maxDurationByNextClip = Number.isFinite(nextClipStart) ? Math.max(minDuration, nextClipStart - resizeStart.startTime) : Number.POSITIVE_INFINITY;
-          const maxDuration = Math.min(maxDurationByMedia, maxDurationByNextClip);
+          const maxMediaTime = isStill
+            ? MAX_STILL_CLIP_DURATION_SEC
+            : (mediaAsset?.duration ?? resizeStart.trimOut);
+          const maxDurationByMedia = Math.max(
+            minDuration,
+            maxMediaTime - resizeStart.trimIn,
+          );
+          const maxDurationByNextClip = Number.isFinite(nextClipStart)
+            ? Math.max(minDuration, nextClipStart - resizeStart.startTime)
+            : Number.POSITIVE_INFINITY;
+          const maxDuration = Math.min(
+            maxDurationByMedia,
+            maxDurationByNextClip,
+          );
 
           const desiredDuration = resizeStart.duration + adjustedDeltaTime;
-          const newDuration = Math.max(minDuration, Math.min(desiredDuration, maxDuration));
+          const newDuration = Math.max(
+            minDuration,
+            Math.min(desiredDuration, maxDuration),
+          );
           const unclampedTrimOut = resizeStart.trimIn + newDuration;
-          const newTrimOut = isStill ? unclampedTrimOut : Math.min(unclampedTrimOut, maxMediaTime);
+          const newTrimOut = isStill
+            ? unclampedTrimOut
+            : Math.min(unclampedTrimOut, maxMediaTime);
 
-          traceResize("💾 CALLING updateClip (right trim)", {
-            clipId,
-            updates: {
-              duration: newDuration,
-              trimOut: newTrimOut,
-            },
-            oldValues: {
-              duration: resizeStart.duration,
-              trimOut: resizeStart.trimOut,
-            },
-          });
           updateClip(clipId, {
             duration: newDuration,
             trimOut: newTrimOut,
           });
-          traceResize("  ✓ updateClip called successfully");
         }
       }
     };
 
     const finishResize = () => {
-      if (activeResizeHandleRef.current && resizePointerIdRef.current !== null) {
+      if (
+        activeResizeHandleRef.current &&
+        resizePointerIdRef.current !== null
+      ) {
         try {
-          activeResizeHandleRef.current.releasePointerCapture(resizePointerIdRef.current);
+          activeResizeHandleRef.current.releasePointerCapture(
+            resizePointerIdRef.current,
+          );
         } catch {
           // Ignore when capture is already released.
         }
@@ -537,22 +518,20 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     };
 
     const handlePointerUp = (e: PointerEvent) => {
-      if (resizePointerIdRef.current !== null && e.pointerId !== resizePointerIdRef.current) return;
-      traceResize("pointerup", {
-        clipId,
-        side: isResizing,
-        pointerId: e.pointerId,
-      });
+      if (
+        resizePointerIdRef.current !== null &&
+        e.pointerId !== resizePointerIdRef.current
+      )
+        return;
       finishResize();
     };
 
     const handlePointerCancel = (e: PointerEvent) => {
-      if (resizePointerIdRef.current !== null && e.pointerId !== resizePointerIdRef.current) return;
-      traceResize("pointercancel", {
-        clipId,
-        side: isResizing,
-        pointerId: e.pointerId,
-      });
+      if (
+        resizePointerIdRef.current !== null &&
+        e.pointerId !== resizePointerIdRef.current
+      )
+        return;
       finishResize();
     };
 
@@ -560,22 +539,22 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     document.addEventListener("pointerup", handlePointerUp);
     document.addEventListener("pointercancel", handlePointerCancel);
 
-    traceResize("  ✅ Document event listeners ATTACHED", {
-      clipId,
-      side: isResizing,
-      listeners: ["pointermove", "pointerup", "pointercancel"],
-    });
-
     return () => {
-      traceResize("🧹 useEffect: CLEANUP - removing document event listeners", {
-        clipId,
-        side: isResizing,
-      });
       document.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("pointerup", handlePointerUp);
       document.removeEventListener("pointercancel", handlePointerCancel);
     };
-  }, [isResizing, pixelsPerSecond, mediaAsset, updateClip, rippleEditEnabled, rippleTrimClip, snapEnabled, setSnapGuides, clearSnapGuides]);
+  }, [
+    isResizing,
+    pixelsPerSecond,
+    mediaAsset,
+    updateClip,
+    rippleEditEnabled,
+    rippleTrimClip,
+    snapEnabled,
+    setSnapGuides,
+    clearSnapGuides,
+  ]);
 
   const formatDuration = (seconds: number) => {
     if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
@@ -586,7 +565,15 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
     return `00:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}:00`;
   };
 
-  const inferredKind = clip.kind ?? ("text" in clip || clip.id.startsWith("text-clip-") ? "text" : clip.mediaId.startsWith("sticker-") ? "sticker" : clip.id.startsWith("filter-clip-") ? "filter" : mediaAsset?.type);
+  const inferredKind =
+    clip.kind ??
+    ("text" in clip || clip.id.startsWith("text-clip-")
+      ? "text"
+      : clip.mediaId.startsWith("sticker-")
+        ? "sticker"
+        : clip.id.startsWith("filter-clip-")
+          ? "filter"
+          : mediaAsset?.type);
 
   const isSticker = inferredKind === "sticker";
   const isClipText = inferredKind === "text";
@@ -605,7 +592,13 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
   const isTitle = textRole === "title";
 
   const getClipStyle = () => {
-    if (isClipFilter || isClipVideoEffect || isClipBodyEffect || isClipAnimatedOverlay) return "bg-violet-600/30 border border-violet-500/50 hover:bg-violet-600/40 text-violet-100";
+    if (
+      isClipFilter ||
+      isClipVideoEffect ||
+      isClipBodyEffect ||
+      isClipAnimatedOverlay
+    )
+      return "bg-violet-600/30 border border-violet-500/50 hover:bg-violet-600/40 text-violet-100";
     if (isSticker) return "bg-[#d97706] text-white"; // Orange-amber for stickers
     if (isClipText) {
       // Differentiate captions (purple) from titles (orange)
@@ -622,13 +615,57 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
   };
 
   const getClipBackgroundStyle = () => {
-    if (isClipFilter || isClipVideoEffect || isClipBodyEffect || isClipAnimatedOverlay) return { backgroundColor: "rgba(124, 58, 237, 0.3)" }; // Same violet for all effects
+    if (
+      isClipFilter ||
+      isClipVideoEffect ||
+      isClipBodyEffect ||
+      isClipAnimatedOverlay
+    )
+      return { backgroundColor: "rgba(124, 58, 237, 0.3)" }; // Same violet for all effects
     if (isSticker) return { backgroundColor: "#d97706" }; // Amber/yellow tone matching user screenshot
     if (isClipText) return {}; // Text clips use className colors
-    if (isClipAudio) return { backgroundColor: "var(--color-timeline-clip-audio)" };
+    if (isClipAudio)
+      return { backgroundColor: "var(--color-timeline-clip-audio)" };
     if (isClipVideo) return { backgroundColor: "var(--color-accent)" };
-    if (isClipImage) return { backgroundColor: "var(--color-timeline-clip-video)" };
+    if (isClipImage)
+      return { backgroundColor: "var(--color-timeline-clip-video)" };
     return { backgroundColor: "var(--color-accent)" }; // Fallback
+  };
+
+  // Returns a darkened version of the clip's background for trim handle knobs.
+  // Hex/rgba colors are darkened directly; CSS variables are wrapped in
+  // color-mix() so the handle always reads as a darker shade of the clip body.
+  const getHandleBackgroundStyle = (): React.CSSProperties => {
+    if (
+      isClipFilter ||
+      isClipVideoEffect ||
+      isClipBodyEffect ||
+      isClipAnimatedOverlay
+    )
+      return { backgroundColor: "rgba(80, 30, 180, 0.85)" };
+    if (isSticker) return { backgroundColor: "#92500a" };
+    if (isClipText) {
+      if (isCaption) return { backgroundColor: "#5b1fa8" };
+      return { backgroundColor: "#9a3610" };
+    }
+    if (isClipAudio)
+      return {
+        backgroundColor:
+          "color-mix(in srgb, var(--color-timeline-clip-audio) 60%, black 40%)",
+      };
+    if (isClipVideo)
+      return {
+        backgroundColor:
+          "color-mix(in srgb, var(--color-accent) 55%, black 45%)",
+      };
+    if (isClipImage)
+      return {
+        backgroundColor:
+          "color-mix(in srgb, var(--color-timeline-clip-video) 55%, black 45%)",
+      };
+    return {
+      backgroundColor: "color-mix(in srgb, var(--color-accent) 55%, black 45%)",
+    };
   };
 
   return (
@@ -655,8 +692,12 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
         zIndex: isDragging ? 100 : 1,
         boxShadow: "none",
         transformOrigin: isDragging ? "0 0" : undefined,
-        transform: isDragging ? `translateY(${dragState?.offsetY ?? 0}px)` : "none",
-        border: isInvalidPosition ? "2px solid var(--color-timeline-clip-invalid)" : undefined,
+        transform: isDragging
+          ? `translateY(${dragState?.offsetY ?? 0}px)`
+          : "none",
+        border: isInvalidPosition
+          ? "2px solid var(--color-timeline-clip-invalid)"
+          : undefined,
         ...getClipBackgroundStyle(),
       }}
     >
@@ -664,114 +705,199 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
       <div
         data-testid={`clip-${clip.id}-resize-left`}
         data-clip-resize-handle="true"
-        className={`absolute left-0 top-0 w-3 h-full z-30 cursor-col-resize ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"} ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-white/25 hover:bg-white/35"} transition-colors`}
+        className={`group/resize absolute left-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${showResizeHandles ? "opacity-100 pointer-events-auto" : "pointer-events-none"} ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
-          traceResize("left-handle pointerdown", {
-            clipId: clip.id,
-            pointerId: e.pointerId,
-            button: e.button,
-            clientX: e.clientX,
-            clientY: e.clientY,
-            rippleEditEnabled,
-            shiftKey: e.shiftKey,
-          });
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "left");
         }}
-        title={rippleEditEnabled ? "Ripple trim (Shift to disable)" : "Normal trim (Shift for ripple)"}
+        title={
+          rippleEditEnabled
+            ? "Ripple trim (Shift to disable)"
+            : "Normal trim (Shift for ripple)"
+        }
       >
-        <div className="absolute left-[5px] top-1/2 h-[70%] w-[2px] -translate-y-1/2 rounded bg-white/90" />
+        <div
+          className="pointer-events-none absolute inset-y-0 left-0 flex h-full w-2 flex-col items-center justify-center gap-1 rounded-r border border-l-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
+          style={getHandleBackgroundStyle()}
+        >
+          <span className="h-px w-1 bg-white/70" />
+          <span className="h-px w-1 bg-white/70" />
+          <span className="h-px w-1 bg-white/70" />
+        </div>
       </div>
 
       {/* Clip content */}
       {clip.kind === "text" ? (
         <div className="relative flex h-full w-full items-center px-3">
           {/* Icon badge for text role differentiation */}
-          {(isCaption || isTitle) && <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-black/30 px-1.5 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm">{isCaption ? "CC" : "T"}</div>}
-          <div className="text-[12px] text-white/95 font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">{(clip as any).text || "Default text"}</div>
+          {(isCaption || isTitle) && (
+            <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-black/30 px-1.5 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm">
+              {isCaption ? "CC" : "T"}
+            </div>
+          )}
+          <div className="text-[12px] text-white/95 font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">
+            {(clip as any).text || "Default text"}
+          </div>
         </div>
       ) : isClipFilter ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-violet-600/60 border border-white/10 flex items-center justify-center backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || "Filter"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">
+            {clip.name || "Filter"}
+          </span>
         </div>
       ) : isClipVideoEffect ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-violet-600/60 border border-white/10 flex items-center justify-center backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || "Video Effect"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">
+            {clip.name || "Video Effect"}
+          </span>
         </div>
       ) : isClipBodyEffect ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-violet-600/60 border border-white/10 flex items-center justify-center backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || "Body Effect"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">
+            {clip.name || "Body Effect"}
+          </span>
         </div>
       ) : isClipAnimatedOverlay ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-violet-600/60 border border-white/10 flex items-center justify-center backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-[10px] font-bold text-white/90 truncate">{clip.name || "Overlay"}</span>
+          <span className="text-[10px] font-bold text-white/90 truncate">
+            {clip.name || "Overlay"}
+          </span>
         </div>
       ) : isSticker ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
-          {mediaAsset?.path ? <img src={resolveMediaSrc(mediaAsset.path)} alt="" className="w-5 h-5 object-contain filter brightness-0 invert opacity-90 shrink-0" draggable={false} /> : <div className="w-5 h-5 flex items-center justify-center text-xs shrink-0">🎨</div>}
-          <span className="text-[10px] font-bold text-white/90 truncate">{mediaAsset?.name || "Sticker"}</span>
+          {mediaAsset?.path ? (
+            <img
+              src={resolveMediaSrc(mediaAsset.path)}
+              alt=""
+              className="w-5 h-5 object-contain filter brightness-0 invert opacity-90 shrink-0"
+              draggable={false}
+            />
+          ) : (
+            <div className="w-5 h-5 flex items-center justify-center text-xs shrink-0">
+              🎨
+            </div>
+          )}
+          <span className="text-[10px] font-bold text-white/90 truncate">
+            {mediaAsset?.name || "Sticker"}
+          </span>
         </div>
       ) : (
-        <div className="flex h-full min-h-0 w-full flex-col gap-1 overflow-hidden px-1 py-1">
-          <div className="flex shrink-0 items-center gap-3">
-            <div className="text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text truncate">{mediaAsset?.name || "Clip"}</div>
-            <div className="text-[9px] font-medium text-timeline-clip-duration shrink-0">{formatDuration(clip.duration)}</div>
+        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+          {/* CapCut-style hierarchy: metadata, visual strip, then audio strip. */}
+          <div className="flex h-5 shrink-0 items-center gap-3 border-b border-black/20 bg-black/15 px-1.5">
+            <div className="min-w-0 truncate text-[10px] font-semibold tracking-[0.01em] text-timeline-clip-text">
+              {mediaAsset?.name || "Clip"}
+            </div>
+            <div className="shrink-0 text-[10px] font-medium text-timeline-clip-duration">
+              {formatDuration(clip.duration)}
+            </div>
           </div>
-          {mediaAsset && (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
-            <div className="flex min-h-0 w-full flex-1 items-center">
-              <ClipFilmstrip className="w-full shrink-0" clip={clip} mediaAsset={mediaAsset} clipWidthPx={width} pixelsPerSecond={pixelsPerSecond} stripHeightPx={40} />
+          {mediaAsset &&
+          (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-hidden bg-black/10">
+                <ClipFilmstrip
+                  className="h-full w-full"
+                  clip={clip}
+                  mediaAsset={mediaAsset}
+                  clipWidthPx={width}
+                  pixelsPerSecond={pixelsPerSecond}
+                  stripHeightPx={clipFilmstripHeightPx}
+                />
+              </div>
+              {mediaAsset.type === "video" && mediaAsset.path && (
+                <div
+                  data-testid="clip-audio-waveform"
+                  className="h-4 shrink-0 border-t border-black/20 bg-black/20 px-0.5"
+                >
+                  <VolumeWaveform
+                    audioPath={(clip as any).audioPath || mediaAsset.path}
+                    clipWidthPx={width}
+                    duration={clip.duration}
+                    trimIn={clip.trimIn}
+                    trimOut={clip.trimOut}
+                    volume={clip.volume}
+                    volumeKeyframes={clip.volumeKeyframes}
+                    fadeIn={clip.fadeIn}
+                    fadeOut={clip.fadeOut}
+                    heightPx={16}
+                    className="opacity-75"
+                  />
+                </div>
+              )}
             </div>
           ) : mediaAsset?.type === "audio" || (clip as any).audioPath ? (
-            <div className="flex min-h-0 w-full flex-1 items-center">
-              <TimelineWaveform audioPath={(clip as any).audioPath || mediaAsset?.path || ""} clipWidthPx={width} duration={clip.duration} trimIn={clip.trimIn} trimOut={clip.trimOut} className="rounded-[2px]" />
+            <div className="flex min-h-0 w-full flex-1 items-center px-0.5">
+              <TimelineWaveform
+                audioPath={(clip as any).audioPath || mediaAsset?.path || ""}
+                clipWidthPx={width}
+                duration={clip.duration}
+                trimIn={clip.trimIn}
+                trimOut={clip.trimOut}
+                heightPx={40}
+                className="rounded-xs"
+              />
             </div>
           ) : mediaAsset?.posterFrame ? (
-            <img src={mediaAsset.posterFrame} alt="" className="h-8 w-full rounded-[2px] border border-black/20 object-cover" draggable={false} />
+            <img
+              src={mediaAsset.posterFrame}
+              alt=""
+              className="min-h-0 w-full flex-1 object-cover"
+              draggable={false}
+            />
           ) : (
-            <div className="h-8 w-full rounded-[2px] bg-timeline-filmstrip-empty" />
+            <div className="min-h-0 w-full flex-1 bg-timeline-filmstrip-empty" />
           )}
         </div>
       )}
 
       {/* Audio Envelope Editor - overlay for clips with audio */}
-      {(isClipAudio || isClipVideo) && <AudioEnvelopeEditor clip={clip} clipWidthPx={width} pixelsPerSecond={pixelsPerSecond} />}
+      {(isClipAudio || isClipVideo) && (
+        <AudioEnvelopeEditor
+          clip={clip}
+          clipWidthPx={width}
+          pixelsPerSecond={pixelsPerSecond}
+        />
+      )}
 
       {/* Right trim handle */}
       <div
         data-testid={`clip-${clip.id}-resize-right`}
         data-clip-resize-handle="true"
-        className={`absolute right-0 top-0 w-3 h-full z-30 cursor-col-resize ${showResizeHandles ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"} ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300/60" : "bg-cyan-300/60") : "bg-white/25 hover:bg-white/35"} transition-colors`}
+        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${showResizeHandles ? "opacity-100 pointer-events-auto" : "pointer-events-none opacity-0"} ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
-          traceResize("right-handle pointerdown", {
-            clipId: clip.id,
-            pointerId: e.pointerId,
-            button: e.button,
-            clientX: e.clientX,
-            clientY: e.clientY,
-            rippleEditEnabled,
-            shiftKey: e.shiftKey,
-          });
           e.stopPropagation(); // Prevent drag when clicking resize handle
           handleResizeStart(e, "right");
         }}
-        // BUG-6 fix: removed duplicate onMouseDown (PointerEvents sufficient for Chromium/Tauri)
-        title={rippleEditEnabled ? "Ripple trim (Shift to disable)" : "Normal trim (Shift for ripple)"}
+        // removed duplicate onMouseDown (PointerEvents sufficient for Chromium/Tauri)
+        title={
+          rippleEditEnabled
+            ? "Ripple trim (Shift to disable)"
+            : "Normal trim (Shift for ripple)"
+        }
       >
-        <div className="absolute right-[5px] top-1/2 h-[70%] w-[2px] -translate-y-1/2 rounded bg-white/90" />
+        <div
+          className="pointer-events-none absolute inset-y-0 right-0 flex h-full w-2 flex-col items-center justify-center gap-1 rounded-l border border-r-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
+          style={getHandleBackgroundStyle()}
+        >
+          <span className="h-px w-1 bg-white/70" />
+          <span className="h-px w-1 bg-white/70" />
+          <span className="h-px w-1 bg-white/70" />
+        </div>
       </div>
     </div>
   );
@@ -781,17 +907,35 @@ const ClipInner: React.FC<ClipProps> = ({ clip, mediaAsset, pixelsPerSecond, sel
 // Only re-render if actual clip data or relevant props change
 const arePropsEqual = (prevProps: ClipProps, nextProps: ClipProps) => {
   // Check if critical clip properties changed
-  if (prevProps.clip.id !== nextProps.clip.id || prevProps.clip.startTime !== nextProps.clip.startTime || prevProps.clip.duration !== nextProps.clip.duration || prevProps.clip.trimIn !== nextProps.clip.trimIn || prevProps.clip.trimOut !== nextProps.clip.trimOut || prevProps.clip.trackId !== nextProps.clip.trackId) {
+  if (
+    prevProps.clip.id !== nextProps.clip.id ||
+    prevProps.clip.startTime !== nextProps.clip.startTime ||
+    prevProps.clip.duration !== nextProps.clip.duration ||
+    prevProps.clip.trimIn !== nextProps.clip.trimIn ||
+    prevProps.clip.trimOut !== nextProps.clip.trimOut ||
+    prevProps.clip.trackId !== nextProps.clip.trackId
+  ) {
     return false;
   }
 
   // Check audio envelope properties
-  if (prevProps.clip.volume !== nextProps.clip.volume || prevProps.clip.fadeIn !== nextProps.clip.fadeIn || prevProps.clip.fadeOut !== nextProps.clip.fadeOut) {
+  if (
+    prevProps.clip.volume !== nextProps.clip.volume ||
+    prevProps.clip.fadeIn !== nextProps.clip.fadeIn ||
+    prevProps.clip.fadeOut !== nextProps.clip.fadeOut ||
+    prevProps.clip.volumeKeyframes !== nextProps.clip.volumeKeyframes
+  ) {
     return false;
   }
 
   // Check other props
-  if (prevProps.pixelsPerSecond !== nextProps.pixelsPerSecond || prevProps.selected !== nextProps.selected || prevProps.locked !== nextProps.locked || prevProps.isBeingShifted !== nextProps.isBeingShifted) {
+  if (
+    prevProps.pixelsPerSecond !== nextProps.pixelsPerSecond ||
+    prevProps.trackHeightPx !== nextProps.trackHeightPx ||
+    prevProps.selected !== nextProps.selected ||
+    prevProps.locked !== nextProps.locked ||
+    prevProps.isBeingShifted !== nextProps.isBeingShifted
+  ) {
     return false;
   }
 
@@ -803,7 +947,12 @@ const arePropsEqual = (prevProps: ClipProps, nextProps: ClipProps) => {
   // Check dragState (deep comparison of relevant fields)
   const prevDrag = prevProps.dragState;
   const nextDrag = nextProps.dragState;
-  if (prevDrag?.isDragging !== nextDrag?.isDragging || prevDrag?.offsetX !== nextDrag?.offsetX || prevDrag?.offsetY !== nextDrag?.offsetY || prevDrag?.isInvalidPosition !== nextDrag?.isInvalidPosition) {
+  if (
+    prevDrag?.isDragging !== nextDrag?.isDragging ||
+    prevDrag?.offsetX !== nextDrag?.offsetX ||
+    prevDrag?.offsetY !== nextDrag?.offsetY ||
+    prevDrag?.isInvalidPosition !== nextDrag?.isInvalidPosition
+  ) {
     return false;
   }
 

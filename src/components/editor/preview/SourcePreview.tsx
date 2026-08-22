@@ -22,7 +22,7 @@ import { AudioSourcePreview } from "./AudioSourcePreview";
 import { ImageSourcePreview } from "./ImageSourcePreview";
 import { StickerSourcePreview, type StickerSourcePreviewHandle } from "./StickerSourcePreview";
 
-const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
+const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("blob:");
 
 export const SourcePreview: React.FC = () => {
   const { sourceAsset, sourceTextPreset, sourceInPoint, sourceOutPoint, markSourceIn, markSourceOut } = useUIStore();
@@ -35,6 +35,7 @@ export const SourcePreview: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [sourceVideoError, setSourceVideoError] = useState(false);
   const sourceCtxRef = useRef<SourcePlaybackContext | null>(null);
 
   const [lottieData, setLottieData] = useState<object | null>(null);
@@ -42,9 +43,13 @@ export const SourcePreview: React.FC = () => {
 
   // Get source context from active session and bind media element
   useEffect(() => {
+    const session = getActiveSessionOrNull();
+    // Source Preview owns a separate transport/media space from Program
+    // Preview. Claim the source context before binding any HTML media element.
+    session?.transportAuthority?.setActiveContext("source");
+
     if (sourceAsset?.type === "text") return;
 
-    const session = getActiveSessionOrNull();
     const ctx = session?.sourceContext;
     if (!ctx) return;
 
@@ -72,6 +77,12 @@ export const SourcePreview: React.FC = () => {
       sourceCtxRef.current = null;
     };
   }, [sourceAsset?.id, sourceAsset?.type]);
+
+  useEffect(() => {
+    setSourceVideoError(false);
+    const assetDuration = sourceAsset?.duration;
+    setDuration(typeof assetDuration === "number" && Number.isFinite(assetDuration) && assetDuration > 0 ? assetDuration : 0);
+  }, [sourceAsset?.id, sourceAsset?.type, sourceAsset?.path]);
 
   // Virtual clock for text preview
   useEffect(() => {
@@ -166,7 +177,8 @@ export const SourcePreview: React.FC = () => {
     }
   }, [lottieDuration, sourceAsset?.path, sourceAsset?.stickerFormat]);
 
-  // Keep Lottie play state in sync with isPlaying
+  // SP-3 fix: Keep Lottie play state in sync with isPlaying without running a conflicting
+  // setInterval loop that calls goToFrame() on every tick during active playback.
   useEffect(() => {
     if (!lottiePlayerRef.current) return;
     if (isPlaying) {
@@ -175,41 +187,6 @@ export const SourcePreview: React.FC = () => {
       lottiePlayerRef.current.pause();
     }
   }, [isPlaying]);
-
-  // Virtual clock for Lottie playback
-  useEffect(() => {
-    const isLottie = sourceAsset && sourceAsset.type === "image" && (sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json"));
-    if (!isLottie) return;
-    if (!isPlaying) return;
-
-    const timer = setInterval(() => {
-      setCurrentTime((prev) => {
-        if (prev >= duration) {
-          if (lottiePlayerRef.current) {
-            lottiePlayerRef.current.goToFrame(0);
-          }
-          return 0;
-        }
-        const next = prev + 0.016;
-        if (next >= duration) {
-          if (lottiePlayerRef.current) {
-            lottiePlayerRef.current.goToFrame(0);
-          }
-          return 0;
-        }
-
-        if (lottiePlayerRef.current && lottieData) {
-          const { fr } = lottieData as any;
-          const frameRate = fr || 30;
-          lottiePlayerRef.current.goToFrame(next * frameRate);
-        }
-
-        return next;
-      });
-    }, 16);
-
-    return () => clearInterval(timer);
-  }, [isPlaying, duration, lottieData, sourceAsset?.id, sourceAsset?.path, sourceAsset?.stickerFormat]);
 
   const handleSeek = useCallback(
     (time: number) => {
@@ -234,6 +211,9 @@ export const SourcePreview: React.FC = () => {
   );
 
   const handlePlayPause = useCallback(() => {
+    const session = getActiveSessionOrNull();
+    if (session?.transportAuthority?.getActiveType() !== "source") return;
+
     if (sourceAsset?.type === "text") {
       setIsPlaying((prev) => {
         const next = !prev;
@@ -269,6 +249,7 @@ export const SourcePreview: React.FC = () => {
   }, [sourceAsset?.type, sourceAsset?.path, sourceAsset?.stickerFormat, currentTime, duration]);
 
   const handlePlayMarkedRegion = useCallback(() => {
+    if (getActiveSessionOrNull()?.transportAuthority?.getActiveType() !== "source") return;
     sourceCtxRef.current?.playMarkedRegion();
   }, []);
 
@@ -278,17 +259,18 @@ export const SourcePreview: React.FC = () => {
     sourceCtxRef.current?.clearMarks();
   }, [markSourceIn, markSourceOut]);
 
+  // SP-4 fix: Fallback to local currentTime when sourceCtxRef is not bound (e.g. for procedural text or stickers)
   const handleMarkIn = useCallback(() => {
-    const t = sourceCtxRef.current?.getTime() ?? 0;
+    const t = sourceCtxRef.current ? sourceCtxRef.current.getTime() : currentTime;
     markSourceIn(t);
     sourceCtxRef.current?.setInPoint(t);
-  }, [markSourceIn]);
+  }, [markSourceIn, currentTime]);
 
   const handleMarkOut = useCallback(() => {
-    const t = sourceCtxRef.current?.getTime() ?? 0;
+    const t = sourceCtxRef.current ? sourceCtxRef.current.getTime() : currentTime;
     markSourceOut(t);
     sourceCtxRef.current?.setOutPoint(t);
-  }, [markSourceOut]);
+  }, [markSourceOut, currentTime]);
 
   if (!sourceAsset) return null;
 
@@ -435,10 +417,11 @@ export const SourcePreview: React.FC = () => {
 
   /** Format time as HH:MM:SS:FF (frame-accurate) */
   const formatTC = (seconds: number): string => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    const f = Math.floor((seconds % 1) * 30);
+    const safeSeconds = Number.isFinite(seconds) && seconds >= 0 ? seconds : 0;
+    const h = Math.floor(safeSeconds / 3600);
+    const m = Math.floor((safeSeconds % 3600) / 60);
+    const s = Math.floor(safeSeconds % 60);
+    const f = Math.floor((safeSeconds % 1) * 30);
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}:${String(f).padStart(2, "0")}`;
   };
 
@@ -451,7 +434,7 @@ export const SourcePreview: React.FC = () => {
   const mediaLabel = sourceAsset.type === "video" ? "video" : sourceAsset.type === "audio" ? "audio" : sourceAsset.type === "text" ? "text" : "image";
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-bg">
+    <div data-preview-space="source" className="flex-1 flex flex-col min-h-0 bg-bg">
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 h-10 shrink-0 border-b border-border/50">
         <div className="flex items-baseline gap-2">
@@ -503,13 +486,42 @@ export const SourcePreview: React.FC = () => {
       <div className="flex-1 flex items-center justify-center overflow-hidden checkerboard relative">
         <div className="w-full h-full flex items-center justify-center relative z-10">
           {sourceAsset.type === "video" ? (
-            <VideoSourcePreview videoRef={videoRef} src={sourcePath} />
+            <div className="relative w-full h-full flex items-center justify-center">
+              <VideoSourcePreview
+                videoRef={videoRef}
+                src={sourcePath}
+                onLoadedMetadata={(event) => {
+                  const mediaDuration = Number(event.currentTarget.duration);
+                  if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+                    setDuration(mediaDuration);
+                  }
+                }}
+                onError={() => setSourceVideoError(true)}
+              />
+              {sourceVideoError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/55 pointer-events-none">
+                  <span className="rounded bg-black/80 px-3 py-1.5 text-xs text-red-200">Unable to load source video</span>
+                </div>
+              )}
+            </div>
           ) : sourceAsset.type === "image" ? (
             sourceAsset.stickerFormat === "lottie" || sourceAsset.path?.endsWith(".json") ? (
               lottieError ? (
                 <div className="text-red-400 text-xs">{lottieError}</div>
               ) : lottieData ? (
-                <StickerSourcePreview ref={lottiePlayerRef} lottieData={lottieData} isPlaying={isPlaying} loop={true} speed={1} className="max-w-full max-h-full" />
+                <StickerSourcePreview
+                  ref={lottiePlayerRef}
+                  lottieData={lottieData}
+                  isPlaying={isPlaying}
+                  loop={true}
+                  speed={1}
+                  onFrameChange={(frame, total) => {
+                    if (total > 0 && lottieDuration > 0) {
+                      setCurrentTime((frame / total) * lottieDuration);
+                    }
+                  }}
+                  className="max-w-full max-h-full"
+                />
               ) : (
                 <div className="text-text-muted text-xs flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -561,9 +573,24 @@ export const SourcePreview: React.FC = () => {
               )}
               <div className="w-px h-4 bg-white/10 mx-1" />
               {(() => {
-                const isAddEnabled = sourceAsset.type === "image" || hasCompleteMarks;
+                // SP-2 fix: Allow adding any valid source asset to the timeline.
+                // If In/Out marks are set, it adds the marked slice; if not, it adds the full duration.
+                const isAddEnabled = Boolean(sourceAsset);
                 return (
-                  <button onClick={handleAddToTimeline} disabled={!isAddEnabled} className={`flex items-center gap-1 px-2.5 h-6 rounded text-[10px] font-semibold transition-all ${isAddEnabled ? "bg-accent hover:bg-accent-soft text-white cursor-pointer" : "bg-text-muted/70 hover:bg-text-muted/90 text-white cursor-not-allowed"}`} title={isAddEnabled ? (sourceAsset.type === "image" ? "Add to Timeline" : `Add ${markedDuration?.toFixed(2)}s to Timeline`) : "Add to Track"}>
+                  <button
+                    onClick={handleAddToTimeline}
+                    disabled={!isAddEnabled}
+                    className={`flex items-center gap-1 px-2.5 h-6 rounded text-[10px] font-semibold transition-all ${
+                      isAddEnabled
+                        ? "bg-accent hover:bg-accent-soft text-white cursor-pointer"
+                        : "bg-text-muted/70 hover:bg-text-muted/90 text-white cursor-not-allowed"
+                    }`}
+                    title={
+                      hasCompleteMarks && markedDuration !== null
+                        ? `Add ${markedDuration.toFixed(2)}s to Timeline`
+                        : "Add to Timeline"
+                    }
+                  >
                     <Plus className="w-3 h-3" />
                     Add
                   </button>

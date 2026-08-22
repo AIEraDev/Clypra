@@ -8,6 +8,8 @@
  */
 
 import type { Clip } from "@/types";
+import { timeToPixel } from "./timelineViewport";
+
 
 export type ClipRegion = "left-edge" | "body" | "right-edge";
 // Future: "trim-in" | "trim-out" | "slip" | "slide"
@@ -85,9 +87,12 @@ export function locateTrackRegion(input: LocateRegionInput): TrackRegion {
     if (pointerTimeSeconds >= clip.startTime && pointerTimeSeconds < clipEnd) {
       const clipTime = pointerTimeSeconds - clip.startTime;
 
-      // Screen-space edge detection (stable at any zoom level)
-      const clipLeftPx = clip.startTime * pixelsPerSecond;
-      const clipRightPx = clipEnd * pixelsPerSecond;
+      // Screen-space edge detection (stable at any zoom level).
+      // timeToPixel is used here so hit-test coordinates match the rendered clip
+      // boundary pixels exactly (both use Math.round), preventing a ≤1px cursor gap.
+      const clipLeftPx = timeToPixel(clip.startTime, pixelsPerSecond);
+      const clipRightPx = timeToPixel(clipEnd, pixelsPerSecond);
+
 
       let region: ClipRegion = "body";
       if (pointerTrackX < clipLeftPx + edgeHitWidthPx) {

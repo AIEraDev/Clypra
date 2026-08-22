@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { WebGLRasterSurface } from "../webglRasterSurface";
 import type { TransportArtifact } from "../transport";
+import type { FilmstripTileAddress } from "@/lib/filmstrip/filmstripTiers";
 import type { RenderEpochId } from "../types";
 import { SpatialTier } from "../types";
 
@@ -149,17 +150,21 @@ describe("WebGLRasterSurface", () => {
     expect(vertices[3]).toBeGreaterThan(0); // TL uv v0 (cropped offset)
   });
 
-  it("interpolates target timestamps using trim boundaries if provided", () => {
+  it("places exact timestamp slots without nearest-frame substitution", () => {
     const canvas = { width: 0, height: 0 } as HTMLCanvasElement;
     const gl = makeGl();
     const surface = new WebGLRasterSurface(canvas, gl);
 
-    const art5 = makeArtifact(5000);
     const art10 = makeArtifact(10000);
     const art15 = makeArtifact(15000);
     const art20 = makeArtifact(20000);
-    const art25 = makeArtifact(25000);
-    const artifacts = [art5, art10, art15, art20, art25];
+    const artifacts = [art10, art15, art20];
+    const tileAddresses: FilmstripTileAddress[] = [10, 15, 20].map((timestamp, tileIndex) => ({
+      clipId: "clip-1",
+      zoomTier: SpatialTier.L0,
+      tileIndex,
+      timestamp,
+    }));
 
     surface.drawFilmstrip(artifacts, {
       clipWidthPx: 180,
@@ -168,18 +173,16 @@ describe("WebGLRasterSurface", () => {
       tileWidthPx: 60,
       trimIn: 10,
       trimOut: 20,
+      tileAddresses,
     });
 
     const vertices = vi.mocked(gl.bufferData).mock.calls[0][1] as Float32Array;
 
-    // u0 for art10 (column 1): 80/512 + (6/71) * (80/512) = 0.16945
-    expect(vertices[2]).toBeCloseTo(0.16945, 4);
-
-    // u0 for art15 (column 2): 160/512 + (6/71) * (80/512) = 0.32570
-    expect(vertices[26]).toBeCloseTo(0.32570, 4);
-
-    // u0 for art15 (column 2): 160/512 + (6/71) * (80/512) = 0.32570
-    expect(vertices[50]).toBeCloseTo(0.32570, 4);
+    // Exact addresses occupy fixed 60px slots; the final slot is clipped by
+    // the 180px surface if necessary.
+    expect(vertices[0]).toBeCloseTo(-1, 4);
+    expect(vertices[24]).toBeCloseTo(-1 / 3, 4);
+    expect(vertices[48]).toBeCloseTo(1 / 3, 4);
 
     surface.dispose();
   });

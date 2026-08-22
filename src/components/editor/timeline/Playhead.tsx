@@ -3,7 +3,8 @@ import { usePlaybackClock, usePlaybackControls } from "@/hooks/usePlaybackClock"
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
-import { timeToPixel } from "@/lib/timeline/timelineViewport";
+import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
+
 
 interface PlayheadProps {
   pixelsPerSecond: number;
@@ -83,7 +84,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       const playheadX = scrollX + pointerXRef.current + dragOffsetRef.current;
 
       // Convert to time and snap to frame boundary
-      const rawTime = playheadX / pixelsPerSecond;
+      const rawTime = pixelToTime(playheadX, pixelsPerSecond);
+
       // Get frameRate from project store directly, not clock state
       const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
 
@@ -237,7 +239,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     const viewportRect = container.getBoundingClientRect();
     const pointerX = e.clientX - viewportRect.left;
     const scrollX = container.scrollLeft;
-    const currentPlayheadX = currentTime * pixelsPerSecond;
+    const currentPlayheadX = timeToPixel(currentTime, pixelsPerSecond);
 
     // Store offset: where playhead is relative to where pointer thinks it should be
     dragOffsetRef.current = currentPlayheadX - (scrollX + pointerX);
@@ -245,7 +247,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
 
     // Seek to clicked position (with offset)
     const playheadX = scrollX + pointerX + dragOffsetRef.current;
-    const rawTime = playheadX / pixelsPerSecond;
+    const rawTime = pixelToTime(playheadX, pixelsPerSecond);
+
     const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
 
     // Only snap if frames are visually distinguishable (> 3px apart)

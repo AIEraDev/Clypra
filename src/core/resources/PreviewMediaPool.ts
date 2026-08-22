@@ -37,7 +37,6 @@ import { useTimelineStore } from "../../store/timelineStore";
 import { PreviewPlaybackScheduler, type MediaAction, type MediaElementState } from "../playback/PreviewPlaybackScheduler";
 import { VideoTextureManager } from "../render/VideoTextureManager";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
-import { resolveTransitionDefinition, mergeTransitionParams } from "../render/utils/transitionResolver";
 
 export interface PreviewSyncState {
   /** Current playback time (seconds) */
@@ -52,6 +51,11 @@ export interface PreviewSyncState {
   volume: number;
   /** Project frame rate for frame-aware tolerance calculations */
   frameRate: 24 | 30 | 60;
+}
+
+export interface PreviewMediaPoolOptions {
+  /** Enable the legacy HTML audio path. Native Tauri preview disables it. */
+  audioEnabled?: boolean;
 }
 
 interface ManagedVideo {
@@ -208,6 +212,7 @@ export class PreviewMediaPool {
 
   // ─── INSTRUMENTATION ────────────────────────────────────────────────────
   private syncCallCount = 0;
+  private mediaReadyRevision = 0;
   private lastSyncClipIds = new Set<string>();
   private playAttemptLog: Array<{
     timestamp: number;
@@ -253,19 +258,16 @@ export class PreviewMediaPool {
   // ─── RESOURCE TRACKING (LEAK-003 / MED-002) ─────────────────────────────
   private _projectId: string | null = null;
   private _sessionId: string | null = null;
+  private readonly audioEnabled: boolean;
 
   // ─── BOUNDARY COMPONENTS ─────────────────────────────────────────────────
   private scheduler: PreviewPlaybackScheduler;
   private textureManager: VideoTextureManager;
 
-  // Optional compositor reference for transition shader pre-warming.
-  // Set via setCompositor() after the PixiSceneCompositor is initialised.
-  // Using a loose type to avoid a circular dependency between resource and render layers.
-  private _compositor: { prewarmTransitionShader: (definition: any, params?: Record<string, any>) => void } | null = null;
-
-  constructor(projectId?: string, sessionId?: string) {
+  constructor(projectId?: string, sessionId?: string, options: PreviewMediaPoolOptions = {}) {
     this._projectId = projectId ?? null;
     this._sessionId = sessionId ?? null;
+    this.audioEnabled = options.audioEnabled ?? true;
 
     // Initialize boundary components
     this.scheduler = new PreviewPlaybackScheduler();
@@ -296,13 +298,6 @@ export class PreviewMediaPool {
       (window as any).__previewMediaPools.push(this);
     }
     // ───────────────────────────────────────────────────────────────────────
-  }
-
-  /**
-   * Set the compositor instance for transition shader prewarming.
-   */
-  setCompositor(compositor: { prewarmTransitionShader: (definition: any, params?: Record<string, any>) => void } | null): void {
-    this._compositor = compositor;
   }
 
   /**
@@ -341,7 +336,7 @@ export class PreviewMediaPool {
       // A metadata event can advance the timeline epoch without changing the
       // rounded time hash. Do not skip reconciliation until every active video
       // has been seeked and has current frame data; otherwise the scheduler's
-      // initial seek is skipped and Pixi receives a permanently blank texture.
+      // initial seek is skipped and the preview receives a permanently blank texture.
       const activeVideosReadyForFastPath = Array.from(this.videoCache.values()).every(
         (managed) =>
           !managed.isActive ||
@@ -433,10 +428,10 @@ export class PreviewMediaPool {
           // Video clips also get a managed <audio> element for preview sound.
           // Keep its key in the desired set so it is not disposed and recreated
           // on every sync tick.
-          desiredAudioKeys.add(clip.id);
+          if (this.audioEnabled) desiredAudioKeys.add(clip.id);
         } else if (asset?.type === "audio" || (clip.kind === "audio" && (clip as any).audioPath)) {
           const key = clip.id;
-          desiredAudioKeys.add(key);
+          if (this.audioEnabled) desiredAudioKeys.add(key);
         }
       }
 
@@ -602,8 +597,9 @@ export class PreviewMediaPool {
       // LRU eviction: Remove unused cached elements (not just inactive ones)
       this.evictUnusedElements(clips, assets, syncState);
 
-      // Create or update audio elements (for both audio clips AND video clips with audio tracks)
-      for (const clip of clips) {
+      // Create or update legacy HTML audio elements only in browser preview.
+      // Native Tauri audio is loaded/mixed by the CPAL timeline authority.
+      if (this.audioEnabled) for (const clip of clips) {
         const asset = assets.find((a) => a.id === clip.mediaId);
         const directAudioPath = (clip as any).audioPath as string | undefined;
         const hasAudio = asset?.type === "audio" || asset?.type === "video" || clip.kind === "audio" || clip.kind === "video" || !!directAudioPath;
@@ -635,7 +631,6 @@ export class PreviewMediaPool {
       // Lookahead prewarming: Initialize upcoming clips before they become active
       if (syncState.state === "playing") {
         this.prewarmUpcomingClips(clips, assets, syncState.time, syncState.frameRate);
-        this.prewarmUpcomingTransitions(useTimelineStore.getState().transitions, syncState.time);
       }
 
       // ─── SCHEDULER INTEGRATION ────────────────────────────────────────────────
@@ -705,42 +700,6 @@ export class PreviewMediaPool {
   }
 
   /**
-   * Prewarm upcoming transition shaders within the lookahead window during playback.
-   * Compiles the transition shaders off-screen before the playhead reaches them.
-   */
-  private prewarmUpcomingTransitions(transitions: TransitionTimelineItem[], currentTime: number): void {
-    if (!this._compositor) return;
-
-    const lookaheadTime = currentTime + this.LOOKAHEAD_WINDOW_SECONDS;
-
-    for (const transition of transitions) {
-      // If the transition starts in the future, but within our lookahead window
-      if (transition.placement.startTime <= currentTime || transition.placement.startTime > lookaheadTime) {
-        continue;
-      }
-
-      // Resolve the transition type using transitionResolver
-      const resolved = resolveTransitionDefinition(
-        transition.type,
-        ALL_TRANSITIONS,
-        transition.renderer
-      );
-
-      if (resolved) {
-        const { definition, params } = resolved;
-        const runtimeParams = {
-          easing: transition.easing,
-          ...(transition.metadata?.params as Record<string, any> || {}),
-        };
-        const mergedParams = mergeTransitionParams(definition.params, params, runtimeParams);
-        
-        // Trigger off-screen compile
-        this._compositor.prewarmTransitionShader(definition, mergedParams);
-      }
-    }
-  }
-
-  /**
    * Create and prewarm a video element without blocking.
    * Element will load metadata and seek to trimIn position in the background.
    */
@@ -806,9 +765,23 @@ export class PreviewMediaPool {
   }
 
   /**
+   * Media readiness is separate from the immutable timeline revision. This
+   * lets the preview repaint without invalidating native frame requests.
+   */
+  getMediaReadyRevision(): number {
+    return this.mediaReadyRevision;
+  }
+
+  /** Mark a non-video poster/resource as ready without mutating the timeline. */
+  markMediaReady(): void {
+    this.mediaReadyRevision += 1;
+  }
+
+  /**
    * Get audio elements.
    */
   getAudioElements(): Map<string, HTMLAudioElement> {
+    if (!this.audioEnabled) return new Map();
     const result = new Map<string, HTMLAudioElement>();
     for (const [key, managed] of this.audios) {
       result.set(key, managed.element);
@@ -883,8 +856,9 @@ export class PreviewMediaPool {
       });
     }
 
-    // CRITICAL: Also include audio elements so scheduler monitors audio sync & generates seek/play/pause actions
-    for (const [clipId, managed] of this.audios) {
+    // CRITICAL: Also include browser audio elements so the legacy scheduler
+    // monitors audio sync. Native pools never contain audible audio elements.
+    for (const [clipId, managed] of this.audioEnabled ? this.audios : []) {
       if (states.has(clipId)) continue; // Handled by videoCache
 
       const audio = managed.element;
@@ -935,7 +909,7 @@ export class PreviewMediaPool {
               managedVideo.hasBeenSeeked = true; // Mark as seeked to prevent redundant initial seeks
 
               // WebKit can complete a paused seek with metadata only and leave
-              // the current frame undecoded. Prime one muted frame so Pixi's
+              // the current frame undecoded. Prime one muted frame so the preview's
               // VideoSource has real pixels to upload during paused scrubbing.
               if (syncState.state !== "playing" && video.readyState < 2) {
                 this.primePausedVideoFrame(managedVideo);
@@ -1113,6 +1087,7 @@ export class PreviewMediaPool {
    * MUST be called synchronously inside a user gesture event handler (like click).
    */
   unlockAudio(): void {
+    if (!this.audioEnabled) return;
     //  Check if we're in an active user gesture context
     // This is more reliable than timestamp-based checking
     const hasUserActivation = typeof navigator !== "undefined" && navigator.userActivation && navigator.userActivation.isActive;
@@ -1265,15 +1240,8 @@ export class PreviewMediaPool {
           managed.ready = true;
           captureDimensions();
 
-          // CRITICAL: Trigger epoch increment to force scheduler reconciliation
-          // Now that video has metadata (readyState >= 1), scheduler can generate seek actions
-          import("../../store/timelineStore")
-            .then(({ useTimelineStore }) => {
-              useTimelineStore.getState().incrementEpoch();
-            })
-            .catch((err) => {
-              console.error("[PreviewMediaPool] Failed to increment epoch on loadedmetadata:", err);
-            });
+          // Metadata readiness is media IO, not a timeline mutation.
+          this.mediaReadyRevision += 1;
         },
         { once: true },
       );
@@ -1283,16 +1251,9 @@ export class PreviewMediaPool {
       "loadeddata",
       () => {
         managed.hasDecodedFrame = true;
-        // CRITICAL: Trigger epoch increment to allow first frame render
-        // loadeddata fires when currentTime frame data is decoded and ready (readyState >= 2)
-        // This ensures render loop can proceed after scheduler-initiated seek completes
-        import("../../store/timelineStore")
-          .then(({ useTimelineStore }) => {
-            useTimelineStore.getState().incrementEpoch();
-          })
-          .catch((err) => {
-            console.error("[PreviewMediaPool] Failed to import useTimelineStore on loadeddata", err);
-          });
+        // Keep readiness local so hidden-video events do not invalidate a
+        // native paused frame request or force a duplicate native decode.
+        this.mediaReadyRevision += 1;
       },
       { once: true },
     );
@@ -1314,13 +1275,7 @@ export class PreviewMediaPool {
         if (video.readyState >= 2) {
           managed.hasDecodedFrame = true;
         }
-        import("../../store/timelineStore")
-          .then(({ useTimelineStore }) => {
-            useTimelineStore.getState().incrementEpoch();
-          })
-          .catch((err) => {
-            console.error("[PreviewMediaPool] Failed to import useTimelineStore on seeked", err);
-          });
+        this.mediaReadyRevision += 1;
       }
     });
 
@@ -1454,7 +1409,7 @@ export class PreviewMediaPool {
       .then(() => {
         if (managed.disposing) return;
         video.pause();
-        useTimelineStore.getState().incrementEpoch();
+        this.mediaReadyRevision += 1;
       })
       .catch(() => {
         // Muted priming is best effort. loadeddata/seeked can still expose
@@ -1488,7 +1443,7 @@ export class PreviewMediaPool {
     }
 
     // Guard 2: Not ready → wait
-    // HAVE_CURRENT_DATA is sufficient for Pixi's VideoSource and avoids
+    // HAVE_CURRENT_DATA is sufficient for the media readiness boundary and avoids
     // waiting for a full decode buffer before starting the visible preview.
     if (video.readyState < 2) {
       return;

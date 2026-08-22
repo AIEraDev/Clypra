@@ -71,10 +71,15 @@ export const useKeyboardShortcuts = () => {
 
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        const liveTime = getPlaybackClock().time;
+        const session = getActiveSessionOrNull();
         if (previewMode === "source") {
-          seek?.(Math.max(0, liveTime - 1));
+          // SP-1 & SP-6 fix: In source mode, read the active source context time instead of the
+          // master program clock. Step 1 frame (or 1s with Shift) for frame-accurate in/out trimming.
+          const sourceTime = session?.sourceContext?.getTime() ?? 0;
+          const step = e.shiftKey ? 1.0 : 1 / frameRate;
+          seek?.(Math.max(0, sourceTime - step));
         } else {
+          const liveTime = getPlaybackClock().time;
           const frameTime = 1 / frameRate;
           seek?.(Math.max(0, liveTime - frameTime));
         }
@@ -83,10 +88,15 @@ export const useKeyboardShortcuts = () => {
 
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        const liveTime = getPlaybackClock().time;
+        const session = getActiveSessionOrNull();
         if (previewMode === "source") {
-          seek?.(liveTime + 1);
+          // SP-1 & SP-6 fix: In source mode, read the active source context time instead of the
+          // master program clock. Step 1 frame (or 1s with Shift) for frame-accurate in/out trimming.
+          const sourceTime = session?.sourceContext?.getTime() ?? 0;
+          const step = e.shiftKey ? 1.0 : 1 / frameRate;
+          seek?.(sourceTime + step);
         } else {
+          const liveTime = getPlaybackClock().time;
           const frameTime = 1 / frameRate;
           seek?.(liveTime + frameTime);
         }

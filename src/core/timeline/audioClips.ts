@@ -12,6 +12,9 @@ import type { Clip, Track, MediaAsset } from "@/types";
 import { toNativePath } from "@/lib/platform/pathConversion";
 
 export interface ExportAudioClipConfig {
+  /** Stable timeline clip identity used by native mixer replacement. */
+  clipId: string;
+
   /** Absolute local file path (normalized for native FS) */
   path: string;
 
@@ -116,6 +119,7 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       const volume = Math.max(0, Math.min(3.0, clipVolume * trackVolume));
 
       return {
+        clipId: clip.id,
         // Normalize to native FS path — asset.path or directAudioPath may be an asset:// or file:// URL
         path: toNativePath(rawPath),
         startTime: relativeStartTime,

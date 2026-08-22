@@ -77,7 +77,7 @@ const roundPlacement = (value: number): number => Math.round(value);
 
 /**
  * Finds cut-only timelines that Rust can normalize and encode without routing
- * every frame through WebKit and Pixi.
+ * every frame through WebKit or a browser compositor.
  */
 export function analyzeNativeTimelineExport(
   input: NativeTimelineExportInput,
@@ -108,12 +108,24 @@ export function analyzeNativeTimelineExport(
         clip.startTime + clip.duration > startTime,
     )
     .sort((left, right) => left.startTime - right.startTime);
-  const videoClips = activeClips.filter(
+
+  const videoAssetIds = new Set(
+    input.assets.filter((a) => a.type === "video").map((a) => a.id),
+  );
+  // EX-6 fix: only count video-asset clips when checking whether all active clips
+  // are on the primary track. Audio-only clips are handled natively by FFmpeg's audio
+  // mixer in both the fast-path and compositor-path — they do not need compositor rendering.
+  // Previously, a project with one video track + one audio track was incorrectly sent to
+  // the compositor path because activeClips.length included audio clips.
+  const activeVideoAssetClips = activeClips.filter((clip) =>
+    videoAssetIds.has(clip.mediaId),
+  );
+  const videoClips = activeVideoAssetClips.filter(
     (clip) => clip.trackId === primaryTrackId,
   );
 
-  if (activeClips.length !== videoClips.length) {
-    reasons.push("Additional visual or audio clips require compositor export");
+  if (activeVideoAssetClips.length !== videoClips.length) {
+    reasons.push("Additional visual clips on separate tracks require compositor export");
   }
   if (videoClips.length === 0) {
     reasons.push("Timeline has no video clips to export");
@@ -205,6 +217,9 @@ export async function runNativeTimelineExport(
   plan: NativeTimelineExportPlan,
   callbacks: NativeTimelineRunCallbacks,
 ): Promise<NativeTimelineRunResult> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    throw new Error("Native timeline export requires the Tauri runtime");
+  }
   const { invoke, Channel } = await import("@tauri-apps/api/core");
   let completedFrames = 0;
   let cancelled = false;

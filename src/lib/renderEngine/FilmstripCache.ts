@@ -27,9 +27,11 @@
  */
 
 import { SpatialTier, VelocityState, type RenderEpochId } from "./types";
-import { requestProgressiveTiers, type TransportArtifact } from "./transport";
+import { requestFilmstripArtifacts, type TransportArtifact } from "./transport";
 import { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
-import { generateViewportTileAddresses, findNearestTileAddress, getTileKey, type FilmstripTileAddress } from "../filmstrip/filmstripTiers";
+import { generateViewportTileAddresses, type FilmstripTileAddress } from "../filmstrip/filmstripTiers";
+import { timeToPixel, pixelToTime } from "../timeline/timelineViewport";
+
 
 interface FilmstripCacheEntry {
   clipId: string;
@@ -84,8 +86,8 @@ function generateViewportFilmstripTimestamps(options: ViewportFilmstripOptions):
   const expandedStartPx = Math.max(0, viewportStartPx - overscanPx);
   const expandedEndPx = viewportEndPx + overscanPx;
 
-  // Clip bounds in timeline space
-  const clipStartPx = clipStartTime * pixelsPerSecond;
+  // Clip bounds in timeline space — use timeToPixel for rounded pixel-grid consistency.
+  const clipStartPx = timeToPixel(clipStartTime, pixelsPerSecond);
   const clipEndPx = clipStartPx + clipWidthPx;
 
   // Check if clip is visible
@@ -97,9 +99,10 @@ function generateViewportFilmstripTimestamps(options: ViewportFilmstripOptions):
   const visibleClipStartPx = Math.max(clipStartPx, expandedStartPx);
   const visibleClipEndPx = Math.min(clipEndPx, expandedEndPx);
 
-  // Convert to clip-local time
-  const visibleStartTime = (visibleClipStartPx - clipStartPx) / pixelsPerSecond + trimIn;
-  const visibleEndTime = (visibleClipEndPx - clipStartPx) / pixelsPerSecond + trimIn;
+  // Convert to clip-local time — use pixelToTime for canonical inverse.
+  const visibleStartTime = pixelToTime(visibleClipStartPx - clipStartPx, pixelsPerSecond) + trimIn;
+  const visibleEndTime = pixelToTime(visibleClipEndPx - clipStartPx, pixelsPerSecond) + trimIn;
+
 
   // Clamp to trim range
   const start = Math.max(trimIn, Math.min(visibleStartTime, trimOut));
@@ -150,6 +153,9 @@ export class FilmstripCache {
   /** Current velocity state — drives aggressive cheating behavior */
   private velocityState: VelocityState = VelocityState.Stable;
 
+  /** Low-priority requests that populate only the shared tile cache. */
+  private prefetchCancels = new Map<string, Set<() => void>>();
+
   constructor(memoryBudgetMB: number = 100) {
     this.memoryBudgetBytes = memoryBudgetMB * 1024 * 1024;
     this.tileCache = new FilmstripTileCache(memoryBudgetMB, (art) => this.isArtifactActive(art));
@@ -179,6 +185,90 @@ export class FilmstripCache {
    */
   setVelocityState(v: VelocityState): void {
     this.velocityState = v;
+  }
+
+  private _cancelPrefetch(clipId: string): void {
+    const cancels = this.prefetchCancels.get(clipId);
+    if (!cancels) return;
+    for (const cancel of cancels) cancel();
+    this.prefetchCancels.delete(clipId);
+  }
+
+  /**
+   * Decode a small neighborhood around the settled viewport into the tile
+   * cache. These artifacts never update a live render entry, so prefetch
+   * cannot replace committed pixels or create a fallback frame.
+   */
+  prefetchFilmstrip(options: {
+    clipId: string;
+    videoPath: string;
+    trimIn: number;
+    trimOut: number;
+    duration: number;
+    clipStartTime: number;
+    clipWidthPx: number;
+    spatialTier: SpatialTier;
+    epochId: RenderEpochId;
+    viewportScrollLeft: number;
+    viewportWidth: number;
+    pixelsPerSecond: number;
+  }): void {
+    this._cancelPrefetch(options.clipId);
+
+    const tiers = [options.spatialTier - 1, options.spatialTier + 1]
+      .filter((tier): tier is SpatialTier => tier >= SpatialTier.L0 && tier <= SpatialTier.L3);
+    const requests: Array<{ tier: SpatialTier; addresses: FilmstripTileAddress[] }> = [];
+    const regionOffsets = [-1, 0, 1];
+
+    for (const tier of tiers) {
+      for (const regionOffset of regionOffsets) {
+        const addresses = generateViewportTileAddresses({
+          clipId: options.clipId,
+          videoPath: options.videoPath,
+          zoomTier: tier,
+          trimIn: options.trimIn,
+          trimOut: options.trimOut,
+          clipStartTime: options.clipStartTime,
+          clipWidthPx: options.clipWidthPx,
+          viewportScrollLeft: Math.max(0, options.viewportScrollLeft + regionOffset * options.viewportWidth),
+          viewportWidth: options.viewportWidth,
+          pixelsPerSecond: options.pixelsPerSecond,
+          overscanFactor: regionOffset === 0 ? 1.0 : 0.75,
+          videoDuration: options.duration,
+        }).filter((address) => !this.tileCache.hasTile(address));
+
+        if (addresses.length > 0) requests.push({ tier, addresses });
+      }
+    }
+
+    if (requests.length === 0) return;
+    const cancels = new Set<() => void>();
+    this.prefetchCancels.set(options.clipId, cancels);
+
+    for (const { tier, addresses } of requests) {
+      const cancel = requestFilmstripArtifacts({
+        videoPath: options.videoPath,
+        timestampsMs: addresses.map((address) => Math.round(address.timestamp * 1000)),
+        spatialTier: tier,
+        epochId: options.epochId,
+        clipId: options.clipId,
+        concurrency: 1,
+        onArtifact: (artifact) => {
+          if (!isValidArtifact(artifact) || artifact.epochId !== options.epochId || artifact.spatialTier !== tier) {
+            try { artifact.bitmap.close(); } catch {}
+            return;
+          }
+          const address = addresses.find((candidate) => Math.round(candidate.timestamp * 1000) === Math.round(artifact.timestampMs));
+          if (!address) {
+            try { artifact.bitmap.close(); } catch {}
+            return;
+          }
+          this.tileCache.setTile(address, artifact);
+        },
+        onError: () => {},
+      });
+      cancels.add(cancel);
+    }
   }
 
   /**
@@ -234,8 +324,10 @@ export class FilmstripCache {
 
         if (existingIdx >= 0) {
           const existing = entry.artifacts[existingIdx];
-          if (artifact.spatialTier > existing.spatialTier) {
-            // Higher tier - replace
+          if (artifact.epochId !== existing.epochId || artifact.spatialTier > existing.spatialTier) {
+            // A new epoch must replace the old bitmap even at the same tier.
+            // Otherwise the exact readiness gate would remain stuck on stale
+            // epoch artifacts after a zoom/viewport transition.
             if (!this.tileCache.isArtifactCached(existing)) {
               try {
                 existing.bitmap.close();
@@ -276,32 +368,19 @@ export class FilmstripCache {
     this.rafId = null;
   }
 
-  /**
-   * Build artifact array from tile cache for given addresses.
-   * Uses aggressive cheating: missing tiles filled by nearest cached tile.
-   */
-  private _buildArtifactsFromTiles(addresses: FilmstripTileAddress[], clipId: string, spatialTier: SpatialTier, videoPath?: string): TransportArtifact[] {
+  /** Build artifact array from tile cache for exact current-epoch addresses only. */
+  private _buildArtifactsFromTiles(addresses: FilmstripTileAddress[], epochId: RenderEpochId, spatialTier: SpatialTier): TransportArtifact[] {
     const artifacts: TransportArtifact[] = [];
-    const usedKeys = new Set<string>();
 
     for (const addr of addresses) {
       const exact = this.tileCache.getTile(addr);
-      if (exact && isValidArtifact(exact.artifact)) {
+      if (
+        exact &&
+        isValidArtifact(exact.artifact) &&
+        exact.artifact.epochId === epochId &&
+        exact.artifact.spatialTier === spatialTier
+      ) {
         artifacts.push(exact.artifact);
-        usedKeys.add(getTileKey(addr));
-        continue;
-      }
-
-      // Aggressive cheating: reuse nearest tile within tolerance
-      const nearest = this.tileCache.findNearestTile(
-        clipId,
-        spatialTier,
-        addr.timestamp,
-        0.5, // 500ms tolerance — "good enough" for scroll
-        videoPath,
-      );
-      if (nearest && isValidArtifact(nearest.artifact)) {
-        artifacts.push(nearest.artifact);
       }
     }
 
@@ -312,10 +391,11 @@ export class FilmstripCache {
 
   /**
    * Request filmstrip artifacts for a clip.
-   * Viewport-bounded, epoch-gated, tile-addressable, aggressive cheating.
+ * Viewport-bounded, epoch-gated, tile-addressable exact rendering.
    */
   requestFilmstrip(options: { clipId: string; videoPath: string; trimIn: number; trimOut: number; duration: number; clipStartTime: number; clipWidthPx: number; spatialTier: SpatialTier; epochId: RenderEpochId; viewportScrollLeft: number; viewportWidth: number; pixelsPerSecond: number; onUpdate: (artifacts: readonly TransportArtifact[]) => void }): void {
     const { clipId, epochId, onUpdate, videoPath, spatialTier, duration } = options;
+    this._cancelPrefetch(clipId);
 
     // Generate tile addresses using FIXED grid (not dynamic timestamps)
     const tileAddresses = generateViewportTileAddresses({
@@ -366,7 +446,7 @@ export class FilmstripCache {
         const timeSinceUpdate = Date.now() - existing.lastViewportUpdate;
         if (timeSinceUpdate < 100 && sameAddresses) {
           // Debounce: return cached artifacts from tiles
-          const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, clipId, spatialTier, videoPath);
+          const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
           onUpdate(cachedArtifacts);
           return;
         }
@@ -416,14 +496,17 @@ export class FilmstripCache {
       }
     }
 
-    // ── Aggressive Cheating: During fast/ballistic scroll, show stale tiles ──
+    // During fast/ballistic scroll, publish exact cached tiles immediately.
+    // Missing slots remain absent until their exact transport artifacts arrive.
     if (this.velocityState >= VelocityState.Fast) {
-      // Build artifacts from cached tiles (with nearest-tile fallback)
-      const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, clipId, spatialTier, videoPath);
+      const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
       onUpdate(cachedArtifacts);
 
       // If we have ALL tiles cached, skip the request entirely
-      const allCached = tileAddresses.every((addr) => this.tileCache.hasTile(addr));
+      const allCached = tileAddresses.every((addr) => {
+        const cached = this.tileCache.getTile(addr);
+        return !!cached && isValidArtifact(cached.artifact) && cached.artifact.epochId === epochId && cached.artifact.spatialTier === spatialTier;
+      });
       if (allCached) {
         return;
       }
@@ -454,24 +537,22 @@ export class FilmstripCache {
       onUpdate([...keptArtifacts]);
     }
 
-    // Request artifacts (transport still uses timestamps)
-    const cancelFn = requestProgressiveTiers({
+    // Request artifacts through the same native FrameRequest path used by the
+    // program preview. FilmstripCache still owns epochs and bitmap lifetime.
+    const cancelFn = requestFilmstripArtifacts({
       videoPath,
       timestampsMs,
-      startTier: SpatialTier.L0,
-      targetTier: spatialTier,
+      spatialTier,
       epochId,
       clipId,
       onArtifact: (artifact) => {
         // Check if entry still valid (not invalidated during async decode)
         const currentEntry = this.entries.get(clipId);
         if (!currentEntry) {
-          console.warn(`[FilmstripCache DEBUG] onArtifact discarded: no entry found for clipId=${clipId}`);
           artifact.bitmap.close();
           return;
         }
         if (currentEntry.epochId !== epochId) {
-          console.warn(`[FilmstripCache DEBUG] onArtifact discarded: epochId changed. current=${currentEntry.epochId} expected=${epochId}`);
           artifact.bitmap.close();
           return;
         }
@@ -487,8 +568,6 @@ export class FilmstripCache {
         if (matchingAddr) {
           // Store in tile cache for reuse across zoom transitions
           this.tileCache.setTile(matchingAddr, artifact);
-        } else {
-          console.warn(`[FilmstripCache DEBUG] Received artifact at ${artifact.timestampMs}ms which does not match any requested tile address`);
         }
 
         // Enforce memory budget BEFORE scheduling
@@ -506,9 +585,7 @@ export class FilmstripCache {
           currentEntry.cancelFn = null;
         }
       },
-      onError: (err) => {
-        console.error(`[FilmstripCache DEBUG] requestProgressiveTiers onError for clipId=${clipId}:`, err);
-      },
+      onError: () => {},
     });
 
     entry.cancelFn = cancelFn;
@@ -525,6 +602,7 @@ export class FilmstripCache {
    * Invalidate clip (cancel requests, dispose bitmaps)
    */
   invalidateClip(clipId: string): void {
+    this._cancelPrefetch(clipId);
     const entry = this.entries.get(clipId);
     if (!entry) return;
 
@@ -548,6 +626,8 @@ export class FilmstripCache {
    * Dispose all resources
    */
   dispose(): void {
+    for (const clipId of this.prefetchCancels.keys()) this._cancelPrefetch(clipId);
+
     // Cancel pending RAF
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);

@@ -3,7 +3,8 @@ import { GripVertical } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import type { TransitionTimelineItem } from "@/types";
-import { timeToPixel } from "@/lib/timeline/timelineViewport";
+import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
+
 
 interface TransitionIndicatorProps {
   transition: TransitionTimelineItem;
@@ -60,7 +61,8 @@ export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transi
       if (!dragStartRef.current) return;
 
       const deltaX = e.clientX - dragStartRef.current.x;
-      const deltaTime = deltaX / pixelsPerSecond;
+      const deltaTime = pixelToTime(deltaX, pixelsPerSecond);
+
 
       // Calculate new duration (dragging right increases, left decreases)
       let newDuration = dragStartRef.current.originalDuration + deltaTime;

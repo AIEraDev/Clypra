@@ -5,7 +5,7 @@
  *   - Placeholder render when no artifacts
  *   - Cover-fit crop math (wide bitmap vs tall bitmap vs square)
  *   - DPR scaling of canvas backing store
- *   - N tile sampling from M≠N artifacts
+ *   - Missing exact slots remain background
  *   - Bitmap ownership + dispose()
  *   - Idempotent dispose
  */
@@ -13,6 +13,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { RasterSurface, type FilmstripLayout } from "../rasterSurface";
 import type { TransportArtifact } from "../transport";
+import type { FilmstripTileAddress } from "@/lib/filmstrip/filmstripTiers";
 import type { RenderEpochId } from "../types";
 import { SpatialTier } from "../types";
 
@@ -111,14 +112,13 @@ describe("RasterSurface", () => {
     surface.dispose();
   });
 
-  it("samples M artifacts to fill N tiles (M < N)", () => {
+  it("does not repeat an artifact when there are fewer artifacts than slots", () => {
     const { canvas, drawImage } = makeCanvas();
     const surface = new RasterSurface(canvas);
-    // 2 artifacts, but 5 tile slots → sampling repeats artifacts
+    // 2 artifacts, but 5 tile slots → missing slots remain background
     const artifacts = [1000, 2000].map((t) => makeArtifact(t));
     surface.drawFilmstrip(artifacts, layout({ clipWidthPx: 300, tileWidthPx: 60 }));
-    // Still 5 drawImage calls (one per tile slot)
-    expect(drawImage).toHaveBeenCalledTimes(5);
+    expect(drawImage).toHaveBeenCalledTimes(2);
     surface.dispose();
   });
 
@@ -196,7 +196,7 @@ describe("RasterSurface", () => {
 
       expect(rect).toHaveBeenNthCalledWith(1, 0, 0, 60, 40);
       expect(rect).toHaveBeenNthCalledWith(2, 60, 0, 60, 40);
-      expect(rect).toHaveBeenNthCalledWith(3, 120, 0, 60, 40);
+      expect(rect).toHaveBeenCalledTimes(2);
       surface.dispose();
     });
 
@@ -204,12 +204,16 @@ describe("RasterSurface", () => {
       const { canvas, drawImage } = makeCanvas();
       const surface = new RasterSurface(canvas);
 
-      const art5 = makeArtifact(5000);
       const art10 = makeArtifact(10000);
       const art15 = makeArtifact(15000);
       const art20 = makeArtifact(20000);
-      const art25 = makeArtifact(25000);
-      const artifacts = [art5, art10, art15, art20, art25];
+      const artifacts = [art10, art15, art20];
+      const tileAddresses: FilmstripTileAddress[] = [10, 15, 20].map((timestamp, tileIndex) => ({
+        clipId: "clip-1",
+        zoomTier: SpatialTier.L0,
+        tileIndex,
+        timestamp,
+      }));
 
       surface.drawFilmstrip(
         artifacts,
@@ -218,13 +222,14 @@ describe("RasterSurface", () => {
           tileWidthPx: 60,
           trimIn: 10,
           trimOut: 20,
+          tileAddresses,
         })
       );
 
       expect(drawImage).toHaveBeenCalledTimes(3);
       expect(drawImage.mock.calls[0][0]).toBe(art10.bitmap);
       expect(drawImage.mock.calls[1][0]).toBe(art15.bitmap);
-      expect(drawImage.mock.calls[2][0]).toBe(art15.bitmap);
+      expect(drawImage.mock.calls[2][0]).toBe(art20.bitmap);
       surface.dispose();
     });
   });
