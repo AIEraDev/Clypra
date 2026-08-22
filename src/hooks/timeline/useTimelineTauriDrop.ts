@@ -54,12 +54,6 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
             // Import new asset
             if (type === "video" || type === "audio") {
               const metadata = await platform.getMediaMetadata(filePath);
-              let posterFrame: string | undefined;
-              if (type === "video") {
-                posterFrame = await platform
-                  .extractPosterFrame(filePath, metadata.duration, window.devicePixelRatio || 1.0)
-                  .catch(() => undefined);
-              }
 
               asset = {
                 id: generateId("asset"),
@@ -69,9 +63,22 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
                 duration: metadata.duration,
                 width: metadata.width,
                 height: metadata.height,
-                posterFrame,
+                posterFrame: undefined,
                 size: metadata.size || 0,
               };
+
+              addMediaAsset(asset);
+
+              if (type === "video") {
+                platform
+                  .extractPosterFrame(filePath, metadata.duration, window.devicePixelRatio || 1.0)
+                  .then((poster) => {
+                    if (poster) {
+                      useProjectStore.getState().updateMediaAsset(asset!.id, { posterFrame: poster });
+                    }
+                  })
+                  .catch(() => {});
+              }
             } else {
               asset = {
                 id: generateId("asset"),
@@ -82,9 +89,9 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
                 size: 0,
                 posterFrame: platform.convertFileSrc(filePath),
               };
-            }
 
-            addMediaAsset(asset);
+              addMediaAsset(asset);
+            }
           }
 
           if (!asset) continue;
@@ -142,15 +149,14 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
 
   // Listen for drag events and handle file drops
   useEffect(() => {
-    let unlistenHover: (() => void) | undefined;
-    let unlistenDrop: (() => void) | undefined;
-    let unlistenCancel: (() => void) | undefined;
+    let isMounted = true;
+    const unlistenFns: Array<() => void | Promise<void>> = [];
 
     const setupListener = async () => {
       try {
         // Listen for drag over
-        unlistenHover = await listen<{ position: { x: number; y: number } }>("tauri://drag-over", (event) => {
-          if (!containerRef.current) return;
+        const unlistenHover = await listen<{ position: { x: number; y: number } }>("tauri://drag-over", (event) => {
+          if (!isMounted || !containerRef.current) return;
 
           const rect = containerRef.current.getBoundingClientRect();
           const { x, y } = event.payload.position;
@@ -159,12 +165,15 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
           const isOver = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
           setIsDraggingOver(isOver);
         });
+        if (isMounted) unlistenFns.push(unlistenHover);
+        else void Promise.resolve(unlistenHover()).catch(() => {});
 
         // Listen for drop and process files
-        unlistenDrop = await listen<{
+        const unlistenDrop = await listen<{
           paths: string[];
           position: { x: number; y: number };
         }>("tauri://drag-drop", async (event) => {
+          if (!isMounted) return;
           setIsDraggingOver(false);
 
           if (!containerRef.current || isProcessingDropRef.current) {
@@ -186,11 +195,16 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
             }
           }
         });
+        if (isMounted) unlistenFns.push(unlistenDrop);
+        else void Promise.resolve(unlistenDrop()).catch(() => {});
 
         // Listen for drag cancelled
-        unlistenCancel = await listen("tauri://drag-cancelled", () => {
+        const unlistenCancel = await listen("tauri://drag-cancelled", () => {
+          if (!isMounted) return;
           setIsDraggingOver(false);
         });
+        if (isMounted) unlistenFns.push(unlistenCancel);
+        else void Promise.resolve(unlistenCancel()).catch(() => {});
       } catch (error) {
         console.error("[Timeline] Failed to setup drag listeners:", error);
       }
@@ -199,28 +213,15 @@ export function useTimelineTauriDrop(containerRef: RefObject<HTMLDivElement | nu
     setupListener();
 
     return () => {
-      // Clean up listeners safely
-      if (unlistenHover) {
+      isMounted = false;
+      unlistenFns.forEach((fn) => {
         try {
-          unlistenHover();
+          void Promise.resolve(fn()).catch(() => {});
         } catch (e) {
           // Ignore cleanup errors
         }
-      }
-      if (unlistenDrop) {
-        try {
-          unlistenDrop();
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-      }
-      if (unlistenCancel) {
-        try {
-          unlistenCancel();
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-      }
+      });
+      unlistenFns.length = 0;
     };
   }, [handleTauriFileDrop, containerRef]);
 

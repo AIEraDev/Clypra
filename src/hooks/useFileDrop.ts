@@ -77,7 +77,11 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
         unlistenFns.current.push(unlistenCancel);
 
         if (!isMounted) {
-          unlistenFns.current.forEach((fn) => { try { fn(); } catch (e) {} });
+          unlistenFns.current.forEach((fn) => {
+            try {
+              void Promise.resolve(fn()).catch(() => {});
+            } catch (e) {}
+          });
           unlistenFns.current = [];
         }
       } catch (error) {
@@ -89,7 +93,11 @@ export const useFileDrop = ({ onDrop, enabled = true }: UseFileDropOptions) => {
 
     return () => {
       isMounted = false;
-      unlistenFns.current.forEach((fn) => { try { fn(); } catch (e) {} });
+      unlistenFns.current.forEach((fn) => {
+        try {
+          void Promise.resolve(fn()).catch(() => {});
+        } catch (e) {}
+      });
       unlistenFns.current = [];
     };
   }, [enabled, onDrop]);
