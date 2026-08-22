@@ -20,6 +20,21 @@ warm legacy playback and call the result a regression or an improvement.
 | Video lookahead | at most 200 ms | Native playback |
 | Native media cache | 1 GiB default | Per project, CPU and GPU tracked separately |
 | CPU frame bridge | 500 MB/s guardrail | Paused frames only; never a playback target |
+| Filmstrip visible frame | 150 ms (P95) | Radial playhead-near tiles on timeline view |
+| Filmstrip scroll latency | 0 ms (100% cache hit) | Pure horizontal scroll with preloaded L0 coarse baseline |
+| Filmstrip coarse preload | ≤ 300 tiles / ≤ 1.8 MB | Asset-wide coarse baseline (10s to 3h media) |
+| Filmstrip warm session restore | < 10 ms (0 video decodes)| Zero-decode restore from Rust TIER_CACHE / WebP atlas |
+
+## Filmstrip & thumbnail pipeline scheduling
+
+The timeline filmstrip decouples background coarse baseline extraction from viewport-bounded
+rendering. Media import extracts only a single poster frame (<150ms). Adding a clip to the
+timeline triggers a bounded L0 coarse preload (≤300 tiles) sorted playhead-first (|t - t_playhead|
+or visible start reading order). Normal 1.0x zoom maps to L1 (1.0s interval) matching 50px visual slots.
+Pure horizontal scrolling blits from the resident L0 cache with zero decode invocations.
+Zoom transitions into dense tiers sample lower-tier tiles via bicubic stretch fallback while
+dense frames are in flight, eliminating empty dead blocks and visual stutter.
+See `docs/filmstrip-architecture-and-caching.md` for the full specification.
 
 ## Program preview scheduling
 
