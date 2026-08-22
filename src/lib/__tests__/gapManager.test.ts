@@ -45,6 +45,9 @@ describe("GapManager - Imperative Architecture", () => {
       gaps: [],
     } as any);
 
+    // Clear auto-synced gaps for isolated imperative gap manager testing
+    useTimelineStore.setState({ gaps: [] });
+
     // Reset history
     const historyStore = useHistoryStore.getState();
     historyStore.clear();
