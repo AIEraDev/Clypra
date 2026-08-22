@@ -104,6 +104,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libvulkan1 mesa-vulkan-drivers vulkan-tools libasound2-dev
           echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
 
       # ── WASM platform setup ───────────────────────────────────────────────
@@ -113,8 +114,9 @@ jobs:
           # Lavapipe for the native-CLI reference render on this runner
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools
+            libvulkan1 mesa-vulkan-drivers vulkan-tools libasound2-dev
           echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
           # wasm-pack
           curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
