@@ -41,6 +41,10 @@ const INTERVAL_TABLE: [number, number][] = [
   [3, 3],
   [2, 4],
   [1, 5],
+  [0.5, 5],
+  [0.2, 4],
+  [0.1, 5],
+  [0.05, 5],
 ];
 
 const MIN_LABEL_GAP_PX = 80;
@@ -362,12 +366,25 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  // ── Format label (00:SS) ────────────────────────────────────────────────
+  // ── Format label (00:SS or 00:SS.f or 00:SS:FF) ───────────────────────────
   const formatLabel = useCallback((seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
+    const remainder = seconds - Math.floor(seconds);
+    if (remainder > 0.001) {
+      if (pixelsPerSecond >= 300) {
+        // Deep zoom: show frame timecode MM:SS:FF
+        const fps = frameRate || 30;
+        const frame = Math.round(remainder * fps) % fps;
+        return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}:${String(frame).padStart(2, "0")}`;
+      }
+      const frac = Math.round(remainder * 10);
+      if (frac > 0 && frac < 10) {
+        return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${frac}`;
+      }
+    }
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-  }, []);
+  }, [pixelsPerSecond, frameRate]);
 
   // ── Memoized tick generation ─────────────────────────────────────────────
   const ticks = useMemo(() => {
