@@ -1420,16 +1420,8 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
     // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
     if let Some(entry) = DECODER_POOL.get(path) {
         entry.touch();
-        eprintln!("[get_decoder] Pool HIT for {} (LRU updated)", path);
-
-        #[cfg(debug_assertions)]
-        eprintln!("[METRIC] decoder_pool.hit=1 path={}", path);
-
         return Ok(entry.decoder.clone());
     }
-
-    #[cfg(debug_assertions)]
-    eprintln!("[METRIC] decoder_pool.miss=1 path={}", path);
 
     // 2. LRU Eviction: Collect candidates snapshot without holding locks across await
     if DECODER_POOL.len() >= MAX_DECODER_POOL_SIZE {
@@ -1443,40 +1435,14 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
             })
             .min_by_key(|(_, ts)| *ts);
 
-        if let Some((oldest_key, oldest_ts)) = oldest {
-            let age_secs = (current_timestamp_ms().saturating_sub(oldest_ts)) as f64 / 1000.0;
+        if let Some((oldest_key, _)) = oldest {
             DECODER_POOL.remove(&oldest_key);
-
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[METRIC] decoder_pool.eviction=1 age_secs={:.1} reason=lru_full",
-                age_secs
-            );
-
-            eprintln!(
-                "[get_decoder] Pool full ({} decoders), LRU evicted: {} (age: {:.1}s)",
-                MAX_DECODER_POOL_SIZE, oldest_key, age_secs
-            );
         }
     }
 
     // 3. Create new decoder — performed outside any DashMap lock
-    let start = std::time::Instant::now();
-    eprintln!(
-        "[get_decoder] Pool MISS - creating new decoder for {}",
-        path
-    );
-
     let decoder =
         VideoDecoder::open(path).map_err(|e| format!("Failed to open {}: {}", path, e))?;
-
-    let creation_time_ms = start.elapsed().as_millis();
-
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "[METRIC] decoder_pool.creation_time_ms={} path={}",
-        creation_time_ms, path
-    );
 
     let arc_decoder = Arc::new(Mutex::new(decoder));
     let entry = Arc::new(DecoderEntry {
@@ -1485,24 +1451,12 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
     });
 
     DECODER_POOL.insert(path.to_string(), entry);
-
-    let pool_size = DECODER_POOL.len();
-    #[cfg(debug_assertions)]
-    eprintln!("[METRIC] decoder_pool.size={}", pool_size);
-
-    eprintln!(
-        "[get_decoder] Created decoder in {:?} (pool size: {})",
-        start.elapsed(),
-        pool_size
-    );
     Ok(arc_decoder)
 }
 
 /// Call this when a clip is removed from the project to free memory
 pub fn release_decoder(path: &str) {
-    if DECODER_POOL.remove(path).is_some() {
-        eprintln!("[release_decoder] Explicitly released decoder: {}", path);
-    }
+    DECODER_POOL.remove(path);
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
