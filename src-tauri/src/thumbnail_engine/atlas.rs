@@ -209,10 +209,18 @@ impl AtlasBuilder {
             self.atlas.height(),
             image::ExtendedColorType::Rgba8,
         ).map_err(|e| format!("WebP encoding failed: {}", e))?;
-        tokio::fs::write(path, &webp_data).await
-            .map_err(|e| format!("Failed to write atlas file: {}", e))?;
 
-        eprintln!("[AtlasBuilder] Saved atlas: {} ({} thumbnails, {} bytes)",
+        // Atomic write: write to a .tmp file then rename to avoid half-written corruptions
+        let tmp_path = path.with_extension("tmp.webp");
+        tokio::fs::write(&tmp_path, &webp_data).await
+            .map_err(|e| format!("Failed to write temporary atlas file: {}", e))?;
+
+        if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("Failed to commit atlas file: {}", e));
+        }
+
+        eprintln!("[AtlasBuilder] Atomically saved atlas: {} ({} thumbnails, {} bytes)",
                   path.display(), self.count, webp_data.len());
 
         Ok(())
@@ -225,6 +233,175 @@ impl AtlasBuilder {
 
 pub static ATLAS_CACHE: Lazy<DashMap<String, Arc<RwLock<AtlasManager>>>> =
     Lazy::new(DashMap::new);
+
+/// Global configurable disk cache size limit in bytes. Default: 5 GB. (0 = unlimited).
+pub static DISK_CACHE_LIMIT_BYTES: Lazy<std::sync::atomic::AtomicU64> =
+    Lazy::new(|| std::sync::atomic::AtomicU64::new(5 * 1024 * 1024 * 1024));
+
+pub fn set_disk_cache_limit(limit_bytes: u64) {
+    DISK_CACHE_LIMIT_BYTES.store(limit_bytes, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn get_disk_cache_limit() -> u64 {
+    DISK_CACHE_LIMIT_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Resilient loader for thumbnail extraction from an atlas.
+/// Validates file integrity and automatically quarantines/deletes corrupted or truncated atlas files,
+/// returning an error so the rendering pipeline falls through to fresh decode safely.
+pub async fn load_from_atlas_resilient(
+    location: &AtlasLocation,
+    thumb_width: u32,
+    thumb_height: u32,
+) -> Result<Vec<u8>, String> {
+    let atlas_data = match tokio::fs::read(&location.atlas_path).await {
+        Ok(data) => {
+            if data.is_empty() {
+                eprintln!("[load_from_atlas] Quarantining 0-byte truncated atlas: {:?}", location.atlas_path);
+                let _ = tokio::fs::remove_file(&location.atlas_path).await;
+                return Err("Atlas file is 0 bytes (truncated)".to_string());
+            }
+            data
+        }
+        Err(e) => {
+            return Err(format!("Failed to read atlas file: {}", e));
+        }
+    };
+
+    let atlas_img = match image::load_from_memory(&atlas_data) {
+        Ok(img) => img.to_rgba8(),
+        Err(e) => {
+            eprintln!("[load_from_atlas] Corrupted WebP detected in {:?}. Auto-quarantining file: {}", location.atlas_path, e);
+            let _ = tokio::fs::remove_file(&location.atlas_path).await;
+            return Err(format!("Corrupted atlas image removed: {}", e));
+        }
+    };
+
+    let x = location.col * thumb_width;
+    let y = location.row * thumb_height;
+
+    // Bounds check within the atlas dimensions
+    if x + thumb_width > atlas_img.width() || y + thumb_height > atlas_img.height() {
+        eprintln!("[load_from_atlas] Tile location ({}, {}) with dims {}x{} exceeds atlas dims {}x{}",
+                  x, y, thumb_width, thumb_height, atlas_img.width(), atlas_img.height());
+        let _ = tokio::fs::remove_file(&location.atlas_path).await;
+        return Err("Tile position out of atlas bounds".to_string());
+    }
+
+    let mut rgba_data = Vec::with_capacity((thumb_width * thumb_height * 4) as usize);
+    for row in y..(y + thumb_height) {
+        for col in x..(x + thumb_width) {
+            let pixel = atlas_img.get_pixel(col, row);
+            rgba_data.extend_from_slice(&pixel.0);
+        }
+    }
+
+    Ok(rgba_data)
+}
+
+/// Calculate current disk cache statistics.
+pub async fn get_disk_cache_stats_from_dir(cache_dir: &PathBuf) -> (u64, usize) {
+    let mut total_bytes: u64 = 0;
+    let mut file_count: usize = 0;
+
+    if let Ok(mut entries) = tokio::fs::read_dir(cache_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if let Ok(meta) = entry.metadata().await {
+                if meta.is_file() {
+                    let path = entry.path();
+                    if let Some(ext) = path.extension() {
+                        if ext == "webp" {
+                            total_bytes += meta.len();
+                            file_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (total_bytes, file_count)
+}
+
+/// Prune oldest atlas files if disk cache usage exceeds the configured limit.
+pub async fn prune_disk_cache_if_needed(cache_dir: &PathBuf) {
+    let limit = get_disk_cache_limit();
+    if limit == 0 {
+        return; // 0 means unlimited
+    }
+
+    let (current_bytes, _) = get_disk_cache_stats_from_dir(cache_dir).await;
+    if current_bytes <= limit {
+        return;
+    }
+
+    eprintln!("[prune_disk_cache] Cache usage {} bytes exceeds limit {} bytes. Pruning oldest files...",
+              current_bytes, limit);
+
+    let mut files: Vec<(PathBuf, std::time::SystemTime, u64)> = Vec::new();
+    if let Ok(mut entries) = tokio::fs::read_dir(cache_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if let Ok(meta) = entry.metadata().await {
+                if meta.is_file() {
+                    let path = entry.path();
+                    if let Some(ext) = path.extension() {
+                        if ext == "webp" {
+                            let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                            files.push((path, modified, meta.len()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort oldest first
+    files.sort_by_key(|(_, modified, _)| *modified);
+
+    let target_bytes = (limit as f64 * 0.80) as u64; // Trim to 80% of limit
+    let mut bytes_to_remove = current_bytes.saturating_sub(target_bytes);
+    let mut pruned_count = 0;
+
+    for (path, _, size) in files {
+        if bytes_to_remove == 0 {
+            break;
+        }
+        if tokio::fs::remove_file(&path).await.is_ok() {
+            bytes_to_remove = bytes_to_remove.saturating_sub(size);
+            pruned_count += 1;
+        }
+    }
+
+    eprintln!("[prune_disk_cache] Pruned {} atlas files.", pruned_count);
+}
+
+/// Purge all thumbnail and render atlases from the disk cache.
+pub async fn purge_all_disk_cache(cache_dir: &PathBuf) -> Result<usize, String> {
+    let mut deleted_count = 0;
+
+    if let Ok(mut entries) = tokio::fs::read_dir(cache_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if let Ok(meta) = entry.metadata().await {
+                if meta.is_file() {
+                    let path = entry.path();
+                    if let Some(ext) = path.extension() {
+                        if ext == "webp" || path.to_string_lossy().contains(".tmp.") {
+                            if tokio::fs::remove_file(&path).await.is_ok() {
+                                deleted_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Clear in-memory managers
+    ATLAS_CACHE.clear();
+
+    Ok(deleted_count)
+}
+
 pub async fn get_atlas_manager(
     video_id: &str,
     density: DensityLevel,
@@ -247,3 +424,4 @@ pub async fn get_atlas_manager(
     ATLAS_CACHE.insert(key, manager.clone());
     manager
 }
+
