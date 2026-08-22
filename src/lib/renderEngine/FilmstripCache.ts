@@ -180,6 +180,11 @@ export class FilmstripCache {
     this.tileCache = new FilmstripTileCache(memoryBudgetMB, (art) => this.isArtifactActive(art));
   }
 
+  /** Expose the underlying FilmstripTileCache for fast zero-decode presentation fallbacks */
+  get tileCacheInstance(): FilmstripTileCache {
+    return this.tileCache;
+  }
+
   /**
    * Returns true if the given artifact is currently referenced in active clip entries
    * or pending updates.
@@ -542,11 +547,22 @@ export class FilmstripCache {
     return artifacts;
   }
 
-  /**
-   * Request filmstrip artifacts for a clip.
- * Viewport-bounded, epoch-gated, tile-addressable exact rendering.
-   */
-  requestFilmstrip(options: { clipId: string; videoPath: string; trimIn: number; trimOut: number; duration: number; clipStartTime: number; clipWidthPx: number; spatialTier: SpatialTier; epochId: RenderEpochId; viewportScrollLeft: number; viewportWidth: number; pixelsPerSecond: number; onUpdate: (artifacts: readonly TransportArtifact[]) => void }): void {
+  requestFilmstrip(options: {
+    clipId: string;
+    videoPath: string;
+    trimIn: number;
+    trimOut: number;
+    duration: number;
+    clipStartTime: number;
+    clipWidthPx: number;
+    spatialTier: SpatialTier;
+    epochId: RenderEpochId;
+    viewportScrollLeft: number;
+    viewportWidth: number;
+    pixelsPerSecond: number;
+    playheadTime?: number;
+    onUpdate: (artifacts: readonly TransportArtifact[]) => void;
+  }): void {
     const { clipId, epochId, onUpdate, videoPath, spatialTier, duration } = options;
     this._cancelPrefetch(clipId);
 
@@ -679,16 +695,22 @@ export class FilmstripCache {
     }
 
     // Extract timestamps from tile addresses for transport layer, sorted playhead-first
-    // (closest to visible center time dispatched first for instant viewport fill)
+    // Prioritize playhead if provided and within visible window; otherwise prioritize visible start
+    // (natural left-to-right reading order) so the beginning of the video fills in immediately.
     const clipStartPx = timeToPixel(options.clipStartTime, options.pixelsPerSecond);
     const visibleClipStartPx = Math.max(clipStartPx, options.viewportScrollLeft);
     const visibleClipEndPx = Math.min(clipStartPx + options.clipWidthPx, options.viewportScrollLeft + options.viewportWidth);
-    const visibleMidPx = (visibleClipStartPx + visibleClipEndPx) / 2;
-    const visibleMidTime = pixelToTime(visibleMidPx - clipStartPx, options.pixelsPerSecond) + options.trimIn;
+    const visibleStartTime = pixelToTime(visibleClipStartPx - clipStartPx, options.pixelsPerSecond) + options.trimIn;
+    const visibleEndTime = pixelToTime(visibleClipEndPx - clipStartPx, options.pixelsPerSecond) + options.trimIn;
+
+    const targetTime =
+      options.playheadTime !== undefined && options.playheadTime >= visibleStartTime && options.playheadTime <= visibleEndTime
+        ? options.playheadTime
+        : visibleStartTime;
 
     const sortedTileAddresses = [...tileAddresses].sort((a, b) => {
-      const distA = Math.abs(a.timestamp - visibleMidTime);
-      const distB = Math.abs(b.timestamp - visibleMidTime);
+      const distA = Math.abs(a.timestamp - targetTime);
+      const distB = Math.abs(b.timestamp - targetTime);
       return distA - distB;
     });
 
