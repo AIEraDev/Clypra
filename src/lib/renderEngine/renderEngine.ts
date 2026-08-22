@@ -246,6 +246,18 @@ export class RenderEngine {
     });
   }
 
+  /** Preload bounded asset-wide coarse baseline (≤300 tiles) across the entire video in the background.
+   *  This is the key mechanism that decouples data availability from viewport position:
+   *  once complete, pure horizontal scrolling hits cache 100% of the time. */
+  preloadAssetCoarseBaseline(options: { videoPath: string; duration: number }): void {
+    this._filmstripCache.preloadAssetCoarseBaseline(options);
+  }
+
+  /** Restore coarse baseline tiles from Rust in-memory tier cache or on-disk WebP atlases. */
+  restoreCoarseBaselineFromDisk(options: { videoPath: string; duration: number; onComplete?: (restoredCount: number) => void }): () => void {
+    return this._filmstripCache.restoreCoarseBaselineFromDisk(options);
+  }
+
   /**
    * Subscribe to render state changes for a clip.
    * Returns an unsubscribe function.
