@@ -69,6 +69,12 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
   useEffect(() => {
     if (!runtime || !enabled || !opts.videoPath || !opts.duration) return;
 
+    console.log(
+      `%c[Filmstrip Hook 🎣]%c Clip: "${opts.clipId}" | Zoom: ${(opts.pixelsPerSecond / 100).toFixed(2)}x (${opts.pixelsPerSecond} px/s) | Viewport: [${opts.viewportScrollLeft}px..${opts.viewportScrollLeft + opts.viewportWidth}px]`,
+      "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+      "color: #a5b4fc;",
+    );
+
     runtime.requestFilmstrip({
       clipId: opts.clipId,
       videoPath: opts.videoPath,
