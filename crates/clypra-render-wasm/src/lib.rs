@@ -366,7 +366,7 @@ async fn init_gpu() -> Result<GpuContext, String> {
             &wgpu::DeviceDescriptor {
                 label:              Some("clypra-render-wasm device"),
                 required_features:  wgpu::Features::empty(),
-                required_limits:    wgpu::Limits::downlevel_webgl2_defaults(),
+                required_limits:    adapter.limits(),
                 memory_hints:       wgpu::MemoryHints::Performance,
             },
             None,
