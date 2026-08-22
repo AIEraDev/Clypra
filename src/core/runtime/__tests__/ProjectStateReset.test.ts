@@ -74,6 +74,10 @@ vi.mock("@/core/interactions", () => ({
   resetTransformController: vi.fn(),
 }));
 
+vi.mock("@/hooks/useAudioSyncEngine", () => ({
+  stopGlobalAudioEngine: vi.fn(),
+}));
+
 vi.mock("@/core/playback/PlaybackClock", () => ({
   getPlaybackClock: () => ({
     state: "stopped",
@@ -134,6 +138,7 @@ describe("ProjectStateReset", () => {
       expect(result.resetSubsystems).toContain("TemplateStore");
       expect(result.resetSubsystems).toContain("FavoritesStore");
       expect(result.resetSubsystems).toContain("BodyMaskCache");
+      expect(result.resetSubsystems).toContain("GlobalAudioEngine");
 
       expect(mockTemplateReset).toHaveBeenCalled();
       expect(mockFavoritesSetState).toHaveBeenCalledWith({ downloadingIds: [] });

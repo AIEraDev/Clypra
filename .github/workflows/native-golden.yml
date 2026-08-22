@@ -282,7 +282,7 @@ jobs:
       # ── Diff — WASM vs same-runner native reference ───────────────────────
       - name: Diff minimal (WASM vs native-ref, tol=8)
         if: ${{ matrix.platform.wasm }}
-        id: diff_minimal
+        id: diff_minimal_wasm
         run: |
           cargo run --release -- diff \
             ../../artifacts/minimal-WASM.png \
@@ -294,7 +294,7 @@ jobs:
 
       - name: Diff raster (WASM vs native-ref, tol=8)
         if: ${{ matrix.platform.wasm }}
-        id: diff_raster
+        id: diff_raster_wasm
         run: |
           cargo run --release -- diff \
             ../../artifacts/raster-WASM.png \
@@ -356,14 +356,14 @@ jobs:
 
       # ── Enforce tolerance ─────────────────────────────────────────────────
       - name: Enforce minimal diff
-        if: steps.diff_minimal.outcome == 'failure'
+        if: ${{ steps.diff_minimal.outcome == 'failure' || steps.diff_minimal_wasm.outcome == 'failure' }}
         run: |
           echo "::error::minimal fixture exceeds tolerance for ${{ matrix.platform.name }}"
           exit 1
         shell: bash
 
       - name: Enforce raster diff
-        if: steps.diff_raster.outcome == 'failure'
+        if: ${{ steps.diff_raster.outcome == 'failure' || steps.diff_raster_wasm.outcome == 'failure' }}
         run: |
           echo "::error::raster fixture exceeds tolerance for ${{ matrix.platform.name }}"
           exit 1
