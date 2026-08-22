@@ -99,6 +99,12 @@ pub async fn extract_poster_frame_command(
     use image::codecs::webp::WebPEncoder;
     use crate::thumbnail_engine::decoder::get_decoder;
 
+    let total_start = std::time::Instant::now();
+    let filename = std::path::Path::new(&video_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&video_path);
+
     // Professional thumbnail heuristic:
     // 15% into video, never < 1.0s (first GOP / black frames), never > 30.0s
     let poster_time = (duration * 0.15).clamp(1.0, 30.0);
@@ -116,30 +122,26 @@ pub async fn extract_poster_frame_command(
         // Fit display dimensions to max_size (preserving aspect ratio)
         let (fit_w, fit_h) = fit_preserving_aspect(display_w, display_h, max_size, max_size);
 
-        eprintln!(
-            "[extract_poster] pixels={}×{} SAR={}:{} rot={} display={}×{} target={}×{}",
-            decoder.width(),
-            decoder.height(),
-            decoder.sar().0,
-            decoder.sar().1,
-            decoder.rotation(),
-            display_w,
-            display_h,
-            fit_w,
-            fit_h
-        );
-
-        // decode_frame will: decode → rotate → scale to target
-        let bytes = decoder.decode_frame(poster_time, fit_w, fit_h)?;
+        // Fast keyframe decode avoids GOP walk
+        let bytes = decoder.decode_keyframe_frame(poster_time, fit_w, fit_h)?;
         (bytes, fit_w, fit_h)
     };
 
     // Encode RGBA to WebP
+    let encode_start = std::time::Instant::now();
     let mut webp_data = Vec::new();
     let encoder = WebPEncoder::new_lossless(&mut webp_data);
     encoder
         .encode(&rgba_bytes, out_w, out_h, image::ExtendedColorType::Rgba8)
         .map_err(|e| format!("WebP encode failed: {}", e))?;
+
+    let encode_ms = encode_start.elapsed().as_millis();
+    let total_ms = total_start.elapsed().as_millis();
+
+    eprintln!(
+        "[extract_poster] [{}] total={}ms (webp_encode={}ms, size={}x{})",
+        filename, total_ms, encode_ms, out_w, out_h
+    );
 
     // Convert to base64 data URL
     let base64_data = BASE64.encode(&webp_data);
@@ -964,26 +966,85 @@ async fn load_from_atlas(
     thumb_width: u32,
     thumb_height: u32,
 ) -> Result<Vec<u8>, String> {
-    let atlas_data = tokio::fs::read(&location.atlas_path)
-        .await
-        .map_err(|e| format!("Failed to read atlas file: {}", e))?;
+    crate::thumbnail_engine::atlas::load_from_atlas_resilient(location, thumb_width, thumb_height).await
+}
 
-    let atlas_img = image::load_from_memory(&atlas_data)
-        .map_err(|e| format!("Failed to decode atlas image: {}", e))?
-        .to_rgba8();
+/// Retrieve comprehensive statistics on the filmstrip & thumbnail disk cache.
+#[tauri::command]
+pub async fn get_disk_cache_stats() -> Result<serde_json::Value, String> {
+    let limit_bytes = crate::thumbnail_engine::atlas::get_disk_cache_limit();
+    let atlas_hits = GLOBAL_ATLAS_HITS.load(Ordering::Relaxed);
+    let tier_cache_hits = GLOBAL_TIER_CACHE_HITS.load(Ordering::Relaxed);
+    let decodes = GLOBAL_DECODES.load(Ordering::Relaxed);
+    let total_reqs = atlas_hits + tier_cache_hits + decodes;
+    let hit_rate_pct = if total_reqs > 0 {
+        ((atlas_hits + tier_cache_hits) as f64 / total_reqs as f64) * 100.0
+    } else {
+        0.0
+    };
 
-    let x = location.col * thumb_width;
-    let y = location.row * thumb_height;
+    let cache_dir = match GLOBAL_CACHE.cache_dir().await {
+        Some(dir) => dir,
+        None => return Ok(serde_json::json!({
+            "total_bytes": 0,
+            "atlas_count": 0,
+            "cache_dir": "",
+            "limit_bytes": limit_bytes,
+            "atlas_hits": atlas_hits,
+            "tier_cache_hits": tier_cache_hits,
+            "decodes": decodes,
+            "hit_rate_pct": hit_rate_pct,
+        })),
+    };
 
-    let mut rgba_data = Vec::with_capacity((thumb_width * thumb_height * 4) as usize);
-    for row in y..(y + thumb_height) {
-        for col in x..(x + thumb_width) {
-            let pixel = atlas_img.get_pixel(col, row);
-            rgba_data.extend_from_slice(&pixel.0);
-        }
+    let (total_bytes, atlas_count) = crate::thumbnail_engine::atlas::get_disk_cache_stats_from_dir(&cache_dir).await;
+
+    Ok(serde_json::json!({
+        "total_bytes": total_bytes,
+        "atlas_count": atlas_count,
+        "cache_dir": cache_dir.to_string_lossy(),
+        "limit_bytes": limit_bytes,
+        "atlas_hits": atlas_hits,
+        "tier_cache_hits": tier_cache_hits,
+        "decodes": decodes,
+        "hit_rate_pct": hit_rate_pct,
+    }))
+}
+
+/// Purge all cached filmstrip atlases from disk and reset in-memory caches.
+#[tauri::command]
+pub async fn clear_disk_cache() -> Result<usize, String> {
+    let cache_dir = match GLOBAL_CACHE.cache_dir().await {
+        Some(dir) => dir,
+        None => return Ok(0),
+    };
+
+    // Purge disk atlases
+    let count = crate::thumbnail_engine::atlas::purge_all_disk_cache(&cache_dir).await?;
+
+    // Clear in-memory caches
+    (*FRAME_CACHE).clear();
+    (*TIER_CACHE).clear();
+    GLOBAL_CACHE.clear().await;
+
+    eprintln!("[clear_disk_cache] Cleared {} atlas files and reset in-memory caches.", count);
+    Ok(count)
+}
+
+/// Configure the maximum disk cache budget in bytes (0 = unlimited).
+#[tauri::command]
+pub async fn set_cache_size_limit(limit_bytes: u64) -> Result<(), String> {
+    crate::thumbnail_engine::atlas::set_disk_cache_limit(limit_bytes);
+    if let Some(cache_dir) = GLOBAL_CACHE.cache_dir().await {
+        crate::thumbnail_engine::atlas::prune_disk_cache_if_needed(&cache_dir).await;
     }
+    Ok(())
+}
 
-    Ok(rgba_data)
+/// Get the current disk cache budget in bytes.
+#[tauri::command]
+pub fn get_cache_size_limit() -> u64 {
+    crate::thumbnail_engine::atlas::get_disk_cache_limit()
 }
 
 /// Prewarm video decoders for improved first-frame latency.
@@ -1101,4 +1162,105 @@ pub async fn stream_timeline_frames_binary(
 
     Ok(())
 }
+
+/// Check which coarse-baseline timestamps are already resident in the Rust-side caches.
+///
+/// Called by the TypeScript FilmstripCache on session restore. Returns `RenderArtifact`
+/// items over the channel for every timestamp that is cache-warm (TIER_CACHE or atlas),
+/// so the TypeScript layer can populate FilmstripTileCache without issuing decode requests.
+/// Timestamps that are cache-cold receive no response — the caller falls through to decode.
+#[tauri::command]
+pub async fn check_coarse_baseline_cache(
+    video_path: String,
+    timestamps_ms: Vec<u64>,
+    spatial_tier: String,
+    effect_graph_version: u32,
+    on_artifact: tauri::ipc::Channel<RenderArtifact>,
+) -> Result<(), String> {
+    use crate::thumbnail_engine::atlas::get_atlas_manager;
+
+    let tier = SpatialTier::from_label(&spatial_tier)
+        .map_err(|e| format!("Invalid spatial tier: {}", e))?;
+    let (width, height) = tier.dims();
+
+    let video_id = format!("{:x}", md5::compute(&video_path));
+
+    let resolution_tier = if width >= 160 {
+        ResolutionTier::Tier2x
+    } else {
+        ResolutionTier::Tier1x
+    };
+    let density = DensityLevel::Medium;
+
+    let cache_dir = match GLOBAL_CACHE.cache_dir().await {
+        Some(dir) => dir,
+        None => {
+            // Cache not initialized yet — return empty (all timestamps are cold)
+            return Ok(());
+        }
+    };
+
+    let atlas_manager = get_atlas_manager(&video_id, density, resolution_tier, cache_dir).await;
+
+    for timestamp_ms in timestamps_ms {
+        let timestamp_secs = timestamp_ms as f64 / 1000.0;
+
+        let content_hash = FrameContentHash::compute(
+            &video_id,
+            timestamp_ms,
+            effect_graph_version,
+            1.0,
+            0,
+            u64::MAX,
+            false,
+        );
+
+        let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
+
+        // Fast path 1: check atlas file (disk-resident, zero-decode)
+        {
+            let manager = atlas_manager.read().await;
+            if let Some(location) = manager.get_location(timestamp_secs) {
+                if let Ok(rgba_data) = load_from_atlas(&location, width, height).await {
+                    GLOBAL_ATLAS_HITS.fetch_add(1, Ordering::Relaxed);
+                    let artifact = RenderArtifact {
+                        frame_id: frame_id.clone(),
+                        content_hash: content_hash.0.clone(),
+                        spatial_tier: tier,
+                        rgba_data,
+                        width,
+                        height,
+                        timestamp_ms,
+                        source: ArtifactSource::BackendTierCache,
+                    };
+                    let _ = on_artifact.send(artifact);
+                    continue;
+                }
+            }
+        }
+
+        // Fast path 2: check in-memory tier cache (TIER_CACHE — 120MB budget)
+        let key = TierCacheKey {
+            content_hash: content_hash.clone(),
+            tier,
+        };
+        if let Some(frame) = TIER_CACHE.get(&key) {
+            GLOBAL_TIER_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+            let artifact = RenderArtifact {
+                frame_id,
+                content_hash: content_hash.0.clone(),
+                spatial_tier: tier,
+                rgba_data: frame.data.clone(),
+                width: frame.width,
+                height: frame.height,
+                timestamp_ms,
+                source: ArtifactSource::BackendTierCache,
+            };
+            let _ = on_artifact.send(artifact);
+        }
+    }
+
+    Ok(())
+}
+
 
