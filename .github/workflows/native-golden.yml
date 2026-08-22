@@ -224,11 +224,12 @@ jobs:
           }).listen(PORT);
           const browser = await puppeteer.launch({
             args: ["--no-sandbox","--disable-setuid-sandbox","--enable-unsafe-webgpu",
-                   "--enable-features=Vulkan,UseSkiaRenderer","--use-angle=vulkan"],
+                   "--use-gl=angle","--use-angle=swiftshader","--enable-features=Vulkan,UseSkiaRenderer"],
             headless: true,
           });
           const page = await browser.newPage();
-          page.on("pageerror", e => process.stderr.write(`[error] ${e}\n`));
+          page.on("console", msg => console.log(`[browser-console] ${msg.type()}: ${msg.text()}`));
+          page.on("pageerror", e => console.error(`[browser-pageerror] ${e}`));
           await page.setContent(`<!DOCTYPE html><html><body><script type="module">
             import init, { create_renderer } from "http://localhost:${PORT}/pkg/clypra_render_wasm.js";
             async function run() {
