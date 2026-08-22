@@ -43,6 +43,10 @@ on:
 permissions:
   contents: read
 
+env:
+  CLYPRA_ALLOW_FALLBACK_GPU: "1"
+  WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER: "1"
+
 jobs:
   golden:
     name: "Golden (${{ matrix.platform.name }})"
@@ -102,7 +106,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools libasound2-dev
+            libvulkan1 mesa-vulkan-drivers vulkan-tools libasound2-dev \
+            libgl1-mesa-dri libegl1-mesa-dev
           echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
@@ -114,7 +119,8 @@ jobs:
           # Lavapipe for the native-CLI reference render on this runner
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools libasound2-dev
+            libvulkan1 mesa-vulkan-drivers vulkan-tools libasound2-dev \
+            libgl1-mesa-dri libegl1-mesa-dev
           echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
