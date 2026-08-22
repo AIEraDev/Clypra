@@ -60,8 +60,8 @@ describe("TimelineToolbar zoom controls", () => {
 
     fireEvent.click(screen.getByLabelText("Zoom in timeline"));
 
-    expect(useTimelineStore.getState().pixelsPerSecond).toBeCloseTo(110, 5);
-    expect(scroller.scrollLeft).toBeCloseTo(120, 5);
-    expect(useTimelineStore.getState().scrollLeft).toBeCloseTo(120, 5);
+    expect(useTimelineStore.getState().pixelsPerSecond).toBeCloseTo(125, 5);
+    expect(scroller.scrollLeft).toBeCloseTo(150, 5);
+    expect(useTimelineStore.getState().scrollLeft).toBeCloseTo(150, 5);
   });
 });

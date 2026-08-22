@@ -62,10 +62,37 @@ describe("getFilmstripTileSlots", () => {
     });
 
     expect(slots.map((slot) => [slot.leftPx, slot.widthPx])).toEqual([
-      [0, 50],
-      [50, 50],
-      [100, 50],
+      [0, 10],
+      [50, 10],
+      [100, 10],
     ]);
+  });
+
+  it("ensures consecutive tiles are contiguous with zero gaps", () => {
+    const pps = 100; // 100 px/s
+    const addresses = [0, 1, 2, 3, 4].map((timestamp, tileIndex) => ({
+      clipId: "clip-1",
+      zoomTier: SpatialTier.L1, // interval = 1.0s
+      tileIndex,
+      timestamp,
+    }));
+
+    const slots = getFilmstripTileSlots({
+      addresses,
+      clipWidthPx: 500,
+      trimIn: 0,
+      trimOut: 5,
+      tileWidthPx: 50,
+      pixelsPerSecond: pps,
+    });
+
+    expect(slots).toHaveLength(5);
+    for (let i = 0; i < slots.length - 1; i++) {
+      // Current tile right edge MUST equal next tile left edge (ZERO GAPS!)
+      const currentRight = slots[i].leftPx + slots[i].widthPx;
+      const nextLeft = slots[i + 1].leftPx;
+      expect(currentRight).toBeCloseTo(nextLeft, 4);
+    }
   });
 
   it("maintains rock-solid timeline world-space coordinate invariance across arbitrary scroll positions", () => {

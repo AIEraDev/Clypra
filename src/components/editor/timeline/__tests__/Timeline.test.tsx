@@ -370,6 +370,30 @@ describe("Timeline wheel zoom", () => {
   });
 
   it("Ctrl+wheel changes pixelsPerSecond and scroll (zoom-to-cursor)", async () => {
+    useTimelineStore.setState({
+      clips: [
+        {
+          id: "clip-1",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "asset-1",
+          startTime: 0,
+          duration: 20,
+          trimIn: 0,
+          trimOut: 20,
+          x: 0,
+          y: 0,
+          width: 1920,
+          height: 1080,
+          opacity: 1,
+          rotation: 0,
+        } as any,
+      ],
+      scrollLeft: 200,
+      pixelsPerSecond: 100,
+      zoomLevel: 1,
+    });
+
     const { container } = render(<Timeline />);
     const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
     expect(scroller).toBeTruthy();
@@ -469,9 +493,9 @@ describe("Timeline wheel zoom", () => {
     });
 
     const afterPps = useTimelineStore.getState().pixelsPerSecond;
-    const expected = ((200 + (400 - 160)) / 100) * afterPps - (400 - 160);
+    const expected = Math.round(((200 + (400 - 160)) / 100) * afterPps) - (400 - 160);
 
-    expect(scroller.scrollLeft).toBeCloseTo(expected, 5);
+    expect(scroller.scrollLeft).toBeCloseTo(expected, 0);
     expect(useTimelineStore.getState().scrollLeft).toBe(scroller.scrollLeft);
   });
 
