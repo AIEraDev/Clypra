@@ -185,18 +185,63 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     if (canvas.width !== targetW || canvas.height !== targetH) {
       canvas.width = targetW;
       canvas.height = targetH;
-      // Resizing canvas clears the framebuffer. Immediately fill with neutral placeholder
-      // so no uninitialized or stale pixels are ever presented to the compositor.
-      surfaceRef.current?.drawPlaceholder({
+
+      const layout = {
         clipWidthPx: renderWindow.widthPx,
         stripHeightPx,
         dpr,
         tileWidthPx,
         trimIn: renderWindow.trimIn,
         trimOut: renderWindow.trimOut,
-      });
+        tileAddresses,
+        tileCache: runtime?.tileCache,
+        clipId: clip.id,
+        videoPath,
+        pixelsPerSecond,
+        renderWindowLeftPx: renderWindow.leftPx,
+        clipTrimIn: clip.trimIn,
+      };
+
+      const currentEpochArtifacts = artifacts.filter(
+        (artifact) =>
+          (artifact.epochId === epochId || artifact.epochId === ("epoch-preload" as RenderEpochId)) &&
+          artifact.spatialTier === spatialTier,
+      );
+
+      const hasAnyCacheOrArtifacts =
+        currentEpochArtifacts.length > 0 ||
+        (runtime?.tileCache && runtime.tileCache.getStats().tileCount > 0);
+
+      if (hasAnyCacheOrArtifacts) {
+        surfaceRef.current?.drawFilmstrip(currentEpochArtifacts, layout);
+      } else {
+        surfaceRef.current?.drawPlaceholder({
+          clipWidthPx: renderWindow.widthPx,
+          stripHeightPx,
+          dpr,
+          tileWidthPx,
+          trimIn: renderWindow.trimIn,
+          trimOut: renderWindow.trimOut,
+        });
+      }
     }
-  }, [renderWindow.widthPx, stripHeightPx, tileWidthPx, renderWindow.trimIn, renderWindow.trimOut]);
+  }, [
+    renderWindow.widthPx,
+    renderWindow.leftPx,
+    stripHeightPx,
+    tileWidthPx,
+    renderWindow.trimIn,
+    renderWindow.trimOut,
+    tileAddresses,
+    artifacts,
+    epochId,
+    spatialTier,
+    clip.id,
+    clip.trimIn,
+    videoPath,
+    pixelsPerSecond,
+    runtime?.tileCache,
+  ]);
 
   // ── Epoch Transition & Debounce Gating (Bug B Fix) ───────────────────────
   // NOTE (Track A stopgap): During epoch transitions, avoid premature commits on the first arriving tile.
