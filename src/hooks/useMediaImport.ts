@@ -6,10 +6,41 @@ import { generateId } from "@/lib/utils/id";
 import { platform } from "@/core/platform";
 import { DEFAULT_STILL_DURATION_SECONDS } from "../constants/config";
 
+const CONCURRENCY_LIMIT = 4;
+
+async function mapConcurrent<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let currentIndex = 0;
+
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (currentIndex < items.length) {
+        const index = currentIndex++;
+        results[index] = await fn(items[index]);
+      }
+    }
+  );
+
+  await Promise.all(workers);
+  return results;
+}
+
 export const useMediaImport = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "warning"; message: string } | null>(null);
-  const { addMediaAsset, mediaAssets } = useProjectStore();
+  const { addMediaAsset, updateMediaAsset } = useProjectStore();
+
+  const getMediaType = (path: string): "video" | "audio" | "image" => {
+    const lower = path.toLowerCase();
+    if (/\.(mp4|mov|mkv|webm|m4v|flv)$/i.test(lower)) return "video";
+    if (/\.(mp3|wav|aac|ogg|flac|m4a)$/i.test(lower)) return "audio";
+    return "image";
+  };
 
   const importMedia = async () => {
     try {
@@ -30,29 +61,24 @@ export const useMediaImport = () => {
       let skippedCount = 0;
       let failedCount = 0;
 
-      for (const file of selected) {
+      await mapConcurrent(selected, CONCURRENCY_LIMIT, async (file) => {
         try {
-          // Check if asset already exists by path or filename (fallback)
-          const existingAsset = mediaAssets.find((a) => a.path === file.path || a.name === file.name);
+          const currentAssets = useProjectStore.getState().mediaAssets;
+          const existingAsset = currentAssets.find((a) => a.path === file.path || a.name === file.name);
           if (existingAsset) {
             skippedCount++;
-            continue;
+            return;
           }
 
           const type = getMediaType(file.name);
 
           try {
-            // Get metadata (duration, width, height) through platform adapter
+            // Phase 1 (Instant): Probe metadata and immediately create asset
             const metadata = await platform.getMediaMetadata(file.path);
 
-            let posterFrame: string | undefined;
-            let coverArt: string | undefined;
-
-            if (type === "video") {
-              posterFrame = await platform.extractPosterFrame(file.path, metadata.duration, window.devicePixelRatio || 1.0);
-            } else if (type === "audio") {
-              coverArt = await platform.extractAudioArtwork(file.path);
-              posterFrame = generateSimpleWaveform({
+            let initialPoster: string | undefined;
+            if (type === "audio") {
+              initialPoster = generateSimpleWaveform({
                 width: 160,
                 height: 90,
                 barCount: 32,
@@ -60,7 +86,7 @@ export const useMediaImport = () => {
                 backgroundColor: "#1e293b",
               });
             } else if (type === "image") {
-              posterFrame = platform.convertFileSrc(file.path);
+              initialPoster = platform.convertFileSrc(file.path);
             }
 
             const asset: MediaAsset = {
@@ -71,23 +97,44 @@ export const useMediaImport = () => {
               duration: type === "image" ? DEFAULT_STILL_DURATION_SECONDS : metadata.duration,
               width: type === "audio" ? 0 : metadata.width,
               height: type === "audio" ? 0 : metadata.height,
-              posterFrame,
-              coverArt,
+              posterFrame: initialPoster,
               size: file.size || (metadata as any).size || 0,
             };
 
             addMediaAsset(asset);
             importedCount++;
+
+            // Phase 2 (Async Background): Extract poster/cover art without blocking UI
+            if (type === "video") {
+              platform
+                .extractPosterFrame(file.path, metadata.duration, window.devicePixelRatio || 1.0)
+                .then((poster) => {
+                  if (poster) {
+                    useProjectStore.getState().updateMediaAsset(asset.id, { posterFrame: poster });
+                  }
+                })
+                .catch((err) => {
+                  console.warn(`[MediaImport] Failed to extract poster for ${file.path}:`, err);
+                });
+            } else if (type === "audio") {
+              platform
+                .extractAudioArtwork(file.path)
+                .then((cover) => {
+                  if (cover) {
+                    useProjectStore.getState().updateMediaAsset(asset.id, { coverArt: cover });
+                  }
+                })
+                .catch(() => {});
+            }
           } catch (metadataError) {
             console.error(`[MediaImport] Failed to extract metadata for ${file.path}:`, metadataError);
             failedCount++;
-            continue;
           }
         } catch (fileError) {
           console.error(`[MediaImport] Failed to import ${file.path}:`, fileError);
           failedCount++;
         }
-      }
+      });
 
       // Show appropriate toast message
       if (failedCount > 0) {
@@ -117,13 +164,6 @@ export const useMediaImport = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const getMediaType = (path: string): "video" | "audio" | "image" => {
-    const lower = path.toLowerCase();
-    if (/\.(mp4|mov|mkv|webm|m4v|flv)$/i.test(lower)) return "video";
-    if (/\.(mp3|wav|aac|ogg|flac|m4a)$/i.test(lower)) return "audio";
-    return "image";
   };
 
   return {
