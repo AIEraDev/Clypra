@@ -243,8 +243,10 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
         renderGraphVersion: 1,
       };
 
+      const tileStart = performance.now();
       renderNativeFrame(request)
         .then(async (rgba) => {
+          const decodeMs = performance.now() - tileStart;
           if (cancelled || !isEpochStillValid(epochId, clipId)) return;
           const bitmap = await rgbaToImageBitmap(rgba, width, height, `${clipId}:${timestampMs}`);
           if (cancelled || !isEpochStillValid(epochId, clipId)) {
@@ -264,6 +266,7 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
           });
         })
         .catch((error) => {
+          console.error(`[Transport ❌] Failed to decode tile at ${(timestampMs / 1000).toFixed(2)}s for clip "${clipId}":`, error);
           if (!cancelled) onError?.(error);
         })
         .finally(() => {
