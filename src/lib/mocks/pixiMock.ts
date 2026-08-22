@@ -35,7 +35,23 @@ export class EmbossFilter extends Filter {}
 export class CrossHatchFilter extends Filter {}
 export class PixelateFilter extends Filter {}
 export class AsciiFilter extends Filter {}
+export class AdjustmentFilter extends Filter {}
 export class VideoSource {}
+
+export class RenderTexture {
+  static create(): RenderTexture {
+    return new RenderTexture();
+  }
+}
+
+export class Text {
+  text = "";
+  style = {};
+  position = { set(): void {} };
+  scale = { set(): void {} };
+}
+
+export class TextStyle {}
 
 export class Container {
   addChild(): void {}
