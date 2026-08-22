@@ -75,7 +75,7 @@ impl HeadlessGpuContext {
                 &wgpu::DeviceDescriptor {
                     label: Some("Native Preview Golden Test Device"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
+                    required_limits: adapter.limits(),
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
                 None,
