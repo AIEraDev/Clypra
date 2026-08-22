@@ -999,6 +999,7 @@ impl VideoDecoder {
 
     /// Decode a single frame and return raw NV12 planes plus the color metadata
     /// attached to the actual decoded frame for GPU shader consumption.
+    #[allow(clippy::type_complexity)]
     pub fn decode_frame_raw_nv12(
         &mut self,
         timestamp_secs: f64,

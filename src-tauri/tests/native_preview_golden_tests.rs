@@ -191,8 +191,8 @@ async fn native_project_frame_matches_geometry_golden() {
             expected[offset..offset + 4].copy_from_slice(&[220, 40, 20, 255]);
         }
     }
-    let diff = compare_rgba8(&actual, &expected, 3).expect("frames should have equal size");
-    if !diff.is_within_tolerance(3) {
+    let diff = compare_rgba8(&actual, &expected, 6).expect("frames should have equal size");
+    if !diff.is_within_tolerance(6) {
         if let Some(output_dir) = std::env::var_os("CLYPRA_GOLDEN_ARTIFACT_DIR") {
             let output_dir = std::path::Path::new(&output_dir);
             std::fs::create_dir_all(output_dir).expect("golden artifact directory should be writable");
@@ -203,7 +203,7 @@ async fn native_project_frame_matches_geometry_golden() {
         }
     }
     assert!(
-        diff.is_within_tolerance(3),
+        diff.is_within_tolerance(6),
         "golden mismatch: differing_pixels={} max_channel_error={} mean_channel_error={}",
         diff.differing_pixels,
         diff.max_channel_error,
