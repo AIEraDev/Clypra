@@ -219,6 +219,9 @@ export class WebGLRasterSurface {
         trimIn: layout.trimIn,
         trimOut: layout.trimOut,
         tileWidthPx: targetTileW,
+        pixelsPerSecond: layout.pixelsPerSecond,
+        renderWindowLeftPx: layout.renderWindowLeftPx,
+        clipTrimIn: layout.clipTrimIn,
       });
       for (const slot of slots) {
         const match = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));

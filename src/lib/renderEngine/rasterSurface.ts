@@ -52,6 +52,12 @@ export type FilmstripLayout = {
   clipId?: string;
   /** Video path — used for cross-clip content hash deduplication lookups. */
   videoPath?: string;
+  /** Timeline pixels per second zoom factor */
+  pixelsPerSecond?: number;
+  /** Offset inside the full clip where the bounded render surface is positioned */
+  renderWindowLeftPx?: number;
+  /** Unbounded trimIn of the full clip in seconds */
+  clipTrimIn?: number;
 };
 
 // ─── RasterSurface ────────────────────────────────────────────────────────────
@@ -130,6 +136,9 @@ export class RasterSurface {
         trimIn: layout.trimIn,
         trimOut: layout.trimOut,
         tileWidthPx: targetTileW,
+        pixelsPerSecond: layout.pixelsPerSecond,
+        renderWindowLeftPx: layout.renderWindowLeftPx,
+        clipTrimIn: layout.clipTrimIn,
       });
 
       for (const slot of slots) {
