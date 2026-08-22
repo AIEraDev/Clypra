@@ -27,9 +27,9 @@
  */
 
 import { SpatialTier, VelocityState, type RenderEpochId } from "./types";
-import { requestFilmstripArtifacts, type TransportArtifact } from "./transport";
+import { requestFilmstripArtifacts, checkCoarseBaselineCache, type TransportArtifact } from "./transport";
 import { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
-import { generateViewportTileAddresses, type FilmstripTileAddress } from "../filmstrip/filmstripTiers";
+import { generateViewportTileAddresses, FILMSTRIP_DENSITY_TIERS, type FilmstripTileAddress } from "../filmstrip/filmstripTiers";
 import { timeToPixel, pixelToTime } from "../timeline/timelineViewport";
 
 
@@ -291,6 +291,140 @@ export class FilmstripCache {
   }
 
   /**
+   * Preload bounded asset-wide coarse baseline (≤300 tiles) across th  /**
+   * Restore coarse baseline tiles from Rust in-memory tier cache or on-disk WebP atlases.
+   * On project reopen or clip re-mount, this populates the FilmstripTileCache in <10ms
+   * without triggering any FFmpeg decoding.
+   */
+  restoreCoarseBaselineFromDisk(options: { videoPath: string; duration: number; onComplete?: (restoredCount: number) => void }): () => void {
+    const { videoPath, duration, onComplete } = options;
+    if (!videoPath || !duration || duration <= 0) {
+      onComplete?.(0);
+      return () => {};
+    }
+
+    const tier = SpatialTier.L0;
+    const baseInterval = FILMSTRIP_DENSITY_TIERS[tier].thumbnailIntervalSeconds; // 5.0s
+    const MAX_COARSE_TILES = 300;
+    const multiplier = Math.max(1, Math.ceil(duration / (MAX_COARSE_TILES * baseInterval)));
+    const interval = baseInterval * multiplier;
+    const tileCount = Math.ceil(duration / interval);
+
+    const addresses: FilmstripTileAddress[] = [];
+    for (let i = 0; i <= tileCount; i++) {
+      const timestamp = Math.round((i * interval) * 10000) / 10000;
+      if (timestamp > duration) break;
+      const address: FilmstripTileAddress = {
+        clipId: videoPath,
+        videoPath,
+        zoomTier: tier,
+        tileIndex: i * multiplier,
+        timestamp,
+      };
+      if (!this.tileCache.hasTile(address)) {
+        addresses.push(address);
+      }
+    }
+
+    if (addresses.length === 0) {
+      onComplete?.(0);
+      return () => {};
+    }
+
+    let restoredCount = 0;
+    return checkCoarseBaselineCache({
+      videoPath,
+      timestampsMs: addresses.map((a) => Math.round(a.timestamp * 1000)),
+      spatialTier: tier,
+      onArtifact: (artifact) => {
+        if (!isValidArtifact(artifact)) {
+          try { artifact.bitmap.close(); } catch {}
+          return;
+        }
+        const matchingAddr = addresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
+        if (matchingAddr) {
+          this.tileCache.setTile(matchingAddr, artifact);
+          restoredCount++;
+        } else {
+          try { artifact.bitmap.close(); } catch {}
+        }
+      },
+      onComplete: () => {
+        onComplete?.(restoredCount);
+      },
+      onError: () => {
+        onComplete?.(restoredCount);
+      },
+    });
+  }
+
+  /**
+   * Preload bounded asset-wide coarse baseline (≤300 tiles) across the entire video.
+   * Runs in the background on timeline drop so horizontal scrolling hits cache 100% of the time.
+   * First checks Rust/disk cache for instant zero-decode restore, then decodes any remaining missing tiles.
+   */
+  preloadAssetCoarseBaseline(options: { videoPath: string; duration: number }): void {
+    const { videoPath, duration } = options;
+    if (!videoPath || !duration || duration <= 0) return;
+
+    // Phase 1: Try instant restore from on-disk/in-memory cache
+    this.restoreCoarseBaselineFromDisk({
+      videoPath,
+      duration,
+      onComplete: () => {
+        // Phase 2: Compute remaining missing addresses and dispatch background decode
+        const tier = SpatialTier.L0;
+        const baseInterval = FILMSTRIP_DENSITY_TIERS[tier].thumbnailIntervalSeconds;
+        const MAX_COARSE_TILES = 300;
+        const multiplier = Math.max(1, Math.ceil(duration / (MAX_COARSE_TILES * baseInterval)));
+        const interval = baseInterval * multiplier;
+        const tileCount = Math.ceil(duration / interval);
+
+        const missingAddresses: FilmstripTileAddress[] = [];
+        for (let i = 0; i <= tileCount; i++) {
+          const timestamp = Math.round((i * interval) * 10000) / 10000;
+          if (timestamp > duration) break;
+          const address: FilmstripTileAddress = {
+            clipId: videoPath,
+            videoPath,
+            zoomTier: tier,
+            tileIndex: i * multiplier,
+            timestamp,
+          };
+          if (!this.tileCache.hasTile(address)) {
+            missingAddresses.push(address);
+          }
+        }
+
+        if (missingAddresses.length === 0) return;
+
+        // Low-priority background decode request (concurrency 2 to avoid competing with playback/export)
+        requestFilmstripArtifacts({
+          videoPath,
+          timestampsMs: missingAddresses.map((a) => Math.round(a.timestamp * 1000)),
+          spatialTier: tier,
+          epochId: "epoch-preload" as RenderEpochId,
+          clipId: videoPath,
+          concurrency: 2,
+          onArtifact: (artifact) => {
+            if (!isValidArtifact(artifact)) {
+              try { artifact.bitmap.close(); } catch {}
+              return;
+            }
+            const matchingAddr = missingAddresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
+            if (matchingAddr) {
+              this.tileCache.setTile(matchingAddr, artifact);
+            } else {
+              try { artifact.bitmap.close(); } catch {}
+            }
+          },
+          onError: () => {},
+        });
+      },
+    });
+  }
+
+  /**
    * Schedule artifact for batched update (RAF-gated)
    * Prevents React rerender storms during progressive decode
    */
@@ -544,8 +678,21 @@ export class FilmstripCache {
       // (fall through to normal request below, but with cached artifacts already shown)
     }
 
-    // Extract timestamps from tile addresses for transport layer
-    const timestampsMs = tileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
+    // Extract timestamps from tile addresses for transport layer, sorted playhead-first
+    // (closest to visible center time dispatched first for instant viewport fill)
+    const clipStartPx = timeToPixel(options.clipStartTime, options.pixelsPerSecond);
+    const visibleClipStartPx = Math.max(clipStartPx, options.viewportScrollLeft);
+    const visibleClipEndPx = Math.min(clipStartPx + options.clipWidthPx, options.viewportScrollLeft + options.viewportWidth);
+    const visibleMidPx = (visibleClipStartPx + visibleClipEndPx) / 2;
+    const visibleMidTime = pixelToTime(visibleMidPx - clipStartPx, options.pixelsPerSecond) + options.trimIn;
+
+    const sortedTileAddresses = [...tileAddresses].sort((a, b) => {
+      const distA = Math.abs(a.timestamp - visibleMidTime);
+      const distB = Math.abs(b.timestamp - visibleMidTime);
+      return distA - distB;
+    });
+
+    const timestampsMs = sortedTileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
 
     // Create entry
     const entry: FilmstripCacheEntry = {
