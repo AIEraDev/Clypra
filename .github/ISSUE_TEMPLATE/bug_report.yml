@@ -1,21 +1,14 @@
 name: Bug Report
-description: Report a bug or issue with Clypra
+description: Report a bug in Clypra
 title: "[Bug]: "
 labels: ["type: bug"]
-assignees: []
 
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Thanks for taking the time to report this bug! Please fill out the information below.
-
   - type: input
     id: version
     attributes:
-      label: Clypra Version
-      description: What version of Clypra are you using?
-      placeholder: "0.1.0"
+      label: Version
+      placeholder: "1.3.0"
     validations:
       required: true
 
@@ -23,14 +16,12 @@ body:
     id: platform
     attributes:
       label: Platform
-      description: What operating system are you using?
       options:
         - macOS (Apple Silicon)
         - macOS (Intel)
         - Windows 11
         - Windows 10
-        - Linux (Ubuntu)
-        - Linux (Other)
+        - Linux
     validations:
       required: true
 
@@ -38,53 +29,13 @@ body:
     id: description
     attributes:
       label: What happened?
-      description: A clear description of the bug
-      placeholder: When I try to export a video, the app crashes...
-    validations:
-      required: true
-
-  - type: textarea
-    id: steps
-    attributes:
-      label: Steps to reproduce
-      description: How can we reproduce this bug?
-      placeholder: |
-        1. Import a video file
-        2. Add a text clip
-        3. Click Export
-        4. App crashes
-    validations:
-      required: true
-
-  - type: textarea
-    id: expected
-    attributes:
-      label: Expected behavior
-      description: What did you expect to happen?
-      placeholder: The video should export successfully
-    validations:
-      required: true
-
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual behavior
-      description: What actually happened?
-      placeholder: The app crashed with an error message
+      placeholder: Describe the bug and steps to reproduce it.
     validations:
       required: true
 
   - type: textarea
     id: logs
     attributes:
-      label: Error logs (if any)
-      description: Paste any error messages or logs here
+      label: Logs / Screenshots
+      description: Paste any error messages or attach screenshots.
       render: shell
-      placeholder: |
-        Paste error logs here...
-
-  - type: textarea
-    id: additional
-    attributes:
-      label: Additional context
-      description: Any other information that might help (screenshots, video files used, etc.)

@@ -44,7 +44,8 @@ jobs:
             libswscale-dev libswresample-dev \
             libavdevice-dev libavfilter-dev libpostproc-dev \
             build-essential pkg-config libssl-dev \
-            libclang-dev libxdo-dev cmake
+            libclang-dev libxdo-dev cmake \
+            libasound2-dev
 
       # ── macOS ──────────────────────────────────────────────────────────────
       # whisper-rs-sys builds ggml via cmake. The only reliable way to set
