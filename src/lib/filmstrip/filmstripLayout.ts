@@ -107,13 +107,15 @@ export function getFilmstripTileSlots(options: {
     .sort((a, b) => a.timestamp - b.timestamp);
 
   return sorted.map((address) => {
+    const interval = FILMSTRIP_DENSITY_TIERS[address.zoomTier]?.thumbnailIntervalSeconds ?? 1.0;
     const clipLeftPx = (address.timestamp - baseTrimIn) * pps;
     const canvasLeftPx = clipLeftPx - renderWindowLeftPx;
+    const widthPx = Math.max(1, interval * pps);
 
     return {
       address,
       leftPx: canvasLeftPx,
-      widthPx: tileWidthPx,
+      widthPx,
     };
   });
 }
