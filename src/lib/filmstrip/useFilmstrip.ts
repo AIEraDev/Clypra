@@ -34,6 +34,7 @@ export interface UseFilmstripOptions {
   viewportScrollLeft: number;
   viewportWidth: number;
   pixelsPerSecond: number;
+  playheadTime?: number;
   enabled?: boolean;
 }
 
@@ -79,6 +80,7 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
       viewportScrollLeft: opts.viewportScrollLeft,
       viewportWidth: opts.viewportWidth,
       pixelsPerSecond: opts.pixelsPerSecond,
+      playheadTime: opts.playheadTime,
     });
   }, [
     runtime,
@@ -93,6 +95,7 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     opts.viewportScrollLeft,
     opts.viewportWidth,
     opts.pixelsPerSecond,
+    opts.playheadTime,
     renderState.epochId, // Re-request on epoch change
   ]);
 
