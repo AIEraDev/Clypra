@@ -98,9 +98,10 @@ describe("useFilmstrip", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockUseRenderState.mockReturnValue(makeRenderState());
-    // Mock useRenderRuntime to return a mock runtime object with requestFilmstrip
+    // Mock useRenderRuntime to return a mock runtime object with requestFilmstrip and preloadAssetCoarseBaseline
     mockUseRenderRuntime.mockReturnValue({
       requestFilmstrip: mockRequestFilmstrip,
+      preloadAssetCoarseBaseline: vi.fn(),
     });
     mockRequestFilmstrip.mockClear();
     rafCallbacks = new Map();

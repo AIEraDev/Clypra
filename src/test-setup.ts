@@ -161,3 +161,104 @@ class MockAudioContext {
 
 // @ts-expect-error - Mocking global AudioContext
 global.AudioContext = MockAudioContext;
+
+// Mock HTMLCanvasElement.prototype.getContext for jsdom
+const setupCanvasMock = () => {
+  const CanvasProto = typeof window !== "undefined" && window.HTMLCanvasElement ? window.HTMLCanvasElement.prototype : typeof HTMLCanvasElement !== "undefined" ? HTMLCanvasElement.prototype : null;
+  if (!CanvasProto) return;
+
+  const mockGetContext = function (this: HTMLCanvasElement, contextType: string, ...args: any[]) {
+    if (contextType === "2d") {
+      const self = this;
+      const ctx: any = {
+        canvas: self,
+        save: vi.fn(),
+        restore: vi.fn(),
+        scale: vi.fn(),
+        translate: vi.fn(),
+        rotate: vi.fn(),
+        beginPath: vi.fn(),
+        closePath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        rect: vi.fn(),
+        arc: vi.fn(),
+        clip: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        fillRect: vi.fn(),
+        strokeRect: vi.fn(),
+        clearRect: vi.fn(),
+        roundRect: vi.fn(),
+        drawImage: vi.fn(),
+        fillText: vi.fn(),
+        strokeText: vi.fn(),
+        font: "10px sans-serif",
+        measureText: vi.fn(function (this: any, text: string) {
+          const fontStr = typeof this?.font === "string" ? this.font : typeof ctx?.font === "string" ? ctx.font : "10px sans-serif";
+          const fontMatch = fontStr.match(/(\d+(?:\.\d+)?)px/);
+          const fontSize = fontMatch ? parseFloat(fontMatch[1]) : 10;
+          const width = (text ? String(text).length : 0) * fontSize * 0.6;
+          return {
+            width,
+            actualBoundingBoxAscent: fontSize * 0.8,
+            actualBoundingBoxDescent: fontSize * 0.2,
+            actualBoundingBoxLeft: 0,
+            actualBoundingBoxRight: width,
+          };
+        }),
+        createLinearGradient: vi.fn(() => ({
+          addColorStop: vi.fn(),
+        })),
+        createRadialGradient: vi.fn(() => ({
+          addColorStop: vi.fn(),
+        })),
+        createImageData: (width: number, height: number) => ({
+          width,
+          height,
+          data: new Uint8ClampedArray(width * height * 4),
+        }),
+        getImageData: (sx: number, sy: number, sw: number, sh: number) => ({
+          width: sw,
+          height: sh,
+          data: new Uint8ClampedArray(sw * sh * 4),
+        }),
+        putImageData: vi.fn(),
+        setTransform: vi.fn(),
+        resetTransform: vi.fn(),
+        fillStyle: "#000000",
+        strokeStyle: "#000000",
+        lineWidth: 1,
+        lineCap: "butt",
+        lineJoin: "miter",
+        miterLimit: 10,
+        globalAlpha: 1.0,
+        globalCompositeOperation: "source-over",
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: "low",
+        filter: "none",
+        textAlign: "start",
+        textBaseline: "alphabetic",
+      };
+      return ctx as unknown as CanvasRenderingContext2D;
+    }
+    return null;
+  };
+
+  Object.defineProperty(CanvasProto, "getContext", {
+    value: mockGetContext,
+    configurable: true,
+    writable: true,
+  });
+
+  Object.defineProperty(CanvasProto, "toDataURL", {
+    value: function () {
+      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    },
+    configurable: true,
+    writable: true,
+  });
+};
+
+setupCanvasMock();
+
