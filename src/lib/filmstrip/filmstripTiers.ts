@@ -53,6 +53,22 @@ export interface FilmstripTileAddress {
   tileIndex: number;
   /** The exact timestamp this tile represents (seconds) */
   timestamp: number;
+  /** Visual effect graph version (e.g. Color grade/LUT/Filter) */
+  effectGraphVersion?: number;
+}
+
+/**
+ * Canonical unified tile key across TypeScript and Rust.
+ * Format: videoPath:spatialTier:timestampMs:effectGraphVersion
+ */
+export function getCanonicalTileKey(options: {
+  videoPath: string;
+  timestampMs: number;
+  spatialTier: SpatialTier;
+  effectGraphVersion?: number;
+}): string {
+  const version = options.effectGraphVersion ?? 1;
+  return `${options.videoPath}:${options.spatialTier}:${Math.round(options.timestampMs)}:v${version}`;
 }
 
 /**
@@ -125,8 +141,7 @@ export function generateViewportTileAddresses(options: {
     // Clamp timestamp to effective range (respecting video duration) and round to prevent float precision drift
     const rawTimestamp = Math.min(Math.max(t, trimIn), effectiveEnd);
     const timestamp = Math.round(rawTimestamp * 10000) / 10000;
-    if (timestamp < start) continue; // Skip tiles before visible region
-    if (timestamp >= end) break;
+    if (timestamp >= end && t > gridStart) break;
 
     addresses.push({
       clipId,
@@ -148,12 +163,13 @@ export function generateViewportTileAddresses(options: {
  * mathematically equal values due to IEEE 754 rounding.
  */
 export function getTileKey(address: FilmstripTileAddress): string {
+  const versionSuffix = address.effectGraphVersion !== undefined ? `:v${address.effectGraphVersion}` : "";
   if (address.videoPath) {
     // Convert to integer milliseconds to avoid floating-point precision issues
     const timestampMs = Math.round(address.timestamp * 1000);
-    return `${address.videoPath}:${address.zoomTier}:${timestampMs}`;
+    return `${address.videoPath}:${address.zoomTier}:${timestampMs}${versionSuffix}`;
   }
-  return `${address.clipId}:${address.zoomTier}:${address.tileIndex}`;
+  return `${address.clipId}:${address.zoomTier}:${address.tileIndex}${versionSuffix}`;
 }
 
 /**
