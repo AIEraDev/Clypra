@@ -289,6 +289,7 @@ async fn test_audit_dual_texture_transition_midpoint() {
         _pad0: 0.0,
         _pad1: 0.0,
         _pad2: 0.0,
+        fade_color: [0.0, 0.0, 0.0, 1.0],
     };
 
     let output = compositor

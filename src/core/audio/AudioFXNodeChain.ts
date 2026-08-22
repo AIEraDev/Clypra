@@ -50,11 +50,11 @@ export class AudioFXNodeChain {
     // applyClipConfig but never connected — audio never passed through it.
     // Default params (threshold=0, ratio=1) are transparent/passthrough.
     this.compressorNode = ctx.createDynamicsCompressor();
-    this.compressorNode.threshold.value = 0;   // 0dBFS = never triggers
-    this.compressorNode.knee.value = 0;
-    this.compressorNode.ratio.value = 1;       // 1:1 = unity gain / transparent
-    this.compressorNode.attack.value = 0.003;
-    this.compressorNode.release.value = 0.25;
+    if (this.compressorNode.threshold) this.compressorNode.threshold.value = 0;   // 0dBFS = never triggers
+    if (this.compressorNode.knee) this.compressorNode.knee.value = 0;
+    if (this.compressorNode.ratio) this.compressorNode.ratio.value = 1;       // 1:1 = unity gain / transparent
+    if (this.compressorNode.attack) this.compressorNode.attack.value = 0.003;
+    if (this.compressorNode.release) this.compressorNode.release.value = 0.25;
 
     // Connect chain:
     // eqLow → eqMid → eqHigh → [panner] → gainNode → compressorNode (output)

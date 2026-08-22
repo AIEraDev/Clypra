@@ -61,6 +61,9 @@ describe("AudioFXNodeChain", () => {
     mockCompressorNode = {
       threshold: createMockAudioParam(-24),
       ratio: createMockAudioParam(4),
+      knee: createMockAudioParam(30),
+      attack: createMockAudioParam(0.003),
+      release: createMockAudioParam(0.25),
       connect: vi.fn(),
       disconnect: vi.fn(),
     };
@@ -84,11 +87,12 @@ describe("AudioFXNodeChain", () => {
     const chain = new AudioFXNodeChain(mockCtx);
 
     expect(chain.inputNode).toBe(mockEqLow);
-    expect(chain.outputNode).toBe(mockGainNode);
+    expect(chain.outputNode).toBe(mockCompressorNode);
     expect(mockEqLow.connect).toHaveBeenCalledWith(mockEqMid);
     expect(mockEqMid.connect).toHaveBeenCalledWith(mockEqHigh);
     expect(mockEqHigh.connect).toHaveBeenCalledWith(mockPannerNode);
     expect(mockPannerNode.connect).toHaveBeenCalledWith(mockGainNode);
+    expect(mockGainNode.connect).toHaveBeenCalledWith(mockCompressorNode);
   });
 
   it("applies EQ and Panner settings from Clip audioFX config", () => {

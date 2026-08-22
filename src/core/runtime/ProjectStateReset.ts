@@ -390,11 +390,11 @@ export async function detectStaleState(): Promise<{
     // Check UIStore
     const { useUIStore } = await import("@/store/uiStore");
     const uiState = useUIStore.getState();
-    if (uiState.selectedClipIds.length > 0 || uiState.selectedGapId || uiState.previewMode !== "program") {
+    if ((uiState?.selectedClipIds?.length ?? 0) > 0 || uiState?.selectedGapId || (uiState?.previewMode && uiState.previewMode !== "program")) {
       staleSubsystems.push("UIStore");
       details.UIStore = {
-        selectedClips: uiState.selectedClipIds.length,
-        previewMode: uiState.previewMode,
+        selectedClips: uiState?.selectedClipIds?.length ?? 0,
+        previewMode: uiState?.previewMode,
       };
     }
 

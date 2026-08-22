@@ -21,7 +21,11 @@ vi.mock("@/store/dragStateStore", () => ({
 const mockUiSetState = vi.fn();
 vi.mock("@/store/uiStore", () => ({
   useUIStore: {
-    getState: () => ({}),
+    getState: () => ({
+      selectedClipIds: [],
+      selectedGapId: null,
+      previewMode: "program",
+    }),
     setState: mockUiSetState,
   },
 }));
