@@ -44,6 +44,7 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "pixi.js": path.resolve(__dirname, "./src/lib/mocks/pixiMock.ts"),
       ...workspaceAlias,
     },
   },
