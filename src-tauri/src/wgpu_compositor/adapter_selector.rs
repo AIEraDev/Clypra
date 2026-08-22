@@ -68,15 +68,29 @@ impl GpuContext {
                     .await
                 {
                     adapter
+                } else if let Some(adapter) = instance
+                    .request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference:       wgpu::PowerPreference::LowPower,
+                        compatible_surface,
+                        force_fallback_adapter: false,
+                    })
+                    .await
+                {
+                    adapter
+                } else if let Some(adapter) = instance
+                    .request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference:       wgpu::PowerPreference::None,
+                        compatible_surface,
+                        force_fallback_adapter: true,
+                    })
+                    .await
+                {
+                    adapter
                 } else {
-                    // Graceful degradation: Fallback to software rasterizer (WARP / Lavapipe / SwiftShader)
                     instance
-                        .request_adapter(&wgpu::RequestAdapterOptions {
-                            power_preference:       wgpu::PowerPreference::None,
-                            compatible_surface,
-                            force_fallback_adapter: true,
-                        })
-                        .await
+                        .enumerate_adapters(wgpu::Backends::all())
+                        .into_iter()
+                        .next()
                         .ok_or_else(|| {
                             "No compatible graphics adapters or software rasterizers found.".to_string()
                         })?

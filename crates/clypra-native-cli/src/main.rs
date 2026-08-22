@@ -387,6 +387,7 @@ fn run_render(args: &[String]) -> Result<(), String> {
     let gpu = runtime.block_on(async {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
+            flags: wgpu::InstanceFlags::all(),
             ..Default::default()
         });
         GpuContext::select_best_gpu(&instance, None).await
