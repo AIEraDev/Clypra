@@ -102,7 +102,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools
+            libvulkan1 mesa-vulkan-drivers vulkan-tools libasound2-dev
           echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
 

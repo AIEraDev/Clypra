@@ -40,5 +40,5 @@ features = ["webgpu", "webgl"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 
-# tokio is NOT a dependency — async is driven by wasm-bindgen-futures
-# (Promise-based), not a multi-thread runtime.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
