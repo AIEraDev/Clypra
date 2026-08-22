@@ -54,7 +54,7 @@ export enum TemporalTier {
   L0 = 0, // 5.0s base (2.5s near edits) - matches Rust DensityLevel::Low
   L1 = 1, // 1.0s (0.5s near edits) - matches Rust DensityLevel::Medium
   L2 = 2, // 0.2s (0.1s near edits) - matches Rust DensityLevel::High
-  L3 = 3, // 0.02s (0.01s near edits) - matches Rust DensityLevel::Ultra
+  L3 = 3, // 0.1s (0.05s near edits) - matches Rust DensityLevel::Ultra
 }
 
 /**
@@ -65,7 +65,7 @@ export const TEMPORAL_TIER_INTERVALS: Record<TemporalTier, readonly [number, num
   [TemporalTier.L0]: [5.0, 2.5], // Matches Rust Low: 5.0
   [TemporalTier.L1]: [1.0, 0.5], // Matches Rust Medium: 1.0
   [TemporalTier.L2]: [0.2, 0.1], // Matches Rust High: 0.2
-  [TemporalTier.L3]: [0.02, 0.01], // Matches Rust Ultra: 0.02
+  [TemporalTier.L3]: [0.1, 0.05], // Matches Rust Ultra: 0.1
 } as const;
 
 /** High-motion region density multiplier (R1). */
@@ -298,9 +298,9 @@ export type SrpConfig = Record<SpatialTier, TierBoundary>;
  */
 export const DEFAULT_SRP_CONFIG: SrpConfig = {
   [SpatialTier.L0]: { min: 0.1, max: 0.5 },
-  [SpatialTier.L1]: { min: 0.5, max: 1.25 }, // Standard 1.0x editing zoom maps to L1 (1.0s interval, matching 50px slots)
-  [SpatialTier.L2]: { min: 1.25, max: 2.5 }, // Detailed trimming zoom maps to L2 (0.2s interval)
-  [SpatialTier.L3]: { min: 2.5, max: 5.0 },  // Frame-accurate zoom maps to L3 (0.02s interval)
+  [SpatialTier.L1]: { min: 0.5, max: 1.25 }, // Standard 1.0x editing zoom maps to L1 (1.0s interval)
+  [SpatialTier.L2]: { min: 1.25, max: 2.5 },  // Detailed trimming zoom maps to L2 (0.2s interval)
+  [SpatialTier.L3]: { min: 2.5, max: 5.0 },   // Frame-accurate zoom maps to L3 (0.1s interval)
 } as const;
 
 // ─── ISM Output ───────────────────────────────────────────────────────────────
