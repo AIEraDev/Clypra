@@ -133,6 +133,15 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     renderState.epochId,
   ]);
 
+  // Trigger asset-wide bounded coarse preload on timeline mount so horizontal scrolling hits cache 100% of the time.
+  useEffect(() => {
+    if (!runtime || !enabled || !opts.videoPath || !opts.duration) return;
+    runtime.preloadAssetCoarseBaseline({
+      videoPath: opts.videoPath,
+      duration: opts.duration,
+    });
+  }, [runtime, enabled, opts.videoPath, opts.duration]);
+
   // Return immutable projection
   return {
     artifacts: renderState.visibleArtifacts as readonly TransportArtifact[],
