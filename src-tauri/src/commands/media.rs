@@ -10,7 +10,11 @@ use serde::{Serialize, Deserialize};
 /// Professional NLE approach: single probe pipeline for all media types.
 #[tauri::command]
 pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
-    eprintln!("🦀 [get_media_metadata] Probing: {}", path);
+    let start = std::time::Instant::now();
+    let filename = std::path::Path::new(&path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&path);
     
     // Determine media type from extension
     let extension = std::path::Path::new(&path)
@@ -19,14 +23,34 @@ pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
         .unwrap_or("")
         .to_lowercase();
     
-    match extension.as_str() {
+    let result = match extension.as_str() {
         // Image formats - use image crate for native decoding
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => {
             get_image_metadata(&path).await
         }
         // Video/audio formats - use FFmpeg decoder
         _ => get_video_metadata_internal(&path).await,
+    };
+
+    if let Ok(ref meta) = result {
+        eprintln!(
+            "🦀 [get_media_metadata] [{}] Probed in {:?} ({}x{}, {:.2}s)",
+            filename,
+            start.elapsed(),
+            meta.width,
+            meta.height,
+            meta.duration
+        );
+    } else if let Err(ref e) = result {
+        eprintln!(
+            "🦀 [get_media_metadata] [{}] Failed in {:?}: {}",
+            filename,
+            start.elapsed(),
+            e
+        );
     }
+
+    result
 }
 
 /// Return the complete native stream contract used by deterministic preview
