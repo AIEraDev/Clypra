@@ -582,6 +582,12 @@ export class FilmstripCache {
       videoDuration: duration,
     });
 
+    console.log(
+      `%c[Filmstrip 🎬]%c Request clip="${clipId}" tier=L${spatialTier} pps=${options.pixelsPerSecond} visibleTiles=${tileAddresses.length}`,
+      "background: #4f46e5; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+      "color: #818cf8; font-weight: normal;",
+    );
+
     const layoutKey = computeFilmstripLayoutKey({
       clipId,
       spatialTier,
@@ -715,6 +721,15 @@ export class FilmstripCache {
     });
 
     const timestampsMs = sortedTileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
+    const totalToDecode = timestampsMs.length;
+    const requestStartTime = performance.now();
+    let arrivedCount = 0;
+
+    console.log(
+      `%c[Filmstrip 🎬]%c Request: clip="${clipId}" tier=L${spatialTier} pps=${options.pixelsPerSecond} visible=[${visibleStartTime.toFixed(2)}s..${visibleEndTime.toFixed(2)}s] | 📊 Tiles to decode: ${totalToDecode} (cached: ${keptArtifacts.length}) | Playhead: ${targetTime.toFixed(2)}s`,
+      "background: #4f46e5; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+      "color: #818cf8; font-weight: normal;",
+    );
 
     // Create entry
     const entry: FilmstripCacheEntry = {
@@ -762,6 +777,16 @@ export class FilmstripCache {
           return;
         }
 
+        arrivedCount++;
+        const elapsedMs = performance.now() - requestStartTime;
+        if (arrivedCount === 1 || arrivedCount % 5 === 0 || arrivedCount === totalToDecode) {
+          console.log(
+            `%c[Filmstrip 📦]%c Decoded ${arrivedCount}/${totalToDecode} tiles (${((arrivedCount / totalToDecode) * 100).toFixed(0)}%) in ${elapsedMs.toFixed(1)}ms (avg: ${(elapsedMs / arrivedCount).toFixed(1)}ms/tile, latest: ${(artifact.timestampMs / 1000).toFixed(2)}s)`,
+            "background: #059669; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+            "color: #34d399; font-weight: normal;",
+          );
+        }
+
         // Find the tile address this artifact belongs to
         const matchingAddr = currentEntry.tileAddresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
         if (matchingAddr) {
@@ -783,8 +808,17 @@ export class FilmstripCache {
         if (currentEntry && currentEntry.epochId === epochId) {
           currentEntry.cancelFn = null;
         }
+        const totalElapsedMs = performance.now() - requestStartTime;
+        const throughput = arrivedCount > 0 && totalElapsedMs > 0 ? ((arrivedCount / totalElapsedMs) * 1000).toFixed(1) : "0";
+        console.log(
+          `%c[Filmstrip ✅]%c Completed ${arrivedCount}/${totalToDecode} tiles for clip="${clipId}" in ${totalElapsedMs.toFixed(1)}ms (${throughput} tiles/sec)`,
+          "background: #10b981; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+          "color: #6ee7b7; font-weight: bold;",
+        );
       },
-      onError: () => {},
+      onError: (err) => {
+        console.warn(`[Filmstrip ⚠️] Error decoding tiles for clip="${clipId}":`, err);
+      },
     });
 
     entry.cancelFn = cancelFn;
