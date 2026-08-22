@@ -44,10 +44,13 @@ export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>, 
 
       // Use the spring's current animated PPS as the base so rapid events
       // stack from wherever the animation currently is, not the last committed store value.
+      // DAMPING: Clamp the per-frame exponential factor to [-0.22, 0.22] (max ~20% scale change per frame)
+      // to keep physical mouse wheel clicks buttery-smooth while preserving continuous trackpad precision.
+      const exponent = Math.max(-0.22, Math.min(0.22, -dy * WHEEL_ZOOM_SENSITIVITY));
       const basePps = spring.getCurrentPps();
       const targetPps = Math.max(
         TIMELINE_MIN_PPS,
-        Math.min(TIMELINE_MAX_PPS, basePps * Math.exp(-dy * WHEEL_ZOOM_SENSITIVITY)),
+        Math.min(TIMELINE_MAX_PPS, basePps * Math.exp(exponent)),
       );
       if (Math.abs(targetPps - basePps) < 0.05) return;
 
