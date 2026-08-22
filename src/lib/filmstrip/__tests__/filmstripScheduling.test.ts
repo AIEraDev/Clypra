@@ -61,6 +61,7 @@ describe("FILMSTRIP Scheduling & Priority Pipeline", () => {
       viewportScrollLeft: 2400,
       viewportWidth: 1000,
       pixelsPerSecond: 50,
+      playheadTime: 58,
       onUpdate: vi.fn(),
     });
 
@@ -107,6 +108,7 @@ describe("FILMSTRIP Scheduling & Priority Pipeline", () => {
       viewportScrollLeft: 500,
       viewportWidth: 1000,
       pixelsPerSecond: 50,
+      playheadTime: 15,
       onUpdate: vi.fn(),
     });
 
@@ -132,6 +134,7 @@ describe("FILMSTRIP Scheduling & Priority Pipeline", () => {
       viewportScrollLeft: 4000, // center = (4000 + 500) / 50 = 90s
       viewportWidth: 1000,
       pixelsPerSecond: 50,
+      playheadTime: 90,
       onUpdate: vi.fn(),
     });
 

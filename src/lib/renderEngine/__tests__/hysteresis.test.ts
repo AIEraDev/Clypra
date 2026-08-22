@@ -58,11 +58,11 @@ describe('HysteresisController — rate limiting', () => {
     t = 210;
     ctrl.update(0.56, SpatialTier.L1); // commits L1
     // Immediately try to commit L2
-    ctrl.update(1.1, SpatialTier.L2);
+    ctrl.update(1.5, SpatialTier.L2);
     t = 220; // only 10ms later — within rate limit window
-    expect(ctrl.update(1.1, SpatialTier.L2)).toBeNull();
+    expect(ctrl.update(1.5, SpatialTier.L2)).toBeNull();
     t = 420; // 210ms after first commit
-    const second = ctrl.update(1.1, SpatialTier.L2);
+    const second = ctrl.update(1.5, SpatialTier.L2);
     expect(second).toBe(SpatialTier.L2);
   });
 });

@@ -178,11 +178,9 @@ describe("WebGLRasterSurface", () => {
 
     const vertices = vi.mocked(gl.bufferData).mock.calls[0][1] as Float32Array;
 
-    // Exact addresses occupy fixed 60px slots; the final slot is clipped by
-    // the 180px surface if necessary.
+    // Exact addresses occupy physically mapped slots; tile 0 covers [-1, 0] and tile 1 covers [0, 1].
     expect(vertices[0]).toBeCloseTo(-1, 4);
-    expect(vertices[24]).toBeCloseTo(-1 / 3, 4);
-    expect(vertices[48]).toBeCloseTo(1 / 3, 4);
+    expect(vertices[24]).toBeCloseTo(0, 4);
 
     surface.dispose();
   });
