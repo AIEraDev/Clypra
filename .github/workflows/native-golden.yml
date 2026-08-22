@@ -1,4 +1,4 @@
-name: Native Golden — Shader Logic, Cross-Platform & WASM Parity
+name: "Native Golden — Shader Logic, Cross-Platform & WASM Parity"
 
 # Runs on every PR and push that touches the compositor, shaders, contracts,
 # CLI, or the WASM crate.
@@ -40,9 +40,12 @@ on:
       - "crates/clypra-render-wasm/**"
       - ".github/workflows/native-golden.yml"
 
+permissions:
+  contents: read
+
 jobs:
   golden:
-    name: Golden [${{ matrix.platform.name }}]
+    name: "Golden [${{ matrix.platform.name }}]"
     runs-on: ${{ matrix.platform.os }}
 
     strategy:
@@ -74,10 +77,15 @@ jobs:
         uses: actions/checkout@v4
 
       # ── Rust toolchain ────────────────────────────────────────────────────
-      - name: Setup Rust
+      - name: Setup Rust (native)
+        if: ${{ !matrix.platform.wasm }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust (WASM)
+        if: ${{ matrix.platform.wasm }}
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform.wasm && 'wasm32-unknown-unknown' || '' }}
+          targets: wasm32-unknown-unknown
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -124,7 +132,7 @@ jobs:
 
       # ── Render fixtures — native path ─────────────────────────────────────
       - name: Render minimal fixture (native)
-        if: "!matrix.platform.wasm"
+        if: ${{ !matrix.platform.wasm }}
         run: |
           mkdir -p ../../artifacts
           cargo run --release -- render \
@@ -137,7 +145,7 @@ jobs:
         shell: bash
 
       - name: Render raster fixture (native)
-        if: "!matrix.platform.wasm"
+        if: ${{ !matrix.platform.wasm }}
         run: |
           cargo run --release -- render \
             fixtures/raster-request.json \
@@ -148,7 +156,7 @@ jobs:
 
       # ── Render fixtures — WASM path ───────────────────────────────────────
       - name: Build clypra-render-wasm
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         run: wasm-pack build --target web --release
         working-directory: crates/clypra-render-wasm
 
@@ -248,7 +256,7 @@ jobs:
 
       # ── Diff — native platforms vs Metal reference ─────────────────────────
       - name: Diff minimal (vs Metal reference, tol=4)
-        if: "!matrix.platform.wasm"
+        if: ${{ !matrix.platform.wasm }}
         id: diff_minimal
         run: |
           cargo run --release -- diff \
@@ -260,7 +268,7 @@ jobs:
         continue-on-error: true
 
       - name: Diff raster (vs Metal reference, tol=4)
-        if: "!matrix.platform.wasm"
+        if: ${{ !matrix.platform.wasm }}
         id: diff_raster
         run: |
           cargo run --release -- diff \
@@ -273,7 +281,7 @@ jobs:
 
       # ── Diff — WASM vs same-runner native reference ───────────────────────
       - name: Diff minimal (WASM vs native-ref, tol=8)
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         id: diff_minimal
         run: |
           cargo run --release -- diff \
@@ -285,7 +293,7 @@ jobs:
         continue-on-error: true
 
       - name: Diff raster (WASM vs native-ref, tol=8)
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         id: diff_raster
         run: |
           cargo run --release -- diff \

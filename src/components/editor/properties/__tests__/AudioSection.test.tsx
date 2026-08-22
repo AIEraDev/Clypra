@@ -28,8 +28,8 @@ describe("AudioSection", () => {
     fireEvent.click(screen.getByRole("button", { name: /fade/i }));
 
     const fadeInputs = screen.getAllByRole("spinbutton").slice(1);
-    expect((fadeInputs[0] as HTMLInputElement).value).toBe("2.0");
-    expect((fadeInputs[1] as HTMLInputElement).value).toBe("2.0");
+    expect((fadeInputs[0] as HTMLInputElement).value).toBe("2.00");
+    expect((fadeInputs[1] as HTMLInputElement).value).toBe("2.00");
   });
 
   it("writes fade values clamped to clip duration", () => {
