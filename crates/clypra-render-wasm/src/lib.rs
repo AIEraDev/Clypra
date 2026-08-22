@@ -1,6 +1,6 @@
 //! `clypra-render-wasm` — browser WebGPU compositor for Clypra Studio.
 //!
-//! Exposes the same `render_raster_frame` logic as `clypra-native-daemon` to
+//! Exposes the same `render_raster_frame` logic as `src-tauri` to
 //! the browser via `wasm-bindgen`, with no HTTP layer and no tokio runtime.
 //!
 //! ## Async constructor pattern

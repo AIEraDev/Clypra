@@ -19,11 +19,9 @@ The CLI consumes the same `FrameRequest` contract used by the editor. This
 makes Studio and CI able to reject invalid native scenes before a desktop app
 is involved.
 
-The daemon smoke fixture can be rendered locally after starting
-`clypra-native-daemon`:
+A raster smoke fixture can be rendered directly via the CLI:
 
 ```bash
-curl -X POST -H 'content-type: application/json' \
-  --data-binary @crates/clypra-native-cli/fixtures/raster-request.json \
-  http://127.0.0.1:8788/v1/render/frame > raster.png
+cargo run --manifest-path crates/clypra-native-cli/Cargo.toml -- \
+  render crates/clypra-native-cli/fixtures/raster-request.json raster.png
 ```
