@@ -39,6 +39,13 @@ export class FilmstripTileCache {
   private currentMemoryBytes = 0;
   private generation = 0;
 
+  /**
+   * Secondary index keyed by contentHash (from Rust's FrameContentHash).
+   * Enables cross-clip tile sharing: two clips referencing the same source at
+   * the same timestamp share the bitmap via this index without a second decode.
+   */
+  private contentHashIndex = new Map<string, TileCacheEntry>();
+
   private isArtifactActive?: (art: TransportArtifact) => boolean;
 
   constructor(memoryBudgetMB: number = 100, isArtifactActive?: (art: TransportArtifact) => boolean) {
@@ -58,6 +65,8 @@ export class FilmstripTileCache {
   /**
    * Store a tile. Replaces existing tile at same address.
    * Closes the old bitmap if replaced.
+   * Also registers the tile in the contentHash secondary index so other clips
+   * using the same source+timestamp can find it without a decode.
    */
   setTile(address: FilmstripTileAddress, artifact: TransportArtifact): void {
     const key = getTileKey(address);
@@ -69,6 +78,10 @@ export class FilmstripTileCache {
         this._safeClose(artifact);
         return;
       }
+      // Remove old entry from contentHash index if it was registered
+      if (existing.artifact.contentHash) {
+        this.contentHashIndex.delete(existing.artifact.contentHash);
+      }
       this._safeClose(existing.artifact);
       this.currentMemoryBytes -= existing.sizeBytes;
     }
@@ -79,22 +92,44 @@ export class FilmstripTileCache {
       this._evictLRU();
     }
 
-    this.tiles.set(key, {
+    const entry: TileCacheEntry = {
       address,
       artifact,
       generation: this.generation,
       lastUsed: Date.now(),
       sizeBytes,
-    });
+    };
+
+    this.tiles.set(key, entry);
     this.currentMemoryBytes += sizeBytes;
+
+    // Register in contentHash secondary index for cross-clip sharing
+    if (artifact.contentHash) {
+      this.contentHashIndex.set(artifact.contentHash, entry);
+    }
   }
 
   /**
    * Get a tile by exact address.
+   * Falls back to contentHash secondary index if the address misses,
+   * enabling cross-clip tile sharing when the same source is used twice.
    */
   getTile(address: FilmstripTileAddress): TileCacheEntry | null {
     const key = getTileKey(address);
     const entry = this.tiles.get(key);
+    if (entry) {
+      entry.lastUsed = Date.now();
+      return entry;
+    }
+    return null;
+  }
+
+  /**
+   * Look up a cached tile by contentHash alone (cross-clip deduplication path).
+   * Returns null if no tile with that hash is cached.
+   */
+  getTileByContentHash(contentHash: string): TileCacheEntry | null {
+    const entry = this.contentHashIndex.get(contentHash);
     if (!entry) return null;
     entry.lastUsed = Date.now();
     return entry;
@@ -126,6 +161,55 @@ export class FilmstripTileCache {
       nearest.lastUsed = Date.now();
     }
     return nearest;
+  }
+
+  /**
+   * Find the highest-quality available fallback tile for a target timestamp and tier.
+   * Searches tiers in descending order from (targetTier - 1) down to L0.
+   * Enables smooth progressive resolution during zoom without shimmer flicker.
+   */
+  findBestFallback(
+    clipId: string,
+    targetTier: SpatialTier,
+    targetTimestamp: number,
+    videoPath?: string,
+    toleranceSeconds: number = 3.0,
+    effectGraphVersion?: number
+  ): TileCacheEntry | null {
+    for (let tier = targetTier - 1; tier >= SpatialTier.L0; tier--) {
+      let nearest: TileCacheEntry | null = null;
+      let nearestDelta = Infinity;
+
+      for (const entry of this.tiles.values()) {
+        const matchPath = videoPath || entry.address.videoPath;
+        if (matchPath) {
+          if (entry.address.videoPath !== matchPath) continue;
+        } else {
+          if (entry.address.clipId !== clipId) continue;
+        }
+        if (entry.address.zoomTier !== tier) continue;
+        const entryVersion = entry.address.effectGraphVersion ?? 1;
+        if (
+          effectGraphVersion !== undefined &&
+          entryVersion !== effectGraphVersion
+        ) {
+          continue;
+        }
+
+        const delta = Math.abs(entry.address.timestamp - targetTimestamp);
+        if (delta <= toleranceSeconds && delta < nearestDelta) {
+          nearest = entry;
+          nearestDelta = delta;
+        }
+      }
+
+      if (nearest && nearest.artifact.bitmap && nearest.artifact.bitmap.width > 0) {
+        nearest.lastUsed = Date.now();
+        return nearest;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -185,6 +269,9 @@ export class FilmstripTileCache {
     for (const key of toDelete) {
       const entry = this.tiles.get(key);
       if (entry) {
+        if (entry.artifact.contentHash) {
+          this.contentHashIndex.delete(entry.artifact.contentHash);
+        }
         this._safeClose(entry.artifact);
         this.currentMemoryBytes -= entry.sizeBytes;
         this.tiles.delete(key);
@@ -208,6 +295,7 @@ export class FilmstripTileCache {
       this._safeClose(entry.artifact);
     }
     this.tiles.clear();
+    this.contentHashIndex.clear();
     this.currentMemoryBytes = 0;
   }
 
@@ -243,6 +331,9 @@ export class FilmstripTileCache {
 
     if (oldestKey) {
       const entry = this.tiles.get(oldestKey)!;
+      if (entry.artifact.contentHash) {
+        this.contentHashIndex.delete(entry.artifact.contentHash);
+      }
       this._safeClose(entry.artifact);
       this.currentMemoryBytes -= entry.sizeBytes;
       this.tiles.delete(oldestKey);
