@@ -297,10 +297,10 @@ export type SrpConfig = Record<SpatialTier, TierBoundary>;
  * L0 (160×90) thumbnails are now used from 0.1× to 0.5× zoom levels.
  */
 export const DEFAULT_SRP_CONFIG: SrpConfig = {
-  [SpatialTier.L0]: { min: 0.1, max: 0.5 }, // Extended from 0.25 to 0.1 for deep zoom-out
-  [SpatialTier.L1]: { min: 0.5, max: 1.0 },
-  [SpatialTier.L2]: { min: 1.0, max: 2.0 },
-  [SpatialTier.L3]: { min: 2.0, max: 4.0 },
+  [SpatialTier.L0]: { min: 0.1, max: 0.5 },
+  [SpatialTier.L1]: { min: 0.5, max: 1.25 }, // Standard 1.0x editing zoom maps to L1 (1.0s interval, matching 50px slots)
+  [SpatialTier.L2]: { min: 1.25, max: 2.5 }, // Detailed trimming zoom maps to L2 (0.2s interval)
+  [SpatialTier.L3]: { min: 2.5, max: 5.0 },  // Frame-accurate zoom maps to L3 (0.02s interval)
 } as const;
 
 // ─── ISM Output ───────────────────────────────────────────────────────────────
