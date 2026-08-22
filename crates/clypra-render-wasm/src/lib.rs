@@ -317,16 +317,19 @@ async fn init_gpu() -> Result<GpuContext, String> {
             .is_undefined()
     };
 
-    let (adapter, surface_holder) = if webgpu_available {
-        // WebGPU path — no canvas needed
-        let adapter = instance
+    let maybe_webgpu_adapter = if webgpu_available {
+        instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference:       wgpu::PowerPreference::HighPerformance,
                 compatible_surface:     None,
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or("WebGPU adapter unavailable — check browser support and GPU drivers")?;
+    } else {
+        None
+    };
+
+    let (adapter, surface_holder) = if let Some(adapter) = maybe_webgpu_adapter {
         (adapter, None::<wgpu::Surface<'static>>)
     } else {
         // WebGL2 fallback — wgpu's GL backend requires a canvas surface to
@@ -347,7 +350,7 @@ async fn init_gpu() -> Result<GpuContext, String> {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or("WebGL2 adapter unavailable — this browser or context does not support WebGL2")?;
+            .ok_or("GPU adapter unavailable — WebGPU returned no adapter and WebGL2 fallback failed")?;
 
         // Drop the surface after adapter creation; rendering uses off-screen textures.
         drop(surface);
