@@ -1,5 +1,3 @@
-import { NATIVE_PREVIEW_TRACE_ENABLED } from "@/lib/platform/nativeCore";
-
 /**
  * Playback Clock - Continuous Time Signal
  *
@@ -8,46 +6,26 @@ import { NATIVE_PREVIEW_TRACE_ENABLED } from "@/lib/platform/nativeCore";
  * Key principles:
  * - Time is a continuous signal, not discrete state
  * - Consumers subscribe and read imperatively
- * - No React re-renders on every tick
- * - High-frequency updates (60fps) without React overhead
- *
- * Architecture:
- *   PlaybackClock (signal source)
- *       ↓
- *   Imperative consumers (canvas, audio, UI snapshots)
- *
- * This prevents:
- * - React render storms
- * - Effect cancellation loops
- * - Audio/video sync hammering
+ * - React components wrap this with useSyncExternalStore
+ * - No setInterval/setTimeout loops; runs on requestAnimationFrame
  */
 
 export type PlaybackState = "playing" | "paused" | "stopped";
 
 export interface PlaybackClockState {
-  /** Current playback time (seconds) */
+  /** Current time in seconds */
   time: number;
-
   /** Playback state */
   state: PlaybackState;
-
-  /** Playback speed multiplier */
+  /** Playback speed (1.0 = normal) */
   speed: number;
-
-  /** Timeline duration */
+  /** Total duration in seconds */
   duration: number;
-
   /** Frame rate */
   frameRate: number;
 }
 
 export type PlaybackClockListener = (state: PlaybackClockState) => void;
-
-function tracePlayback(event: string, details: Record<string, unknown>): void {
-  if (NATIVE_PREVIEW_TRACE_ENABLED) {
-    console.debug(`[NativePreviewTrace] ${event}`, details);
-  }
-}
 
 /**
  * Playback Clock - Imperative time signal.
@@ -392,8 +370,6 @@ export class PlaybackClock {
    */
   seek(time: number): void {
     const wasPlaying = this._state === "playing";
-    const previousTime = this.time;
-    const previousFrame = getFrameIndexForTrace(previousTime, this._frameRate);
 
     if (wasPlaying) {
       this.pause();
@@ -407,16 +383,6 @@ export class PlaybackClock {
     this._time = Math.round(rawTime * frameRate) / frameRate;
 
     this._isSeeking = true;
-    tracePlayback("clock-seek-apply", {
-      requestedTime: time,
-      previousTime,
-      previousFrame,
-      appliedTime: this._time,
-      appliedFrame: getFrameIndexForTrace(this._time, this._frameRate),
-      frameRate: this._frameRate,
-      wasPlaying,
-      duration: this._duration,
-    });
     this._notifyListeners();
 
     if (wasPlaying) {
@@ -590,11 +556,6 @@ export class PlaybackClock {
     this._audioContext = null;
     this._ownsAudioContext = false;
   }
-}
-
-function getFrameIndexForTrace(timeSeconds: number, frameRate: number): number {
-  if (!Number.isFinite(timeSeconds) || !Number.isFinite(frameRate) || frameRate <= 0) return 0;
-  return Math.max(0, Math.floor(timeSeconds * frameRate + 1e-9));
 }
 
 /**

@@ -1,8 +1,5 @@
 export const NATIVE_CORE_CONTRACT_VERSION = 1;
 export const NATIVE_CORE_TIME_SCALE = 1_000_000;
-/** Opt-in diagnostics for native preview timing and surface composition. */
-export const NATIVE_PREVIEW_TRACE_ENABLED =
-  import.meta.env.DEV && import.meta.env.VITE_CLYPRA_NATIVE_PREVIEW_TRACE === "1";
 /**
  * Tauri is the production editor runtime, so native preview is enforced there.
  * The explicit dev flag remains useful for browser harnesses that emulate the

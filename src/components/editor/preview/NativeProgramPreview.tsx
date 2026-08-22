@@ -69,7 +69,6 @@ import {
 import { NativeAnimatedStickerRenderer, type NativeAnimatedStickerRaster } from "./nativeStickerPreview";
 import {
   NATIVE_PREVIEW_ONLY,
-  NATIVE_PREVIEW_TRACE_ENABLED,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
@@ -83,8 +82,6 @@ const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: numbe
   "21:9": { width: 2520, height: 1080 },
   "4:3": { width: 1440, height: 1080 },
 };
-
-function traceNativePreview(_event: string, _details: Record<string, unknown> = {}): void {}
 
 function drawNativeFrameToCanvas(
   canvas: HTMLCanvasElement,
@@ -322,9 +319,6 @@ export const NativeProgramPreview: React.FC = () => {
           if (active) {
             nativeSurfaceReadyRef.current = false;
             setNativeSurfaceReady(false);
-            traceNativePreview("native-surface-unavailable", {
-              error: error instanceof Error ? error.message : String(error),
-            });
           }
         } finally {
           syncInFlight = false;
@@ -583,7 +577,6 @@ export const NativeProgramPreview: React.FC = () => {
     let visibleRequestGeneration = 0;
     let prefetchCenterKey = "";
     let transportRevision = 0;
-    let lastTraceClockState = "";
     const nativeTextRasterCache = new Map<string, Promise<NativeTextRasterAsset>>();
     const registeredNativeTextAssets = new Set<string>();
     const nativeTextAssetsById = new Map<string, NativeTextRasterAsset>();
@@ -650,12 +643,7 @@ export const NativeProgramPreview: React.FC = () => {
         await Promise.all(assets.map((asset) => ensureNativeTextAssetRegistered(asset)));
 
         return assets.map(({ rgba: _rgba, ...asset }) => asset);
-      } catch (error) {
-        // Keep the native request authoritative if the browser text rasterizer
-        // cannot produce an asset for this frame.
-        traceNativePreview("native-text-raster-failed", {
-          error: error instanceof Error ? error.message : String(error),
-        });
+      } catch {
         return [];
       }
     };
@@ -747,11 +735,7 @@ export const NativeProgramPreview: React.FC = () => {
               };
               await ensureNativeBodyMaskAssetRegistered(nativeAsset);
               return nativeAsset;
-            }).catch((error) => {
-              traceNativePreview("native-body-mask-failed", {
-                effectId: effect.effectId,
-                error: error instanceof Error ? error.message : String(error),
-              });
+            }).catch(() => {
               return null;
             }).finally(() => {
               nativeBodyMaskInFlight.delete(assetId);
@@ -801,11 +785,8 @@ export const NativeProgramPreview: React.FC = () => {
           const cached = nativeAnimatedStickerAssetsById.get(raster.assetId);
           if (!cached) await ensureNativeAnimatedStickerAssetRegistered(raster);
           assets.push({ ...raster, rgba: undefined });
-        } catch (error) {
-          traceNativePreview("native-sticker-raster-failed", {
-            layerId: layer.layerId,
-            error: error instanceof Error ? error.message : String(error),
-          });
+        } catch {
+          // ignore
         }
       }
       return assets;
@@ -1116,16 +1097,6 @@ export const NativeProgramPreview: React.FC = () => {
         visibleRequestGeneration += 1;
         nativePreviewScheduler.setVisibleGeneration();
         prefetchCenterKey = "";
-        traceNativePreview("target-change", {
-          frameIndex,
-          frameStartTime,
-          playbackState,
-          isSeeking: state.clock.isSeeking,
-          hasNativeRequest: Boolean(nativeRequest),
-          requestId: nativeRequest?.requestId ?? null,
-          generation: visibleRequestGeneration,
-          nativeBlocked: nativeRequestKey !== "" && nativeBlockedKey === nativeRequestKey,
-        });
       }
       const targetGeneration = visibleRequestGeneration;
       // Do not hand the visible surface to native video until native audio has
@@ -1160,11 +1131,6 @@ export const NativeProgramPreview: React.FC = () => {
       if (nativeOnlyBlockedRef.current !== nativeOnlySceneBlocked) {
         nativeOnlyBlockedRef.current = nativeOnlySceneBlocked;
         setNativeOnlyBlocked(nativeOnlySceneBlocked);
-        traceNativePreview(nativeOnlySceneBlocked ? "native-only-blocked" : "native-only-ready", {
-          hasNativeRequest: Boolean(nativeRequest),
-          nativeSurfaceReady: nativeSurfaceReadyNow,
-          frameIndex,
-        });
       }
       const nativeRevision = `${state.project?.id ?? "unknown-project"}:${state.epoch}`;
       if (nativeRevision !== nativeContinuousObservedRevision) {
@@ -1236,13 +1202,6 @@ export const NativeProgramPreview: React.FC = () => {
               lastNativePlaybackRequestKey = "";
               if (presentation.dropped) {
                 nativeDroppedFrameCount += 1;
-                traceNativePreview("native-playback-frame-dropped", {
-                  frameIndex: presentation.frameIndex,
-                  requestId: presentation.requestId,
-                  audioPositionTicks: presentation.audioPositionTicks,
-                  frameAgeTicks: presentation.frameAgeTicks,
-                  droppedFrameCount: nativeDroppedFrameCount,
-                });
               }
             } else {
               const current = renderStateRef.current;
@@ -1298,13 +1257,6 @@ export const NativeProgramPreview: React.FC = () => {
               setNativeSurfacePresenting(false);
               void hideNativeSurface().catch(() => undefined);
             }
-            traceNativePreview("native-playback-frame-failed", {
-              frameIndex: requestToPresent.frameTime.frameIndex,
-              requestId: requestToPresent.requestId,
-              error: error instanceof Error ? error.message : String(error),
-              attempt: nativeContinuousFailureStreak,
-              blocked: nativeContinuousBlockedRevision === nativeRevision,
-            });
           })
           .finally(() => {
             nativePlaybackInFlight = null;
@@ -1360,14 +1312,6 @@ export const NativeProgramPreview: React.FC = () => {
             nativeBlockedKey !== nativeRequestKey;
 
           if (canUseNativePreview && requestForRender && !nativeDirectSurfacePath) {
-            const requestStartedAt = performance.now();
-            traceNativePreview("native-request-start", {
-              frameIndex,
-              requestId: requestForRender.requestId,
-              requestKey: nativeRequestKey,
-              generation: targetGeneration,
-              cached: Boolean(cachedNativeFrame),
-            });
             try {
               const visibleSource: NativePreviewRequestSource = {
                 requestKey: nativeRequestKey,
@@ -1379,15 +1323,6 @@ export const NativeProgramPreview: React.FC = () => {
               // was awaiting FFmpeg/GPU readback. Never commit that stale
               // response to the current program canvas.
               if (!targetStillCurrent()) {
-                traceNativePreview("native-response-stale", {
-                  frameIndex,
-                  requestId: requestForRender.requestId,
-                  elapsedMs: Math.round(performance.now() - requestStartedAt),
-                  currentFrameIndex: getFrameIndexAtTime(renderStateRef.current.clock.time, frameRate),
-                  currentState: renderStateRef.current.clock.state,
-                  generation: targetGeneration,
-                  currentGeneration: visibleRequestGeneration,
-                });
                 forceRenderNeeded = true;
                 return;
               }
@@ -1395,12 +1330,6 @@ export const NativeProgramPreview: React.FC = () => {
               nativeFrame = loadedFrame;
               nativeDisplayedFrameRef.current = loadedFrame;
               nativeRetryAt = 0;
-              traceNativePreview("native-response-accepted", {
-                frameIndex,
-                requestId: requestForRender.requestId,
-                elapsedMs: Math.round(performance.now() - requestStartedAt),
-                bytes: loadedFrame.rgba.byteLength,
-              });
             } catch (error) {
               // Keep the last native frame visible for this render boundary, then
               // retry this exact request. One failed readback must not
@@ -1418,15 +1347,6 @@ export const NativeProgramPreview: React.FC = () => {
                 nativeBlockedKey = nativeRequestKey;
               }
               nativeRetryAt = performance.now() + 250;
-              traceNativePreview("native-request-failed", {
-                frameIndex,
-                requestId: requestForRender.requestId,
-                elapsedMs: Math.round(performance.now() - requestStartedAt),
-                error: error instanceof Error ? error.message : String(error),
-                retryInMs: 250,
-                attempt: nativeFailureCount,
-                blocked: nativeBlockedKey === nativeRequestKey,
-              });
               if (nativeOnlyMode) {
                 setNativeOnlyBlocked(true);
                 setNativeOnlyBlockers(["Native GPU frame rendering failed for the current frame.", error instanceof Error ? error.message : String(error)]);
@@ -1506,21 +1426,7 @@ export const NativeProgramPreview: React.FC = () => {
           const nativeFrameReady = !isTauriRuntime() || nativeRequest === null ||
             exactNativeFrame !== null || isPlaying ||
             nativeSurfaceOwnsCurrentFrame;
-          if (state.clock.isSeeking || transportChanged) {
-            traceNativePreview("compose-commit", {
-              frameIndex,
-              frameStartTime,
-              playbackState,
-              isSeeking: state.clock.isSeeking,
-              nativeRequestId: nativeRequest?.requestId ?? null,
-              hasExactNativeFrame: Boolean(exactNativeFrame),
-              hasDisplayedNativeFrame: Boolean(nativeDisplayedFrameRef.current),
-              nativeFrameReady,
-              transportRevision,
-            });
-          }
           if (state.clock.isSeeking && nativeFrameReady) {
-            traceNativePreview("seek-complete", { frameIndex, frameStartTime });
             state.clock.completeSeek();
           }
 
@@ -1570,17 +1476,6 @@ export const NativeProgramPreview: React.FC = () => {
       nativeBlockedKey = "";
       nativeFailureCount = 0;
       nativeRetryAt = 0;
-      const clockState = clock.getState();
-      if (clock.isSeeking || clockState.state !== lastTraceClockState) {
-        traceNativePreview("clock-event", {
-          time: clockState.time,
-          frameIndex: getFrameIndexAtTime(clockState.time, clockState.frameRate),
-          state: clockState.state,
-          isSeeking: clock.isSeeking,
-          transportRevision,
-        });
-      }
-      lastTraceClockState = clockState.state;
     });
 
     scheduleNextFrame();
@@ -1735,25 +1630,17 @@ export const NativeProgramPreview: React.FC = () => {
         }}
         onSeek={(time) => {
           if (clips.length === 0) return;
-          traceNativePreview("seek-intent", {
-            requestedTime: time,
-            currentTime: clock.time,
-            currentFrameIndex: getFrameIndexAtTime(clock.time, frameRate),
-            frameRate,
-          });
           seek(time);
         }}
         formatTime={formatTime}
         onStepBack={() => {
           if (clips.length === 0) return;
           const targetTime = Math.max(0, currentTime - step);
-          traceNativePreview("step-intent", { direction: "back", targetTime, currentTime, frameRate });
           seek(targetTime);
         }}
         onStepForward={() => {
           if (clips.length === 0) return;
           const targetTime = Math.min(duration, currentTime + step);
-          traceNativePreview("step-intent", { direction: "forward", targetTime, currentTime, frameRate });
           seek(targetTime);
         }}
         leftActions={

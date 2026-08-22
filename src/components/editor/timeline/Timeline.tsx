@@ -37,11 +37,6 @@ import { Track } from "./Track";
 import { Playhead } from "./Playhead";
 import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
 
-const SELECT_TRACE = import.meta.env.DEV;
-const traceSelect = (...args: unknown[]) => {
-  if (!SELECT_TRACE) return;
-};
-
 export const Timeline: React.FC = () => {
   const {
     tracks,
@@ -335,11 +330,6 @@ export const Timeline: React.FC = () => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('[data-timeline-interactive="true"]')) return;
-      traceSelect("timeline pointerdown -> clearSelection", {
-        target: target.tagName,
-        className: target.className,
-        selectedBefore: useUIStore.getState().selectedClipIds,
-      });
       useUIStore.getState().clearSelection();
     },
     [dragState],

@@ -16,8 +16,6 @@ import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime } from "./placementPolic
 import { generateId } from "@/lib/utils/id";
 import { resolveInsertEdit } from "./insertEdit";
 import { getTimelineLaneClientX, pixelToTime } from "./timelineViewport";
-
-import { traceTimelineDnd } from "./timelineDndTrace";
 import { TRACK_TYPE_CONFIG } from "./trackTypeConfig";
 
 // Density configurations mapping zoom levels to extraction densities. Each configuration defines the time interval between thumbnails and the zoom range.
@@ -86,15 +84,6 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
   const { execute } = useHistoryStore.getState();
   const isEmptyTimeline = clips.length === 0;
 
-  traceTimelineDnd("create-track-drop-start", {
-    itemType: item?.type,
-    assetId: item?.type === "MEDIA_ASSET" ? item.asset?.id : undefined,
-    trackCount: tracks.length,
-    clipCount: useTimelineStore.getState().clips.length,
-    insertIndex,
-    placementMode: isEmptyTimeline ? "timeline-start" : "pointer-position",
-  });
-
   const offset = monitor.getClientOffset();
   const containerRect = document.getElementById("timeline-tracks-container")?.getBoundingClientRect();
 
@@ -122,10 +111,6 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
 
   // Use command to add track (enables undo/redo)
   execute(new AddTrackCommand(newTrack, insertIndex));
-  traceTimelineDnd("track-command-complete", {
-    trackId: newTrack.id,
-    trackCount: useTimelineStore.getState().tracks.length,
-  });
 
   if (item.type === "MEDIA_ASSET") {
     const projectState = useProjectStore.getState();
@@ -153,12 +138,6 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
 
     // Use command to add clip (enables undo/redo)
     execute(new AddClipCommand(newClip));
-    traceTimelineDnd("clip-command-complete", {
-      clipId: newClip.id,
-      trackId: newTrack.id,
-      trackCount: useTimelineStore.getState().tracks.length,
-      clipCount: useTimelineStore.getState().clips.length,
-    });
   } else if (item.type === "CLIP") {
     // Moving existing clip to new track - use commands (enables undo/redo)
     execute(new DeleteClipCommand(item.clip.id));
