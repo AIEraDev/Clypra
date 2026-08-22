@@ -141,6 +141,10 @@ export class RasterSurface {
         clipTrimIn: layout.clipTrimIn,
       });
 
+      let exactCount = 0;
+      let fallbackCount = 0;
+      let pendingCount = 0;
+
       for (const slot of slots) {
         const artifact = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
         const slotX = Math.round(slot.leftPx * dpr);
@@ -148,6 +152,7 @@ export class RasterSurface {
         const slotH = Math.max(1, Math.round(stripHeightPx * dpr));
 
         if (artifact) {
+          exactCount++;
           this._drawTile(
             ctx,
             artifact.bitmap,
@@ -166,10 +171,11 @@ export class RasterSurface {
             slot.address.zoomTier,
             slot.address.timestamp,
             layout.videoPath,
-            /* tolerance: */ 3.0,
+            /* tolerance: */ 6.0,
             slot.address.effectGraphVersion,
           );
           if (fallbackEntry && fallbackEntry.artifact.bitmap && fallbackEntry.artifact.bitmap.width > 0) {
+            fallbackCount++;
             // Draw with imageSmoothingEnabled to produce a smooth bicubic stretch
             ctx.save();
             ctx.imageSmoothingEnabled = true;
@@ -186,9 +192,11 @@ export class RasterSurface {
             );
             ctx.restore();
           } else {
+            pendingCount++;
             this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
           }
         } else {
+          pendingCount++;
           this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
         }
       }
