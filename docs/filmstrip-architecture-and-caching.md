@@ -24,8 +24,8 @@ The fundamental principle governing filmstrip thumbnail extraction and presentat
 │   - Memory footprint is strictly bounded (≤1.8 MB storage) even on 3-hour media.       │
 │                                                                                        │
 │ • Deep Zoom (Dense Layers):                                                            │
-│   - Reactive high-density frames (L1=1.0s, L2=0.2s, L3=0.02s) decode only on demand.   │
-│   - SRP assigns 1.0x normal zoom to L1 (1.0s) matching 50px visual slots 1:1.          │
+│   - Reactive high-density frames (L1=1.0s, L2=0.2s, L3=0.1s) decode only on demand.    │
+│   - SRP assigns 1.0x normal zoom to L1 (1.0s) matching timeline slots 1:1.             │
 └───────────────────────────────────┬────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -49,9 +49,9 @@ Thumbnail intervals and dimensions are locked to deterministic fixed intervals a
 | Spatial Tier | Dimensions | Base Interval | Target Zoom Scope | Visual Slot Match |
 | :--- | :--- | :--- | :--- | :--- |
 | **L0 (Coarse Baseline)** | $160 \times 90$ | $5.0\text{s}$ | Overview zoom ($0.1\times - 0.5\times$) | Wide overview fallback |
-| **L1 (Standard)** | $240 \times 135$ | $1.0\text{s}$ | Standard editing ($0.5\times - 1.25\times$) | 1:1 match for $50\text{px}$ slots |
-| **L2 (Fine)** | $320 \times 180$ | $0.2\text{s}$ | Detailed trimming ($1.25\times - 2.5\times$) | High precision scrubbing |
-| **L3 (Sub-frame)** | $480 \times 270$ | $0.02\text{s}$ | Frame-accurate zoom ($2.5\times - 5.0\times$) | Frame-by-frame cuts |
+| **L1 (Standard)** | $240 \times 135$ | $1.0\text{s}$ | Standard editing ($0.5\times - 1.5\times$) | 1:1 match for standard slots |
+| **L2 (Fine)** | $320 \times 180$ | $0.2\text{s}$ | Detailed trimming ($1.5\times - 3.0\times$) | High precision scrubbing |
+| **L3 (Sub-frame)** | $480 \times 270$ | $0.1\text{s}$ | Frame-accurate zoom ($3.0\times - 5.0\times$) | Frame-by-frame cuts |
 
 ### Bounded Coarse Tile Budget
 For long media ($>25\text{ mins}$), the interval scales by an integer multiplier:
@@ -69,6 +69,12 @@ Because the `<canvas>` DOM element is positioned at `left: renderWindowLeftPx` i
 $$\text{screenX} = \text{clipLeftPx}_{\text{DOM}} + \text{renderWindowLeftPx} + ((\text{t} - \text{trimIn}) \times \text{pps} - \text{renderWindowLeftPx}) \equiv \text{clipLeftPx}_{\text{DOM}} + (\text{t} - \text{trimIn}) \times \text{pps}$$
 
 Every thumbnail remains **100% rock-solid and stationary** in timeline space across arbitrary scroll speeds and viewport bounds.
+
+### Contiguous Zero-Gap Tile Coverage
+To guarantee a seamless, continuous filmstrip with zero blank gaps between thumbnails, each tile's visual slot width is calculated directly from its temporal span:
+$$\text{widthPx} = \text{thumbnailIntervalSeconds} \times \text{pixelsPerSecond}$$
+
+Because consecutive tiles at timestamps $t_i$ and $t_{i+1} = t_i + \text{interval}$ are placed at $\text{leftPx}_{i+1} = \text{leftPx}_i + \text{widthPx}_i$, every tile touches its neighbor edge-to-edge with **zero dark gaps** across all zoom levels.
 
 ---
 
@@ -136,3 +142,18 @@ The test lab enforces the entire pipeline across 5 distinct validation layers:
 3. **Layer 3: Flagship "Cold → Warm → Changed" Lifecycle** ([`filmstripColdWarmChanged.test.ts`](file:///Users/AIEraDev/Documents/clypra-family/clypra/src/lib/filmstrip/__tests__/filmstripColdWarmChanged.test.ts)) — Verifies full 3-session workflow (Cold decode $\to$ Warm 0-decode restore $\to$ Zoom fallback $\to$ Effect change).
 4. **Layer 4: Memory Boundedness Under Stress** ([`filmstripMemoryStress.test.ts`](file:///Users/AIEraDev/Documents/clypra-family/clypra/src/lib/filmstrip/__tests__/filmstripMemoryStress.test.ts)) — Verifies $O(1)$ memory capping and LRU eviction across 100 clips and 30,000 tile operations.
 5. **Layer 5: Lifecycle & Cancellation** ([`filmstripLifecycleCancellation.test.ts`](file:///Users/AIEraDev/Documents/clypra-family/clypra/src/lib/filmstrip/__tests__/filmstripLifecycleCancellation.test.ts)) — Verifies immediate worker cancellation on clip deletion with 0 leaks.
+
+---
+
+## 7. Timeline Zoom Calibration & Input Mechanics
+
+| Input Modality | Scaling Formula | Anchor Behavior | Calibration & Smoothing |
+| :--- | :--- | :--- | :--- |
+| **Interactive Slider** | Logarithmic $\log_2(z)$ over $[0.1\times, 5.0\times]$ | Playhead if visible, else viewport center | $1.0\times$ default sits centered at $58\%$ on the track. |
+| **Keyboard (`Cmd+`/`Cmd-`)** | Geometric step $z_{\text{next}} = z \times 1.25^{\pm 1}$ | Playhead if visible, else viewport center | Uniform $25\%$ expansion/contraction across all zoom tiers. |
+| **Mouse Wheel (Notches)** | $\Delta y$ damped to max $\pm 20\%$ per notch | Time under mouse cursor | Clamps per-frame exponential factor to $[-0.22, 0.22]$ to prevent jumps. |
+| **Trackpad (Pinch)** | Continuous direct gesture $\times \frac{\text{dist}_t}{\text{dist}_0}$ with spring inertia | Time under cursor midpoint | Directly tracks finger separation, decelerates with friction $\mu = 0.88$. |
+| **Timeline Ruler** | Multi-tier graduation ($60\text{s} \to 0.05\text{s}$) | Fixed to timeline world time | Frame-accurate timecodes (`MM:SS:FF`) at deep zoom $\ge 300\text{px/s}$. |
+| **Canvas Backing-Store** | Synchronous `useLayoutEffect` draw | Exact physical viewport window | Replaced blanking placeholders with synchronous resident tile painting. |
+
+
