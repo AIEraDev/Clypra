@@ -173,7 +173,7 @@ export class FilmstripTileCache {
     targetTier: SpatialTier,
     targetTimestamp: number,
     videoPath?: string,
-    toleranceSeconds: number = 3.0,
+    toleranceSeconds: number = 6.0,
     effectGraphVersion?: number
   ): TileCacheEntry | null {
     for (let tier = targetTier - 1; tier >= SpatialTier.L0; tier--) {
