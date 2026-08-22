@@ -207,6 +207,32 @@ jobs:
         if: ${{ matrix.platform.wasm }}
         id: wasm_render
         run: |
+          cat > /tmp/wasm-ci/index.html << 'HTML'
+          <!DOCTYPE html>
+          <html><body>
+          <script type="module">
+            import init, { create_renderer } from "./pkg/clypra_render_wasm.js";
+            async function run() {
+              await init();
+              const r = await create_renderer();
+              window._adapter = r.adapter_info();
+              const fixtures = ["minimal","raster"];
+              window._out = {};
+              for (const f of fixtures) {
+                const json = await fetch("./" + f + "-request.json").then(x=>x.text());
+                window._out[f] = Array.from(await r.render_frame(json));
+              }
+              window._done = true;
+            }
+            run().catch(e => {
+              console.error("[runner-err]", e);
+              window._err = String(e);
+              window._done = true;
+            });
+          </script>
+          </body></html>
+          HTML
+
           cat > /tmp/wasm-puppeteer/wasm-render.mjs << 'SCRIPT'
           import puppeteer from "puppeteer";
           import { readFileSync, writeFileSync, mkdirSync } from "fs";
@@ -214,11 +240,14 @@ jobs:
           import { extname, join } from "path";
           const SERVE_DIR = "/tmp/wasm-ci";
           const PORT = 8799;
-          const MIME = { ".js": "application/javascript", ".wasm": "application/wasm", ".json": "application/json" };
+          const MIME = { ".html": "text/html", ".js": "application/javascript", ".wasm": "application/wasm", ".json": "application/json" };
           const server = createServer((req, res) => {
+            const parsedUrl = req.url.split("?")[0];
+            const filePath = parsedUrl === "/" ? join(SERVE_DIR, "index.html") : join(SERVE_DIR, parsedUrl);
+            res.setHeader("Access-Control-Allow-Origin", "*");
             try {
-              const data = readFileSync(join(SERVE_DIR, req.url.split("?")[0]));
-              res.writeHead(200, { "Content-Type": MIME[extname(req.url.split("?")[0])] ?? "application/octet-stream" });
+              const data = readFileSync(filePath);
+              res.writeHead(200, { "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream" });
               res.end(data);
             } catch { res.writeHead(404); res.end(); }
           }).listen(PORT);
@@ -230,22 +259,7 @@ jobs:
           const page = await browser.newPage();
           page.on("console", msg => console.log(`[browser-console] ${msg.type()}: ${msg.text()}`));
           page.on("pageerror", e => console.error(`[browser-pageerror] ${e}`));
-          await page.setContent(`<!DOCTYPE html><html><body><script type="module">
-            import init, { create_renderer } from "http://localhost:${PORT}/pkg/clypra_render_wasm.js";
-            async function run() {
-              await init();
-              const r = await create_renderer();
-              window._adapter = r.adapter_info();
-              const fixtures = ["minimal","raster"];
-              window._out = {};
-              for (const f of fixtures) {
-                const json = await fetch("http://localhost:${PORT}/" + f + "-request.json").then(x=>x.text());
-                window._out[f] = Array.from(await r.render_frame(json));
-              }
-              window._done = true;
-            }
-            run().catch(e => { window._err = String(e); window._done = true; });
-          <\/script></body></html>`);
+          await page.goto(`http://localhost:${PORT}/index.html`);
           await page.waitForFunction("window._done === true", { timeout: 60000 });
           const err = await page.evaluate(() => window._err);
           if (err) { console.error("WASM_ERROR:" + err); process.exit(1); }
