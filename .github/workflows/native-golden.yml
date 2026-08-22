@@ -187,8 +187,12 @@ jobs:
 
       - name: Install puppeteer
         if: ${{ matrix.platform.wasm }}
-        run: npm install puppeteer
-        working-directory: /tmp
+        run: |
+          mkdir -p /tmp/wasm-puppeteer
+          cd /tmp/wasm-puppeteer
+          echo '{"type":"module"}' > package.json
+          npm install puppeteer
+        shell: bash
 
       - name: Copy WASM pkg and fixtures for headless render
         if: ${{ matrix.platform.wasm }}
@@ -203,8 +207,8 @@ jobs:
         if: ${{ matrix.platform.wasm }}
         id: wasm_render
         run: |
-          cat > /tmp/wasm-render.mjs << 'SCRIPT'
-          import puppeteer from "/tmp/node_modules/puppeteer/lib/esm/puppeteer/node/index.js";
+          cat > /tmp/wasm-puppeteer/wasm-render.mjs << 'SCRIPT'
+          import puppeteer from "puppeteer";
           import { readFileSync, writeFileSync, mkdirSync } from "fs";
           import { createServer } from "http";
           import { extname, join } from "path";
@@ -254,9 +258,10 @@ jobs:
           }
           await browser.close(); server.close();
           SCRIPT
-          node /tmp/wasm-render.mjs 2>&1 | tee /tmp/wasm-render.log
+          cd /tmp/wasm-puppeteer && node wasm-render.mjs 2>&1 | tee /tmp/wasm-render.log
           ADAPTER=$(grep "^WASM_ADAPTER:" /tmp/wasm-render.log | sed 's/WASM_ADAPTER://' || echo "{}")
           echo "WASM_ADAPTER=${ADAPTER}" >> "$GITHUB_ENV"
+          mkdir -p artifacts
           cp /tmp/wasm-out/minimal-WASM.png artifacts/ 2>/dev/null || true
           cp /tmp/wasm-out/raster-WASM.png  artifacts/ 2>/dev/null || true
         shell: bash
