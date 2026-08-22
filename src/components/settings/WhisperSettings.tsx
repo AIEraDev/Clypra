@@ -264,7 +264,11 @@ function ModelCard({ model }: { model: ModelInfo }) {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten
+        .then((fn) => {
+          void Promise.resolve(fn()).catch(() => {});
+        })
+        .catch(() => {});
     };
   }, [model.size, updateModelDownloadState]);
 
