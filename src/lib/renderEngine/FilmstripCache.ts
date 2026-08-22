@@ -45,6 +45,25 @@ interface FilmstripCacheEntry {
   tileAddresses: FilmstripTileAddress[];
   /** Current spatial tier */
   spatialTier: SpatialTier;
+  /** Derived composite key of all layout, viewport, and geometry inputs */
+  layoutKey: string;
+}
+
+function computeFilmstripLayoutKey(options: {
+  clipId: string;
+  spatialTier: SpatialTier;
+  epochId: RenderEpochId;
+  pixelsPerSecond: number;
+  clipStartTime: number;
+  clipWidthPx: number;
+  trimIn: number;
+  trimOut: number;
+  tileAddresses: readonly FilmstripTileAddress[];
+}): string {
+  const addrSig = options.tileAddresses
+    .map((a) => `${a.zoomTier}:${Math.round(a.timestamp * 1000)}`)
+    .join(",");
+  return `${options.clipId}|${options.epochId}|${options.spatialTier}|${options.pixelsPerSecond}|${options.clipStartTime}|${Math.round(options.clipWidthPx)}|${options.trimIn}|${options.trimOut}|${addrSig}`;
 }
 
 interface PendingArtifact {
@@ -413,6 +432,18 @@ export class FilmstripCache {
       videoDuration: duration,
     });
 
+    const layoutKey = computeFilmstripLayoutKey({
+      clipId,
+      spatialTier,
+      epochId,
+      pixelsPerSecond: options.pixelsPerSecond,
+      clipStartTime: options.clipStartTime,
+      clipWidthPx: options.clipWidthPx,
+      trimIn: options.trimIn,
+      trimOut: options.trimOut,
+      tileAddresses,
+    });
+
     let keptArtifacts: TransportArtifact[] = [];
     const existing = this.entries.get(clipId);
     if (existing) {
@@ -434,17 +465,15 @@ export class FilmstripCache {
         this.currentMemoryBytes -= disposedMemory;
         this.entries.delete(clipId);
       } else {
-        const sameAddresses = existing.tileAddresses.length === tileAddresses.length && existing.tileAddresses.every((addr, i) => addr.zoomTier === tileAddresses[i].zoomTier && addr.tileIndex === tileAddresses[i].tileIndex && Math.abs(addr.timestamp - tileAddresses[i].timestamp) < 0.001);
-
-        if (sameAddresses && existing.spatialTier === spatialTier) {
+        if (existing.layoutKey === layoutKey) {
           existing.lastViewportUpdate = Date.now();
           onUpdate([...existing.artifacts]);
           return;
         }
 
-        // Skip if same epoch, same tile addresses, and recent viewport update (debounce)
+        // Skip if same layout and recent viewport update (debounce)
         const timeSinceUpdate = Date.now() - existing.lastViewportUpdate;
-        if (timeSinceUpdate < 100 && sameAddresses) {
+        if (timeSinceUpdate < 100 && existing.layoutKey === layoutKey) {
           // Debounce: return cached artifacts from tiles
           const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
           onUpdate(cachedArtifacts);
@@ -529,6 +558,7 @@ export class FilmstripCache {
       onUpdate,
       tileAddresses,
       spatialTier,
+      layoutKey,
     };
 
     this.entries.set(clipId, entry);
