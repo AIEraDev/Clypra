@@ -45,7 +45,7 @@ permissions:
 
 jobs:
   golden:
-    name: "Golden [${{ matrix.platform.name }}]"
+    name: "Golden (${{ matrix.platform.name }})"
     runs-on: ${{ matrix.platform.os }}
 
     strategy:
@@ -98,7 +98,7 @@ jobs:
 
       # ── Platform-specific GPU setup (native only) ─────────────────────────
       - name: Install Vulkan + Mesa Lavapipe (Linux native)
-        if: runner.os == 'Linux' && !matrix.platform.wasm
+        if: ${{ runner.os == 'Linux' && !matrix.platform.wasm }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
@@ -108,7 +108,7 @@ jobs:
 
       # ── WASM platform setup ───────────────────────────────────────────────
       - name: Install wasm-pack + Node + Vulkan/Lavapipe (WASM runner)
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         run: |
           # Lavapipe for the native-CLI reference render on this runner
           sudo apt-get update -qq
@@ -120,7 +120,7 @@ jobs:
           curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Setup Node.js (WASM only)
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -161,7 +161,7 @@ jobs:
         working-directory: crates/clypra-render-wasm
 
       - name: Render native reference for WASM diff (Lavapipe)
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         run: |
           mkdir -p ../../artifacts
           cargo run --release -- render \
@@ -178,12 +178,12 @@ jobs:
         shell: bash
 
       - name: Install puppeteer
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         run: npm install puppeteer
         working-directory: /tmp
 
       - name: Copy WASM pkg and fixtures for headless render
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         run: |
           mkdir -p /tmp/wasm-ci/pkg
           cp -r crates/clypra-render-wasm/pkg/* /tmp/wasm-ci/pkg/
@@ -192,7 +192,7 @@ jobs:
         shell: bash
 
       - name: Render WASM frames via headless Chrome
-        if: matrix.platform.wasm
+        if: ${{ matrix.platform.wasm }}
         id: wasm_render
         run: |
           cat > /tmp/wasm-render.mjs << 'SCRIPT'
