@@ -91,6 +91,14 @@ export interface TransportArtifact {
   source?: string;
 }
 
+/** Check if a TransportArtifact has a valid non-empty bitmap. */
+export function isValidArtifact(artifact: TransportArtifact | null | undefined): boolean {
+  if (!artifact) return false;
+  if (!artifact.bitmap) return false;
+  if (typeof artifact.bitmap.width !== "number" || typeof artifact.bitmap.height !== "number") return false;
+  return artifact.bitmap.width > 0 && artifact.bitmap.height > 0;
+}
+
 // ─── Epoch Registry ───────────────────────────────────────────────────────────
 
 /**
@@ -341,6 +349,76 @@ export function requestRenderArtifacts(opts: RequestRenderArtifactsOptions): () 
     timestampMs: Math.round(timestampMs),
     spatialTiers: spatialTiers.map(spatialTierToLabel),
     effectGraphVersion: 0,
+    onArtifact: channel,
+  })
+    .then(() => {
+      if (!cancelled) onComplete?.();
+    })
+    .catch((err) => {
+      if (!cancelled) onError?.(err);
+    });
+
+  return cancel;
+}
+
+// ─── checkCoarseBaselineCache ──────────────────────────────────────────────────
+
+export interface CheckCoarseBaselineCacheOptions {
+  videoPath: string;
+  timestampsMs: number[];
+  spatialTier: SpatialTier;
+  onArtifact: (artifact: TransportArtifact) => void;
+  onComplete?: () => void;
+  onError?: (err: unknown) => void;
+}
+
+/**
+ * Check which coarse baseline timestamps are already cached in Rust (TIER_CACHE or on-disk atlases).
+ * Delivers warm artifacts instantly over the channel without triggering any FFmpeg decoding.
+ */
+export function checkCoarseBaselineCache(opts: CheckCoarseBaselineCacheOptions): () => void {
+  const { videoPath, timestampsMs, spatialTier, onArtifact, onComplete, onError } = opts;
+  let cancelled = false;
+  const cancel = () => {
+    cancelled = true;
+  };
+
+  if (!isTauriRuntime()) {
+    onComplete?.();
+    return cancel;
+  }
+
+  const channel = new Channel<BackendRenderArtifact>();
+  channel.onmessage = async (raw) => {
+    if (cancelled) return;
+    try {
+      const tileKey = `${videoPath}:${raw.spatial_tier}:${raw.timestamp_ms}`;
+      const bitmap = await rgbaToImageBitmap(raw.rgba_data, raw.width, raw.height, tileKey);
+      if (cancelled) {
+        bitmap.close();
+        return;
+      }
+      onArtifact({
+        frameId: raw.frame_id,
+        contentHash: raw.content_hash,
+        spatialTier: raw.spatial_tier,
+        bitmap,
+        width: raw.width,
+        height: raw.height,
+        timestampMs: Math.round(raw.timestamp_ms),
+        epochId: "epoch-preload" as RenderEpochId,
+        source: "disk_cache",
+      });
+    } catch (err) {
+      onError?.(err);
+    }
+  };
+
+  invoke("check_coarse_baseline_cache", {
+    videoPath,
+    timestampsMs: timestampsMs.map((t) => Math.round(t)),
+    spatialTier: spatialTierToLabel(spatialTier),
+    effectGraphVersion: 1,
     onArtifact: channel,
   })
     .then(() => {
