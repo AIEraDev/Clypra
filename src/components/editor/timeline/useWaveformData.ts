@@ -104,12 +104,7 @@ export function useWaveformData({
             setIsLoading(false);
             return;
           }
-        } catch (rustError) {
-          console.warn(
-            "[useWaveformData] Rust extraction failed, using Web Audio API fallback:",
-            rustError,
-          );
-        }
+        } catch {}
 
         const AudioContextClass =
           window.AudioContext || (window as any).webkitAudioContext;
@@ -181,8 +176,7 @@ export function useWaveformData({
         } finally {
           audioContext.close();
         }
-      } catch (error) {
-        console.error("[useWaveformData] Failed to generate waveform:", error);
+      } catch {
         if (!isCancelled) {
           setWaveformData([]);
           setHasError(true);

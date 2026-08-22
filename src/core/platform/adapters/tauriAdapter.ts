@@ -16,7 +16,12 @@ export class TauriPlatformAdapter implements PlatformInterface {
   constructor() {}
 
   convertFileSrc(path: string): string {
-    return convertFileSrc(path);
+    if (!path) return "";
+    try {
+      return convertFileSrc(path);
+    } catch {
+      return path;
+    }
   }
 
   async saveAndShareVideo(blob: Blob, filename: string): Promise<string> {

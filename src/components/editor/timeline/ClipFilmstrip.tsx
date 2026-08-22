@@ -8,8 +8,8 @@
  *
  * This component:
  *   - Renders a <canvas> backed by RasterSurface
- *   - Shows a neutral surface until the first exact tile set is complete
- *   - Dims slightly during ballistic scroll (ISM hint)
+ *   - Progressive rendering: shows frames as they arrive, not all-at-once
+ *   - Keeps previous committed pixels visible during epoch transitions (zoom)
  */
 
 import { useEffect, useRef, useMemo, useState } from "react";
@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { createRasterSurface, type AnyRasterSurface } from "@/lib/renderEngine/webglRasterSurface";
 import { useFilmstrip } from "@/lib/filmstrip/useFilmstrip";
 import { getFilmstripRenderWindow, getFilmstripTileWidthForTier } from "@/lib/filmstrip/filmstripLayout";
-import { generateViewportTileAddresses, hasExactFilmstripArtifacts } from "@/lib/filmstrip/filmstripTiers";
+import { generateViewportTileAddresses } from "@/lib/filmstrip/filmstripTiers";
 import { normalizePathForTauriInvoke } from "@/lib/platform/tauri";
 import { useTimelineStore } from "@/store/timelineStore";
 import type { Clip, MediaAsset } from "@/types";
@@ -134,13 +134,6 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     .map((address) => `${address.zoomTier}:${Math.round(address.timestamp * 1000)}`)
     .join("|"), [tileAddresses]);
 
-  const currentArtifactsReady = useMemo(() => hasExactFilmstripArtifacts(
-    artifacts,
-    tileAddresses,
-    epochId,
-    spatialTier,
-  ), [artifacts, tileAddresses, epochId, spatialTier]);
-
   // A reused Clip component must not briefly display the previous clip's committed pixels.
   useEffect(() => {
     setCommittedFilmstrip(null);
@@ -183,10 +176,14 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
       tileAddresses,
     };
 
-    if (currentArtifactsReady) {
-      const currentEpochArtifacts = artifacts.filter(
-        (artifact) => artifact.epochId === epochId && artifact.spatialTier === spatialTier,
-      );
+    // Progressive rendering: draw whatever artifacts are available for the
+    // current epoch/tier immediately — no waiting for a complete tile set.
+    // Tiles fill in frame-by-frame as the native decoder delivers bitmaps.
+    const currentEpochArtifacts = artifacts.filter(
+      (artifact) => artifact.epochId === epochId && artifact.spatialTier === spatialTier,
+    );
+
+    if (currentEpochArtifacts.length > 0) {
       surface.drawFilmstrip(currentEpochArtifacts, layout);
       setCommittedFilmstrip((previous) => {
         if (
@@ -207,10 +204,12 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
         };
       });
     } else if (!committedFilmstrip) {
-      // Cold start only: use a neutral background and never stretch the poster.
+      // Cold start only: use a neutral background — no prior pixels to keep.
       surface.drawPlaceholder(layout);
     }
-  }, [artifacts, currentArtifactsReady, renderWindow, stripHeightPx, tileWidthPx, tileAddresses, clip.id, epochId, spatialTier, tileSignature, committedFilmstrip]);
+    // else: epoch transition in progress — keep the previous committed pixels
+    // visible on canvas while the new decode converges. No redraw needed.
+  }, [artifacts, renderWindow, stripHeightPx, tileWidthPx, tileAddresses, clip.id, epochId, spatialTier, tileSignature, committedFilmstrip]);
 
   // ── Image tile rendering (still-image clips) ──────────────────────────────
   useEffect(() => {
@@ -290,9 +289,7 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
       cachedImageRef.current = img;
       drawTiles(img);
     };
-    img.onerror = () => {
-      console.error("[ClipFilmstrip] Failed to load image:", src);
-    };
+    img.onerror = () => {};
     img.src = src;
 
     return () => {

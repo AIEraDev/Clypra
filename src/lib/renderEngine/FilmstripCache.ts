@@ -549,12 +549,10 @@ export class FilmstripCache {
         // Check if entry still valid (not invalidated during async decode)
         const currentEntry = this.entries.get(clipId);
         if (!currentEntry) {
-          console.warn(`[FilmstripCache DEBUG] onArtifact discarded: no entry found for clipId=${clipId}`);
           artifact.bitmap.close();
           return;
         }
         if (currentEntry.epochId !== epochId) {
-          console.warn(`[FilmstripCache DEBUG] onArtifact discarded: epochId changed. current=${currentEntry.epochId} expected=${epochId}`);
           artifact.bitmap.close();
           return;
         }
@@ -570,8 +568,6 @@ export class FilmstripCache {
         if (matchingAddr) {
           // Store in tile cache for reuse across zoom transitions
           this.tileCache.setTile(matchingAddr, artifact);
-        } else {
-          console.warn(`[FilmstripCache DEBUG] Received artifact at ${artifact.timestampMs}ms which does not match any requested tile address`);
         }
 
         // Enforce memory budget BEFORE scheduling
@@ -589,9 +585,7 @@ export class FilmstripCache {
           currentEntry.cancelFn = null;
         }
       },
-      onError: (err) => {
-        console.error(`[FilmstripCache DEBUG] requestFilmstripArtifacts onError for clipId=${clipId}:`, err);
-      },
+      onError: () => {},
     });
 
     entry.cancelFn = cancelFn;

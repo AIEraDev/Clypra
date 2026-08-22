@@ -224,28 +224,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   createProject: async (name, aspectRatio, frameRate) => {
-    console.trace("[ProjectLifecycle] createProject invoked");
-    console.log("🆕 [PROJECT STORE] Creating new project:", name);
-
     // Dispose any existing session BEFORE resetting singletons (BUG-007 fix)
     try {
       const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
       await disposeActiveSession();
-    } catch (err) {
-      console.error("❌ [PROJECT STORE] Session disposal failed:", err);
-    }
+    } catch {}
 
     // Reset all state from any previous project BEFORE creating new one
     try {
       const { resetAllProjectState } = await import("@/core/runtime/ProjectStateReset");
-      const resetResult = await resetAllProjectState();
-
-      if (!resetResult.success) {
-        console.warn("⚠️ Some subsystems failed to reset:", resetResult.errors);
-      }
-    } catch (err) {
-      console.error("❌ [PROJECT STORE] State reset failed:", err);
-    }
+      await resetAllProjectState();
+    } catch {}
 
     const sanitizedName = sanitizeProjectName(name);
     const dims = getAspectRatioDimensions(aspectRatio);
@@ -263,35 +252,26 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     };
 
     set({ project, mediaAssets: [] });
-    console.log("  ✅ Project created");
 
     // Let timelineStore reset its own state
     try {
       const { useTimelineStore } = await import("./timelineStore");
       useTimelineStore.getState().hydrateFromProject({ tracks: [], clips: [], transitions: [], gaps: [] });
-      console.log("  ✅ Timeline initialized");
-    } catch (err) {
-      console.error("  ❌ Timeline initialization failed:", err);
-    }
+    } catch {}
 
     // Initialize runtime session
     try {
       const { createProjectSession } = await import("@/core/runtime/ProjectSession");
       await createProjectSession(project.id);
-      console.log("  ✅ Session initialized");
-    } catch (err) {
-      console.error("  ❌ Session initialization failed:", err);
-    }
+    } catch {}
 
     get().scheduleAutoSave();
-    console.log("✅ [PROJECT STORE] New project created successfully");
   },
 
   createProjectFromTemplate: async (templateId, customName) => {
     const { getTemplateById } = await import("@/features/templates/projectTemplates");
     const template = getTemplateById(templateId);
     if (!template) {
-      console.error(`[ProjectStore] Template not found: ${templateId}`);
       return;
     }
 
@@ -324,50 +304,36 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   loadProject: async (project, payload) => {
-    console.trace("[ProjectLifecycle] loadProject invoked", { projectId: project.id, projectName: project.name });
     const loadId = ++currentLoadId;
 
     // ✅ FIX-005: Wait for previous load to complete to prevent concurrent load races
     if (loadInProgress) {
-      console.log("[PROJECT STORE] Waiting for previous load to complete...");
       await loadInProgress;
     }
 
     // Check if we were superceded while waiting for the previous load
     if (loadId !== currentLoadId) {
-      console.log("[PROJECT STORE] Load request superceded before starting:", project.name);
       return;
     }
 
     // Wrap load logic in a promise we can track
     loadInProgress = (async () => {
       try {
-        console.log("📂 [PROJECT STORE] Loading project:", project.name, "clips:", payload?.clips?.length, "mediaAssets:", payload?.mediaAssets?.length);
-
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 1: Dispose Previous Runtime & Reset State
         // ═══════════════════════════════════════════════════════════════════════════════
         try {
           const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
           await disposeActiveSession();
-          console.log("  ✅ Previous session disposed");
-        } catch (err) {
-          console.error("  ❌ Previous session disposal failed:", err);
-        }
+        } catch (err) {}
 
         if (currentLoadId !== loadId) return;
 
         // Reset all project-scoped state BEFORE loading new project
         try {
           const { resetAllProjectState } = await import("@/core/runtime/ProjectStateReset");
-          const resetResult = await resetAllProjectState();
-
-          if (!resetResult.success) {
-            console.warn("⚠️ Some subsystems failed to reset:", resetResult.errors);
-          }
-        } catch (err) {
-          console.error("❌ [PROJECT STORE] State reset failed:", err);
-        }
+          await resetAllProjectState();
+        } catch (err) {}
 
         if (currentLoadId !== loadId) return;
 
@@ -375,7 +341,6 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // PHASE 2: Load Project & Media Assets
         // ═══════════════════════════════════════════════════════════════════════════════
         set({ project, mediaAssets: payload?.mediaAssets ?? [] });
-        console.log("  ✅ Project and media assets loaded");
 
         await preloadTextEffectDefinitionsFromClips(payload?.clips);
         if (currentLoadId !== loadId) return;
@@ -388,8 +353,6 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           const filterClips = (payload?.clips ?? []).filter((clip: any) => clip.kind === "filter" && clip.mediaId);
 
           if (filterClips.length > 0) {
-            console.log(`  ⏳ Pre-caching ${filterClips.length} filter(s)...`);
-
             for (const clip of filterClips) {
               try {
                 // Check if already cached
@@ -410,15 +373,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
                   await filterCacheManager.ensureDownloaded(filterAsset as any);
                 }
-              } catch (err) {
-                console.warn(`  ⚠️ Failed to pre-cache filter ${clip.mediaId}:`, err);
-              }
+              } catch (err) {}
             }
-
-            console.log(`  ✅ Filters pre-cached`);
           }
         } catch (err) {
-          console.warn("  ⚠️ Filter pre-caching failed:", err);
           // Non-fatal - filters will be downloaded on-demand
         }
 
@@ -448,9 +406,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             markers: payload?.markers ?? [],
             cleanEmptyTracks: true,
           });
-          console.log("  ✅ Timeline hydrated");
         } catch (err) {
-          console.error("  ❌ Timeline hydration failed:", err);
           // On error, reset timeline to empty state
           import("./timelineStore").then(({ useTimelineStore }) => useTimelineStore.getState().hydrateFromProject({ tracks: [], clips: [], transitions: [], gaps: [] })).catch(() => {});
         }
@@ -463,10 +419,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         try {
           const { createProjectSession } = await import("@/core/runtime/ProjectSession");
           await createProjectSession(project.id);
-          console.log("  ✅ New session initialized");
-        } catch (err) {
-          console.error("  ❌ Session initialization failed:", err);
-        }
+        } catch (err) {}
 
         if (currentLoadId !== loadId) return;
 
@@ -485,17 +438,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             prewarmDecoders(videoPaths).then((count) => {
               const currentProject = get().project;
               if (!currentProject || currentProject.id !== projectIdAtPrewarm) {
-                console.log(`[PREWARM] Project switched during prewarming, result discarded (was: ${projectIdAtPrewarm})`);
                 return;
               }
-              console.log(`  ✅ Prewarmed ${count}/${videoPaths.length} video decoders`);
             });
           }
         } catch (err) {
           // Prewarming failed silently - graceful degradation
         }
-
-        console.log("✅ [PROJECT STORE] Project loaded successfully");
       } finally {
         // ✅ FIX-005: Clear load mutex after completion
         loadInProgress = null;
@@ -590,8 +539,6 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   closeProject: async () => {
-    console.trace("[ProjectLifecycle] closeProject invoked");
-    console.log("🏠 [PROJECT STORE] Closing project...");
     currentLoadId++; // Cancel any active load
 
     // Ensure any pending auto-save completes before closing
@@ -625,31 +572,21 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     try {
       const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
       await disposeActiveSession();
-      console.log("  ✅ ProjectSession disposed");
-    } catch (err) {
-      console.error("  ❌ ProjectSession disposal failed:", err);
-    }
+    } catch (err) {}
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // PHASE 2: Reset All Project-Scoped State (CENTRALIZED)
     // ═══════════════════════════════════════════════════════════════════════════════
     try {
       const { resetAllProjectState } = await import("@/core/runtime/ProjectStateReset");
-      const resetResult = await resetAllProjectState();
-
-      if (!resetResult.success) {
-        console.warn("⚠️ Some subsystems failed to reset:", resetResult.errors);
-      }
-    } catch (err) {
-      console.error("❌ [PROJECT STORE] State reset failed:", err);
-    }
+      await resetAllProjectState();
+    } catch (err) {}
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // PHASE 3: Clear ProjectStore State
     // ═══════════════════════════════════════════════════════════════════════════════
     const closedProjectId = get().project?.id;
     set({ project: null, mediaAssets: [] });
-    console.log("  ✅ ProjectStore cleared");
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // PHASE 4: Reset Timeline State
@@ -658,10 +595,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     try {
       const { useTimelineStore } = await import("./timelineStore");
       useTimelineStore.getState().hydrateFromProject({ tracks: [], clips: [], transitions: [], gaps: [] });
-      console.log("  ✅ TimelineStore reset");
-    } catch (err) {
-      console.error("  ❌ TimelineStore reset failed:", err);
-    }
+    } catch (err) {}
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // PHASE 5: Clear Crash-Recovery Snapshot
@@ -669,11 +603,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // On a clean close, remove the IndexedDB snapshot so we don't prompt for
     // recovery the next time the user opens the application.
     lifecycleMonitor.record("PROJECT_DISPOSE", { projectId: closedProjectId });
-    clearSnapshot().catch((err) => {
-      console.warn("[PROJECT STORE] Failed to clear crash-recovery snapshot:", err);
-    });
-
-    console.log("✅ [PROJECT STORE] Project closed successfully");
+    clearSnapshot().catch(() => {});
   },
 
   scheduleAutoSave: () => {
@@ -696,7 +626,6 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
       // ✅ FIX-001: Validate project hasn't changed during debounce window
       if (project.id !== scheduledProjectId) {
-        console.log("[AUTO-SAVE] Project switched during debounce window, cancelling save for", scheduledProjectId);
         return;
       }
 
@@ -725,9 +654,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             tracks,
             clips,
             transitions,
-          }).catch((err) => {
-            console.warn("[AUTO-SAVE] Failed to persist crash-recovery snapshot:", err);
-          });
+          }).catch(() => {});
         } catch (_snapshotError) {
           // Ignore — snapshot failures are non-fatal
         }

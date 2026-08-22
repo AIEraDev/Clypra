@@ -239,7 +239,6 @@ export const useTimelineStore = create<TimelineStore>(
         set((state) => {
           const newDepth = Math.max(0, state._batchDepth - 1);
           if (newDepth === 0 && state._pendingEpochIncrement && completedSuccessfully) {
-            console.log(`📊 [TIMELINE] ✅ Epoch incremented: ${state.epoch} → ${state.epoch + 1}`);
             return { _batchDepth: 0, _pendingEpochIncrement: false, epoch: state.epoch + 1 };
           }
           // If fn() threw, clear the pending flag but do NOT increment epoch.

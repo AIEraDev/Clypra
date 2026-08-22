@@ -188,10 +188,6 @@ export class WebGLRasterSurface {
     gl.bindTexture(gl.TEXTURE_2D, this._atlasTexture);
     // Allocate atlas
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, atlasW, atlasH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    const errAlloc = gl.getError();
-    if (errAlloc !== gl.NO_ERROR) {
-      console.error(`[WebGLRasterSurface DEBUG] gl.texImage2D error: ${errAlloc}`);
-    }
 
     // Upload each bitmap into its atlas cell
     for (let i = 0; i < validArtifacts.length; i++) {
@@ -200,9 +196,7 @@ export class WebGLRasterSurface {
         const col = i % cols;
         const row = Math.floor(i / cols);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, col * cellW, row * cellH, gl.RGBA, gl.UNSIGNED_BYTE, art.bitmap);
-      } catch (e) {
-        console.warn(`[WebGLRasterSurface] Failed to upload bitmap at index ${i}:`, e);
-      }
+      } catch {}
     }
 
     // ── Build per-tile geometry ─────────────────────────────────────────────
@@ -369,10 +363,6 @@ export class WebGLRasterSurface {
 
     // Single draw call for ALL tiles
     gl.drawArrays(gl.TRIANGLES, 0, rects.length * VERTS_PER_TILE);
-    const errDraw = gl.getError();
-    if (errDraw !== gl.NO_ERROR) {
-      console.error(`[WebGLRasterSurface DEBUG] gl.drawArrays error: ${errDraw}`);
-    }
 
     gl.bindVertexArray(null);
   }

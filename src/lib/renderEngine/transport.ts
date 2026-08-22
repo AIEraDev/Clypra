@@ -511,7 +511,6 @@ export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOpt
       }
     })
     .catch((err) => {
-      console.error(`[Transport DEBUG] get_render_artifacts_batch catch() reqId=${reqId} error:`, err);
       if (!cancelled) {
         onError?.(err);
       }

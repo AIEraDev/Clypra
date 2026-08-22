@@ -28,15 +28,11 @@ const resolveMediaSrc = (path: string) => {
 
 /** Movement past this (px) starts a clip drag; below it, release is still a click (selection set on pointerDown). */
 const DRAG_THRESHOLD_PX = 6;
-/** Set to true to enable resize operation tracing in console */
 const RESIZE_TRACE = false;
 const MAX_STILL_CLIP_DURATION_SEC = 60 * 60; // 1 hour guardrail for stills
 const MIN_TRIM_DURATION_SEC = 1;
 const SNAP_THRESHOLD_SECONDS = 0.1; // Snap when within 100ms
-const traceResize = (...args: unknown[]) => {
-  if (!RESIZE_TRACE) return;
-  console.log("[RESIZE]", ...args);
-};
+const traceResize = (..._args: unknown[]) => {};
 
 interface ClipProps {
   clip: ClipType;

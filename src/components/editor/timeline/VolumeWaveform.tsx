@@ -198,7 +198,7 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
         ref={canvasRef}
         data-testid="volume-waveform-canvas"
         className={`block h-full w-full ${className}`}
-        style={{ minHeight: heightPx, opacity: isLoading ? 0 : 1 }}
+        style={{ minHeight: heightPx, opacity: (isLoading && waveformData.length === 0) ? 0 : 1 }}
       />
     </div>
   );

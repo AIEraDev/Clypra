@@ -84,11 +84,7 @@ const CANVAS_DIMENSIONS: Record<Exclude<AspectRatio, "original">, { width: numbe
   "4:3": { width: 1440, height: 1080 },
 };
 
-function traceNativePreview(event: string, details: Record<string, unknown> = {}): void {
-  if (NATIVE_PREVIEW_TRACE_ENABLED) {
-    console.debug(`[NativePreviewTrace] ${event}`, details);
-  }
-}
+function traceNativePreview(_event: string, _details: Record<string, unknown> = {}): void {}
 
 function drawNativeFrameToCanvas(
   canvas: HTMLCanvasElement,
@@ -1542,7 +1538,6 @@ export const NativeProgramPreview: React.FC = () => {
             }, 500);
           }
         } catch (err) {
-          console.error("[NativeProgramPreview] native frame presentation error:", err);
         }
       }
 
@@ -1553,12 +1548,6 @@ export const NativeProgramPreview: React.FC = () => {
         const errorKey = `${currentState.project?.id ?? "unknown-project"}:${currentState.epoch}:${currentFrameIndex}:${message}`;
         if (errorKey !== lastRenderLoopError) {
           lastRenderLoopError = errorKey;
-          console.error("[NativeProgramPreview] render loop preparation error:", error);
-          traceNativePreview("render-loop-error", {
-            frameIndex: currentFrameIndex,
-            requestId: null,
-            error: message,
-          });
         }
         forceRenderNeeded = true;
         nativeRetryAt = performance.now() + 250;
