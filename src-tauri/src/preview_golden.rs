@@ -15,6 +15,7 @@ impl GoldenDiff {
     }
 }
 
+#[allow(clippy::manual_slice_size_calculation, clippy::chunks_exact_to_as_chunks)]
 pub fn compare_rgba8(actual: &[u8], expected: &[u8], tolerance: u8) -> Result<GoldenDiff, String> {
     if actual.len() != expected.len() {
         return Err(format!(
