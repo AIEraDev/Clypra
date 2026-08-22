@@ -190,7 +190,7 @@ impl DensityLevel {
             DensityLevel::Low => 5.0,
             DensityLevel::Medium => 1.0,
             DensityLevel::High => 0.2,
-            DensityLevel::Ultra => 0.02,
+            DensityLevel::Ultra => 0.1,
         }
     }
 
