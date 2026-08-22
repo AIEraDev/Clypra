@@ -127,7 +127,7 @@ impl GpuContext {
                 &wgpu::DeviceDescriptor {
                     label: Some("Native Wgpu Device"),
                     required_features,
-                    required_limits: wgpu::Limits::default(),
+                    required_limits: best_adapter.limits(),
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
                 None,

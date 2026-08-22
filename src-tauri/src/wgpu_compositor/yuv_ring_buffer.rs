@@ -522,7 +522,7 @@ mod tests {
                     &wgpu::DeviceDescriptor {
                         label: Some("Test YUV HDR Device"),
                         required_features,
-                        required_limits: wgpu::Limits::default(),
+                        required_limits: adapter.limits(),
                         memory_hints: wgpu::MemoryHints::Performance,
                     },
                     None,
