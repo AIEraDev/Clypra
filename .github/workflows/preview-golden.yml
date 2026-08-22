@@ -38,7 +38,8 @@ jobs:
             libavdevice-dev libswscale-dev libswresample-dev libpostproc-dev \
             libclang-dev pkg-config libwebkit2gtk-4.1-dev build-essential \
             libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools libegl1-mesa-dev libgl1-mesa-dri
+            libvulkan1 mesa-vulkan-drivers vulkan-tools libegl1-mesa-dev libgl1-mesa-dri \
+            libasound2-dev
           echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
 
