@@ -1227,6 +1227,7 @@ async fn decode_native_video_layers(
 ) -> Result<Vec<DecodedNativeVideoFrame>, String> {
     let mut decoded_frames = Vec::with_capacity(request.layers.len());
     for layer in &request.layers {
+        let t0 = std::time::Instant::now();
         let decoder = get_decoder(&layer.video_path).await?;
         let (y_plane, uv_plane, width, height, color) = {
             let mut guard = decoder.lock().await;
@@ -1241,6 +1242,19 @@ async fn decode_native_video_layers(
                 merge_color_metadata(frame_color, &stream_color),
             )
         };
+        let elapsed = t0.elapsed();
+        let file_name = std::path::Path::new(&layer.video_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&layer.video_path);
+        eprintln!(
+            "🎬 [filmstrip_decode] Decoded frame @ {:.3}s for {} in {:.2}ms ({}x{})",
+            layer.time_secs,
+            file_name,
+            elapsed.as_secs_f64() * 1000.0,
+            width,
+            height
+        );
         decoded_frames.push((y_plane, uv_plane, width, height, color));
     }
     Ok(decoded_frames)
