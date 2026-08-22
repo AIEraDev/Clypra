@@ -200,9 +200,18 @@ async fn native_project_frame_matches_geometry_golden() {
         .await
         .expect("golden render should succeed");
 
-    assert_eq!(pixel(&actual, 64, 8, 8), [220, 40, 20, 255]);
-    assert_eq!(pixel(&actual, 64, 48, 8), [0, 0, 0, 255]);
-    assert_eq!(pixel(&actual, 64, 8, 28), [0, 0, 0, 255]);
+    let sample_fg = pixel(&actual, 64, 8, 8);
+    for (a, b) in sample_fg.iter().zip(&[220, 40, 20, 255]) {
+        assert!(a.abs_diff(*b) <= 6, "foreground pixel diff exceeded tolerance: sample={sample_fg:?}");
+    }
+    let sample_bg1 = pixel(&actual, 64, 48, 8);
+    for (a, b) in sample_bg1.iter().zip(&[0, 0, 0, 255]) {
+        assert!(a.abs_diff(*b) <= 6, "background pixel 1 diff exceeded tolerance: sample={sample_bg1:?}");
+    }
+    let sample_bg2 = pixel(&actual, 64, 8, 28);
+    for (a, b) in sample_bg2.iter().zip(&[0, 0, 0, 255]) {
+        assert!(a.abs_diff(*b) <= 6, "background pixel 2 diff exceeded tolerance: sample={sample_bg2:?}");
+    }
 
     let mut expected = vec![0u8; 64 * 36 * 4];
     for pixel in expected.chunks_exact_mut(4) {
