@@ -540,25 +540,33 @@ impl VideoDecoder {
         30.0
     }
 
+    unsafe extern "C" fn get_hw_format(
+        _ctx: *mut ffmpeg::ffi::AVCodecContext,
+        pix_fmts: *const ffmpeg::ffi::AVPixelFormat,
+    ) -> ffmpeg::ffi::AVPixelFormat {
+        let mut p = pix_fmts;
+        while !p.is_null() && *p != ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NONE {
+            if *p == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX
+                || *p == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_D3D11
+                || *p == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_VAAPI
+                || *p == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_CUDA
+            {
+                return *p;
+            }
+            p = p.add(1);
+        }
+        ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NONE
+    }
+
     fn open_with_hw(
         mut ctx: ffmpeg::codec::context::Context,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
         #[cfg(target_os = "macos")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] =
-            &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
         #[cfg(target_os = "windows")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_DXVA2,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_QSV,
-        ];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
         #[cfg(target_os = "linux")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VULKAN,
-        ];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
 
@@ -576,6 +584,7 @@ impl VideoDecoder {
                 if ret >= 0 && !hw_ctx.is_null() {
                     (*ctx.as_mut_ptr()).hw_device_ctx = ffmpeg::ffi::av_buffer_ref(hw_ctx);
                     ffmpeg::ffi::av_buffer_unref(&mut hw_ctx);
+                    (*ctx.as_mut_ptr()).get_format = Some(Self::get_hw_format);
                     hw_attached = true;
                     eprintln!(
                         "[VideoDecoder::open_with_hw] Activated HW acceleration: {:?}",
@@ -738,7 +747,7 @@ impl VideoDecoder {
             (display_w, display_h)
         };
 
-        let mut raw_frames = Vec::with_capacity(target_timestamps_secs.len());
+        let mut cpu_frames = Vec::with_capacity(target_timestamps_secs.len());
         let mut next_target_idx = 0;
 
         'packet_loop: for (stream, packet) in self.input_ctx.packets() {
@@ -754,10 +763,20 @@ impl VideoDecoder {
                 self.state.current_pts = pts;
                 let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
 
+                let mut transferred_cpu_frame: Option<ffmpeg::frame::Video> = None;
+
                 while next_target_idx < target_timestamps_secs.len() {
                     let target_ts = target_timestamps_secs[next_target_idx];
                     if frame_ts >= target_ts - (1.0 / 60.0) {
-                        raw_frames.push((target_ts, frame.clone()));
+                        let cpu_frame = match &transferred_cpu_frame {
+                            Some(cached) => cached.clone(),
+                            None => {
+                                let cpu = Self::hw_to_cpu_frame(frame.clone())?;
+                                transferred_cpu_frame = Some(cpu.clone());
+                                cpu
+                            }
+                        };
+                        cpu_frames.push((target_ts, cpu_frame));
                         next_target_idx += 1;
                     } else {
                         break;
@@ -771,9 +790,8 @@ impl VideoDecoder {
             }
         }
 
-        let mut results = Vec::with_capacity(raw_frames.len());
-        for (target_ts, raw_frame) in raw_frames {
-            let cpu_frame = self.to_cpu_frame(raw_frame)?;
+        let mut results = Vec::with_capacity(cpu_frames.len());
+        for (target_ts, cpu_frame) in cpu_frames {
             let scaled = self.scale_to_rgba_explicit(&cpu_frame, scale_w, scale_h)?;
             let rgba = if self.rotation != 0 {
                 Self::rotate_rgba(&scaled, scale_w, scale_h, self.rotation)
@@ -1121,27 +1139,40 @@ impl VideoDecoder {
         Ok(rgba)
     }
 
-    fn to_cpu_frame(&self, frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
-        // If it's a hardware frame, transfer it to system memory
+    fn hw_to_cpu_frame(frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
         if frame.format() == ffmpeg::format::Pixel::VIDEOTOOLBOX
             || frame.format() == ffmpeg::format::Pixel::D3D11
             || frame.format() == ffmpeg::format::Pixel::VAAPI
         {
             let mut cpu_frame = ffmpeg::frame::Video::empty();
             unsafe {
-                let ret = ffmpeg::ffi::av_hwframe_transfer_data(
+                // VideoToolbox/D3D11 require explicit destination pixel format
+                (*cpu_frame.as_mut_ptr()).format = ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NV12 as i32;
+                let mut ret = ffmpeg::ffi::av_hwframe_transfer_data(
                     cpu_frame.as_mut_ptr(),
                     frame.as_ptr(),
                     0,
                 );
                 if ret < 0 {
-                    return Err("HW frame transfer failed".to_string());
+                    (*cpu_frame.as_mut_ptr()).format = ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_YUV420P as i32;
+                    ret = ffmpeg::ffi::av_hwframe_transfer_data(
+                        cpu_frame.as_mut_ptr(),
+                        frame.as_ptr(),
+                        0,
+                    );
+                }
+                if ret < 0 {
+                    return Err(format!("HW frame transfer failed (ret={})", ret));
                 }
             }
             Ok(cpu_frame)
         } else {
             Ok(frame)
         }
+    }
+
+    fn to_cpu_frame(&self, frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
+        Self::hw_to_cpu_frame(frame)
     }
 
     /// Extract raw NV12 planes (Y plane + interleaved UV plane) directly from a decoded frame without CPU sws_scale.
