@@ -6,7 +6,7 @@ import { GapManager } from "@/lib/timeline/gapManager";
 import { EditingActions } from "@/core/interactions";
 import { usePreviewMode } from "@/hooks/usePreviewMode";
 import {
-  usePlaybackClock,
+  usePlaybackStatus,
   usePlaybackControls,
   getPlaybackClock,
 } from "@/hooks/usePlaybackClock";
@@ -38,24 +38,20 @@ import { Playhead } from "./Playhead";
 import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
 
 export const Timeline: React.FC = () => {
-  const {
-    tracks,
-    clips,
-    pixelsPerSecond,
-    scrollLeft,
-    setScrollLeft,
-    setViewportWidth,
-    snapGuides,
-  } = useTimelineStore();
+  const tracks = useTimelineStore((s) => s.tracks);
+  const clips = useTimelineStore((s) => s.clips);
+  const pixelsPerSecond = useTimelineStore((s) => s.pixelsPerSecond);
+  const scrollLeft = useTimelineStore((s) => s.scrollLeft);
+  const setScrollLeft = useTimelineStore((s) => s.setScrollLeft);
+  const setViewportWidth = useTimelineStore((s) => s.setViewportWidth);
+  const snapGuides = useTimelineStore((s) => s.snapGuides);
   const hasClips = clips.length > 0;
 
-  const { previewMode, clearSelection } = useUIStore();
+  const previewMode = useUIStore((s) => s.previewMode);
+  const clearSelection = useUIStore((s) => s.clearSelection);
   const { exitSourceMode } = usePreviewMode();
-  const clockState = usePlaybackClock();
+  const { isPlaying, duration } = usePlaybackStatus();
   const { seek } = usePlaybackControls();
-  const currentTime = clockState.time;
-  const duration = clockState.duration;
-  const isPlaying = clockState.state === "playing";
   const containerRef = useRef<HTMLDivElement>(null);
   const wasPlayingRef = useRef(false);
   const runtime = useRenderRuntime();
@@ -105,10 +101,11 @@ export const Timeline: React.FC = () => {
 
   // ── Clamp playhead to sequence bounds ──────────────────────────────────────
   useEffect(() => {
-    if (duration > 0 && currentTime > duration) {
+    const clock = getPlaybackClock();
+    if (duration > 0 && clock.time > duration) {
       seek(duration);
     }
-  }, [duration, currentTime, seek]);
+  }, [duration, seek]);
 
   // ✅ PERFORMANCE OPTIMIZED: RAF-based auto-scroll with throttled state updates
   const autoScrollRafRef = useRef<number | null>(null);
@@ -146,7 +143,7 @@ export const Timeline: React.FC = () => {
     if (justStartedPlaying) {
       // Audit 6.2 fix: read from ref so snap uses current zoom at play-start
       const pps = pixelsPerSecondRef.current;
-      const playheadX = Math.round(currentTime * pps);
+      const playheadX = Math.round(getPlaybackClock().time * pps);
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
       const canvasDuration = getTimelineCanvasDuration(duration);
@@ -286,7 +283,7 @@ export const Timeline: React.FC = () => {
 
         // Insert 2-second gap at playhead position
         const gapDuration = 2.0;
-        GapManager.insertGap(trackId, currentTime, gapDuration);
+        GapManager.insertGap(trackId, getPlaybackClock().time, gapDuration);
         return;
       }
 
@@ -310,7 +307,7 @@ export const Timeline: React.FC = () => {
         const trackId = selectedTrackId || tracks[0]?.id;
         if (!trackId) return;
 
-        const gapAtPlayhead = GapManager.getGapAtPosition(trackId, currentTime);
+        const gapAtPlayhead = GapManager.getGapAtPosition(trackId, getPlaybackClock().time);
 
         if (gapAtPlayhead && !gapAtPlayhead.protected) {
           GapManager.removeGap(gapAtPlayhead.id);
@@ -321,7 +318,7 @@ export const Timeline: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [tracks, currentTime]);
+  }, [tracks]);
 
   const handleTimelinePointerDownCapture = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
