@@ -690,6 +690,102 @@ impl VideoDecoder {
         Ok((rgba, display_w, display_h))
     }
 
+    /// Decode multiple frames in a single forward pass under one lock hold.
+    ///
+    /// The input `target_timestamps_secs` should be sorted ascending.
+    /// Performs a single seek before the first timestamp, then streams packets
+    /// forward continuously through the GOP without repeated seeking or decoder resets.
+    ///
+    /// Returns `(target_ts, rgba, display_w, display_h)` for each satisfied target.
+    pub fn decode_frames_batch_full_res(
+        &mut self,
+        target_timestamps_secs: &[f64],
+    ) -> Result<Vec<(f64, Vec<u8>, u32, u32)>, String> {
+        if target_timestamps_secs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let first_ts = self.clamp_timestamp(target_timestamps_secs[0]);
+        let first_target_pts = (first_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        self.state.update_sequential(first_target_pts);
+
+        let needs_seek = self.state.current_pts < 0
+            || first_target_pts < self.state.current_pts
+            || !self.state.can_decode_forward(first_target_pts, sequential_window);
+
+        if needs_seek {
+            unsafe {
+                let ret = ffmpeg::ffi::av_seek_frame(
+                    self.input_ctx.as_mut_ptr(),
+                    self.stream_index as i32,
+                    first_target_pts,
+                    ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+                );
+                if ret < 0 {
+                    return Err(format!("Seek failed at {}s", first_ts));
+                }
+            }
+            self.decoder.flush();
+            self.state.current_pts = -1;
+            self.state.gop_start_pts = first_target_pts;
+        }
+
+        let (display_w, display_h) = self.display_dimensions();
+        let (scale_w, scale_h) = if self.rotation == 90 || self.rotation == 270 {
+            (display_h, display_w)
+        } else {
+            (display_w, display_h)
+        };
+
+        let mut raw_frames = Vec::with_capacity(target_timestamps_secs.len());
+        let mut next_target_idx = 0;
+
+        'packet_loop: for (stream, packet) in self.input_ctx.packets() {
+            if stream.index() != self.stream_index {
+                continue;
+            }
+            if self.decoder.send_packet(&packet).is_err() {
+                continue;
+            }
+            let mut frame = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut frame).is_ok() {
+                let pts = frame.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+
+                while next_target_idx < target_timestamps_secs.len() {
+                    let target_ts = target_timestamps_secs[next_target_idx];
+                    if frame_ts >= target_ts - (1.0 / 60.0) {
+                        raw_frames.push((target_ts, frame.clone()));
+                        next_target_idx += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                if next_target_idx >= target_timestamps_secs.len() {
+                    break 'packet_loop;
+                }
+                frame = ffmpeg::frame::Video::empty();
+            }
+        }
+
+        let mut results = Vec::with_capacity(raw_frames.len());
+        for (target_ts, raw_frame) in raw_frames {
+            let cpu_frame = self.to_cpu_frame(raw_frame)?;
+            let scaled = self.scale_to_rgba_explicit(&cpu_frame, scale_w, scale_h)?;
+            let rgba = if self.rotation != 0 {
+                Self::rotate_rgba(&scaled, scale_w, scale_h, self.rotation)
+            } else {
+                scaled
+            };
+            results.push((target_ts, rgba, display_w, display_h));
+        }
+
+        Ok(results)
+    }
+
     /// Fast keyframe decode for poster frames / library thumbnails.
     ///
     /// Seeks to the nearest keyframe at or before target_time and immediately returns
