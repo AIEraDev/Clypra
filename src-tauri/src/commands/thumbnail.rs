@@ -802,6 +802,8 @@ pub async fn get_render_artifacts_batch(
     let mut tier_cache_hits = 0u32;
     let mut decodes = 0u32;
 
+    let mut missing_timestamps: Vec<u64> = Vec::new();
+
     for timestamp_ms in timestamps_ms {
         let timestamp_secs = timestamp_ms as f64 / 1000.0;
 
@@ -816,8 +818,8 @@ pub async fn get_render_artifacts_batch(
         );
 
         let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
-
         let mut missing_tiers: Vec<SpatialTier> = Vec::new();
+
         for tier in &tiers {
             let (width, height) = tier.dims();
 
@@ -845,7 +847,6 @@ pub async fn get_render_artifacts_batch(
                         source: ArtifactSource::BackendTierCache,
                     };
                     let _ = on_artifact.send(artifact);
-                    eprintln!("[batch:atlas-hit] req={} tier={:?} ts={} (hits={})", req_id, tier, timestamp_ms, atlas_hits);
                     continue;
                 }
             }
@@ -867,57 +868,53 @@ pub async fn get_render_artifacts_batch(
                     source: ArtifactSource::BackendTierCache,
                 };
                 let _ = on_artifact.send(artifact);
-                eprintln!("[batch:tier-hit] req={} tier={:?} ts={} (hits={})", req_id, tier, timestamp_ms, tier_cache_hits);
             } else {
                 missing_tiers.push(*tier);
             }
         }
 
         if !missing_tiers.is_empty() {
-            eprintln!("[batch:decode] req={} tiers={:?} ts={}", req_id, missing_tiers, timestamp_ms);
+            missing_timestamps.push(timestamp_ms);
+        }
+    }
+
+    if missing_timestamps.is_empty() {
+        return Ok(());
+    }
+
+    // Sort missing timestamps chronologically for forward GOP packet scanning
+    missing_timestamps.sort_unstable();
+
+    let decoder_arc = get_decoder(&video_path).await?;
+
+    // Process in chunks of 12 with a single decoder lock and forward sweep per chunk
+    for chunk in missing_timestamps.chunks(12) {
+        let chunk_secs: Vec<f64> = chunk.iter().map(|&ms| ms as f64 / 1000.0).collect();
+        let decoded_frames = {
+            let mut dec = decoder_arc.lock().await;
+            dec.decode_frames_batch_full_res(&chunk_secs)?
+        };
+
+        for (matched_ts_secs, rgba, w, h) in decoded_frames {
             decodes += 1;
-            let inflight_key = tier_inflight_key(&content_hash, SpatialTier::L0);
-            let is_new = IN_FLIGHT_TIER.insert(inflight_key.clone(), ()).is_none();
-            let raw_arc = if is_new {
-                let raw = if let Some(existing) = FRAME_CACHE.get(&content_hash) {
-                    existing
-                } else {
-                    let decoder_arc = get_decoder(&video_path).await?;
-                    let (rgba, w, h) = {
-                        let mut dec = decoder_arc.lock().await;
-                        dec.decode_frame_full_res(timestamp_secs)?
-                    };
-                    let frame = Arc::new(RawRgbaFrame::new(rgba, w, h));
-                    FRAME_CACHE.insert(content_hash.clone(), frame.clone());
-                    frame
-                };
-                IN_FLIGHT_TIER.remove(&inflight_key);
-                raw
-            } else {
-                let mut waited = 0u32;
-                loop {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-                    waited += 1;
-                    if let Some(f) = FRAME_CACHE.get(&content_hash) {
-                        IN_FLIGHT_TIER.remove(&inflight_key);
-                        break f;
-                    }
-                    if !IN_FLIGHT_TIER.contains_key(&inflight_key) {
-                        if let Some(f) = FRAME_CACHE.get(&content_hash) {
-                            break f;
-                        }
-                        return Err(format!("Concurrent decode failed for {}", content_hash.0));
-                    }
-                    if waited > 400 {
-                        return Err(format!("Decode timeout for {}", content_hash.0));
-                    }
-                }
-            };
+            let timestamp_ms = (matched_ts_secs * 1000.0).round() as u64;
+            let content_hash = FrameContentHash::compute(
+                &video_id,
+                timestamp_ms,
+                effect_graph_version,
+                1.0,
+                0,
+                u64::MAX,
+                false,
+            );
+            let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
+            let raw_arc = Arc::new(RawRgbaFrame::new(rgba, w, h));
+            FRAME_CACHE.insert(content_hash.clone(), raw_arc.clone());
 
-
+            let missing_for_frame = tiers.clone();
             let tier_frames = {
                 let raw = raw_arc.clone();
-                tokio::task::spawn_blocking(move || downsample_pyramid(&raw, &missing_tiers))
+                tokio::task::spawn_blocking(move || downsample_pyramid(&raw, &missing_for_frame))
                     .await
                     .map_err(|e| format!("Downsample task failed: {:?}", e))?
             };
@@ -941,7 +938,6 @@ pub async fn get_render_artifacts_batch(
                         };
                         TIER_CACHE.insert(key, tier_frame);
                         let _ = on_artifact.send(artifact);
-                        eprintln!("[batch:decoded] req={} tier={:?} ts={}", req_id, tier, timestamp_ms);
                     }
                     Err(e) => {
                         eprintln!("[batch:error] req={} tier={:?} error={}", req_id, tier, e);
