@@ -321,6 +321,7 @@ impl VideoDecoder {
 
     pub fn open(path: &str) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
+        ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Error);
 
         let input_ctx = ffmpeg::format::input(&path).map_err(|e| format!("Cannot open: {}", e))?;
 
@@ -339,7 +340,7 @@ impl VideoDecoder {
             if !codecpar.is_null() {
                 let sar_num = (*codecpar).sample_aspect_ratio.num;
                 let sar_den = (*codecpar).sample_aspect_ratio.den;
-                if sar_den > 0 {
+                if sar_den > 0 && sar_num > 0 {
                     (sar_num, sar_den)
                 } else {
                     (1, 1) // Square pixels
@@ -1208,6 +1209,38 @@ impl VideoDecoder {
             }
 
             Some((y_plane, uv_plane, width as u32, height as u32))
+        } else if frame.format() == ffmpeg::format::Pixel::YUV420P {
+            // Direct zero-swscale conversion: interleave planar U and V into NV12 directly
+            let width = frame.width() as usize;
+            let height = frame.height() as usize;
+            let y_stride = frame.stride(0);
+            let u_stride = frame.stride(1);
+            let v_stride = frame.stride(2);
+            let y_data = frame.data(0);
+            let u_data = frame.data(1);
+            let v_data = frame.data(2);
+
+            let mut y_plane = Vec::with_capacity(width * height);
+            for y in 0..height {
+                let row_start = y * y_stride;
+                y_plane.extend_from_slice(&y_data[row_start..row_start + width]);
+            }
+
+            let uv_height = height.div_ceil(2);
+            let uv_width = width.div_ceil(2);
+            let uv_packed_stride = uv_width * 2;
+            let mut uv_plane = Vec::with_capacity(uv_packed_stride * uv_height);
+
+            for y in 0..uv_height {
+                let u_row = y * u_stride;
+                let v_row = y * v_stride;
+                for x in 0..uv_width {
+                    uv_plane.push(u_data[u_row + x]);
+                    uv_plane.push(v_data[v_row + x]);
+                }
+            }
+
+            Some((y_plane, uv_plane, width as u32, height as u32))
         } else {
             None
         }
@@ -1371,6 +1404,15 @@ impl VideoDecoder {
     ) -> Result<Vec<u8>, String> {
         use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
 
+        // For 1:1 format conversion (YUV420P → RGBA at native resolution), use FAST_BILINEAR
+        // to enable SIMD vector colorspace matrices (NEON/AVX2) without filter overhead.
+        // For spatial downscaling/upscaling, use LANCZOS for high-order anti-aliasing.
+        let flags = if frame.width() == out_w && frame.height() == out_h {
+            Flags::FAST_BILINEAR
+        } else {
+            Flags::LANCZOS
+        };
+
         let mut scaler = Context::get(
             frame.format(),
             frame.width(),
@@ -1378,7 +1420,7 @@ impl VideoDecoder {
             ffmpeg::format::Pixel::RGBA,
             out_w,
             out_h,
-            Flags::LANCZOS,
+            flags,
         )
         .map_err(|e| e.to_string())?;
 
@@ -1538,21 +1580,29 @@ impl DecoderEntry {
     }
 }
 
-pub(crate) static DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> = Lazy::new(DashMap::new);
+pub(crate) static THUMBNAIL_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
+    Lazy::new(DashMap::new);
+pub(crate) static PREVIEW_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
+    Lazy::new(DashMap::new);
 
-// Pool size limit with lock-free atomic LRU eviction
-const MAX_DECODER_POOL_SIZE: usize = 20;
+// Symmetric pool size limits with lock-free atomic LRU eviction (Total 20 max decoders)
+const MAX_THUMBNAIL_DECODER_POOL_SIZE: usize = 10;
+const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 10;
 
-pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+async fn get_or_create_decoder_in_pool(
+    pool: &DashMap<String, Arc<DecoderEntry>>,
+    path: &str,
+    max_pool_size: usize,
+) -> Result<Arc<Mutex<VideoDecoder>>, String> {
     // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
-    if let Some(entry) = DECODER_POOL.get(path) {
+    if let Some(entry) = pool.get(path) {
         entry.touch();
         return Ok(entry.decoder.clone());
     }
 
     // 2. LRU Eviction: Collect candidates snapshot without holding locks across await
-    if DECODER_POOL.len() >= MAX_DECODER_POOL_SIZE {
-        let oldest = DECODER_POOL
+    if pool.len() >= max_pool_size {
+        let oldest = pool
             .iter()
             .map(|kv| {
                 (
@@ -1563,7 +1613,7 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
             .min_by_key(|(_, ts)| *ts);
 
         if let Some((oldest_key, _)) = oldest {
-            DECODER_POOL.remove(&oldest_key);
+            pool.remove(&oldest_key);
         }
     }
 
@@ -1577,13 +1627,26 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
         last_accessed_ms: AtomicU64::new(current_timestamp_ms()),
     });
 
-    DECODER_POOL.insert(path.to_string(), entry);
+    pool.insert(path.to_string(), entry);
     Ok(arc_decoder)
+}
+
+/// Thumbnail/Filmstrip background decoder pool (used for timeline thumbnail caching)
+pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    get_or_create_decoder_in_pool(&THUMBNAIL_DECODER_POOL, path, MAX_THUMBNAIL_DECODER_POOL_SIZE).await
+}
+
+/// Dedicated Interactive Preview & Playback decoder pool.
+/// Completely decoupled from background filmstrip decoding so playback/playhead scrubbing
+/// is NEVER blocked by background batch generation locks.
+pub async fn get_preview_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    get_or_create_decoder_in_pool(&PREVIEW_DECODER_POOL, path, MAX_PREVIEW_DECODER_POOL_SIZE).await
 }
 
 /// Call this when a clip is removed from the project to free memory
 pub fn release_decoder(path: &str) {
-    DECODER_POOL.remove(path);
+    THUMBNAIL_DECODER_POOL.remove(path);
+    PREVIEW_DECODER_POOL.remove(path);
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
