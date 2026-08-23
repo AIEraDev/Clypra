@@ -291,7 +291,18 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
  * until those runtimes are intentionally revisited.
  */
 export function requestFilmstripArtifacts(opts: RequestNativeFilmstripArtifactsOptions): () => void {
-  if (isTauriRuntime()) return requestNativeFilmstripArtifacts(opts);
+  if (isTauriRuntime()) {
+    return requestBatchRenderArtifacts({
+      videoPath: opts.videoPath,
+      timestampsMs: opts.timestampsMs,
+      spatialTiers: [opts.spatialTier],
+      epochId: opts.epochId,
+      clipId: opts.clipId,
+      onArtifact: opts.onArtifact,
+      onComplete: opts.onComplete,
+      onError: opts.onError,
+    });
+  }
   return requestProgressiveTiers({
     videoPath: opts.videoPath,
     timestampsMs: opts.timestampsMs,
