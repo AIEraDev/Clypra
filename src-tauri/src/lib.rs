@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 pub mod ai;
+pub mod audio;
 pub mod commands;
 pub mod models;
 pub mod native_audio;
