@@ -27,7 +27,6 @@ import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
 import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { drawCanvasBackground } from "@/core/render/canvasBackground";
-import { captureCanvasThumbnail } from "@/lib/media/projectThumbnail";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 import {
@@ -1504,20 +1503,6 @@ export const NativeProgramPreview: React.FC = () => {
           if (state.clock.isSeeking && nativeFrameReady) {
             state.clock.completeSeek();
           }
-
-          // Live program preview thumbnail sync: capture frame snapshot when paused / seeking finished.
-          // Audit 1.6 fix: `!playbackState` was always false because playbackState is a non-empty
-          // string. Replaced with an explicit check for non-playing states.
-          if (playbackState !== "playing" && nativeFrameReady && !state.clock.isSeeking) {
-            if (thumbnailDebounceTimer) clearTimeout(thumbnailDebounceTimer);
-            thumbnailDebounceTimer = setTimeout(() => {
-              if (!isActive || !canvasEl) return;
-              const thumbnailDataUrl = captureCanvasThumbnail(canvasEl, 640, 0.85);
-              if (thumbnailDataUrl && thumbnailDataUrl !== useProjectStore.getState().project?.thumbnail) {
-                useProjectStore.getState().setProjectThumbnail(thumbnailDataUrl);
-              }
-            }, 500);
-          }
         } catch (err) {
         }
       }
@@ -1537,8 +1522,6 @@ export const NativeProgramPreview: React.FC = () => {
         scheduleNextFrame();
       }
     };
-
-    let thumbnailDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     let lastSubscriberClockState: "playing" | "paused" | "stopped" = clock.state;
     const unsubscribeClock = clock.subscribe((newClockState) => {
@@ -1571,13 +1554,6 @@ export const NativeProgramPreview: React.FC = () => {
       unsubscribeClock();
       nativePreviewScheduler.dispose();
       nativeAnimatedStickerRenderer.dispose();
-      if (thumbnailDebounceTimer) clearTimeout(thumbnailDebounceTimer);
-      if (canvasEl) {
-        const finalDataUrl = captureCanvasThumbnail(canvasEl, 640, 0.85);
-        if (finalDataUrl && finalDataUrl !== useProjectStore.getState().project?.thumbnail) {
-          useProjectStore.getState().setProjectThumbnail(finalDataUrl);
-        }
-      }
       if (rafId !== null) cancelAnimationFrame(rafId);
       frameScheduled = false;
     };
