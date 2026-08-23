@@ -528,10 +528,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   setProjectThumbnail: (thumbnail) => {
-    set((state) => ({
-      project: state.project ? { ...state.project, thumbnail } : null,
-    }));
-    // Note: purely in-memory UI preview thumbnail update; does not dirty project or schedule auto-save on play/pause
+    set((state) => {
+      if (!state.project || state.project.thumbnail === thumbnail) return state;
+      const updatedProject = { ...state.project, thumbnail };
+      const updatedRecent = state.recentProjects.map((p) =>
+        p.id === updatedProject.id ? { ...p, thumbnail } : p,
+      );
+      return {
+        project: updatedProject,
+        recentProjects: updatedRecent,
+      };
+    });
   },
 
   setRecentProjects: (projects) => {
@@ -643,12 +650,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     } catch (err) {}
 
     // ═══════════════════════════════════════════════════════════════════════════════
-    // PHASE 5: Clear Crash-Recovery Snapshot
+    // PHASE 5: Clear Crash-Recovery Snapshot & Thumbnail State
     // ═══════════════════════════════════════════════════════════════════════════════
     // On a clean close, remove the IndexedDB snapshot so we don't prompt for
     // recovery the next time the user opens the application.
     lifecycleMonitor.record("PROJECT_DISPOSE", { projectId: closedProjectId });
     clearSnapshot().catch(() => {});
+    try {
+      const { projectThumbnailService } = await import("@/core/thumbnails/ProjectThumbnailService");
+      projectThumbnailService.reset();
+    } catch {}
   },
 
   scheduleAutoSave: () => {
@@ -677,13 +688,25 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       try {
         // Import timeline store to get tracks and clips
         const { useTimelineStore } = await import("./timelineStore");
-        const { tracks, clips, transitions, gaps, markers } = useTimelineStore.getState();
+        const { tracks, clips, transitions, gaps, markers, epoch } = useTimelineStore.getState();
 
         // Convert camelCase to snake_case using centralized serialization
         const rustProject = toRustProject(project, { tracks, clips, transitions, gaps, markers, mediaAssets });
 
         await platform.saveProject(JSON.stringify(rustProject));
         get().showToast("Project saved");
+
+        // ── Canonical Project Thumbnail Generation ───────────────────────
+        try {
+          const { projectThumbnailService } = await import("@/core/thumbnails/ProjectThumbnailService");
+          projectThumbnailService.requestThumbnailUpdate(
+            project,
+            { tracks, clips, transitions, gaps, markers, mediaAssets, epoch },
+            { isAutoSave: true },
+          );
+        } catch (_thumbError) {
+          // Non-fatal background task
+        }
 
         // ── Crash recovery snapshot ──────────────────────────────────────
         // Persist a recovery snapshot so the user can restore their work if
