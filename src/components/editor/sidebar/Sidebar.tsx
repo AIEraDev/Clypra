@@ -22,13 +22,25 @@ import { type TabType, type MediaTabProps } from "./types";
 import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
 import { TextIcon, YouTubeIcon } from "@/components/ui/icons";
 
+const SIDEBAR_TABS = [
+  { id: "media" as const, icon: YouTubeIcon, label: "Media" },
+  { id: "audio" as const, icon: Music, label: "Audio" },
+  { id: "text" as const, icon: TextIcon, label: "Text" },
+  { id: "smart-overlays" as const, icon: Sparkles, label: "Overlays" },
+  { id: "stickers" as const, icon: Smile, label: "Stickers" },
+  { id: "effects" as const, icon: Wand2, label: "Effects" },
+  { id: "filters" as const, icon: Filter, label: "Filters" },
+  { id: "transitions" as const, icon: Shuffle, label: "Transitions" },
+  { id: "captions" as const, icon: MessageSquare, label: "Captions" },
+] as const;
+
 export interface SidebarProps extends MediaTabProps {
   width?: number;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
+const SidebarComponent: React.FC<SidebarProps> = ({
   onAddToTimeline,
   initialTab = "media",
   width,
@@ -40,18 +52,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   React.useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
-
-  const tabs = [
-    { id: "media" as const, icon: YouTubeIcon, label: "Media" },
-    { id: "audio" as const, icon: Music, label: "Audio" },
-    { id: "text" as const, icon: TextIcon, label: "Text" },
-    { id: "smart-overlays" as const, icon: Sparkles, label: "Overlays" },
-    { id: "stickers" as const, icon: Smile, label: "Stickers" },
-    { id: "effects" as const, icon: Wand2, label: "Effects" },
-    { id: "filters" as const, icon: Filter, label: "Filters" },
-    { id: "transitions" as const, icon: Shuffle, label: "Transitions" },
-    { id: "captions" as const, icon: MessageSquare, label: "Captions" },
-  ];
 
   return (
     <div
@@ -83,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   msOverflowStyle: "none",
                 }}
               >
-                {tabs.map((tab) => {
+                {SIDEBAR_TABS.map((tab) => {
                   const Icon = tab.icon;
                   const isActive = activeTab === tab.id;
                   return (
@@ -122,7 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Tab Content or Collapsed Rail */}
       {collapsed ? (
         <div className="flex flex-col items-center gap-1.5 py-2 overflow-y-auto flex-1 scrollbar-none">
-          {tabs.map((tab) => {
+          {SIDEBAR_TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
@@ -177,4 +177,5 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 };
 
+export const Sidebar = React.memo(SidebarComponent);
 export const EnhancedMediaPanel = Sidebar;

@@ -14,9 +14,10 @@ interface TopBarProps {
   onRequestClose?: () => void;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
-  const { project, closeProject } = useProjectStore();
-  const { toggleSettingsModal } = useUIStore();
+const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
+  const projectName = useProjectStore((s) => s.project?.name);
+  const closeProject = useProjectStore((s) => s.closeProject);
+  const toggleSettingsModal = useUIStore((s) => s.toggleSettingsModal);
   const [showExportDialog, setShowExportDialog] = useState(false);
 
   const handleClose = () => {
@@ -42,8 +43,8 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
         </div>
 
         {/* Project Name (Center) */}
-        <span className="text-xs font-semibold text-text-primary truncate max-w-[120px] sm:max-w-[240px] text-center shrink-0" title={project?.name}>
-          {project?.name}
+        <span className="text-xs font-semibold text-text-primary truncate max-w-[120px] sm:max-w-[240px] text-center shrink-0" title={projectName}>
+          {projectName}
         </span>
 
         <WindowDragRegion />
@@ -73,3 +74,6 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
     </>
   );
 };
+
+export const TopBar = React.memo(TopBarComponent);
+
