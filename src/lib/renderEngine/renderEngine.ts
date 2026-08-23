@@ -99,8 +99,14 @@ export class RenderEngine {
     }
     const committedTier = this._hysteresis.update(this._currentZoom, srpResult.spatialTier);
 
-    if (committedTier !== null || update.epochTrigger) {
-      this._recomputeAllClipStates(update.epochTrigger);
+    // Coalesce epoch updates during active high-velocity zoom:
+    // Only recompute clip epochs when a tier boundary is crossed, when zoom settles (converging/idle),
+    // or when another explicit non-zooming epoch trigger occurs.
+    const isZoomChurning = update.interactionState === InteractionState.Zooming && update.velocityState === VelocityState.Fast;
+    const shouldRecompute = committedTier !== null || (update.epochTrigger && !isZoomChurning) || update.interactionState === InteractionState.Converging;
+
+    if (shouldRecompute) {
+      this._recomputeAllClipStates(update.epochTrigger || committedTier !== null);
     }
   }
 
