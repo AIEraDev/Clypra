@@ -1514,7 +1514,7 @@ export const NativeProgramPreview: React.FC = () => {
               if (!isActive || !canvasEl) return;
               const thumbnailDataUrl = captureCanvasThumbnail(canvasEl, 640, 0.85);
               if (thumbnailDataUrl && thumbnailDataUrl !== useProjectStore.getState().project?.thumbnail) {
-                useProjectStore.getState().updateProject({ thumbnail: thumbnailDataUrl });
+                useProjectStore.getState().setProjectThumbnail(thumbnailDataUrl);
               }
             }, 500);
           }
@@ -1575,7 +1575,7 @@ export const NativeProgramPreview: React.FC = () => {
       if (canvasEl) {
         const finalDataUrl = captureCanvasThumbnail(canvasEl, 640, 0.85);
         if (finalDataUrl && finalDataUrl !== useProjectStore.getState().project?.thumbnail) {
-          useProjectStore.getState().updateProject({ thumbnail: finalDataUrl });
+          useProjectStore.getState().setProjectThumbnail(finalDataUrl);
         }
       }
       if (rafId !== null) cancelAnimationFrame(rafId);
