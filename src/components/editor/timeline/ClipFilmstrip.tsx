@@ -243,35 +243,18 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     runtime?.tileCache,
   ]);
 
-  // ── Epoch Transition & Debounce Gating (Bug B Fix) ───────────────────────
-  // NOTE (Track A stopgap): During epoch transitions, avoid premature commits on the first arriving tile.
-  // We commit when either:
-  // 1) All requested visible tile addresses have matching artifacts, OR
-  // 2) A 120ms debounce threshold expires after the first artifact arrives.
-  // (This will be naturally superseded by Track B's progressive two-tier ingestion).
+  // ── Epoch Transition & Debounce Gating (Unconditional Escape Timer) ─────
+  // Start the 120ms debounce threshold timer immediately upon epoch/spatialTier
+  // change to ensure a bounded fallback commit even if decode is delayed.
   const [epochDebounceExpired, setEpochDebounceExpired] = useState(false);
-  const firstArtifactTimeRef = useRef<number | null>(null);
 
   useEffect(() => {
-    firstArtifactTimeRef.current = null;
     setEpochDebounceExpired(false);
+    const timer = setTimeout(() => {
+      setEpochDebounceExpired(true);
+    }, 120); // 120ms bounded fallback escape window
+    return () => clearTimeout(timer);
   }, [epochId, spatialTier]);
-
-  useEffect(() => {
-    const currentEpochArtifacts = artifacts.filter(
-      (artifact) =>
-        (artifact.epochId === epochId || artifact.epochId === ("epoch-preload" as RenderEpochId)) &&
-        artifact.spatialTier === spatialTier,
-    );
-
-    if (currentEpochArtifacts.length > 0 && !epochDebounceExpired && firstArtifactTimeRef.current === null) {
-      firstArtifactTimeRef.current = Date.now();
-      const timer = setTimeout(() => {
-        setEpochDebounceExpired(true);
-      }, 120); // 120ms debounce window
-      return () => clearTimeout(timer);
-    }
-  }, [artifacts, epochId, spatialTier, epochDebounceExpired]);
 
   // ── Draw filmstrip whenever artifacts or layout changes ───────────────────
   useEffect(() => {
