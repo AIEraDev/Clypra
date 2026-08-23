@@ -308,7 +308,13 @@ export class PlaybackClock {
       this._isSeeking = false;
     }
 
-    if (!this._nativeClockAuthority) {
+    if (this._nativeClockAuthority) {
+      this._nativeClockPosition = {
+        time: this._time,
+        receivedAtMs: performance.now(),
+        speed: this._speed,
+      };
+    } else {
       // Initialize AudioContext for high-precision browser timing.
       if (!this._audioContext) {
         this._audioContext = new AudioContext();
@@ -357,6 +363,7 @@ export class PlaybackClock {
 
     this._state = "paused";
     this._isSeeking = false;
+    this._nativeClockPosition = null; // Clear native clock sample so no stale pre-pause timestamps survive
     this._notifyListeners();
 
     // Stop RAF loop
