@@ -1,20 +1,21 @@
-// Silence all console logging across the application
-const noop = () => {};
-console.log = noop;
-console.debug = noop;
-console.info = noop;
-console.warn = noop;
-console.trace = noop;
-console.error = noop;
-console.table = noop;
-console.group = noop;
-console.groupCollapsed = noop;
-console.groupEnd = noop;
-console.time = noop;
-console.timeEnd = noop;
-console.timeLog = noop;
-console.count = noop;
-console.countReset = noop;
+// Silence non-error logs in production
+// if (import.meta.env.PROD) {
+//   const noop = () => {};
+//   console.log = noop;
+//   console.debug = noop;
+//   console.info = noop;
+//   console.warn = noop;
+//   console.trace = noop;
+//   console.table = noop;
+//   console.group = noop;
+//   console.groupCollapsed = noop;
+//   console.groupEnd = noop;
+//   console.time = noop;
+//   console.timeEnd = noop;
+//   console.timeLog = noop;
+//   console.count = noop;
+//   console.countReset = noop;
+// }
 
 // ── Safari/WKWebView OffscreenCanvas filter support check ────────────────────
 try {
