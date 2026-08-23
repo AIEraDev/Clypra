@@ -790,3 +790,48 @@ fn test_priority_queue_mixed_ordering() {
         last_priority = job.priority;
     }
 }
+
+#[test]
+fn test_decode_frames_batch_empty() {
+    let path = "/Users/AIEraDev/Documents/HandBrake/Claude Mythos.mp4";
+    if !std::path::Path::new(path).exists() {
+        return;
+    }
+    let mut decoder = VideoDecoder::open(path).expect("open video");
+    let results = decoder.decode_frames_batch_full_res(&[]).expect("decode empty batch");
+    assert!(results.is_empty());
+}
+
+#[test]
+fn test_decode_4k_frames_batch_forward_gop() {
+    let path = "/Users/AIEraDev/.gemini/antigravity/brain/dc4b3ecd-8fad-4da2-9e8e-bf2bd890b437/scratch/test_4k.mp4";
+    if !std::path::Path::new(path).exists() {
+        return;
+    }
+    let mut decoder = VideoDecoder::open(path).expect("open 4K video");
+    assert_eq!(decoder.width(), 3840);
+    assert_eq!(decoder.height(), 2160);
+
+    // Test a chunk of 12 dense target timestamps within a 2-second range (single GOP scan)
+    let targets: Vec<f64> = (0..12).map(|i| 1.0 + (i as f64) * 0.1).collect();
+    let start = std::time::Instant::now();
+    let frames = decoder.decode_frames_batch_full_res(&targets).expect("batch decode 4k");
+    let elapsed = start.elapsed();
+
+    eprintln!(
+        "[4K Batch Test] Decoded {} 4K frames in {:?} (avg {:?} per 4K frame)",
+        frames.len(),
+        elapsed,
+        elapsed / (frames.len().max(1) as u32)
+    );
+
+    assert_eq!(frames.len(), targets.len());
+    for (idx, (matched_ts, rgba, w, h)) in frames.iter().enumerate() {
+        assert_eq!(*w, 3840);
+        assert_eq!(*h, 2160);
+        assert_eq!(rgba.len(), 3840 * 2160 * 4);
+        assert!((matched_ts - targets[idx]).abs() < 0.1);
+    }
+}
+
+
