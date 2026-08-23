@@ -39,6 +39,7 @@ import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { toast } from "@/lib/toast";
+import { suppressAutoSave, enableAutoSave } from "./middleware/autoSaveMiddleware";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
 interface ProjectStore {
@@ -67,6 +68,7 @@ interface ProjectStore {
   updateMediaAsset: (assetId: string, updates: Partial<MediaAsset>) => void;
   removeMediaAsset: (assetId: string) => void;
   updateProject: (updates: Partial<Project>) => void;
+  setProjectThumbnail: (thumbnail: string) => void;
   setRecentProjects: (projects: Project[]) => void;
   renameProject: (projectId: string, newName: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
@@ -328,6 +330,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
     // Wrap load logic in a promise we can track
     loadInProgress = (async () => {
+      if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+      }
+      suppressAutoSave();
       try {
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 1: Dispose Previous Runtime & Reset State
@@ -456,6 +463,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           // Prewarming failed silently - graceful degradation
         }
       } finally {
+        enableAutoSave();
         // ✅ FIX-005: Clear load mutex after completion
         loadInProgress = null;
       }
@@ -517,6 +525,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       project: state.project ? { ...state.project, ...updates, updatedAt: Date.now() } : null,
     }));
     get().scheduleAutoSave();
+  },
+
+  setProjectThumbnail: (thumbnail) => {
+    set((state) => ({
+      project: state.project ? { ...state.project, thumbnail } : null,
+    }));
+    // Note: purely in-memory UI preview thumbnail update; does not dirty project or schedule auto-save on play/pause
   },
 
   setRecentProjects: (projects) => {
