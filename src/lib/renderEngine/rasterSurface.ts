@@ -20,6 +20,8 @@
 import type { TransportArtifact } from "./transport";
 import { getFilmstripTileSlots } from "../filmstrip/filmstripLayout";
 import type { FilmstripTileAddress } from "../filmstrip/filmstripTiers";
+import type { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
+import { SpatialTier } from "./types";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,6 +40,24 @@ export type FilmstripLayout = {
   trimOut?: number;
   /** Exact source-time address for every render slot. */
   tileAddresses?: readonly FilmstripTileAddress[];
+  /**
+   * Optional tile cache for coarse-to-dense pyramid fallback.
+   * When a dense (L1/L2/L3) tile is absent, the renderer will look up the
+   * L0 coarse tile at the same timestamp and stretch it to fill the slot.
+   * Eliminates shimmer during zoom transitions — blurry-but-instant is better
+   * than empty while dense tiles are in-flight.
+   */
+  tileCache?: FilmstripTileCache;
+  /** Clip ID — required when tileCache is provided for fallback lookups. */
+  clipId?: string;
+  /** Video path — used for cross-clip content hash deduplication lookups. */
+  videoPath?: string;
+  /** Timeline pixels per second zoom factor */
+  pixelsPerSecond?: number;
+  /** Offset inside the full clip where the bounded render surface is positioned */
+  renderWindowLeftPx?: number;
+  /** Unbounded trimIn of the full clip in seconds */
+  clipTrimIn?: number;
 };
 
 // ─── RasterSurface ────────────────────────────────────────────────────────────
@@ -90,10 +110,6 @@ export class RasterSurface {
    */
   drawFilmstrip(artifacts: readonly TransportArtifact[], layout: FilmstripLayout): void {
     if (this._disposed || !this._ctx) return;
-    if (artifacts.length === 0) {
-      this._clear(layout);
-      return;
-    }
 
     this._applyLayout(layout);
 
@@ -120,21 +136,69 @@ export class RasterSurface {
         trimIn: layout.trimIn,
         trimOut: layout.trimOut,
         tileWidthPx: targetTileW,
+        pixelsPerSecond: layout.pixelsPerSecond,
+        renderWindowLeftPx: layout.renderWindowLeftPx,
+        clipTrimIn: layout.clipTrimIn,
       });
+
+      let exactCount = 0;
+      let fallbackCount = 0;
+      let pendingCount = 0;
 
       for (const slot of slots) {
         const artifact = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
-        if (!artifact) continue;
-        this._drawTile(
-          ctx,
-          artifact.bitmap,
-          artifact.width,
-          artifact.height,
-          Math.round(slot.leftPx * dpr),
-          0,
-          Math.max(1, Math.round(slot.widthPx * dpr)),
-          Math.max(1, Math.round(stripHeightPx * dpr)),
-        );
+        const slotX = Math.round(slot.leftPx * dpr);
+        const slotW = Math.max(1, Math.round(slot.widthPx * dpr));
+        const slotH = Math.max(1, Math.round(stripHeightPx * dpr));
+
+        if (artifact) {
+          exactCount++;
+          this._drawTile(
+            ctx,
+            artifact.bitmap,
+            artifact.width,
+            artifact.height,
+            slotX,
+            0,
+            slotW,
+            slotH,
+          );
+        } else if (layout.tileCache && (layout.clipId || layout.videoPath) && slot.address.zoomTier !== SpatialTier.L0) {
+          // Multi-tier pyramid fallback: look up best available lower-tier tile (L2 -> L1 -> L0)
+          // and stretch it — blurry-but-instant is better than shimmer during zoom transitions.
+          const fallbackEntry = layout.tileCache.findBestFallback(
+            layout.clipId ?? "",
+            slot.address.zoomTier,
+            slot.address.timestamp,
+            layout.videoPath,
+            /* tolerance: */ 6.0,
+            slot.address.effectGraphVersion,
+          );
+          if (fallbackEntry && fallbackEntry.artifact.bitmap && fallbackEntry.artifact.bitmap.width > 0) {
+            fallbackCount++;
+            // Draw with imageSmoothingEnabled to produce a smooth bicubic stretch
+            ctx.save();
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "medium";
+            this._drawTile(
+              ctx,
+              fallbackEntry.artifact.bitmap,
+              fallbackEntry.artifact.width,
+              fallbackEntry.artifact.height,
+              slotX,
+              0,
+              slotW,
+              slotH,
+            );
+            ctx.restore();
+          } else {
+            pendingCount++;
+            this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
+          }
+        } else {
+          pendingCount++;
+          this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
+        }
       }
 
       this._drawEdgeFade(ctx, backingW, backingH);
@@ -201,7 +265,8 @@ export class RasterSurface {
       ctx.beginPath();
       ctx.rect(Math.round(x), Math.round(y), Math.round(tileW), Math.round(tileH));
       ctx.clip();
-      ctx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(bitmap, drawX, drawY, drawW, drawH);
       ctx.restore();
     } catch (e) {
@@ -244,6 +309,28 @@ export class RasterSurface {
     right.addColorStop(1, "rgba(0,0,0,0.35)");
     ctx.fillStyle = right;
     ctx.fillRect(w - fadeW, 0, fadeW, h);
+  }
+
+  private _drawPendingSlotPlaceholder(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+    ctx.save();
+    // Subtle background tint
+    ctx.fillStyle = "rgba(18, 54, 66, 0.35)";
+    ctx.fillRect(x, y, w, h);
+
+    // Subtle tile separator line on left boundary
+    ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+    ctx.fillRect(x, y, 1, h);
+
+    // Diagonal subtle shimmer hatch lines to indicate actively indexing footage
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let offset = -h; offset < w; offset += 16) {
+      ctx.moveTo(x + offset, y);
+      ctx.lineTo(x + offset + h, y + h);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   private _clear(layout: FilmstripLayout): void {

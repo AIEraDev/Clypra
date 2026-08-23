@@ -534,7 +534,9 @@ const App = () => {
 
     return () => {
       disposed = true;
-      unlisten?.();
+      if (unlisten) {
+        void Promise.resolve(unlisten()).catch(() => {});
+      }
     };
   }, [handleCloseProject]);
 

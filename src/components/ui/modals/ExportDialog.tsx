@@ -392,7 +392,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       setPhase("complete");
       setResult({
         outputPath: sharedPath,
-        totalFrames: Math.round(sequenceDuration * 30),
+        totalFrames: Math.round(sequenceDuration * (project?.frameRate ?? 30)),
         totalTimeMs: 0,
         avgTimePerFrameMs: 0,
         cancelled: false,

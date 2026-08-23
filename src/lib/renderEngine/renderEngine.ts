@@ -20,6 +20,7 @@ import { InteractionStateMachine } from "./ism";
 import { RenderScheduler } from "./renderScheduler";
 import { registerActiveEpoch, unregisterActiveEpoch } from "./transport";
 import { FilmstripCache } from "./FilmstripCache";
+import type { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
 
 // ─── Clip State ───────────────────────────────────────────────────────────────
 
@@ -202,11 +203,27 @@ export class RenderEngine {
     return this._scheduler;
   }
 
+  get tileCache(): FilmstripTileCache {
+    return this._filmstripCache.tileCacheInstance;
+  }
+
   /**
    * Request filmstrip for a clip (called by ClipFilmstrip via useFilmstrip hook)
    * Viewport-bounded, epoch-gated, auto-updates RenderState.visibleArtifacts
    */
-  requestFilmstrip(options: { clipId: string; videoPath: string; trimIn: number; trimOut: number; duration: number; clipStartTime: number; clipWidthPx: number; viewportScrollLeft: number; viewportWidth: number; pixelsPerSecond: number }): void {
+  requestFilmstrip(options: {
+    clipId: string;
+    videoPath: string;
+    trimIn: number;
+    trimOut: number;
+    duration: number;
+    clipStartTime: number;
+    clipWidthPx: number;
+    viewportScrollLeft: number;
+    viewportWidth: number;
+    pixelsPerSecond: number;
+    playheadTime?: number;
+  }): void {
     const state = this._clipStates.get(options.clipId);
     if (!state) {
       // Clip not registered - register it first
@@ -244,6 +261,18 @@ export class RenderEngine {
       spatialTier: state.renderState.currentTier.spatialTier,
       epochId: state.renderState.epochId,
     });
+  }
+
+  /** Preload bounded asset-wide coarse baseline (≤300 tiles) across the entire video in the background.
+   *  This is the key mechanism that decouples data availability from viewport position:
+   *  once complete, pure horizontal scrolling hits cache 100% of the time. */
+  preloadAssetCoarseBaseline(options: { videoPath: string; duration: number }): void {
+    this._filmstripCache.preloadAssetCoarseBaseline(options);
+  }
+
+  /** Restore coarse baseline tiles from Rust in-memory tier cache or on-disk WebP atlases. */
+  restoreCoarseBaselineFromDisk(options: { videoPath: string; duration: number; onComplete?: (restoredCount: number) => void }): () => void {
+    return this._filmstripCache.restoreCoarseBaselineFromDisk(options);
   }
 
   /**

@@ -261,15 +261,16 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
         (() => {
           const splitClip = sortedTrackClips.find((clip) => clip.id === mediaDropPreview!.splitClipId);
           if (!splitClip) return null;
-          const rightDuration = splitClip.startTime + splitClip.duration - mediaDropPreview!.startTime;
+          const previewLeftPx = timeToPixel(mediaDropPreview.startTime + mediaDropPreview.duration, pixelsPerSecond);
+          const previewRightPx = timeToPixel(splitClip.startTime + splitClip.duration, pixelsPerSecond);
+          const widthPx = Math.max(1, previewRightPx - previewLeftPx);
           return (
             <div
               className="pointer-events-none absolute top-1 bottom-1 z-10 rounded border border-accent/60 bg-accent/20"
               style={{
-                left: `${timeToPixel(mediaDropPreview.startTime + mediaDropPreview.duration, pixelsPerSecond)}px`,
-                width: `${Math.max(1, timeToPixel(rightDuration, pixelsPerSecond))}px`,
+                left: `${previewLeftPx}px`,
+                width: `${widthPx}px`,
               }}
-
               aria-hidden
             />
           );

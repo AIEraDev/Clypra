@@ -44,7 +44,6 @@
   --color-audio-clip: #1a3040;
   --color-text-clip: #3d3010;
 }
-
 html,
 body,
 #root {
@@ -53,7 +52,14 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: var(--font-sans, "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-family: var(
+    --font-sans,
+    "Inter Variable",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif
+  );
   background: var(--color-bg);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
@@ -150,7 +156,11 @@ input[type="range"]:focus-visible {
   }
 
   .checkerboard {
-    background-image: linear-gradient(45deg, #333 25%, transparent 25%), linear-gradient(-45deg, #333 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #333 75%), linear-gradient(-45deg, transparent 75%, #333 75%);
+    background-image:
+      linear-gradient(45deg, #333 25%, transparent 25%),
+      linear-gradient(-45deg, #333 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #333 75%),
+      linear-gradient(-45deg, transparent 75%, #333 75%);
     background-size: 10px 10px;
     background-position:
       0 0,
@@ -173,15 +183,28 @@ input[type="range"]:focus-visible {
     animation-timing-function: ease-in-out;
     animation-iteration-count: infinite;
     animation-direction: alternate;
-    filter: saturate(calc(0.75 + var(--clypra-bg-intensity) * 0.55)) brightness(calc(0.8 + var(--clypra-bg-intensity) * 0.25));
+    filter: saturate(calc(0.75 + var(--clypra-bg-intensity) * 0.55))
+      brightness(calc(0.8 + var(--clypra-bg-intensity) * 0.25));
     transform: translateZ(0);
   }
 
   .clypra-canvas-bg-shader-liquid_aurora {
     background:
-      radial-gradient(circle at 18% 24%, rgba(34, 211, 238, 0.95), transparent 34%),
-      radial-gradient(circle at 82% 22%, rgba(244, 114, 182, 0.88), transparent 32%),
-      radial-gradient(circle at 55% 78%, rgba(132, 204, 22, 0.62), transparent 36%),
+      radial-gradient(
+        circle at 18% 24%,
+        rgba(34, 211, 238, 0.95),
+        transparent 34%
+      ),
+      radial-gradient(
+        circle at 82% 22%,
+        rgba(244, 114, 182, 0.88),
+        transparent 32%
+      ),
+      radial-gradient(
+        circle at 55% 78%,
+        rgba(132, 204, 22, 0.62),
+        transparent 36%
+      ),
       linear-gradient(135deg, #050816 0%, #111827 42%, #07111f 100%);
     background-size:
       135% 135%,
@@ -194,7 +217,11 @@ input[type="range"]:focus-visible {
     background:
       linear-gradient(rgba(34, 211, 238, 0.28) 1px, transparent 1px),
       linear-gradient(90deg, rgba(236, 72, 153, 0.26) 1px, transparent 1px),
-      radial-gradient(circle at 50% 24%, rgba(245, 158, 11, 0.72), transparent 24%),
+      radial-gradient(
+        circle at 50% 24%,
+        rgba(245, 158, 11, 0.72),
+        transparent 24%
+      ),
       linear-gradient(180deg, #12071f 0%, #1f1235 45%, #05070d 100%);
     background-size:
       42px 42px,
@@ -210,10 +237,26 @@ input[type="range"]:focus-visible {
 
   .clypra-canvas-bg-shader-particle_dust {
     background:
-      radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.75) 0 1px, transparent 2px),
-      radial-gradient(circle at 76% 34%, rgba(125, 211, 252, 0.78) 0 1px, transparent 2px),
-      radial-gradient(circle at 44% 72%, rgba(251, 191, 36, 0.72) 0 1px, transparent 2px),
-      radial-gradient(circle at 60% 42%, rgba(59, 130, 246, 0.42), transparent 34%),
+      radial-gradient(
+        circle at 12% 20%,
+        rgba(255, 255, 255, 0.75) 0 1px,
+        transparent 2px
+      ),
+      radial-gradient(
+        circle at 76% 34%,
+        rgba(125, 211, 252, 0.78) 0 1px,
+        transparent 2px
+      ),
+      radial-gradient(
+        circle at 44% 72%,
+        rgba(251, 191, 36, 0.72) 0 1px,
+        transparent 2px
+      ),
+      radial-gradient(
+        circle at 60% 42%,
+        rgba(59, 130, 246, 0.42),
+        transparent 34%
+      ),
       linear-gradient(145deg, #09090b 0%, #172033 55%, #050814 100%);
     background-size:
       90px 90px,
@@ -227,7 +270,11 @@ input[type="range"]:focus-visible {
     background:
       linear-gradient(115deg, rgba(14, 165, 233, 0.86), transparent 34%),
       linear-gradient(235deg, rgba(249, 115, 22, 0.78), transparent 38%),
-      radial-gradient(circle at 68% 58%, rgba(168, 85, 247, 0.76), transparent 34%),
+      radial-gradient(
+        circle at 68% 58%,
+        rgba(168, 85, 247, 0.76),
+        transparent 34%
+      ),
       linear-gradient(160deg, #06131f 0%, #111827 50%, #1b1022 100%);
     background-size:
       170% 170%,
@@ -272,66 +319,55 @@ input[type="range"]:focus-visible {
 
   /*------------------------------------------------- CURSOR SVGs -------------------------------------------------*/
   /* Custom SVG cursors for Tauri compatibility */
-  .cursor-col-resize {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 56 56"><path d="M0 0h56v56H0z" fill="none" /><path fill="currentColor" fill-rule="evenodd" d="M46.172 30.014H9.828l3.758 3.757a2 2 0 0 1-2.829 2.829l-7.07-7.071l-.05-.052A2 2 0 0 1 3 28.014c0-.493.178-.945.474-1.293q.095-.132.212-.25l7.071-7.07a2 2 0 1 1 2.829 2.828L9.8 26.014h36.398l-3.785-3.785a2 2 0 1 1 2.829-2.829l7.07 7.071q.12.118.213.25c.296.348.474.8.474 1.293c0 .578-.245 1.098-.637 1.463l-.05.052l-7.07 7.07a2 2 0 1 1-2.829-2.828z" /></svg>') 12 12,
-      ew-resize !important;
+  .cursor-col-resize,
+  .cursor-ew-resize,
+  .cursor-e-resize,
+  .cursor-w-resize,
+  .resizer-horizontal {
+    cursor: col-resize !important;
   }
 
-  .cursor-row-resize {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 8L8 4M8 4L4 8M8 4V20M12 16L16 20M16 20L20 16M16 20V4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8L8 4M8 4L4 8M8 4V20M12 16L16 20M16 20L20 16M16 20V4" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"/></svg>') 12 12,
-      ns-resize !important;
+  .cursor-row-resize,
+  .cursor-ns-resize,
+  .cursor-n-resize,
+  .cursor-s-resize,
+  .resizer-vertical {
+    cursor: row-resize !important;
   }
 
-  .cursor-nwse-resize {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512"><path d="M0 0h512v512H0z" fill="none" /><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M208 96H96v112M106.23 106.2L400.02 400.02M304 416h112V304" /></svg>') 12 12,
-      nwse-resize !important;
+  .cursor-nwse-resize,
+  .cursor-nw-resize,
+  .cursor-se-resize {
+    cursor: nwse-resize !important;
   }
 
-  .cursor-nesw-resize {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512"><path d="M0 0h512v512H0z" fill="none" /><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M304 96h112v112m-10.23-101.8L111.98 400.02M208 416H96V304" /></svg>') 12 12,
-      nesw-resize !important;
-  }
-
-  .cursor-ns-resize {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 4V20M12 4L8 8M12 4L16 8M12 20L8 16M12 20L16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 4V20M12 4L8 8M12 4L16 8M12 20L8 16M12 20L16 16" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"/></svg>') 12 12,
-      ns-resize !important;
-  }
-
-  .cursor-ew-resize {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 12H20M4 12L8 8M4 12L8 16M20 12L16 8M20 12L16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12H20M4 12L8 8M4 12L8 16M20 12L16 8M20 12L16 16" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"/></svg>') 12 12,
-      ew-resize !important;
+  .cursor-nesw-resize,
+  .cursor-ne-resize,
+  .cursor-sw-resize {
+    cursor: nesw-resize !important;
   }
 
   .cursor-move {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="none" /><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14 5l-2-2m0 0l-2 2m2-2v18m0 0l2-2m-2 2l-2-2m9-5l2-2m0 0l-2-2m2 2H3m0 0l2 2m-2-2l2-2" /></svg>') 12 12,
-      move !important;
+    cursor: move !important;
   }
 
   .cursor-grab {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M8 11V7C8 6.44772 8.44772 6 9 6C9.55228 6 10 6.44772 10 7V11M10 11V7C10 6.44772 10.4477 6 11 6C11.5523 6 12 6.44772 12 7V11M12 11V7C12 6.44772 12.4477 6 13 6C13.5523 6 14 6.44772 14 7V11M14 11V9C14 8.44772 14.4477 8 15 8C15.5523 8 16 8.44772 16 9V13C16 15.7614 13.7614 18 11 18H10C7.23858 18 5 15.7614 5 13V11C5 10.4477 5.44772 10 6 10C6.55228 10 7 10.4477 7 11V13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11V7C8 6.44772 8.44772 6 9 6C9.55228 6 10 6.44772 10 7V11M10 11V7C10 6.44772 10.4477 6 11 6C11.5523 6 12 6.44772 12 7V11M12 11V7C12 6.44772 12.4477 6 13 6C13.5523 6 14 6.44772 14 7V11M14 11V9C14 8.44772 14.4477 8 15 8C15.5523 8 16 8.44772 16 9V13C16 15.7614 13.7614 18 11 18H10C7.23858 18 5 15.7614 5 13V11C5 10.4477 5.44772 10 6 10C6.55228 10 7 10.4477 7 11V13" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"/></svg>') 12 12,
-      grab !important;
+    cursor: grab !important;
   }
 
   .cursor-grabbing {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M8 13V11C8 10.4477 8.44772 10 9 10C9.55228 10 10 10.4477 10 11V13M10 13V11C10 10.4477 10.4477 10 11 10C11.5523 10 12 10.4477 12 11V13M12 13V11C12 10.4477 12.4477 10 13 10C13.5523 10 14 10.4477 14 11V13M14 13V11C14 10.4477 14.4477 10 15 10C15.5523 10 16 10.4477 16 11V15C16 17.7614 13.7614 20 11 20H10C7.23858 20 5 17.7614 5 15V13C5 12.4477 5.44772 12 6 12C6.55228 12 7 12.4477 7 13V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 13V11C8 10.4477 8.44772 10 9 10C9.55228 10 10 10.4477 10 11V13M10 13V11C10 10.4477 10.4477 10 11 10C11.5523 10 12 10.4477 12 11V13M12 13V11C12 10.4477 12.4477 10 13 10C13.5523 10 14 10.4477 14 11V13M14 13V11C14 10.4477 14.4477 10 15 10C15.5523 10 16 10.4477 16 11V15C16 17.7614 13.7614 20 11 20H10C7.23858 20 5 17.7614 5 15V13C5 12.4477 5.44772 12 6 12C6.55228 12 7 12.4477 7 13V15" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"/></svg>') 12 12,
-      grabbing !important;
+    cursor: grabbing !important;
   }
 
   /* Global cursor lock for timeline resize operations */
   body.cursor-lock-col,
   body.cursor-lock-col * {
-    cursor:
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 56 56"><path d="M0 0h56v56H0z" fill="none" /><path fill="currentColor" fill-rule="evenodd" d="M46.172 30.014H9.828l3.758 3.757a2 2 0 0 1-2.829 2.829l-7.07-7.071l-.05-.052A2 2 0 0 1 3 28.014c0-.493.178-.945.474-1.293q.095-.132.212-.25l7.071-7.07a2 2 0 1 1 2.829 2.828L9.8 26.014h36.398l-3.785-3.785a2 2 0 1 1 2.829-2.829l7.07 7.071q.12.118.213.25c.296.348.474.8.474 1.293c0 .578-.245 1.098-.637 1.463l-.05.052l-7.07 7.07a2 2 0 1 1-2.829-2.828z" /></svg>') 12 12,
-      ew-resize !important;
+    cursor: col-resize !important;
+  }
+
+  body.cursor-lock-row,
+  body.cursor-lock-row * {
+    cursor: row-resize !important;
   }
 }
 
@@ -454,7 +490,13 @@ input[type="range"]:focus-visible {
 
 @layer components {
   .app-shell {
-    background: radial-gradient(100% 120% at 50% 0%, rgba(79, 184, 255, 0.08) 0%, transparent 45%), linear-gradient(180deg, #0f1115 0%, #0e1013 100%);
+    background:
+      radial-gradient(
+        100% 120% at 50% 0%,
+        rgba(79, 184, 255, 0.08) 0%,
+        transparent 45%
+      ),
+      linear-gradient(180deg, #0f1115 0%, #0e1013 100%);
   }
 
   .panel-shell {
@@ -466,7 +508,11 @@ input[type="range"]:focus-visible {
 
   .panel-head {
     border-bottom: 1px solid #2d3440;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.015) 0%, rgba(255, 255, 255, 0) 100%);
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.015) 0%,
+      rgba(255, 255, 255, 0) 100%
+    );
   }
 
   .elev-soft {
@@ -496,7 +542,11 @@ input[type="range"]:focus-visible {
 
 /* Translucent Checkerboard pattern for alpha channel evaluation */
 .checkerboard {
-  background-image: linear-gradient(45deg, #181822 25%, transparent 25%), linear-gradient(-45deg, #181822 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #181822 75%), linear-gradient(-45deg, transparent 75%, #181822 75%);
+  background-image:
+    linear-gradient(45deg, #181822 25%, transparent 25%),
+    linear-gradient(-45deg, #181822 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #181822 75%),
+    linear-gradient(-45deg, transparent 75%, #181822 75%);
   background-size: 20px 20px;
   background-position:
     0 0,
@@ -504,4 +554,41 @@ input[type="range"]:focus-visible {
     10px -10px,
     -10px 0px;
   background-color: #0e0e12;
+}
+
+/* Resilient cross-platform resizers for Tauri macOS (WebKit) and Windows (WebView2) */
+.resizer-horizontal {
+  cursor: col-resize !important;
+  position: relative;
+  z-index: 30;
+  touch-action: none;
+}
+.resizer-horizontal::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+  z-index: 40;
+  cursor: col-resize !important;
+  pointer-events: auto;
+}
+
+.resizer-vertical {
+  cursor: row-resize !important;
+  position: relative;
+  z-index: 30;
+  touch-action: none;
+}
+.resizer-vertical::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -4px;
+  bottom: -4px;
+  z-index: 40;
+  cursor: row-resize !important;
+  pointer-events: auto;
 }

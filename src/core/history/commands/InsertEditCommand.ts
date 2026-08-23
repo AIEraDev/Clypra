@@ -69,8 +69,9 @@ export class InsertEditCommand implements Command {
 
     for (const clip of state.clips) {
       if (splitClip && clip.id === splitClip.id) {
+        const speed = typeof (clip as any).speed === "number" && (clip as any).speed > 0 ? (clip as any).speed : 1;
         const sourceOffset = this.insertionTime - clip.startTime;
-        const sourceSplit = clip.trimIn + sourceOffset;
+        const sourceSplit = clip.trimIn + sourceOffset * speed;
         next.push({
           ...clip,
           id: this.leftClipId,

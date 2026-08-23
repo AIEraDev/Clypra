@@ -271,7 +271,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         top: 0,
         bottom: 0,
         width: "8px",
-        marginLeft: "-3px",
+        marginLeft: "-4px",
         zIndex: 100,
         touchAction: "none",
       }}

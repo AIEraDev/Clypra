@@ -34,6 +34,7 @@ export interface UseFilmstripOptions {
   viewportScrollLeft: number;
   viewportWidth: number;
   pixelsPerSecond: number;
+  playheadTime?: number;
   enabled?: boolean;
 }
 
@@ -68,6 +69,12 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
   useEffect(() => {
     if (!runtime || !enabled || !opts.videoPath || !opts.duration) return;
 
+    console.log(
+      `%c[Filmstrip Hook 🎣]%c Clip: "${opts.clipId}" | Zoom: ${(opts.pixelsPerSecond / 100).toFixed(2)}x (${opts.pixelsPerSecond} px/s) | Viewport: [${opts.viewportScrollLeft}px..${opts.viewportScrollLeft + opts.viewportWidth}px]`,
+      "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+      "color: #a5b4fc;",
+    );
+
     runtime.requestFilmstrip({
       clipId: opts.clipId,
       videoPath: opts.videoPath,
@@ -79,6 +86,7 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
       viewportScrollLeft: opts.viewportScrollLeft,
       viewportWidth: opts.viewportWidth,
       pixelsPerSecond: opts.pixelsPerSecond,
+      playheadTime: opts.playheadTime,
     });
   }, [
     runtime,
@@ -93,6 +101,7 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     opts.viewportScrollLeft,
     opts.viewportWidth,
     opts.pixelsPerSecond,
+    opts.playheadTime,
     renderState.epochId, // Re-request on epoch change
   ]);
 
@@ -132,6 +141,15 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     opts.pixelsPerSecond,
     renderState.epochId,
   ]);
+
+  // Trigger asset-wide bounded coarse preload on timeline mount so horizontal scrolling hits cache 100% of the time.
+  useEffect(() => {
+    if (!runtime || !enabled || !opts.videoPath || !opts.duration) return;
+    runtime.preloadAssetCoarseBaseline({
+      videoPath: opts.videoPath,
+      duration: opts.duration,
+    });
+  }, [runtime, enabled, opts.videoPath, opts.duration]);
 
   // Return immutable projection
   return {

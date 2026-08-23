@@ -15,7 +15,7 @@ impl GoldenDiff {
     }
 }
 
-#[allow(clippy::manual_slice_size_calculation, clippy::chunks_exact_to_as_chunks)]
+#[allow(clippy::manual_slice_size_calculation)]
 pub fn compare_rgba8(actual: &[u8], expected: &[u8], tolerance: u8) -> Result<GoldenDiff, String> {
     if actual.len() != expected.len() {
         return Err(format!(
@@ -31,12 +31,16 @@ pub fn compare_rgba8(actual: &[u8], expected: &[u8], tolerance: u8) -> Result<Go
         ));
     }
 
-    let total_pixels = actual.len() / 4;
+    let (actual_pixels, actual_remainder) = actual.as_chunks::<4>();
+    let (expected_pixels, expected_remainder) = expected.as_chunks::<4>();
+    debug_assert!(actual_remainder.is_empty() && expected_remainder.is_empty());
+
+    let total_pixels = actual_pixels.len();
     let mut differing_pixels = 0;
     let mut max_channel_error = 0;
     let mut total_channel_error = 0u64;
 
-    for (actual_pixel, expected_pixel) in actual.chunks_exact(4).zip(expected.chunks_exact(4)) {
+    for (actual_pixel, expected_pixel) in actual_pixels.iter().zip(expected_pixels) {
         let mut pixel_differs = false;
         for (actual_channel, expected_channel) in actual_pixel.iter().zip(expected_pixel) {
             let error = actual_channel.abs_diff(*expected_channel);

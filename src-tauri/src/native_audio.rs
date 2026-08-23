@@ -756,13 +756,14 @@ pub async fn decode_native_audio_clip(
     if !status.success() {
         return Err("Native audio decoder failed to decode the clip".to_string());
     }
-    if bytes.len() % std::mem::size_of::<f32>() != 0 {
+    let (sample_bytes, remainder) = bytes.as_chunks::<4>();
+    if !remainder.is_empty() {
         return Err("Native audio decoder returned incomplete PCM samples".to_string());
     }
 
-    let samples = bytes
-        .chunks_exact(std::mem::size_of::<f32>())
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+    let samples = sample_bytes
+        .iter()
+        .map(|chunk| f32::from_le_bytes(*chunk))
         .collect::<Vec<_>>();
     if samples.is_empty() {
         return Err("Native audio decoder returned no samples".to_string());

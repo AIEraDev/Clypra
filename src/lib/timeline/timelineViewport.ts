@@ -75,7 +75,7 @@ export function pixelToTime(pixelOffset: number, pixelsPerSecond: number): numbe
 /** Compute the density needed to show the entire sequence in the usable lane. */
 export function getFitSequencePixelsPerSecond(containerWidth: number, duration: number, hasClips: boolean): number {
   if (duration <= 0) return zoomToPixelsPerSecond(1);
-  return clampTimelinePixelsPerSecond(getTimelineLaneWidth(containerWidth, hasClips) / duration);
+  return clampTimelinePixelsPerSecond(getTimelineLaneWidth(containerWidth, hasClips) / duration, true);
 }
 
 /** Return the smallest scroll adjustment that reveals an edit point with context. */

@@ -332,13 +332,13 @@ export const NativeProgramPreview: React.FC = () => {
     const handleWindowResize = () => syncSurface();
 
     syncSurface();
-    let unlistenWindowMoved: (() => void) | null = null;
+    let unlistenWindowMoved: (() => void | Promise<void>) | null = null;
     void onNativePreviewWindowMoved(syncSurface)
       .then((unlisten) => {
         if (active) {
           unlistenWindowMoved = unlisten;
         } else {
-          unlisten();
+          void Promise.resolve(unlisten()).catch(() => undefined);
         }
       })
       .catch(() => undefined);
@@ -351,7 +351,9 @@ export const NativeProgramPreview: React.FC = () => {
     return () => {
       active = false;
       resizeObserver?.disconnect();
-      unlistenWindowMoved?.();
+      if (unlistenWindowMoved) {
+        void Promise.resolve(unlistenWindowMoved()).catch(() => undefined);
+      }
       window.removeEventListener("resize", handleWindowResize);
       nativeSurfaceConfiguredRef.current = false;
       nativeSurfaceGeometrySettledRef.current = false;
@@ -1644,14 +1646,8 @@ export const NativeProgramPreview: React.FC = () => {
           seek(targetTime);
         }}
         leftActions={
-          <div className="flex items-center gap-1">
-            <div className="relative" ref={speedMenuRef}>
-              <PlaybackSpeedSelector playbackSpeed={playbackSpeed} speedMenuOpen={speedMenuOpen} setSpeedMenuOpen={setSpeedMenuOpen} setSpeed={setSpeed} />
-            </div>
-            <div className="w-px h-3 bg-white/10 mx-0.5" />
-            <div className="relative" ref={qualityMenuRef}>
-              <PlaybackQualitySelector previewQuality={previewQuality} qualityMenuOpen={qualityMenuOpen} setQualityMenuOpen={setQualityMenuOpen} setPreviewQuality={setPreviewQuality} />
-            </div>
+          <div className="relative" ref={speedMenuRef}>
+            <PlaybackSpeedSelector playbackSpeed={playbackSpeed} speedMenuOpen={speedMenuOpen} setSpeedMenuOpen={setSpeedMenuOpen} setSpeed={setSpeed} />
           </div>
         }
         rightActions={

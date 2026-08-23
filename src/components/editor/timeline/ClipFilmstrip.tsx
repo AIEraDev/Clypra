@@ -12,11 +12,13 @@
  *   - Keeps previous committed pixels visible during epoch transitions (zoom)
  */
 
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useMemo, useState } from "react";
 import { platform } from "@/core/platform";
 import { cn } from "@/lib/utils";
 import { createRasterSurface, type AnyRasterSurface } from "@/lib/renderEngine/webglRasterSurface";
 import { useFilmstrip } from "@/lib/filmstrip/useFilmstrip";
+import { useRenderRuntime } from "@/hooks/useRenderRuntime";
+import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { getFilmstripRenderWindow, getFilmstripTileWidthForTier } from "@/lib/filmstrip/filmstripLayout";
 import { generateViewportTileAddresses } from "@/lib/filmstrip/filmstripTiers";
 import { normalizePathForTauriInvoke } from "@/lib/platform/tauri";
@@ -80,7 +82,15 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     return mediaAsset.type === "video" && path.length > 0 && !IMAGE_EXT.test(path);
   }, [mediaAsset.type, mediaAsset.path]);
 
+  const runtime = useRenderRuntime();
   const videoPath = isVideoSource && mediaAsset.path ? normalizePathForTauriInvoke(mediaAsset.path) : "";
+  const clockState = usePlaybackClock();
+  const currentTime = clockState.time;
+  const clipLocalPlayheadTime = currentTime - clip.startTime + clip.trimIn;
+  const playheadTime =
+    clipLocalPlayheadTime >= clip.trimIn && clipLocalPlayheadTime <= clip.trimOut
+      ? clipLocalPlayheadTime
+      : clip.trimIn;
 
   // ── Filmstrip data (pure projection from RenderEngine) ─────────────────────
   const { artifacts, spatialTier, epochId } = useFilmstrip({
@@ -94,6 +104,7 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     viewportScrollLeft,
     viewportWidth,
     pixelsPerSecond,
+    playheadTime,
     enabled: isVideoSource && !!videoPath && !!mediaAsset.duration,
   });
 
@@ -155,6 +166,113 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
     };
   }, []); // only on mount/unmount
 
+  // ── Synchronous Backing-Store Synchronization (Bug A Fix) ────────────────
+  // Immediately resize canvas.width/canvas.height in useLayoutEffect before the browser
+  // paints, ensuring the physical buffer resolution matches CSS width * DPR.
+  // This prevents the browser compositor from bilinearly stretching the old framebuffer.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (!surfaceRef.current) {
+      surfaceRef.current = createRasterSurface(canvas);
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const targetW = Math.max(1, Math.round(renderWindow.widthPx * dpr));
+    const targetH = Math.max(1, Math.round(stripHeightPx * dpr));
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+
+      const layout = {
+        clipWidthPx: renderWindow.widthPx,
+        stripHeightPx,
+        dpr,
+        tileWidthPx,
+        trimIn: renderWindow.trimIn,
+        trimOut: renderWindow.trimOut,
+        tileAddresses,
+        tileCache: runtime?.tileCache,
+        clipId: clip.id,
+        videoPath,
+        pixelsPerSecond,
+        renderWindowLeftPx: renderWindow.leftPx,
+        clipTrimIn: clip.trimIn,
+      };
+
+      const currentEpochArtifacts = artifacts.filter(
+        (artifact) =>
+          (artifact.epochId === epochId || artifact.epochId === ("epoch-preload" as RenderEpochId)) &&
+          artifact.spatialTier === spatialTier,
+      );
+
+      const hasAnyCacheOrArtifacts =
+        currentEpochArtifacts.length > 0 ||
+        (runtime?.tileCache && runtime.tileCache.getStats().tileCount > 0);
+
+      if (hasAnyCacheOrArtifacts) {
+        surfaceRef.current?.drawFilmstrip(currentEpochArtifacts, layout);
+      } else {
+        surfaceRef.current?.drawPlaceholder({
+          clipWidthPx: renderWindow.widthPx,
+          stripHeightPx,
+          dpr,
+          tileWidthPx,
+          trimIn: renderWindow.trimIn,
+          trimOut: renderWindow.trimOut,
+        });
+      }
+    }
+  }, [
+    renderWindow.widthPx,
+    renderWindow.leftPx,
+    stripHeightPx,
+    tileWidthPx,
+    renderWindow.trimIn,
+    renderWindow.trimOut,
+    tileAddresses,
+    artifacts,
+    epochId,
+    spatialTier,
+    clip.id,
+    clip.trimIn,
+    videoPath,
+    pixelsPerSecond,
+    runtime?.tileCache,
+  ]);
+
+  // ── Epoch Transition & Debounce Gating (Bug B Fix) ───────────────────────
+  // NOTE (Track A stopgap): During epoch transitions, avoid premature commits on the first arriving tile.
+  // We commit when either:
+  // 1) All requested visible tile addresses have matching artifacts, OR
+  // 2) A 120ms debounce threshold expires after the first artifact arrives.
+  // (This will be naturally superseded by Track B's progressive two-tier ingestion).
+  const [epochDebounceExpired, setEpochDebounceExpired] = useState(false);
+  const firstArtifactTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    firstArtifactTimeRef.current = null;
+    setEpochDebounceExpired(false);
+  }, [epochId, spatialTier]);
+
+  useEffect(() => {
+    const currentEpochArtifacts = artifacts.filter(
+      (artifact) =>
+        (artifact.epochId === epochId || artifact.epochId === ("epoch-preload" as RenderEpochId)) &&
+        artifact.spatialTier === spatialTier,
+    );
+
+    if (currentEpochArtifacts.length > 0 && !epochDebounceExpired && firstArtifactTimeRef.current === null) {
+      firstArtifactTimeRef.current = Date.now();
+      const timer = setTimeout(() => {
+        setEpochDebounceExpired(true);
+      }, 120); // 120ms debounce window
+      return () => clearTimeout(timer);
+    }
+  }, [artifacts, epochId, spatialTier, epochDebounceExpired]);
+
   // ── Draw filmstrip whenever artifacts or layout changes ───────────────────
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -174,42 +292,59 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
       trimIn: renderWindow.trimIn,
       trimOut: renderWindow.trimOut,
       tileAddresses,
+      tileCache: runtime?.tileCache,
+      clipId: clip.id,
+      videoPath,
+      pixelsPerSecond,
+      renderWindowLeftPx: renderWindow.leftPx,
+      clipTrimIn: clip.trimIn,
     };
 
-    // Progressive rendering: draw whatever artifacts are available for the
-    // current epoch/tier immediately — no waiting for a complete tile set.
-    // Tiles fill in frame-by-frame as the native decoder delivers bitmaps.
     const currentEpochArtifacts = artifacts.filter(
-      (artifact) => artifact.epochId === epochId && artifact.spatialTier === spatialTier,
+      (artifact) =>
+        (artifact.epochId === epochId || artifact.epochId === ("epoch-preload" as RenderEpochId)) &&
+        artifact.spatialTier === spatialTier,
     );
 
-    if (currentEpochArtifacts.length > 0) {
+    const hasAllTiles =
+      tileAddresses.length > 0 &&
+      tileAddresses.every((addr) =>
+        currentEpochArtifacts.some((art) => Math.abs(art.timestampMs - addr.timestamp * 1000) < 1),
+      );
+
+    const isReadyToCommit = hasAllTiles || epochDebounceExpired || currentEpochArtifacts.length >= tileAddresses.length;
+
+    const hasAnyCacheOrArtifacts =
+      currentEpochArtifacts.length > 0 ||
+      (runtime?.tileCache && runtime.tileCache.getStats().tileCount > 0);
+
+    if (hasAnyCacheOrArtifacts) {
       surface.drawFilmstrip(currentEpochArtifacts, layout);
-      setCommittedFilmstrip((previous) => {
-        if (
-          previous?.clipId === clip.id &&
-          previous.epochId === epochId &&
-          previous.spatialTier === spatialTier &&
-          previous.signature === tileSignature &&
-          previous.renderWindow === renderWindow
-        ) {
-          return previous;
-        }
-        return {
-          clipId: clip.id,
-          epochId,
-          spatialTier,
-          signature: tileSignature,
-          renderWindow,
-        };
-      });
+      if (isReadyToCommit) {
+        setCommittedFilmstrip((previous) => {
+          if (
+            previous?.clipId === clip.id &&
+            previous.epochId === epochId &&
+            previous.spatialTier === spatialTier &&
+            previous.signature === tileSignature &&
+            previous.renderWindow === renderWindow
+          ) {
+            return previous;
+          }
+          return {
+            clipId: clip.id,
+            epochId,
+            spatialTier,
+            signature: tileSignature,
+            renderWindow,
+          };
+        });
+      }
     } else if (!committedFilmstrip) {
-      // Cold start only: use a neutral background — no prior pixels to keep.
+      // Cold start: neutral placeholder
       surface.drawPlaceholder(layout);
     }
-    // else: epoch transition in progress — keep the previous committed pixels
-    // visible on canvas while the new decode converges. No redraw needed.
-  }, [artifacts, renderWindow, stripHeightPx, tileWidthPx, tileAddresses, clip.id, epochId, spatialTier, tileSignature, committedFilmstrip]);
+  }, [artifacts, renderWindow, stripHeightPx, tileWidthPx, tileAddresses, clip.id, epochId, spatialTier, tileSignature, committedFilmstrip, epochDebounceExpired, runtime, videoPath]);
 
   // ── Image tile rendering (still-image clips) ──────────────────────────────
   useEffect(() => {
@@ -301,9 +436,7 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
 
   // Video filmstrip — canvas surface
   if (isVideoSource) {
-    const visibleWindow = committedFilmstrip?.clipId === clip.id
-      ? committedFilmstrip.renderWindow
-      : renderWindow;
+    const visibleWindow = renderWindow;
 
     return (
       <div data-testid="clip-filmstrip" className={cn("relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border bg-timeline-filmstrip-bg", className)} style={{ height: stripHeightPx, width: "100%", opacity: 1, transition: "opacity 80ms linear" }}>

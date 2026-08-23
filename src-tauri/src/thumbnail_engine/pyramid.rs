@@ -349,6 +349,11 @@ impl BackendFrameCache {
         self.entries.contains_key(hash)
     }
 
+    pub fn clear(&self) {
+        self.entries.clear();
+        self.total_bytes.store(0, Ordering::Relaxed);
+    }
+
     fn evict_if_needed(&self) {
         if self.total_bytes.load(Ordering::Relaxed) <= FRAME_CACHE_BUDGET {
             return;
@@ -408,6 +413,13 @@ impl BackendTierCache {
 
     pub fn contains(&self, key: &TierCacheKey) -> bool {
         self.entries.contains_key(key)
+    }
+
+    pub fn clear(&self) {
+        self.entries.clear();
+        self.reentry.clear();
+        self.eviction_warnings.clear();
+        self.total_bytes.store(0, Ordering::Relaxed);
     }
 
     pub fn insert(&self, key: TierCacheKey, frame: Arc<TierRgbaFrame>) {

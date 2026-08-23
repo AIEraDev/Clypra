@@ -43,56 +43,81 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
 
   const handleTauriFileDrop = useCallback(
     async (paths: string[]) => {
-      for (const filePath of paths) {
-        try {
-          const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "Unknown";
-          const type = getMediaType(filename);
+      const CONCURRENCY_LIMIT = 4;
+      let currentIndex = 0;
 
-          // Check if asset already exists
-          const existingAsset = mediaAssets.find((a) => a.path === filePath);
-          if (existingAsset) {
-            continue;
+      const workers = Array.from(
+        { length: Math.min(CONCURRENCY_LIMIT, paths.length) },
+        async () => {
+          while (currentIndex < paths.length) {
+            const filePath = paths[currentIndex++];
+            try {
+              const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "Unknown";
+              const type = getMediaType(filename);
+
+              // Check if asset already exists
+              const currentAssets = useProjectStore.getState().mediaAssets;
+              const existingAsset = currentAssets.find((a) => a.path === filePath);
+              if (existingAsset) {
+                continue;
+              }
+
+              // Import new asset
+              if (type === "video" || type === "audio") {
+                // Phase 1 (Instant): Probe metadata and add asset immediately
+                const metadata = await platform.getMediaMetadata(filePath);
+
+                const asset = {
+                  id: generateId("asset"),
+                  name: filename,
+                  path: filePath,
+                  type,
+                  duration: metadata.duration,
+                  width: metadata.width,
+                  height: metadata.height,
+                  posterFrame: undefined,
+                  size: metadata.size || 0,
+                };
+
+                addMediaAsset(asset);
+
+                // Phase 2 (Async Background): Extract poster frame without blocking UI
+                if (type === "video") {
+                  platform
+                    .extractPosterFrame(filePath, metadata.duration, window.devicePixelRatio || 1.0)
+                    .then((posterFrame) => {
+                      if (posterFrame) {
+                        useProjectStore.getState().updateMediaAsset(asset.id, { posterFrame });
+                      }
+                    })
+                    .catch((err) => {
+                      console.warn(`[MediaTab] Failed to extract poster for ${filePath}:`, err);
+                    });
+                }
+              } else {
+                const asset = {
+                  id: generateId("asset"),
+                  name: filename,
+                  path: filePath,
+                  type: "image" as const,
+                  duration: 0,
+                  size: 0,
+                  posterFrame: platform.convertFileSrc(filePath),
+                };
+
+                addMediaAsset(asset);
+              }
+            } catch (error) {
+              console.error(`[MediaTab] Failed to import ${filePath}:`, error);
+              useProjectStore.getState().showToast(`Failed to import ${filePath.split("/").pop() || "file"}`, "error");
+            }
           }
-
-          // Import new asset
-          if (type === "video" || type === "audio") {
-            const metadata = await platform.getMediaMetadata(filePath);
-            // Use extractPosterFrame which is implemented on both platform adapters
-            const posterFrame: string | undefined = type === "video" ? await platform.extractPosterFrame(filePath, metadata.duration, window.devicePixelRatio || 1.0).catch(() => undefined) : undefined;
-
-            const asset = {
-              id: generateId("asset"),
-              name: filename,
-              path: filePath,
-              type,
-              duration: metadata.duration,
-              width: metadata.width,
-              height: metadata.height,
-              posterFrame,
-              size: metadata.size || 0,
-            };
-
-            addMediaAsset(asset);
-          } else {
-            const asset = {
-              id: generateId("asset"),
-              name: filename,
-              path: filePath,
-              type: "image" as const,
-              duration: 0,
-              size: 0,
-              posterFrame: platform.convertFileSrc(filePath),
-            };
-
-            addMediaAsset(asset);
-          }
-        } catch (error) {
-          console.error(`[MediaTab] Failed to import ${filePath}:`, error);
-          useProjectStore.getState().showToast(`Failed to import ${filePath.split("/").pop() || "file"}`, "error");
         }
-      }
+      );
+
+      await Promise.all(workers);
     },
-    [mediaAssets, addMediaAsset],
+    [addMediaAsset],
   );
 
   // Use the file drop hook

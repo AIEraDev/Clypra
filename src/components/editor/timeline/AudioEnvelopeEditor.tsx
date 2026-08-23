@@ -252,7 +252,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(displayVolume * 100)}
-          className={`absolute left-1 right-1 z-40 h-4 -translate-y-1/2 cursor-ns-resize pointer-events-auto transition-opacity ${
+          className={`absolute left-1 right-1 z-40 h-4 -translate-y-1/2 cursor-ns-resize cursor-row-resize pointer-events-auto transition-opacity ${
             isHovered || activeDrag === "volume" ? "opacity-100" : "opacity-70"
           }`}
           style={{ top: `${volumeYPercent}%`, touchAction: "none" }}

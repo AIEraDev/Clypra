@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Lock, Trash2 } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
+import { useProjectStore } from "@/store/projectStore";
 import { GapManager } from "@/lib/timeline/gapManager";
 import type { Gap } from "@/types/gap";
 import { timeToPixel } from "@/lib/timeline/timelineViewport";
@@ -37,11 +38,16 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({ gap, pixelsPerSecond
 
 
 
+  const frameRate = useProjectStore((s) => s.project?.frameRate ?? 30);
+
   // Format duration for display
   const formatDuration = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    const frames = Math.floor((seconds % 1) * 30); // Assuming 30fps
+    const safeFps = frameRate > 0 ? frameRate : 30;
+    const totalFrames = Math.round(seconds * safeFps);
+    const totalSecs = Math.floor(totalFrames / safeFps);
+    const frames = totalFrames % safeFps;
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
 
     if (mins > 0) {
       return `${mins}:${secs.toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`;

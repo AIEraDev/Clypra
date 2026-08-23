@@ -86,36 +86,36 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({ currentTime,
       </div>
 
       {/* ── Bottom Controls ────────────────────────────────────────── */}
-      <div className={`flex items-center h-10 px-3 shrink-0 relative ${disabled ? "opacity-40" : ""}`}>
-        {/* Timecodes + left actions */}
-        <div className="flex items-center gap-1">
-          <div className="flex items-baseline gap-1 select-none" style={{ fontVariantNumeric: "tabular-nums" }}>
-            <span className={`text-[12px] font-medium ${disabled ? "text-text-muted" : "text-accent"}`}>{formatTime(currentTime)}</span>
-            <span className="text-[11px] text-text-muted/50">/</span>
-            <span className="text-[12px] text-text-muted">{formatTime(duration)}</span>
+      <div className={`flex items-center justify-between h-10 px-2.5 shrink-0 gap-1.5 overflow-hidden ${disabled ? "opacity-40" : ""}`}>
+        {/* Left Column: Timecode + left actions */}
+        <div className="flex items-center gap-1.5 min-w-0 shrink">
+          <div className="flex items-baseline gap-1 select-none shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>
+            <span className={`text-[11px] font-semibold ${disabled ? "text-text-muted" : "text-accent"}`}>{formatTime(currentTime)}</span>
+            <span className="text-[10px] text-text-muted/40">/</span>
+            <span className="text-[11px] text-text-muted">{formatTime(duration)}</span>
           </div>
           {!disabled && leftActions}
         </div>
 
-        {/* Center play controls */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1">
+        {/* Center Column: Play / Step controls (Fixed centered flex, never overlaps) */}
+        <div className="flex items-center justify-center gap-0.5 shrink-0">
           {onStepBack && (
-            <button onClick={disabled ? undefined : onStepBack} disabled={disabled} className={`w-7 h-7 flex items-center justify-center rounded transition-colors cursor-pointer ${disabled ? "cursor-not-allowed text-text-muted/50" : "hover:bg-white/6 text-text-muted hover:text-text-primary"}`} title={disabled ? "No clips on timeline" : "Previous frame"} aria-label="Previous frame">
+            <button onClick={disabled ? undefined : onStepBack} disabled={disabled} className={`w-6 h-6 flex items-center justify-center rounded transition-colors cursor-pointer ${disabled ? "cursor-not-allowed text-text-muted/50" : "hover:bg-white/6 text-text-muted hover:text-text-primary"}`} title={disabled ? "No clips on timeline" : "Previous frame"} aria-label="Previous frame">
               <SkipBack className="w-3.5 h-3.5" />
             </button>
           )}
-          <button onClick={disabled ? undefined : onPlayPause} disabled={disabled} className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer mx-1 ${disabled ? "cursor-not-allowed text-text-muted/50" : "hover:bg-white/6 text-text-primary"}`} title={disabled ? "No clips on timeline" : isPlaying ? "Pause" : "Play"} aria-label={isPlaying ? "Pause playback" : "Play playback"}>
-            {isPlaying ? <Pause className="w-[18px] h-[18px]" /> : <Play className="w-[18px] h-[18px] ml-0.5" />}
+          <button onClick={disabled ? undefined : onPlayPause} disabled={disabled} className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors cursor-pointer mx-0.5 ${disabled ? "cursor-not-allowed text-text-muted/50" : "hover:bg-white/6 text-text-primary"}`} title={disabled ? "No clips on timeline" : isPlaying ? "Pause" : "Play"} aria-label={isPlaying ? "Pause playback" : "Play playback"}>
+            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
           </button>
           {onStepForward && (
-            <button onClick={disabled ? undefined : onStepForward} disabled={disabled} className={`w-7 h-7 flex items-center justify-center rounded transition-colors cursor-pointer ${disabled ? "cursor-not-allowed text-text-muted/50" : "hover:bg-white/6 text-text-muted hover:text-text-primary"}`} title={disabled ? "No clips on timeline" : "Next frame"} aria-label="Next frame">
+            <button onClick={disabled ? undefined : onStepForward} disabled={disabled} className={`w-6 h-6 flex items-center justify-center rounded transition-colors cursor-pointer ${disabled ? "cursor-not-allowed text-text-muted/50" : "hover:bg-white/6 text-text-muted hover:text-text-primary"}`} title={disabled ? "No clips on timeline" : "Next frame"} aria-label="Next frame">
               <SkipForward className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
-        {/* Right side actions */}
-        {rightActions && <div className="ml-auto flex items-center gap-2">{rightActions}</div>}
+        {/* Right Column: Actions (Aspect / Fit / Volume) */}
+        {rightActions && <div className="flex items-center gap-1.5 shrink-0 justify-end">{rightActions}</div>}
       </div>
     </>
   );

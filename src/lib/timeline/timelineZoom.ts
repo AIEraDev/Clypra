@@ -2,7 +2,8 @@ import { computeTemporalTierFromDensity } from "../renderEngine/tsp";
 import { DEFAULT_SRP_CONFIG, SpatialTier, TEMPORAL_TIER_INTERVALS, TemporalTier, type SrpConfig } from "../renderEngine/types";
 
 export const TIMELINE_ZOOM_STEP = 0.1;
-export const TIMELINE_ZOOM_DEFAULT = DEFAULT_SRP_CONFIG[SpatialTier.L1].min;
+export const TIMELINE_ZOOM_GEOMETRIC_FACTOR = 1.25;
+export const TIMELINE_ZOOM_DEFAULT = 1.0;
 export const BASE_TIMELINE_DENSITY_PPS = 100;
 export const TIMELINE_PPS_PER_ZOOM = BASE_TIMELINE_DENSITY_PPS;
 export const TIMELINE_TIER_SNAP_EPSILON = 0.04;
@@ -24,17 +25,17 @@ export const TIMELINE_TEMPORAL_LABELS: Record<TemporalTier, string> = {
 };
 
 export function getTimelineZoomMin(config: SrpConfig = DEFAULT_SRP_CONFIG): number {
-  return Math.min(TIMELINE_OVERVIEW_ZOOM_MIN, ...Object.values(config).map((boundary) => boundary.min));
+  return Math.min(...Object.values(config).map((boundary) => boundary.min));
 }
 
 export function getTimelineZoomMax(config: SrpConfig = DEFAULT_SRP_CONFIG): number {
   return Math.max(...Object.values(config).map((boundary) => boundary.max));
 }
 
-export const TIMELINE_ZOOM_MIN = getTimelineZoomMin();
-export const TIMELINE_ZOOM_MAX = getTimelineZoomMax();
-export const TIMELINE_MIN_PPS = TIMELINE_ZOOM_MIN * TIMELINE_PPS_PER_ZOOM;
-export const TIMELINE_MAX_PPS = TIMELINE_ZOOM_MAX * TIMELINE_PPS_PER_ZOOM;
+export const TIMELINE_ZOOM_MIN = getTimelineZoomMin(); // 0.1
+export const TIMELINE_ZOOM_MAX = getTimelineZoomMax(); // 5.0
+export const TIMELINE_MIN_PPS = TIMELINE_ZOOM_MIN * TIMELINE_PPS_PER_ZOOM; // 10 px/s
+export const TIMELINE_MAX_PPS = TIMELINE_ZOOM_MAX * TIMELINE_PPS_PER_ZOOM; // 500 px/s
 const LOG_ZOOM_MIN = Math.log2(TIMELINE_ZOOM_MIN);
 const LOG_ZOOM_MAX = Math.log2(TIMELINE_ZOOM_MAX);
 
@@ -43,9 +44,10 @@ export function clampTimelineZoom(zoom: number): number {
   return Math.min(TIMELINE_ZOOM_MAX, Math.max(TIMELINE_ZOOM_MIN, val));
 }
 
-export function clampTimelinePixelsPerSecond(pps: number): number {
+export function clampTimelinePixelsPerSecond(pps: number, allowOverviewFloor = false): number {
+  const minPps = allowOverviewFloor ? TIMELINE_OVERVIEW_ZOOM_MIN * TIMELINE_PPS_PER_ZOOM : TIMELINE_MIN_PPS;
   const val = typeof pps === "number" && !isNaN(pps) ? pps : TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM;
-  return Math.min(TIMELINE_MAX_PPS, Math.max(TIMELINE_MIN_PPS, val));
+  return Math.min(TIMELINE_MAX_PPS, Math.max(minPps, val));
 }
 
 // Zoom is logarithmic in interaction space, while SRP boundaries remain absolute.

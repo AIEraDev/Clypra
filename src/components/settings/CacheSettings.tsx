@@ -1,19 +1,96 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, HardDrive, RefreshCw, AlertCircle, CheckCircle, Cloud, Database, Music2, Layers } from "lucide-react";
+import { Trash2, HardDrive, RefreshCw, AlertCircle, CheckCircle, Cloud, Database, Music2, Layers, Film, Gauge, ChevronDown, Sparkles } from "lucide-react";
 import { useCacheManager } from "@/hooks/useCacheManager";
 import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
 import { TextEffectsCacheManager } from "@/features/text-effects/cache/cacheManager";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
+import { useSettingsStore } from "@/store/settingsStore";
+import { invoke } from "@tauri-apps/api/core";
+import { isTauriRuntime } from "@/lib/platform/tauri";
+import { filmstripTelemetry, type FilmstripSessionSummary } from "@/lib/filmstrip/filmstripTelemetry";
 
 export const CacheSettings: React.FC = () => {
   const { isClearing, cacheInfo, lastResult, clearAllCaches, clearAppCache, clearWebViewCache, clearGPUCache } = useCacheManager();
   const { getCacheStats, clearAllCache: clearAudioCache } = useAudioLibraryStore();
 
+  const { autoClearCacheOnProjectClose, setAutoClearCacheOnProjectClose } = useSettingsStore();
+  const [tipsExpanded, setTipsExpanded] = useState(false);
   const [apiCacheStatus, setApiCacheStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [isClearingApi, setIsClearingApi] = useState(false);
   const [textEffectsCacheStats, setTextEffectsCacheStats] = useState<{ zustand: number; indexedDB: number; totalMB: number } | null>(null);
   const [audioCacheStats, setAudioCacheStats] = useState({ count: 0, totalSize: 0, items: [] as any[] });
   const [isClearingAudio, setIsClearingAudio] = useState(false);
+
+  const [filmstripDiskStats, setFilmstripDiskStats] = useState<{
+    total_bytes: number;
+    atlas_count: number;
+    cache_dir: string;
+    limit_bytes: number;
+    hit_rate_pct: number;
+  } | null>(null);
+  const [isClearingFilmstrip, setIsClearingFilmstrip] = useState(false);
+  const [filmstripLimitGb, setFilmstripLimitGb] = useState<string>("5");
+  const [telemetrySummary, setTelemetrySummary] = useState<FilmstripSessionSummary>(filmstripTelemetry.getSummary());
+
+  const loadFilmstripStats = async () => {
+    if (isTauriRuntime()) {
+      try {
+        const stats = await invoke<any>("get_disk_cache_stats");
+        setFilmstripDiskStats(stats);
+        if (stats.limit_bytes === 0) {
+          setFilmstripLimitGb("0");
+        } else {
+          const gb = Math.round(stats.limit_bytes / (1024 * 1024 * 1024));
+          setFilmstripLimitGb(String(gb));
+        }
+      } catch (e) {
+        console.warn("[CacheSettings] Failed to fetch filmstrip disk stats:", e);
+      }
+    }
+    setTelemetrySummary(filmstripTelemetry.getSummary());
+  };
+
+  useEffect(() => {
+    loadFilmstripStats();
+  }, []);
+
+  const handleClearFilmstripCache = async () => {
+    setIsClearingFilmstrip(true);
+    try {
+      if (isTauriRuntime()) {
+        const purgedCount = await invoke<number>("clear_disk_cache");
+        filmstripTelemetry.clear();
+        await loadFilmstripStats();
+        setApiCacheStatus({
+          type: "success",
+          message: `Filmstrip & media disk cache purged (${purgedCount} atlas files deleted)`,
+        });
+      } else {
+        filmstripTelemetry.clear();
+        setApiCacheStatus({ type: "success", message: "Filmstrip cache reset" });
+      }
+      setTimeout(() => setApiCacheStatus(null), 3000);
+    } catch (e) {
+      setApiCacheStatus({ type: "error", message: "Failed to clear filmstrip disk cache" });
+      setTimeout(() => setApiCacheStatus(null), 5000);
+    } finally {
+      setIsClearingFilmstrip(false);
+    }
+  };
+
+  const handleSetFilmstripLimit = async (val: string) => {
+    setFilmstripLimitGb(val);
+    const gb = Number(val);
+    const limitBytes = gb === 0 ? 0 : gb * 1024 * 1024 * 1024;
+    if (isTauriRuntime()) {
+      try {
+        await invoke("set_cache_size_limit", { limitBytes });
+        await loadFilmstripStats();
+      } catch (e) {
+        console.error("Failed to set cache limit:", e);
+      }
+    }
+  };
 
   // Load text effects cache stats
   useEffect(() => {
@@ -230,6 +307,93 @@ export const CacheSettings: React.FC = () => {
         </div>
       </div>
 
+      {/* Filmstrip & Media Pipeline Disk Cache */}
+      <div className="space-y-3 pt-4 border-t border-white/6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-[13px] font-semibold uppercase tracking-wider text-text-muted mb-1">Filmstrip & Media Cache</h3>
+            <p className="text-[11px] text-text-muted">High-performance WebP atlases and persistent timeline frames.</p>
+          </div>
+          <button
+            onClick={loadFilmstripStats}
+            title="Refresh Filmstrip Stats"
+            className="p-1.5 rounded-md hover:bg-surface-raised/40 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Filmstrip Disk Cache Stats */}
+        <div className="bg-surface-raised/30 border border-white/6 rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs">
+            <Film className="w-4 h-4 text-accent" />
+            <span className="font-semibold text-text-primary">Timeline Frame Cache</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
+            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
+              <div className="text-text-muted">Disk Usage</div>
+              <div className="text-text-primary font-semibold mt-1">
+                {filmstripDiskStats ? `${(filmstripDiskStats.total_bytes / (1024 * 1024)).toFixed(1)} MB` : "0.0 MB"}
+              </div>
+            </div>
+
+            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
+              <div className="text-text-muted">WebP Atlases</div>
+              <div className="text-text-primary font-semibold mt-1">
+                {filmstripDiskStats ? filmstripDiskStats.atlas_count : 0} files
+              </div>
+            </div>
+
+            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
+              <div className="text-text-muted">Cache Hit Rate</div>
+              <div className="text-text-primary font-semibold mt-1">
+                {filmstripDiskStats ? `${filmstripDiskStats.hit_rate_pct.toFixed(1)}%` : "0.0%"}
+              </div>
+            </div>
+
+            <div className="bg-surface-raised/50 rounded p-2 border border-white/5">
+              <div className="text-text-muted">Avg Time-to-Visible</div>
+              <div className="text-text-primary font-semibold mt-1 text-green-400">
+                {telemetrySummary.avgTimeToVisibleMs > 0 ? `${telemetrySummary.avgTimeToVisibleMs.toFixed(1)} ms` : "< 10 ms"}
+              </div>
+            </div>
+          </div>
+
+          {/* Cache Size Limit Selector */}
+          <div className="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
+            <span className="text-text-muted">Disk Cache Storage Limit</span>
+            <select
+              value={filmstripLimitGb}
+              onChange={(e) => handleSetFilmstripLimit(e.target.value)}
+              className="bg-surface-raised/80 border border-white/10 rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-accent"
+            >
+              <option value="1">1 GB (Conservative)</option>
+              <option value="5">5 GB (Recommended)</option>
+              <option value="10">10 GB (High Performance)</option>
+              <option value="20">20 GB (Heavy Timeline)</option>
+              <option value="0">Unlimited</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="w-full">
+          <button
+            onClick={handleClearFilmstripCache}
+            disabled={isClearingFilmstrip}
+            className="w-full flex items-center gap-3 p-4 bg-surface-raised/20 hover:bg-surface-raised/40 border border-white/6 hover:border-red-500/30 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
+              {isClearingFilmstrip ? <RefreshCw className="w-5 h-5 text-red-400 animate-spin" /> : <Trash2 className="w-5 h-5 text-red-400" />}
+            </div>
+            <div className="text-left flex-1">
+              <div className="font-medium text-text-primary text-xs">Purge Filmstrip Disk Cache</div>
+              <div className="text-[10px] text-text-muted">Deletes all cached timeline WebP atlases and resets tier cache</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
       {/* Audio Library Cache Management */}
       <div className="space-y-3 pt-4 border-t border-white/6">
         <div>
@@ -281,6 +445,65 @@ export const CacheSettings: React.FC = () => {
           <AlertCircle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
           <p className="text-[11px] text-orange-200/90">Clearing audio cache will remove all downloaded library files. You'll need to download them again when adding to timeline.</p>
         </div>
+      </div>
+
+      {/* Auto Cache Cleanup Preference */}
+      <div className="bg-surface-raised/30 border border-white/6 rounded-lg p-4 flex items-center justify-between gap-4">
+        <div>
+          <div className="text-xs font-semibold text-text-primary">Auto-clear Cache on Project Close</div>
+          <div className="text-[11px] text-text-muted mt-0.5">Automatically frees temporary GPU frame cache when switching or closing projects.</div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autoClearCacheOnProjectClose}
+          onClick={() => setAutoClearCacheOnProjectClose(!autoClearCacheOnProjectClose)}
+          className={`w-9 h-5 rounded-full relative shrink-0 transition-colors cursor-pointer ${
+            autoClearCacheOnProjectClose ? "bg-accent" : "bg-white/10"
+          }`}
+        >
+          <div
+            className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
+              autoClearCacheOnProjectClose ? "translate-x-4.5" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Long-Form & Large Project Tips */}
+      <div className="rounded-xl border border-white/6 overflow-hidden bg-surface-raised/20">
+        <button
+          onClick={() => setTipsExpanded((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-[12px] font-semibold text-text-primary hover:bg-white/[0.03] transition-colors cursor-pointer"
+        >
+          <span className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-accent" />
+            Long-Form & Large Project Tips
+          </span>
+          <ChevronDown
+            className={`w-4 h-4 text-text-muted transition-transform duration-150 ${
+              tipsExpanded ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+        {tipsExpanded && (
+          <div className="px-4 pb-4 space-y-2 border-t border-white/6">
+            <ul className="space-y-2.5 pt-3">
+              {[
+                "Editing 4K+ footage over 30 min? Enable Proxy Editing Mode in Editor → Performance settings.",
+                "Set Preview Resolution to Medium or Proxy for multi-hour timelines to maintain 60 FPS scrub.",
+                "Use the cache clear buttons above between long editing sessions to free GPU memory.",
+                "Clypra never loads full video files into RAM — only decoded frames are cached (1 GiB default).",
+                "Long exports run as streaming GPU pipelines — Clypra will not overheat or crash on hour-long exports.",
+              ].map((tip, i) => (
+                <li key={i} className="text-[11px] text-text-muted leading-relaxed flex gap-2">
+                  <span className="text-accent shrink-0 mt-0.5">•</span>
+                  <span>{tip}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Warning Note */}

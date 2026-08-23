@@ -19,7 +19,7 @@ describe("RenderRuntime clip registration", () => {
 
     runtime.registerClip("clip-1");
 
-    expect(runtime.getRenderState("clip-1").currentTier.spatialTier).toBe(SpatialTier.L2);
+    expect(runtime.getRenderState("clip-1").currentTier.spatialTier).toBe(SpatialTier.L1);
     runtime.teardown();
   });
 

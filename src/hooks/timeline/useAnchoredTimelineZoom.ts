@@ -8,7 +8,7 @@ import {
   getTimelineViewportEndForDuration,
   zoomToPixelsPerSecond,
 } from "@/lib/timeline/timelineViewport";
-import { TIMELINE_ZOOM_STEP, clampTimelineZoom } from "@/lib/timeline/timelineZoom";
+import { TIMELINE_ZOOM_STEP, TIMELINE_ZOOM_GEOMETRIC_FACTOR, clampTimelineZoom } from "@/lib/timeline/timelineZoom";
 
 export type TimelineZoomAnchor = {
   anchorTime: number;
@@ -86,7 +86,8 @@ export function useAnchoredTimelineZoom() {
     const state = useTimelineStore.getState();
     if (state.tracks.length === 0 && state.clips.length === 0) return;
     const anchor = captureZoomAnchor();
-    applyZoomLevel(clampTimelineZoom(state.zoomLevel + direction * TIMELINE_ZOOM_STEP), anchor);
+    const nextZoom = direction > 0 ? state.zoomLevel * TIMELINE_ZOOM_GEOMETRIC_FACTOR : state.zoomLevel / TIMELINE_ZOOM_GEOMETRIC_FACTOR;
+    applyZoomLevel(clampTimelineZoom(nextZoom), anchor);
   }, [applyZoomLevel, captureZoomAnchor]);
 
   const fitSequence = useCallback(() => {

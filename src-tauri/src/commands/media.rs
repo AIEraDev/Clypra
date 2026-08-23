@@ -10,7 +10,11 @@ use serde::{Serialize, Deserialize};
 /// Professional NLE approach: single probe pipeline for all media types.
 #[tauri::command]
 pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
-    eprintln!("🦀 [get_media_metadata] Probing: {}", path);
+    let start = std::time::Instant::now();
+    let filename = std::path::Path::new(&path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&path);
     
     // Determine media type from extension
     let extension = std::path::Path::new(&path)
@@ -19,14 +23,34 @@ pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
         .unwrap_or("")
         .to_lowercase();
     
-    match extension.as_str() {
+    let result = match extension.as_str() {
         // Image formats - use image crate for native decoding
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => {
             get_image_metadata(&path).await
         }
         // Video/audio formats - use FFmpeg decoder
         _ => get_video_metadata_internal(&path).await,
+    };
+
+    if let Ok(ref meta) = result {
+        eprintln!(
+            "🦀 [get_media_metadata] [{}] Probed in {:?} ({}x{}, {:.2}s)",
+            filename,
+            start.elapsed(),
+            meta.width,
+            meta.height,
+            meta.duration
+        );
+    } else if let Err(ref e) = result {
+        eprintln!(
+            "🦀 [get_media_metadata] [{}] Failed in {:?}: {}",
+            filename,
+            start.elapsed(),
+            e
+        );
     }
+
+    result
 }
 
 /// Return the complete native stream contract used by deterministic preview
@@ -518,20 +542,19 @@ pub async fn extract_waveform_data(
 fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<WaveformBucket> {
     use rayon::prelude::*;
 
-    let samples_per_bucket = samples.len() / num_buckets;
-    
-    if samples_per_bucket == 0 {
-        // Edge case: fewer samples than buckets - create minimal buckets
+    if samples.is_empty() || num_buckets == 0 {
         return vec![WaveformBucket { peak: 0.0, rms: 0.0 }; num_buckets];
     }
-    
+
+    let total_samples = samples.len();
+
     (0..num_buckets)
         .into_par_iter()
         .map(|i| {
-            let start = i * samples_per_bucket;
-            let end = ((i + 1) * samples_per_bucket).min(samples.len());
-            let bucket = &samples[start..end];
-            
+            let start = (i * total_samples) / num_buckets;
+            let end = (((i + 1) * total_samples) / num_buckets).min(total_samples);
+            let bucket = if start < end { &samples[start..end] } else { &[] };
+
             let mut peak = 0.0f32;
             let mut sum_squares = 0.0f32;
             for &s in bucket {
@@ -546,7 +569,7 @@ fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<Waveform
             } else {
                 0.0
             };
-            
+
             WaveformBucket { peak, rms }
         })
         .collect()

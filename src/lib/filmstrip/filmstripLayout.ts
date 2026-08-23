@@ -1,5 +1,5 @@
 import { SpatialTier, SPATIAL_TIER_DIMS } from "../renderEngine/types";
-import type { FilmstripTileAddress } from "./filmstripTiers";
+import { FILMSTRIP_DENSITY_TIERS, type FilmstripTileAddress } from "./filmstripTiers";
 
 /**
  * Professional timeline filmstrips keep a stable visual tile cadence in screen
@@ -83,22 +83,41 @@ export function getFilmstripTileSlots(options: {
   trimIn: number;
   trimOut: number;
   tileWidthPx: number;
+  pixelsPerSecond?: number;
+  renderWindowLeftPx?: number;
+  clipTrimIn?: number;
 }): FilmstripTileSlot[] {
-  const { addresses, clipWidthPx, trimIn, trimOut, tileWidthPx } = options;
+  const { addresses, clipWidthPx, trimIn, trimOut, tileWidthPx, pixelsPerSecond, renderWindowLeftPx = 0, clipTrimIn } = options;
   const start = Math.min(trimIn, trimOut);
   const end = Math.max(trimIn, trimOut);
   if (!Number.isFinite(clipWidthPx) || clipWidthPx <= 0 || end - start <= 0 || !Number.isFinite(tileWidthPx) || tileWidthPx <= 0) {
     return [];
   }
 
+  const baseTrimIn = clipTrimIn !== undefined ? clipTrimIn : start;
+  const pps = pixelsPerSecond !== undefined && pixelsPerSecond > 0 ? pixelsPerSecond : (clipWidthPx / (end - start));
+
+  // Include any tile whose coverage interval [t, t + interval] overlaps [start, end]
   const sorted = [...addresses]
-    .filter((address) => address.timestamp >= start && address.timestamp <= end)
+    .filter((address) => {
+      const interval = FILMSTRIP_DENSITY_TIERS[address.zoomTier]?.thumbnailIntervalSeconds ?? 1.0;
+      const tileEnd = address.timestamp + interval;
+      return address.timestamp <= end && tileEnd >= start;
+    })
     .sort((a, b) => a.timestamp - b.timestamp);
-  return sorted.map((address, index) => ({
+
+  return sorted.map((address) => {
+    const interval = FILMSTRIP_DENSITY_TIERS[address.zoomTier]?.thumbnailIntervalSeconds ?? 1.0;
+    const clipLeftPx = (address.timestamp - baseTrimIn) * pps;
+    const canvasLeftPx = clipLeftPx - renderWindowLeftPx;
+    const widthPx = Math.max(1, interval * pps);
+
+    return {
       address,
-      leftPx: index * tileWidthPx,
-      widthPx: tileWidthPx,
-    }));
+      leftPx: canvasLeftPx,
+      widthPx,
+    };
+  });
 }
 
 /**
