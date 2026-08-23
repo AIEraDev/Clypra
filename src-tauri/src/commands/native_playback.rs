@@ -42,6 +42,20 @@ impl NativePlaybackRuntime {
             .play(clock)
     }
 
+    pub fn play_from_audio(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
+        let session = self.session.as_mut().ok_or_else(|| {
+            NativeCoreError::InvalidContract("Native playback is not configured".to_string())
+        })?;
+        let frame_rate = session.plan().frame_rate as u128;
+        let frame_index = (clock.ticks.max(0) as u128)
+            .saturating_mul(frame_rate)
+            .checked_div(clock.timescale as u128)
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or(0);
+        session.seek(frame_index)?;
+        session.play(clock)
+    }
+
     pub fn pause(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
         self.session
             .as_mut()
@@ -195,7 +209,7 @@ pub fn native_tick(app: AppHandle, clock: FrameTime) -> Result<PlaybackState, St
 #[tauri::command]
 pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     let clock = audio_clock_time(&app, true, true)?;
-    let state = with_runtime(&app, |runtime| runtime.play(clock))?;
+    let state = with_runtime(&app, |runtime| runtime.play_from_audio(clock))?;
     set_audio_playing(&app, true)?;
     Ok(state)
 }
@@ -217,7 +231,7 @@ pub fn native_tick_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::native_core::DEFAULT_TIME_SCALE;
+    use crate::native_core::{PlaybackClockStatus, DEFAULT_TIME_SCALE};
 
     fn plan() -> PlaybackPlan {
         PlaybackPlan {
@@ -241,6 +255,18 @@ mod tests {
         let state = runtime.tick(clock(500_000)).unwrap();
         assert_eq!(state.presented_frame, Some(15));
         assert_eq!(state.project_revision, "test:1");
+    }
+
+    #[test]
+    fn play_from_audio_reanchors_runtime_to_audio_position() {
+        let mut runtime = NativePlaybackRuntime::new();
+        runtime.configure(plan()).unwrap();
+
+        let state = runtime.play_from_audio(clock(500_000)).unwrap();
+
+        assert_eq!(state.audio_position_ticks, 500_000);
+        assert_eq!(state.presented_frame, Some(15));
+        assert_eq!(state.clock_status, PlaybackClockStatus::MonotonicFallback);
     }
 
     #[test]

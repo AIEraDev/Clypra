@@ -38,6 +38,7 @@ import { saveSnapshot, clearSnapshot } from "@/core/runtime/CrashRecoveryService
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { toast } from "@/lib/toast";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
 interface ProjectStore {
@@ -220,6 +221,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   showToast: (message, variant = "success", durationMs = 3000) => {
     set({ toastMessage: message, toastVariant: variant });
+    if (variant === "error") {
+      toast.error(message, { duration: durationMs });
+    } else if (variant === "warning") {
+      toast.warning(message, { duration: durationMs });
+    } else {
+      toast.success(message, { duration: durationMs });
+    }
     if (durationMs > 0) {
       setTimeout(() => set({ toastMessage: null }), durationMs);
     }

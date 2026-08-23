@@ -133,6 +133,30 @@ jobs:
           tagName: v__VERSION__
           releaseName: "Clypra v__VERSION__"
           releaseBody: "Automated multi-platform release bundle — macOS (arm64), Windows (x64), Linux (x64)."
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  sync-updater-manifests:
+    name: Sync latest.json and updater.json
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Duplicate latest.json as updater.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
+            TAG_NAME=$(gh release view --json tagName -q .tagName --repo ${{ github.repository }})
+          fi
+          echo "Syncing manifests for release: $TAG_NAME"
+          gh release download "$TAG_NAME" -p "latest.json" --repo ${{ github.repository }} --dir /tmp
+          cp /tmp/latest.json /tmp/updater.json
+          gh release upload "$TAG_NAME" /tmp/updater.json --clobber --repo ${{ github.repository }}
+          echo "Successfully published both latest.json and updater.json!"

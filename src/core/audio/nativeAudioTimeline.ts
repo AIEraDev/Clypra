@@ -7,6 +7,7 @@ import {
   startNativeAudio,
 } from "@/lib/platform/tauri";
 import type { NativeAudioClipStatus } from "@/lib/platform/nativeCore";
+import { tracePlayback } from "@/core/playback/playbackTrace";
 
 export const NATIVE_AUDIO_TIME_SCALE = 1_000_000;
 
@@ -66,9 +67,29 @@ export async function syncNativeAudioTimeline(
   await startNativeAudio();
   await clearNativeAudioClip();
   await Promise.all(snapshot.clips.map((clip) => loadNativeAudioClip(clip)));
+  const installed = await getNativeAudioClips();
+  tracePlayback("native.timeline-ready", {
+    clipCount: snapshot.clips.length,
+    installedCount: installed.length,
+    clips: snapshot.clips.map((clip) => ({
+      clipId: clip.clipId,
+      timelineStart: clip.timelineStartTicks / NATIVE_AUDIO_TIME_SCALE,
+      duration: clip.durationTicks / NATIVE_AUDIO_TIME_SCALE,
+      trimIn: clip.sourceStartTicks / NATIVE_AUDIO_TIME_SCALE,
+      gain: clip.gain,
+    })),
+    decoded: installed.map((clip) => ({
+      clipId: clip.id,
+      sampleCount: clip.sampleCount,
+      sampleRate: clip.sampleRate,
+      channels: clip.channels,
+      duration: clip.durationTicks / NATIVE_AUDIO_TIME_SCALE,
+      gain: clip.gain,
+    })),
+  });
   return {
     snapshot,
-    installed: await getNativeAudioClips(),
+    installed,
   };
 }
 

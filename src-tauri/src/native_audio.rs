@@ -18,12 +18,16 @@ const MAX_ACTIVE_CLIPS: usize = 64;
 pub struct NativeAudioStatus {
     pub available: bool,
     pub running: bool,
+    pub playing: bool,
     pub host: Option<String>,
     pub device_name: Option<String>,
     pub sample_rate: Option<u32>,
     pub channels: Option<u16>,
     pub sample_format: Option<String>,
     pub audio_position_ticks: u64,
+    pub callback_count: u64,
+    pub rendered_frames: u64,
+    pub non_silent_frames: u64,
     pub last_error: Option<String>,
     pub speed: f32,
     pub volume: f32,
@@ -150,7 +154,7 @@ impl NativeAudioMixer {
         output_sample_rate: u32,
         timeline_start_ticks: i64,
         master_gain: f32,
-    ) where
+    ) -> bool where
         T: SizedSample + FromSample<f32>,
     {
         for sample in output.iter_mut() {
@@ -158,14 +162,15 @@ impl NativeAudioMixer {
         }
 
         if self.clips.is_empty() {
-            return;
+            return false;
         }
         if output_channels == 0 || output_sample_rate == 0 {
-            return;
+            return false;
         }
 
         let output_channels = usize::from(output_channels);
         let output_sample_rate = i64::from(output_sample_rate);
+        let mut has_audio = false;
 
         for (frame_index, output_frame) in output.chunks_mut(output_channels).enumerate() {
             let frame_ticks =
@@ -178,9 +183,13 @@ impl NativeAudioMixer {
                     .filter_map(|clip| sample_at(clip, timeline_ticks, channel_index))
                     .sum::<f32>()
                     * master_gain;
+                if value.abs() > 0.000001 {
+                    has_audio = true;
+                }
                 *sample = T::from_sample(value.clamp(-1.0, 1.0));
             }
         }
+        has_audio
     }
 }
 
@@ -238,6 +247,8 @@ struct NativeAudioClockInner {
     channels: Option<u16>,
     sample_format: Option<String>,
     played_frames: Arc<AtomicU64>,
+    callback_count: Arc<AtomicU64>,
+    non_silent_frames: Arc<AtomicU64>,
     position_ticks: Arc<AtomicI64>,
     playing: Arc<AtomicBool>,
     speed_milli: Arc<AtomicU32>,
@@ -262,6 +273,8 @@ impl NativeAudioClock {
                 channels: None,
                 sample_format: None,
                 played_frames: Arc::new(AtomicU64::new(0)),
+                callback_count: Arc::new(AtomicU64::new(0)),
+                non_silent_frames: Arc::new(AtomicU64::new(0)),
                 position_ticks: Arc::new(AtomicI64::new(0)),
                 playing: Arc::new(AtomicBool::new(false)),
                 speed_milli: Arc::new(AtomicU32::new(1_000)),
@@ -286,6 +299,8 @@ impl NativeAudioClock {
             *last_error = None;
         }
         self.inner.played_frames.store(0, Ordering::Release);
+        self.inner.callback_count.store(0, Ordering::Release);
+        self.inner.non_silent_frames.store(0, Ordering::Release);
         self.inner.position_ticks.store(0, Ordering::Release);
         self.inner.playing.store(false, Ordering::Release);
 
@@ -306,6 +321,8 @@ impl NativeAudioClock {
         let sample_format = supported.sample_format();
         let config: cpal::StreamConfig = supported.into();
         let played_frames = self.inner.played_frames.clone();
+        let callback_count = self.inner.callback_count.clone();
+        let non_silent_frames = self.inner.non_silent_frames.clone();
         let position_ticks = self.inner.position_ticks.clone();
         let playing = self.inner.playing.clone();
         let speed_milli = self.inner.speed_milli.clone();
@@ -321,6 +338,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -335,6 +354,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -349,6 +370,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -363,6 +386,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                 speed_milli,
@@ -377,6 +402,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -391,6 +418,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -405,6 +434,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -419,6 +450,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -433,6 +466,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                 speed_milli,
@@ -447,6 +482,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -461,6 +498,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count.clone(),
+                non_silent_frames.clone(),
                 position_ticks,
                 playing,
                     speed_milli,
@@ -475,6 +514,8 @@ impl NativeAudioClock {
                 channels,
                 sample_rate,
                 played_frames,
+                callback_count,
+                non_silent_frames,
                 position_ticks,
                 playing,
                     speed_milli,
@@ -601,12 +642,16 @@ impl NativeAudioClock {
         NativeAudioStatus {
             available: self.inner.sample_rate.is_some(),
             running: self.inner.stream.is_some() && last_error.is_none(),
+            playing: self.inner.playing.load(Ordering::Acquire),
             host: self.inner.host.clone(),
             device_name: self.inner.device_name.clone(),
             sample_rate,
             channels: self.inner.channels,
             sample_format: self.inner.sample_format.clone(),
             audio_position_ticks,
+            callback_count: self.inner.callback_count.load(Ordering::Acquire),
+            rendered_frames: self.inner.played_frames.load(Ordering::Acquire),
+            non_silent_frames: self.inner.non_silent_frames.load(Ordering::Acquire),
             last_error,
             speed: self.inner.speed_milli.load(Ordering::Acquire) as f32 / 1_000.0,
             volume: self.inner.volume_milli.load(Ordering::Acquire) as f32 / 1_000.0,
@@ -621,6 +666,8 @@ fn build_audio_stream<T>(
     channels: u16,
     sample_rate: u32,
     played_frames: Arc<AtomicU64>,
+    callback_count: Arc<AtomicU64>,
+    non_silent_frames: Arc<AtomicU64>,
     position_ticks: Arc<AtomicI64>,
     playing: Arc<AtomicBool>,
     speed_milli: Arc<AtomicU32>,
@@ -642,19 +689,26 @@ where
                 return;
             }
 
+            callback_count.fetch_add(1, Ordering::AcqRel);
+
             let start_ticks = position_ticks.load(Ordering::Acquire);
             if muted.load(Ordering::Acquire) {
                 for sample in data.iter_mut() {
                     *sample = T::EQUILIBRIUM;
                 }
             } else if let Ok(mixer) = mixer.try_read() {
-                mixer.mix_into(
+                if mixer.mix_into(
                     data,
                     channels,
                     sample_rate,
                     start_ticks,
                     volume_milli.load(Ordering::Acquire) as f32 / 1_000.0,
-                );
+                ) {
+                    non_silent_frames.fetch_add(
+                        (data.len() / usize::from(channels.max(1))) as u64,
+                        Ordering::AcqRel,
+                    );
+                }
             } else {
                 for sample in data.iter_mut() {
                     *sample = T::EQUILIBRIUM;

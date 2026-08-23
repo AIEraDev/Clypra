@@ -7,7 +7,7 @@ import { useUIStore } from "@/store/uiStore";
 import { generateId } from "@/lib/utils/id";
 import { useSettingsStore, type PreviewQuality } from "@/store/settingsStore";
 import { useHistoryStore } from "@/store/historyStore";
-import { SuccessToast } from "@/components/ui/SuccessToast";
+import { toast } from "@/lib/toast";
 import { DEFAULT_SRP_CONFIG, SpatialTier } from "@/lib/renderEngine/types";
 import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimelineTemporalDetail, getZoomFromRatio, getZoomRatio, snapTimelineZoomToTierAnchors, TIMELINE_TIER_LABELS, TIMELINE_ZOOM_MAX, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_STEP } from "@/lib/timeline/timelineZoom";
 import { EditingActions } from "@/core/interactions";
@@ -22,7 +22,6 @@ export const TimelineToolbar: React.FC = () => {
   const { previewQuality, setPreviewQuality, proxyEditingEnabled } = useSettingsStore();
   const [splitMode, setSplitMode] = useState(false);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const zoomRailRef = useRef<HTMLDivElement>(null);
   const zoomGestureAnchorRef = useRef<TimelineZoomAnchor | null>(null);
   const { captureZoomAnchor, applyZoomLevel, zoomByStep, fitSequence } = useAnchoredTimelineZoom();
@@ -32,8 +31,7 @@ export const TimelineToolbar: React.FC = () => {
     enabled: splitMode,
     onSplit: (clipId, time) => {},
     onMessage: (message) => {
-      setToastMessage(message);
-      setTimeout(() => setToastMessage(null), 2000);
+      toast.info(message);
     },
   });
 
@@ -131,49 +129,48 @@ export const TimelineToolbar: React.FC = () => {
   const handleSwapClick = () => {
     const result = swapClips();
     if (result.error) {
-      setToastMessage(result.error);
+      toast.error(result.error);
     }
   };
 
   const handleSplitAllAtPlayhead = () => {
     const results = EditingActions.splitAtPlayhead();
     if (results.length === 0) {
-      setToastMessage("No clips under playhead to split");
+      toast.info("No clips under playhead to split");
     } else {
       const successCount = results.filter((r) => r.success).length;
-      setToastMessage(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+      toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
     }
-    setTimeout(() => setToastMessage(null), 2000);
   };
 
   const handleDeleteLeftAtPlayhead = () => {
     const results = EditingActions.deleteLeftAtPlayhead();
     if (results.length === 0) {
-      setToastMessage("No clips to delete left at playhead");
+      toast.info("No clips to delete left at playhead");
     } else {
       const successCount = results.filter((r) => r.success).length;
-      setToastMessage(`Delete left applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
+      toast.success(`Delete left applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
     }
-    setTimeout(() => setToastMessage(null), 2000);
   };
 
   const handleDeleteRightAtPlayhead = () => {
     const results = EditingActions.deleteRightAtPlayhead();
     if (results.length === 0) {
-      setToastMessage("No clips to delete right at playhead");
+      toast.info("No clips to delete right at playhead");
     } else {
       const successCount = results.filter((r) => r.success).length;
-      setToastMessage(`Delete right applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
+      toast.success(`Delete right applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
     }
-    setTimeout(() => setToastMessage(null), 2000);
   };
 
   const handleDeleteSelectedClips = () => {
     if (selectedClipIds.length === 0) return;
     const result = EditingActions.deleteSelection(selectedClipIds);
-    setToastMessage(`Deleted ${selectedClipIds.length} clip${selectedClipIds.length > 1 ? "s" : ""}`);
-    if (!result) setToastMessage("No unlocked clips selected");
-    setTimeout(() => setToastMessage(null), 2000);
+    if (!result) {
+      toast.warning("No unlocked clips selected");
+    } else {
+      toast.success(`Deleted ${selectedClipIds.length} clip${selectedClipIds.length > 1 ? "s" : ""}`);
+    }
   };
 
   const handleDuplicateSelectedClips = () => {
@@ -191,8 +188,7 @@ export const TimelineToolbar: React.FC = () => {
         startTime: clip.startTime + offset,
       });
     });
-    setToastMessage(`Duplicated ${selected.length} clip${selected.length > 1 ? "s" : ""}`);
-    setTimeout(() => setToastMessage(null), 2000);
+    toast.success(`Duplicated ${selected.length} clip${selected.length > 1 ? "s" : ""}`);
   };
 
   const handleCloseGaps = () => {
@@ -200,8 +196,7 @@ export const TimelineToolbar: React.FC = () => {
     const trackIds = tracks.map((t) => t.id);
     trackIds.forEach((trackId) => normalizeTrack(trackId));
     removeEmptyNonMainTracks(trackIds);
-    setToastMessage("Closed timeline gaps");
-    setTimeout(() => setToastMessage(null), 2000);
+    toast.success("Closed timeline gaps");
   };
 
   return (
@@ -341,8 +336,6 @@ export const TimelineToolbar: React.FC = () => {
           </span>
         </div>
       </div>
-
-      <SuccessToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
     </TooltipProvider>
   );
 };

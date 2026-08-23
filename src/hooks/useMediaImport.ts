@@ -5,6 +5,7 @@ import { generateSimpleWaveform } from "../lib/audio/audioWaveformGenerator";
 import { generateId } from "@/lib/utils/id";
 import { platform } from "@/core/platform";
 import { DEFAULT_STILL_DURATION_SECONDS } from "../constants/config";
+import { toast } from "@/lib/toast";
 
 const CONCURRENCY_LIMIT = 4;
 
@@ -32,7 +33,6 @@ async function mapConcurrent<T, R>(
 
 export const useMediaImport = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [toastMessage, setToastMessage] = useState<{ type: "success" | "warning"; message: string } | null>(null);
   const { addMediaAsset, updateMediaAsset } = useProjectStore();
 
   const getMediaType = (path: string): "video" | "audio" | "image" => {
@@ -136,31 +136,19 @@ export const useMediaImport = () => {
         }
       });
 
-      // Show appropriate toast message
+      // Show appropriate toast notification
       if (failedCount > 0) {
-        setToastMessage({
-          type: "warning",
-          message: `${failedCount} file(s) failed to import.${importedCount > 0 ? ` ${importedCount} succeeded.` : ""}`,
-        });
+        toast.warning(`${failedCount} file(s) failed to import.${importedCount > 0 ? ` ${importedCount} succeeded.` : ""}`);
       } else if (importedCount > 0 && skippedCount > 0) {
-        setToastMessage({
-          type: "warning",
-          message: `Imported ${importedCount} file(s). ${skippedCount} duplicate(s) skipped.`,
-        });
+        toast.warning(`Imported ${importedCount} file(s). ${skippedCount} duplicate(s) skipped.`);
       } else if (skippedCount > 0) {
-        setToastMessage({
-          type: "warning",
-          message: `${skippedCount} file(s) already imported.`,
-        });
+        toast.info(`${skippedCount} file(s) already imported.`);
       } else if (importedCount > 0) {
-        setToastMessage({
-          type: "success",
-          message: `Successfully imported ${importedCount} file(s).`,
-        });
+        toast.success(`Successfully imported ${importedCount} file(s).`);
       }
     } catch (error) {
       console.error("[MediaImport] Import failed:", error);
-      setToastMessage({ type: "warning", message: "Failed to open file picker" });
+      toast.error("Failed to open file picker");
     } finally {
       setIsLoading(false);
     }
@@ -169,7 +157,7 @@ export const useMediaImport = () => {
   return {
     importMedia,
     isLoading,
-    toastMessage,
-    clearToast: () => setToastMessage(null),
+    toastMessage: null,
+    clearToast: () => {},
   };
 };

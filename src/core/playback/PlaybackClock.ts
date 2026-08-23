@@ -1,3 +1,5 @@
+import { tracePlayback } from "./playbackTrace";
+
 /**
  * Playback Clock - Continuous Time Signal
  *
@@ -53,6 +55,7 @@ export class PlaybackClock {
 
   // Generation counter to prevent stale RAF ticks
   private _generation: number = 0;
+  private _seekRevision: number = 0;
 
   // Stall compensation — tracks AudioContext time at the start of a synchronous
   // blocking operation (e.g. GPU shader compilation) so we can offset
@@ -197,6 +200,26 @@ export class PlaybackClock {
     if (!Number.isFinite(time)) return;
     const validSpeed = Number.isFinite(speed) ? Math.max(0.1, Math.min(4, speed)) : this._speed;
     const clampedTime = Math.max(0, Math.min(time, this._duration));
+    const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
+    if (this._state === "playing" && !this._isSeeking && clampedTime < this._time - backwardTolerance) {
+      tracePlayback("clock.native-position-ignored", {
+        nativeTime: clampedTime,
+        clockTime: this._time,
+        backwardDelta: clampedTime - this._time,
+        state: this._state,
+        duration: this._duration,
+      });
+      return;
+    }
+    if (this._isSeeking || Math.abs(clampedTime - this._time) > 0.5) {
+      tracePlayback("clock.native-position", {
+        nativeTime: clampedTime,
+        clockTimeBefore: this._time,
+        isSeeking: this._isSeeking,
+        state: this._state,
+        duration: this._duration,
+      });
+    }
     this._nativeClockPosition = {
       time: clampedTime,
       receivedAtMs: performance.now(),
@@ -369,7 +392,16 @@ export class PlaybackClock {
    * Seek to specific time.
    */
   seek(time: number): void {
+    const seekRevision = ++this._seekRevision;
     const wasPlaying = this._state === "playing";
+    tracePlayback("clock.seek.begin", {
+      seekRevision,
+      requestedTime: time,
+      currentTime: this._time,
+      state: this._state,
+      wasPlaying,
+      nativeClockPosition: this._nativeClockPosition?.time ?? null,
+    });
 
     if (wasPlaying) {
       this.pause();
@@ -383,6 +415,13 @@ export class PlaybackClock {
     this._time = Math.round(rawTime * frameRate) / frameRate;
 
     this._isSeeking = true;
+    tracePlayback("clock.seek.target", {
+      seekRevision,
+      targetTime: this._time,
+      duration: this._duration,
+      frameRate,
+      state: this._state,
+    });
     this._notifyListeners();
 
     if (wasPlaying) {
@@ -395,6 +434,11 @@ export class PlaybackClock {
    */
   completeSeek(): void {
     if (!this._isSeeking) return;
+    tracePlayback("clock.seek.complete", {
+      time: this._time,
+      state: this._state,
+      nativeClockPosition: this._nativeClockPosition?.time ?? null,
+    });
     this._isSeeking = false;
     if (this._state === "playing" && this._audioContext && !this._nativeClockAuthority) {
       this._playStartAudioTime = this._audioContext.currentTime;
@@ -459,6 +503,11 @@ export class PlaybackClock {
       this._time = this._duration;
       this._state = "paused";
       this._rafId = null; // Clear RAF ID when stopping
+      // Bug 8 fix: clear the native clock position so late-arriving IPC samples
+      // from the native audio controller cannot move the scrubber past duration
+      // after end-of-timeline auto-pause. `stop()` already clears this; `pause()`
+      // from end-of-timeline was the only path that did not.
+      this._nativeClockPosition = null;
       this._notifyListeners();
       return;
     }

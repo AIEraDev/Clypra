@@ -15,6 +15,7 @@ import {
 } from "@/lib/platform/tauri";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import { syncNativeAudioTimeline } from "./nativeAudioTimeline";
+import { tracePlayback } from "@/core/playback/playbackTrace";
 
 export interface NativeAudioPreviewSource {
   projectRevision: string;
@@ -46,6 +47,13 @@ export class NativeAudioPreviewController {
   private lastState: PlaybackClockState | null = null;
   private active = false;
   private disposed = false;
+  private commandRevision = 0;
+  private lastPollTraceAt = 0;
+  private lastAudioStatusTraceAt = 0;
+  /** Latest transport-state intent. Older queued play/pause commands are stale. */
+  private transportIntentRevision = 0;
+  /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
+  private seekIntentRevision = 0;
 
   constructor(options: NativeAudioPreviewControllerOptions) {
     this.clock = options.clock;
@@ -59,7 +67,7 @@ export class NativeAudioPreviewController {
 
   setOutput(volume: number, muted: boolean): void {
     if (!this.active || this.disposed) return;
-    this.enqueue(() => setNativeAudioOutput(Math.max(0, Math.min(1, volume / 100)), muted));
+    this.enqueue(() => setNativeAudioOutput(Math.max(0, Math.min(1, volume / 100)), muted), "set-output");
   }
 
   /**
@@ -94,7 +102,7 @@ export class NativeAudioPreviewController {
     this.clock.setNativeClockAuthority(true);
 
     try {
-      await syncNativeAudioTimeline(
+      const timeline = await syncNativeAudioTimeline(
         this.source.clips,
         this.source.tracks,
         this.source.assets,
@@ -111,6 +119,24 @@ export class NativeAudioPreviewController {
       });
       if (this.disposed) return false;
 
+      const audioStatus = await getNativeAudioStatus();
+      tracePlayback("native.audio-ready", {
+        running: audioStatus.running,
+        playing: audioStatus.playing,
+        available: audioStatus.available,
+        deviceName: audioStatus.deviceName,
+        sampleRate: audioStatus.sampleRate,
+        channels: audioStatus.channels,
+        clipCount: timeline.installed.length,
+        audioTrackCount: this.source.audioTrackCount,
+        muted: audioStatus.muted,
+        volume: audioStatus.volume,
+        callbackCount: audioStatus.callbackCount,
+        renderedFrames: audioStatus.renderedFrames,
+        nonSilentFrames: audioStatus.nonSilentFrames,
+        lastError: audioStatus.lastError,
+      });
+
       this.active = true;
       this.lastState = this.clock.getState();
       this.unsubscribe = this.clock.subscribe((state) => this.handleClockState(state));
@@ -122,6 +148,7 @@ export class NativeAudioPreviewController {
       if (this.clock.state === "playing") {
         const nativeState = await nativePlayFromAudio();
         this.adoptNativePosition(nativeState.audioPositionTicks);
+        await this.traceNativeAudioStatus("play");
       } else {
         await pauseNativeAudio();
       }
@@ -165,7 +192,7 @@ export class NativeAudioPreviewController {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
     }
-    if (this.disposed || !this.active) return;
+    if (this.disposed || !this.active || !isPlaying) return;
     const intervalMs = isPlaying ? 33 : 250;
     this.pollHandle = setInterval(() => {
       void this.pollNativeClock();
@@ -177,36 +204,119 @@ export class NativeAudioPreviewController {
     const previous = this.lastState;
     this.lastState = state;
 
+    tracePlayback("native.clock-state", {
+      state: state.state,
+      previousState: previous?.state ?? null,
+      time: state.time,
+      previousTime: previous?.time ?? null,
+      duration: state.duration,
+      isSeeking: this.clock.isSeeking,
+    });
+
     if (state.speed !== previous?.speed) {
-      this.enqueue(() => setNativeAudioSpeed(state.speed));
+      this.enqueue(() => setNativeAudioSpeed(state.speed), "set-speed");
     }
+    const stateChanged = state.state !== previous?.state;
+    if (stateChanged) {
+      this.transportIntentRevision += 1;
+    }
+    const transportIntentRevision = this.transportIntentRevision;
+
     if (state.state === "playing" && previous?.state !== "playing") {
       this.restartPolling(true);
       this.enqueue(async () => {
-        await seekNativeAudio(secondsToTicks(state.time));
+        if (this.transportIntentRevision !== transportIntentRevision || this.clock.state !== "playing") {
+          tracePlayback("native.command-skipped", {
+            label: "seek-then-play",
+            reason: "stale-play-intent",
+            transportIntentRevision,
+            latestTransportIntentRevision: this.transportIntentRevision,
+            state: this.clock.state,
+          });
+          return;
+        }
+        // Read at execution time. The value captured by the clock event may be
+        // stale if timeline sync or another native command was ahead of us.
+        const targetTime = this.clock.time;
+        await seekNativeAudio(secondsToTicks(targetTime));
+        if (this.transportIntentRevision !== transportIntentRevision || this.clock.state !== "playing") {
+          tracePlayback("native.command-skipped", {
+            label: "play-after-seek",
+            reason: "transport-changed-during-seek",
+            transportIntentRevision,
+            latestTransportIntentRevision: this.transportIntentRevision,
+            state: this.clock.state,
+          });
+          return;
+        }
         const nativeState = await nativePlayFromAudio();
         this.adoptNativePosition(nativeState.audioPositionTicks);
-      });
+        await this.traceNativeAudioStatus("play");
+      }, "seek-then-play");
     } else if (state.state !== "playing" && previous?.state === "playing") {
       this.restartPolling(false);
       this.enqueue(async () => {
+        if (this.transportIntentRevision !== transportIntentRevision || this.clock.state === "playing") {
+          tracePlayback("native.command-skipped", {
+            label: "pause",
+            reason: "stale-pause-intent",
+            transportIntentRevision,
+            latestTransportIntentRevision: this.transportIntentRevision,
+            state: this.clock.state,
+          });
+          return;
+        }
         const nativeState = await nativePauseFromAudio();
         this.adoptNativePosition(nativeState.audioPositionTicks);
-      });
+        await this.traceNativeAudioStatus("pause");
+      }, "pause");
     }
 
     const frameDuration = 1 / Math.max(1, state.frameRate);
     if (state.state !== "playing" && previous && Math.abs(state.time - previous.time) > frameDuration * 0.5) {
+      this.seekIntentRevision += 1;
+      const seekIntentRevision = this.seekIntentRevision;
       this.enqueue(async () => {
-        await seekNativeAudio(secondsToTicks(state.time));
-        const nativeState = await nativeSeekFromAudio(Math.max(0, Math.floor(state.time * state.frameRate)));
+        const stateBeforeSeek = this.clock.state;
+        if (this.seekIntentRevision !== seekIntentRevision || stateBeforeSeek === "playing") {
+          tracePlayback("native.command-skipped", {
+            label: "seek",
+            reason: stateBeforeSeek === "playing" ? "playback-resumed" : "superseded-seek",
+            seekIntentRevision,
+            latestSeekIntentRevision: this.seekIntentRevision,
+            state: this.clock.state,
+          });
+          return;
+        }
+        // Collapse rapid scrub updates and use the latest paused playhead.
+        const targetTime = this.clock.time;
+        await seekNativeAudio(secondsToTicks(targetTime));
+        const stateAfterSeek = this.clock.state;
+        if (this.seekIntentRevision !== seekIntentRevision || stateAfterSeek === "playing") {
+          tracePlayback("native.command-skipped", {
+            label: "seek-after-native-seek",
+            reason: stateAfterSeek === "playing" ? "playback-resumed" : "superseded-seek",
+            seekIntentRevision,
+            latestSeekIntentRevision: this.seekIntentRevision,
+            state: this.clock.state,
+          });
+          return;
+        }
+        const nativeState = await nativeSeekFromAudio(Math.max(0, Math.floor(targetTime * this.clock.frameRate)));
         this.adoptNativePosition(nativeState.audioPositionTicks);
-      });
+        await this.traceNativeAudioStatus("seek");
+      }, "seek");
     }
   }
 
   private adoptNativePosition(positionTicks: number): void {
     if (!Number.isFinite(positionTicks)) return;
+    tracePlayback("native.command-position", {
+      position: positionTicks / 1_000_000,
+      clockTimeBefore: this.clock.time,
+      isSeeking: this.clock.isSeeking,
+      state: this.clock.state,
+    });
     this.clock.setNativeClockPosition(positionTicks / 1_000_000, this.clock.speed);
   }
 
@@ -215,7 +325,27 @@ export class NativeAudioPreviewController {
     try {
       const nativeState = this.clock.state === "playing" ? await nativeTickFromAudio() : await getNativeAudioStatus();
       const positionTicks = "audioPositionTicks" in nativeState ? nativeState.audioPositionTicks : 0;
-      this.clock.setNativeClockPosition(positionTicks / 1_000_000, this.clock.speed);
+      const position = positionTicks / 1_000_000;
+      const now = performance.now();
+      if (now - this.lastAudioStatusTraceAt >= 500) {
+        this.lastAudioStatusTraceAt = now;
+        await this.traceNativeAudioStatus("poll");
+      }
+      if (
+        this.clock.isSeeking ||
+        position === 0 && this.clock.time > 0 ||
+        now - this.lastPollTraceAt >= 1000 && Math.abs(position - this.clock.time) > 0.25
+      ) {
+        this.lastPollTraceAt = now;
+        tracePlayback("native.poll-position", {
+          nativeTime: position,
+          clockTimeBefore: this.clock.time,
+          isSeeking: this.clock.isSeeking,
+          state: this.clock.state,
+          duration: this.clock.duration,
+        });
+      }
+      this.clock.setNativeClockPosition(position, this.clock.speed);
       // A native graph can report position 0 while it is warming up. Never
       // treat a missing/stale zero duration as an end signal; the timeline
       // duration is the only valid terminal boundary.
@@ -228,13 +358,61 @@ export class NativeAudioPreviewController {
     }
   }
 
-  private enqueue(operation: () => Promise<void>): void {
+  private async traceNativeAudioStatus(operation: string): Promise<void> {
+    try {
+      const status = await getNativeAudioStatus();
+      tracePlayback("native.audio-status", {
+        operation,
+        running: status.running,
+        playing: status.playing,
+        available: status.available,
+        audioTime: status.audioPositionTicks / 1_000_000,
+        callbackCount: status.callbackCount,
+        renderedFrames: status.renderedFrames,
+        nonSilentFrames: status.nonSilentFrames,
+        deviceName: status.deviceName,
+        muted: status.muted,
+        volume: status.volume,
+        lastError: status.lastError,
+      });
+    } catch (error) {
+      tracePlayback("native.audio-status-error", {
+        operation,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private enqueue(operation: () => Promise<void>, label = "unknown"): void {
+    const commandRevision = ++this.commandRevision;
+    tracePlayback("native.command-queued", {
+      commandRevision,
+      label,
+      clockTime: this.clock.time,
+      isSeeking: this.clock.isSeeking,
+      state: this.clock.state,
+    });
     this.commandQueue = this.commandQueue
       .then(async () => {
         if (this.disposed || !this.active) return;
+        tracePlayback("native.command-start", { commandRevision, label });
         await operation();
+        tracePlayback("native.command-complete", {
+          commandRevision,
+          label,
+          clockTime: this.clock.time,
+          isSeeking: this.clock.isSeeking,
+          state: this.clock.state,
+        });
       })
-      .catch((error) => this.reportError(error));
+      .catch((error) => {
+        tracePlayback("native.command-error", {
+          commandRevision,
+          label,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        this.reportError(error);
+      });
   }
 
   private reportError(error: unknown): void {
