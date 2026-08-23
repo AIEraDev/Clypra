@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-08-23
+
+### 🔊 Native Audio Playback
+
+- **Native Audio Output**: Added native CPAL audio playback with FFmpeg PCM decoding, timeline clip mixing, volume and mute control, and output-device handling.
+- **Reliable Seek and Transport**: Fixed stale native clock samples and queued play, pause, and seek commands that could rewind playback to 0s or leave audio silent after seeking.
+- **Audio Timeline Synchronization**: Refreshes native audio when clips and assets arrive after startup and keeps native runtime time aligned with the audio clock.
+- **Audio Diagnostics**: Added focused audio tracing for decoded clips, device state, callback execution, rendered frames, and non-silent mixer output.
+
 ## [1.4.0] - 2026-08-23
 
 ### 🚀 Deep Native Migration
