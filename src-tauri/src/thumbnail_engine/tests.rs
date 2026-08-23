@@ -834,4 +834,34 @@ fn test_decode_4k_frames_batch_forward_gop() {
     }
 }
 
+#[test]
+fn test_decode_4k_sustained_deep_zoom_memory_pressure() {
+    let path = "/Users/AIEraDev/.gemini/antigravity/brain/dc4b3ecd-8fad-4da2-9e8e-bf2bd890b437/scratch/test_4k.mp4";
+    if !std::path::Path::new(path).exists() {
+        return;
+    }
+    let mut decoder = VideoDecoder::open(path).expect("open 4K video");
+
+    // Simulate sustained zoom across 4 distinct regions: 10s, 30s, 60s, 90s (12 frames each = 48 4K frames total)
+    let regions = [10.0, 30.0, 60.0, 90.0];
+    let mut total_decoded = 0;
+    let total_start = std::time::Instant::now();
+
+    for &base_ts in &regions {
+        let targets: Vec<f64> = (0..12).map(|i| base_ts + (i as f64) * 0.1).collect();
+        let frames = decoder.decode_frames_batch_full_res(&targets).expect("batch decode region");
+        assert_eq!(frames.len(), 12);
+        total_decoded += frames.len();
+    }
+
+    let total_elapsed = total_start.elapsed();
+    eprintln!(
+        "[4K Sustained Test] Decoded {} 4K frames across 4 distinct regions in {:?} (avg {:?} per 4K frame)",
+        total_decoded,
+        total_elapsed,
+        total_elapsed / (total_decoded.max(1) as u32)
+    );
+    assert_eq!(total_decoded, 48);
+}
+
 
