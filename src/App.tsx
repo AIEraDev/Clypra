@@ -18,6 +18,7 @@ import { FloatingWidget } from "@/components/ui/FloatingWidget";
 import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPreviewModal";
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { UpdateBanner } from "@/components/ui/UpdateBanner";
+import { Toaster } from "sonner";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -586,6 +587,18 @@ const App = () => {
 
       {/* ── Auto-Update Banner ───────────────────────────────────────────── */}
       <UpdateBanner updater={autoUpdater} />
+
+      {/* ── Global Toast Notifications ─────────────────────────────────── */}
+      <Toaster
+        position="bottom-right"
+        theme="dark"
+        richColors
+        closeButton
+        toastOptions={{
+          className: "bg-surface-elevated/95 text-text-primary border border-white/10 backdrop-blur-md shadow-2xl font-sans rounded-xl text-xs",
+          duration: 3000,
+        }}
+      />
     </ErrorBoundary>
   );
 };
