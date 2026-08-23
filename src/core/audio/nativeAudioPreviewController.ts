@@ -226,54 +226,54 @@ export class NativeAudioPreviewController {
       this.restartPolling(true);
       this.enqueue(async () => {
         if (this.transportIntentRevision !== transportIntentRevision || this.clock.state !== "playing") {
-          tracePlayback("native.command-skipped", {
-            label: "seek-then-play",
-            reason: "stale-play-intent",
+          tracePlayback("PLAY_SKIPPED_STALE", {
             transportIntentRevision,
             latestTransportIntentRevision: this.transportIntentRevision,
             state: this.clock.state,
           });
           return;
         }
-        // Read at execution time. The value captured by the clock event may be
-        // stale if timeline sync or another native command was ahead of us.
         const targetTime = this.clock.time;
-        await seekNativeAudio(secondsToTicks(targetTime));
+        const targetTicks = secondsToTicks(targetTime);
+        tracePlayback("PLAY_RUST_SEEK_DISPATCH", { targetTime, targetTicks });
+        await seekNativeAudio(targetTicks);
         if (this.transportIntentRevision !== transportIntentRevision || this.clock.state !== "playing") {
-          tracePlayback("native.command-skipped", {
-            label: "play-after-seek",
-            reason: "transport-changed-during-seek",
-            transportIntentRevision,
-            latestTransportIntentRevision: this.transportIntentRevision,
-            state: this.clock.state,
-          });
+          tracePlayback("PLAY_SKIPPED_AFTER_SEEK", { state: this.clock.state });
           return;
         }
         const nativeState = await nativePlayFromAudio();
+        tracePlayback("PLAY_RUST_RESUMED", {
+          returnedTicks: nativeState.audioPositionTicks,
+          returnedTime: nativeState.audioPositionTicks / 1_000_000,
+          clockTimeBeforeAdopt: this.clock.time,
+        });
         this.adoptNativePosition(nativeState.audioPositionTicks);
-        await this.traceNativeAudioStatus("play");
       }, "seek-then-play");
     } else if (state.state !== "playing" && previous?.state === "playing") {
       this.restartPolling(false);
       this.enqueue(async () => {
         if (this.transportIntentRevision !== transportIntentRevision || this.clock.state === "playing") {
-          tracePlayback("native.command-skipped", {
-            label: "pause",
-            reason: "stale-pause-intent",
-            transportIntentRevision,
-            latestTransportIntentRevision: this.transportIntentRevision,
-            state: this.clock.state,
-          });
+          tracePlayback("PAUSE_SKIPPED_STALE", { state: this.clock.state });
           return;
         }
-        const nativeState = await nativePauseFromAudio();
-        this.adoptNativePosition(nativeState.audioPositionTicks);
-        await this.traceNativeAudioStatus("pause");
+        const targetTime = this.clock.time;
+        const targetTicks = secondsToTicks(targetTime);
+        tracePlayback("PAUSE_RUST_DISPATCH", { targetTime, targetTicks });
+        await pauseNativeAudio();
+        await seekNativeAudio(targetTicks);
+        await nativeSeekFromAudio(Math.max(0, Math.floor(targetTime * this.clock.frameRate)));
+        tracePlayback("PAUSE_RUST_ALIGNED", { targetTime, targetTicks });
+        this.adoptNativePosition(targetTicks);
       }, "pause");
     }
 
     const frameDuration = 1 / Math.max(1, state.frameRate);
-    if (state.state !== "playing" && previous && Math.abs(state.time - previous.time) > frameDuration * 0.5) {
+    if (
+      state.state !== "playing" &&
+      previous?.state !== "playing" &&
+      previous &&
+      Math.abs(state.time - previous.time) > frameDuration * 0.5
+    ) {
       this.seekIntentRevision += 1;
       const seekIntentRevision = this.seekIntentRevision;
       this.enqueue(async () => {
@@ -311,13 +311,14 @@ export class NativeAudioPreviewController {
 
   private adoptNativePosition(positionTicks: number): void {
     if (!Number.isFinite(positionTicks)) return;
-    tracePlayback("native.command-position", {
-      position: positionTicks / 1_000_000,
+    const position = positionTicks / 1_000_000;
+    tracePlayback("ADOPT_POSITION", {
+      position,
       clockTimeBefore: this.clock.time,
       isSeeking: this.clock.isSeeking,
       state: this.clock.state,
     });
-    this.clock.setNativeClockPosition(positionTicks / 1_000_000, this.clock.speed);
+    this.clock.setNativeClockPosition(position, this.clock.speed);
   }
 
   private async pollNativeClock(): Promise<void> {
@@ -326,25 +327,12 @@ export class NativeAudioPreviewController {
       const nativeState = this.clock.state === "playing" ? await nativeTickFromAudio() : await getNativeAudioStatus();
       const positionTicks = "audioPositionTicks" in nativeState ? nativeState.audioPositionTicks : 0;
       const position = positionTicks / 1_000_000;
-      const now = performance.now();
-      if (now - this.lastAudioStatusTraceAt >= 500) {
-        this.lastAudioStatusTraceAt = now;
-        await this.traceNativeAudioStatus("poll");
-      }
-      if (
-        this.clock.isSeeking ||
-        position === 0 && this.clock.time > 0 ||
-        now - this.lastPollTraceAt >= 1000 && Math.abs(position - this.clock.time) > 0.25
-      ) {
-        this.lastPollTraceAt = now;
-        tracePlayback("native.poll-position", {
-          nativeTime: position,
-          clockTimeBefore: this.clock.time,
-          isSeeking: this.clock.isSeeking,
-          state: this.clock.state,
-          duration: this.clock.duration,
-        });
-      }
+      tracePlayback("POLL_TICK", {
+        nativePosition: position,
+        clockTime: this.clock.time,
+        deltaMs: ((position - this.clock.time) * 1000).toFixed(1),
+        state: this.clock.state,
+      });
       this.clock.setNativeClockPosition(position, this.clock.speed);
       // A native graph can report position 0 while it is warming up. Never
       // treat a missing/stale zero duration as an end signal; the timeline

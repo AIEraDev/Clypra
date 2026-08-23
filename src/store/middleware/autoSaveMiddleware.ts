@@ -27,6 +27,7 @@ type AutoSaveImpl = <T>(f: StateCreator<T, [], []>) => StateCreator<T, [], []>;
 // Transaction support: suspend auto-save during drag operations
 let _suspended = false;
 let _pendingSave = false;
+let _suppressCount = 0;
 
 /** Suspend auto-save (e.g., during drag). Call resumeAutoSave() when done. */
 export function suspendAutoSave(): void {
@@ -37,9 +38,22 @@ export function suspendAutoSave(): void {
 /** Resume auto-save. If any mutations occurred while suspended, triggers one save. */
 export function resumeAutoSave(): void {
   _suspended = false;
-  if (_pendingSave) {
+  if (_pendingSave && _suppressCount === 0) {
     _pendingSave = false;
     useProjectStore.getState().scheduleAutoSave();
+  }
+}
+
+/** Completely suppress auto-save (e.g. during project hydration / loading / reset). */
+export function suppressAutoSave(): void {
+  _suppressCount++;
+}
+
+/** Unsuppress auto-save. Discards any pending auto-saves that occurred while suppressed. */
+export function enableAutoSave(): void {
+  _suppressCount = Math.max(0, _suppressCount - 1);
+  if (_suppressCount === 0) {
+    _pendingSave = false;
   }
 }
 
@@ -50,6 +64,11 @@ const autoSaveImpl: AutoSaveImpl = (f) => (set, get, store) => {
 
     // Call the original set with proper arguments
     set(partial, replace as any);
+
+    // If auto-save is globally suppressed (e.g. hydrating project from disk), do nothing
+    if (_suppressCount > 0) {
+      return;
+    }
 
     const newState = get() as any;
 

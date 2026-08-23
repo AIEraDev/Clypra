@@ -31,7 +31,7 @@ import { useUIStore } from "./uiStore";
 import { useProjectStore } from "./projectStore";
 import { clampTimelinePixelsPerSecond, clampTimelineZoom, TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "../lib/timeline/timelineZoom";
 import { getTimelineContentEnd, normalizeClipTiming } from "@/lib/timeline/timelineClip";
-import { autoSaveMiddleware } from "./middleware/autoSaveMiddleware";
+import { autoSaveMiddleware, suppressAutoSave, enableAutoSave } from "./middleware/autoSaveMiddleware";
 import { TRACK_TYPE_CONFIG, shouldAutoPruneTrack, getTrackInsertionIndex, getTrackInsertionIndexGrouped } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineStore {
@@ -261,66 +261,71 @@ export const useTimelineStore = create<TimelineStore>(
     },
 
     hydrateFromProject: (payload) => {
-      const finalTracksRaw = payload?.tracks ?? [];
-      const finalClipsRaw = payload?.clips ?? [];
-      const finalTransitions = payload?.transitions ?? [];
-      const finalGaps = (payload as any)?.gaps ?? []; // Load gaps from project
-      const finalMarkers: TimelineMarker[] = (payload as any)?.markers ?? [];
+      suppressAutoSave();
+      try {
+        const finalTracksRaw = payload?.tracks ?? [];
+        const finalClipsRaw = payload?.clips ?? [];
+        const finalTransitions = payload?.transitions ?? [];
+        const finalGaps = (payload as any)?.gaps ?? []; // Load gaps from project
+        const finalMarkers: TimelineMarker[] = (payload as any)?.markers ?? [];
 
-      // Clean up empty tracks (tracks with no clips) when cleanEmptyTracks is enabled
-      let finalTracks = finalTracksRaw;
-      if (payload?.cleanEmptyTracks) {
-        const clipTrackIds = new Set(finalClipsRaw.map((c: any) => c.trackId));
-        const hasClips = finalClipsRaw.length > 0;
-        finalTracks = finalTracksRaw.filter((track: any) => {
-          if (!hasClips) return true;
-          return clipTrackIds.has(track.id);
+        // Clean up empty tracks (tracks with no clips) when cleanEmptyTracks is enabled
+        let finalTracks = finalTracksRaw;
+        if (payload?.cleanEmptyTracks) {
+          const clipTrackIds = new Set(finalClipsRaw.map((c: any) => c.trackId));
+          const hasClips = finalClipsRaw.length > 0;
+          finalTracks = finalTracksRaw.filter((track: any) => {
+            if (!hasClips) return true;
+            return clipTrackIds.has(track.id);
+          });
+        }
+
+        // Adopt the larger video row for projects created with the previous
+        // compact 68px default. Explicitly taller user rows are preserved.
+        finalTracks = finalTracks.map((track: any) =>
+          track.type === "video" && track.height === 68
+            ? { ...track, height: trackHeights.video }
+            : track,
+        );
+
+        // Normalize clip timing with media asset data
+        const mediaAssets = useProjectStore.getState().mediaAssets;
+
+        const normalizedClips = finalClipsRaw.map((clip: Clip) => {
+          const asset = mediaAssets.find((a) => a.id === clip.mediaId);
+          return normalizeClipTiming(clip, asset);
         });
-      }
 
-      // Adopt the larger video row for projects created with the previous
-      // compact 68px default. Explicitly taller user rows are preserved.
-      finalTracks = finalTracks.map((track: any) =>
-        track.type === "video" && track.height === 68
-          ? { ...track, height: trackHeights.video }
-          : track,
-      );
+        //  fix: Reset mainVideoTrackId and re-derive from loaded tracks
+        const newMainVideoTrackId = finalTracks.find((t) => t.type === "video")?.id ?? null;
 
-      // Normalize clip timing with media asset data
-      const mediaAssets = useProjectStore.getState().mediaAssets;
+        // Atomic state update - all or nothing
+        set({
+          tracks: finalTracks,
+          clips: normalizedClips,
+          gaps: finalGaps, // Load gaps from project
+          transitions: finalTransitions,
+          markers: finalMarkers,
+          scrollLeft: 0,
+          zoomLevel: TIMELINE_ZOOM_DEFAULT,
+          pixelsPerSecond: TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM,
+          epoch: 0, // Reset epoch on project load
+          mainVideoTrackId: newMainVideoTrackId,
+          snapGuides: [],
+          rippleEditEnabled: false,
+          snapEnabled: true,
+          _batchDepth: 0,
+          _pendingEpochIncrement: false,
+        });
 
-      const normalizedClips = finalClipsRaw.map((clip: Clip) => {
-        const asset = mediaAssets.find((a) => a.id === clip.mediaId);
-        return normalizeClipTiming(clip, asset);
-      });
-
-      //  fix: Reset mainVideoTrackId and re-derive from loaded tracks
-      const newMainVideoTrackId = finalTracks.find((t) => t.type === "video")?.id ?? null;
-
-      // Atomic state update - all or nothing
-      set({
-        tracks: finalTracks,
-        clips: normalizedClips,
-        gaps: finalGaps, // Load gaps from project
-        transitions: finalTransitions,
-        markers: finalMarkers,
-        scrollLeft: 0,
-        zoomLevel: TIMELINE_ZOOM_DEFAULT,
-        pixelsPerSecond: TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM,
-        epoch: 0, // Reset epoch on project load
-        mainVideoTrackId: newMainVideoTrackId,
-        snapGuides: [],
-        rippleEditEnabled: false,
-        snapEnabled: true,
-        _batchDepth: 0,
-        _pendingEpochIncrement: false,
-      });
-
-      // Audit 2.7 fix: detect gaps synchronously instead of via requestAnimationFrame so
-      // there is no window where the store holds clips but an empty gaps array. Matches
-      // the pattern used in removeClip which also calls detectAndSyncGaps() synchronously.
-      if (finalGaps.length === 0 && normalizedClips.length > 0) {
-        get().detectAndSyncGaps();
+        // Audit 2.7 fix: detect gaps synchronously instead of via requestAnimationFrame so
+        // there is no window where the store holds clips but an empty gaps array. Matches
+        // the pattern used in removeClip which also calls detectAndSyncGaps() synchronously.
+        if (finalGaps.length === 0 && normalizedClips.length > 0) {
+          get().detectAndSyncGaps();
+        }
+      } finally {
+        enableAutoSave();
       }
     },
 
