@@ -155,13 +155,20 @@ Sequential single-frame decoding suffers from high seek overhead and lock conten
                          Release Decoder Mutex
 ```
 
-### Key Performance Benefits:
+### Key Performance & Quality Architecture:
 1. **Seek Overhead Reduction**: Seeks are reduced from $N$ seeks to $\approx N / 12$ seeks (1 seek per chunk/GOP).
 2. **Zero Redundant Packet Decodes**: In a 30-frame GOP, all target timestamps within that GOP are satisfied in a single linear packet scan. Every packet is decoded **exactly once**, delivering a **$5\times$ to $10\times$ raw decode throughput increase**.
-3. **Real-Time Streaming**: Rather than waiting for the entire chunk to complete, `get_render_artifacts_batch` streams each frame over the Tauri `Channel<RenderArtifact>` the moment it is downsampled.
-4. **Mid-Batch Cancellation**: If the user zooms or scrubs to a new location, the frontend cancels the channel, immediately aborting downstream processing.
+3. **Format Conversion vs. Pyramid Downscale Separation**: 
+   - `scale_to_rgba_explicit` converts native decoded frames (e.g. YUV420P $\to$ RGBA) at $1:1$ display resolution using SIMD-accelerated `FAST_BILINEAR` (enabling NEON/AVX2 matrix conversion with zero filter degradation).
+   - All spatial downscaling to thumbnail density tiers ($L0 \dots L3$) is performed in parallel via Rayon using high-fidelity **Lanczos3 anti-aliasing** in `downsample_pyramid`.
+4. **Isolated Decoder Pools with Symmetric LRU Caps**:
+   - `PREVIEW_DECODER_POOL` (max 10 decoders) exclusively serves real-time canvas presentation and playhead scrubbing in `native_preview.rs`.
+   - `THUMBNAIL_DECODER_POOL` (max 10 decoders) serves background filmstrip generation in `thumbnail.rs`.
+   - Guaranteed zero mutex contention: timeline playback $<16\text{ms}$ budget is completely insulated from background batch decoding.
+5. **Real-Time Streaming & Early Abort**: Rather than waiting for the entire chunk to complete, `get_render_artifacts_batch` streams each frame over the Tauri `Channel<RenderArtifact>` the moment it is downsampled, and aborts immediately if the frontend disconnects.
 
 ---
+
 
 ## 5. Epoch-Safe Zero-Blank Continuous Zoom Pipeline
 
@@ -232,3 +239,11 @@ To guarantee seamless interoperability between interactive UI controls (toolbar 
 | **Continuous Zoom Parity** | WebGL/Canvas2D fallback | Zero blanks during deep zoom | `ClipFilmstrip.integration.test.tsx` |
 | **Chunked Batch Decode** | Forward GOP scan & streaming | Single seek per chunk, 0 packet dupes | `cargo test --lib thumbnail_engine` (82 tests) |
 | **Zoom Synchronization** | Wheel vs Button harmony | Exact PPS continuity (0 jumps) | `useTimelineZoomSpring.test.ts` |
+
+---
+
+## 8. Carry-Forward Engineering Gates
+
+1. **Cross-Platform Golden Pixel Harness**: Extend the `clypra-native-cli` render/diff test harness to cover multi-tier filmstrip extraction across Metal, D3D12/WARP, and Vulkan/Lavapipe.
+2. **Dedicated Hardware Acceleration Re-benchmarking**: Re-benchmark and validate zero-copy hardware decode backends (D3D11VA, VAAPI, VideoToolbox CVPixelBufferRef) when physical Windows and Linux test hardware is available.
+
