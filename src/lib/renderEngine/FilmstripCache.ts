@@ -700,11 +700,14 @@ export class FilmstripCache {
       }
     }
 
-    // During fast/ballistic scroll, publish exact cached tiles immediately.
-    // Missing slots remain absent until their exact transport artifacts arrive.
+    // During fast/ballistic scroll, publish exact cached tiles or pyramid fallbacks immediately.
     if (this.velocityState >= VelocityState.Fast) {
-      const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
-      onUpdate(cachedArtifacts);
+      if (keptArtifacts.length > 0) {
+        onUpdate([...keptArtifacts]);
+      } else {
+        const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
+        onUpdate(cachedArtifacts);
+      }
 
       // If we have ALL tiles cached, skip the request entirely
       const allCached = tileAddresses.every((addr) => {
