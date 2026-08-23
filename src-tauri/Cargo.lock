@@ -628,6 +628,7 @@ dependencies = [
  "proptest",
  "rayon",
  "reqwest 0.12.28",
+ "rtrb",
  "serde",
  "serde_json",
  "sha2",
@@ -4070,6 +4071,12 @@ dependencies = [
  "untrusted",
  "windows-sys 0.52.0",
 ]
+
+[[package]]
+name = "rtrb"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fae8ee26b0371a29a77d2b2d6b3ae13aa81def6f9bf1b1b92a32d279a5e709b7"
 
 [[package]]
 name = "rustc-hash"
