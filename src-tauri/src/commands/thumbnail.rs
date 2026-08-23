@@ -937,7 +937,10 @@ pub async fn get_render_artifacts_batch(
                             source: ArtifactSource::FreshDecode,
                         };
                         TIER_CACHE.insert(key, tier_frame);
-                        let _ = on_artifact.send(artifact);
+                        if on_artifact.send(artifact).is_err() {
+                            // Channel closed by client; stop further decode work
+                            return Ok(());
+                        }
                     }
                     Err(e) => {
                         eprintln!("[batch:error] req={} tier={:?} error={}", req_id, tier, e);
