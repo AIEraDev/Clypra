@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { WebGLRasterSurface } from "../webglRasterSurface";
+import { WebGLRasterSurface, createRasterSurface } from "../webglRasterSurface";
+import { FilmstripTileCache } from "@/lib/filmstrip/FilmstripTileCache";
 import type { TransportArtifact } from "../transport";
 import type { FilmstripTileAddress } from "@/lib/filmstrip/filmstripTiers";
 import type { RenderEpochId } from "../types";
@@ -181,6 +182,111 @@ describe("WebGLRasterSurface", () => {
     // Exact addresses occupy physically mapped slots; tile 0 covers [-1, 0] and tile 1 covers [0, 1].
     expect(vertices[0]).toBeCloseTo(-1, 4);
     expect(vertices[24]).toBeCloseTo(0, 4);
+
+    surface.dispose();
+  });
+
+  it("State 2: L2 missing and L0 available in tileCache -> resolves and packs stretched L0 fallback", () => {
+    const canvas = { width: 0, height: 0 } as HTMLCanvasElement;
+    const gl = makeGl();
+    const surface = new WebGLRasterSurface(canvas, gl);
+    const tileCache = new FilmstripTileCache(50);
+
+    const l0Artifact = makeArtifact(0, 160, 90);
+    tileCache.setTile(
+      {
+        clipId: "clip-fallback",
+        videoPath: "test.mp4",
+        zoomTier: SpatialTier.L0,
+        tileIndex: 0,
+        timestamp: 0,
+      },
+      l0Artifact
+    );
+
+    const tileAddresses: FilmstripTileAddress[] = [
+      {
+        clipId: "clip-fallback",
+        videoPath: "test.mp4",
+        zoomTier: SpatialTier.L2,
+        tileIndex: 0,
+        timestamp: 0,
+      },
+    ];
+
+    // Pass 0 exact artifacts (L2 in-flight)
+    surface.drawFilmstrip([], {
+      clipWidthPx: 300,
+      stripHeightPx: 60,
+      dpr: 1,
+      trimIn: 0,
+      trimOut: 10,
+      tileWidthPx: 60,
+      tileAddresses,
+      tileCache,
+      clipId: "clip-fallback",
+      videoPath: "test.mp4",
+    });
+
+    // Should upload L0 bitmap to atlas and draw triangles
+    expect(gl.texSubImage2D).toHaveBeenCalledTimes(1);
+    expect(gl.texSubImage2D).toHaveBeenCalledWith(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, l0Artifact.bitmap);
+    expect(gl.drawArrays).toHaveBeenCalledWith(gl.TRIANGLES, 0, 6);
+
+    surface.dispose();
+  });
+
+  it("State 3: All tiers missing (cold import) -> uploads and renders stylized shimmer quads with slot boundaries", () => {
+    const canvas = { width: 0, height: 0 } as HTMLCanvasElement;
+    const gl = makeGl();
+    const surface = new WebGLRasterSurface(canvas, gl);
+    const tileCache = new FilmstripTileCache(50);
+
+    const tileAddresses: FilmstripTileAddress[] = [
+      {
+        clipId: "clip-cold",
+        videoPath: "test.mp4",
+        zoomTier: SpatialTier.L2,
+        tileIndex: 0,
+        timestamp: 0,
+      },
+    ];
+
+    surface.drawFilmstrip([], {
+      clipWidthPx: 300,
+      stripHeightPx: 60,
+      dpr: 1,
+      trimIn: 0,
+      trimOut: 10,
+      tileWidthPx: 60,
+      tileAddresses,
+      tileCache,
+      clipId: "clip-cold",
+      videoPath: "test.mp4",
+    });
+
+    expect(gl.clear).toHaveBeenCalledWith(gl.COLOR_BUFFER_BIT);
+    // Should upload shimmer pattern and render quads (never blank transparent void)
+    expect(gl.texSubImage2D).toHaveBeenCalledWith(gl.TEXTURE_2D, 0, 0, 0, 32, 32, gl.RGBA, gl.UNSIGNED_BYTE, expect.any(Uint8Array));
+    expect(gl.drawArrays).toHaveBeenCalledWith(gl.TRIANGLES, 0, 6);
+
+    surface.dispose();
+  });
+
+  it("factory: createRasterSurface returns WebGLRasterSurface when webgl2 context is supported", () => {
+    const gl = makeGl();
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn((type: string) => {
+        if (type === "webgl2") return gl;
+        return null;
+      }),
+    } as unknown as HTMLCanvasElement;
+
+    const surface = createRasterSurface(canvas);
+    expect(surface).toBeInstanceOf(WebGLRasterSurface);
+    expect(canvas.getContext).toHaveBeenCalledWith("webgl2", expect.anything());
 
     surface.dispose();
   });
