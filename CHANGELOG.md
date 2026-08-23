@@ -8,16 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [1.4.0] - 2026-08-23
 
-### ✨ Features
+### 🚀 Deep Native Migration
 
-- **Editor Layout Refresh**: Reworked desktop and mobile editor composition with resizable panels, unified sidebar navigation, and improved empty states.
-- **Timeline Workflow Improvements**: Added streamlined add-to-timeline and panel-resize hooks while refining timeline controls, snapping, ruler precision, and waveform behavior.
-- **Native Preview and Filmstrip Reliability**: Improved native media geometry, raster-surface ownership, filmstrip caching, and export frame-pool cleanup.
+- **Native-First Preview and Playback**: Completed the migration of preview, scrubbing, transport, transitions, and source rendering onto the Tauri/Rust native media path.
+- **Full Native Media Pipeline**: Unified native decoding, geometry and aspect handling, frame delivery, raster-surface ownership, filmstrip atlases and caching, and export frame pooling for consistent desktop playback and rendering.
+- **Native Timeline Integration**: Connected timeline precision, snapping, waveform and envelope editing, gap and transition indicators, and source-time calculations to the native playback contract.
+- **Native-Supported Editor Surface**: Reworked desktop and mobile layout composition, resizable panels, sidebar navigation, properties and empty states, and cache and settings flows around the native runtime.
+- **Legacy Path Retirement**: Removed the legacy timeline controls and documented the mathematical invariants and performance contracts required by the native pipeline.
 
-### 🐛 Bug Fixes
+### 🧪 Validation
 
-- Tightened preview, transport, volume, cache-settings, and project-store behavior around lifecycle cleanup and precise source-time calculations.
-- Improved visual consistency across the editor, settings, export, and screen-recording flows.
+- Verified the TypeScript build, frontend suite, Rust backend suite, Clippy, focused 4K scrub stress, and production build.
+- CI validates the frontend, Rust backend, and release build checks on the release PR.
 
 ## [1.2.2] - 2026-08-06
 
