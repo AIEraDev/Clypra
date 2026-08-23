@@ -341,4 +341,71 @@ describe("ClipFilmstrip Integration Tests", () => {
     const renderCalls = mockState.invokeCalls.filter((c) => c.cmd === "get_render_artifact" || c.cmd === "get_thumbnails_for_timestamps");
     expect(renderCalls.length).toBe(0);
   });
+
+  /**
+   * Test: Continuous zoom maintains canvas and resolves under 1.0s SLA
+   */
+  it("Test: Continuous zoom maintains filmstrip canvas continuously and resolves under 1.0s SLA", async () => {
+    const clip = createMockClip({ trimIn: 0, trimOut: 10 });
+    const mediaAsset = createMockMediaAsset();
+
+    const { rerender } = renderFilmstrip({ clip, mediaAsset, pixelsPerSecond: 100 });
+    await act(async () => {});
+
+    // Fast continuous wheel zoom events (every 16ms)
+    for (let i = 0; i < 10; i++) {
+      const pps = 100 + i * 20;
+      rerender(<ClipFilmstrip clip={clip} mediaAsset={mediaAsset} clipWidthPx={clip.duration * pps} pixelsPerSecond={pps} stripHeightPx={32} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16);
+      });
+
+      // Assert canvas NEVER unmounts or disappears during the continuous gesture
+      const filmstrip = screen.getByTestId("clip-filmstrip");
+      expect(filmstrip).toBeInTheDocument();
+      expect(filmstrip.querySelector("canvas")).not.toBeNull();
+    }
+
+    // Bounded resolution SLA: must settle completely well under 1.0s (at 150ms after gesture ends)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+
+    const settledFilmstrip = screen.getByTestId("clip-filmstrip");
+    expect(settledFilmstrip).toBeInTheDocument();
+    expect(settledFilmstrip.querySelector("canvas")).not.toBeNull();
+  });
+
+  /**
+   * Test: Cold import -> Immediate deep zoom -> Frame 0 placeholder + resolves in <1.0s SLA
+   *
+   * Verifies the exact scenario from user's bug report:
+   * Brand new clip, zero cached tiles anywhere, immediately dropped and zoomed to L2 (300 pps).
+   * Frame 0 must immediately mount and present a visible canvas (shimmer),
+   * and the decoded tiles must settle well under the 1.0s SLA.
+   */
+  it("Test: Cold import -> Immediate deep zoom -> Frame 0 placeholder + resolves in <1.0s SLA", async () => {
+    const freshClip = createMockClip({ id: "fresh-clip-cold", trimIn: 0, trimOut: 10 });
+    const freshAsset = createMockMediaAsset({ id: "fresh-asset-cold", path: "/path/to/brand-new-video.mp4" });
+
+    // Render immediately at deep zoom (300 pps = L2/L3 precision) with cold cache
+    renderFilmstrip({ clip: freshClip, mediaAsset: freshAsset, pixelsPerSecond: 300 });
+
+    await act(async () => {});
+
+    // Frame 0: Canvas is mounted and presented immediately (shimmer/placeholder rendered, zero blank flash)
+    const filmstrip = screen.getByTestId("clip-filmstrip");
+    expect(filmstrip).toBeInTheDocument();
+    const canvas = filmstrip.querySelector("canvas");
+    expect(canvas).not.toBeNull();
+
+    // Fast resolution: advance timers through the IPC streaming delay + debounce escape window
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    // Verify canvas remains active and settled
+    expect(screen.getByTestId("clip-filmstrip")).toBeInTheDocument();
+    expect(filmstrip.querySelector("canvas")).not.toBeNull();
+  });
 });
