@@ -16,6 +16,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { EffectGrid as NewEffectGrid } from "@/features/text-effects/components/EffectGrid";
 import { EffectPreview as NewEffectPreview } from "@/features/text-effects/components/EffectPreview";
 import { useFavoritesStore } from "@/store/favoritesStore";
+import { toast } from "@/lib/toast";
 
 /**
  * Generates highly realistic, context-aware subtitle lines based on the active clip filename and path.
@@ -262,7 +263,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       // Fallback gracefully with error UI
       setCaptioningState("idle");
       setCaptioningProgress(0);
-      alert(`Local transcription failed: ${err.message || err}. Running in fallback contextual simulator...`);
+      toast.error(`Local transcription failed: ${err.message || err}. Running in fallback contextual simulator...`);
     }
   };
 

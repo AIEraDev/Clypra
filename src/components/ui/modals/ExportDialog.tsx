@@ -41,6 +41,7 @@ import { platform } from "@/core/platform";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
+import { toast } from "@/lib/toast";
 
 // Import extracted components
 import { ProgressRing } from "../primitives/ProgressRing";
@@ -546,13 +547,17 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
           avgTimePerFrameMs: exportResult.avgTimePerFrameMs,
         });
         safeSetPhase("complete");
+        toast.success("Video exported successfully!");
       } else {
         safeSetPhase("configure");
+        toast.info("Export cancelled");
       }
     } catch (err) {
       if (!isMountedRef.current) return;
-      safeSetError(err instanceof Error ? err.message : "Export failed");
+      const msg = err instanceof Error ? err.message : "Export failed";
+      safeSetError(msg);
       safeSetPhase("error");
+      toast.error(`Export failed: ${msg}`);
     } finally {
       abortControllerRef.current = null;
       cancelExportFnRef.current = null;
@@ -589,6 +594,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     }
     safeSetPhase("configure");
     safeSetProgress(null);
+    toast.info("Export cancelled");
   }, [safeSetPhase, safeSetProgress]);
 
   // ─── Reveal in Finder ──────────────────────────────────────────────
@@ -599,6 +605,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       await revealItemInDir(outputPath);
     } catch (err) {
       console.error("[ExportDialog] Reveal in finder failed:", err);
+      toast.error("Failed to reveal export folder");
     }
   }, [outputPath]);
 

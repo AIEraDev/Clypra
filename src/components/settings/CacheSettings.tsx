@@ -8,6 +8,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import { filmstripTelemetry, type FilmstripSessionSummary } from "@/lib/filmstrip/filmstripTelemetry";
+import { toast } from "@/lib/toast";
 
 export const CacheSettings: React.FC = () => {
   const { isClearing, cacheInfo, lastResult, clearAllCaches, clearAppCache, clearWebViewCache, clearGPUCache } = useCacheManager();
@@ -61,17 +62,21 @@ export const CacheSettings: React.FC = () => {
         const purgedCount = await invoke<number>("clear_disk_cache");
         filmstripTelemetry.clear();
         await loadFilmstripStats();
+        const msg = `Filmstrip & media disk cache purged (${purgedCount} atlas files deleted)`;
         setApiCacheStatus({
           type: "success",
-          message: `Filmstrip & media disk cache purged (${purgedCount} atlas files deleted)`,
+          message: msg,
         });
+        toast.success(msg);
       } else {
         filmstripTelemetry.clear();
         setApiCacheStatus({ type: "success", message: "Filmstrip cache reset" });
+        toast.success("Filmstrip cache reset");
       }
       setTimeout(() => setApiCacheStatus(null), 3000);
     } catch (e) {
       setApiCacheStatus({ type: "error", message: "Failed to clear filmstrip disk cache" });
+      toast.error("Failed to clear filmstrip disk cache");
       setTimeout(() => setApiCacheStatus(null), 5000);
     } finally {
       setIsClearingFilmstrip(false);
@@ -86,8 +91,10 @@ export const CacheSettings: React.FC = () => {
       try {
         await invoke("set_cache_size_limit", { limitBytes });
         await loadFilmstripStats();
+        toast.success(`Cache size limit set to ${gb === 0 ? "Unlimited" : `${gb} GB`}`);
       } catch (e) {
         console.error("Failed to set cache limit:", e);
+        toast.error("Failed to set cache limit");
       }
     }
   };
@@ -128,10 +135,13 @@ export const CacheSettings: React.FC = () => {
       await TextEffectsCacheManager.clearAll();
       await loadTextEffectsCacheStats();
 
-      setApiCacheStatus({ type: "success", message: "All text effects cache cleared (Memory + IndexedDB + API + Downloaded tracking)" });
+      const msg = "All text effects cache cleared";
+      setApiCacheStatus({ type: "success", message: msg });
+      toast.success(msg);
       setTimeout(() => setApiCacheStatus(null), 3000);
     } catch (error) {
       setApiCacheStatus({ type: "error", message: "Failed to clear text effects cache" });
+      toast.error("Failed to clear text effects cache");
       setTimeout(() => setApiCacheStatus(null), 5000);
     } finally {
       setIsClearingApi(false);
@@ -143,12 +153,15 @@ export const CacheSettings: React.FC = () => {
     try {
       await clearAudioCache();
       refreshAudioStats();
-      setApiCacheStatus({ type: "success", message: "Audio library cache cleared successfully" });
+      const msg = "Audio library cache cleared successfully";
+      setApiCacheStatus({ type: "success", message: msg });
+      toast.success(msg);
       setTimeout(() => setApiCacheStatus(null), 3000);
     } catch (error) {
       console.error("[CacheSettings] Audio cache clear error:", error);
       const errorMessage = error instanceof Error ? error.message : "Failed to clear audio cache";
       setApiCacheStatus({ type: "error", message: `Audio cache error: ${errorMessage}` });
+      toast.error(`Audio cache error: ${errorMessage}`);
       setTimeout(() => setApiCacheStatus(null), 5000);
     } finally {
       setIsClearingAudio(false);

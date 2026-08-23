@@ -22,7 +22,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { isTauriRuntime } from "@/lib/platform/tauri";
-import { NativeAudioPreviewController } from "@/core/audio/nativeAudioPreviewController";
+import { NativeAudioPreviewController, type NativeAudioPreviewSource } from "@/core/audio/nativeAudioPreviewController";
 
 interface UseAudioSyncEngineOptions {
   audioEngine?: AudioEngine;
@@ -68,32 +68,17 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   const rafRef = useRef<number | null>(null);
   const nativeControllerRef = useRef<NativeAudioPreviewController | null>(null);
   const nativeDisposeChainRef = useRef<Promise<void>>(Promise.resolve());
+  const latestNativeSourceRef = useRef<NativeAudioPreviewSource | null>(null);
 
-  // AU-1 fix: Native audio controller lifecycle — create and initialize once per project mount/switch.
-  // Clips, tracks, and mediaAssets are removed from deps so non-epoch React renders do NOT
-  // tear down and reload CPAL native audio from disk.
-  useEffect(() => {
-    if (!options.nativeMode || !isTauriRuntime() || !project) return;
-
-    // Project metadata can legitimately lag behind the timeline after media
-    // import (the preview clock derives the real duration from clip bounds).
-    // Native audio must use that same duration contract or a stale `0` makes
-    // its first position sample look like an end-of-timeline event.
-    const timelineDuration = clips.reduce(
-      (maximum, clip) => Math.max(maximum, clip.startTime + clip.duration),
-      0,
-    );
-    const playbackDuration = getPlaybackClock().duration;
-    const nativeDuration = Math.max(
-      0,
-      project.duration || 0,
-      timelineDuration,
-      playbackDuration,
-    );
-
-    const controller = new NativeAudioPreviewController({
-      clock: getPlaybackClock(),
-      source: {
+  const timelineDuration = clips.reduce(
+    (maximum, clip) => Math.max(maximum, clip.startTime + clip.duration),
+    0,
+  );
+  const nativeDuration = project
+    ? Math.max(0, project.duration || 0, timelineDuration, getPlaybackClock().duration)
+    : 0;
+  const latestNativeSource = project
+    ? {
         projectRevision: `${project.id}:${timelineEpoch}`,
         frameRate: project.frameRate,
         duration: nativeDuration,
@@ -101,7 +86,22 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
         clips,
         tracks,
         assets: mediaAssets,
-      },
+      }
+    : null;
+  latestNativeSourceRef.current = latestNativeSource;
+
+  // AU-1 fix: Native audio controller lifecycle — create and initialize once per project mount/switch.
+  // Timeline data is refreshed through updateSource below without tearing down
+  // the CPAL stream.
+  useEffect(() => {
+    if (!options.nativeMode || !isTauriRuntime() || !project) return;
+
+    const source = latestNativeSourceRef.current;
+    if (!source) return;
+
+    const controller = new NativeAudioPreviewController({
+      clock: getPlaybackClock(),
+      source,
       onError: (error) => {
         console.warn("[useAudioSyncEngine] Native audio controller error:", error);
       },
@@ -138,6 +138,10 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
           return;
         }
         engineRef.current?.stopAllVoices(true);
+        const currentSource = latestNativeSourceRef.current;
+        if (currentSource && currentSource !== source) {
+          controller.updateSource(currentSource);
+        }
         controller.setOutput(options.volume ?? 100, options.muted ?? false);
       })();
     };
@@ -167,35 +171,20 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     if (!options.nativeMode || !isTauriRuntime() || !project || !nativeControllerRef.current) return;
     if (lastProjectIdRef.current !== project.id) {
       lastProjectIdRef.current = project.id;
-      return; // Initial setup for this project is handled by the lifecycle effect
+      if (!nativeControllerRef.current.isActive) return;
     }
 
-    const timelineDuration = clips.reduce(
-      (maximum, clip) => Math.max(maximum, clip.startTime + clip.duration),
-      0,
-    );
-    const playbackDuration = getPlaybackClock().duration;
-    const nativeDuration = Math.max(
-      0,
-      project.duration || 0,
-      timelineDuration,
-      playbackDuration,
-    );
-
-    nativeControllerRef.current.updateSource({
-      projectRevision: `${project.id}:${timelineEpoch}`,
-      frameRate: project.frameRate,
-      duration: nativeDuration,
-      audioTrackCount: tracks.filter((track) => track.type === "audio" && !track.muted).length,
-      clips,
-      tracks,
-      assets: mediaAssets,
-    });
+    const source = latestNativeSourceRef.current;
+    if (!source) return;
+    nativeControllerRef.current.updateSource(source);
   }, [
     options.nativeMode,
     project?.id,
     project?.duration,
     timelineEpoch,
+    clips,
+    tracks,
+    mediaAssets,
   ]);
 
   useEffect(() => {

@@ -18,12 +18,16 @@ export type NativeGpuRuntimeState = "initializing" | "ready" | "failed";
 export interface NativeAudioStatus {
   available: boolean;
   running: boolean;
+  playing: boolean;
   host: string | null;
   deviceName: string | null;
   sampleRate: number | null;
   channels: number | null;
   sampleFormat: string | null;
   audioPositionTicks: number;
+  callbackCount: number;
+  renderedFrames: number;
+  nonSilentFrames: number;
   lastError: string | null;
   speed: number;
   volume: number;

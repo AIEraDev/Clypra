@@ -13,6 +13,7 @@ import { checkAppUpdate, installAndRelaunchUpdate, isTauriDesktop } from "@/serv
 import { useI18n } from "@/i18n/I18nProvider";
 import { getVersion } from "@tauri-apps/api/app";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
+import { toast } from "@/lib/toast";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -191,6 +192,7 @@ function CustomThemeEditor() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    toast.success("Theme exported to JSON");
   };
 
   const [importError, setImportError] = useState<string | null>(null);
@@ -211,11 +213,15 @@ function CustomThemeEditor() {
         if (data.colors && typeof data.colors === "object") {
           setImportError(null);
           setEditingColors(data.colors);
+          toast.success("Custom theme imported successfully");
         } else {
           setImportError("Invalid theme file format");
+          toast.error("Invalid theme file format");
         }
       } catch (error) {
-        setImportError("Failed to import theme: " + (error as Error).message);
+        const msg = "Failed to import theme: " + (error as Error).message;
+        setImportError(msg);
+        toast.error(msg);
       }
     };
     input.click();
@@ -647,12 +653,15 @@ function AboutTab() {
     if (result.error) {
       setUpdateStatus("error");
       setUpdateError(result.error);
+      toast.error(result.error);
     } else if (result.hasUpdate) {
       setUpdateStatus("available");
       setUpdateInfo({ version: result.version!, body: result.body });
       setUpdateObject(result.updateObject);
+      toast.info(`Clypra v${result.version} is available!`);
     } else {
       setUpdateStatus("up-to-date");
+      toast.success("Clypra is up to date");
     }
   };
 
@@ -660,6 +669,7 @@ function AboutTab() {
     if (!updateObject) return;
     setUpdateStatus("downloading");
     setDownloadProgress(0);
+    toast.info("Downloading update...");
     try {
       await installAndRelaunchUpdate(updateObject, (progress) => {
         if (progress.event === "Progress" && progress.contentLength) {
@@ -669,7 +679,9 @@ function AboutTab() {
       });
     } catch (err: any) {
       setUpdateStatus("error");
-      setUpdateError(err?.message || "Failed to install update");
+      const msg = err?.message || "Failed to install update";
+      setUpdateError(msg);
+      toast.error(msg);
     }
   };
 

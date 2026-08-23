@@ -17,12 +17,11 @@ import { DeleteClipCommand } from "@/core/history/commands/DeleteClipCommand";
 import type { VideoMetadata } from "@/types";
 import type { MediaTabProps } from "../types";
 import { generateId } from "@/lib/utils/id";
-import { SuccessToast } from "@/components/ui/SuccessToast";
 import { MediaCard } from "@/components/ui/MediaCard";
 
 export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
   const { mediaAssets, removeMediaAsset, addMediaAsset } = useProjectStore();
-  const { importMedia, isLoading, toastMessage, clearToast } = useMediaImport();
+  const { importMedia, isLoading } = useMediaImport();
   // Note: previewMediaId is used for visual selection state only.
   // Preview rendering is now timeline-driven, not media-selection driven.
   const { setPreviewMedia, previewMediaId } = useUIStore();
@@ -208,8 +207,6 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
           onClose={() => setContextMenu(null)}
         />
       )}
-
-      <SuccessToast message={toastMessage?.message ?? null} variant={toastMessage?.type ?? "success"} onDismiss={clearToast} />
     </div>
   );
 };

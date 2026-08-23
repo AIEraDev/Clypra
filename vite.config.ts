@@ -44,10 +44,16 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      react: path.resolve(__dirname, "./node_modules/react"),
+      "react-dom": path.resolve(__dirname, "./node_modules/react-dom"),
       "pixi.js": path.resolve(__dirname, "./src/lib/mocks/pixiMock.ts"),
       "pixi-filters": path.resolve(__dirname, "./src/lib/mocks/pixiMock.ts"),
       ...workspaceAlias,
     },
+    dedupe: ["react", "react-dom"],
+  },
+  optimizeDeps: {
+    include: ["react", "react-dom", "sonner"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

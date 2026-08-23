@@ -46,13 +46,15 @@ export async function checkAppUpdate(): Promise<UpdateCheckResult> {
   } catch (error: any) {
     console.error("Failed to check for updates:", error);
 
-    // Provide more helpful error messages
+    // Provide clean, informative error messages
     let errorMessage = error?.message || String(error);
 
     if (errorMessage.includes("Could not fetch a valid release JSON")) {
-      errorMessage = "No published releases available. Auto-updates will work once the first release is published on GitHub.";
-    } else if (errorMessage.includes("network") || errorMessage.includes("fetch")) {
+      errorMessage = "No compatible update found for your platform or release metadata is unavailable.";
+    } else if (errorMessage.includes("network") || errorMessage.includes("fetch") || errorMessage.includes("connect")) {
       errorMessage = "Unable to connect to update server. Please check your internet connection.";
+    } else if (errorMessage.includes("Signature") || errorMessage.includes("signature")) {
+      errorMessage = "Update signature verification failed.";
     }
 
     return {

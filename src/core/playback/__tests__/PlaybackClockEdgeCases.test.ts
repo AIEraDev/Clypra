@@ -62,6 +62,28 @@ describe("PlaybackClock — Deep Edge Cases & Frame Rate Precision", () => {
       clock.setNativeClockPosition(12.5);
       expect(clock.time).toBeCloseTo(12.5, 3);
     });
+
+    it("ignores a stale backward native sample during normal playback", () => {
+      clock.setNativeClockAuthority(true);
+      clock.setNativeClockPosition(10);
+      clock.play();
+
+      // A delayed native command/poll must not rewind the shared clock to 0s.
+      clock.setNativeClockPosition(0.033);
+
+      expect(clock.time).toBeGreaterThan(9.9);
+    });
+
+    it("accepts a backward native sample while an explicit seek is active", () => {
+      clock.setNativeClockAuthority(true);
+      clock.setNativeClockPosition(10);
+      clock.play();
+      clock.seek(2);
+
+      clock.setNativeClockPosition(2);
+
+      expect(clock.time).toBeCloseTo(2, 3);
+    });
   });
 
   // ─── 2. SPEED MULTIPLIERS & TIME REMAPPING ───────────────────────────────

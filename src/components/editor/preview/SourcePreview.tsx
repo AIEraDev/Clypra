@@ -556,19 +556,19 @@ export const SourcePreview: React.FC = () => {
           outPoint={sourceOutPoint}
           rightActions={
             <>
-              <button onClick={handleMarkIn} className={`px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title="Mark In (I)">
+              <button onClick={handleMarkIn} className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceInPoint !== null && Math.abs(currentTime - sourceInPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title="Mark In (I)">
                 IN
               </button>
-              <button onClick={handleMarkOut} className={`px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title="Mark Out (O)">
+              <button onClick={handleMarkOut} className={`px-1.5 @[320px]:px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer ${sourceOutPoint !== null && Math.abs(currentTime - sourceOutPoint) < 0.1 ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-white/6"}`} title="Mark Out (O)">
                 OUT
               </button>
               {hasCompleteMarks && (
-                <button onClick={handlePlayMarkedRegion} className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer" title="Play marked region">
+                <button onClick={handlePlayMarkedRegion} className="hidden @[380px]:flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer" title="Play marked region">
                   <Play className="w-3 h-3" />
                   Play
                 </button>
               )}
-              <div className="w-px h-4 bg-white/10 mx-1" />
+              <div className="hidden @[320px]:block w-px h-4 bg-white/10 mx-0.5" />
               {(() => {
                 // SP-2 fix: Allow adding any valid source asset to the timeline.
                 // If In/Out marks are set, it adds the marked slice; if not, it adds the full duration.
@@ -577,7 +577,7 @@ export const SourcePreview: React.FC = () => {
                   <button
                     onClick={handleAddToTimeline}
                     disabled={!isAddEnabled}
-                    className={`flex items-center gap-1 px-2.5 h-6 rounded text-[10px] font-semibold transition-all ${
+                    className={`flex items-center gap-1 px-2 @[320px]:px-2.5 h-6 rounded text-[10px] font-semibold transition-all shrink-0 ${
                       isAddEnabled
                         ? "bg-accent hover:bg-accent-soft text-white cursor-pointer"
                         : "bg-text-muted/70 hover:bg-text-muted/90 text-white cursor-not-allowed"
@@ -589,7 +589,7 @@ export const SourcePreview: React.FC = () => {
                     }
                   >
                     <Plus className="w-3 h-3" />
-                    Add
+                    <span className="hidden @[280px]:inline">Add</span>
                   </button>
                 );
               })()}
