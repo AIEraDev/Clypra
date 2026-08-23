@@ -5,6 +5,15 @@ export type Theme = "dark" | "midnight" | "ocean" | "forest" | "midnight-carbon"
 export type FontFamily = "inter" | "montserrat" | "geist" | "outfit" | "roboto" | "space-grotesk" | "system" | "mono";
 export type FrameRate = 24 | 30 | 60;
 export type PreviewQuality = "full" | "high" | "medium" | "low";
+export type LayoutPreset =
+  | "default"
+  | "tall-player-right"
+  | "tall-player-left"
+  | "timeline-focus"
+  | "dual-player"
+  | "cinema-preview"
+  | "vertical-shorts"
+  | "inspector-focus";
 
 interface SettingsStore {
   // Appearance
@@ -24,6 +33,26 @@ interface SettingsStore {
   setAutoSave: (v: boolean) => void;
   setDefaultFrameRate: (v: FrameRate) => void;
   setPreviewQuality: (v: PreviewQuality) => void;
+  // Performance
+  proxyEditingEnabled: boolean;
+  autoClearCacheOnProjectClose: boolean;
+  setProxyEditingEnabled: (v: boolean) => void;
+  setAutoClearCacheOnProjectClose: (v: boolean) => void;
+  // Layout persistence (replaces anonymous localStorage keys)
+  layoutPreset: LayoutPreset;
+  sidebarWidth: number;
+  propertiesPanelWidth: number;
+  tallPlayerWidth: number;
+  sidebarCollapsed: boolean;
+  propertiesPanelCollapsed: boolean;
+  timelineHeight: number;
+  setLayoutPreset: (v: LayoutPreset) => void;
+  setSidebarWidth: (v: number) => void;
+  setPropertiesPanelWidth: (v: number) => void;
+  setTallPlayerWidth: (v: number) => void;
+  setSidebarCollapsed: (v: boolean) => void;
+  setPropertiesPanelCollapsed: (v: boolean) => void;
+  setTimelineHeight: (v: number) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -36,6 +65,29 @@ export const useSettingsStore = create<SettingsStore>()(
       autoSave: true,
       defaultFrameRate: 30,
       previewQuality: "high",
+      // Performance
+      proxyEditingEnabled: false,
+      autoClearCacheOnProjectClose: false,
+      // Layout — read legacy localStorage on first load, fall back to defaults
+      layoutPreset: "default",
+      sidebarWidth: (() => {
+        if (typeof window === "undefined") return 400;
+        const v = parseInt(localStorage.getItem("clypra_sidebar_width") ?? "", 10);
+        return !isNaN(v) && v >= 240 ? v : 400;
+      })(),
+      propertiesPanelWidth: (() => {
+        if (typeof window === "undefined") return 400;
+        const v = parseInt(localStorage.getItem("clypra_properties_width") ?? "", 10);
+        return !isNaN(v) && v >= 240 ? v : 400;
+      })(),
+      tallPlayerWidth: 480,
+      sidebarCollapsed: false,
+      propertiesPanelCollapsed: false,
+      timelineHeight: (() => {
+        if (typeof window === "undefined") return 400;
+        const v = parseInt(localStorage.getItem("clypra_timeline_height") ?? "", 10);
+        return !isNaN(v) && v >= 160 ? v : 400;
+      })(),
 
       setTheme: (theme) => {
         set({ theme });
@@ -61,6 +113,15 @@ export const useSettingsStore = create<SettingsStore>()(
       setAutoSave: (autoSave) => set({ autoSave }),
       setDefaultFrameRate: (defaultFrameRate) => set({ defaultFrameRate }),
       setPreviewQuality: (previewQuality) => set({ previewQuality }),
+      setProxyEditingEnabled: (proxyEditingEnabled) => set({ proxyEditingEnabled }),
+      setAutoClearCacheOnProjectClose: (autoClearCacheOnProjectClose) => set({ autoClearCacheOnProjectClose }),
+      setLayoutPreset: (layoutPreset) => set({ layoutPreset }),
+      setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
+      setPropertiesPanelWidth: (propertiesPanelWidth) => set({ propertiesPanelWidth }),
+      setTallPlayerWidth: (tallPlayerWidth) => set({ tallPlayerWidth }),
+      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      setPropertiesPanelCollapsed: (propertiesPanelCollapsed) => set({ propertiesPanelCollapsed }),
+      setTimelineHeight: (timelineHeight) => set({ timelineHeight }),
     }),
     {
       name: "clypra-settings",

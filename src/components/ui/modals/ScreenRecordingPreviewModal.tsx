@@ -452,17 +452,17 @@ export const ScreenRecordingPreviewModal: React.FC<ScreenRecordingPreviewModalPr
               <div className="absolute top-0 bottom-0 right-0 bg-black/40" style={{ width: `${100 - trimEnd}%` }} />
 
               {/* Start Handle */}
-              <div onMouseDown={(e) => handleTimelineMouseDown(e, "start")} className="absolute top-0 bottom-0 w-3 bg-accent rounded-l-md cursor-ew-resize flex items-center justify-center border-r border-white/20 select-none" style={{ left: `${trimStart}%`, transform: "translateX(-50%)", zIndex: 10 }}>
+              <div onMouseDown={(e) => handleTimelineMouseDown(e, "start")} className="absolute top-0 bottom-0 w-3 bg-accent rounded-l-md cursor-ew-resize cursor-col-resize flex items-center justify-center border-r border-white/20 select-none" style={{ left: `${trimStart}%`, transform: "translateX(-50%)", zIndex: 10 }}>
                 <div className="w-0.5 h-3 bg-white/60" />
               </div>
 
               {/* End Handle */}
-              <div onMouseDown={(e) => handleTimelineMouseDown(e, "end")} className="absolute top-0 bottom-0 w-3 bg-accent rounded-r-md cursor-ew-resize flex items-center justify-center border-l border-white/20 select-none" style={{ left: `${trimEnd}%`, transform: "translateX(-50%)", zIndex: 10 }}>
+              <div onMouseDown={(e) => handleTimelineMouseDown(e, "end")} className="absolute top-0 bottom-0 w-3 bg-accent rounded-r-md cursor-ew-resize cursor-col-resize flex items-center justify-center border-l border-white/20 select-none" style={{ left: `${trimEnd}%`, transform: "translateX(-50%)", zIndex: 10 }}>
                 <div className="w-0.5 h-3 bg-white/60" />
               </div>
 
               {/* Playhead Scrubber */}
-              <div onMouseDown={(e) => handleTimelineMouseDown(e, "playhead")} className="absolute top-0 bottom-0 w-0.5 bg-white cursor-ew-resize select-none" style={{ left: `${playheadPercent}%`, zIndex: 20 }}>
+              <div onMouseDown={(e) => handleTimelineMouseDown(e, "playhead")} className="absolute top-0 bottom-0 w-0.5 bg-white cursor-ew-resize cursor-col-resize select-none" style={{ left: `${playheadPercent}%`, zIndex: 20 }}>
                 <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white shadow-md" />
               </div>
             </div>

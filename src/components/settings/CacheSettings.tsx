@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, HardDrive, RefreshCw, AlertCircle, CheckCircle, Cloud, Database, Music2, Layers, Film, Gauge } from "lucide-react";
+import { Trash2, HardDrive, RefreshCw, AlertCircle, CheckCircle, Cloud, Database, Music2, Layers, Film, Gauge, ChevronDown, Sparkles } from "lucide-react";
 import { useCacheManager } from "@/hooks/useCacheManager";
 import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
 import { TextEffectsCacheManager } from "@/features/text-effects/cache/cacheManager";
 import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import { filmstripTelemetry, type FilmstripSessionSummary } from "@/lib/filmstrip/filmstripTelemetry";
@@ -12,6 +13,8 @@ export const CacheSettings: React.FC = () => {
   const { isClearing, cacheInfo, lastResult, clearAllCaches, clearAppCache, clearWebViewCache, clearGPUCache } = useCacheManager();
   const { getCacheStats, clearAllCache: clearAudioCache } = useAudioLibraryStore();
 
+  const { autoClearCacheOnProjectClose, setAutoClearCacheOnProjectClose } = useSettingsStore();
+  const [tipsExpanded, setTipsExpanded] = useState(false);
   const [apiCacheStatus, setApiCacheStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [isClearingApi, setIsClearingApi] = useState(false);
   const [textEffectsCacheStats, setTextEffectsCacheStats] = useState<{ zustand: number; indexedDB: number; totalMB: number } | null>(null);
@@ -442,6 +445,65 @@ export const CacheSettings: React.FC = () => {
           <AlertCircle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
           <p className="text-[11px] text-orange-200/90">Clearing audio cache will remove all downloaded library files. You'll need to download them again when adding to timeline.</p>
         </div>
+      </div>
+
+      {/* Auto Cache Cleanup Preference */}
+      <div className="bg-surface-raised/30 border border-white/6 rounded-lg p-4 flex items-center justify-between gap-4">
+        <div>
+          <div className="text-xs font-semibold text-text-primary">Auto-clear Cache on Project Close</div>
+          <div className="text-[11px] text-text-muted mt-0.5">Automatically frees temporary GPU frame cache when switching or closing projects.</div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autoClearCacheOnProjectClose}
+          onClick={() => setAutoClearCacheOnProjectClose(!autoClearCacheOnProjectClose)}
+          className={`w-9 h-5 rounded-full relative shrink-0 transition-colors cursor-pointer ${
+            autoClearCacheOnProjectClose ? "bg-accent" : "bg-white/10"
+          }`}
+        >
+          <div
+            className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
+              autoClearCacheOnProjectClose ? "translate-x-4.5" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Long-Form & Large Project Tips */}
+      <div className="rounded-xl border border-white/6 overflow-hidden bg-surface-raised/20">
+        <button
+          onClick={() => setTipsExpanded((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-[12px] font-semibold text-text-primary hover:bg-white/[0.03] transition-colors cursor-pointer"
+        >
+          <span className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-accent" />
+            Long-Form & Large Project Tips
+          </span>
+          <ChevronDown
+            className={`w-4 h-4 text-text-muted transition-transform duration-150 ${
+              tipsExpanded ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+        {tipsExpanded && (
+          <div className="px-4 pb-4 space-y-2 border-t border-white/6">
+            <ul className="space-y-2.5 pt-3">
+              {[
+                "Editing 4K+ footage over 30 min? Enable Proxy Editing Mode in Editor → Performance settings.",
+                "Set Preview Resolution to Medium or Proxy for multi-hour timelines to maintain 60 FPS scrub.",
+                "Use the cache clear buttons above between long editing sessions to free GPU memory.",
+                "Clypra never loads full video files into RAM — only decoded frames are cached (1 GiB default).",
+                "Long exports run as streaming GPU pipelines — Clypra will not overheat or crash on hour-long exports.",
+              ].map((tip, i) => (
+                <li key={i} className="text-[11px] text-text-muted leading-relaxed flex gap-2">
+                  <span className="text-accent shrink-0 mt-0.5">•</span>
+                  <span>{tip}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Warning Note */}

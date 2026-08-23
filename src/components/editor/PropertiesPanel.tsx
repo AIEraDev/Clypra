@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Type, Layout, Sparkles, Film, Music, Image, FileText, Clock, Shuffle, Smile } from "lucide-react";
+import { Type, Layout, Sparkles, Film, Music, Image, FileText, Clock, Shuffle, Smile, ChevronRight } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -21,6 +21,13 @@ import { StickerSettingsSection } from "./properties/StickerSettingsSection";
 import { TimelineEffectSection } from "./properties/TimelineEffectSection";
 import { AdjustmentsSection } from "./properties/AdjustmentsSection";
 import { ChromaKeySection } from "./properties/ChromaKeySection";
+
+export interface PropertiesPanelProps {
+  width?: number;
+  fillWidth?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
 
 export function buildClipPropertyTransform(clip: Clip, updates: Record<string, unknown>, canvasWidth: number, canvasHeight: number): { oldTransform: Record<string, unknown>; newTransform: Record<string, unknown> } {
   let newTransform = { ...updates };
@@ -79,7 +86,12 @@ const TEXT_TABS: { id: TextPropertyTab; label: string; icon: React.FC<{ classNam
   { id: "transform", label: "Transform", icon: Layout },
 ];
 
-export const PropertiesPanel: React.FC = () => {
+export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
+  width,
+  fillWidth = false,
+  collapsed = false,
+  onToggleCollapse,
+}) => {
   const { selectedClipIds, selectedTransitionId, clearSelection } = useUIStore();
   const { clips, transitions, updateTransition, removeTransition } = useTimelineStore();
   const { mediaAssets, project } = useProjectStore();
@@ -89,11 +101,32 @@ export const PropertiesPanel: React.FC = () => {
   const [newPresetName, setNewPresetName] = useState("");
   const { presets, savePreset, deletePreset } = usePresetStore();
 
+  const handleTabKeyDown = (e: React.KeyboardEvent, currentIdx: number) => {
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      const nextIdx = (currentIdx + 1) % TEXT_TABS.length;
+      setActivePropertyTab(TEXT_TABS[nextIdx].id);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      const prevIdx = (currentIdx - 1 + TEXT_TABS.length) % TEXT_TABS.length;
+      setActivePropertyTab(TEXT_TABS[prevIdx].id);
+    }
+  };
+
   const selectedTransition = transitions.find((t) => t.id === selectedTransitionId);
 
   if (selectedTransitionId && selectedTransition) {
     return (
-      <div className="w-full md:w-92 min-h-0 panel-shell flex flex-col overflow-hidden shrink-0">
+      <div
+        className={`min-h-0 panel-shell flex flex-col overflow-hidden transition-[width] duration-150 ${
+          fillWidth ? "w-full flex-1" : "shrink-0"
+        }`}
+        style={{
+          width: collapsed ? 0 : fillWidth ? "100%" : (width ?? 400),
+          overflow: collapsed ? "hidden" : undefined,
+        }}
+        aria-hidden={collapsed}
+      >
         <div className="panel-head border-b border-border">
           <div className="px-4 py-2.5 flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg bg-surface-raised border border-border/40 flex items-center justify-center shrink-0 text-accent">
@@ -107,6 +140,15 @@ export const PropertiesPanel: React.FC = () => {
                 <span className="text-[9px] font-medium text-accent">Transition</span>
               </div>
             </div>
+            {onToggleCollapse && (
+              <button
+                onClick={onToggleCollapse}
+                className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer ml-auto shrink-0"
+                title="Collapse properties panel"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-3">
@@ -145,7 +187,14 @@ export const PropertiesPanel: React.FC = () => {
   const hasAudioTrack = isAudioClip || isVideoClip; // Both audio clips and video clips have audio
 
   if (!selectedClipId || !selectedClip) {
-    return <EmptyPropertiesState />;
+    return (
+      <EmptyPropertiesState
+        width={width}
+        fillWidth={fillWidth}
+        collapsed={collapsed}
+        onToggleCollapse={onToggleCollapse}
+      />
+    );
   }
 
   // Cast selected clip to TextClip when it is a text layer
@@ -219,7 +268,16 @@ export const PropertiesPanel: React.FC = () => {
   const clipDuration = selectedClip.duration.toFixed(1);
 
   return (
-    <div className="w-full md:w-92 min-h-0 panel-shell flex flex-col overflow-hidden shrink-0">
+    <div
+      className={`min-h-0 panel-shell flex flex-col overflow-hidden transition-[width] duration-150 ${
+        fillWidth ? "w-full flex-1" : "shrink-0"
+      }`}
+      style={{
+        width: collapsed ? 0 : fillWidth ? "100%" : (width ?? 400),
+        overflow: collapsed ? "hidden" : undefined,
+      }}
+      aria-hidden={collapsed}
+    >
       {/* Clip Info Header */}
       <div className="panel-head border-b border-border">
         <div className="px-4 py-2.5 flex items-center gap-3">
@@ -237,16 +295,34 @@ export const PropertiesPanel: React.FC = () => {
               </span>
             </div>
           </div>
+          {onToggleCollapse && (
+            <button
+              onClick={onToggleCollapse}
+              className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-accent hover:bg-white/5 transition-colors cursor-pointer ml-auto shrink-0"
+              title="Collapse properties panel"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         {/* Tabs for text clips */}
         {isTextClip && (
           <div className="flex border-t border-border/40">
-            {TEXT_TABS.map((tab) => {
+            {TEXT_TABS.map((tab, idx) => {
               const TabIcon = tab.icon;
               const isActive = activePropertyTab === tab.id;
               return (
-                <button key={tab.id} onClick={() => setActivePropertyTab(tab.id)} className={`flex-1 py-2 text-[10px] font-semibold tracking-wide text-center transition-all cursor-pointer border-b-2 ${isActive ? "text-accent border-accent bg-accent/[0.04]" : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.02]"}`}>
+                <button
+                  key={tab.id}
+                  onClick={() => setActivePropertyTab(tab.id)}
+                  onKeyDown={(e) => handleTabKeyDown(e, idx)}
+                  className={`flex-1 py-2 text-[10px] font-semibold tracking-wide text-center transition-all cursor-pointer border-b-2 ${
+                    isActive
+                      ? "text-accent border-accent bg-accent/[0.04]"
+                      : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.02]"
+                  }`}
+                >
                   <span className="flex items-center justify-center gap-1.5">
                     <TabIcon className="w-3 h-3" />
                     {tab.label}

@@ -35,6 +35,7 @@ import { timeToPixel, pixelToTime } from "../timeline/timelineViewport";
 
 interface FilmstripCacheEntry {
   clipId: string;
+  videoPath: string;
   epochId: RenderEpochId;
   artifacts: TransportArtifact[];
   cancelFn: (() => void) | null;
@@ -350,6 +351,12 @@ export class FilmstripCache {
         if (matchingAddr) {
           this.tileCache.setTile(matchingAddr, artifact);
           restoredCount++;
+          // Re-use existing notification pipeline: notify any mounted clip referencing this videoPath
+          for (const [activeClipId, entry] of this.entries) {
+            if (entry.videoPath === videoPath) {
+              this.scheduleArtifactUpdate(activeClipId, artifact);
+            }
+          }
         } else {
           try { artifact.bitmap.close(); } catch {}
         }
@@ -419,6 +426,12 @@ export class FilmstripCache {
             const matchingAddr = missingAddresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
             if (matchingAddr) {
               this.tileCache.setTile(matchingAddr, artifact);
+              // Re-use existing notification pipeline: notify any mounted clip referencing this videoPath
+              for (const [activeClipId, entry] of this.entries) {
+                if (entry.videoPath === videoPath) {
+                  this.scheduleArtifactUpdate(activeClipId, artifact);
+                }
+              }
             } else {
               try { artifact.bitmap.close(); } catch {}
             }
@@ -670,13 +683,25 @@ export class FilmstripCache {
       return;
     }
 
-    // Try to fill in any missing tiles from the global tileCache
+    // Try to fill in any missing tiles from the global tileCache (exact matches or cross-tier fallbacks)
     for (const addr of tileAddresses) {
       const alreadyKept = keptArtifacts.some((art) => Math.abs(addr.timestamp * 1000 - art.timestampMs) < 1);
       if (!alreadyKept) {
         const cached = this.tileCache.getTile(addr);
-        if (cached) {
+        if (cached && isValidArtifact(cached.artifact)) {
           keptArtifacts.push(cached.artifact);
+        } else {
+          const fallback = this.tileCache.findBestFallback(
+            clipId,
+            spatialTier,
+            addr.timestamp,
+            videoPath,
+            6.0,
+            addr.effectGraphVersion ?? 1
+          );
+          if (fallback && isValidArtifact(fallback.artifact)) {
+            keptArtifacts.push(fallback.artifact);
+          }
         }
       }
     }
@@ -734,6 +759,7 @@ export class FilmstripCache {
     // Create entry
     const entry: FilmstripCacheEntry = {
       clipId,
+      videoPath,
       epochId,
       artifacts: keptArtifacts,
       cancelFn: null,

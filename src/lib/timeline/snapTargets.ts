@@ -22,15 +22,33 @@ export interface FindSnapInput {
   draggedClipIds: string[];
   snapEnabled: boolean;
   snapThresholdSeconds?: number;
+  snapThresholdPx?: number;
+  pixelsPerSecond?: number;
   playheadTime?: number; // Future: snap to playhead
 }
 
 export function findSnap(input: FindSnapInput): SnapResult {
-  const { candidateTime, trackClips, draggedClipIds, snapEnabled, snapThresholdSeconds = 0.1, playheadTime } = input;
+  const {
+    candidateTime,
+    trackClips,
+    draggedClipIds,
+    snapEnabled,
+    snapThresholdPx = 8,
+    pixelsPerSecond,
+    snapThresholdSeconds: explicitSeconds,
+    playheadTime,
+  } = input;
 
   if (!snapEnabled) {
     return { snapped: false, originalTime: candidateTime };
   }
+
+  const snapThresholdSeconds =
+    typeof explicitSeconds === "number" && !isNaN(explicitSeconds)
+      ? explicitSeconds
+      : typeof pixelsPerSecond === "number" && !isNaN(pixelsPerSecond) && pixelsPerSecond > 0
+        ? snapThresholdPx / pixelsPerSecond
+        : 0.1;
 
   const draggedSet = new Set(draggedClipIds);
   const rest = trackClips.filter((c) => !draggedSet.has(c.id));

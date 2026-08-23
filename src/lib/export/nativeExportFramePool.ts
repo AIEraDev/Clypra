@@ -21,6 +21,7 @@ interface ExportFrameRequest {
   timeSecs: number;
   width: number;
   height: number;
+  fps?: number;
 }
 
 export function fitNativeFrameDimensions(
@@ -65,6 +66,7 @@ export class NativeExportFramePool {
   async acquire(request: ExportFrameRequest): Promise<HTMLCanvasElement> {
     const width = Math.max(1, Math.round(request.width));
     const height = Math.max(1, Math.round(request.height));
+    const fps = typeof request.fps === "number" && request.fps > 0 ? request.fps : 30;
     let surface = this.surfaces.get(request.key);
 
     if (!surface) {
@@ -100,10 +102,10 @@ export class NativeExportFramePool {
     const backoffs = [10, 25, 50];
     for (let attempt = 0; attempt <= backoffs.length; attempt++) {
       try {
-        const frameIndex = Math.max(0, Math.round(request.timeSecs * 30));
+        const frameIndex = Math.max(0, Math.round(request.timeSecs * fps));
         const nativeRequest = createNativeFrameRequest({
           requestId: `export:${request.key}:${frameIndex}:${width}x${height}`,
-          frameTime: frameIndexToNativeTime(frameIndex, 30),
+          frameTime: frameIndexToNativeTime(frameIndex, fps),
           project: {
             schemaVersion: 1,
             projectRevision: `export:${request.key}`,

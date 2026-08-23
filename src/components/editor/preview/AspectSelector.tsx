@@ -59,8 +59,8 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
         title="Preview aspect ratio"
         aria-expanded={aspectMenuOpen}
       >
-        <span className="max-w-18 truncate">
-          {PREVIEW_ASPECT_LABEL[previewAspectPreset]}
+        <span className="font-semibold text-text-primary">
+          {previewAspectPreset === "original" ? "Orig" : previewAspectPreset}
         </span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
       </button>

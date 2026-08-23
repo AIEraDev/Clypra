@@ -107,7 +107,7 @@ export const TransitionIndicator: React.FC<TransitionIndicatorProps> = ({ transi
       ref={indicatorRef}
       data-timeline-interactive="true"
       onPointerDown={handlePointerDown}
-      className={`absolute top-0 bottom-0 pointer-events-auto cursor-ew-resize transition-all z-40 ${isSelected ? "ring-2 ring-white ring-offset-2 ring-offset-transparent" : ""}`}
+      className={`absolute top-0 bottom-0 pointer-events-auto cursor-ew-resize cursor-col-resize transition-all z-40 ${isSelected ? "ring-2 ring-white ring-offset-2 ring-offset-transparent" : ""}`}
       style={{
         left: `${left}px`,
         width: `${width}px`,

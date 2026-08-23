@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback, useMemo } from "react";
-import { Film } from "lucide-react";
+import { Film, ArrowLeft } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
@@ -391,11 +391,22 @@ export const Timeline: React.FC = () => {
       <TimelineToolbar />
 
       {showInactivePreviewOverlay && (
-        <div
-          data-testid="timeline-program-inactive-overlay"
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-10 bottom-0 z-[170] bg-gray-500/25"
-        />
+        <>
+          <div
+            data-testid="timeline-program-inactive-overlay"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-10 bottom-0 z-[170] bg-black/40 backdrop-blur-[0.5px]"
+          />
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 z-[180] pointer-events-none">
+            <button
+              onClick={exitSourceMode}
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-floating border border-accent/40 text-accent text-xs font-semibold shadow-xl hover:bg-accent/15 transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Exit Source Mode
+            </button>
+          </div>
+        </>
       )}
 
       {hasClips && (
@@ -640,7 +651,7 @@ export const Timeline: React.FC = () => {
 
               {snapGuides.map((guide, index) => {
                 const guideLeft =
-                  guide.time * pixelsPerSecond +
+                  timeToPixel(guide.time, pixelsPerSecond) +
                   getTimelineLabelColumnWidth(hasClips);
                 const guideColor =
                   guide.type === "playhead"

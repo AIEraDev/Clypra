@@ -1646,14 +1646,8 @@ export const NativeProgramPreview: React.FC = () => {
           seek(targetTime);
         }}
         leftActions={
-          <div className="flex items-center gap-1">
-            <div className="relative" ref={speedMenuRef}>
-              <PlaybackSpeedSelector playbackSpeed={playbackSpeed} speedMenuOpen={speedMenuOpen} setSpeedMenuOpen={setSpeedMenuOpen} setSpeed={setSpeed} />
-            </div>
-            <div className="w-px h-3 bg-white/10 mx-0.5" />
-            <div className="relative" ref={qualityMenuRef}>
-              <PlaybackQualitySelector previewQuality={previewQuality} qualityMenuOpen={qualityMenuOpen} setQualityMenuOpen={setQualityMenuOpen} setPreviewQuality={setPreviewQuality} />
-            </div>
+          <div className="relative" ref={speedMenuRef}>
+            <PlaybackSpeedSelector playbackSpeed={playbackSpeed} speedMenuOpen={speedMenuOpen} setSpeedMenuOpen={setSpeedMenuOpen} setSpeed={setSpeed} />
           </div>
         }
         rightActions={

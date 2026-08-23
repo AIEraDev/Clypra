@@ -1,11 +1,11 @@
 import React, { useRef, useState } from "react";
-import { ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, Link2, Mic, Search, Maximize2 } from "lucide-react";
+import { ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, Link2, Mic, Search, Maximize2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { generateId } from "@/lib/utils/id";
-import { useSettingsStore } from "@/store/settingsStore";
+import { useSettingsStore, type PreviewQuality } from "@/store/settingsStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { SuccessToast } from "@/components/ui/SuccessToast";
 import { DEFAULT_SRP_CONFIG, SpatialTier } from "@/lib/renderEngine/types";
@@ -19,8 +19,9 @@ export const TimelineToolbar: React.FC = () => {
   const { zoomLevel, pixelsPerSecond, swapClips, tracks, clips, normalizeTrack } = useTimelineStore();
   const { selectedClipIds } = useUIStore();
   const { state: historyState, undo, redo } = useHistoryStore();
+  const { previewQuality, setPreviewQuality, proxyEditingEnabled } = useSettingsStore();
   const [splitMode, setSplitMode] = useState(false);
-  // const [linkMode, setLinkMode] = useState(true);
+  const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const zoomRailRef = useRef<HTMLDivElement>(null);
   const zoomGestureAnchorRef = useRef<TimelineZoomAnchor | null>(null);
@@ -245,12 +246,6 @@ export const TimelineToolbar: React.FC = () => {
             </Button>
           </Tool>
 
-          {/* <Tool label="Link clips">
-            <Button variant="ghost" size="icon-sm" className={linkMode ? activeButton : toolButton} onClick={() => setLinkMode(!linkMode)}>
-              <Link2 className="w-4 h-4" />
-            </Button>
-          </Tool> */}
-
           <Tool label="Delete selected clip(s)">
             <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteSelectedClips} disabled={selectedClipIds.length === 0}>
               <Trash2 className="w-4 h-4" />
@@ -271,6 +266,55 @@ export const TimelineToolbar: React.FC = () => {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Proxy Mode indicator badge */}
+          {proxyEditingEnabled && (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[10px] font-semibold shrink-0">
+              <Zap className="w-3 h-3" />
+              Proxy Mode
+            </span>
+          )}
+
+          {/* Preview Quality Quick Picker */}
+          <div className="relative">
+            <button
+              onClick={() => setShowQualityMenu((v) => !v)}
+              className="flex items-center gap-1 px-2 py-1 rounded-md bg-surface-raised border border-white/6 text-[10px] font-semibold text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+              title="Preview resolution (does not affect final export)"
+            >
+              <Zap className="w-3 h-3 text-accent" />
+              {{ full: "Full", high: "High", medium: "Med", low: "Proxy" }[previewQuality]}
+            </button>
+            {showQualityMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowQualityMenu(false)} />
+                <div className="absolute bottom-full right-0 mb-1.5 z-50 bg-surface-floating border border-border rounded-lg shadow-xl overflow-hidden min-w-32 py-1">
+                  {([
+                    { value: "full" as PreviewQuality, label: "Full 4K" },
+                    { value: "high" as PreviewQuality, label: "High 1080p" },
+                    { value: "medium" as PreviewQuality, label: "Medium 720p" },
+                    { value: "low" as PreviewQuality, label: "Proxy 480p" },
+                  ]).map((tier) => (
+                    <button
+                      key={tier.value}
+                      onClick={() => {
+                        setPreviewQuality(tier.value);
+                        setShowQualityMenu(false);
+                      }}
+                      className={`w-full px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer flex items-center justify-between ${
+                        previewQuality === tier.value
+                          ? "text-accent bg-accent/10 font-semibold"
+                          : "text-text-muted hover:text-text-primary hover:bg-white/5"
+                      }`}
+                    >
+                      <span>{tier.label}</span>
+                      {previewQuality === tier.value && <span className="text-accent text-xs">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
           <VoiceoverRecorderButton />
 
           <span className="inline-flex items-center gap-1">

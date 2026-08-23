@@ -518,7 +518,8 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
       trackClips: allClipsForSnapping, // Use all clips instead of just target track clips
       draggedClipIds: ds.draggedClipIds,
       snapEnabled,
-      snapThresholdSeconds: SNAP_THRESHOLD_SECONDS,
+      snapThresholdPx: 8,
+      pixelsPerSecond: pps,
       playheadTime: currentTime, // Snap to playhead position
     });
 

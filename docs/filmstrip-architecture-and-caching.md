@@ -14,11 +14,14 @@ The fundamental principle governing filmstrip thumbnail extraction and presentat
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 1. DATA EXTRACTION LAYER (Decoupled from Viewport & Zoom)                              │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│ • Media Pool Import:                                                                   │
-│   - Extracts ONLY 1 single poster frame (<150ms). Zero background decode storm.        │
+│ • Media Pool Import (Eager Bounded Baseline Pre-warm):                                 │
+│   - Extracts 1 poster frame (<150ms) + preloads bounded Tier-0 coarse baseline (≤300).│
+│   - Bounded to 13–20 coarse tiles at low concurrency (2) to warm cache before timeline.│
+│   - Stored in on-disk atlas and FilmstripTileCache for 0ms initial timeline drop.      │
 │                                                                                        │
-│ • Timeline Drop (Asset-Wide Coarse Baseline):                                          │
-│   - Preloads a bounded Tier-0 coarse baseline across 100% of duration (≤300 tiles).    │
+│ • Timeline Drop & Horizontal Scrolling:                                                │
+│   - Frame 0 synchronously paints resident L0/L1 baseline tiles from tileCache.         │
+│   - Preload arrivals automatically notify active mounted clips via RAF batch pipeline. │
 │   - Dispatches PLAYHEAD-FIRST (|t - t_playhead|): frame under playhead fills in <110ms.│
 │   - When playhead is at clip start / 00:00, streams left-to-right from visible start.   │
 │   - Memory footprint is strictly bounded (≤1.8 MB storage) even on 3-hour media.       │

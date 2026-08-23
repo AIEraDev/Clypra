@@ -6,7 +6,6 @@
  */
 
 export { Timeline } from "./Timeline";
-export { TimelineControls } from "./TimelineControls";
 export { TimelineRuler } from "./TimelineRuler";
 export { TimelineToolbar } from "./TimelineToolbar";
 export { TimelineWaveform } from "./TimelineWaveform";

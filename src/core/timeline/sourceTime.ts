@@ -8,10 +8,15 @@ export interface SourceTimeResolution {
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
-export function resolveClipSourceTime(clip: Pick<Clip, "startTime" | "duration" | "trimIn" | "trimOut">, timelineTime: number, options?: { clampToRange?: boolean; frameRate?: number }): SourceTimeResolution {
+export function resolveClipSourceTime(
+  clip: Pick<Clip, "startTime" | "duration" | "trimIn" | "trimOut"> & { speed?: number },
+  timelineTime: number,
+  options?: { clampToRange?: boolean; frameRate?: number }
+): SourceTimeResolution {
   const localTime = timelineTime - clip.startTime;
   const active = localTime >= 0 && localTime < clip.duration;
-  const rawSourceTime = clip.trimIn + localTime;
+  const speed = typeof clip.speed === "number" && clip.speed > 0 ? clip.speed : 1;
+  const rawSourceTime = clip.trimIn + localTime * speed;
 
   if (options?.clampToRange) {
     // Enforce trimOut as required

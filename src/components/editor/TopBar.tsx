@@ -5,6 +5,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
 import { platform } from "@/core/platform";
 import { isMacOSPlatform, WindowControls, WindowDragRegion } from "../ui/WindowControls";
+import { LayoutPresetMenu } from "./layout/LayoutPresetMenu";
 
 // Lazy load ExportDialog
 const ExportDialog = lazy(() => import("../ui/ExportDialog").then((m) => ({ default: m.ExportDialog })));
@@ -47,8 +48,10 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
         <WindowDragRegion />
 
-        {/* Right side - Settings & Export */}
+        {/* Right side - Layout Switcher, Settings & Export */}
         <div className="flex items-center gap-1.5 shrink-0" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+          <LayoutPresetMenu />
+
           <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
             <Settings className="w-3.5 h-3.5" />
           </Button>

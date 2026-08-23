@@ -265,7 +265,8 @@ export class RasterSurface {
       ctx.beginPath();
       ctx.rect(Math.round(x), Math.round(y), Math.round(tileW), Math.round(tileH));
       ctx.clip();
-      ctx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(bitmap, drawX, drawY, drawW, drawH);
       ctx.restore();
     } catch (e) {

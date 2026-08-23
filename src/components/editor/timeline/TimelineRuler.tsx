@@ -12,6 +12,7 @@ import {
   pixelToTime,
   getTimelineCanvasDuration,
 } from "@/lib/timeline/timelineViewport";
+import { formatTimecode } from "@/lib/utils/timeFormatting";
 
 import type { TimelineMarker } from "@/types";
 
@@ -368,21 +369,24 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
   // ── Format label (00:SS or 00:SS.f or 00:SS:FF) ───────────────────────────
   const formatLabel = useCallback((seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
+    const fps = frameRate || 30;
+    if (pixelsPerSecond >= 300) {
+      // Deep zoom: show exact frame timecode MM:SS:FF
+      return formatTimecode(seconds, fps);
+    }
     const remainder = seconds - Math.floor(seconds);
     if (remainder > 0.001) {
-      if (pixelsPerSecond >= 300) {
-        // Deep zoom: show frame timecode MM:SS:FF
-        const fps = frameRate || 30;
-        const frame = Math.round(remainder * fps) % fps;
-        return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}:${String(frame).padStart(2, "0")}`;
-      }
       const frac = Math.round(remainder * 10);
       if (frac > 0 && frac < 10) {
+        const totalSecs = Math.floor(seconds);
+        const mins = Math.floor(totalSecs / 60);
+        const secs = totalSecs % 60;
         return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${frac}`;
       }
     }
+    const totalSecs = Math.round(seconds);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }, [pixelsPerSecond, frameRate]);
 

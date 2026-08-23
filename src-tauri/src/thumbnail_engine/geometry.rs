@@ -59,7 +59,7 @@ pub fn fit_preserving_aspect_aligned(
     tier_h: u32,
 ) -> (u32, u32) {
     if src_w == 0 || src_h == 0 {
-        return (tier_w, tier_h);
+        return (align_dimension(tier_w), align_dimension(tier_h));
     }
 
     let src_w_f = src_w as f64;
@@ -108,6 +108,16 @@ mod tests {
     fn test_fit_preserving_aspect_aligned() {
         // Result should be aligned to multiple of 4
         let (w, h) = fit_preserving_aspect_aligned(1920, 1080, 320, 180);
+        assert_eq!(w % 4, 0);
+        assert_eq!(h % 4, 0);
+        assert_eq!((w, h), (320, 180));
+    }
+
+    #[test]
+    fn test_fit_preserving_aspect_aligned_portrait_long_edge() {
+        // 9:16 portrait in 320x180 tier box: long edge (height) matches tier max dimension (320)
+        let (w, h) = fit_preserving_aspect_aligned(1080, 1920, 320, 180);
+        assert_eq!((w, h), (180, 320));
         assert_eq!(w % 4, 0);
         assert_eq!(h % 4, 0);
     }

@@ -40,6 +40,14 @@ function waveformCacheGet(key: string): WaveformBucket[] | undefined {
   return value;
 }
 
+function quantizeWaveformSampleCount(rawWidthPx: number): number {
+  const target = Math.max(rawWidthPx / 1.5, 200);
+  if (target <= 256) return 256;
+  if (target <= 512) return 512;
+  if (target <= 1024) return 1024;
+  return 2048;
+}
+
 export function useWaveformData({
   audioPath,
   clipWidthPx,
@@ -53,10 +61,7 @@ export function useWaveformData({
 
   const validClipWidth =
     typeof clipWidthPx === "number" && !isNaN(clipWidthPx) ? clipWidthPx : 300;
-  const sampleCount = Math.min(
-    Math.max(Math.floor(validClipWidth / 1.5), 200),
-    2000,
-  );
+  const sampleCount = quantizeWaveformSampleCount(validClipWidth);
   const sourceStart = Math.max(0, Number.isFinite(trimIn) ? trimIn : 0);
   const sourceDuration = Math.max(
     0,
@@ -131,27 +136,28 @@ export function useWaveformData({
             startSample,
             endSample,
           );
-          const blockSize = Math.max(
-            1,
-            Math.floor(visibleChannelData.length / sampleCount),
-          );
+          const totalSamples = visibleChannelData.length;
           const buckets: WaveformBucket[] = [];
 
           for (let i = 0; i < sampleCount; i++) {
-            const start = i * blockSize;
-            const end = start + blockSize;
+            const start = Math.floor((i * totalSamples) / sampleCount);
+            const end = Math.min(
+              totalSamples,
+              Math.floor(((i + 1) * totalSamples) / sampleCount),
+            );
             let peak = 0;
             let sumSquares = 0;
+            const count = Math.max(1, end - start);
 
-            for (let j = start; j < end && j < visibleChannelData.length; j++) {
+            for (let j = start; j < end; j++) {
               const value = Math.abs(visibleChannelData[j]);
               peak = Math.max(peak, value);
-              sumSquares += visibleChannelData[j] * visibleChannelData[j];
+              sumSquares += value * value;
             }
 
             buckets.push({
               peak,
-              rms: Math.sqrt(sumSquares / blockSize),
+              rms: Math.sqrt(sumSquares / count),
             });
           }
 

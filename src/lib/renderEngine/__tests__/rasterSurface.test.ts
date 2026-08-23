@@ -43,6 +43,7 @@ function makeCanvas() {
     drawImage,
     createLinearGradient,
     imageSmoothingEnabled: true,
+    imageSmoothingQuality: "high" as ImageSmoothingQuality,
     fillStyle: "",
   };
 
@@ -166,12 +167,13 @@ describe("RasterSurface", () => {
     expect(bitmap.close).not.toHaveBeenCalled();
   });
 
-  it("imageSmoothingEnabled is false during drawTile", () => {
+  it("imageSmoothingEnabled is true with high quality during drawTile", () => {
     const { canvas, ctx } = makeCanvas();
     const surface = new RasterSurface(canvas);
     surface.drawFilmstrip([makeArtifact(1000)], layout({ clipWidthPx: 60 }));
-    // After drawTile, imageSmoothingEnabled should have been set to false
-    expect(ctx.imageSmoothingEnabled).toBe(false);
+    // After drawTile, imageSmoothingEnabled should be true with high quality for smooth downscaling/fallback
+    expect(ctx.imageSmoothingEnabled).toBe(true);
+    expect(ctx.imageSmoothingQuality).toBe("high");
     surface.dispose();
   });
 

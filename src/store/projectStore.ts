@@ -37,6 +37,7 @@ import { useSettingsStore } from "./settingsStore";
 import { saveSnapshot, clearSnapshot } from "@/core/runtime/CrashRecoveryService";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
+import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
 interface ProjectStore {
@@ -470,10 +471,21 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     });
     get().scheduleAutoSave();
 
-    // Trigger background thumbnail pre-extraction for video assets.
-    // The Low → Medium → High density cascade is handled entirely in Rust
-    // Native decoder handles on-demand extraction via decode_frames_streaming
-    // No preloading needed - decoder is fast enough (3-15ms per frame)
+    // Trigger eager background baseline preload for video assets on project import.
+    // Bounded to <=300 L0 tiles at low concurrency so tiles are warm before timeline drop.
+    if (asset.type === "video" && asset.path && typeof asset.duration === "number" && asset.duration > 0) {
+      try {
+        const session = getActiveSessionOrNull();
+        if (session && session.state === "active") {
+          session.renderRuntime.preloadAssetCoarseBaseline({
+            videoPath: asset.path,
+            duration: asset.duration,
+          });
+        }
+      } catch (err) {
+        console.warn("[projectStore] Failed to trigger coarse baseline preload for asset:", asset.path, err);
+      }
+    }
   },
 
   updateMediaAsset: (assetId, updates) => {

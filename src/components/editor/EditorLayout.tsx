@@ -2,568 +2,850 @@ import React from "react";
 import { TopBar } from "./TopBar";
 import { Sidebar as EnhancedMediaPanel } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
+import { SourcePreview } from "./preview/SourcePreview";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
-import { getInsertIndexForNewTrack, getInsertIndexForNewTrackGrouped, useTimelineStore } from "@/store/timelineStore";
-import { useProjectStore } from "@/store/projectStore";
-import { generateId } from "@/lib/utils/id";
-import { createClipFromAsset } from "@/lib/timeline/timelineClip";
-import { createTextClip, TEXT_PRESETS } from "@/lib/text/textClip";
-import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAutoAspect";
-import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefaultFitModeForAsset } from "@/lib/timeline/placementPolicy";
-import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useWindowSize } from "@/hooks/useWindowSize";
-import { platform } from "@/core/platform";
 import { MobileEditorLayout } from "./MobileEditorLayout";
-import type { MediaAsset, TrackType } from "@/types";
-import { useUIStore } from "@/store/uiStore";
-import { useAudioLibraryStore } from "@/features/audio-library/store/audioLibraryStore";
-import { useStickersStore } from "@/features/stickers/store/stickersStore";
-import { filterCacheManager } from "@/features/filters/cache/filterCache";
-import { AddClipCommand, UpdateClipCommand, AddTransitionCommand } from "@/core/history/commands";
-import { useHistoryStore } from "@/store/historyStore";
+import { useAddToTimeline } from "@/hooks/useAddToTimeline";
+import { usePanelResize } from "@/hooks/usePanelResize";
+import { useSettingsStore } from "@/store/settingsStore";
 
 interface EditorLayoutProps {
   onRequestClose?: () => void;
 }
 
-export const EditorLayout: React.FC<EditorLayoutProps> = ({ onRequestClose }) => {
+export const EditorLayout: React.FC<EditorLayoutProps> = ({
+  onRequestClose,
+}) => {
   // Call all hooks first before any conditional returns (Rules of Hooks)
   const { width } = useWindowSize();
+  const handleAddToTimeline = useAddToTimeline();
 
-  // Only subscribe to actions, not state - prevents re-renders when clips/tracks change
-  const addClip = useTimelineStore((s) => s.addClip);
-  const updateClip = useTimelineStore((s) => s.updateClip);
-  const insertTrackAt = useTimelineStore((s) => s.insertTrackAt);
-  const getTimelineEndTime = useTimelineStore((s) => s.getTimelineEndTime);
-  const createTransitionBetweenClips = useTimelineStore((s) => s.createTransitionBetweenClips);
+  const {
+    layoutPreset,
+    timelineHeight,
+    setTimelineHeight,
+    sidebarWidth,
+    setSidebarWidth,
+    propertiesPanelWidth,
+    setPropertiesPanelWidth,
+    tallPlayerWidth,
+    setTallPlayerWidth,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    propertiesPanelCollapsed,
+    setPropertiesPanelCollapsed,
+  } = useSettingsStore();
 
-  // Read state only when needed in the handler (not as subscriptions)
-  const getTimelineState = () => {
-    const state = useTimelineStore.getState();
-    return { tracks: state.tracks, clips: state.clips };
-  };
-  const { mediaAssets, project, updateProject, addMediaAsset } = useProjectStore();
-  const { selectedClipIds } = useUIStore();
-  const execute = useHistoryStore((s) => s.execute);
+  const isTimelineFocus = layoutPreset === "timeline-focus";
+  const defaultTimelineH = isTimelineFocus
+    ? (typeof window !== "undefined" ? Math.round(window.innerHeight * 0.58) : 520)
+    : 400;
 
-  const findAdjacentClipsAtPlayhead = () => {
-    const { tracks, clips } = getTimelineState();
-    const playheadTime = getPlaybackClock().time;
-    for (const track of tracks.filter((candidate) => candidate.type !== "audio" && !candidate.locked)) {
-      const sorted = clips.filter((clip) => clip.trackId === track.id).sort((a, b) => a.startTime - b.startTime);
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const left = sorted[i];
-        const right = sorted[i + 1];
-        const cutTime = left.startTime + left.duration;
-        const isAtCut = Math.abs(cutTime - right.startTime) <= 0.001 && Math.abs(playheadTime - cutTime) <= 0.25;
-        if (isAtCut) return [left.id, right.id] as const;
-      }
-    }
-    return null;
-  };
-  const { getCachedFile } = useAudioLibraryStore();
-
-  const handleAddToTimeline = async (item: any, type: string) => {
-    // Get current timeline state
-    const { tracks, clips } = getTimelineState();
-
-    // Handle different item types
-    if (type === "media") {
-      const mediaAsset = mediaAssets.find((asset) => asset.id === item.id);
-      if (!mediaAsset) return;
-
-      const placement = resolveAddToTimelinePlacement({
-        asset: mediaAsset,
-        tracks,
-        clips,
-        playheadTime: getPlaybackClock().time,
-        sequenceEndTime: getTimelineEndTime(),
-      });
-      let targetTrackId = placement.targetTrackId;
-      if (placement.shouldCreateTrack || !targetTrackId) {
-        const latestTracks = useTimelineStore.getState().tracks;
-        const insertIndex = getInsertIndexForNewTrack(latestTracks, placement.trackType);
-        targetTrackId = insertTrackAt(placement.trackType, insertIndex);
-      }
-
-      if (!targetTrackId) return;
-
-      if (DEFAULT_PLACEMENT_POLICY.autoAdaptSequenceForFirstVisualClip) {
-        autoAdaptSequenceForFirstVisualClip({
-          project,
-          existingClips: clips,
-          asset: mediaAsset,
-          updateProject,
-        });
-      }
-
-      const nextProject = useProjectStore.getState().project;
-
-      const newClip = createClipFromAsset({
-        asset: mediaAsset,
-        trackId: targetTrackId,
-        startTime: placement.startTime,
-        width: nextProject?.canvasWidth || project?.canvasWidth || 1920,
-        height: nextProject?.canvasHeight || project?.canvasHeight || 1080,
-        fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-      });
-
-      execute(new AddClipCommand(newClip));
-    } else if (type === "text") {
-      // Text clips follow the same placement policy semantics:
-      // playhead-first, no overwrite, create track when occupied.
-      const placement = resolveAddToTimelinePlacement({
-        asset: { type: "video", id: item.id, trackType: "text" },
-        tracks,
-        clips,
-        playheadTime: getPlaybackClock().time,
-        sequenceEndTime: getTimelineEndTime(),
-      });
-
-      let targetTrackId = placement.targetTrackId;
-      if (placement.shouldCreateTrack || !targetTrackId) {
-        const latestTracks = useTimelineStore.getState().tracks;
-        const insertIndex = getInsertIndexForNewTrack(latestTracks, "text");
-        targetTrackId = insertTrackAt("text", insertIndex);
-      }
-
-      if (!targetTrackId) return;
-
-      // Determine preset settings
-      let presetConfig = {};
-      if (item.id && item.id.startsWith("text-")) {
-        const presetName = item.name?.toLowerCase().replace(/\s+/g, "") as keyof typeof TEXT_PRESETS;
-        if (TEXT_PRESETS[presetName]) {
-          presetConfig = TEXT_PRESETS[presetName];
-        }
-      }
-
-      // If styleId is present but effectDefinition is missing, fetch it before creating the clip
-      let effectDefinition = item.effectDefinition;
-      if (item.styleId && !effectDefinition) {
-        try {
-          const { useEffectsStore } = await import("@/features/text-effects/store/effectsStore");
-          const store = useEffectsStore.getState();
-
-          // Check if already in store cache
-          effectDefinition = store.definitions[item.styleId];
-
-          // If not in cache, fetch it
-          if (!effectDefinition) {
-            await store.fetchDefinitionOnlyById(item.styleId);
-            effectDefinition = useEffectsStore.getState().definitions[item.styleId];
-          }
-        } catch (error) {
-          // Continue without definition - will use fallback sizing
-        }
-      }
-
-      // Create text clip
-      const textClip = createTextClip({
-        trackId: targetTrackId,
-        startTime: placement.startTime,
-        duration: 5.0,
-        text: item.text || item.name || "Text", // Use effect's default text first, then name as fallback
-        canvasWidth: project?.canvasWidth || 1920,
-        canvasHeight: project?.canvasHeight || 1080,
-        textRole: "title", // Text effects and templates are titles, not captions
-        ...presetConfig,
-        // Map styling properties from custom text tab effects or templates
-        fontFamily: item.fontFamily,
-        color: item.color,
-        fontSize: item.fontSize,
-        fontWeight: item.fontWeight,
-        fontStyle: item.fontStyle,
-        stroke: item.stroke,
-        shadow: item.shadow,
-        background: item.background,
-        styleId: item.styleId,
-        effectDefinition: effectDefinition, // ← Now properly fetched if missing
-        templateId: item.templateId,
-        customization: item.customization,
-      });
-
-      execute(new AddClipCommand(textClip));
-    } else if (type === "audio" && item?.audioUrl) {
-      // Audio library item - must be downloaded first
-      const cachedFile = getCachedFile(item.id);
-
-      if (!cachedFile) {
-        return;
-      }
-
-      // Convert relative cache path to absolute path
-      // cachedFile.localPath is relative to AppCache (e.g., "audio-library/filename.wav")
-      (async () => {
-        const appCache = await platform.appCacheDir();
-        const absolutePath = await platform.joinPaths(appCache, cachedFile.localPath);
-
-        // Use local cached file path
-        const mediaAsset: MediaAsset = {
-          id: `audio-library-${item.id}`,
-          name: item.name || "Library Audio",
-          path: absolutePath, // Use absolute path for media playback
-          type: "audio",
-          duration: cachedFile.metadata.duration || Number(item.duration) || 5,
-          size: cachedFile.size,
-          // coverArt removed - will use Clypra logo fallback in preview
-        };
-
-        // NOTE: Don't add audio library items to project media assets
-        // They should only exist as timeline clips, not in the media panel
-        // addMediaAsset(mediaAsset);
-
-        const latestTracks = useTimelineStore.getState().tracks;
-        const latestClips = useTimelineStore.getState().clips;
-        const placement = resolveAddToTimelinePlacement({
-          asset: mediaAsset,
-          tracks: latestTracks,
-          clips: latestClips,
-          playheadTime: getPlaybackClock().time,
-          sequenceEndTime: getTimelineEndTime(),
-        });
-        let targetTrackId = placement.targetTrackId;
-        if (placement.shouldCreateTrack || !targetTrackId) {
-          const insertIndex = getInsertIndexForNewTrack(useTimelineStore.getState().tracks, "audio");
-          targetTrackId = insertTrackAt("audio", insertIndex);
-        }
-
-        if (!targetTrackId) return;
-
-        execute(
-          new AddClipCommand(createClipFromAsset({
-            asset: mediaAsset,
-            trackId: targetTrackId,
-            startTime: placement.startTime,
-            width: project?.canvasWidth || 1920,
-            height: project?.canvasHeight || 1080,
-            fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-            audioPath: absolutePath, // Store path directly for audio library items
-          }) as any)
-        );
-      })().catch((error) => {
-        console.error("[EditorLayout] Failed to add audio to timeline:", error);
-      });
-    } else if (type === "stickers") {
-      const cachedSticker = useStickersStore.getState().getCachedSticker(item.id);
-      if (!cachedSticker) {
-        return;
-      }
-
-      (async () => {
-        const appCache = await platform.appCacheDir();
-
-        // Stickers are Lottie-only now
-        const relativePath = cachedSticker.localImagePath || "";
-        if (!relativePath) {
-          return;
-        }
-
-        const absolutePath = await platform.joinPaths(appCache, relativePath);
-        const absoluteAnimationPath = cachedSticker.localAnimationPath ? await platform.joinPaths(appCache, cachedSticker.localAnimationPath) : undefined;
-
-        const mediaAsset: MediaAsset = {
-          id: `sticker-${item.id}`,
-          name: item.name || "Sticker",
-          path: absolutePath,
-          type: "image",
-          duration: 3.0,
-          size: 0,
-          stickerFormat: "lottie",
-          stickerAnimationPath: absoluteAnimationPath,
-          stickerSourceId: item.id,
-          width: 400,
-          height: 400,
-        };
-
-        const latestTracks = useTimelineStore.getState().tracks;
-        const latestClips = useTimelineStore.getState().clips;
-        const placement = resolveAddToTimelinePlacement({
-          asset: mediaAsset,
-          tracks: latestTracks,
-          clips: latestClips,
-          playheadTime: getPlaybackClock().time,
-          sequenceEndTime: getTimelineEndTime(),
-        });
-
-        let targetTrackId = placement.targetTrackId;
-        if (placement.shouldCreateTrack || !targetTrackId) {
-          const insertIndex = getInsertIndexForNewTrack(useTimelineStore.getState().tracks, placement.trackType);
-          targetTrackId = insertTrackAt(placement.trackType, insertIndex);
-        }
-
-        if (!targetTrackId) return;
-
-        const stickerClip = createClipFromAsset({
-          asset: mediaAsset,
-          trackId: targetTrackId,
-          startTime: placement.startTime,
-          width: project?.canvasWidth || 1920,
-          height: project?.canvasHeight || 1080,
-          fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-        });
-        execute(new AddClipCommand(stickerClip));
-      })().catch((error) => {
-        console.error("[EditorLayout] Failed to add sticker to timeline:", error);
-      });
-    } else if (type === "transitions") {
-      const selectedPair = selectedClipIds.length === 2 ? ([selectedClipIds[0], selectedClipIds[1]] as const) : null;
-      const pair = selectedPair ?? findAdjacentClipsAtPlayhead();
-      if (!pair) {
-        useProjectStore.getState().showToast("Select two adjacent clips or place the playhead at a cut", "warning");
-        return;
-      }
-
-      // Use the transition renderer from the API
-      const transitionType = item?.renderer || item?.category || "fade";
-      const transitionDuration = item?.duration?.default || Number(item?.duration) || 0.5;
-      const renderer = item?.renderer; // Store the renderer ID for GPU lookup
-
-      const result = createTransitionBetweenClips(pair[0], pair[1], transitionType, transitionDuration, renderer);
-      if (result.error) {
-        useProjectStore.getState().showToast(result.error, "warning");
-      } else if (result.transition) {
-        execute(new AddTransitionCommand(result.transition));
-        useProjectStore.getState().showToast(`${item?.name || "Transition"} added between clips`);
-      }
-    } else if (type === "effects") {
-      const selectedClipId = selectedClipIds[0] ?? null;
-      let targetClip = clips.find((c) => c.id === selectedClipId);
-
-      // If no clip is explicitly selected, find the active visual clip (video/image) at the playhead
-      if (!targetClip) {
-        const currentTime = getPlaybackClock().time;
-        const visualClips = clips.filter((c) => {
-          const asset = mediaAssets.find((a) => a.id === c.mediaId);
-          return asset && (asset.type === "video" || asset.type === "image");
-        });
-        targetClip = visualClips.find((c) => currentTime >= c.startTime && currentTime <= c.startTime + c.duration);
-      }
-
-      if (!targetClip) {
-        useProjectStore.getState().showToast("Select a video or image clip to apply this effect", "warning");
-        return;
-      }
-
-      const asset = mediaAssets.find((a) => a.id === targetClip.mediaId);
-      if (asset?.type !== "video" && asset?.type !== "image") {
-        useProjectStore.getState().showToast("Effects can only be applied to video or image clips", "warning");
-        return;
-      }
-
-      const currentEffects = targetClip.effects || [];
-      const effectExists = currentEffects.some((fx) => fx.id === item.id);
-
-      if (effectExists) {
-        useProjectStore.getState().showToast(`Effect "${item.name}" is already applied`, "warning");
-        return;
-      }
-
-      const updatedEffects = [
-        ...currentEffects,
-        {
-          id: item.id,
-          effectId: item.id,
-          type: "effect" as const,
-          renderer: item.renderer || item.id,
-          params: item.params || {},
-          name: item.name,
-          startTime: 0,
-          duration: targetClip.duration,
-          intensity: 0.5,
-        },
-      ];
-
-      execute(new UpdateClipCommand(targetClip.id, { effects: currentEffects }, { effects: updatedEffects }));
-      useProjectStore.getState().showToast(`Applied ${item.name} effect`);
-    } else if (type === "filters") {
-      // Filter must be downloaded first
-      const cachedFilter = filterCacheManager.getCached(item.id);
-
-      if (!cachedFilter) {
-        useProjectStore.getState().showToast("Filter not downloaded yet", "warning");
-        return;
-      }
-
-      // Filter clips follow the same placement policy semantics:
-      // playhead-first, no overwrite, create track when occupied.
-      const placement = resolveAddToTimelinePlacement({
-        asset: { type: "video", id: item.id, trackType: "filter" },
-        tracks,
-        clips,
-        playheadTime: getPlaybackClock().time,
-        sequenceEndTime: getTimelineEndTime(),
-      });
-
-      let targetTrackId = placement.targetTrackId;
-      if (placement.shouldCreateTrack || !targetTrackId) {
-        const latestTracks = useTimelineStore.getState().tracks;
-        const latestClips = useTimelineStore.getState().clips;
-        const insertIndex = getInsertIndexForNewTrackGrouped(latestTracks, latestClips, "filter", item.id);
-        targetTrackId = insertTrackAt("filter", insertIndex);
-      }
-
-      if (!targetTrackId) return;
-
-      const defaultIntensity = item.intensity?.default !== undefined ? item.intensity.default / 100 : 0.8;
-
-      const filterClip = {
-        id: generateId("filter-clip"),
-        trackId: targetTrackId,
-        mediaId: item.id,
-        startTime: placement.startTime,
-        duration: 5.0,
-        trimIn: 0,
-        trimOut: 5.0,
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-        opacity: 1.0,
-        rotation: 0,
-        kind: "filter" as const,
-        name: cachedFilter.filter.name || "Filter",
-        intensity: defaultIntensity,
-        // Store complete filter metadata for data integrity
-        category: cachedFilter.filter.category,
-        url: cachedFilter.filter.url,
-        pipeline: cachedFilter.filter.pipeline,
-        gradingParams: cachedFilter.filter.gradingParams,
-        effectStack: cachedFilter.filter.effectStack,
-      };
-
-      execute(new AddClipCommand(filterClip as any));
-      useProjectStore.getState().showToast(`Added ${cachedFilter.filter.name} filter`);
-    } else if (type === "video-effects" || type === "body-effects") {
-      // Effects are now created directly on timeline without downloading
-      // The effect data comes from the engine's effectsRegistry
-
-      // Create effect clip on timeline (same pattern as filter clips)
-      const effectTrackType: TrackType = type === "body-effects" ? "body-effect" : "video-effect";
-
-      const placement = resolveAddToTimelinePlacement({
-        asset: { type: "video", id: item.id, trackType: effectTrackType },
-        tracks,
-        clips,
-        playheadTime: getPlaybackClock().time,
-        sequenceEndTime: getTimelineEndTime(),
-      });
-
-      let targetTrackId = placement.targetTrackId;
-      if (placement.shouldCreateTrack || !targetTrackId) {
-        const latestTracks = useTimelineStore.getState().tracks;
-        const latestClips = useTimelineStore.getState().clips;
-        const insertIndex = getInsertIndexForNewTrackGrouped(latestTracks, latestClips, effectTrackType, item.id);
-        targetTrackId = insertTrackAt(effectTrackType, insertIndex);
-      }
-
-      if (!targetTrackId) {
-        return;
-      }
-
-      const defaultIntensity = item.intensity?.default !== undefined ? item.intensity.default / 100 : 0.8;
-
-      const effectClip = {
-        id: generateId(type === "body-effects" ? "body-effect-clip" : "video-effect-clip"),
-        trackId: targetTrackId,
-        mediaId: item.id,
-        startTime: placement.startTime,
-        duration: 5.0,
-        trimIn: 0,
-        trimOut: 5.0,
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-        opacity: 1.0,
-        rotation: 0,
-        kind: type === "body-effects" ? ("body-effect" as const) : ("video-effect" as const),
-        name: item.name || "Effect",
-        intensity: defaultIntensity,
-        renderer: item.renderer || item.id,
-        params: item.params || {},
-        ...(type === "body-effects" && item.requirements ? { requirements: item.requirements } : {}),
-      };
-
-      execute(new AddClipCommand(effectClip as any));
-      useProjectStore.getState().showToast(`Added ${item.name} effect`);
-    }
-  };
-
-  const DEFAULT_TIMELINE_HEIGHT = 300;
-  const MIN_TIMELINE_HEIGHT = 160;
-
-  const [timelineHeight, setTimelineHeight] = React.useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("clypra_timeline_height");
-      if (saved) {
-        const val = parseInt(saved, 10);
-        if (!isNaN(val) && val >= MIN_TIMELINE_HEIGHT) return val;
-      }
-    }
-    return DEFAULT_TIMELINE_HEIGHT;
+  // Timeline vertical height resizer
+  const {
+    size: timelineH,
+    isDragging: isTimelineDragging,
+    handlePointerDown: handleTimelineResizerPointerDown,
+    handleDoubleClick: handleTimelineDoubleClick,
+  } = usePanelResize({
+    initial: isTimelineFocus ? defaultTimelineH : timelineHeight,
+    defaultSize: defaultTimelineH,
+    snapPoints: [defaultTimelineH],
+    min: 160,
+    max: () => window.innerHeight * (isTimelineFocus ? 0.80 : 0.65),
+    direction: "vertical",
+    onCommit: setTimelineHeight,
   });
 
-  const isDraggingRef = React.useRef(false);
-  const startYRef = React.useRef(0);
-  const startHeightRef = React.useRef(0);
+  // Sidebar horizontal width resizer
+  const {
+    size: sidebarW,
+    isDragging: isSidebarDragging,
+    handlePointerDown: handleSidebarResizerPointerDown,
+    handleDoubleClick: handleSidebarDoubleClick,
+  } = usePanelResize({
+    initial: isTimelineFocus ? 260 : sidebarWidth,
+    defaultSize: isTimelineFocus ? 260 : 400,
+    snapPoints: [260, 400],
+    min: 220,
+    max: 560,
+    direction: "horizontal",
+    onCommit: setSidebarWidth,
+  });
 
-  const handleMouseDownResizer = (e: React.MouseEvent) => {
-    e.preventDefault();
-    isDraggingRef.current = true;
-    startYRef.current = e.clientY;
-    startHeightRef.current = timelineHeight;
+  // Properties panel horizontal width resizer
+  const {
+    size: propertiesW,
+    isDragging: isPropertiesDragging,
+    handlePointerDown: handlePropertiesResizerPointerDown,
+    handleDoubleClick: handlePropertiesDoubleClick,
+  } = usePanelResize({
+    initial: isTimelineFocus ? 260 : propertiesPanelWidth,
+    defaultSize: isTimelineFocus ? 260 : 400,
+    snapPoints: [260, 400],
+    min: 220,
+    max: 560,
+    direction: "horizontal-reverse",
+    onCommit: setPropertiesPanelWidth,
+  });
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      if (!isDraggingRef.current) return;
-      const deltaY = startYRef.current - moveEvent.clientY;
-      const maxH = window.innerHeight * 0.55;
-      const newHeight = Math.max(MIN_TIMELINE_HEIGHT, Math.min(maxH, startHeightRef.current + deltaY));
-      setTimelineHeight(newHeight);
-      localStorage.setItem("clypra_timeline_height", newHeight.toString());
-    };
-
-    const handleMouseUp = () => {
-      isDraggingRef.current = false;
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-  };
+  // Tall Player column resizer
+  const {
+    size: tallPlayerW,
+    isDragging: isTallPlayerDragging,
+    handlePointerDown: handleTallPlayerResizerPointerDown,
+    handleDoubleClick: handleTallPlayerDoubleClick,
+  } = usePanelResize({
+    initial: tallPlayerWidth,
+    defaultSize: 480,
+    snapPoints: [480],
+    min: 320,
+    max: () => window.innerWidth * 0.65,
+    direction:
+      layoutPreset === "tall-player-right"
+        ? "horizontal-reverse"
+        : "horizontal",
+    onCommit: setTallPlayerWidth,
+  });
 
   // Mobile check after all hooks are called (Rules of Hooks)
   if (width < 768) {
     return <MobileEditorLayout />;
   }
 
+  // 1. TALL PLAYER RIGHT (CapCut Layout)
+  if (layoutPreset === "tall-player-right") {
+    return (
+      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+        <TopBar onRequestClose={onRequestClose} />
+
+        <div className="flex-1 min-h-0 flex overflow-hidden mt-1 relative">
+          {/* Left Block: Media + Properties (top) and Timeline (bottom) */}
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+            {/* Top row: Media & Properties */}
+            <div className="flex-1 min-h-0 flex overflow-hidden relative">
+              <EnhancedMediaPanel
+                onAddToTimeline={handleAddToTimeline}
+                width={sidebarCollapsed ? 44 : sidebarW}
+                collapsed={sidebarCollapsed}
+                onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+              />
+
+              {!sidebarCollapsed && (
+                <div
+                  onPointerDown={handleSidebarResizerPointerDown}
+                  onDoubleClick={handleSidebarDoubleClick}
+                  style={{ cursor: "col-resize" }}
+                  className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                    isSidebarDragging
+                      ? "bg-accent"
+                      : "hover:bg-accent/60 active:bg-accent"
+                  }`}
+                  title="Drag to resize media panel • Double-click to reset (400px)"
+                />
+              )}
+
+              {/* Properties panel expands in center to fill remaining width */}
+              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                <PropertiesPanel
+                  fillWidth={true}
+                  collapsed={propertiesPanelCollapsed}
+                  onToggleCollapse={() =>
+                    setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Vertical resizer for timeline */}
+            <div
+              onPointerDown={handleTimelineResizerPointerDown}
+              onDoubleClick={handleTimelineDoubleClick}
+              style={{ cursor: "row-resize" }}
+              className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
+                isTimelineDragging
+                  ? "bg-accent"
+                  : "hover:bg-accent/60 active:bg-accent"
+              }`}
+              title="Drag to resize timeline • Double-click to reset"
+            />
+
+            {/* Timeline */}
+            <div
+              className="panel-shell overflow-hidden flex-shrink-0"
+              style={{ height: `${timelineH}px` }}
+            >
+              <Timeline />
+            </div>
+          </div>
+
+          {/* Horizontal Resizer between Editing Block and Tall Player */}
+          <div
+            onPointerDown={handleTallPlayerResizerPointerDown}
+            onDoubleClick={handleTallPlayerDoubleClick}
+            style={{ cursor: "col-resize" }}
+            className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+              isTallPlayerDragging
+                ? "bg-accent"
+                : "hover:bg-accent/60 active:bg-accent"
+            }`}
+            title="Drag to resize player • Double-click to reset (480px)"
+          />
+
+          {/* Right Block: Full-Height Preview Player */}
+          <div
+            className="panel-shell flex flex-col overflow-hidden shrink-0"
+            style={{ width: `${tallPlayerW}px` }}
+          >
+            <PreviewPanel />
+          </div>
+
+          {/* Live Dimension HUDs */}
+          {isTallPlayerDragging && (
+            <div
+              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              style={{ right: `${tallPlayerW + 10}px` }}
+            >
+              <span className="text-accent font-semibold">Player</span>
+              <span className="text-white/30">•</span>
+              <span className="tabular-nums font-mono">
+                {Math.round(tallPlayerW)} px
+              </span>
+              {Math.round(tallPlayerW) === 480 && (
+                <span className="text-[10px] text-accent font-medium">
+                  (Default)
+                </span>
+              )}
+            </div>
+          )}
+
+          {isTimelineDragging && (
+            <div
+              className="absolute left-1/3 -translate-x-1/2 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              style={{ bottom: `${timelineH + 10}px` }}
+            >
+              <span className="text-accent font-semibold">Timeline</span>
+              <span className="text-white/30">•</span>
+              <span className="tabular-nums font-mono">
+                {Math.round(timelineH)} px
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 2. TALL PLAYER LEFT Layout
+  if (layoutPreset === "tall-player-left") {
+    return (
+      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+        <TopBar onRequestClose={onRequestClose} />
+
+        <div className="flex-1 min-h-0 flex overflow-hidden mt-1 relative">
+          {/* Left Block: Full-Height Preview Player */}
+          <div
+            className="panel-shell flex flex-col overflow-hidden shrink-0"
+            style={{ width: `${tallPlayerW}px` }}
+          >
+            <PreviewPanel />
+          </div>
+
+          {/* Horizontal Resizer */}
+          <div
+            onPointerDown={handleTallPlayerResizerPointerDown}
+            onDoubleClick={handleTallPlayerDoubleClick}
+            style={{ cursor: "col-resize" }}
+            className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+              isTallPlayerDragging
+                ? "bg-accent"
+                : "hover:bg-accent/60 active:bg-accent"
+            }`}
+            title="Drag to resize player • Double-click to reset (480px)"
+          />
+
+          {/* Right Block: Media + Properties (top) and Timeline (bottom) */}
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+            {/* Top row: Media & Properties */}
+            <div className="flex-1 min-h-0 flex overflow-hidden relative">
+              <EnhancedMediaPanel
+                onAddToTimeline={handleAddToTimeline}
+                width={sidebarCollapsed ? 44 : sidebarW}
+                collapsed={sidebarCollapsed}
+                onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+              />
+
+              {!sidebarCollapsed && (
+                <div
+                  onPointerDown={handleSidebarResizerPointerDown}
+                  onDoubleClick={handleSidebarDoubleClick}
+                  style={{ cursor: "col-resize" }}
+                  className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                    isSidebarDragging
+                      ? "bg-accent"
+                      : "hover:bg-accent/60 active:bg-accent"
+                  }`}
+                  title="Drag to resize media panel • Double-click to reset (400px)"
+                />
+              )}
+
+              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                <PropertiesPanel
+                  fillWidth={true}
+                  collapsed={propertiesPanelCollapsed}
+                  onToggleCollapse={() =>
+                    setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Vertical resizer for timeline */}
+            <div
+              onPointerDown={handleTimelineResizerPointerDown}
+              onDoubleClick={handleTimelineDoubleClick}
+              style={{ cursor: "row-resize" }}
+              className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
+                isTimelineDragging
+                  ? "bg-accent"
+                  : "hover:bg-accent/60 active:bg-accent"
+              }`}
+              title="Drag to resize timeline • Double-click to reset"
+            />
+
+            {/* Timeline */}
+            <div
+              className="panel-shell overflow-hidden flex-shrink-0"
+              style={{ height: `${timelineH}px` }}
+            >
+              <Timeline />
+            </div>
+          </div>
+
+          {/* Live Dimension HUD */}
+          {isTallPlayerDragging && (
+            <div
+              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              style={{ left: `${tallPlayerW + 10}px` }}
+            >
+              <span className="text-accent font-semibold">Player</span>
+              <span className="text-white/30">•</span>
+              <span className="tabular-nums font-mono">
+                {Math.round(tallPlayerW)} px
+              </span>
+              {Math.round(tallPlayerW) === 480 && (
+                <span className="text-[10px] text-accent font-medium">
+                  (Default)
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 3. DUAL PLAYER Layout (Assembly / Footage Ingest & Comparison)
+  if (layoutPreset === "dual-player") {
+    return (
+      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+        <TopBar onRequestClose={onRequestClose} />
+
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
+          <div className="flex-1 min-h-0 flex overflow-hidden relative">
+            {/* Left Media Sidebar */}
+            <EnhancedMediaPanel
+              onAddToTimeline={handleAddToTimeline}
+              width={sidebarCollapsed ? 44 : 260}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            />
+
+            {!sidebarCollapsed && (
+              <div
+                onPointerDown={handleSidebarResizerPointerDown}
+                onDoubleClick={handleSidebarDoubleClick}
+                style={{ cursor: "col-resize" }}
+                className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                  isSidebarDragging
+                    ? "bg-accent"
+                    : "hover:bg-accent/60 active:bg-accent"
+                }`}
+                title="Drag to resize media panel • Double-click to reset (260px)"
+              />
+            )}
+
+            {/* Left Monitor: Source Clip Preview */}
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
+              <div className="px-3 py-1 border-b border-border/40 bg-surface/40 flex items-center justify-between text-[11px] font-semibold text-text-muted select-none">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400/80" />
+                  Source Monitor (Ingest / In-Out)
+                </span>
+              </div>
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <SourcePreview />
+              </div>
+            </div>
+
+            {/* Divider between Source and Program */}
+            <div className="w-1 shrink-0 bg-border/40 mx-0.5" />
+
+            {/* Right Monitor: Program Timeline Preview */}
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
+              <div className="px-3 py-1 border-b border-border/40 bg-surface/40 flex items-center justify-between text-[11px] font-semibold text-text-muted select-none">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-accent" />
+                  Program Monitor (Timeline)
+                </span>
+              </div>
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <PreviewPanel />
+              </div>
+            </div>
+
+            {!propertiesPanelCollapsed && (
+              <div
+                onPointerDown={handlePropertiesResizerPointerDown}
+                onDoubleClick={handlePropertiesDoubleClick}
+                style={{ cursor: "col-resize" }}
+                className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                  isPropertiesDragging
+                    ? "bg-accent"
+                    : "hover:bg-accent/60 active:bg-accent"
+                }`}
+                title="Drag to resize properties panel • Double-click to reset (260px)"
+              />
+            )}
+
+            {/* Right Properties Panel */}
+            <PropertiesPanel
+              width={propertiesPanelCollapsed ? 0 : 260}
+              collapsed={propertiesPanelCollapsed}
+              onToggleCollapse={() =>
+                setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+              }
+            />
+          </div>
+
+          {/* Vertical Resizer for timeline */}
+          <div
+            onPointerDown={handleTimelineResizerPointerDown}
+            onDoubleClick={handleTimelineDoubleClick}
+            style={{ cursor: "row-resize" }}
+            className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
+              isTimelineDragging
+                ? "bg-accent"
+                : "hover:bg-accent/60 active:bg-accent"
+            }`}
+            title="Drag to resize timeline • Double-click to reset"
+          />
+
+          {/* Timeline */}
+          <div
+            className="panel-shell overflow-hidden flex-shrink-0"
+            style={{ height: `${timelineH}px` }}
+          >
+            <Timeline />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 4. CINEMA PREVIEW Layout (Color Grading & Screening)
+  if (layoutPreset === "cinema-preview") {
+    const cinemaTimelineH = Math.min(timelineH, 220);
+    return (
+      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+        <TopBar onRequestClose={onRequestClose} />
+
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
+          <div className="flex-1 min-h-0 flex overflow-hidden relative">
+            {/* Collapsed/Compact Media Sidebar */}
+            <EnhancedMediaPanel
+              onAddToTimeline={handleAddToTimeline}
+              width={sidebarCollapsed ? 44 : 220}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            />
+
+            {!sidebarCollapsed && (
+              <div
+                onPointerDown={handleSidebarResizerPointerDown}
+                onDoubleClick={handleSidebarDoubleClick}
+                style={{ cursor: "col-resize" }}
+                className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                  isSidebarDragging
+                    ? "bg-accent"
+                    : "hover:bg-accent/60 active:bg-accent"
+                }`}
+                title="Drag to resize media panel"
+              />
+            )}
+
+            {/* Giant Center Preview Monitor */}
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell shadow-2xl">
+              <PreviewPanel />
+            </div>
+
+            {!propertiesPanelCollapsed && (
+              <div
+                onPointerDown={handlePropertiesResizerPointerDown}
+                onDoubleClick={handlePropertiesDoubleClick}
+                style={{ cursor: "col-resize" }}
+                className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                  isPropertiesDragging
+                    ? "bg-accent"
+                    : "hover:bg-accent/60 active:bg-accent"
+                }`}
+                title="Drag to resize properties panel"
+              />
+            )}
+
+            {/* Collapsed/Compact Properties */}
+            <PropertiesPanel
+              width={propertiesPanelCollapsed ? 0 : 220}
+              collapsed={propertiesPanelCollapsed}
+              onToggleCollapse={() =>
+                setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+              }
+            />
+          </div>
+
+          {/* Vertical Resizer for compact timeline */}
+          <div
+            onPointerDown={handleTimelineResizerPointerDown}
+            onDoubleClick={handleTimelineDoubleClick}
+            style={{ cursor: "row-resize" }}
+            className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
+              isTimelineDragging
+                ? "bg-accent"
+                : "hover:bg-accent/60 active:bg-accent"
+            }`}
+            title="Drag to resize timeline"
+          />
+
+          {/* Compact Timeline */}
+          <div
+            className="panel-shell overflow-hidden flex-shrink-0"
+            style={{ height: `${cinemaTimelineH}px` }}
+          >
+            <Timeline />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 5. VERTICAL / SHORTS Layout (9:16 Creator Focus)
+  if (layoutPreset === "vertical-shorts") {
+    return (
+      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+        <TopBar onRequestClose={onRequestClose} />
+
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
+          <div className="flex-1 min-h-0 flex overflow-hidden relative">
+            {/* Left Media & Stickers & Audio */}
+            <EnhancedMediaPanel
+              onAddToTimeline={handleAddToTimeline}
+              width={sidebarCollapsed ? 44 : sidebarW}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            />
+
+            {!sidebarCollapsed && (
+              <div
+                onPointerDown={handleSidebarResizerPointerDown}
+                onDoubleClick={handleSidebarDoubleClick}
+                style={{ cursor: "col-resize" }}
+                className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                  isSidebarDragging
+                    ? "bg-accent"
+                    : "hover:bg-accent/60 active:bg-accent"
+                }`}
+                title="Drag to resize media panel • Double-click to reset"
+              />
+            )}
+
+            {/* Centered 9:16 Portrait Preview Monitor */}
+            <div className="flex-1 min-w-0 flex items-center justify-center overflow-hidden panel-shell bg-surface/30">
+              <div className="w-full h-full max-w-[460px] flex flex-col overflow-hidden">
+                <PreviewPanel />
+              </div>
+            </div>
+
+            {!propertiesPanelCollapsed && (
+              <div
+                onPointerDown={handlePropertiesResizerPointerDown}
+                onDoubleClick={handlePropertiesDoubleClick}
+                style={{ cursor: "col-resize" }}
+                className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                  isPropertiesDragging
+                    ? "bg-accent"
+                    : "hover:bg-accent/60 active:bg-accent"
+                }`}
+                title="Drag to resize properties panel • Double-click to reset"
+              />
+            )}
+
+            {/* Right Text & Captions Properties */}
+            <PropertiesPanel
+              width={propertiesPanelCollapsed ? 0 : propertiesW}
+              collapsed={propertiesPanelCollapsed}
+              onToggleCollapse={() =>
+                setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+              }
+            />
+          </div>
+
+          {/* Vertical Resizer */}
+          <div
+            onPointerDown={handleTimelineResizerPointerDown}
+            onDoubleClick={handleTimelineDoubleClick}
+            style={{ cursor: "row-resize" }}
+            className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
+              isTimelineDragging
+                ? "bg-accent"
+                : "hover:bg-accent/60 active:bg-accent"
+            }`}
+            title="Drag to resize timeline • Double-click to reset"
+          />
+
+          {/* Timeline */}
+          <div
+            className="panel-shell overflow-hidden flex-shrink-0"
+            style={{ height: `${timelineH}px` }}
+          >
+            <Timeline />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 6. INSPECTOR FOCUS Layout (Color, Animation, Effects & Curves)
+  if (layoutPreset === "inspector-focus") {
+    const wideInspectorW = Math.max(propertiesW, 460);
+    return (
+      <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
+        <TopBar onRequestClose={onRequestClose} />
+
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
+          <div className="flex-1 min-h-0 flex overflow-hidden relative">
+            {/* Left Media Rail */}
+            <EnhancedMediaPanel
+              onAddToTimeline={handleAddToTimeline}
+              width={sidebarCollapsed ? 44 : 240}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            />
+
+            {!sidebarCollapsed && (
+              <div
+                onPointerDown={handleSidebarResizerPointerDown}
+                onDoubleClick={handleSidebarDoubleClick}
+                style={{ cursor: "col-resize" }}
+                className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                  isSidebarDragging
+                    ? "bg-accent"
+                    : "hover:bg-accent/60 active:bg-accent"
+                }`}
+                title="Drag to resize media panel"
+              />
+            )}
+
+            {/* Preview Monitor */}
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
+              <PreviewPanel />
+            </div>
+
+            {!propertiesPanelCollapsed && (
+              <div
+                onPointerDown={handlePropertiesResizerPointerDown}
+                onDoubleClick={handlePropertiesDoubleClick}
+                style={{ cursor: "col-resize" }}
+                className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                  isPropertiesDragging
+                    ? "bg-accent"
+                    : "hover:bg-accent/60 active:bg-accent"
+                }`}
+                title="Drag to resize inspector panel"
+              />
+            )}
+
+            {/* Dominant Wide Properties Inspector */}
+            <PropertiesPanel
+              width={propertiesPanelCollapsed ? 0 : wideInspectorW}
+              collapsed={propertiesPanelCollapsed}
+              onToggleCollapse={() =>
+                setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+              }
+            />
+          </div>
+
+          {/* Vertical Resizer */}
+          <div
+            onPointerDown={handleTimelineResizerPointerDown}
+            onDoubleClick={handleTimelineDoubleClick}
+            style={{ cursor: "row-resize" }}
+            className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
+              isTimelineDragging
+                ? "bg-accent"
+                : "hover:bg-accent/60 active:bg-accent"
+            }`}
+            title="Drag to resize timeline"
+          />
+
+          {/* Timeline */}
+          <div
+            className="panel-shell overflow-hidden flex-shrink-0"
+            style={{ height: `${timelineH}px` }}
+          >
+            <Timeline />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 7. DEFAULT & TIMELINE-FOCUS (Classic 3-column top + bottom timeline)
   return (
-    <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0">
+    <div className="w-full h-full flex flex-col app-shell overflow-hidden p-1 pt-0 select-none relative">
       <TopBar onRequestClose={onRequestClose} />
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-0.5">
-        <div className="flex-1 min-h-0 flex overflow-hidden gap-1">
-          <EnhancedMediaPanel onAddToTimeline={handleAddToTimeline} />
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
+        <div className="flex-1 min-h-0 flex overflow-hidden relative">
+          {/* Left Media Sidebar */}
+          <EnhancedMediaPanel
+            onAddToTimeline={handleAddToTimeline}
+            width={sidebarCollapsed ? 44 : sidebarW}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          />
 
+          {/* Sidebar Dimension HUD */}
+          {isSidebarDragging && (
+            <div
+              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              style={{ left: `${sidebarW + 10}px` }}
+            >
+              <span className="text-accent font-semibold">Media</span>
+              <span className="text-white/30">•</span>
+              <span className="tabular-nums font-mono">
+                {Math.round(sidebarW)} px
+              </span>
+              {Math.round(sidebarW) === 400 && (
+                <span className="text-[10px] text-accent font-medium">
+                  (Default)
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Left Horizontal Resizer (4px gap) */}
+          {!sidebarCollapsed && (
+            <div
+              onPointerDown={handleSidebarResizerPointerDown}
+              onDoubleClick={handleSidebarDoubleClick}
+              style={{ cursor: "col-resize" }}
+              className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                isSidebarDragging
+                  ? "bg-accent"
+                  : "hover:bg-accent/60 active:bg-accent"
+              }`}
+              title="Drag to resize media panel • Double-click to reset (400px)"
+            />
+          )}
+
+          {/* Center Preview Panel */}
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
             <PreviewPanel />
           </div>
 
-          <PropertiesPanel />
+          {/* Properties Dimension HUD */}
+          {isPropertiesDragging && (
+            <div
+              className="absolute top-3 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+              style={{ right: `${propertiesW + 10}px` }}
+            >
+              <span className="text-accent font-semibold">Properties</span>
+              <span className="text-white/30">•</span>
+              <span className="tabular-nums font-mono">
+                {Math.round(propertiesW)} px
+              </span>
+              {Math.round(propertiesW) === 400 && (
+                <span className="text-[10px] text-accent font-medium">
+                  (Default)
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Right Horizontal Resizer (4px gap) */}
+          {!propertiesPanelCollapsed && (
+            <div
+              onPointerDown={handlePropertiesResizerPointerDown}
+              onDoubleClick={handlePropertiesDoubleClick}
+              style={{ cursor: "col-resize" }}
+              className={`w-1 shrink-0 resizer-horizontal cursor-col-resize transition-colors select-none ${
+                isPropertiesDragging
+                  ? "bg-accent"
+                  : "hover:bg-accent/60 active:bg-accent"
+              }`}
+              title="Drag to resize properties panel • Double-click to reset (400px)"
+            />
+          )}
+
+          {/* Right Properties Panel */}
+          <PropertiesPanel
+            width={propertiesPanelCollapsed ? 0 : propertiesW}
+            collapsed={propertiesPanelCollapsed}
+            onToggleCollapse={() =>
+              setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+            }
+          />
         </div>
 
-        {/* CapCut-style Vertical Drag Resizer */}
+        {/* Timeline Dimension HUD */}
+        {isTimelineDragging && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none px-2.5 py-1 rounded-full bg-surface-floating/95 border border-accent/50 shadow-2xl backdrop-blur-md text-[11px] font-medium text-text-primary flex items-center gap-1.5"
+            style={{ bottom: `${timelineH + 10}px` }}
+          >
+            <span className="text-accent font-semibold">Timeline</span>
+            <span className="text-white/30">•</span>
+            <span className="tabular-nums font-mono">
+              {Math.round(timelineH)} px
+            </span>
+            {Math.round(timelineH) === defaultTimelineH && (
+              <span className="text-[10px] text-accent font-medium">
+                (Default)
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Vertical Drag Resizer (4px gap) */}
         <div
-          onMouseDown={handleMouseDownResizer}
-          className="h-1.5 w-full cursor-row-resize hover:bg-accent-primary/60 active:bg-accent-primary transition-colors flex items-center justify-center group my-0.5 rounded-full select-none"
-          title="Drag to resize timeline"
-        >
-          <div className="w-12 h-1 bg-white/20 group-hover:bg-accent-primary rounded-full transition-colors" />
-        </div>
+          onPointerDown={handleTimelineResizerPointerDown}
+          onDoubleClick={handleTimelineDoubleClick}
+          style={{ cursor: "row-resize" }}
+          className={`h-1 w-full shrink-0 resizer-vertical cursor-row-resize transition-colors select-none ${
+            isTimelineDragging
+              ? "bg-accent"
+              : "hover:bg-accent/60 active:bg-accent"
+          }`}
+          title={`Drag to resize timeline • Double-click to reset (${defaultTimelineH}px)`}
+        />
 
-        <div className="panel-shell overflow-hidden flex-shrink-0" style={{ height: `${timelineHeight}px` }}>
+        {/* Timeline Panel */}
+        <div
+          className="panel-shell overflow-hidden flex-shrink-0"
+          style={{ height: `${timelineH}px` }}
+        >
           <Timeline />
         </div>
       </div>

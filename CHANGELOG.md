@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-23
+
+### ✨ Features
+
+- **Editor Layout Refresh**: Reworked desktop and mobile editor composition with resizable panels, unified sidebar navigation, and improved empty states.
+- **Timeline Workflow Improvements**: Added streamlined add-to-timeline and panel-resize hooks while refining timeline controls, snapping, ruler precision, and waveform behavior.
+- **Native Preview and Filmstrip Reliability**: Improved native media geometry, raster-surface ownership, filmstrip caching, and export frame-pool cleanup.
+
+### 🐛 Bug Fixes
+
+- Tightened preview, transport, volume, cache-settings, and project-store behavior around lifecycle cleanup and precise source-time calculations.
+- Improved visual consistency across the editor, settings, export, and screen-recording flows.
+
 ## [1.2.2] - 2026-08-06
 
 ### ♻️ Refactoring

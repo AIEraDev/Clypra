@@ -193,6 +193,8 @@ function CustomThemeEditor() {
     URL.revokeObjectURL(url);
   };
 
+  const [importError, setImportError] = useState<string | null>(null);
+
   const handleImport = () => {
     const input = document.createElement("input");
     input.type = "file";
@@ -207,12 +209,13 @@ function CustomThemeEditor() {
 
         // Validate the theme data
         if (data.colors && typeof data.colors === "object") {
+          setImportError(null);
           setEditingColors(data.colors);
         } else {
-          alert("Invalid theme file format");
+          setImportError("Invalid theme file format");
         }
       } catch (error) {
-        alert("Failed to import theme: " + (error as Error).message);
+        setImportError("Failed to import theme: " + (error as Error).message);
       }
     };
     input.click();
@@ -281,6 +284,7 @@ function CustomThemeEditor() {
 
       {/* Search */}
       <input type="text" placeholder="Search colors..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-3 py-2 text-[12px] rounded-lg bg-surface-raised border border-white/6 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/40" />
+      {importError && <p className="text-danger text-[11px] font-medium">{importError}</p>}
 
       {/* Color groups */}
       <div className="max-h-100 overflow-y-auto space-y-4 pr-2 scrollbar-thin">
@@ -389,7 +393,20 @@ function AppearanceTab() {
 
 // ─── Editor Tab ──────────────────────────────────────────────────────────
 function EditorTab() {
-  const { snapToGrid, autoSave, defaultFrameRate, setSnapToGrid, setAutoSave, setDefaultFrameRate } = useSettingsStore();
+  const {
+    snapToGrid,
+    autoSave,
+    defaultFrameRate,
+    previewQuality,
+    proxyEditingEnabled,
+    autoClearCacheOnProjectClose,
+    setSnapToGrid,
+    setAutoSave,
+    setDefaultFrameRate,
+    setPreviewQuality,
+    setProxyEditingEnabled,
+    setAutoClearCacheOnProjectClose,
+  } = useSettingsStore();
   const { snapEnabled, toggleSnapEnabled } = useTimelineStore();
   const { project, updateProject } = useProjectStore();
 
@@ -426,9 +443,10 @@ function EditorTab() {
   };
 
   return (
-    <div className="space-y-6">
-      <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Timeline</h3>
+    <div className="space-y-4">
+      {/* Timeline */}
+      <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Timeline</h3>
         <div className="space-y-3">
           <SettingRow label="Snap to grid" description="Clips snap to ruler ticks when dragging">
             <ToggleSwitch checked={snapToGrid} onChange={setSnapToGrid} />
@@ -439,15 +457,60 @@ function EditorTab() {
         </div>
       </section>
 
+      {/* Performance */}
+      <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">⚡ Performance & Proxies</h3>
+        <div className="space-y-3">
+          <SettingRow
+            label="Preview Resolution"
+            description="Lower resolution speeds up editing on large files. Final export always uses full quality."
+          >
+            <div className="flex rounded-lg overflow-hidden border border-white/6">
+              {([
+                { value: "full", label: "Full" },
+                { value: "high", label: "High" },
+                { value: "medium", label: "Med" },
+                { value: "low", label: "Proxy" },
+              ] as const).map((tier) => (
+                <button
+                  key={tier.value}
+                  onClick={() => setPreviewQuality(tier.value)}
+                  className={`px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
+                    previewQuality === tier.value
+                      ? "bg-accent text-white"
+                      : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"
+                  }`}
+                >
+                  {tier.label}
+                </button>
+              ))}
+            </div>
+          </SettingRow>
+          <SettingRow
+            label="Proxy Editing Mode"
+            description="Forces low-res proxy preview throughout your session. Ideal for 1-hour+ projects."
+          >
+            <ToggleSwitch checked={proxyEditingEnabled} onChange={setProxyEditingEnabled} />
+          </SettingRow>
+          <SettingRow
+            label="Auto-clear cache on project close"
+            description="Automatically frees GPU frame cache when closing a project."
+          >
+            <ToggleSwitch checked={autoClearCacheOnProjectClose} onChange={setAutoClearCacheOnProjectClose} />
+          </SettingRow>
+        </div>
+      </section>
+
+      {/* Sequence Settings */}
       {project && (
-        <section>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Sequence Settings</h3>
+        <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Sequence Settings</h3>
           <div className="space-y-3">
             <SettingRow label="Aspect ratio" description="Canvas dimensions for export">
               <div className="flex flex-col gap-1.5">
                 <div className="flex rounded-lg overflow-hidden border border-white/6">
                   {aspectRatios.map((ar) => (
-                    <button key={ar.value} onClick={() => handleAspectRatioChange(ar.value)} className={`px-3 py-1 text-[11px] font-semibold transition-colors ${project.aspectRatio === ar.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
+                    <button key={ar.value} onClick={() => handleAspectRatioChange(ar.value)} className={`px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${project.aspectRatio === ar.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
                       {ar.label}
                     </button>
                   ))}
@@ -460,7 +523,7 @@ function EditorTab() {
             <SettingRow label="Frame rate" description="Frames per second for this project">
               <div className="flex rounded-lg overflow-hidden border border-white/6">
                 {frameRates.map((fr) => (
-                  <button key={fr.value} onClick={() => updateProject({ frameRate: fr.value })} className={`px-3 py-1 text-[11px] font-semibold transition-colors ${project.frameRate === fr.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
+                  <button key={fr.value} onClick={() => updateProject({ frameRate: fr.value })} className={`px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${project.frameRate === fr.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
                     {fr.label}
                   </button>
                 ))}
@@ -471,8 +534,9 @@ function EditorTab() {
         </section>
       )}
 
-      <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">Defaults</h3>
+      {/* Defaults */}
+      <section className="rounded-xl bg-surface-raised/40 border border-white/5 p-4 space-y-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Defaults</h3>
         <div className="space-y-3">
           <SettingRow label="Auto-save" description="Periodically save project state">
             <ToggleSwitch checked={autoSave} onChange={setAutoSave} />
@@ -480,7 +544,7 @@ function EditorTab() {
           <SettingRow label="Default frame rate" description="Frame rate for new projects">
             <div className="flex rounded-lg overflow-hidden border border-white/6">
               {frameRates.map((fr) => (
-                <button key={fr.value} onClick={() => setDefaultFrameRate(fr.value)} className={`px-3 py-1 text-[11px] font-semibold transition-colors ${defaultFrameRate === fr.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
+                <button key={fr.value} onClick={() => setDefaultFrameRate(fr.value)} className={`px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${defaultFrameRate === fr.value ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-primary hover:bg-white/6"}`}>
                   {fr.label}
                 </button>
               ))}
@@ -507,8 +571,8 @@ function SettingRow({ label, description, children }: { label: string; descripti
 
 function ToggleSwitch({ checked, onChange, disabled }: { checked: boolean; onChange?: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange?.(!checked)} className={`w-9 h-5 rounded-full relative shrink-0 transition-colors ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${checked ? "bg-accent" : "bg-white/1"}`}>
-      <div className={`absolute top-0.75 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${checked ? "left-4.5" : "left-0.75"}`} />
+    <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange?.(!checked)} className={`w-9 h-5 rounded-full relative shrink-0 transition-colors ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${checked ? "bg-accent" : "bg-white/10"}`}>
+      <div className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${checked ? "translate-x-4.5" : "translate-x-0.5"}`} />
     </button>
   );
 }
@@ -790,12 +854,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     <Modal isOpen={isOpen} onClose={onClose} title="Settings" size="lg">
       <div className="flex flex-col h-full md:flex-row overflow-hidden min-h-0">
         {/* Sidebar */}
-        <aside className="w-full md:w-40 border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible md:overflow-y-auto scrollbar-thin shrink-0">
+        <aside className="w-full md:w-44 border-b md:border-b-0 md:border-r border-white/6 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible md:overflow-y-auto scrollbar-thin shrink-0">
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-1.5 px-2 py-1.5 text-nowrap cursor-pointer rounded-lg text-[13px] font-medium transition-colors ${isActive ? "text-accent bg-white/4" : "text-text-muted hover:text-text-primary hover:bg-white/4"}`}>
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-3 py-2 text-nowrap cursor-pointer rounded-lg text-[13px] font-medium transition-colors border-l-2 ${
+                  isActive
+                    ? "text-accent bg-accent/10 border-accent"
+                    : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.03]"
+                }`}
+              >
                 <Icon className="w-4 h-4 shrink-0" />
                 {tab.label}
               </button>

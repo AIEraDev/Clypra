@@ -542,20 +542,19 @@ pub async fn extract_waveform_data(
 fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<WaveformBucket> {
     use rayon::prelude::*;
 
-    let samples_per_bucket = samples.len() / num_buckets;
-    
-    if samples_per_bucket == 0 {
-        // Edge case: fewer samples than buckets - create minimal buckets
+    if samples.is_empty() || num_buckets == 0 {
         return vec![WaveformBucket { peak: 0.0, rms: 0.0 }; num_buckets];
     }
-    
+
+    let total_samples = samples.len();
+
     (0..num_buckets)
         .into_par_iter()
         .map(|i| {
-            let start = i * samples_per_bucket;
-            let end = ((i + 1) * samples_per_bucket).min(samples.len());
-            let bucket = &samples[start..end];
-            
+            let start = (i * total_samples) / num_buckets;
+            let end = (((i + 1) * total_samples) / num_buckets).min(total_samples);
+            let bucket = if start < end { &samples[start..end] } else { &[] };
+
             let mut peak = 0.0f32;
             let mut sum_squares = 0.0f32;
             for &s in bucket {
@@ -570,7 +569,7 @@ fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<Waveform
             } else {
                 0.0
             };
-            
+
             WaveformBucket { peak, rms }
         })
         .collect()

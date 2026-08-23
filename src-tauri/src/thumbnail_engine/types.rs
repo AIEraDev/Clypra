@@ -215,13 +215,13 @@ impl DensityLevel {
     }
 
     pub fn from_zoom(px_per_sec: f64) -> Self {
-        let time_per_thumb = 80.0 / px_per_sec;
+        let time_per_thumb = 80.0 / px_per_sec.max(0.001);
 
-        if time_per_thumb > 3.0 {
+        if time_per_thumb > 2.0 {
             DensityLevel::Low
-        } else if time_per_thumb > 0.5 {
+        } else if time_per_thumb > 0.67 {
             DensityLevel::Medium
-        } else if time_per_thumb > 0.05 {
+        } else if time_per_thumb > 0.25 {
             DensityLevel::High
         } else {
             DensityLevel::Ultra

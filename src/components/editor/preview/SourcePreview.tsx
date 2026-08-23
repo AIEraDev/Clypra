@@ -12,6 +12,7 @@ import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefault
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { SourcePlaybackContext } from "@/core/playback";
 import type { MediaAsset } from "@/types";
+import { formatTimecode } from "@/lib/utils/timeFormatting";
 import { PreviewTransport } from "./PreviewTransport";
 import { createTextClip } from "@/lib/text/textClip";
 import { TextSourcePreview } from "./TextSourcePreview";
@@ -417,12 +418,8 @@ export const SourcePreview: React.FC = () => {
 
   /** Format time as HH:MM:SS:FF (frame-accurate) */
   const formatTC = (seconds: number): string => {
-    const safeSeconds = Number.isFinite(seconds) && seconds >= 0 ? seconds : 0;
-    const h = Math.floor(safeSeconds / 3600);
-    const m = Math.floor((safeSeconds % 3600) / 60);
-    const s = Math.floor(safeSeconds % 60);
-    const f = Math.floor((safeSeconds % 1) * 30);
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}:${String(f).padStart(2, "0")}`;
+    const fps = project?.frameRate ?? 30;
+    return formatTimecode(seconds, fps);
   };
 
   // Calculate marked duration
