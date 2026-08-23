@@ -36,6 +36,7 @@ export interface UseFilmstripOptions {
   pixelsPerSecond: number;
   playheadTime?: number;
   enabled?: boolean;
+  invalidationKey?: string | number;
 }
 
 export interface UseFilmstripResult {
@@ -96,7 +97,7 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     opts.viewportWidth,
     opts.pixelsPerSecond,
     opts.playheadTime,
-    renderState.epochId, // Re-request on epoch change
+    opts.invalidationKey,
   ]);
 
   // Keep active viewport requests transactional, then warm a bounded
