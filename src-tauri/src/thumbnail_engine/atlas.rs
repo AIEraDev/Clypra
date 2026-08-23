@@ -385,10 +385,10 @@ pub async fn purge_all_disk_cache(cache_dir: &PathBuf) -> Result<usize, String> 
                 if meta.is_file() {
                     let path = entry.path();
                     if let Some(ext) = path.extension() {
-                        if ext == "webp" || path.to_string_lossy().contains(".tmp.") {
-                            if tokio::fs::remove_file(&path).await.is_ok() {
-                                deleted_count += 1;
-                            }
+                        if (ext == "webp" || path.to_string_lossy().contains(".tmp."))
+                            && tokio::fs::remove_file(&path).await.is_ok()
+                        {
+                            deleted_count += 1;
                         }
                     }
                 }
@@ -424,4 +424,3 @@ pub async fn get_atlas_manager(
     ATLAS_CACHE.insert(key, manager.clone());
     manager
 }
-

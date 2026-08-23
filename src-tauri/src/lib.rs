@@ -1,7 +1,6 @@
 #![allow(
     clippy::too_many_arguments,
     clippy::type_complexity,
-    clippy::chunks_exact_to_as_chunks,
     clippy::new_without_default
 )]
 
