@@ -799,7 +799,7 @@ fn test_decode_frames_batch_empty() {
     }
     let mut decoder = VideoDecoder::open(path).expect("open video");
     let results = decoder.decode_frames_batch_full_res(&[]).expect("decode empty batch");
-    assert!(results.is_empty());
+    assert!(results.frames.is_empty());
 }
 
 #[test]
@@ -815,22 +815,26 @@ fn test_decode_4k_frames_batch_forward_gop() {
     // Test a chunk of 12 dense target timestamps within a 2-second range (single GOP scan)
     let targets: Vec<f64> = (0..12).map(|i| 1.0 + (i as f64) * 0.1).collect();
     let start = std::time::Instant::now();
-    let frames = decoder.decode_frames_batch_full_res(&targets).expect("batch decode 4k");
+    let batch = decoder.decode_frames_batch_full_res(&targets).expect("batch decode 4k");
     let elapsed = start.elapsed();
 
     eprintln!(
         "[4K Batch Test] Decoded {} 4K frames in {:?} (avg {:?} per 4K frame)",
-        frames.len(),
+        batch.frames.len(),
         elapsed,
-        elapsed / (frames.len().max(1) as u32)
+        elapsed / (batch.frames.len().max(1) as u32)
     );
 
-    assert_eq!(frames.len(), targets.len());
-    for (idx, (matched_ts, rgba, w, h)) in frames.iter().enumerate() {
-        assert_eq!(*w, 3840);
-        assert_eq!(*h, 2160);
-        assert_eq!(rgba.len(), 3840 * 2160 * 4);
-        assert!((matched_ts - targets[idx]).abs() < 0.1);
+    assert_eq!(batch.frames.len(), targets.len());
+    assert!(batch.decode_elapsed > std::time::Duration::ZERO);
+    assert!(batch.seek_elapsed >= std::time::Duration::ZERO);
+    for (idx, frame) in batch.frames.iter().enumerate() {
+        assert_eq!(frame.width, 3840);
+        assert_eq!(frame.height, 2160);
+        assert_eq!(frame.rgba.len(), 3840 * 2160 * 4);
+        assert!(frame.convert_elapsed > std::time::Duration::ZERO);
+        assert!(frame.conversion_fast_path);
+        assert!((frame.target_ts_secs - targets[idx]).abs() < 0.1);
     }
 }
 
@@ -849,9 +853,9 @@ fn test_decode_4k_sustained_deep_zoom_memory_pressure() {
 
     for &base_ts in &regions {
         let targets: Vec<f64> = (0..12).map(|i| base_ts + (i as f64) * 0.1).collect();
-        let frames = decoder.decode_frames_batch_full_res(&targets).expect("batch decode region");
-        assert_eq!(frames.len(), 12);
-        total_decoded += frames.len();
+        let batch = decoder.decode_frames_batch_full_res(&targets).expect("batch decode region");
+        assert_eq!(batch.frames.len(), 12);
+        total_decoded += batch.frames.len();
     }
 
     let total_elapsed = total_start.elapsed();
@@ -863,5 +867,4 @@ fn test_decode_4k_sustained_deep_zoom_memory_pressure() {
     );
     assert_eq!(total_decoded, 48);
 }
-
 
