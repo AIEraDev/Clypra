@@ -9,6 +9,7 @@ export { DeleteClipCommand, AddClipCommand } from "./DeleteClipCommand";
 export { RippleDeleteCommand } from "./RippleDeleteCommand";
 export { RippleDeleteRangeCommand } from "./RippleDeleteRangeCommand";
 export { TrimClipCommand } from "./TrimClipCommand";
+export { TimelineTrimCommand } from "./TimelineTrimCommand";
 export { SplitClipCommand } from "./SplitClipCommand";
 export { UpdateClipCommand } from "./UpdateClipCommand";
 export { AddTrackCommand, DeleteTrackCommand, ToggleTrackPropertyCommand } from "./TrackCommands";
