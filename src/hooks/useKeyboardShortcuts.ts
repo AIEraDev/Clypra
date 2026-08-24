@@ -119,6 +119,14 @@ export const useKeyboardShortcuts = () => {
 
       // ─── Program mode shortcuts ──────────────────────────────────────────
 
+      if (useShortcutStore.getState().getMatchingAction(e) === "group-clips") {
+        e.preventDefault();
+        const result = EditingActions.groupSelectedClips(selectedClipIds);
+        if (result.success) toast.success("Grouped clips");
+        else if (result.error) toast.error(result.error);
+        return;
+      }
+
       if (isMeta && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
