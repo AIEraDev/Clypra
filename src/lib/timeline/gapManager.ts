@@ -174,6 +174,25 @@ class GapManagerImpl {
     execute(new PackTrackCommand(trackId));
   }
 
+  /** Pack every unlocked track as one undoable user action. */
+  packAllTracks(): void {
+    const { gaps, tracks } = useTimelineStore.getState();
+    const trackIds = tracks
+      .filter((track) => !track.locked && gaps.some((gap) => gap.trackId === track.id && !gap.protected))
+      .map((track) => track.id);
+    if (trackIds.length === 0) return;
+
+    const history = useHistoryStore.getState();
+    history.beginTransaction("Close Timeline Gaps");
+    try {
+      trackIds.forEach((trackId) => history.execute(new PackTrackCommand(trackId)));
+      history.commitTransaction();
+    } catch (error) {
+      history.rollbackTransaction();
+      throw error;
+    }
+  }
+
   /**
    * Detect and sync gaps for a track or all tracks
    *
