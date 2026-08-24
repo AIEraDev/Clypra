@@ -62,7 +62,7 @@ vi.mock("@/hooks/usePlaybackClock", () => ({
     play: vi.fn(),
     pause: vi.fn(),
     stop: vi.fn(),
-    seek: vi.fn(),
+    seek: seekMock,
     setSpeed: vi.fn(),
     setActiveContext: vi.fn(),
   }),
@@ -98,6 +98,9 @@ vi.mock("../Track", () => ({
     return (
       <div data-timeline-interactive="true" data-track-id={props.track.id} style={{ height: `${props.track.height}px` }}>
         Interactive Clip
+        {(props.clips ?? []).map((clip: any) => (
+          <div key={clip.id} data-clip-id={clip.id} data-testid={`mock-clip-${clip.id}`} />
+        ))}
       </div>
     );
   },
@@ -171,6 +174,76 @@ describe("Timeline click behavior", () => {
     fireEvent.click(screen.getByText("Playhead"));
 
     expect(seekMock).not.toHaveBeenCalled();
+  });
+
+  it("reveals a clip selected from the program preview", () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    useTimelineStore.setState({
+      tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [
+        {
+          id: "far-clip",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "m1",
+          startTime: 8,
+          duration: 3,
+          trimIn: 0,
+          trimOut: 3,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          opacity: 1,
+          rotation: 0,
+        },
+      ],
+      scrollLeft: 0,
+      pixelsPerSecond: 100,
+    });
+
+    const { container } = render(<Timeline />);
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+    const clip = screen.getByTestId("mock-clip-far-clip");
+
+    Object.defineProperty(scroller, "clientWidth", { value: 400, configurable: true });
+    Object.defineProperty(scroller, "scrollWidth", { value: 1200, configurable: true });
+    Object.defineProperty(scroller, "scrollLeft", { value: 0, writable: true, configurable: true });
+    scroller.getBoundingClientRect = () => ({
+      left: 0,
+      right: 400,
+      top: 0,
+      bottom: 120,
+      width: 400,
+      height: 120,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+    clip.getBoundingClientRect = () => ({
+      left: 500,
+      right: 600,
+      top: 30,
+      bottom: 80,
+      width: 100,
+      height: 50,
+      x: 500,
+      y: 30,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    act(() => {
+      useUIStore.getState().selectClip("far-clip");
+    });
+
+    expect(scroller.scrollLeft).toBeGreaterThan(0);
+    expect(useTimelineStore.getState().scrollLeft).toBeGreaterThan(0);
+    vi.unstubAllGlobals();
   });
 
   it("keeps a video inserted above the main track classified as B-roll", () => {
