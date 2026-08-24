@@ -6,6 +6,7 @@ import { generateId } from "@/lib/utils/id";
 import { platform } from "@/core/platform";
 import { DEFAULT_STILL_DURATION_SECONDS } from "../constants/config";
 import { toast } from "@/lib/toast";
+import { isTauriRuntime, probeMediaStreams } from "@/lib/platform/tauri";
 
 const CONCURRENCY_LIMIT = 4;
 
@@ -103,6 +104,16 @@ export const useMediaImport = () => {
 
             addMediaAsset(asset);
             importedCount++;
+
+            // Stream metadata is optional and independent from the compact
+            // import probe. Cache it in the asset when the native runtime is
+            // available; older projects populate it lazily when extraction is
+            // requested.
+            if (type !== "image" && isTauriRuntime()) {
+              void probeMediaStreams(file.path)
+                .then((streams) => useProjectStore.getState().updateMediaAsset(asset.id, { streams }))
+                .catch((error) => console.debug("[MediaImport] Stream metadata unavailable", error));
+            }
 
             // Phase 2 (Async Background): Extract poster/cover art without blocking UI
             if (type === "video") {
