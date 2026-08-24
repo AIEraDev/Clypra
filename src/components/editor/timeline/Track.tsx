@@ -14,6 +14,8 @@ import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
 import { resolveClipDuration } from "@/lib/timeline/timelineClip";
 import { useProjectStore } from "@/store/projectStore";
 import { getTrackVisualSpec, type TrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
+import { usePlaybackClock } from "@/hooks/usePlaybackClock";
+import { getActiveProgramBridgeClips } from "@/lib/timeline/programTimelineBridge";
 import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
 
 
@@ -44,6 +46,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
   const selectedClipIds = useUIStore((state) => state.selectedClipIds);
   const selectedGapId = useUIStore((state) => state.selectedGapId);
   const selectedTrackId = useUIStore((state) => state.selectedTrackId);
+  const previewMode = useUIStore((state) => state.previewMode);
   const gaps = useTimelineStore((state) => state.gaps ?? []);
   const transitions = useTimelineStore((state) => state.transitions ?? []);
   const allClips = useTimelineStore((state) => state.clips);
@@ -54,6 +57,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
   const mainVideoTrackId = useTimelineStore((state) => state.mainVideoTrackId);
   const scrollLeft = useTimelineStore((state) => state.scrollLeft);
   const frameRate = useProjectStore((state) => state.project?.frameRate ?? 30);
+  const playbackTime = usePlaybackClock().time;
   const { getMediaAsset } = useTimeline();
   const [mediaDropPreview, setMediaDropPreview] = useState<{ startTime: number; duration: number; splitClipId: string | null; shiftedClipIds: string[] } | null>(null);
   const visualSpec = visualSpecProp ?? getTrackVisualSpec(track, allTracks.length > 0 ? allTracks : [track], mainVideoTrackId);
@@ -103,6 +107,11 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
   // FIX: clips are now pre-filtered by Timeline, so trackClips === clips
   // No need to filter again - this was causing unnecessary re-computation
   const trackClips = clips;
+
+  const activeClipIds = useMemo(() => {
+    if (previewMode !== "program") return new Set<string>();
+    return new Set(getActiveProgramBridgeClips(allClips, playbackTime).map((clip) => clip.id));
+  }, [allClips, playbackTime, previewMode]);
 
   // Chronological order
   const sortedTrackClips = useMemo(() => [...trackClips].sort((a, b) => a.startTime - b.startTime), [trackClips]);
@@ -264,6 +273,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
               trackVisualRole={visualSpec.role}
               trackVisualOpacity={visualSpec.opacity}
               selected={selectedClipIds.includes(clip.id)}
+              active={activeClipIds.has(clip.id)}
               locked={track.locked}
               onDragStart={onClipDragStart}
               onDragMove={onClipDragMove}
