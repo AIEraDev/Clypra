@@ -1101,6 +1101,7 @@ export function buildNativeFrameRequest(
     project: {
       schemaVersion: 1,
       projectRevision,
+      frameRate,
       canvasWidth: request.canvasWidth,
       canvasHeight: request.canvasHeight,
       clearColor: request.clearColor ?? [0, 0, 0, 1],
