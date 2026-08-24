@@ -156,4 +156,24 @@ describe("EditingActions split interactions", () => {
     EditingActions.deleteSelection(["left"], true);
     expect(useTimelineStore.getState().clips.find((clip) => clip.id === "right")?.startTime).toBe(5);
   });
+
+  it("restores lift-deleted clip order and gaps on undo", () => {
+    useTimelineStore.setState({
+      clips: [
+        makeClip({ id: "left", startTime: 0, duration: 5, trimOut: 5 }),
+        makeClip({ id: "middle", startTime: 5, duration: 5, trimIn: 5, trimOut: 10 }),
+        makeClip({ id: "right", startTime: 10, duration: 5, trimIn: 10, trimOut: 15 }),
+      ],
+      gaps: [],
+    });
+
+    EditingActions.deleteSelection(["middle"], true);
+    expect(useTimelineStore.getState().gaps).toHaveLength(1);
+
+    useHistoryStore.getState().undo();
+
+    const restored = useTimelineStore.getState();
+    expect(restored.clips.map((clip) => clip.id)).toEqual(["left", "middle", "right"]);
+    expect(restored.gaps).toEqual([]);
+  });
 });

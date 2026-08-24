@@ -1,6 +1,34 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Preview interaction modes used by the native performance diagnostics.
+/// Unknown or non-preview request modes remain representable as `None` on a
+/// sample so legacy callers cannot accidentally enter the wrong bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PreviewMode {
+    Playback,
+    PlaybackLookahead,
+    Seek,
+    Scrub,
+    FrameStep,
+    Prefetch,
+}
+
+impl PreviewMode {
+    pub fn from_request_mode(mode: Option<&str>) -> Option<Self> {
+        match mode {
+            Some("playback") => Some(Self::Playback),
+            Some("playback-lookahead") => Some(Self::PlaybackLookahead),
+            Some("seek") => Some(Self::Seek),
+            Some("scrub") => Some(Self::Scrub),
+            Some("frameStep") | Some("frame-step") => Some(Self::FrameStep),
+            Some("prefetch") => Some(Self::Prefetch),
+            _ => None,
+        }
+    }
+}
+
 /// Runtime limits used to protect the fast editing path during migration.
 /// Durations are integer microseconds; timestamps remain governed by FrameTime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,7 +85,7 @@ pub struct PerformanceSample {
     #[serde(default)]
     pub generation: Option<u64>,
     #[serde(default)]
-    pub mode: Option<String>,
+    pub mode: Option<PreviewMode>,
     #[serde(default)]
     pub quality: Option<String>,
     #[serde(default)]
@@ -76,6 +104,30 @@ pub struct PerformanceSample {
     pub upload_time_us: u32,
     #[serde(default)]
     pub present_time_us: u32,
+    /// Optional phase timings that are only meaningful on the path where the
+    /// corresponding phase exists. `None` is different from a measured zero.
+    #[serde(default)]
+    pub decode_us: Option<u64>,
+    #[serde(default)]
+    pub conversion_upload_us: Option<u64>,
+    #[serde(default)]
+    pub compose_us: Option<u64>,
+    #[serde(default)]
+    pub readback_us: Option<u64>,
+    #[serde(default)]
+    pub present_us: Option<u64>,
+    #[serde(default)]
+    pub scheduler_wait_us: Option<u64>,
+    #[serde(default)]
+    pub ipc_wait_us: Option<u64>,
+    #[serde(default)]
+    pub decoder_mutex_wait_us: Option<u64>,
+    #[serde(default)]
+    pub gpu_queue_wait_us: Option<u64>,
+    #[serde(default)]
+    pub surface_acquire_us: Option<u64>,
+    #[serde(default)]
+    pub submit_present_us: Option<u64>,
 }
 
 impl PerformanceSample {
@@ -111,6 +163,57 @@ pub struct NativeFrameServiceStats {
     pub window_seek_p99_ms: Option<f64>,
     #[serde(default)]
     pub window_cache_hit_rate: f64,
+    #[serde(default)]
+    pub mode_stats: Vec<ModeStats>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagePercentiles {
+    pub p50: Option<u64>,
+    pub p95: Option<u64>,
+    pub p99: Option<u64>,
+    pub sample_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeStats {
+    pub mode: PreviewMode,
+    pub decode: StagePercentiles,
+    pub conversion_upload: StagePercentiles,
+    pub compose: StagePercentiles,
+    pub readback: StagePercentiles,
+    pub present: StagePercentiles,
+    pub scheduler_wait: StagePercentiles,
+    pub ipc_wait: StagePercentiles,
+    pub decoder_mutex_wait: StagePercentiles,
+    pub gpu_queue_wait: StagePercentiles,
+    pub surface_acquire: StagePercentiles,
+    pub submit_present: StagePercentiles,
+    pub dropped_count: usize,
+    pub stale_count: usize,
+}
+
+pub(crate) fn optional_stage_percentiles(
+    samples: &[PerformanceSample],
+    pick: impl Fn(&PerformanceSample) -> Option<u64>,
+) -> StagePercentiles {
+    let mut values: Vec<u64> = samples.iter().filter_map(pick).collect();
+    values.sort_unstable();
+    let percentile = |pct: f64| -> Option<u64> {
+        if values.is_empty() {
+            return None;
+        }
+        let index = ((values.len() - 1) as f64 * pct).round() as usize;
+        values.get(index).copied()
+    };
+    StagePercentiles {
+        p50: percentile(0.50),
+        p95: percentile(0.95),
+        p99: percentile(0.99),
+        sample_count: values.len(),
+    }
 }
 
 pub fn now_ms() -> u64 {
@@ -164,6 +267,17 @@ mod tests {
             conversion_time_us: 0,
             upload_time_us: 0,
             present_time_us: 0,
+            decode_us: None,
+            conversion_upload_us: None,
+            compose_us: None,
+            readback_us: None,
+            present_us: None,
+            scheduler_wait_us: None,
+            ipc_wait_us: None,
+            decoder_mutex_wait_us: None,
+            gpu_queue_wait_us: None,
+            surface_acquire_us: None,
+            submit_present_us: None,
         };
         assert!(sample.exceeds_render_budget(&budget));
     }

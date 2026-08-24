@@ -260,10 +260,20 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
     (clipId: string, startX: number, startY: number, pointerOffsetFromLeft?: number) => {
       const clip = clipMapRef.current.get(clipId);
       if (!clip) return;
-      pause();
-      suspendAutoSave();
       const selectedClipIds = useUIStore.getState().selectedClipIds;
       const draggedClipIds = selectedClipIds.includes(clipId) ? selectedClipIds : [clipId];
+      const timelineState = useTimelineStore.getState();
+      const hasLockedSourceClip = draggedClipIds.some((draggedId) => {
+        const dragged = clipMapRef.current.get(draggedId);
+        return timelineState.tracks.find((track) => track.id === dragged?.trackId)?.locked ?? false;
+      });
+
+      // A multi-selection is one atomic drag. Do not allow an unlocked clip
+      // to carry a locked clip along with it.
+      if (hasLockedSourceClip) return;
+
+      pause();
+      suspendAutoSave();
 
       // Find clip's index in its track
       const trackClips = trackClipsMapRef.current.get(clip.trackId) ?? [];

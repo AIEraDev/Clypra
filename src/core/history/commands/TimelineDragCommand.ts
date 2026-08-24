@@ -113,6 +113,12 @@ export function buildTimelineDragResult(input: BuildTimelineDragResultInput): Ti
   if (!state.clips.some((item) => item.id === clip.id) || drag.draggedClipIds.length === 0 || drag.draggedClipIds.some((id) => !state.clips.some((item) => item.id === id))) {
     return null;
   }
+  // A multi-clip drag must be atomic: a locked source clip cannot be moved
+  // indirectly because it was selected together with an unlocked clip.
+  const draggedClips = state.clips.filter((item) => drag.draggedClipIds.includes(item.id));
+  if (draggedClips.some((item) => state.tracks.find((track) => track.id === item.trackId)?.locked)) {
+    return null;
+  }
   const sourceTrackIds = new Set(Object.values(drag.originalPlacements).map((placement) => placement.trackId));
   const affectedTrackIds = new Set(sourceTrackIds);
   const updates = new Map<string, Partial<Clip>>();

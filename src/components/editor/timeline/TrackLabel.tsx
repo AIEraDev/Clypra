@@ -115,9 +115,10 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visua
             e.stopPropagation();
             toggleTrackMute(track.id);
           }}
-          className={`p-1 rounded transition-colors cursor-pointer hover:bg-timeline-button-hover ${track.muted ? "bg-timeline-button-hover text-timeline-track-name" : "text-timeline-button-icon"}`}
+          disabled={track.locked}
+          className={`p-1 rounded transition-colors ${track.locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-timeline-button-hover"} ${track.muted ? "bg-timeline-button-hover text-timeline-track-name" : "text-timeline-button-icon"}`}
           aria-label={track.muted ? "Unmute track" : "Mute track"}
-          title={track.muted ? "Unmute track" : "Mute track"}
+          title={track.locked ? "Unlock track to mute or unmute" : track.muted ? "Unmute track" : "Mute track"}
         >
           {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
         </button>

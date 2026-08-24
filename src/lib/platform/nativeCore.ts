@@ -75,7 +75,7 @@ export interface NativePerformanceSample {
   bytesTransferred: number;
   cacheHit: boolean;
   generation?: number;
-  mode?: "playback" | "scrub" | "seek" | "frameStep";
+  mode?: NativePreviewMode;
   quality?: NativeQualityTier;
   strategy?: "HOT" | "WARM" | "COLD";
   cancelled?: boolean;
@@ -85,6 +85,49 @@ export interface NativePerformanceSample {
   conversionTimeUs?: number;
   uploadTimeUs?: number;
   presentTimeUs?: number;
+  decodeUs?: number;
+  conversionUploadUs?: number;
+  composeUs?: number;
+  readbackUs?: number;
+  presentUs?: number;
+  schedulerWaitUs?: number;
+  ipcWaitUs?: number;
+  decoderMutexWaitUs?: number;
+  gpuQueueWaitUs?: number;
+  surfaceAcquireUs?: number;
+  submitPresentUs?: number;
+}
+
+export type NativePreviewMode =
+  | "playback"
+  | "playback-lookahead"
+  | "seek"
+  | "scrub"
+  | "frame-step"
+  | "prefetch";
+
+export interface NativeStagePercentiles {
+  p50: number | null;
+  p95: number | null;
+  p99: number | null;
+  sampleCount: number;
+}
+
+export interface NativeModeStats {
+  mode: NativePreviewMode;
+  decode: NativeStagePercentiles;
+  conversionUpload: NativeStagePercentiles;
+  compose: NativeStagePercentiles;
+  readback: NativeStagePercentiles;
+  present: NativeStagePercentiles;
+  schedulerWait: NativeStagePercentiles;
+  ipcWait: NativeStagePercentiles;
+  decoderMutexWait: NativeStagePercentiles;
+  gpuQueueWait: NativeStagePercentiles;
+  surfaceAcquire: NativeStagePercentiles;
+  submitPresent: NativeStagePercentiles;
+  droppedCount: number;
+  staleCount: number;
 }
 
 export interface NativeFrameServiceStats {
@@ -103,6 +146,7 @@ export interface NativeFrameServiceStats {
   windowSeekP95Ms?: number;
   windowSeekP99Ms?: number;
   windowCacheHitRate?: number;
+  modeStats?: NativeModeStats[];
 }
 
 export const NATIVE_PLAYBACK_POLICY = {

@@ -31,6 +31,7 @@ import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import { getPlaybackMetricsSnapshot, tracePlayback } from "@/core/playback/playbackTrace";
 import { getSyncMetricsSnapshot, startSyncMetricsFlushLoop } from "@/lib/playback/syncMetrics";
+import { nativePerfCollector, type NativePerfSpan } from "@/core/playback/nativePerfTelemetry";
 import type { SeekIntent } from "@/core/playback/seekController";
 import {
   getNativePreviewSurfaceGeometry,
@@ -668,6 +669,7 @@ export const NativeProgramPreview: React.FC = () => {
     const registeredNativeAnimatedStickerAssets = new Set<string>();
     const nativeBackgroundAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
     const registeredNativeBackgroundAssets = new Set<string>();
+    const nativeFrontendPerfSpans = new Map<string, NativePerfSpan>();
     const maxNativeTextRasterCacheEntries = 96;
     const maxNativeBodyMaskCacheEntries = 90;
     const maxNativeSmartOverlayCacheEntries = 48;
@@ -1020,7 +1022,20 @@ export const NativeProgramPreview: React.FC = () => {
         if (signal?.aborted) {
           throw new DOMException("Native preview request cancelled", "AbortError");
         }
-        const render = () => renderNativeFrame(request);
+        const requestKey = getNativeFrameRequestKey(request);
+        const frontendSpan = nativePerfCollector.isEnabled()
+          ? nativePerfCollector.begin(request)
+          : null;
+        frontendSpan?.markDispatchStarted();
+        if (frontendSpan) nativeFrontendPerfSpans.set(requestKey, frontendSpan);
+        const render = async () => {
+          frontendSpan?.markIpcStarted();
+          try {
+            return await renderNativeFrame(request);
+          } finally {
+            frontendSpan?.markIpcFinished();
+          }
+        };
         let rgba: ArrayBuffer;
         try {
           rgba = await render();
@@ -1347,18 +1362,26 @@ export const NativeProgramPreview: React.FC = () => {
             };
 
             if (nativeSurfaceUsable) {
+              const frontendSpan = nativePerfCollector.isEnabled()
+                ? nativePerfCollector.begin(requestToPresent)
+                : null;
+              frontendSpan?.markDispatchStarted();
+              frontendSpan?.markIpcStarted();
               nativePlaybackInFlight = presentNativePlaybackFrame(requestToPresent)
                 .then((presentation) => {
+                  frontendSpan?.markIpcFinished();
                   const elapsedMs = performance.now() - requestStartedAt;
                   nativePresentationLatencyMs = nativePresentationLatencyMs > 0
                     ? nativePresentationLatencyMs * 0.75 + elapsedMs * 0.25
                     : elapsedMs;
                   if (!presentation.presented) {
+                    frontendSpan?.finish({ dropped: presentation.dropped, stale: presentation.stale === true });
                     lastNativePlaybackRequestKey = "";
                     if (presentation.dropped) {
                       nativeDroppedFrameCount += 1;
                     }
                   } else {
+                    frontendSpan?.finish();
                     const current = renderStateRef.current;
                     if (
                       isActive &&
@@ -1382,6 +1405,8 @@ export const NativeProgramPreview: React.FC = () => {
                   }
                 })
                 .catch((error) => {
+                  frontendSpan?.markIpcFinished();
+                  frontendSpan?.finish({ dropped: true });
                   nativeContinuousFailureStreak += 1;
                   lastNativePlaybackRequestKey = "";
                   if (nativeContinuousFailureStreak >= 3) {
@@ -1403,6 +1428,9 @@ export const NativeProgramPreview: React.FC = () => {
               nativePlaybackInFlight = nativePreviewScheduler
                 .requestVisible(requestSource)
                 .then((frame) => {
+                  const frontendSpan = nativeFrontendPerfSpans.get(requestKey);
+                  frontendSpan?.finish();
+                  nativeFrontendPerfSpans.delete(requestKey);
                   const current = renderStateRef.current;
                   if (
                     isActive &&
@@ -1418,6 +1446,9 @@ export const NativeProgramPreview: React.FC = () => {
                   }
                 })
                 .catch((error) => {
+                  const frontendSpan = nativeFrontendPerfSpans.get(requestKey);
+                  frontendSpan?.finish({ stale: true, cancelled: error instanceof DOMException && error.name === "AbortError" });
+                  nativeFrontendPerfSpans.delete(requestKey);
                   nativeContinuousFailureStreak += 1;
                   lastNativePlaybackRequestKey = "";
                   if (nativeContinuousFailureStreak >= 3) {
@@ -1493,6 +1524,9 @@ export const NativeProgramPreview: React.FC = () => {
               // was awaiting FFmpeg/GPU readback. Never commit that stale
               // response to the current program canvas.
               if (!targetStillCurrent()) {
+                const frontendSpan = nativeFrontendPerfSpans.get(nativeRequestKey);
+                frontendSpan?.finish({ stale: true });
+                nativeFrontendPerfSpans.delete(nativeRequestKey);
                 tracePlayback("native-render.stale-seek-frame", {
                   requestedTime: timeToRender,
                   requestedFrameIndex: frameIndex,
@@ -1530,6 +1564,12 @@ export const NativeProgramPreview: React.FC = () => {
                 blocked: nativeBlockedKey === nativeRequestKey,
                 error: error instanceof Error ? error.message : String(error),
               });
+              const frontendSpan = nativeFrontendPerfSpans.get(nativeRequestKey);
+              frontendSpan?.finish({
+                stale: error instanceof Error && /stale|cancel/i.test(error.message),
+                cancelled: error instanceof DOMException && error.name === "AbortError",
+              });
+              nativeFrontendPerfSpans.delete(nativeRequestKey);
               nativeRetryAt = performance.now() + 250;
               if (nativeOnlyMode) {
                 setNativeOnlyBlocked(true);
@@ -1549,8 +1589,22 @@ export const NativeProgramPreview: React.FC = () => {
             return;
           }
 
-          if (nativeFrame && canvasEl && !drawNativeFrameToCanvas(canvasEl, nativeFrame)) {
-            throw new Error("Native preview returned a frame that could not be drawn to the preview canvas");
+          let canvasPaintMs: number | undefined;
+          if (nativeFrame && canvasEl) {
+            const canvasPaintStarted = performance.now();
+            if (!drawNativeFrameToCanvas(canvasEl, nativeFrame)) {
+              throw new Error("Native preview returned a frame that could not be drawn to the preview canvas");
+            }
+            canvasPaintMs = performance.now() - canvasPaintStarted;
+          }
+          if (nativeFrame && canvasEl && exactNativeFrame !== null) {
+            const frontendSpan = nativeFrontendPerfSpans.get(nativeRequestKey);
+            if (frontendSpan) {
+              frontendSpan.finish({
+                canvasPaintMs,
+              });
+              nativeFrontendPerfSpans.delete(nativeRequestKey);
+            }
           }
 
           // Smart overlays are already rasterized into the native request. The

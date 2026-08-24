@@ -340,9 +340,14 @@ export const useKeyboardShortcuts = () => {
         }
 
         const store = useTimelineStore.getState();
+        const trackBefore = store.tracks.find((track) => track.id === selectedTrackId);
+        if (trackBefore?.locked) {
+          toast.info("Unlock the track before changing mute");
+          return;
+        }
         store.toggleTrackMute(selectedTrackId);
 
-        const track = store.tracks.find((t) => t.id === selectedTrackId);
+        const track = useTimelineStore.getState().tracks.find((t) => t.id === selectedTrackId);
         toast.info(track?.muted ? "Track muted" : "Track unmuted");
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "p") {
         e.preventDefault();

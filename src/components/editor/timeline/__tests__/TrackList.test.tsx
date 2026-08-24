@@ -37,9 +37,9 @@ describe("TrackLabel interactions", () => {
       </>
     );
 
+    fireEvent.click(screen.getAllByLabelText("Mute track")[0]);
     fireEvent.click(screen.getAllByLabelText("Lock track")[0]);
     fireEvent.click(screen.getAllByLabelText("Hide track")[0]);
-    fireEvent.click(screen.getAllByLabelText("Mute track")[0]);
 
     const [first, second] = useTimelineStore.getState().tracks;
     expect(first.locked).toBe(true);

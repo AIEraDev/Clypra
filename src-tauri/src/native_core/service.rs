@@ -3,7 +3,9 @@ use super::{
     PerformanceSample,
 };
 use std::collections::VecDeque;
-use super::performance::{now_ms, percentile_ms};
+use super::performance::{
+    now_ms, optional_stage_percentiles, percentile_ms, ModeStats, PreviewMode,
+};
 
 /// Reusable native frame service boundary.
 ///
@@ -94,9 +96,63 @@ impl NativeFrameService {
 
     pub fn stats(&self) -> NativeFrameServiceStats {
         let now = now_ms();
-        let mut seek_samples: Vec<u32> = self.window_samples.iter().map(|(_, sample)| sample.total_time_us).collect();
+        let mut seek_samples: Vec<u32> = self
+            .window_samples
+            .iter()
+            .filter(|(_, sample)| {
+                matches!(
+                    sample.mode,
+                    Some(PreviewMode::Seek | PreviewMode::Scrub | PreviewMode::FrameStep)
+                )
+            })
+            .map(|(_, sample)| sample.total_time_us)
+            .collect();
         let requests = self.window_samples.len() as u64;
         let hits = self.window_samples.iter().filter(|(_, sample)| sample.cache_hit).count() as u64;
+        let cache_samples = self
+            .window_samples
+            .iter()
+            .filter(|(_, sample)| {
+                !matches!(
+                    sample.strategy.as_deref(),
+                    Some("SURFACE_WARM" | "SURFACE_COLD")
+                )
+            })
+            .count() as u64;
+        let mode_stats = [
+            PreviewMode::Playback,
+            PreviewMode::PlaybackLookahead,
+            PreviewMode::Seek,
+            PreviewMode::Scrub,
+            PreviewMode::FrameStep,
+            PreviewMode::Prefetch,
+        ]
+        .into_iter()
+        .map(|mode| {
+            let samples: Vec<PerformanceSample> = self
+                .window_samples
+                .iter()
+                .filter(|(_, sample)| sample.mode == Some(mode))
+                .map(|(_, sample)| sample.clone())
+                .collect();
+            ModeStats {
+                mode,
+                decode: optional_stage_percentiles(&samples, |sample| sample.decode_us),
+                conversion_upload: optional_stage_percentiles(&samples, |sample| sample.conversion_upload_us),
+                compose: optional_stage_percentiles(&samples, |sample| sample.compose_us),
+                readback: optional_stage_percentiles(&samples, |sample| sample.readback_us),
+                present: optional_stage_percentiles(&samples, |sample| sample.present_us),
+                scheduler_wait: optional_stage_percentiles(&samples, |sample| sample.scheduler_wait_us),
+                ipc_wait: optional_stage_percentiles(&samples, |sample| sample.ipc_wait_us),
+                decoder_mutex_wait: optional_stage_percentiles(&samples, |sample| sample.decoder_mutex_wait_us),
+                gpu_queue_wait: optional_stage_percentiles(&samples, |sample| sample.gpu_queue_wait_us),
+                surface_acquire: optional_stage_percentiles(&samples, |sample| sample.surface_acquire_us),
+                submit_present: optional_stage_percentiles(&samples, |sample| sample.submit_present_us),
+                dropped_count: samples.iter().filter(|sample| sample.dropped).count(),
+                stale_count: samples.iter().filter(|sample| sample.stale).count(),
+            }
+        })
+        .collect();
         NativeFrameServiceStats {
             total_requests: self.total_requests,
             cache_hits: self.cache_hits,
@@ -112,7 +168,8 @@ impl NativeFrameService {
             window_seek_p50_ms: percentile_ms(&mut seek_samples, 0.50),
             window_seek_p95_ms: percentile_ms(&mut seek_samples, 0.95),
             window_seek_p99_ms: percentile_ms(&mut seek_samples, 0.99),
-            window_cache_hit_rate: if requests == 0 { 0.0 } else { hits as f64 / requests as f64 },
+            window_cache_hit_rate: if cache_samples == 0 { 0.0 } else { hits as f64 / cache_samples as f64 },
+            mode_stats,
         }
     }
 }

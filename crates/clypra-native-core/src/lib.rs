@@ -43,7 +43,10 @@ pub mod native_core {
         ProjectSnapshot, QualityTier, RasterLayerSnapshot, TransitionSnapshot, VideoLayerSnapshot,
         DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
     };
-    pub use crate::performance::{NativeFrameServiceStats, PerformanceBudget, PerformanceSample};
+    pub use crate::performance::{
+        ModeStats, NativeFrameServiceStats, PerformanceBudget, PerformanceSample, PreviewMode,
+        StagePercentiles,
+    };
     pub use crate::service::NativeFrameService;
     pub use crate::session::PlaybackSession;
     pub use crate::surface::{
@@ -60,7 +63,10 @@ pub use contracts::{
     NATIVE_CORE_CONTRACT_VERSION,
 };
 pub use golden::{compare_rgba8, GoldenDiff};
-pub use performance::{NativeFrameServiceStats, PerformanceBudget, PerformanceSample};
+pub use performance::{
+    ModeStats, NativeFrameServiceStats, PerformanceBudget, PerformanceSample, PreviewMode,
+    StagePercentiles,
+};
 pub use service::NativeFrameService;
 pub use session::PlaybackSession;
 pub use surface::{

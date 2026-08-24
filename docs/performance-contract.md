@@ -1,5 +1,8 @@
 # Native Performance Contract
 
+For the investigation history, path-specific failure modes, and safe-change
+checklist, read [Program Preview Performance Runbook](program-preview-performance-runbook.md).
+
 ## Baseline
 
 The current smooth editing path is the performance baseline. A native change
@@ -53,9 +56,28 @@ never replace the visible target.
 ## Measurement
 
 The native frame service records request count, cache hit/miss count, cache
-bytes, transferred bytes, and the latest end-to-end sample. Phase-specific
-decode, compose, and readback timers must be added before native playback is
-enabled. The diagnostics command is `get_native_frame_service_stats`.
+bytes, transferred bytes, and the latest end-to-end sample. It also keeps a
+five-second, mode-partitioned window for `playback`, `playback-lookahead`,
+`seek`, `scrub`, `frame-step`, and `prefetch`.
+
+Native samples expose optional stage timings. The readback path records decode,
+decoder-mutex wait, conversion/upload, composition, and RGBA readback. The
+retained native-surface path records decode, decoder-mutex wait, conversion /
+upload, composition, surface acquisition, and CPU submit/present. A stage that
+does not exist on a path is `null`, not zero. Percentiles filter out nulls and
+report the number of samples that actually contained that stage.
+
+The diagnostics command is `get_native_frame_service_stats`. Frontend-only
+dispatch, IPC, and canvas-paint spans are kept in a bounded in-memory ring
+buffer by `nativePerfCollector`; they use the same request ID, generation, and
+frame index for offline joining. Rust `Instant` values and browser
+`performance.now()` values must never be aligned as shared timestamps.
+
+Native-surface telemetry records with a non-blocking service-mutex attempt so
+diagnostics cannot add a presentation wait. A sample can therefore be omitted
+if a stats read is holding the service mutex. Per-frame decode logging is gated
+through the existing trace event path; the default path does not print a
+decoder line for every frame.
 
 Every benchmark report must include:
 

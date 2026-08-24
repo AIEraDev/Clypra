@@ -936,6 +936,31 @@ impl MultiTrackCompositor {
         clear_color: Option<wgpu::Color>,
         #[cfg(target_arch = "wasm32")] is_gl: bool,
     ) -> Result<Vec<u8>, String> {
+        self.render_to_rgba_bytes_with_size_timed(
+            device,
+            queue,
+            width,
+            height,
+            layers,
+            clear_color,
+            #[cfg(target_arch = "wasm32")] is_gl,
+        )
+        .await
+        .map(|(bytes, _, _)| bytes)
+    }
+
+    /// Render to RGBA bytes and return CPU-observable composition and readback
+    /// durations. The readback duration includes GPU completion/map latency.
+    pub async fn render_to_rgba_bytes_with_size_timed(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        layers: &[CompositeLayer<'_>],
+        clear_color: Option<wgpu::Color>,
+        #[cfg(target_arch = "wasm32")] is_gl: bool,
+    ) -> Result<(Vec<u8>, u64, u64), String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Compositor Render Target"),
             size: wgpu::Extent3d {
@@ -954,7 +979,10 @@ impl MultiTrackCompositor {
         let target_texture = device.create_texture(&texture_desc);
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let compose_started = std::time::Instant::now();
         self.composite_layers(device, queue, &target_view, layers, clear_color)?;
+        let compose_us = compose_started.elapsed().as_micros() as u64;
+        let readback_started = std::time::Instant::now();
 
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
@@ -1077,7 +1105,11 @@ impl MultiTrackCompositor {
         drop(mapped_range);
         output_buffer.unmap();
 
-        Ok(unpadded_rgba)
+        Ok((
+            unpadded_rgba,
+            compose_us,
+            readback_started.elapsed().as_micros() as u64,
+        ))
     }
 
     /// Composites a dual-texture transition (from -> to) onto the target view.
@@ -1178,6 +1210,34 @@ impl MultiTrackCompositor {
         uniforms: &TransitionUniforms,
         #[cfg(target_arch = "wasm32")] is_gl: bool,
     ) -> Result<Vec<u8>, String> {
+        self.render_transition_to_rgba_bytes_timed(
+            device,
+            queue,
+            width,
+            height,
+            from_view,
+            to_view,
+            uniforms,
+            #[cfg(target_arch = "wasm32")] is_gl,
+        )
+        .await
+        .map(|(bytes, _, _)| bytes)
+    }
+
+    /// Render a transition and return CPU-observable composition and readback
+    /// durations.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn render_transition_to_rgba_bytes_timed(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        from_view: &wgpu::TextureView,
+        to_view: &wgpu::TextureView,
+        uniforms: &TransitionUniforms,
+        #[cfg(target_arch = "wasm32")] is_gl: bool,
+    ) -> Result<(Vec<u8>, u64, u64), String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Transition Render Target"),
             size: wgpu::Extent3d {
@@ -1196,6 +1256,7 @@ impl MultiTrackCompositor {
         let target_texture = device.create_texture(&texture_desc);
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let compose_started = std::time::Instant::now();
         self.composite_transition(
             device,
             queue,
@@ -1205,6 +1266,8 @@ impl MultiTrackCompositor {
             uniforms,
             Some(wgpu::Color::BLACK),
         )?;
+        let compose_us = compose_started.elapsed().as_micros() as u64;
+        let readback_started = std::time::Instant::now();
 
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
@@ -1327,6 +1390,10 @@ impl MultiTrackCompositor {
         drop(mapped_range);
         output_buffer.unmap();
 
-        Ok(unpadded_rgba)
+        Ok((
+            unpadded_rgba,
+            compose_us,
+            readback_started.elapsed().as_micros() as u64,
+        ))
     }
 }
