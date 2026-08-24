@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-08-25
+
+### ⚡ Program Preview Performance
+
+- **Smoother native Program Preview playback and scrubbing** — removed high-frequency decoder console I/O from the frame path and kept native-surface diagnostics from blocking presentation.
+- **Native-surface playback telemetry** — added optional timings for decoder wait/decode, YUV conversion/upload, composition, surface acquisition, and present submission.
+- **RGBA readback telemetry** — separated compositor time from GPU readback/map time for paused seeking and scrubbing.
+- **Mode-aware preview statistics** — performance data is partitioned across playback, lookahead, seek, scrub, frame-step, and prefetch with P50/P95/P99 stage percentiles.
+- **Frontend preview tracing** — added bounded dispatch, IPC, and canvas-paint measurements keyed by request ID, generation, and frame index.
+- **Accurate cache metrics** — native-surface staging frames are no longer counted as RGBA frame-cache hits.
+
 ## [1.4.3] - 2026-08-25
 
 ### ✂️ Timeline Editing
