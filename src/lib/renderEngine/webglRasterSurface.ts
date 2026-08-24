@@ -250,17 +250,22 @@ export class WebGLRasterSurface {
         const slotW = Math.max(1, Math.round(slot.widthPx * safeDpr));
 
         let art = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
-        if (!art && layout.tileCache && (layout.clipId || layout.videoPath) && slot.address.zoomTier !== SpatialTier.L0) {
-          const fallbackEntry = layout.tileCache.findBestFallback(
-            layout.clipId ?? "",
-            slot.address.zoomTier,
-            slot.address.timestamp,
-            layout.videoPath,
-            6.0,
-            slot.address.effectGraphVersion,
-          );
-          if (fallbackEntry && isValidArtifact(fallbackEntry.artifact)) {
-            art = fallbackEntry.artifact;
+        if (!art && layout.tileCache) {
+          const exactTile = layout.tileCache.getTile(slot.address);
+          if (exactTile && isValidArtifact(exactTile.artifact)) {
+            art = exactTile.artifact;
+          } else if ((layout.clipId || layout.videoPath) && slot.address.zoomTier !== SpatialTier.L0) {
+            const fallbackEntry = layout.tileCache.findBestFallback(
+              layout.clipId ?? "",
+              slot.address.zoomTier,
+              slot.address.timestamp,
+              layout.videoPath,
+              6.0,
+              slot.address.effectGraphVersion,
+            );
+            if (fallbackEntry && isValidArtifact(fallbackEntry.artifact)) {
+              art = fallbackEntry.artifact;
+            }
           }
         }
 

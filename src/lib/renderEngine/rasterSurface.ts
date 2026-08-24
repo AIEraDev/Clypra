@@ -163,34 +163,52 @@ export class RasterSurface {
             slotW,
             slotH,
           );
-        } else if (layout.tileCache && (layout.clipId || layout.videoPath) && slot.address.zoomTier !== SpatialTier.L0) {
-          // Multi-tier pyramid fallback: look up best available lower-tier tile (L2 -> L1 -> L0)
-          // and stretch it — blurry-but-instant is better than shimmer during zoom transitions.
-          const fallbackEntry = layout.tileCache.findBestFallback(
-            layout.clipId ?? "",
-            slot.address.zoomTier,
-            slot.address.timestamp,
-            layout.videoPath,
-            /* tolerance: */ 6.0,
-            slot.address.effectGraphVersion,
-          );
-          if (fallbackEntry && fallbackEntry.artifact.bitmap && fallbackEntry.artifact.bitmap.width > 0) {
-            fallbackCount++;
-            // Draw with imageSmoothingEnabled to produce a smooth bicubic stretch
-            ctx.save();
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "medium";
+        } else if (layout.tileCache && (layout.clipId || layout.videoPath)) {
+          const exactTile = layout.tileCache.getTile(slot.address);
+          if (exactTile && exactTile.artifact.bitmap && exactTile.artifact.bitmap.width > 0) {
+            exactCount++;
             this._drawTile(
               ctx,
-              fallbackEntry.artifact.bitmap,
-              fallbackEntry.artifact.width,
-              fallbackEntry.artifact.height,
+              exactTile.artifact.bitmap,
+              exactTile.artifact.width,
+              exactTile.artifact.height,
               slotX,
               0,
               slotW,
               slotH,
             );
-            ctx.restore();
+          } else if (slot.address.zoomTier !== SpatialTier.L0) {
+            // Multi-tier pyramid fallback: look up best available lower-tier tile (L2 -> L1 -> L0)
+            // and stretch it — blurry-but-instant is better than shimmer during zoom transitions.
+            const fallbackEntry = layout.tileCache.findBestFallback(
+              layout.clipId ?? "",
+              slot.address.zoomTier,
+              slot.address.timestamp,
+              layout.videoPath,
+              /* tolerance: */ 6.0,
+              slot.address.effectGraphVersion,
+            );
+            if (fallbackEntry && fallbackEntry.artifact.bitmap && fallbackEntry.artifact.bitmap.width > 0) {
+              fallbackCount++;
+              // Draw with imageSmoothingEnabled to produce a smooth bicubic stretch
+              ctx.save();
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = "medium";
+              this._drawTile(
+                ctx,
+                fallbackEntry.artifact.bitmap,
+                fallbackEntry.artifact.width,
+                fallbackEntry.artifact.height,
+                slotX,
+                0,
+                slotW,
+                slotH,
+              );
+              ctx.restore();
+            } else {
+              pendingCount++;
+              this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
+            }
           } else {
             pendingCount++;
             this._drawPendingSlotPlaceholder(ctx, slotX, 0, slotW, slotH);
