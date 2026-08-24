@@ -987,4 +987,24 @@ describe("buildNativeFrameRequest", () => {
     expect(key).not.toContain("255,255,255,255");
     expect(key).toContain("native-text:title:abcd1234");
   });
+
+  it("reuses a rendered frame across seek generations and scheduling modes", () => {
+    const request = buildNativeFrameRequest(makeScene([makeVideoLayer()]), "project-1:7", 67, 30, 960, 540)!;
+    const first = getNativeFrameRequestKey({
+      ...request,
+      generation: 1,
+      mode: "seek",
+      requestedAtMs: 100,
+      scrubVelocityPxPerSecond: 240,
+    });
+    const second = getNativeFrameRequestKey({
+      ...request,
+      generation: 2,
+      mode: "playback-lookahead",
+      requestedAtMs: 200,
+      scrubVelocityPxPerSecond: 0,
+    });
+
+    expect(second).toBe(first);
+  });
 });
