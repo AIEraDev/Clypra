@@ -49,6 +49,44 @@ export function usePlaybackClock(): PlaybackClockState {
 }
 
 /**
+ * Hook for discrete playback status (isPlaying and duration) without subscribing
+ * to continuous time updates. Prevents large container components from re-rendering
+ * on every animation frame during playback.
+ */
+export function usePlaybackStatus(): { isPlaying: boolean; duration: number; state: PlaybackClockState["state"] } {
+  const clock = getPlaybackClock();
+  const [status, setStatus] = useState(() => {
+    const s = clock.getState();
+    return {
+      isPlaying: s.state === "playing",
+      duration: s.duration,
+      state: s.state,
+    };
+  });
+
+  useEffect(() => {
+    let lastState = clock.getState().state;
+    let lastDuration = clock.getState().duration;
+
+    const unsubscribe = clock.subscribe((newState) => {
+      const isPlaying = newState.state === "playing";
+      const duration = newState.duration;
+      const state = newState.state;
+
+      if (state !== lastState || duration !== lastDuration) {
+        lastState = state;
+        lastDuration = duration;
+        setStatus({ isPlaying, duration, state });
+      }
+    });
+
+    return unsubscribe;
+  }, [clock]);
+
+  return status;
+}
+
+/**
  * Hook for playback controls.
  * Returns imperative control functions (no state).
  * Functions are memoized to prevent unnecessary re-renders.

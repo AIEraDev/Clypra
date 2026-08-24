@@ -10,6 +10,7 @@ pub mod cache;
 pub mod queue;
 pub mod retry;
 pub mod mmap_cache;
+pub mod metrics;
 
 pub use mmap_cache::MmapFrameCache;
 

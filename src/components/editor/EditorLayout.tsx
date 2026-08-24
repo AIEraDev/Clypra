@@ -5,6 +5,7 @@ import { PreviewPanel } from "./preview/PreviewPanel";
 import { SourcePreview } from "./preview/SourcePreview";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
+import { FilmstripMetricsOverlay } from "./timeline/FilmstripMetricsOverlay";
 import { useWindowSize } from "@/hooks/useWindowSize";
 import { MobileEditorLayout } from "./MobileEditorLayout";
 import { useAddToTimeline } from "@/hooks/useAddToTimeline";
@@ -849,6 +850,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           <Timeline />
         </div>
       </div>
+      <FilmstripMetricsOverlay />
     </div>
   );
 };

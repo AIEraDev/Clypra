@@ -18,6 +18,7 @@
 import { RasterSurface, type FilmstripLayout } from "./rasterSurface";
 import type { TransportArtifact } from "./transport";
 import { getFilmstripTileSlots } from "../filmstrip/filmstripLayout";
+import { SpatialTier } from "./types";
 
 // ─── Shaders ──────────────────────────────────────────────────────────────────
 
@@ -45,9 +46,47 @@ void main() {
 }
 `;
 
-// ─── Atlas layout ─────────────────────────────────────────────────────────────
+// ─── Shimmer Pattern & Atlas layout ───────────────────────────────────────────
 
-/** Packs bitmaps into a square-ish power-of-two atlas texture. */
+const SHIMMER_SIZE = 32;
+
+function createShimmerPatternBuffer(): Uint8Array {
+  const width = SHIMMER_SIZE;
+  const height = SHIMMER_SIZE;
+  const buf = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      // Base background tint #123642 (r: 18, g: 54, b: 66, a: 255)
+      let r = 18;
+      let g = 54;
+      let b = 66;
+      const a = 255;
+
+      // Left tile boundary line at x === 0
+      if (x === 0) {
+        r = 8;
+        g = 24;
+        b = 30;
+      } else if ((x + y) % 8 === 0) {
+        // Diagonal hatch line every 8px
+        r = 32;
+        g = 80;
+        b = 96;
+      }
+
+      buf[idx] = r;
+      buf[idx + 1] = g;
+      buf[idx + 2] = b;
+      buf[idx + 3] = a;
+    }
+  }
+  return buf;
+}
+
+const SHIMMER_BUFFER = createShimmerPatternBuffer();
+
+/** Packs bitmaps and placeholder patterns into a square-ish power-of-two atlas texture. */
 function nextPow2(n: number): number {
   let p = 1;
   while (p < n) p <<= 1;
@@ -61,27 +100,35 @@ interface AtlasCell {
   vh: number;
 }
 
+interface AtlasItem {
+  key: string;
+  width: number;
+  height: number;
+  bitmap?: ImageBitmap;
+  isShimmer?: boolean;
+}
+
 function isValidArtifact(artifact: TransportArtifact): boolean {
   return !!artifact.bitmap && artifact.bitmap.width > 0 && artifact.bitmap.height > 0;
 }
 
-function packAtlas(artifacts: readonly TransportArtifact[], cols: number): { atlasW: number; atlasH: number; cellW: number; cellH: number; cells: AtlasCell[] } {
-  if (artifacts.length === 0) return { atlasW: 1, atlasH: 1, cellW: 1, cellH: 1, cells: [] };
+function packAtlas(items: readonly AtlasItem[], cols: number): { atlasW: number; atlasH: number; cellW: number; cellH: number; cells: AtlasCell[] } {
+  if (items.length === 0) return { atlasW: 1, atlasH: 1, cellW: 1, cellH: 1, cells: [] };
 
-  const cellW = Math.max(...artifacts.map((artifact) => artifact.width));
-  const cellH = Math.max(...artifacts.map((artifact) => artifact.height));
-  const rows = Math.ceil(artifacts.length / cols);
+  const cellW = Math.max(...items.map((item) => item.width));
+  const cellH = Math.max(...items.map((item) => item.height));
+  const rows = Math.ceil(items.length / cols);
   const atlasW = nextPow2(cols * cellW);
   const atlasH = nextPow2(rows * cellH);
 
-  const cells: AtlasCell[] = artifacts.map((artifact, i) => {
+  const cells: AtlasCell[] = items.map((item, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
     return {
       u: (col * cellW) / atlasW,
       v: (row * cellH) / atlasH,
-      uw: artifact.width / atlasW,
-      vh: artifact.height / atlasH,
+      uw: item.width / atlasW,
+      vh: item.height / atlasH,
     };
   });
 
@@ -156,12 +203,9 @@ export class WebGLRasterSurface {
   }
 
   drawFilmstrip(artifacts: readonly TransportArtifact[], layout: FilmstripLayout): void {
-    const validArtifacts = artifacts.filter(isValidArtifact);
-    if (this._disposed || validArtifacts.length === 0) {
-      this._clear(layout);
-      return;
-    }
+    if (this._disposed) return;
 
+    const validArtifacts = artifacts.filter(isValidArtifact);
     const gl = this._gl;
     const { clipWidthPx, stripHeightPx, dpr, tileWidthPx: targetTileW = 60 } = layout;
 
@@ -181,38 +225,15 @@ export class WebGLRasterSurface {
     gl.clearColor(0.047, 0.153, 0.188, 1.0); // #0c2730
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    // ── Upload atlas ────────────────────────────────────────────────────────
-    const cols = Math.min(validArtifacts.length, 16); // max 16 per row
-    const { atlasW, atlasH, cellW, cellH, cells } = packAtlas(validArtifacts, cols);
+    // ── Resolve per-slot items (exact vs pyramid fallback vs shimmer) ──────
+    const drawSlots: Array<{ item: AtlasItem; tileX: number; tileW: number }> = [];
 
-    gl.bindTexture(gl.TEXTURE_2D, this._atlasTexture);
-    // Allocate atlas
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, atlasW, atlasH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-
-    // Upload each bitmap into its atlas cell
-    for (let i = 0; i < validArtifacts.length; i++) {
-      const art = validArtifacts[i];
-      try {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, col * cellW, row * cellH, gl.RGBA, gl.UNSIGNED_BYTE, art.bitmap);
-      } catch {}
-    }
-
-    // ── Build per-tile geometry ─────────────────────────────────────────────
-    // Destination rects are native bitmap pixel crops clipped into fixed tile
-    // slots. This avoids stretching low-resolution artifacts across the slot.
-    const FLOATS_PER_VERTEX = 4;
-    const VERTS_PER_TILE = 6;
-    const tileH = backingH;
-    const rects: Array<{ pos: [number, number, number, number]; uv: [number, number, number, number] }> = [];
-
-    const drawSlots: Array<{ art: TransportArtifact; cell: AtlasCell; tileX: number; tileW: number }> = [];
     if (layout.tileAddresses && layout.trimIn !== undefined && layout.trimOut !== undefined) {
-      const artifactByTimestamp = new Map<number, { art: TransportArtifact; cell: AtlasCell }>();
-      for (let i = 0; i < validArtifacts.length; i++) {
-        artifactByTimestamp.set(Math.round(validArtifacts[i].timestampMs), { art: validArtifacts[i], cell: cells[i] });
+      const artifactByTimestamp = new Map<number, TransportArtifact>();
+      for (const art of validArtifacts) {
+        artifactByTimestamp.set(Math.round(art.timestampMs), art);
       }
+
       const slots = getFilmstripTileSlots({
         addresses: layout.tileAddresses,
         clipWidthPx: safeClipWidth,
@@ -223,27 +244,116 @@ export class WebGLRasterSurface {
         renderWindowLeftPx: layout.renderWindowLeftPx,
         clipTrimIn: layout.clipTrimIn,
       });
+
       for (const slot of slots) {
-        const match = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
-        if (!match) continue;
-        drawSlots.push({
-          ...match,
-          tileX: Math.round(slot.leftPx * safeDpr),
-          tileW: Math.max(1, Math.round(slot.widthPx * safeDpr)),
-        });
+        const slotX = Math.round(slot.leftPx * safeDpr);
+        const slotW = Math.max(1, Math.round(slot.widthPx * safeDpr));
+
+        let art = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
+        if (!art && layout.tileCache) {
+          const exactTile = layout.tileCache.getTile(slot.address);
+          if (exactTile && isValidArtifact(exactTile.artifact)) {
+            art = exactTile.artifact;
+          } else if ((layout.clipId || layout.videoPath) && slot.address.zoomTier !== SpatialTier.L0) {
+            const fallbackEntry = layout.tileCache.findBestFallback(
+              layout.clipId ?? "",
+              slot.address.zoomTier,
+              slot.address.timestamp,
+              layout.videoPath,
+              6.0,
+              slot.address.effectGraphVersion,
+            );
+            if (fallbackEntry && isValidArtifact(fallbackEntry.artifact)) {
+              art = fallbackEntry.artifact;
+            }
+          }
+        }
+
+        if (art && isValidArtifact(art)) {
+          drawSlots.push({
+            item: { key: art.frameId, width: art.width, height: art.height, bitmap: art.bitmap },
+            tileX: slotX,
+            tileW: slotW,
+          });
+        } else {
+          // Cold start / missing tile: draw stylized shimmer quad
+          drawSlots.push({
+            item: { key: "__shimmer__", width: SHIMMER_SIZE, height: SHIMMER_SIZE, isShimmer: true },
+            tileX: slotX,
+            tileW: slotW,
+          });
+        }
       }
     } else {
       const tileCount = Math.max(1, Math.ceil(safeClipWidth / targetTileW));
       const tileW = Math.round(targetTileW * safeDpr);
-      for (let i = 0; i < Math.min(tileCount, validArtifacts.length); i++) {
-        drawSlots.push({ art: validArtifacts[i], cell: cells[i], tileX: i * tileW, tileW });
+      for (let i = 0; i < tileCount; i++) {
+        const art = validArtifacts[i];
+        if (art && isValidArtifact(art)) {
+          drawSlots.push({
+            item: { key: art.frameId, width: art.width, height: art.height, bitmap: art.bitmap },
+            tileX: i * tileW,
+            tileW,
+          });
+        } else {
+          drawSlots.push({
+            item: { key: "__shimmer__", width: SHIMMER_SIZE, height: SHIMMER_SIZE, isShimmer: true },
+            tileX: i * tileW,
+            tileW,
+          });
+        }
       }
     }
 
-    for (const { art, cell, tileX, tileW } of drawSlots) {
+    if (drawSlots.length === 0) {
+      return;
+    }
+
+    // ── Deduplicate items and upload to single atlas ────────────────────────
+    const uniqueItems: AtlasItem[] = [];
+    const itemKeyToIndex = new Map<string, number>();
+
+    for (const { item } of drawSlots) {
+      if (!itemKeyToIndex.has(item.key)) {
+        itemKeyToIndex.set(item.key, uniqueItems.length);
+        uniqueItems.push(item);
+      }
+    }
+
+    const cols = Math.min(uniqueItems.length, 16); // max 16 per row
+    const { atlasW, atlasH, cellW, cellH, cells } = packAtlas(uniqueItems, cols);
+
+    gl.bindTexture(gl.TEXTURE_2D, this._atlasTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, atlasW, atlasH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+    // Upload each unique bitmap/shimmer into its atlas cell
+    for (let i = 0; i < uniqueItems.length; i++) {
+      const item = uniqueItems[i];
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      try {
+        if (item.bitmap) {
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, col * cellW, row * cellH, gl.RGBA, gl.UNSIGNED_BYTE, item.bitmap);
+        } else if (item.isShimmer) {
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, col * cellW, row * cellH, SHIMMER_SIZE, SHIMMER_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, SHIMMER_BUFFER);
+        }
+      } catch {}
+    }
+
+    // ── Build per-tile geometry ─────────────────────────────────────────────
+    const FLOATS_PER_VERTEX = 4;
+    const VERTS_PER_TILE = 6;
+    const tileH = backingH;
+    const rects: Array<{ pos: [number, number, number, number]; uv: [number, number, number, number] }> = [];
+
+    for (const { item, tileX, tileW } of drawSlots) {
+      const cellIdx = itemKeyToIndex.get(item.key);
+      if (cellIdx === undefined) continue;
+      const cell = cells[cellIdx];
+      if (!cell) continue;
 
       // Center-crop: scale bitmap to cover tile, then crop to fit
-      const bmpAspect = art.width / art.height;
+      const bmpAspect = item.width / item.height;
       const tileAspect = tileW / tileH;
 
       let drawW: number, drawH: number, drawX: number, drawY: number;
@@ -288,6 +398,8 @@ export class WebGLRasterSurface {
         uv: [u0, v0, uw, vh],
       });
     }
+
+    if (rects.length === 0) return;
 
     const buf = new Float32Array(rects.length * VERTS_PER_TILE * FLOATS_PER_VERTEX);
 
@@ -371,7 +483,7 @@ export class WebGLRasterSurface {
   }
 
   drawPlaceholder(layout: FilmstripLayout): void {
-    this._clear(layout);
+    this.drawFilmstrip([], layout);
   }
 
   private _clear(layout: FilmstripLayout): void {

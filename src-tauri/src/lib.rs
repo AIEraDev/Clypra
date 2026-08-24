@@ -242,6 +242,7 @@ pub fn run() {
             get_render_artifact,
             get_render_artifacts_batch,
             check_coarse_baseline_cache,
+            get_decode_metrics_snapshot,
             get_disk_cache_stats,
             clear_disk_cache,
             set_cache_size_limit,
@@ -280,6 +281,14 @@ pub fn run() {
             run_wgpu_smoke_test,
             run_native_document_wgpu_export,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                #[cfg(target_os = "macos")]
+                {
+                    window.app_handle().exit(0);
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -321,6 +321,7 @@ impl VideoDecoder {
 
     pub fn open(path: &str) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
+        ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Error);
 
         let input_ctx = ffmpeg::format::input(&path).map_err(|e| format!("Cannot open: {}", e))?;
 
@@ -339,7 +340,7 @@ impl VideoDecoder {
             if !codecpar.is_null() {
                 let sar_num = (*codecpar).sample_aspect_ratio.num;
                 let sar_den = (*codecpar).sample_aspect_ratio.den;
-                if sar_den > 0 {
+                if sar_den > 0 && sar_num > 0 {
                     (sar_num, sar_den)
                 } else {
                     (1, 1) // Square pixels
@@ -367,8 +368,6 @@ impl VideoDecoder {
                 )
             }
         };
-
-        eprintln!("[VideoDecoder::open] SAR: {}:{}", sar.0, sar.1);
 
         let rotation = {
             let mut rot = 0i32;
@@ -411,10 +410,6 @@ impl VideoDecoder {
                 _ => 0,
             }
         };
-
-        if rotation != 0 {
-            eprintln!("[VideoDecoder::open] Detected rotation={}°", rotation);
-        }
 
         let duration = input_ctx.duration() as f64 / ffmpeg::ffi::AV_TIME_BASE as f64;
         let codec_ctx = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
@@ -540,29 +535,37 @@ impl VideoDecoder {
         30.0
     }
 
+    unsafe extern "C" fn get_hw_format(
+        _ctx: *mut ffmpeg::ffi::AVCodecContext,
+        pix_fmts: *const ffmpeg::ffi::AVPixelFormat,
+    ) -> ffmpeg::ffi::AVPixelFormat {
+        let mut p = pix_fmts;
+        while !p.is_null() && *p != ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NONE {
+            if *p == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX
+                || *p == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_D3D11
+                || *p == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_VAAPI
+                || *p == ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_CUDA
+            {
+                return *p;
+            }
+            p = p.add(1);
+        }
+        ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NONE
+    }
+
     fn open_with_hw(
         mut ctx: ffmpeg::codec::context::Context,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
         #[cfg(target_os = "macos")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] =
-            &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
         #[cfg(target_os = "windows")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_DXVA2,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_QSV,
-        ];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
         #[cfg(target_os = "linux")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VULKAN,
-        ];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
 
-        let mut hw_attached = false;
+        let mut _hw_attached = false;
         for &hw_type in hw_types {
             unsafe {
                 let mut hw_ctx = std::ptr::null_mut();
@@ -576,28 +579,16 @@ impl VideoDecoder {
                 if ret >= 0 && !hw_ctx.is_null() {
                     (*ctx.as_mut_ptr()).hw_device_ctx = ffmpeg::ffi::av_buffer_ref(hw_ctx);
                     ffmpeg::ffi::av_buffer_unref(&mut hw_ctx);
-                    hw_attached = true;
-                    eprintln!(
-                        "[VideoDecoder::open_with_hw] Activated HW acceleration: {:?}",
-                        hw_type
-                    );
+                    (*ctx.as_mut_ptr()).get_format = Some(Self::get_hw_format);
+                    _hw_attached = true;
                     break;
                 }
             }
         }
 
-        if !hw_attached {
-            eprintln!("[VideoDecoder::open_with_hw] No HW accelerator attached, using optimized software decoder");
-        }
-
         let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
         let w = decoder.width();
         let h = decoder.height();
-
-        eprintln!(
-            "[VideoDecoder::open] Opened {}x{} decoder (hw={})",
-            w, h, hw_attached
-        );
 
         Ok((decoder, w, h))
     }
@@ -690,6 +681,111 @@ impl VideoDecoder {
         Ok((rgba, display_w, display_h))
     }
 
+    /// Decode multiple frames in a single forward pass under one lock hold.
+    ///
+    /// The input `target_timestamps_secs` should be sorted ascending.
+    /// Performs a single seek before the first timestamp, then streams packets
+    /// forward continuously through the GOP without repeated seeking or decoder resets.
+    ///
+    /// Returns `(target_ts, rgba, display_w, display_h)` for each satisfied target.
+    pub fn decode_frames_batch_full_res(
+        &mut self,
+        target_timestamps_secs: &[f64],
+    ) -> Result<Vec<(f64, Vec<u8>, u32, u32)>, String> {
+        if target_timestamps_secs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let first_ts = self.clamp_timestamp(target_timestamps_secs[0]);
+        let first_target_pts = (first_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        self.state.update_sequential(first_target_pts);
+
+        let needs_seek = self.state.current_pts < 0
+            || first_target_pts < self.state.current_pts
+            || !self.state.can_decode_forward(first_target_pts, sequential_window);
+
+        if needs_seek {
+            unsafe {
+                let ret = ffmpeg::ffi::av_seek_frame(
+                    self.input_ctx.as_mut_ptr(),
+                    self.stream_index as i32,
+                    first_target_pts,
+                    ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+                );
+                if ret < 0 {
+                    return Err(format!("Seek failed at {}s", first_ts));
+                }
+            }
+            self.decoder.flush();
+            self.state.current_pts = -1;
+            self.state.gop_start_pts = first_target_pts;
+        }
+
+        let (display_w, display_h) = self.display_dimensions();
+        let (scale_w, scale_h) = if self.rotation == 90 || self.rotation == 270 {
+            (display_h, display_w)
+        } else {
+            (display_w, display_h)
+        };
+
+        let mut cpu_frames = Vec::with_capacity(target_timestamps_secs.len());
+        let mut next_target_idx = 0;
+
+        'packet_loop: for (stream, packet) in self.input_ctx.packets() {
+            if stream.index() != self.stream_index {
+                continue;
+            }
+            if self.decoder.send_packet(&packet).is_err() {
+                continue;
+            }
+            let mut frame = ffmpeg::frame::Video::empty();
+            while self.decoder.receive_frame(&mut frame).is_ok() {
+                let pts = frame.pts().unwrap_or(0);
+                self.state.current_pts = pts;
+                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+
+                let mut transferred_cpu_frame: Option<ffmpeg::frame::Video> = None;
+
+                while next_target_idx < target_timestamps_secs.len() {
+                    let target_ts = target_timestamps_secs[next_target_idx];
+                    if frame_ts >= target_ts - (1.0 / 60.0) {
+                        let cpu_frame = match &transferred_cpu_frame {
+                            Some(cached) => cached.clone(),
+                            None => {
+                                let cpu = Self::hw_to_cpu_frame(frame.clone())?;
+                                transferred_cpu_frame = Some(cpu.clone());
+                                cpu
+                            }
+                        };
+                        cpu_frames.push((target_ts, cpu_frame));
+                        next_target_idx += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                if next_target_idx >= target_timestamps_secs.len() {
+                    break 'packet_loop;
+                }
+                frame = ffmpeg::frame::Video::empty();
+            }
+        }
+
+        let mut results = Vec::with_capacity(cpu_frames.len());
+        for (target_ts, cpu_frame) in cpu_frames {
+            let scaled = self.scale_to_rgba_explicit(&cpu_frame, scale_w, scale_h)?;
+            let rgba = if self.rotation != 0 {
+                Self::rotate_rgba(&scaled, scale_w, scale_h, self.rotation)
+            } else {
+                scaled
+            };
+            results.push((target_ts, rgba, display_w, display_h));
+        }
+
+        Ok(results)
+    }
+
     /// Fast keyframe decode for poster frames / library thumbnails.
     ///
     /// Seeks to the nearest keyframe at or before target_time and immediately returns
@@ -701,7 +797,7 @@ impl VideoDecoder {
         out_width: u32,
         out_height: u32,
     ) -> Result<Vec<u8>, String> {
-        let start = std::time::Instant::now();
+        let _start = std::time::Instant::now();
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
 
@@ -720,10 +816,10 @@ impl VideoDecoder {
         self.decoder.flush();
         self.state.current_pts = -1;
         self.state.gop_start_pts = target_pts;
-        let seek_elapsed = seek_start.elapsed();
+        let _seek_elapsed = seek_start.elapsed();
 
         let mut best_frame = ffmpeg::frame::Video::empty();
-        let mut packets_decoded = 0u32;
+        let mut _packets_decoded = 0u32;
 
         'decode_kf: for (stream, packet) in self.input_ctx.packets() {
             if stream.index() != self.stream_index {
@@ -732,32 +828,40 @@ impl VideoDecoder {
             if self.decoder.send_packet(&packet).is_err() {
                 continue;
             }
-            packets_decoded += 1;
+            _packets_decoded += 1;
 
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
                 if frame.width() > 0 && frame.height() > 0 {
-                    let pts = frame.pts().unwrap_or(0);
-                    self.state.current_pts = pts;
                     best_frame = frame;
                     break 'decode_kf;
                 }
             }
-            if packets_decoded >= 3 {
-                break;
-            }
         }
 
-        if best_frame.width() == 0 {
+        if best_frame.width() == 0 || best_frame.height() == 0 {
             return self.decode_frame(timestamp_secs, out_width, out_height);
         }
 
         let cpu_frame = self.to_cpu_frame(best_frame)?;
+        let (display_w, display_h) = self.display_dimensions();
+        let display_aspect = display_w as f64 / display_h as f64;
+        let target_aspect = out_width as f64 / out_height as f64;
+
+        let (fit_w, fit_h) = if (display_aspect - target_aspect).abs() < 0.01 {
+            (out_width, out_height)
+        } else {
+            let scale =
+                (out_width as f64 / display_w as f64).min(out_height as f64 / display_h as f64);
+            let w = (display_w as f64 * scale).round() as u32;
+            let h = (display_h as f64 * scale).round() as u32;
+            (w.max(1), h.max(1))
+        };
 
         let (scale_w, scale_h) = if self.rotation == 90 || self.rotation == 270 {
-            (out_height, out_width)
+            (fit_h, fit_w)
         } else {
-            (out_width, out_height)
+            (fit_w, fit_h)
         };
 
         let scaled = self.scale_to_rgba_explicit(&cpu_frame, scale_w, scale_h)?;
@@ -767,14 +871,6 @@ impl VideoDecoder {
         } else {
             scaled
         };
-
-        eprintln!(
-            "[decode_keyframe] Target @{:.3}s -> Keyframe decode in {:?} (seek={:?}, packets={})",
-            ts,
-            start.elapsed(),
-            seek_elapsed,
-            packets_decoded
-        );
 
         Ok(rgba)
     }
@@ -786,7 +882,7 @@ impl VideoDecoder {
         out_width: u32,
         out_height: u32,
     ) -> Result<Vec<u8>, String> {
-        let start = std::time::Instant::now();
+        let _start = std::time::Instant::now();
 
         // Clamp to video bounds
         let ts = self.clamp_timestamp(timestamp_secs);
@@ -809,18 +905,14 @@ impl VideoDecoder {
             true
         } else if self.state.can_decode_forward(target_pts, sequential_window) {
             // Forward within window - decode without seeking
-            eprintln!(
-                "[decode_frame] SEQUENTIAL: @{:.3}s (forward decode, no seek, hits={})",
-                ts, self.state.sequential_hits
-            );
             false
         } else {
             // Too far forward - seek
             true
         };
 
-        let mut seek_time = std::time::Duration::ZERO;
-        let mut packets_decoded = 0u32;
+        let mut _seek_time = std::time::Duration::ZERO;
+        let mut _packets_decoded = 0u32;
 
         if needs_seek {
             let seek_start = std::time::Instant::now();
@@ -842,11 +934,7 @@ impl VideoDecoder {
             self.state.current_pts = -1; // Reset position after seek
             self.state.gop_start_pts = target_pts; // Approximate GOP start
 
-            seek_time = seek_start.elapsed();
-            eprintln!(
-                "[decode_frame] SEEK: @{:.3}s (seek_time={:?})",
-                ts, seek_time
-            );
+            _seek_time = seek_start.elapsed();
         }
 
         // Decode forward until we reach or pass the target timestamp
@@ -861,7 +949,7 @@ impl VideoDecoder {
             if self.decoder.send_packet(&packet).is_err() {
                 continue;
             }
-            packets_decoded += 1;
+            _packets_decoded += 1;
 
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
@@ -947,18 +1035,11 @@ impl VideoDecoder {
             return Err(format!("No frame found at {}s", ts));
         }
 
-        let decode_time = start.elapsed();
-
         // Handle hardware frames (copy back from GPU to CPU if needed)
         let cpu_frame = self.to_cpu_frame(best_frame)?;
 
         // Explicit display geometry calculation (prevents accidental SAR handling)
         let (display_w, display_h) = self.display_dimensions();
-
-        eprintln!(
-            "[decode_frame] Display geometry: {}×{} pixels → {}×{} display (SAR {}:{})",
-            self.width, self.height, display_w, display_h, self.sar.0, self.sar.1
-        );
 
         // Calculate target dimensions maintaining display aspect ratio
         let display_aspect = display_w as f64 / display_h as f64;
@@ -992,23 +1073,7 @@ impl VideoDecoder {
             scaled_rgba
         };
 
-        let total_time = start.elapsed();
-
-        if needs_seek {
-            eprintln!(
-                "[decode_frame] @{:.3}s: seek={:?} decode={:?} total={:?} ({} packets)",
-                ts,
-                seek_time,
-                decode_time - seek_time,
-                total_time,
-                packets_decoded
-            );
-        } else {
-            eprintln!(
-                "[decode_frame] @{:.3}s: forward_decode={:?} total={:?} ({} packets, seq_hits={})",
-                ts, decode_time, total_time, packets_decoded, self.state.sequential_hits
-            );
-        }
+        let _total_time = _start.elapsed();
 
         // Validate RGBA buffer size matches expected dimensions
         // RGBA format = 4 bytes per pixel
@@ -1025,27 +1090,40 @@ impl VideoDecoder {
         Ok(rgba)
     }
 
-    fn to_cpu_frame(&self, frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
-        // If it's a hardware frame, transfer it to system memory
+    fn hw_to_cpu_frame(frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
         if frame.format() == ffmpeg::format::Pixel::VIDEOTOOLBOX
             || frame.format() == ffmpeg::format::Pixel::D3D11
             || frame.format() == ffmpeg::format::Pixel::VAAPI
         {
             let mut cpu_frame = ffmpeg::frame::Video::empty();
             unsafe {
-                let ret = ffmpeg::ffi::av_hwframe_transfer_data(
+                // VideoToolbox/D3D11 require explicit destination pixel format
+                (*cpu_frame.as_mut_ptr()).format = ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NV12 as i32;
+                let mut ret = ffmpeg::ffi::av_hwframe_transfer_data(
                     cpu_frame.as_mut_ptr(),
                     frame.as_ptr(),
                     0,
                 );
                 if ret < 0 {
-                    return Err("HW frame transfer failed".to_string());
+                    (*cpu_frame.as_mut_ptr()).format = ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_YUV420P as i32;
+                    ret = ffmpeg::ffi::av_hwframe_transfer_data(
+                        cpu_frame.as_mut_ptr(),
+                        frame.as_ptr(),
+                        0,
+                    );
+                }
+                if ret < 0 {
+                    return Err(format!("HW frame transfer failed (ret={})", ret));
                 }
             }
             Ok(cpu_frame)
         } else {
             Ok(frame)
         }
+    }
+
+    fn to_cpu_frame(&self, frame: ffmpeg::frame::Video) -> Result<ffmpeg::frame::Video, String> {
+        Self::hw_to_cpu_frame(frame)
     }
 
     /// Extract raw NV12 planes (Y plane + interleaved UV plane) directly from a decoded frame without CPU sws_scale.
@@ -1077,6 +1155,38 @@ impl VideoDecoder {
                 uv_plane.extend_from_slice(&uv_data[row_start..row_start + copy_len]);
                 if copy_len < uv_packed_stride {
                     uv_plane.extend(std::iter::repeat_n(0u8, uv_packed_stride - copy_len));
+                }
+            }
+
+            Some((y_plane, uv_plane, width as u32, height as u32))
+        } else if frame.format() == ffmpeg::format::Pixel::YUV420P {
+            // Direct zero-swscale conversion: interleave planar U and V into NV12 directly
+            let width = frame.width() as usize;
+            let height = frame.height() as usize;
+            let y_stride = frame.stride(0);
+            let u_stride = frame.stride(1);
+            let v_stride = frame.stride(2);
+            let y_data = frame.data(0);
+            let u_data = frame.data(1);
+            let v_data = frame.data(2);
+
+            let mut y_plane = Vec::with_capacity(width * height);
+            for y in 0..height {
+                let row_start = y * y_stride;
+                y_plane.extend_from_slice(&y_data[row_start..row_start + width]);
+            }
+
+            let uv_height = height.div_ceil(2);
+            let uv_width = width.div_ceil(2);
+            let uv_packed_stride = uv_width * 2;
+            let mut uv_plane = Vec::with_capacity(uv_packed_stride * uv_height);
+
+            for y in 0..uv_height {
+                let u_row = y * u_stride;
+                let v_row = y * v_stride;
+                for x in 0..uv_width {
+                    uv_plane.push(u_data[u_row + x]);
+                    uv_plane.push(v_data[v_row + x]);
                 }
             }
 
@@ -1244,6 +1354,15 @@ impl VideoDecoder {
     ) -> Result<Vec<u8>, String> {
         use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
 
+        // For 1:1 format conversion (YUV420P → RGBA at native resolution), use FAST_BILINEAR
+        // to enable SIMD vector colorspace matrices (NEON/AVX2) without filter overhead.
+        // For spatial downscaling/upscaling, use LANCZOS for high-order anti-aliasing.
+        let flags = if frame.width() == out_w && frame.height() == out_h {
+            Flags::FAST_BILINEAR
+        } else {
+            Flags::LANCZOS
+        };
+
         let mut scaler = Context::get(
             frame.format(),
             frame.width(),
@@ -1251,7 +1370,7 @@ impl VideoDecoder {
             ffmpeg::format::Pixel::RGBA,
             out_w,
             out_h,
-            Flags::LANCZOS,
+            flags,
         )
         .map_err(|e| e.to_string())?;
 
@@ -1411,21 +1530,29 @@ impl DecoderEntry {
     }
 }
 
-pub(crate) static DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> = Lazy::new(DashMap::new);
+pub(crate) static THUMBNAIL_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
+    Lazy::new(DashMap::new);
+pub(crate) static PREVIEW_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
+    Lazy::new(DashMap::new);
 
-// Pool size limit with lock-free atomic LRU eviction
-const MAX_DECODER_POOL_SIZE: usize = 20;
+// Symmetric pool size limits with lock-free atomic LRU eviction (Total 20 max decoders)
+const MAX_THUMBNAIL_DECODER_POOL_SIZE: usize = 10;
+const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 10;
 
-pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+async fn get_or_create_decoder_in_pool(
+    pool: &DashMap<String, Arc<DecoderEntry>>,
+    path: &str,
+    max_pool_size: usize,
+) -> Result<Arc<Mutex<VideoDecoder>>, String> {
     // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
-    if let Some(entry) = DECODER_POOL.get(path) {
+    if let Some(entry) = pool.get(path) {
         entry.touch();
         return Ok(entry.decoder.clone());
     }
 
     // 2. LRU Eviction: Collect candidates snapshot without holding locks across await
-    if DECODER_POOL.len() >= MAX_DECODER_POOL_SIZE {
-        let oldest = DECODER_POOL
+    if pool.len() >= max_pool_size {
+        let oldest = pool
             .iter()
             .map(|kv| {
                 (
@@ -1436,7 +1563,7 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
             .min_by_key(|(_, ts)| *ts);
 
         if let Some((oldest_key, _)) = oldest {
-            DECODER_POOL.remove(&oldest_key);
+            pool.remove(&oldest_key);
         }
     }
 
@@ -1450,13 +1577,26 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
         last_accessed_ms: AtomicU64::new(current_timestamp_ms()),
     });
 
-    DECODER_POOL.insert(path.to_string(), entry);
+    pool.insert(path.to_string(), entry);
     Ok(arc_decoder)
+}
+
+/// Thumbnail/Filmstrip background decoder pool (used for timeline thumbnail caching)
+pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    get_or_create_decoder_in_pool(&THUMBNAIL_DECODER_POOL, path, MAX_THUMBNAIL_DECODER_POOL_SIZE).await
+}
+
+/// Dedicated Interactive Preview & Playback decoder pool.
+/// Completely decoupled from background filmstrip decoding so playback/playhead scrubbing
+/// is NEVER blocked by background batch generation locks.
+pub async fn get_preview_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    get_or_create_decoder_in_pool(&PREVIEW_DECODER_POOL, path, MAX_PREVIEW_DECODER_POOL_SIZE).await
 }
 
 /// Call this when a clip is removed from the project to free memory
 pub fn release_decoder(path: &str) {
-    DECODER_POOL.remove(path);
+    THUMBNAIL_DECODER_POOL.remove(path);
+    PREVIEW_DECODER_POOL.remove(path);
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

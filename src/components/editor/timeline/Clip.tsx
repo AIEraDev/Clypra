@@ -53,6 +53,7 @@ interface ClipProps {
     clientY: number,
   ) => void;
   onDragEnd?: (clipId: string) => void;
+  onContextMenu?: (e: React.MouseEvent, clipId: string) => void;
   isBeingShifted?: boolean;
   dragState?: {
     isDragging: boolean;
@@ -72,6 +73,7 @@ const ClipInner: React.FC<ClipProps> = ({
   onDragStart,
   onDragMove,
   onDragEnd,
+  onContextMenu,
   isBeingShifted = false,
   dragState,
 }) => {
@@ -129,6 +131,17 @@ const ClipInner: React.FC<ClipProps> = ({
   const isInvalidPosition = dragState?.isInvalidPosition || false;
   const displayLeft = isDragging ? left + (dragState?.offsetX || 0) : left;
   const showResizeHandles = Boolean(selected || isResizing || isHovered);
+
+  // Handle right-click context menu
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const currentSelectedIds = useUIStore.getState().selectedClipIds;
+    if (!currentSelectedIds.includes(clip.id)) {
+      selectClip(clip.id);
+    }
+    onContextMenu?.(e, clip.id);
+  };
 
   // Handle pointer-based drag
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -682,6 +695,7 @@ const ClipInner: React.FC<ClipProps> = ({
       onPointerCancel={handlePointerCancel}
       onPointerEnter={() => setIsHovered(true)}
       onPointerLeave={() => setIsHovered(false)}
+      onContextMenu={handleContextMenu}
       className={`absolute rounded-sm h-full overflow-hidden border ${selected ? "border-white" : ""} ${isResizing ? (isRippleResize ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
       style={{
         left: `${displayLeft}px`,

@@ -1,6 +1,6 @@
 # Filmstrip Architecture & Caching Specification
 
-This document defines the architecture, data structures, caching policies, and performance contracts for Clypra's native-backed filmstrip pipeline.
+This document defines the architecture, data structures, caching policies, native decode pipelines, and performance contracts for Clypra's high-throughput, native-backed filmstrip engine.
 
 ---
 
@@ -19,16 +19,18 @@ The fundamental principle governing filmstrip thumbnail extraction and presentat
 │   - Bounded to 13–20 coarse tiles at low concurrency (2) to warm cache before timeline.│
 │   - Stored in on-disk atlas and FilmstripTileCache for 0ms initial timeline drop.      │
 │                                                                                        │
-│ • Timeline Drop & Horizontal Scrolling:                                                │
-│   - Frame 0 synchronously paints resident L0/L1 baseline tiles from tileCache.         │
-│   - Preload arrivals automatically notify active mounted clips via RAF batch pipeline. │
-│   - Dispatches PLAYHEAD-FIRST (|t - t_playhead|): frame under playhead fills in <110ms.│
-│   - When playhead is at clip start / 00:00, streams left-to-right from visible start.   │
-│   - Memory footprint is strictly bounded (≤1.8 MB storage) even on 3-hour media.       │
+│ • Chunked Forward GOP Batch Decode (High-Throughput Native Extraction):                │
+│   - Requests are grouped into sorted temporal chunks (8–16 tiles) in single IPC batch. │
+│   - VideoDecoder acquires lock ONCE per chunk and performs ONE backward seek to GOP.   │
+│   - Streams packets forward through GOP: each video packet is decoded EXACTLY ONCE.    │
+│   - Rayon downsamples frames in parallel to pyramid tiers (L0–L3) via LANCZOS.         │
+│   - Streams RenderArtifacts over Tauri Channel in real time as each frame is produced. │
+│   - Mid-batch cancellation aborts decode immediately when epoch changes.               │
 │                                                                                        │
-│ • Deep Zoom (Dense Layers):                                                            │
-│   - Reactive high-density frames (L1=1.0s, L2=0.2s, L3=0.1s) decode only on demand.    │
-│   - SRP assigns 1.0x normal zoom to L1 (1.0s) matching timeline slots 1:1.             │
+│ • Memory-Shielded Cache Hierarchy (Tiered LRU with L0 Protection):                     │
+│   - Coarse L0 baseline tiles act as a permanent fallback floor (≤1.8 MB per clip).     │
+│   - High-density L1/L2/L3 tiles absorb 100% of LRU eviction pressure during deep zoom. │
+│   - Hard ceiling across dozens of clips gracefully reclaims oldest L0 tiles in LRU.    │
 └───────────────────────────────────┬────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -37,9 +39,12 @@ The fundamental principle governing filmstrip thumbnail extraction and presentat
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ • Render surface canvas is strictly bounded to [viewportWidth + overscan] (O(1) GPU).   │
 │ • Pure horizontal scrolling is an O(1) cache blit — NEVER a decode-triggering event.   │
-│ • Frame 0 on mount immediately paints warm L0 coarse baseline via FilmstripTileCache.  │
-│ • Un-decoded dense slots sample resident coarse L0 tiles (bicubic stretch fallback).   │
-│ • Cold un-decoded slots render a stylized diagonal hatch shimmer placeholder.          │
+│ • Epoch-Safe Zero-Blank Continuous Zoom:                                               │
+│   - Frame 0 synchronously publishes resident/stretched fallback tiles on epoch change. │
+│   - WebGL & Canvas2D parity: un-decoded dense slots sample resident coarse L0 tiles.   │
+│   - Unconditional debounce escape timer (150ms bound) prevents request starvation.     │
+│   - Cold start (zero warm cache) packs 32x32 procedural shimmer quad into WebGL atlas. │
+│ • Bidirectional Zoom Harmonization: Spring inertia tracks buttons, slider, and wheel.  │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -51,7 +56,7 @@ Thumbnail intervals and dimensions are locked to deterministic fixed intervals a
 
 | Spatial Tier | Dimensions | Base Interval | Target Zoom Scope | Visual Slot Match |
 | :--- | :--- | :--- | :--- | :--- |
-| **L0 (Coarse Baseline)** | $160 \times 90$ | $5.0\text{s}$ | Overview zoom ($0.1\times - 0.5\times$) | Wide overview fallback |
+| **L0 (Coarse Baseline)** | $160 \times 90$ | $5.0\text{s}$ | Overview zoom ($0.1\times - 0.5\times$) | Wide overview fallback floor |
 | **L1 (Standard)** | $240 \times 135$ | $1.0\text{s}$ | Standard editing ($0.5\times - 1.5\times$) | 1:1 match for standard slots |
 | **L2 (Fine)** | $320 \times 180$ | $0.2\text{s}$ | Detailed trimming ($1.5\times - 3.0\times$) | High precision scrubbing |
 | **L3 (Sub-frame)** | $480 \times 270$ | $0.1\text{s}$ | Frame-accurate zoom ($3.0\times - 5.0\times$) | Frame-by-frame cuts |
@@ -71,7 +76,7 @@ $$\text{canvasLeftPx} = \text{clipLeftPx} - \text{renderWindowLeftPx}$$
 Because the `<canvas>` DOM element is positioned at `left: renderWindowLeftPx` inside the clip, `renderWindowLeftPx` cancels out identically:
 $$\text{screenX} = \text{clipLeftPx}_{\text{DOM}} + \text{renderWindowLeftPx} + ((\text{t} - \text{trimIn}) \times \text{pps} - \text{renderWindowLeftPx}) \equiv \text{clipLeftPx}_{\text{DOM}} + (\text{t} - \text{trimIn}) \times \text{pps}$$
 
-Every thumbnail remains **100% rock-solid and stationary** in timeline space across arbitrary scroll speeds and viewport bounds.
+Every thumbnail remains **100% stationary** in timeline space across arbitrary scroll speeds and viewport bounds.
 
 ### Contiguous Zero-Gap Tile Coverage
 To guarantee a seamless, continuous filmstrip with zero blank gaps between thumbnails, each tile's visual slot width is calculated directly from its temporal span:
@@ -81,82 +86,164 @@ Because consecutive tiles at timestamps $t_i$ and $t_{i+1} = t_i + \text{interva
 
 ---
 
-## 3. Unified Canonical Cache Identity & Visual Invalidation
+## 3. Tiered LRU Eviction & L0 Baseline Pinning
 
-Both TypeScript and Rust compute a unified canonical tile key:
+To prevent high-density zoom operations in sub-regions from evicting the coarse baseline tiles that the rest of the timeline depends on for cross-tier fallbacks, `FilmstripTileCache` implements a **Tiered LRU Eviction Policy with an Outer Project Ceiling**:
 
-$$\text{canonicalTileKey} = \text{videoSourceId} : \text{spatialTier} : \text{timestampMs} : \text{v}(\text{effectGraphVersion})$$
+```text
+                                 Memory Budget Exceeded
+                                            │
+                                            ▼
+                    ┌───────────────────────────────────────────────┐
+                    │ Pass 1: Scan for oldest non-L0 tile (L1–L3)   │
+                    └───────────────────────┬───────────────────────┘
+                                            │
+                            ┌───────────────┴───────────────┐
+                            ▼                               ▼
+                      [Tile Found]                   [No Dense Tiles]
+                            │                               │
+                      Evict oldest L1–L3              Scan for oldest L0 tile
+                      (L0 floor preserved)            (Multi-clip ceiling guard)
+                                                            │
+                                                      Evict oldest L0 tile
+                                                      (Strict O(1) budget safety)
+```
 
 ### Invariants:
-1. **Cross-Clip Deduplication**: Multiple clips referencing the same source video at timestamp $t$ resolve to the exact same canonical key $\implies$ **$1$ decode, $N-1$ zero-latency cache hits**.
-2. **Visual Invalidation Safety**: Modifying color grading, LUTs, or visual filters increments `effectGraphVersion`. Stale memory/disk atlases are deterministically bypassed without visual ghosting.
-3. **Session Persistence**: Project reopens check Rust's disk cache with this key, restoring warm tiles in **$<10\text{ms}$ with 0 FFmpeg decodes**.
+1. **L0 Baseline Shielding**: As long as dense tiles ($L1, L2, L3$) exist in the cache, coarse $L0$ baseline tiles are completely shielded from eviction. A user zooming deep into minute 1 of a clip and generating hundreds of L3 tiles will never evict the L0 tiles for minute 10.
+2. **Multi-Clip Hard Ceiling**: If a large project imports dozens of clips whose L0 tiles alone exceed `memoryBudgetBytes` (100 MB), Pass 2 evicts the oldest L0 tiles in LRU order, ensuring total memory is strictly bounded at all times.
+3. **Clip Invalidation**: When a clip is deleted from the project, `invalidateClip(clipId)` immediately closes all associated bitmaps across all tiers with 0 memory leaks.
 
 ---
 
-## 4. Multi-Tier Pyramid Fallback State Machine
+## 4. Native Chunked Batch Decode with Forward GOP Scanning
 
-When a timeline slot requires rendering at `targetTier`:
+Sequential single-frame decoding suffers from high seek overhead and lock contention. The Clypra engine utilizes a **Chunked Forward GOP Packet Scanning Pipeline**:
 
 ```text
-                                  Requested targetTier (e.g. L2)
-                                                │
-                                    ┌───────────┴───────────┐
-                                    ▼                       ▼
-                              [Exact Available]       [Exact Missing]
-                                    │                       │
-                              Draw exact tile         Search lower tiers (L1 → L0)
-                              (No smoothing)                │
-                                                ┌───────────┴───────────┐
-                                                ▼                       ▼
-                                         [Fallback Found]       [All Tiers Missing]
-                                                │                       │
-                                         Draw bicubic stretch   Draw stylized shimmer
-                                         (Mark as fallback)     (Active indexing)
-                                                │
-                                       [Dense Tile Arrives]
-                                                │
-                                         In-place replacement
-                                         (Clear fallback flag)
+  Timestamps: [1.0s, 1.2s, 1.4s, 1.6s, 1.8s, 2.0s, 2.2s, 2.4s] (Single GOP: 1.0s–2.5s)
+                                      │
+                                      ▼
+                        Acquire Decoder Mutex ONCE
+                                      │
+                                      ▼
+                      av_seek_frame(1.0s, BACKWARD)
+                                      │
+              ┌───────────────────────┴───────────────────────┐
+              ▼                                               ▼
+     [Feed Packet Forward]                           [Receive Decoded Frame]
+              │                                               │
+              │                                      Match Frame PTS to Targets
+              │                                               │
+              │                                      ┌────────┴────────┐
+              │                                      ▼                 ▼
+              │                                 [PTS Matched]     [PTS Skipped]
+              │                                      │                 │
+              │                               Convert RGBA        Drop frame
+              │                                      │
+              │                               Downsample Pyramid
+              │                               (L0, L1, L2, L3)
+              │                                      │
+              │                               Stream RenderArtifact
+              │                               over Tauri Channel
+              │                                      │
+              └────────────── Next Packet ───────────┘
+                                      │
+                      (All targets in chunk satisfied)
+                                      │
+                                      ▼
+                         Release Decoder Mutex
+```
+
+### Key Performance & Quality Architecture:
+1. **Seek Overhead Reduction**: Seeks are reduced from $N$ seeks to $\approx N / 12$ seeks (1 seek per chunk/GOP).
+2. **Zero Redundant Packet Decodes**: In a 30-frame GOP, all target timestamps within that GOP are satisfied in a single linear packet scan. Every packet is decoded **exactly once**, delivering a **$5\times$ to $10\times$ raw decode throughput increase**.
+3. **Format Conversion vs. Pyramid Downscale Separation**: 
+   - `scale_to_rgba_explicit` converts native decoded frames (e.g. YUV420P $\to$ RGBA) at $1:1$ display resolution using SIMD-accelerated `FAST_BILINEAR` (enabling NEON/AVX2 matrix conversion with zero filter degradation).
+   - All spatial downscaling to thumbnail density tiers ($L0 \dots L3$) is performed in parallel via Rayon using high-fidelity **Lanczos3 anti-aliasing** in `downsample_pyramid`.
+4. **Isolated Decoder Pools with Symmetric LRU Caps**:
+   - `PREVIEW_DECODER_POOL` (max 10 decoders) exclusively serves real-time canvas presentation and playhead scrubbing in `native_preview.rs`.
+   - `THUMBNAIL_DECODER_POOL` (max 10 decoders) serves background filmstrip generation in `thumbnail.rs`.
+   - Guaranteed zero mutex contention: timeline playback $<16\text{ms}$ budget is completely insulated from background batch decoding.
+5. **Real-Time Streaming & Early Abort**: Rather than waiting for the entire chunk to complete, `get_render_artifacts_batch` streams each frame over the Tauri `Channel<RenderArtifact>` the moment it is downsampled, and aborts immediately if the frontend disconnects.
+
+---
+
+
+## 5. Epoch-Safe Zero-Blank Continuous Zoom Pipeline
+
+During continuous zoom gestures (mouse wheel spin or trackpad pinch), the engine ensures the filmstrip **never flickers or displays blank frames**:
+
+```text
+               Zoom Gesture Event (Wheel / Pinch)
+                               │
+               ┌───────────────┴───────────────┐
+               ▼                               ▼
+     Publish Synchronous              Coalesce Backend
+     Resident Fallback                Decode Dispatch
+               │                               │
+  ┌────────────────────────────┐  ┌────────────────────────────┐
+  │ 1. Frame 0: Lookup best    │  │ 1. RAF-throttled velocity  │
+  │    resident fallback from  │  │    convergence check       │
+  │    FilmstripTileCache      │  │ 2. Unconditional escape    │
+  │ 2. WebGL/Canvas2D parity:  │  │    timer (max 150ms bound) │
+  │    Draw stretched L0 quad  │  │ 3. Dispatch chunked batch  │
+  │ 3. If zero warm cache,     │  │    request for missing     │
+  │    draw procedural shimmer │  │    dense target tiles      │
+  └────────────────────────────┘  └────────────────────────────┘
+```
+
+### Invariants:
+1. **Synchronous Fallback Publication**: When `epochId` bumps on zoom, `FilmstripCache` immediately queries `FilmstripTileCache.findBestFallback()` and emits the stretched fallback array synchronously on Frame 0 before any new decodes occur.
+2. **WebGL / Canvas2D Parity**: Both render surfaces implement identical fallback search logic, ensuring hardware-accelerated WebGL renders the bicubic stretched coarse tile seamlessly.
+3. **Unconditional Escape Timer**: Continuous high-velocity wheel spinning coalesces backend requests, but an unconditional 150ms escape timer guarantees that requests are dispatched even if the gesture does not settle to zero velocity.
+4. **Cold-Start Procedural Shimmer**: On project import before any tiles are decoded, `WebGLRasterSurface` packs a 32x32 RGBA procedural diagonal hatch pattern into the texture atlas and draws shimmer quads on Frame 0, completely eliminating flat teal blanks.
+
+---
+
+## 6. Bidirectional Timeline Zoom Synchronization
+
+To guarantee seamless interoperability between interactive UI controls (toolbar zoom buttons, slider, `Shift+Z` Fit Sequence) and gesture inputs (mouse wheel, trackpad pinch), `TimelineZoomSpring` operates under a **Bidirectional Harmonization Architecture**:
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           useTimelineStore                               │
+│                         (pixelsPerSecond)                                │
+└──────────────────────┬────────────────────────────▲──────────────────────┘
+                       │                            │
+             Store Subscription              Spring Frame Tick
+            (isApplyingFrame=false)        (isApplyingFrame=true)
+                       │                            │
+                       ▼                            │
+┌───────────────────────────────────────────────────┴──────────────────────┐
+│                         TimelineZoomSpring                               │
+│  • Interrupts in-flight animations when external controls change PPS.    │
+│  • Synchronizes currentPps & targetPps to external store immediately.    │
+│  • getCurrentPps() falls back to store when spring is idle.             │
+│  • Clamps per-frame exponential factor to prevent zoom jumps.            │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. Performance Contracts & SLAs
+## 7. Verification Architecture & SLA Matrix
 
-| Metric | Target SLA | Verification Suite |
-| :--- | :--- | :--- |
-| **Media Bin Poster Frame** | $< 150\text{ms}$ | `filmstripLifecycle.test.ts` (`FILMSTRIP-001`) |
-| **Visible Playhead First Frame** | $p50 < 30\text{ms}, p95 < 110\text{ms}$ | `filmstripPerformanceHarness.test.ts` (`FILMSTRIP-004`) |
-| **In-Memory Tile Cache Lookup** | $< 0.01\text{ms}$ ($< 1\text{ms}$ hard SLA) | `filmstripPerformanceHarness.test.ts` (`FILMSTRIP-004`) |
-| **Horizontal Scrolling Cache Hit Rate** | $100\%$ hits (0 decode latency) | `filmstripStressAndBudget.test.ts` (`FILMSTRIP-007`) |
-| **Warm Session Reopen** | $< 10\text{ms}$, **0 video decodes** | `filmstripColdWarmChanged.test.ts` (Layer 3) |
-| **Memory Footprint Under Stress** | $\le 100\text{MB}$ TS / $\le 300\text{MB}$ Rust | `filmstripMemoryStress.test.ts` (Layer 4) |
-| **Lifecycle Cancellation** | Immediate abort on clip delete (0 leaks) | `filmstripLifecycleCancellation.test.ts` (Layer 5) |
-
----
-
-## 6. Verification Architecture (5-Layer Matrix)
-
-The test lab enforces the entire pipeline across 5 distinct validation layers:
-
-1. **Layer 1: Fallback State Machine** ([`filmstripFallbackStateMachine.test.ts`](file:///Users/AIEraDev/Documents/clypra-family/clypra/src/lib/filmstrip/__tests__/filmstripFallbackStateMachine.test.ts)) — Verifies exact, stretched coarse fallback, shimmer, and in-place replacement.
-2. **Layer 2: Invalidation & Effect Versioning** ([`filmstripEffectInvalidation.test.ts`](file:///Users/AIEraDev/Documents/clypra-family/clypra/src/lib/filmstrip/__tests__/filmstripEffectInvalidation.test.ts)) — Verifies `effectGraphVersion` cache key segregation and cross-clip deduplication.
-3. **Layer 3: Flagship "Cold → Warm → Changed" Lifecycle** ([`filmstripColdWarmChanged.test.ts`](file:///Users/AIEraDev/Documents/clypra-family/clypra/src/lib/filmstrip/__tests__/filmstripColdWarmChanged.test.ts)) — Verifies full 3-session workflow (Cold decode $\to$ Warm 0-decode restore $\to$ Zoom fallback $\to$ Effect change).
-4. **Layer 4: Memory Boundedness Under Stress** ([`filmstripMemoryStress.test.ts`](file:///Users/AIEraDev/Documents/clypra-family/clypra/src/lib/filmstrip/__tests__/filmstripMemoryStress.test.ts)) — Verifies $O(1)$ memory capping and LRU eviction across 100 clips and 30,000 tile operations.
-5. **Layer 5: Lifecycle & Cancellation** ([`filmstripLifecycleCancellation.test.ts`](file:///Users/AIEraDev/Documents/clypra-family/clypra/src/lib/filmstrip/__tests__/filmstripLifecycleCancellation.test.ts)) — Verifies immediate worker cancellation on clip deletion with 0 leaks.
-
----
-
-## 7. Timeline Zoom Calibration & Input Mechanics
-
-| Input Modality | Scaling Formula | Anchor Behavior | Calibration & Smoothing |
+| Subsystem | Metric | Target SLA | Verification Suite |
 | :--- | :--- | :--- | :--- |
-| **Interactive Slider** | Logarithmic $\log_2(z)$ over $[0.1\times, 5.0\times]$ | Playhead if visible, else viewport center | $1.0\times$ default sits centered at $58\%$ on the track. |
-| **Keyboard (`Cmd+`/`Cmd-`)** | Geometric step $z_{\text{next}} = z \times 1.25^{\pm 1}$ | Playhead if visible, else viewport center | Uniform $25\%$ expansion/contraction across all zoom tiers. |
-| **Mouse Wheel (Notches)** | $\Delta y$ damped to max $\pm 20\%$ per notch | Time under mouse cursor | Clamps per-frame exponential factor to $[-0.22, 0.22]$ to prevent jumps. |
-| **Trackpad (Pinch)** | Continuous direct gesture $\times \frac{\text{dist}_t}{\text{dist}_0}$ with spring inertia | Time under cursor midpoint | Directly tracks finger separation, decelerates with friction $\mu = 0.88$. |
-| **Timeline Ruler** | Multi-tier graduation ($60\text{s} \to 0.05\text{s}$) | Fixed to timeline world time | Frame-accurate timecodes (`MM:SS:FF`) at deep zoom $\ge 300\text{px/s}$. |
-| **Canvas Backing-Store** | Synchronous `useLayoutEffect` draw | Exact physical viewport window | Replaced blanking placeholders with synchronous resident tile painting. |
+| **Media Bin Poster Frame** | Initial extraction latency | $< 150\text{ms}$ | `filmstripLifecycle.test.ts` (`FILMSTRIP-001`) |
+| **Playhead First Frame** | Playhead visible frame | $p50 < 30\text{ms}, p95 < 110\text{ms}$ | `filmstripPerformanceHarness.test.ts` (`FILMSTRIP-004`) |
+| **Tile Cache Lookup** | In-memory lookup latency | $< 0.01\text{ms}$ ($< 1\text{ms}$ hard SLA) | `filmstripPerformanceHarness.test.ts` (`FILMSTRIP-004`) |
+| **Horizontal Scrolling** | Cache hit rate during scroll | $100\%$ hits (0 decode latency) | `filmstripStressAndBudget.test.ts` (`FILMSTRIP-007`) |
+| **L0 Cache Protection** | L0 survival under dense flood | $100\%$ resident (0 L0 evictions) | `FilmstripTileCacheL0Pinning.test.ts` |
+| **End-to-End Fallback** | Stretched L0 render mid-zoom | Fallback quad drawn (0 shimmers) | `FilmstripTileCacheL0Pinning.test.ts` |
+| **Continuous Zoom Parity** | WebGL/Canvas2D fallback | Zero blanks during deep zoom | `ClipFilmstrip.integration.test.tsx` |
+| **Chunked Batch Decode** | Forward GOP scan & streaming | Single seek per chunk, 0 packet dupes | `cargo test --lib thumbnail_engine` (82 tests) |
+| **Zoom Synchronization** | Wheel vs Button harmony | Exact PPS continuity (0 jumps) | `useTimelineZoomSpring.test.ts` |
 
+---
+
+## 8. Carry-Forward Engineering Gates
+
+1. **Cross-Platform Golden Pixel Harness**: Extend the `clypra-native-cli` render/diff test harness to cover multi-tier filmstrip extraction across Metal, D3D12/WARP, and Vulkan/Lavapipe.
+2. **Dedicated Hardware Acceleration Re-benchmarking**: Re-benchmark and validate zero-copy hardware decode backends (D3D11VA, VAAPI, VideoToolbox CVPixelBufferRef) when physical Windows and Linux test hardware is available.
 

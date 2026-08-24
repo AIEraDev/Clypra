@@ -349,6 +349,57 @@ describe("FilmstripCache Aggressive Cheating", () => {
     expect(mockRequestProgressiveTiers).not.toHaveBeenCalled();
   });
 
+  it("does not re-request tiles already resident in the tile cache", () => {
+    let capturedOnArtifact: ((artifact: any) => void) | null = null;
+    const onUpdate = vi.fn();
+
+    mockRequestProgressiveTiers.mockImplementation((opts: any) => {
+      capturedOnArtifact = opts.onArtifact;
+      return vi.fn();
+    });
+
+    cache.requestFilmstrip({
+      clipId: "clip-1",
+      videoPath: "/test.mp4",
+      trimIn: 0,
+      trimOut: 30,
+      duration: 30,
+      clipStartTime: 0,
+      clipWidthPx: 1500,
+      spatialTier: SpatialTier.L1,
+      epochId: eid("epoch-1"),
+      viewportScrollLeft: 0,
+      viewportWidth: 1920,
+      pixelsPerSecond: 50,
+      onUpdate,
+    });
+
+    const firstCall = mockRequestProgressiveTiers.mock.calls[0][0];
+    for (const timestampMs of firstCall.timestampsMs) {
+      emitArtifact(capturedOnArtifact, makeArtifact(timestampMs));
+    }
+    flushRaf();
+
+    mockRequestProgressiveTiers.mockClear();
+    cache.requestFilmstrip({
+      clipId: "clip-1",
+      videoPath: "/test.mp4",
+      trimIn: 0,
+      trimOut: 30,
+      duration: 30,
+      clipStartTime: 0,
+      clipWidthPx: 1500,
+      spatialTier: SpatialTier.L1,
+      epochId: eid("epoch-2"),
+      viewportScrollLeft: 0,
+      viewportWidth: 1920,
+      pixelsPerSecond: 50,
+      onUpdate,
+    });
+
+    expect(mockRequestProgressiveTiers).not.toHaveBeenCalled();
+  });
+
   it("requests missing tiles during fast scroll when not all cached", () => {
     const onUpdate = vi.fn();
 

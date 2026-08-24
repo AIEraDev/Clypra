@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { AspectRatio, PREVIEW_ASPECT_LABEL } from "@/types";
 import { AspectMenuRow } from "../../ui/AspectRatio";
+import { cn } from "@/lib/utils";
+import { useClickOutside } from "@/hooks";
 
 const PREVIEW_ASPECT_RATIO: Record<AspectRatio, number | null> = {
   original: null,
@@ -51,13 +53,25 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
   canvasWidth,
   canvasHeight,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useClickOutside(containerRef, () => setAspectMenuOpen(false), {
+    enabled: aspectMenuOpen,
+  });
+
   return (
-    <div className="relative shrink-0">
+    <div className="relative shrink-0" ref={containerRef}>
       <button
         onClick={() => setAspectMenuOpen(!aspectMenuOpen)}
-        className="flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium text-text-muted hover:text-text-primary hover:bg-white/6 transition-colors cursor-pointer"
+        className={cn(
+          "flex items-center gap-1 px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
+          aspectMenuOpen
+            ? "bg-accent/15 text-accent"
+            : "text-text-muted hover:text-text-primary hover:bg-white/6"
+        )}
         title="Preview aspect ratio"
         aria-expanded={aspectMenuOpen}
+        aria-haspopup="listbox"
       >
         <span className="font-semibold text-text-primary">
           {previewAspectPreset === "original" ? "Orig" : previewAspectPreset}
@@ -66,14 +80,17 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
       </button>
       {aspectMenuOpen && (
         <div
-          className="absolute bottom-full right-0 z-50 mb-1 w-[200px] overflow-hidden rounded-lg border border-border bg-surface py-1 text-text-primary shadow-xl"
+          className="absolute bottom-full right-0 z-50 mb-1.5 w-[200px] overflow-hidden rounded-xl border border-border bg-surface-floating/95 backdrop-blur-xl py-1 text-text-primary shadow-2xl animate-in fade-in zoom-in-95 duration-100"
           role="listbox"
         >
           <div className="px-1">
             <AspectMenuRow
               preset="original"
               selected={previewAspectPreset}
-              onSelect={selectAspectPreset}
+              onSelect={(preset) => {
+                selectAspectPreset(preset);
+                setAspectMenuOpen(false);
+              }}
               icon={
                 <PreviewAspectShapeIcon
                   widthOverHeight={canvasWidth / Math.max(1, canvasHeight)}
@@ -81,14 +98,17 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
               }
             />
           </div>
-          <div className="my-1 h-px bg-border" />
-          <div className="px-1">
+          <div className="my-1 h-px bg-border/60" />
+          <div className="px-1 space-y-0.5">
             {(["16:9", "9:16", "1:1", "4:5", "21:9", "4:3"] as const).map((p) => (
               <AspectMenuRow
                 key={p}
                 preset={p}
                 selected={previewAspectPreset}
-                onSelect={selectAspectPreset}
+                onSelect={(preset) => {
+                  selectAspectPreset(preset);
+                  setAspectMenuOpen(false);
+                }}
                 icon={
                   <PreviewAspectShapeIcon
                     widthOverHeight={PREVIEW_ASPECT_RATIO[p]!}

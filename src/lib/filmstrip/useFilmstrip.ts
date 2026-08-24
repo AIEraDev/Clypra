@@ -20,6 +20,7 @@ import { useRenderRuntime } from "../../hooks/useRenderRuntime";
 import { useRenderState } from "../renderEngine/hooks";
 import { SpatialTier, InteractionState, type RenderEpochId } from "../renderEngine/types";
 import type { TransportArtifact } from "../renderEngine/transport";
+import { recordRequestDispatched } from "../renderEngine/filmstripMetrics";
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ export interface UseFilmstripOptions {
   pixelsPerSecond: number;
   playheadTime?: number;
   enabled?: boolean;
+  invalidationKey?: string | number;
 }
 
 export interface UseFilmstripResult {
@@ -69,6 +71,8 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
   useEffect(() => {
     if (!runtime || !enabled || !opts.videoPath || !opts.duration) return;
 
+    recordRequestDispatched(renderState.currentTier.spatialTier);
+
     runtime.requestFilmstrip({
       clipId: opts.clipId,
       videoPath: opts.videoPath,
@@ -96,7 +100,7 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
     opts.viewportWidth,
     opts.pixelsPerSecond,
     opts.playheadTime,
-    renderState.epochId, // Re-request on epoch change
+    opts.invalidationKey,
   ]);
 
   // Keep active viewport requests transactional, then warm a bounded

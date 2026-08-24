@@ -196,36 +196,33 @@ describe("useFilmstrip", () => {
     expect(result.current.artifacts[0].spatialTier).toBe(SpatialTier.L1);
   });
 
-  // ── Epoch change ───────────────────────────────────────────────────────────
-
-  it("calls requestFilmstrip again when epoch changes", () => {
+  // ── Invalidation key change ────────────────────────────────────────────────
+  it("calls requestFilmstrip again when invalidationKey changes", () => {
     const { rerender } = renderHook(
-      ({ epochId }: { epochId: string }) => {
-        mockUseRenderState.mockReturnValue(makeRenderState({ epochId: eid(epochId) }));
-        return useFilmstrip(defaultOpts());
+      ({ invalidationKey }: { invalidationKey: string }) => {
+        return useFilmstrip({ ...defaultOpts(), invalidationKey });
       },
-      { initialProps: { epochId: "epoch-1" } },
+      { initialProps: { invalidationKey: "key-1" } },
     );
 
     expect(mockRequestFilmstrip).toHaveBeenCalledTimes(1);
 
-    rerender({ epochId: "epoch-2" });
+    rerender({ invalidationKey: "key-2" });
 
     expect(mockRequestFilmstrip).toHaveBeenCalledTimes(2);
   });
 
-  it("issues new request when epoch changes", () => {
+  it("issues new request when options change", () => {
     const { rerender } = renderHook(
-      ({ epochId }: { epochId: string }) => {
-        mockUseRenderState.mockReturnValue(makeRenderState({ epochId: eid(epochId) }));
-        return useFilmstrip(defaultOpts());
+      ({ clipWidthPx }: { clipWidthPx: number }) => {
+        return useFilmstrip({ ...defaultOpts(), clipWidthPx });
       },
-      { initialProps: { epochId: "epoch-1" } },
+      { initialProps: { clipWidthPx: 300 } },
     );
 
     expect(mockRequestFilmstrip).toHaveBeenCalledTimes(1);
 
-    rerender({ epochId: "epoch-2" });
+    rerender({ clipWidthPx: 600 });
 
     expect(mockRequestFilmstrip).toHaveBeenCalledTimes(2);
   });

@@ -790,3 +790,78 @@ fn test_priority_queue_mixed_ordering() {
         last_priority = job.priority;
     }
 }
+
+#[test]
+fn test_decode_frames_batch_empty() {
+    let path = "/Users/AIEraDev/Documents/HandBrake/Claude Mythos.mp4";
+    if !std::path::Path::new(path).exists() {
+        return;
+    }
+    let mut decoder = VideoDecoder::open(path).expect("open video");
+    let results = decoder.decode_frames_batch_full_res(&[]).expect("decode empty batch");
+    assert!(results.is_empty());
+}
+
+#[test]
+fn test_decode_4k_frames_batch_forward_gop() {
+    let path = "/Users/AIEraDev/.gemini/antigravity/brain/dc4b3ecd-8fad-4da2-9e8e-bf2bd890b437/scratch/test_4k.mp4";
+    if !std::path::Path::new(path).exists() {
+        return;
+    }
+    let mut decoder = VideoDecoder::open(path).expect("open 4K video");
+    assert_eq!(decoder.width(), 3840);
+    assert_eq!(decoder.height(), 2160);
+
+    // Test a chunk of 12 dense target timestamps within a 2-second range (single GOP scan)
+    let targets: Vec<f64> = (0..12).map(|i| 1.0 + (i as f64) * 0.1).collect();
+    let start = std::time::Instant::now();
+    let frames = decoder.decode_frames_batch_full_res(&targets).expect("batch decode 4k");
+    let elapsed = start.elapsed();
+
+    eprintln!(
+        "[4K Batch Test] Decoded {} 4K frames in {:?} (avg {:?} per 4K frame)",
+        frames.len(),
+        elapsed,
+        elapsed / (frames.len().max(1) as u32)
+    );
+
+    assert_eq!(frames.len(), targets.len());
+    for (idx, (matched_ts, rgba, w, h)) in frames.iter().enumerate() {
+        assert_eq!(*w, 3840);
+        assert_eq!(*h, 2160);
+        assert_eq!(rgba.len(), 3840 * 2160 * 4);
+        assert!((matched_ts - targets[idx]).abs() < 0.1);
+    }
+}
+
+#[test]
+fn test_decode_4k_sustained_deep_zoom_memory_pressure() {
+    let path = "/Users/AIEraDev/.gemini/antigravity/brain/dc4b3ecd-8fad-4da2-9e8e-bf2bd890b437/scratch/test_4k.mp4";
+    if !std::path::Path::new(path).exists() {
+        return;
+    }
+    let mut decoder = VideoDecoder::open(path).expect("open 4K video");
+
+    // Simulate sustained zoom across 4 distinct regions: 10s, 30s, 60s, 90s (12 frames each = 48 4K frames total)
+    let regions = [10.0, 30.0, 60.0, 90.0];
+    let mut total_decoded = 0;
+    let total_start = std::time::Instant::now();
+
+    for &base_ts in &regions {
+        let targets: Vec<f64> = (0..12).map(|i| base_ts + (i as f64) * 0.1).collect();
+        let frames = decoder.decode_frames_batch_full_res(&targets).expect("batch decode region");
+        assert_eq!(frames.len(), 12);
+        total_decoded += frames.len();
+    }
+
+    let total_elapsed = total_start.elapsed();
+    eprintln!(
+        "[4K Sustained Test] Decoded {} 4K frames across 4 distinct regions in {:?} (avg {:?} per 4K frame)",
+        total_decoded,
+        total_elapsed,
+        total_elapsed / (total_decoded.max(1) as u32)
+    );
+    assert_eq!(total_decoded, 48);
+}
+
+

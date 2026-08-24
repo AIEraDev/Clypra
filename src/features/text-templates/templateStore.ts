@@ -215,8 +215,6 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
 
     if (templateIds.length === 0) return;
 
-    const DEBUG = typeof window !== "undefined" && window.localStorage?.getItem("clypra.debug.projectLoad") === "1";
-
     try {
       // 1. Ensure templates list is loaded (check cache first)
       let templates = get().templates;

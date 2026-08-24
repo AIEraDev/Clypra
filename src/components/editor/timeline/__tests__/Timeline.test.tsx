@@ -28,6 +28,26 @@ vi.mock("@/hooks/usePlaybackClock", () => ({
     speed: 1,
     frameRate: 30,
   }),
+  usePlaybackStatus: () => ({
+    isPlaying: false,
+    duration: 20,
+    state: "stopped",
+  }),
+  getPlaybackClock: () => ({
+    time: 0,
+    duration: 20,
+    state: "stopped",
+    speed: 1,
+    frameRate: 30,
+    getState: () => ({
+      time: 0,
+      duration: 20,
+      state: "stopped",
+      speed: 1,
+      frameRate: 30,
+    }),
+    subscribe: () => () => {},
+  }),
   usePlaybackControls: () => ({
     play: vi.fn(),
     pause: vi.fn(),

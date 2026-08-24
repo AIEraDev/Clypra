@@ -92,14 +92,22 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   collapsed = false,
   onToggleCollapse,
 }) => {
-  const { selectedClipIds, selectedTransitionId, clearSelection } = useUIStore();
-  const { clips, transitions, updateTransition, removeTransition } = useTimelineStore();
-  const { mediaAssets, project } = useProjectStore();
-  const { execute } = useHistoryStore();
+  const selectedClipIds = useUIStore((s) => s.selectedClipIds);
+  const selectedTransitionId = useUIStore((s) => s.selectedTransitionId);
+  const clearSelection = useUIStore((s) => s.clearSelection);
+  const clips = useTimelineStore((s) => s.clips);
+  const transitions = useTimelineStore((s) => s.transitions);
+  const updateTransition = useTimelineStore((s) => s.updateTransition);
+  const removeTransition = useTimelineStore((s) => s.removeTransition);
+  const mediaAssets = useProjectStore((s) => s.mediaAssets);
+  const project = useProjectStore((s) => s.project);
+  const execute = useHistoryStore((s) => s.execute);
 
   const [activePropertyTab, setActivePropertyTab] = useState<TextPropertyTab>("text");
   const [newPresetName, setNewPresetName] = useState("");
-  const { presets, savePreset, deletePreset } = usePresetStore();
+  const presets = usePresetStore((s) => s.presets);
+  const savePreset = usePresetStore((s) => s.savePreset);
+  const deletePreset = usePresetStore((s) => s.deletePreset);
 
   const handleTabKeyDown = (e: React.KeyboardEvent, currentIdx: number) => {
     if (e.key === "ArrowRight") {

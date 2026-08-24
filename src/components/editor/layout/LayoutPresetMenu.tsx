@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { LayoutGrid, Check } from "lucide-react";
 import { useSettingsStore, type LayoutPreset } from "@/store/settingsStore";
+import { useClickOutside } from "@/hooks";
 
 interface PresetOption {
   id: LayoutPreset;
@@ -12,33 +13,10 @@ interface PresetOption {
 export const LayoutPresetMenu: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { layoutPreset, setLayoutPreset } = useSettingsStore();
+  const layoutPreset = useSettingsStore((s) => s.layoutPreset);
+  const setLayoutPreset = useSettingsStore((s) => s.setLayoutPreset);
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleOutsideClick = (e: Event) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleOutsideClick);
-    document.addEventListener("pointerdown", handleOutsideClick);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-      document.removeEventListener("pointerdown", handleOutsideClick);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
+  useClickOutside(menuRef, () => setIsOpen(false), { enabled: isOpen });
 
   const presets: PresetOption[] = [
     {

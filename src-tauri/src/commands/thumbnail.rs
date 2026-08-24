@@ -49,6 +49,11 @@ impl InFlightMap {
 
 static IN_FLIGHT_EXTRACTIONS: Lazy<InFlightMap> = Lazy::new(InFlightMap::new);
 
+/// Serializes chunked GOP decode per source file so overlapping zoom/scroll
+/// batches cannot stampede the decoder or thrash TIER_CACHE.
+static BATCH_DECODE_GATES: Lazy<DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+    Lazy::new(DashMap::new);
+
 /// Global cache statistics for monitoring cache effectiveness
 static GLOBAL_ATLAS_HITS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 static GLOBAL_TIER_CACHE_HITS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
@@ -321,16 +326,12 @@ pub async fn decode_frames_streaming(
 ) -> Result<(), String> {
     use crate::thumbnail_engine::atlas::{get_atlas_manager, AtlasBuilder, THUMBNAILS_PER_ATLAS};
 
-    let start = std::time::Instant::now();
     let video_id = format!("{:x}", md5::compute(&video_path));
     let resolution_tier = if width >= 160 {
         ResolutionTier::Tier2x
     } else {
         ResolutionTier::Tier1x
     };
-
-    eprintln!("[decode_frames_streaming] START video_id={} timestamps={} density={:?} size={}x{} (ATLAS MODE + IMMEDIATE RGBA)", 
-              video_id, timestamps.len(), density, width, height);
 
     // Get cache directory
     let cache_dir = match GLOBAL_CACHE.cache_dir().await {
@@ -343,7 +344,6 @@ pub async fn decode_frames_streaming(
 
     // Check which frames are already in atlases
     let mut missing_times = Vec::new();
-    let mut sent_count = 0u32;
 
     {
         let manager = atlas_manager.read().await;
@@ -382,57 +382,23 @@ pub async fn decode_frames_streaming(
                     actual_height,
                 );
 
-                match on_tile.send(tile) {
-                    Ok(_) => {
-                        sent_count += 1;
-                        if sent_count <= 3 {
-                            eprintln!("[STREAM] Sent cached atlas tile #{}: time={:.2}s atlas={} pos=({},{})", 
-                                      sent_count, time, location.atlas_index, location.col, location.row);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[STREAM] ✗ Failed to send cached tile: {:?}", e);
-                    }
-                }
+                let _ = on_tile.send(tile);
             } else {
                 missing_times.push(time);
             }
         }
     }
 
-    eprintln!(
-        "[decode_frames_streaming] Atlas check: cached={} missing={}",
-        sent_count,
-        missing_times.len()
-    );
-
     // If all cached, return early
     if missing_times.is_empty() {
-        eprintln!(
-            "[decode_frames_streaming] All cached in atlases, returning early ({:?})",
-            start.elapsed()
-        );
         return Ok(());
     }
 
     // Spawn extraction task - IMMEDIATE RGBA streaming + background atlas persistence
-    let total_frames = timestamps.len();
     let handle = tokio::spawn(async move {
-        let bg_start = std::time::Instant::now();
-        eprintln!(
-            "[decode_frames_streaming] BG task starting, missing={} frames",
-            missing_times.len()
-        );
-
         // Get decoder
         let decoder = match get_decoder(&video_path).await {
-            Ok(d) => {
-                eprintln!(
-                    "[decode_frames_streaming] Decoder acquired ({:?})",
-                    bg_start.elapsed()
-                );
-                d
-            }
+            Ok(d) => d,
             Err(e) => {
                 eprintln!("[decode_frames_streaming] Failed to get decoder: {}", e);
                 return;
@@ -440,27 +406,17 @@ pub async fn decode_frames_streaming(
         };
 
         // Process frames in batches of THUMBNAILS_PER_ATLAS (32)
-        let mut frames_decoded = 0u32;
         let mut frames_failed = 0u32;
-        let mut frames_sent = sent_count;
-        let mut atlases_created = 0u32;
 
         for chunk in missing_times.chunks(THUMBNAILS_PER_ATLAS) {
-            let chunk_start = std::time::Instant::now();
-
             // Create atlas builder for background persistence
             let mut atlas_builder = AtlasBuilder::new(width, height);
             let mut chunk_frames: Vec<(f64, Vec<u8>, u32, u32)> = Vec::new();
 
             // IMMEDIATE PATH: Decode and stream RGBA to frontend (no compression!)
             for &time in chunk {
-                let decode_start = std::time::Instant::now();
-
-                // Create deduplication key
-                let timestamp_ms = (time * 1000.0).round() as u64;
-                let key = format!("{}:{}:{}x{}", video_id, timestamp_ms, width, height);
-
-                // Check if extraction is already in-flight
+                // Deduplicate extraction across concurrent requests
+                let key = format!("{}:{}:{}x{}", video_id, (time * 1000.0).round() as u64, width, height);
                 let (tx, is_new) = IN_FLIGHT_EXTRACTIONS.get_or_create(key.clone());
 
                 let rgba_bytes = if !is_new {
@@ -519,8 +475,6 @@ pub async fn decode_frames_streaming(
                     }
                 };
 
-                let decode_time = decode_start.elapsed();
-
                 let actual_width = (rgba_bytes.len() / 4 / height as usize) as u32;
                 let actual_height = height;
 
@@ -532,34 +486,14 @@ pub async fn decode_frames_streaming(
                                 "[decode_frames_streaming] WebP encoding failed at {}s: {}",
                                 time, e
                             );
-                            frames_failed += 1;
                             continue;
                         }
                     };
 
                 let tile = ThumbnailTile::from_path(time, webp_data_url, density);
-
-                match on_tile.send(tile) {
-                    Ok(_) => {
-                        frames_sent += 1;
-                        if frames_sent <= 3 || frames_sent.is_multiple_of(20) {
-                            eprintln!(
-                                "[STREAM] Sent WebP tile #{}/{}: time={:.2}s decode={:?}",
-                                frames_sent, total_frames, time, decode_time
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[STREAM] ✗ Failed to send tile #{}: {:?}",
-                            frames_sent + 1,
-                            e
-                        );
-                    }
-                }
+                let _ = on_tile.send(tile);
 
                 chunk_frames.push((time, rgba_bytes, actual_width, actual_height));
-                frames_decoded += 1;
             }
 
             if chunk_frames.is_empty() {
@@ -567,8 +501,6 @@ pub async fn decode_frames_streaming(
             }
 
             // BACKGROUND PATH: Persist to WebP atlas (non-blocking for frontend)
-            let persist_start = std::time::Instant::now();
-
             // Allocate atlas locations
             let mut locations = Vec::new();
             {
@@ -594,27 +526,12 @@ pub async fn decode_frames_streaming(
             if let Some((_, first_location, _, _)) = locations.first() {
                 if let Err(e) = atlas_builder.save(&first_location.atlas_path).await {
                     eprintln!("[decode_frames_streaming] Failed to save atlas: {}", e);
-                } else {
-                    atlases_created += 1;
-                    let persist_time = persist_start.elapsed();
-                    eprintln!("[PERSIST] Created atlas #{} with {} thumbnails in {:?} (background, non-blocking)", 
-                              atlases_created, chunk_frames.len(), persist_time);
                 }
             }
-
-            let chunk_time = chunk_start.elapsed();
-            eprintln!(
-                "[decode_frames_streaming] Chunk complete: {} frames in {:?}",
-                chunk_frames.len(),
-                chunk_time
-            );
 
             // Yield between atlas batches
             tokio::task::yield_now().await;
         }
-
-        eprintln!("[decode_frames_streaming] BG task complete: decoded={} failed={} sent={}/{} atlases={} total_time={:?}",
-                  frames_decoded, frames_failed, frames_sent, total_frames, atlases_created, bg_start.elapsed());
     });
 
     // Await the task — invoke resolves only after all frames are streamed
@@ -780,9 +697,8 @@ pub async fn get_render_artifacts_batch(
 ) -> Result<(), String> {
     use crate::thumbnail_engine::atlas::get_atlas_manager;
 
-    let req_id = request_id.unwrap_or_else(|| "unknown".to_string());
-    eprintln!("[batch:start] req={} ts={} tiers={:?}", req_id, timestamps_ms.len(), spatial_tiers);
-
+    let req_id = request_id.as_deref().unwrap_or("unknown");
+    crate::thumbnail_engine::metrics::ensure_metrics_flush_loop();
     let video_id = format!("{:x}", md5::compute(&video_path));
 
     let tiers: Vec<SpatialTier> = spatial_tiers
@@ -802,6 +718,8 @@ pub async fn get_render_artifacts_batch(
     let mut tier_cache_hits = 0u32;
     let mut decodes = 0u32;
 
+    let mut missing_timestamps: Vec<u64> = Vec::new();
+
     for timestamp_ms in timestamps_ms {
         let timestamp_secs = timestamp_ms as f64 / 1000.0;
 
@@ -816,8 +734,8 @@ pub async fn get_render_artifacts_batch(
         );
 
         let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
-
         let mut missing_tiers: Vec<SpatialTier> = Vec::new();
+
         for tier in &tiers {
             let (width, height) = tier.dims();
 
@@ -845,7 +763,6 @@ pub async fn get_render_artifacts_batch(
                         source: ArtifactSource::BackendTierCache,
                     };
                     let _ = on_artifact.send(artifact);
-                    eprintln!("[batch:atlas-hit] req={} tier={:?} ts={} (hits={})", req_id, tier, timestamp_ms, atlas_hits);
                     continue;
                 }
             }
@@ -856,6 +773,10 @@ pub async fn get_render_artifacts_batch(
             };
             if let Some(frame) = TIER_CACHE.get(&key) {
                 tier_cache_hits += 1;
+                crate::thumbnail_engine::metrics::METRICS
+                    .for_tier(*tier)
+                    .tier_cache_hits
+                    .fetch_add(1, Ordering::Relaxed);
                 let artifact = RenderArtifact {
                     frame_id: frame_id.clone(),
                     content_hash: content_hash.0.clone(),
@@ -867,57 +788,126 @@ pub async fn get_render_artifacts_batch(
                     source: ArtifactSource::BackendTierCache,
                 };
                 let _ = on_artifact.send(artifact);
-                eprintln!("[batch:tier-hit] req={} tier={:?} ts={} (hits={})", req_id, tier, timestamp_ms, tier_cache_hits);
             } else {
                 missing_tiers.push(*tier);
             }
         }
 
         if !missing_tiers.is_empty() {
-            eprintln!("[batch:decode] req={} tiers={:?} ts={}", req_id, missing_tiers, timestamp_ms);
-            decodes += 1;
-            let inflight_key = tier_inflight_key(&content_hash, SpatialTier::L0);
-            let is_new = IN_FLIGHT_TIER.insert(inflight_key.clone(), ()).is_none();
-            let raw_arc = if is_new {
-                let raw = if let Some(existing) = FRAME_CACHE.get(&content_hash) {
-                    existing
-                } else {
-                    let decoder_arc = get_decoder(&video_path).await?;
-                    let (rgba, w, h) = {
-                        let mut dec = decoder_arc.lock().await;
-                        dec.decode_frame_full_res(timestamp_secs)?
-                    };
-                    let frame = Arc::new(RawRgbaFrame::new(rgba, w, h));
-                    FRAME_CACHE.insert(content_hash.clone(), frame.clone());
-                    frame
-                };
-                IN_FLIGHT_TIER.remove(&inflight_key);
-                raw
-            } else {
-                let mut waited = 0u32;
-                loop {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-                    waited += 1;
-                    if let Some(f) = FRAME_CACHE.get(&content_hash) {
-                        IN_FLIGHT_TIER.remove(&inflight_key);
-                        break f;
-                    }
-                    if !IN_FLIGHT_TIER.contains_key(&inflight_key) {
-                        if let Some(f) = FRAME_CACHE.get(&content_hash) {
-                            break f;
-                        }
-                        return Err(format!("Concurrent decode failed for {}", content_hash.0));
-                    }
-                    if waited > 400 {
-                        return Err(format!("Decode timeout for {}", content_hash.0));
-                    }
-                }
+            missing_timestamps.push(timestamp_ms);
+        }
+    }
+
+    if missing_timestamps.is_empty() {
+        return Ok(());
+    }
+
+    // Sort missing timestamps chronologically for forward GOP packet scanning
+    missing_timestamps.sort_unstable();
+    missing_timestamps.dedup();
+
+    let gate = BATCH_DECODE_GATES
+        .entry(video_path.clone())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+    let _batch_gate = gate.lock().await;
+
+    // A concurrent batch may have filled TIER_CACHE while we waited.
+    let mut still_missing: Vec<u64> = Vec::new();
+    for timestamp_ms in missing_timestamps {
+        let content_hash = FrameContentHash::compute(
+            &video_id,
+            timestamp_ms,
+            effect_graph_version,
+            1.0,
+            0,
+            u64::MAX,
+            false,
+        );
+        let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
+        let mut any_missing = false;
+        for tier in &tiers {
+            let key = TierCacheKey {
+                content_hash: content_hash.clone(),
+                tier: *tier,
             };
+            if let Some(frame) = TIER_CACHE.get(&key) {
+                tier_cache_hits += 1;
+                crate::thumbnail_engine::metrics::METRICS
+                    .for_tier(*tier)
+                    .tier_cache_hits
+                    .fetch_add(1, Ordering::Relaxed);
+                let artifact = RenderArtifact {
+                    frame_id: frame_id.clone(),
+                    content_hash: content_hash.0.clone(),
+                    spatial_tier: *tier,
+                    rgba_data: frame.data.clone(),
+                    width: frame.width,
+                    height: frame.height,
+                    timestamp_ms,
+                    source: ArtifactSource::BackendTierCache,
+                };
+                let _ = on_artifact.send(artifact);
+            } else {
+                any_missing = true;
+            }
+        }
+        if any_missing {
+            still_missing.push(timestamp_ms);
+        }
+    }
+    missing_timestamps = still_missing;
 
+    if missing_timestamps.is_empty() {
+        GLOBAL_ATLAS_HITS.fetch_add(atlas_hits as u64, Ordering::Relaxed);
+        GLOBAL_TIER_CACHE_HITS.fetch_add(tier_cache_hits as u64, Ordering::Relaxed);
+        GLOBAL_DECODES.fetch_add(decodes as u64, Ordering::Relaxed);
+        return Ok(());
+    }
 
+    let decoder_arc = get_decoder(&video_path).await?;
+
+    // Process in chunks of 12 with a single decoder lock and forward sweep per chunk
+    for chunk in missing_timestamps.chunks(12) {
+        let chunk_secs: Vec<f64> = chunk.iter().map(|&ms| ms as f64 / 1000.0).collect();
+        let decode_timer = crate::thumbnail_engine::metrics::Timer::start();
+        let decoded_frames = {
+            let mut dec = decoder_arc.lock().await;
+            dec.decode_frames_batch_full_res(&chunk_secs)?
+        };
+        let chunk_decode_elapsed = decode_timer.elapsed();
+        if let Some(dur) = chunk_decode_elapsed {
+            if !decoded_frames.is_empty() {
+                let per_frame_dur = dur / decoded_frames.len() as u32;
+                for tier in &tiers {
+                    crate::thumbnail_engine::metrics::METRICS
+                        .for_tier(*tier)
+                        .decode
+                        .record(per_frame_dur);
+                }
+            }
+        }
+
+        for (matched_ts_secs, rgba, w, h) in decoded_frames {
+            decodes += 1;
+            let timestamp_ms = (matched_ts_secs * 1000.0).round() as u64;
+            let content_hash = FrameContentHash::compute(
+                &video_id,
+                timestamp_ms,
+                effect_graph_version,
+                1.0,
+                0,
+                u64::MAX,
+                false,
+            );
+            let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
+            let raw_arc = Arc::new(RawRgbaFrame::new(rgba, w, h));
+            FRAME_CACHE.insert(content_hash.clone(), raw_arc.clone());
+
+            let missing_for_frame = tiers.clone();
             let tier_frames = {
                 let raw = raw_arc.clone();
-                tokio::task::spawn_blocking(move || downsample_pyramid(&raw, &missing_tiers))
+                tokio::task::spawn_blocking(move || downsample_pyramid(&raw, &missing_for_frame))
                     .await
                     .map_err(|e| format!("Downsample task failed: {:?}", e))?
             };
@@ -940,8 +930,22 @@ pub async fn get_render_artifacts_batch(
                             source: ArtifactSource::FreshDecode,
                         };
                         TIER_CACHE.insert(key, tier_frame);
-                        let _ = on_artifact.send(artifact);
-                        eprintln!("[batch:decoded] req={} tier={:?} ts={}", req_id, tier, timestamp_ms);
+                        let serialize_timer = crate::thumbnail_engine::metrics::Timer::start();
+                        let send_res = on_artifact.send(artifact);
+                        if let Some(elapsed) = serialize_timer.elapsed() {
+                            crate::thumbnail_engine::metrics::METRICS
+                                .for_tier(tier)
+                                .serialize
+                                .record(elapsed);
+                        }
+                        crate::thumbnail_engine::metrics::METRICS
+                            .for_tier(tier)
+                            .decodes
+                            .fetch_add(1, Ordering::Relaxed);
+                        if send_res.is_err() {
+                            // Channel closed by client; stop further decode work
+                            return Ok(());
+                        }
                     }
                     Err(e) => {
                         eprintln!("[batch:error] req={} tier={:?} error={}", req_id, tier, e);
@@ -951,13 +955,17 @@ pub async fn get_render_artifacts_batch(
         }
     }
 
-    eprintln!("[batch:complete] req={} atlas_hits={} tier_cache_hits={} decodes={}", req_id, atlas_hits, tier_cache_hits, decodes);
-
     GLOBAL_ATLAS_HITS.fetch_add(atlas_hits as u64, Ordering::Relaxed);
     GLOBAL_TIER_CACHE_HITS.fetch_add(tier_cache_hits as u64, Ordering::Relaxed);
     GLOBAL_DECODES.fetch_add(decodes as u64, Ordering::Relaxed);
 
     Ok(())
+}
+
+/// Retrieve a snapshot of the current cumulative decode/convert/downsample metrics.
+#[tauri::command]
+pub fn get_decode_metrics_snapshot() -> Result<crate::thumbnail_engine::metrics::FullDecodeMetricsSnapshot, String> {
+    Ok(crate::thumbnail_engine::metrics::get_metrics_snapshot())
 }
 
 /// Load RGBA data from atlas file at specified location.
@@ -1075,34 +1083,17 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
         return Ok(0);
     }
 
-    eprintln!(
-        "[prewarm_decoders] Prewarming {} decoders in background",
-        video_paths.len()
-    );
-
-    let start = std::time::Instant::now();
     let mut success_count = 0;
 
     // Prewarm decoders concurrently (up to 4 at a time to avoid overwhelming system)
     let chunk_size = 4;
-    for (chunk_idx, chunk) in video_paths.chunks(chunk_size).enumerate() {
-        let chunk_start = std::time::Instant::now();
+    for chunk in video_paths.chunks(chunk_size) {
         let mut handles = vec![];
 
         for path in chunk {
             let path = path.clone();
             let handle = tokio::spawn(async move {
-                match get_decoder(&path).await {
-                    Ok(_) => {
-                        eprintln!("[prewarm_decoders] ✓ Prewarmed: {}", path);
-                        true
-                    }
-                    Err(e) => {
-                        // Log but don't fail - graceful degradation
-                        eprintln!("[prewarm_decoders] ✗ Failed to prewarm {}: {}", path, e);
-                        false
-                    }
-                }
+                get_decoder(&path).await.is_ok()
             });
             handles.push(handle);
         }
@@ -1115,21 +1106,7 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
                 }
             }
         }
-
-        eprintln!(
-            "[prewarm_decoders] Chunk {} complete ({} videos) in {:?}",
-            chunk_idx,
-            chunk.len(),
-            chunk_start.elapsed()
-        );
     }
-
-    eprintln!(
-        "[prewarm_decoders] Complete: {}/{} decoders prewarmed in {:?}",
-        success_count,
-        video_paths.len(),
-        start.elapsed()
-    );
 
     Ok(success_count)
 }

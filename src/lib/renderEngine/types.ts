@@ -39,6 +39,26 @@ export const SPATIAL_TIER_DIMS: Record<SpatialTier, readonly [number, number]> =
   [SpatialTier.L3]: [480, 270],
 } as const;
 
+/**
+ * Maps both numeric enum values (0, 1, 2, 3) and serde string labels ("l0", "l1", "l2", "l3")
+ * to standard numeric SpatialTier.
+ */
+export function normalizeSpatialTier(tier: unknown): SpatialTier {
+  if (typeof tier === "number") {
+    return tier as SpatialTier;
+  }
+  if (typeof tier === "string") {
+    const lower = tier.toLowerCase();
+    if (lower === "l0" || lower === "0") return SpatialTier.L0;
+    if (lower === "l1" || lower === "1") return SpatialTier.L1;
+    if (lower === "l2" || lower === "2") return SpatialTier.L2;
+    if (lower === "l3" || lower === "3") return SpatialTier.L3;
+    const parsed = parseInt(lower.replace(/^l/, ""), 10);
+    return isNaN(parsed) ? SpatialTier.L0 : (parsed as SpatialTier);
+  }
+  return SpatialTier.L0;
+}
+
 // ─── Temporal Tier ────────────────────────────────────────────────────────────
 
 /**

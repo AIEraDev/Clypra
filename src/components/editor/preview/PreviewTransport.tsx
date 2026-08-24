@@ -70,7 +70,7 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
   }, [isScrubbing, seekToPosition]);
 
   return (
-    <div className="@container flex flex-col w-full shrink-0 bg-surface/40 border-t border-white/5 select-none">
+    <div className="@container flex flex-col w-full shrink-0 bg-surface/40 border-t border-white/5 select-none relative z-30">
       {/* ── Scrub Bar (thin, edge-to-edge) ────────────────────────── */}
       <div
         ref={scrubRef}
@@ -109,7 +109,7 @@ export const PreviewTransport: React.FC<PreviewTransportProps> = ({
 
       {/* ── Bottom Controls ────────────────────────────────────────── */}
       <div
-        className={`flex items-center justify-between h-10 px-3 shrink-0 gap-2 overflow-hidden ${
+        className={`flex items-center justify-between h-10 px-3 shrink-0 gap-2 ${
           disabled ? "opacity-40" : ""
         }`}
       >

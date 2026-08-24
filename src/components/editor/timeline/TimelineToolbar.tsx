@@ -14,11 +14,38 @@ import { EditingActions } from "@/core/interactions";
 import { useSplitMode, useAnchoredTimelineZoom } from "@/hooks";
 import type { TimelineZoomAnchor } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
+import { clipboardService } from "@/core/clipboard/clipboardService";
 
-export const TimelineToolbar: React.FC = () => {
-  const { zoomLevel, pixelsPerSecond, swapClips, tracks, clips, normalizeTrack } = useTimelineStore();
-  const { selectedClipIds } = useUIStore();
-  const { state: historyState, undo, redo } = useHistoryStore();
+const ZOOM_THUMB_SIZE_PX = 22;
+const ZOOM_RAIL_WIDTH_PX = 176; // w-44
+
+const TIER_SEGMENTS = ([SpatialTier.L0, SpatialTier.L1, SpatialTier.L2, SpatialTier.L3] as const).map((tier) => {
+  const boundary = DEFAULT_SRP_CONFIG[tier];
+  const left = getZoomRatio(boundary.min) * 100;
+  const width = (getZoomRatio(boundary.max) - getZoomRatio(boundary.min)) * 100;
+  return { tier, left, width };
+});
+
+const TIER_BAND_CLASS: Record<SpatialTier, string> = {
+  [SpatialTier.L0]: "bg-accent/20",
+  [SpatialTier.L1]: "bg-accent/35",
+  [SpatialTier.L2]: "bg-accent/50",
+  [SpatialTier.L3]: "bg-accent/70",
+};
+
+const TimelineToolbarComponent: React.FC = () => {
+  const zoomLevel = useTimelineStore((s) => s.zoomLevel);
+  const pixelsPerSecond = useTimelineStore((s) => s.pixelsPerSecond);
+  const swapClips = useTimelineStore((s) => s.swapClips);
+  const tracks = useTimelineStore((s) => s.tracks);
+  const clips = useTimelineStore((s) => s.clips);
+  const normalizeTrack = useTimelineStore((s) => s.normalizeTrack);
+
+  const selectedClipIds = useUIStore((s) => s.selectedClipIds);
+  const historyState = useHistoryStore((s) => s.state);
+  const undo = useHistoryStore((s) => s.undo);
+  const redo = useHistoryStore((s) => s.redo);
+
   const { previewQuality, setPreviewQuality, proxyEditingEnabled } = useSettingsStore();
   const [splitMode, setSplitMode] = useState(false);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
@@ -35,8 +62,6 @@ export const TimelineToolbar: React.FC = () => {
     },
   });
 
-  const ZOOM_THUMB_SIZE_PX = 22;
-  const ZOOM_RAIL_WIDTH_PX = 176; // w-44
   const zoomRatio = getZoomRatio(zoomLevel);
   const zoomProgress = zoomRatio * 100;
   const zoomThumbLeftPx = ZOOM_THUMB_SIZE_PX / 2 + zoomRatio * (ZOOM_RAIL_WIDTH_PX - ZOOM_THUMB_SIZE_PX);
@@ -48,18 +73,6 @@ export const TimelineToolbar: React.FC = () => {
   const snapZoom = (value: number) => {
     const stepped = Number((Math.round(value / TIMELINE_ZOOM_STEP) * TIMELINE_ZOOM_STEP).toFixed(2));
     return snapTimelineZoomToTierAnchors(stepped);
-  };
-  const tierSegments = ([SpatialTier.L0, SpatialTier.L1, SpatialTier.L2, SpatialTier.L3] as const).map((tier) => {
-    const boundary = DEFAULT_SRP_CONFIG[tier];
-    const left = getZoomRatio(boundary.min) * 100;
-    const width = (getZoomRatio(boundary.max) - getZoomRatio(boundary.min)) * 100;
-    return { tier, left, width };
-  });
-  const tierBandClass: Record<SpatialTier, string> = {
-    [SpatialTier.L0]: "bg-accent/20",
-    [SpatialTier.L1]: "bg-accent/35",
-    [SpatialTier.L2]: "bg-accent/50",
-    [SpatialTier.L3]: "bg-accent/70",
   };
 
   const setZoomFromClientX = (clientX: number) => {
@@ -175,20 +188,7 @@ export const TimelineToolbar: React.FC = () => {
 
   const handleDuplicateSelectedClips = () => {
     if (selectedClipIds.length === 0) return;
-    const { clips, addClip } = useTimelineStore.getState();
-    const selected = clips.filter((c) => selectedClipIds.includes(c.id)).sort((a, b) => a.startTime - b.startTime);
-    if (selected.length === 0) return;
-    const minStart = selected[0].startTime;
-    const maxEnd = Math.max(...selected.map((c) => c.startTime + c.duration));
-    const offset = maxEnd - minStart;
-    selected.forEach((clip) => {
-      addClip({
-        ...clip,
-        id: generateId("clip"),
-        startTime: clip.startTime + offset,
-      });
-    });
-    toast.success(`Duplicated ${selected.length} clip${selected.length > 1 ? "s" : ""}`);
+    clipboardService.duplicateClips(selectedClipIds);
   };
 
   const handleCloseGaps = () => {
@@ -322,8 +322,8 @@ export const TimelineToolbar: React.FC = () => {
 
             <div ref={zoomRailRef} role="slider" tabIndex={hasTimelineContent ? 0 : -1} aria-disabled={!hasTimelineContent} aria-label="Timeline zoom" aria-valuemin={TIMELINE_ZOOM_MIN} aria-valuemax={TIMELINE_ZOOM_MAX} aria-valuenow={zoomLevel} aria-valuetext={`${zoomLevel.toFixed(2)} times, ${currentTierLabel}, ${temporalDetail.label}, ${cadenceLabel} samples`} onPointerDown={handleZoomPointerDown} onPointerMove={handleZoomPointerMove} onPointerUp={handleZoomPointerUp} onPointerCancel={handleZoomPointerCancel} onLostPointerCapture={handleZoomPointerCancel} onKeyDown={handleZoomKeyDown} className={`group relative flex h-8 w-44 items-center rounded-full outline-none ${hasTimelineContent ? "cursor-pointer touch-none" : "cursor-not-allowed opacity-40"} focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}>
               <div className="relative mx-[11px] h-[7px] w-full overflow-hidden rounded-full bg-surface-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.04),0_5px_14px_rgba(0,0,0,0.28)]">
-                {tierSegments.map(({ tier, left, width }) => (
-                  <div key={tier} aria-hidden className={`absolute top-0 h-full ${tierBandClass[tier]}`} style={{ left: `${left}%`, width: `${width}%` }} />
+                {TIER_SEGMENTS.map(({ tier, left, width }) => (
+                  <div key={tier} aria-hidden className={`absolute top-0 h-full ${TIER_BAND_CLASS[tier]}`} style={{ left: `${left}%`, width: `${width}%` }} />
                 ))}
                 <div className="relative h-full rounded-full bg-accent shadow-[0_0_16px_rgba(108,99,255,0.28)]" style={{ width: `${zoomProgress}%` }} />
               </div>
@@ -339,3 +339,6 @@ export const TimelineToolbar: React.FC = () => {
     </TooltipProvider>
   );
 };
+
+export const TimelineToolbar = React.memo(TimelineToolbarComponent);
+

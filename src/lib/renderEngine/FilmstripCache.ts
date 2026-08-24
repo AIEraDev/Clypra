@@ -31,6 +31,7 @@ import { requestFilmstripArtifacts, checkCoarseBaselineCache, type TransportArti
 import { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
 import { generateViewportTileAddresses, FILMSTRIP_DENSITY_TIERS, type FilmstripTileAddress } from "../filmstrip/filmstripTiers";
 import { timeToPixel, pixelToTime } from "../timeline/timelineViewport";
+import { recordCacheApply } from "./filmstripMetrics";
 
 
 interface FilmstripCacheEntry {
@@ -278,6 +279,7 @@ export class FilmstripCache {
         epochId: options.epochId,
         clipId: options.clipId,
         concurrency: 1,
+        priority: 3,
         onArtifact: (artifact) => {
           if (!isValidArtifact(artifact) || artifact.epochId !== options.epochId || artifact.spatialTier !== tier) {
             try { artifact.bitmap.close(); } catch {}
@@ -418,6 +420,7 @@ export class FilmstripCache {
           epochId: "epoch-preload" as RenderEpochId,
           clipId: videoPath,
           concurrency: 2,
+          priority: 0,
           onArtifact: (artifact) => {
             if (!isValidArtifact(artifact)) {
               try { artifact.bitmap.close(); } catch {}
@@ -700,11 +703,14 @@ export class FilmstripCache {
       }
     }
 
-    // During fast/ballistic scroll, publish exact cached tiles immediately.
-    // Missing slots remain absent until their exact transport artifacts arrive.
+    // During fast/ballistic scroll, publish exact cached tiles or pyramid fallbacks immediately.
     if (this.velocityState >= VelocityState.Fast) {
-      const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
-      onUpdate(cachedArtifacts);
+      if (keptArtifacts.length > 0) {
+        onUpdate([...keptArtifacts]);
+      } else {
+        const cachedArtifacts = this._buildArtifactsFromTiles(tileAddresses, epochId, spatialTier);
+        onUpdate(cachedArtifacts);
+      }
 
       // If we have ALL tiles cached, skip the request entirely
       const allCached = tileAddresses.every((addr) => {
@@ -739,10 +745,14 @@ export class FilmstripCache {
       return distA - distB;
     });
 
-    const timestampsMs = sortedTileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
-    const totalToDecode = timestampsMs.length;
-    const requestStartTime = performance.now();
-    let arrivedCount = 0;
+    const missingTileAddresses = sortedTileAddresses.filter((addr) => {
+      const cached = this.tileCache.getTile(addr);
+      return !(
+        cached &&
+        isValidArtifact(cached.artifact) &&
+        cached.artifact.spatialTier === spatialTier
+      );
+    });
 
     // Create entry
     const entry: FilmstripCacheEntry = {
@@ -765,6 +775,13 @@ export class FilmstripCache {
       onUpdate([...keptArtifacts]);
     }
 
+    if (missingTileAddresses.length === 0) {
+      return;
+    }
+
+    const timestampsMs = missingTileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
+    let arrivedCount = 0;
+
     // Request artifacts through the same native FrameRequest path used by the
     // program preview. FilmstripCache still owns epochs and bitmap lifetime.
     const cancelFn = requestFilmstripArtifacts({
@@ -773,6 +790,7 @@ export class FilmstripCache {
       spatialTier,
       epochId,
       clipId,
+      priority: 10,
       onArtifact: (artifact) => {
         // Check if entry still valid (not invalidated during async decode)
         const currentEntry = this.entries.get(clipId);
@@ -797,7 +815,11 @@ export class FilmstripCache {
         const matchingAddr = currentEntry.tileAddresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
         if (matchingAddr) {
           // Store in tile cache for reuse across zoom transitions
+          const t0 = typeof performance !== "undefined" ? performance.now() : 0;
           this.tileCache.setTile(matchingAddr, artifact);
+          if (t0 > 0) {
+            recordCacheApply(artifact.spatialTier, performance.now() - t0);
+          }
         }
 
         // Enforce memory budget BEFORE scheduling

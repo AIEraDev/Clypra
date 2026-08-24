@@ -322,10 +322,22 @@ export class FilmstripTileCache {
     let oldestKey: string | null = null;
     let oldestTime = Infinity;
 
+    // Pass 1: Prioritize evicting dense tiles (L1, L2, L3) first so coarse L0 fallback floor is preserved
     for (const [key, entry] of this.tiles) {
-      if (entry.lastUsed < oldestTime) {
+      if (entry.address.zoomTier !== SpatialTier.L0 && entry.lastUsed < oldestTime) {
         oldestTime = entry.lastUsed;
         oldestKey = key;
+      }
+    }
+
+    // Pass 2: If all dense tiles have been evicted and memory budget is still exceeded,
+    // evict the least recently used L0 tile to enforce hard ceiling across many clips.
+    if (!oldestKey) {
+      for (const [key, entry] of this.tiles) {
+        if (entry.lastUsed < oldestTime) {
+          oldestTime = entry.lastUsed;
+          oldestKey = key;
+        }
       }
     }
 

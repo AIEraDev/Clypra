@@ -36,10 +36,20 @@ import { getApiHeaders, getApiBaseUrl } from "@/lib/api";
 
 const BASE = getApiBaseUrl();
 
-export const AUDIO_LIBRARY_CATEGORIES: AudioLibraryCategory[] = ["music", "cinematic", "upbeat", "lo-fi", "hip-hop", "ambient", "sfx"];
+export const AUDIO_LIBRARY_CATEGORIES: AudioLibraryCategory[] = [
+  "music",
+  "cinematic",
+  "upbeat",
+  "lo-fi",
+  "hip-hop",
+  "ambient",
+  "sfx",
+];
 
 export const AudioLibraryApi = {
-  async getAudioByCategory(category: AudioLibraryCategory): Promise<AudioLibraryItem[]> {
+  async getAudioByCategory(
+    category: AudioLibraryCategory,
+  ): Promise<AudioLibraryItem[]> {
     try {
       const res = await fetch(`${BASE}/audio/${category}`, {
         headers: getApiHeaders(),
@@ -47,19 +57,20 @@ export const AudioLibraryApi = {
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => res.statusText);
-        console.error(`[AudioLibraryApi] Failed to load audio category ${category}:`, {
-          status: res.status,
-          statusText: res.statusText,
-          error: errorText,
-        });
+        console.error(
+          `[AudioLibraryApi] Failed to load audio category ${category}:`,
+          {
+            status: res.status,
+            statusText: res.statusText,
+            error: errorText,
+          },
+        );
         throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
       }
 
       const data = await res.json();
-      console.log(`[AudioLibraryApi] Successfully loaded ${data.length} audio items for category: ${category}`);
       return data;
     } catch (error) {
-      console.error(`[AudioLibraryApi] Exception loading audio category ${category}:`, error);
       if (error instanceof Error) {
         throw error;
       }
@@ -85,7 +96,10 @@ export const AudioLibraryApi = {
 
       return res.json();
     } catch (error) {
-      console.error(`[AudioLibraryApi] Exception loading audio asset ${id}:`, error);
+      console.error(
+        `[AudioLibraryApi] Exception loading audio asset ${id}:`,
+        error,
+      );
       if (error instanceof Error) {
         throw error;
       }

@@ -147,7 +147,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Duplicate latest.json as updater.json
+      - name: Duplicate latest.json as updater.json and convert to Direct Public URLs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -157,6 +157,43 @@ jobs:
           fi
           echo "Syncing manifests for release: $TAG_NAME"
           gh release download "$TAG_NAME" -p "latest.json" --repo ${{ github.repository }} --dir /tmp
-          cp /tmp/latest.json /tmp/updater.json
-          gh release upload "$TAG_NAME" /tmp/updater.json --clobber --repo ${{ github.repository }}
-          echo "Successfully published both latest.json and updater.json!"
+
+          # Map GitHub API asset URLs to public direct download URLs
+          node -e '
+            const fs = require("fs");
+            const { execSync } = require("child_process");
+            const repo = process.env.GITHUB_REPOSITORY || "${{ github.repository }}";
+            const tag = "'"$TAG_NAME"'";
+            const releaseInfo = JSON.parse(execSync(`gh release view "${tag}" --json assets --repo "${repo}"`).toString());
+            const assetMap = new Map();
+            for (const asset of releaseInfo.assets) {
+              if (asset.apiUrl) {
+                assetMap.set(asset.apiUrl, asset.url);
+              }
+              if (asset.id) {
+                assetMap.set(`https://api.github.com/repos/${repo}/releases/assets/${asset.id}`, asset.url);
+                assetMap.set(`https://api.github.com/repos/AIEraDev/Clypra/releases/assets/${asset.id}`, asset.url);
+                assetMap.set(`https://api.github.com/repos/AIEraDev/clypra/releases/assets/${asset.id}`, asset.url);
+              }
+            }
+
+            const manifest = JSON.parse(fs.readFileSync("/tmp/latest.json", "utf8"));
+            if (manifest.platforms) {
+              for (const [platform, data] of Object.entries(manifest.platforms)) {
+                if (data.url && data.url.includes("api.github.com")) {
+                  const directUrl = assetMap.get(data.url);
+                  if (directUrl) {
+                    console.log(`Rewriting ${platform} URL from ${data.url} to ${directUrl}`);
+                    data.url = directUrl;
+                  }
+                }
+              }
+            }
+
+            const updatedJson = JSON.stringify(manifest, null, 2);
+            fs.writeFileSync("/tmp/latest.json", updatedJson);
+            fs.writeFileSync("/tmp/updater.json", updatedJson);
+          '
+
+          gh release upload "$TAG_NAME" /tmp/latest.json /tmp/updater.json --clobber --repo ${{ github.repository }}
+          echo "Successfully converted and published both latest.json and updater.json with direct public download URLs!"

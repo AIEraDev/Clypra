@@ -7,7 +7,7 @@ use crate::native_audio::NativeAudioClock;
 use crate::commands::lut::LutCache;
 use crate::commands::native_surface::NativeSurfaceRuntime;
 use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
-use crate::thumbnail_engine::decoder::{get_decoder, VideoColorMetadata};
+use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
 use crate::wgpu_compositor::{
     BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms, CompositeLayer,
     CropMargins, LayerTransform, MultiTrackCompositor, NativePreviewSession, NativeWgpuRenderer,
@@ -893,7 +893,7 @@ pub async fn render_native_preview_frame(
         return Err("time_secs must be a finite non-negative number".to_string());
     }
 
-    let decoder = get_decoder(&video_path).await?;
+    let decoder = get_preview_decoder(&video_path).await?;
     let (y_plane, uv_plane, width, height, color) = {
         let mut guard = decoder.lock().await;
         let stream_color = guard.metadata().color;
@@ -1228,7 +1228,7 @@ async fn decode_native_video_layers(
     let mut decoded_frames = Vec::with_capacity(request.layers.len());
     for layer in &request.layers {
         let t0 = std::time::Instant::now();
-        let decoder = get_decoder(&layer.video_path).await?;
+        let decoder = get_preview_decoder(&layer.video_path).await?;
         let (y_plane, uv_plane, width, height, color) = {
             let mut guard = decoder.lock().await;
             let stream_color = guard.metadata().color;
@@ -1248,7 +1248,7 @@ async fn decode_native_video_layers(
             .and_then(|n| n.to_str())
             .unwrap_or(&layer.video_path);
         eprintln!(
-            "🎬 [filmstrip_decode] Decoded frame @ {:.3}s for {} in {:.2}ms ({}x{})",
+            "🎬 [preview_decode] Decoded frame @ {:.3}s for {} in {:.2}ms ({}x{})",
             layer.time_secs,
             file_name,
             elapsed.as_secs_f64() * 1000.0,
