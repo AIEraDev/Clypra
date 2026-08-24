@@ -25,6 +25,7 @@ export class SplitClipCommand implements Command {
   // Generate new IDs for BOTH splits (not just right)
   private leftClipId: string | null = null;
   private rightClipId: string | null = null;
+  private originalClipIndex: number = -1;
 
   constructor(
     private readonly clipId: string,
@@ -40,6 +41,7 @@ export class SplitClipCommand implements Command {
   apply(state: TimelineState): TimelineState {
     const clip = state.clips.find((c) => c.id === this.clipId);
     if (!clip) return state;
+    this.originalClipIndex = state.clips.findIndex((c) => c.id === this.clipId);
 
     const clipEndTime = clip.startTime + clip.duration;
     if (this.splitTime <= clip.startTime || this.splitTime >= clipEndTime) {
@@ -137,7 +139,7 @@ export class SplitClipCommand implements Command {
 
   invert(): Command {
     // Pass both clip IDs and the original splitTime to merge command
-    return new MergeSplitClipsCommand(this.leftClipId!, this.rightClipId!, this.originalClip, this.frameRate, this.splitTime);
+    return new MergeSplitClipsCommand(this.leftClipId!, this.rightClipId!, this.originalClip, this.frameRate, this.splitTime, this.originalClipIndex);
   }
 
   toJSON(): Record<string, any> {
@@ -150,6 +152,7 @@ export class SplitClipCommand implements Command {
       // Serialize both new IDs
       leftClipId: this.leftClipId,
       rightClipId: this.rightClipId,
+      originalClipIndex: this.originalClipIndex,
       // Keep newClipId for backward compatibility with old saved projects
       newClipId: this.rightClipId,
     };
@@ -170,6 +173,7 @@ export class SplitClipCommand implements Command {
       cmd.leftClipId = data.clipId; // Original ID for left (old behavior)
       cmd.rightClipId = data.newClipId;
     }
+    cmd.originalClipIndex = data.originalClipIndex ?? -1;
 
     return cmd;
   }
@@ -193,6 +197,7 @@ class MergeSplitClipsCommand implements Command {
     private readonly frameRate: number = 30,
     // TL-BUG-002 fix: Store the exact split time for correct invert()
     private readonly splitTime?: number,
+    private readonly originalClipIndex: number = -1,
   ) {
     this.id = generateCommandId();
     this.label = "Merge Split Clips";
@@ -201,9 +206,14 @@ class MergeSplitClipsCommand implements Command {
 
   apply(state: TimelineState): TimelineState {
     // Remove BOTH split clips and restore original
+    const clips = state.clips.filter((c) => c.id !== this.leftClipId && c.id !== this.rightClipId);
+    const insertIndex = this.originalClipIndex >= 0
+      ? Math.min(this.originalClipIndex, clips.length)
+      : clips.length;
+    clips.splice(insertIndex, 0, this.originalClip);
     return {
       ...state,
-      clips: [...state.clips.filter((c) => c.id !== this.leftClipId && c.id !== this.rightClipId), this.originalClip],
+      clips,
       epoch: state.epoch + 1, // ✅ Epoch increment inside command
     };
   }
@@ -227,10 +237,11 @@ class MergeSplitClipsCommand implements Command {
       frameRate: this.frameRate,
       // TL-BUG-002 fix: Serialize splitTime for correct deserialized invert()
       splitTime: this.splitTime,
+      originalClipIndex: this.originalClipIndex,
     };
   }
 
   static fromJSON(data: Record<string, any>): MergeSplitClipsCommand {
-    return new MergeSplitClipsCommand(data.leftClipId, data.rightClipId, data.originalClip, data.frameRate || 30, data.splitTime);
+    return new MergeSplitClipsCommand(data.leftClipId, data.rightClipId, data.originalClip, data.frameRate || 30, data.splitTime, data.originalClipIndex ?? -1);
   }
 }
