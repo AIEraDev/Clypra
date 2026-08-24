@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, RefObject } from "react";
-import { usePlaybackClock, useTransportControls } from "@/hooks/usePlaybackClock";
+import { usePlaybackClock, useTransportControls, getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
@@ -24,6 +24,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
   const scrollVelocityRef = useRef(0);
   const pointerIdRef = useRef<number | null>(null);
   const pointerXRef = useRef(0); // Pointer position in viewport space
+  const pointerVelocityRef = useRef(0);
+  const lastPointerSampleRef = useRef<{ x: number; timeMs: number } | null>(null);
   const dragOffsetRef = useRef(0); // Offset captured at drag start for smooth anchor
   const clearDragCursorLock = () => {
     document.body.style.userSelect = "";
@@ -98,7 +100,10 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
 
       // Throttled seek calls (reduce clock update frequency)
       if (now - lastSeekUpdateRef.current >= SEEK_THROTTLE) {
-        transportSeek(newTime);
+        transportSeek(newTime, {
+          mode: "scrub",
+          velocityPxPerSecond: pointerVelocityRef.current,
+        });
         lastSeekUpdateRef.current = now;
       }
 
@@ -128,6 +133,13 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       // ✅ Store pointer position in viewport space
       const viewportRect = container.getBoundingClientRect();
       pointerXRef.current = e.clientX - viewportRect.left;
+      const now = performance.now();
+      const previous = lastPointerSampleRef.current;
+      if (previous) {
+        const elapsedMs = Math.max(1, now - previous.timeMs);
+        pointerVelocityRef.current = ((pointerXRef.current - previous.x) / elapsedMs) * 1000;
+      }
+      lastPointerSampleRef.current = { x: pointerXRef.current, timeMs: now };
 
       // ✅ Calculate auto-scroll velocity based on pointer position
       const viewportWidth = container.clientWidth;
@@ -154,6 +166,10 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
 
     const handlePointerUp = (e: PointerEvent) => {
       if (pointerIdRef.current !== null && e.pointerId === pointerIdRef.current) {
+        // The scrub stream may have been rendered at reduced quality. Re-issue
+        // the final exact target so the released playhead always settles on a
+        // full-quality frame.
+        transportSeek(getPlaybackClock().time, { mode: "seek", quality: "full" });
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
@@ -175,6 +191,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       setIsDragging(false);
       scrollVelocityRef.current = 0;
       pointerIdRef.current = null;
+      pointerVelocityRef.current = 0;
+      lastPointerSampleRef.current = null;
       clearDragCursorLock();
     };
 
@@ -183,6 +201,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       setIsDragging(false);
       scrollVelocityRef.current = 0;
       pointerIdRef.current = null;
+      pointerVelocityRef.current = 0;
+      lastPointerSampleRef.current = null;
       clearDragCursorLock();
     };
 
@@ -191,6 +211,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
+        pointerVelocityRef.current = 0;
+        lastPointerSampleRef.current = null;
         clearDragCursorLock();
       }
     };
@@ -215,7 +237,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       clearDragCursorLock();
       scrollVelocityRef.current = 0;
     };
-  }, [isDragging, containerRef]);
+  }, [isDragging, containerRef, transportSeek]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -245,6 +267,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     // Store offset: where playhead is relative to where pointer thinks it should be
     dragOffsetRef.current = currentPlayheadX - (scrollX + pointerX);
     pointerXRef.current = pointerX;
+    lastPointerSampleRef.current = { x: pointerX, timeMs: performance.now() };
+    pointerVelocityRef.current = 0;
 
     // Seek to clicked position (with offset)
     const playheadX = scrollX + pointerX + dragOffsetRef.current;
@@ -256,7 +280,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     const pixelsPerFrame = pixelsPerSecond / frameRate;
     const snappedTime = pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
     const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
-    transportSeek(newTime);
+    transportSeek(newTime, { mode: "seek", quality: "full" });
 
     setIsDragging(true);
   };
@@ -280,6 +304,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
+        pointerVelocityRef.current = 0;
+        lastPointerSampleRef.current = null;
         clearDragCursorLock();
       }}
       onClick={(e) => e.stopPropagation()}
