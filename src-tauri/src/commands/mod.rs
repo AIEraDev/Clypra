@@ -16,6 +16,7 @@ pub mod project;
 pub mod recording;
 pub mod security;
 pub mod silence_detector;
+pub mod sync_metrics;
 pub mod thumbnail;
 pub mod whisper;
 
@@ -35,5 +36,6 @@ pub use project::*;
 pub use recording::*;
 pub use security::*;
 pub use silence_detector::*;
+pub use sync_metrics::*;
 pub use thumbnail::*;
 pub use whisper::*;
