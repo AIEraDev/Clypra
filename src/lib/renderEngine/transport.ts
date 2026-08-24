@@ -12,7 +12,7 @@
  */
 
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { SpatialTier, SPATIAL_TIER_DIMS } from "./types";
+import { SpatialTier, SPATIAL_TIER_DIMS, normalizeSpatialTier } from "./types";
 import type { RenderEpochId } from "./types";
 import { generateId } from "@/lib/utils/id";
 import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
@@ -22,6 +22,7 @@ import {
   secondsToNativeTime,
   NATIVE_CORE_CONTRACT_VERSION,
 } from "@/lib/platform/nativeCore";
+import { recordFirstArtifactLatency } from "./filmstripMetrics";
 
 // ─── SAB Detection ────────────────────────────────────────────────────────────
 
@@ -47,28 +48,7 @@ function spatialTierToLabel(tier: SpatialTier): string {
   return `l${tier}`;
 }
 
-/**
- * Convert string label or number to standard SpatialTier enum.
- * "l0" / 0 → SpatialTier.L0 (0)
- * "l1" / 1 → SpatialTier.L1 (1)
- * "l2" / 2 → SpatialTier.L2 (2)
- * "l3" / 3 → SpatialTier.L3 (3)
- */
-export function normalizeSpatialTier(tier: unknown): SpatialTier {
-  if (typeof tier === "number") {
-    return tier as SpatialTier;
-  }
-  if (typeof tier === "string") {
-    const lower = tier.toLowerCase();
-    if (lower === "l0" || lower === "0") return SpatialTier.L0;
-    if (lower === "l1" || lower === "1") return SpatialTier.L1;
-    if (lower === "l2" || lower === "2") return SpatialTier.L2;
-    if (lower === "l3" || lower === "3") return SpatialTier.L3;
-    const parsed = parseInt(lower.replace(/^l/, ""), 10);
-    return isNaN(parsed) ? SpatialTier.L0 : (parsed as SpatialTier);
-  }
-  return SpatialTier.L0;
-}
+export { normalizeSpatialTier };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -371,15 +351,6 @@ async function fanOutFilmstripArtifact(
       timestampWanted(sub.timestamps, artifact.timestampMs),
   );
 
-  console.log("[transport:fanOut]", {
-    timestampMs: artifact.timestampMs,
-    spatialTier: artifactTier,
-    epochId: artifact.epochId,
-    targetsCount: targets.length,
-    subscribersCount: subscribers.length,
-    subscriberEpochs: subscribers.map((s) => ({ clipId: s.clipId, epochId: s.epochId, tier: s.spatialTier, cancelled: s.cancelled })),
-  });
-
   for (let i = 0; i < targets.length; i++) {
     const payload =
       i === targets.length - 1
@@ -388,11 +359,6 @@ async function fanOutFilmstripArtifact(
     targets[i].onArtifact(payload);
   }
   if (targets.length === 0) {
-    console.warn("[transport:drop] No valid subscriber target for artifact:", {
-      timestampMs: artifact.timestampMs,
-      spatialTier: artifact.spatialTier,
-      epochId: artifact.epochId,
-    });
     try {
       artifact.bitmap.close();
     } catch {
@@ -778,12 +744,20 @@ export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOpt
     cancelled = true;
   };
 
+  const dispatchStartTime = typeof performance !== "undefined" ? performance.now() : 0;
+  let firstArtifactRecorded = false;
+
   let artifactCount = 0;
   const channel = new Channel<BackendRenderArtifact>();
   channel.onmessage = async (raw) => {
     if (cancelled) return;
     if (!isEpochStillValid(epochId, clipId)) {
       return;
+    }
+
+    if (!firstArtifactRecorded && dispatchStartTime > 0) {
+      firstArtifactRecorded = true;
+      recordFirstArtifactLatency(raw.spatial_tier, performance.now() - dispatchStartTime);
     }
 
     artifactCount++;
