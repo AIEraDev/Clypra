@@ -12,23 +12,7 @@ import { generateId } from "@/lib/utils/id";
 import { useAnchoredTimelineZoom } from "./timeline/useAnchoredTimelineZoom";
 import { toast } from "@/lib/toast";
 
-let copiedClipsClipboard: Array<{
-  trackId: string;
-  mediaId: string;
-  duration: number;
-  trimIn: number;
-  trimOut: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  opacity: number;
-  rotation: number;
-  startOffset: number;
-  aspectRatioLocked?: boolean;
-  sourceAspectRatio?: number;
-  fitMode?: "contain" | "cover" | "fill" | "stretch" | "original";
-}> = [];
+import { clipboardService } from "@/core/clipboard/clipboardService";
 
 export const useKeyboardShortcuts = () => {
   const { pause, seek, setActiveContext, togglePlayback } = useTransportControls();
@@ -145,71 +129,18 @@ export const useKeyboardShortcuts = () => {
         e.preventDefault();
       } else if (isMeta && e.key === "i") {
         e.preventDefault();
-      } else if (isMeta && e.key.toLowerCase() === "d") {
+      } else if (isMeta && e.key.toLowerCase() === "d" && !e.shiftKey) {
         e.preventDefault();
-        const store = useTimelineStore.getState();
-        const selected = store.clips.filter((c) => selectedClipIds.includes(c.id)).sort((a, b) => a.startTime - b.startTime);
-        if (selected.length === 0) return;
-        const minStart = selected[0].startTime;
-        const maxEnd = Math.max(...selected.map((c) => c.startTime + c.duration));
-        const offset = maxEnd - minStart;
-        selected.forEach((clip) => {
-          store.addClip({
-            ...clip,
-            id: generateId("clip"),
-            startTime: clip.startTime + offset,
-          });
-        });
-        toast.success(`Duplicated ${selected.length} clip${selected.length > 1 ? "s" : ""}`);
+        clipboardService.duplicateClips(selectedClipIds);
       } else if (isMeta && e.key.toLowerCase() === "c") {
         e.preventDefault();
-        const store = useTimelineStore.getState();
-        const selected = store.clips.filter((c) => selectedClipIds.includes(c.id)).sort((a, b) => a.startTime - b.startTime);
-        if (selected.length === 0) return;
-        const minStart = selected[0].startTime;
-        copiedClipsClipboard = selected.map((clip) => ({
-          trackId: clip.trackId,
-          mediaId: clip.mediaId,
-          duration: clip.duration,
-          trimIn: clip.trimIn,
-          trimOut: clip.trimOut,
-          x: clip.x,
-          y: clip.y,
-          width: clip.width,
-          height: clip.height,
-          opacity: clip.opacity,
-          rotation: clip.rotation,
-          startOffset: clip.startTime - minStart,
-          aspectRatioLocked: clip.aspectRatioLocked,
-          sourceAspectRatio: clip.sourceAspectRatio,
-          fitMode: clip.fitMode,
-        }));
-        toast.info(`Copied ${copiedClipsClipboard.length} clip${copiedClipsClipboard.length > 1 ? "s" : ""}`);
+        clipboardService.copyClips(selectedClipIds);
+      } else if (isMeta && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        clipboardService.cutClips(selectedClipIds, false);
       } else if (isMeta && e.key.toLowerCase() === "v") {
         e.preventDefault();
-        if (copiedClipsClipboard.length === 0) return;
-        const store = useTimelineStore.getState();
-        copiedClipsClipboard.forEach((clip) => {
-          store.addClip({
-            id: generateId("clip"),
-            trackId: clip.trackId,
-            mediaId: clip.mediaId,
-            startTime: Math.max(0, transportTime + clip.startOffset),
-            duration: clip.duration,
-            trimIn: clip.trimIn,
-            trimOut: clip.trimOut,
-            x: clip.x,
-            y: clip.y,
-            width: clip.width,
-            height: clip.height,
-            opacity: clip.opacity,
-            rotation: clip.rotation,
-            aspectRatioLocked: clip.aspectRatioLocked,
-            sourceAspectRatio: clip.sourceAspectRatio,
-            fitMode: clip.fitMode,
-          });
-        });
-        toast.success(`Pasted ${copiedClipsClipboard.length} clip${copiedClipsClipboard.length > 1 ? "s" : ""}`);
+        clipboardService.pasteClips(transportTime);
       } else if (isMeta && e.shiftKey && e.key === "S") {
         e.preventDefault();
         const result = swapClips();
