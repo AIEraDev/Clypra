@@ -20,6 +20,7 @@ import { useRenderRuntime } from "../../hooks/useRenderRuntime";
 import { useRenderState } from "../renderEngine/hooks";
 import { SpatialTier, InteractionState, type RenderEpochId } from "../renderEngine/types";
 import type { TransportArtifact } from "../renderEngine/transport";
+import { recordRequestDispatched } from "../renderEngine/filmstripMetrics";
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
@@ -70,14 +71,7 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
   useEffect(() => {
     if (!runtime || !enabled || !opts.videoPath || !opts.duration) return;
 
-    console.log("[useFilmstrip:request]", {
-      clipId: opts.clipId,
-      videoPath: opts.videoPath,
-      pixelsPerSecond: opts.pixelsPerSecond,
-      viewportScrollLeft: opts.viewportScrollLeft,
-      viewportWidth: opts.viewportWidth,
-      playheadTime: opts.playheadTime,
-    });
+    recordRequestDispatched(renderState.currentTier.spatialTier);
 
     runtime.requestFilmstrip({
       clipId: opts.clipId,
