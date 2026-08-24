@@ -4,6 +4,7 @@ use crate::native_audio::{
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
+use crate::sync_metrics::SYNC_METRICS;
 
 fn audio_clock(app: &AppHandle) -> Result<Arc<Mutex<NativeAudioClock>>, String> {
     app.try_state::<Arc<Mutex<NativeAudioClock>>>()
@@ -86,6 +87,7 @@ pub fn set_native_audio_output(
 
 #[tauri::command]
 pub fn seek_native_audio(app: AppHandle, position_ticks: i64) -> Result<(), String> {
+    SYNC_METRICS.record_seek_requested(position_ticks);
     let clock = audio_clock(&app)?;
     clock
         .lock()
