@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getFrontendMetricsSnapshot } from "@/lib/renderEngine/filmstripMetrics";
+import { getSyncMetricsSnapshot, startSyncMetricsFlushLoop, type FrontendSyncMetricsSnapshot } from "@/lib/playback/syncMetrics";
 import { X, Activity, RefreshCw } from "lucide-react";
 
 interface BackendTierSummary {
@@ -26,10 +27,23 @@ interface BackendMetricsSnapshot {
   timestamp_epoch_ms: number;
 }
 
+interface BackendSyncMetricsSnapshot {
+  av_drift: { n: number; avg_micros: number; max_abs_micros: number; p95_abs_micros: number };
+  frame_pacing: { n: number; target_interval_micros: number; stddev_micros: number; jank_events: number };
+  dropped_frames: number;
+  seeks: { n: number; avg_latency_micros: number; max_latency_micros: number; correct: number };
+}
+
 export const FilmstripMetricsOverlay: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [frontendData, setFrontendData] = useState<Record<string, any>>({});
   const [backendData, setBackendData] = useState<BackendMetricsSnapshot | null>(null);
+  const [syncFrontendData, setSyncFrontendData] = useState<FrontendSyncMetricsSnapshot>(() => getSyncMetricsSnapshot());
+  const [syncBackendData, setSyncBackendData] = useState<BackendSyncMetricsSnapshot | null>(null);
+
+  useEffect(() => {
+    startSyncMetricsFlushLoop();
+  }, []);
 
   // Keyboard shortcut: Cmd+Shift+M / Ctrl+Shift+M
   useEffect(() => {
@@ -49,9 +63,14 @@ export const FilmstripMetricsOverlay: React.FC = () => {
 
     const poll = async () => {
       setFrontendData(getFrontendMetricsSnapshot());
+      setSyncFrontendData(getSyncMetricsSnapshot());
       try {
-        const snap = await invoke<BackendMetricsSnapshot>("get_decode_metrics_snapshot");
-        setBackendData(snap);
+        const [filmstrip, sync] = await Promise.all([
+          invoke<BackendMetricsSnapshot>("get_decode_metrics_snapshot"),
+          invoke<BackendSyncMetricsSnapshot>("get_sync_metrics_snapshot"),
+        ]);
+        setBackendData(filmstrip);
+        setSyncBackendData(sync);
       } catch (err) {
         // In web-mock mode or error
       }
@@ -151,6 +170,49 @@ export const FilmstripMetricsOverlay: React.FC = () => {
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-lg bg-white/5 p-3 border border-white/5">
+        <div className="text-cyan-300 font-semibold mb-2 flex items-center gap-1.5">
+          <span>🎯 A/V Sync & Smoothness</span>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-400">Frontend</div>
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-white/10 text-neutral-400 text-[10px]">
+                  <th className="pb-1">Metric</th><th className="pb-1">N</th><th className="pb-1">Avg</th><th className="pb-1">Max</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {([
+                  ["UI drift", syncFrontendData.ui_playhead_drift],
+                  ["Paint jitter", syncFrontendData.playhead_paint_jitter],
+                  ["Seek latency", syncFrontendData.seek_user_latency],
+                ] as const).map(([label, metric]) => (
+                  <tr key={label}>
+                    <td className="py-1 text-white">{label}</td>
+                    <td className="py-1">{metric.n}</td>
+                    <td className="py-1">{metric.avg.toFixed(1)}ms</td>
+                    <td className="py-1">{metric.maxAbs.toFixed(1)}ms</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-400">Native</div>
+            <table className="w-full text-left">
+              <tbody className="divide-y divide-white/5">
+                <tr><td className="py-1 text-white">A/V drift max / p95</td><td className="py-1">{syncBackendData ? `${(syncBackendData.av_drift.max_abs_micros / 1000).toFixed(1)} / ${(syncBackendData.av_drift.p95_abs_micros / 1000).toFixed(1)}ms` : "-"}</td></tr>
+                <tr><td className="py-1 text-white">Pacing jank</td><td className="py-1">{syncBackendData?.frame_pacing.jank_events ?? 0}</td></tr>
+                <tr><td className="py-1 text-white">Dropped frames</td><td className="py-1">{syncBackendData?.dropped_frames ?? 0}</td></tr>
+                <tr><td className="py-1 text-white">Seek correct</td><td className="py-1">{syncBackendData ? `${syncBackendData.seeks.correct}/${syncBackendData.seeks.n}` : "-"}</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
