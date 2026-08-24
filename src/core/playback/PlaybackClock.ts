@@ -1,4 +1,5 @@
 import { tracePlayback } from "./playbackTrace";
+import { recordAudioPoll } from "@/lib/playback/syncMetrics";
 
 /**
  * Playback Clock - Continuous Time Signal
@@ -200,6 +201,10 @@ export class PlaybackClock {
     if (!Number.isFinite(time)) return;
     const validSpeed = Number.isFinite(speed) ? Math.max(0.1, Math.min(4, speed)) : this._speed;
     const clampedTime = Math.max(0, Math.min(time, this._duration));
+    // Capture the UI-side extrapolation before replacing it with the newest
+    // authoritative native sample. This measures clock/poll divergence only;
+    // backend video-vs-audio drift is recorded in the native presentation path.
+    recordAudioPoll(clampedTime * 1000, this.time * 1000);
     const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
     if (this._state === "playing" && !this._isSeeking && clampedTime < this._time - backwardTolerance) {
       tracePlayback("clock.native-position-ignored", {
