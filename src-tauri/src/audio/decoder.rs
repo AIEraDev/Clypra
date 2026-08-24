@@ -2,6 +2,7 @@
 //! format-agnostic audio decoding with container parity.
 
 use super::mixer::{AudioClipConfig, DecodedAudioClip, TICKS_PER_SECOND};
+use ffmpeg::util::mathematics::{rescale, Rescale};
 use ffmpeg_next as ffmpeg;
 use once_cell::sync::Lazy;
 use std::path::Path;
@@ -74,8 +75,8 @@ fn decode_with_ffmpeg_next(
     target_sample_rate: u32,
     target_channels: u16,
 ) -> Result<DecodedAudioClip, String> {
-    let mut ictx = ffmpeg::format::input(&path)
-        .map_err(|e| format!("Failed to open audio input: {e}"))?;
+    let mut ictx =
+        ffmpeg::format::input(&path).map_err(|e| format!("Failed to open audio input: {e}"))?;
 
     let stream = ictx
         .streams()
@@ -114,10 +115,14 @@ fn decode_with_ffmpeg_next(
     )
     .map_err(|e| format!("Failed to create audio resampler: {e}"))?;
 
-    // Seek if needed
+    // `Input::seek` uses FFmpeg's global AV_TIME_BASE because it seeks with
+    // stream index -1. Do not pass the audio stream's packet time-base here:
+    // for a 48 kHz stream that would turn 55 seconds into 2.64 seconds.
+    // The seek may land on a preceding keyframe, so the decode loop below also
+    // trims decoded preroll against the requested source timestamp.
+    let source_start_ticks = config.source_start_ticks.max(0);
     if config.source_start_ticks > 0 {
-        let seek_seconds = config.source_start_ticks as f64 / TICKS_PER_SECOND as f64;
-        let seek_ts = (seek_seconds / f64::from(time_base)).round() as i64;
+        let seek_ts = source_seek_timestamp(source_start_ticks);
         let _ = ictx.seek(seek_ts, ..seek_ts);
         decoder.flush();
     }
@@ -125,9 +130,14 @@ fn decode_with_ffmpeg_next(
     let mut all_samples = Vec::new();
     let mut decoded_frame = ffmpeg::frame::Audio::empty();
     let mut resampled_frame = ffmpeg::frame::Audio::empty();
+    let mut next_frame_start_ticks: Option<i64> = None;
 
     let target_duration_samples = if config.duration_ticks > 0 {
-        Some((config.duration_ticks as f64 * target_sample_rate as f64 / TICKS_PER_SECOND as f64) as usize * usize::from(target_channels))
+        Some(
+            (config.duration_ticks as f64 * target_sample_rate as f64 / TICKS_PER_SECOND as f64)
+                as usize
+                * usize::from(target_channels),
+        )
     } else {
         None
     };
@@ -140,11 +150,32 @@ fn decode_with_ffmpeg_next(
         if decoder.send_packet(&packet).is_ok() {
             while decoder.receive_frame(&mut decoded_frame).is_ok() {
                 if resampler.run(&decoded_frame, &mut resampled_frame).is_ok() {
+                    let frame_start_ticks = decoded_frame
+                        .timestamp()
+                        .map(|timestamp| timestamp.rescale(time_base, (1, 1_000_000)))
+                        .or(next_frame_start_ticks);
+                    let skip_samples = frame_start_ticks
+                        .map(|frame_start| {
+                            samples_to_skip_before_source_start(
+                                frame_start,
+                                source_start_ticks,
+                                resampled_frame.samples(),
+                                target_sample_rate,
+                            )
+                        })
+                        .unwrap_or(0);
                     append_valid_samples(
                         &resampled_frame,
                         target_channels,
                         &mut all_samples,
+                        skip_samples,
                     )?;
+                    if let Some(frame_start) = frame_start_ticks {
+                        next_frame_start_ticks = Some(frame_start.saturating_add(
+                            (resampled_frame.samples() as i64).saturating_mul(TICKS_PER_SECOND)
+                                / i64::from(target_sample_rate.max(1)),
+                        ));
+                    }
                 }
             }
         }
@@ -161,10 +192,25 @@ fn decode_with_ffmpeg_next(
     if decoder.send_eof().is_ok() {
         while decoder.receive_frame(&mut decoded_frame).is_ok() {
             if resampler.run(&decoded_frame, &mut resampled_frame).is_ok() {
+                let frame_start_ticks = decoded_frame
+                    .timestamp()
+                    .map(|timestamp| timestamp.rescale(time_base, (1, 1_000_000)))
+                    .or(next_frame_start_ticks);
+                let skip_samples = frame_start_ticks
+                    .map(|frame_start| {
+                        samples_to_skip_before_source_start(
+                            frame_start,
+                            source_start_ticks,
+                            resampled_frame.samples(),
+                            target_sample_rate,
+                        )
+                    })
+                    .unwrap_or(0);
                 append_valid_samples(
                     &resampled_frame,
                     target_channels,
                     &mut all_samples,
+                    skip_samples,
                 )?;
             }
         }
@@ -199,20 +245,28 @@ fn append_valid_samples(
     resampled_frame: &ffmpeg::frame::Audio,
     target_channels: u16,
     all_samples: &mut Vec<f32>,
+    skip_samples_per_channel: usize,
 ) -> Result<(), String> {
     let valid_samples_per_channel = resampled_frame.samples();
     if valid_samples_per_channel == 0 {
         return Ok(());
     }
-    let total_valid_samples = valid_samples_per_channel.saturating_mul(usize::from(target_channels));
+    let skip_samples_per_channel = skip_samples_per_channel.min(valid_samples_per_channel);
+    let samples_to_append_per_channel =
+        valid_samples_per_channel.saturating_sub(skip_samples_per_channel);
+    if samples_to_append_per_channel == 0 {
+        return Ok(());
+    }
+    let total_valid_samples =
+        samples_to_append_per_channel.saturating_mul(usize::from(target_channels));
     let total_valid_bytes = total_valid_samples.saturating_mul(std::mem::size_of::<f32>());
 
     let raw_plane_data = resampled_frame.data(0);
-    let bounded_bytes = if raw_plane_data.len() >= total_valid_bytes {
-        &raw_plane_data[..total_valid_bytes]
-    } else {
-        raw_plane_data
-    };
+    let skip_bytes = skip_samples_per_channel
+        .saturating_mul(usize::from(target_channels))
+        .saturating_mul(std::mem::size_of::<f32>());
+    let data_after_skip = raw_plane_data.get(skip_bytes..).unwrap_or_default();
+    let bounded_bytes = &data_after_skip[..data_after_skip.len().min(total_valid_bytes)];
 
     let (sample_chunks, _) = bounded_bytes.as_chunks::<4>();
     for chunk in sample_chunks {
@@ -234,6 +288,31 @@ fn append_valid_samples(
     Ok(())
 }
 
+fn samples_to_skip_before_source_start(
+    frame_start_ticks: i64,
+    source_start_ticks: i64,
+    frame_samples_per_channel: usize,
+    target_sample_rate: u32,
+) -> usize {
+    if frame_start_ticks >= source_start_ticks
+        || frame_samples_per_channel == 0
+        || target_sample_rate == 0
+    {
+        return 0;
+    }
+
+    let delta_ticks = (source_start_ticks - frame_start_ticks) as i128;
+    let numerator = delta_ticks.saturating_mul(i128::from(target_sample_rate));
+    let samples = (numerator + i128::from(TICKS_PER_SECOND) - 1) / i128::from(TICKS_PER_SECOND);
+    samples.min(frame_samples_per_channel as i128) as usize
+}
+
+fn source_seek_timestamp(source_start_ticks: i64) -> i64 {
+    source_start_ticks
+        .max(0)
+        .rescale((1, 1_000_000), rescale::TIME_BASE)
+}
+
 /// Fallback decoder spawning FFmpeg CLI process if needed.
 fn decode_with_ffmpeg_cli(
     path: &Path,
@@ -252,11 +331,6 @@ fn decode_with_ffmpeg_cli(
         .arg("-threads")
         .arg("1");
 
-    if config.source_start_ticks > 0 {
-        let sec = config.source_start_ticks as f64 / TICKS_PER_SECOND as f64;
-        command.arg("-ss").arg(format!("{:.6}", sec));
-    }
-
     command
         .arg("-i")
         .arg(path)
@@ -265,6 +339,13 @@ fn decode_with_ffmpeg_cli(
         .arg(target_channels.to_string())
         .arg("-ar")
         .arg(target_sample_rate.to_string());
+
+    // Place -ss after -i so the fallback decoder performs an accurate output
+    // seek instead of retaining keyframe preroll from the source file.
+    if config.source_start_ticks > 0 {
+        let sec = config.source_start_ticks as f64 / TICKS_PER_SECOND as f64;
+        command.arg("-ss").arg(format!("{:.6}", sec));
+    }
 
     if config.duration_ticks > 0 {
         let sec = config.duration_ticks as f64 / TICKS_PER_SECOND as f64;
@@ -318,4 +399,26 @@ fn decode_with_ffmpeg_cli(
         channels: target_channels,
         samples: samples.into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_seek_uses_global_microsecond_time_base() {
+        assert_eq!(source_seek_timestamp(55_000_000), 55_000_000);
+    }
+
+    #[test]
+    fn preroll_samples_are_trimmed_to_the_requested_source_start() {
+        assert_eq!(
+            samples_to_skip_before_source_start(54_980_000, 55_000_000, 1_024, 48_000),
+            960
+        );
+        assert_eq!(
+            samples_to_skip_before_source_start(55_000_000, 55_000_000, 1_024, 48_000),
+            0
+        );
+    }
 }
