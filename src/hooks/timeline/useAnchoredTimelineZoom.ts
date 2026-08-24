@@ -96,7 +96,7 @@ export function useAnchoredTimelineZoom() {
     const state = useTimelineStore.getState();
     if (state.tracks.length === 0 && state.clips.length === 0) return;
     const pixelsPerSecond = getFitSequencePixelsPerSecond(container.clientWidth, state.getTimelineEndTime(), state.clips.length > 0);
-    state.setPixelsPerSecond(pixelsPerSecond);
+    state.setPixelsPerSecond(pixelsPerSecond, true);
     container.scrollLeft = 0;
     state.setScrollLeft(0);
   }, []);
