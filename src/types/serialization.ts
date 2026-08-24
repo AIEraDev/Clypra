@@ -15,7 +15,7 @@
  * - Easy to maintain when schema changes
  */
 
-import type { Project, MediaAsset, Track, Clip, AspectRatio, TransitionTimelineItem, TimelineMarker, CanvasBackgroundConfig } from "./index";
+import type { Project, MediaAsset, Track, Clip, AspectRatio, TransitionTimelineItem, TimelineMarker, CanvasBackgroundConfig, MediaStreamInfo, DerivedMediaProvenance } from "./index";
 import type { Gap } from "./gap";
 
 // ============================================================================
@@ -75,6 +75,8 @@ export interface RustMediaAsset {
     width: number;
     height: number;
   };
+  streams?: MediaStreamInfo[];
+  derived_from?: DerivedMediaProvenance;
 }
 
 /**
@@ -116,6 +118,8 @@ export interface RustClip {
   fade_in?: number;
   fade_out?: number;
   kind?: string;
+  audioPath?: string;
+  detachedFromClipId?: string;
 }
 
 /**
@@ -194,6 +198,8 @@ export function fromRustMediaAsset(rust: RustMediaAsset): MediaAsset {
     stickerFormat: rust.stickerFormat,
     stickerAnimationPath: rust.stickerAnimationPath,
     stickerSourceId: rust.stickerSourceId,
+    streams: rust.streams,
+    derivedFrom: rust.derived_from,
   };
 }
 
@@ -392,6 +398,8 @@ export function toRustMediaAsset(frontend: MediaAsset): RustMediaAsset {
     stickerFormat: frontend.stickerFormat,
     stickerAnimationPath: frontend.stickerAnimationPath,
     stickerSourceId: frontend.stickerSourceId,
+    streams: frontend.streams,
+    derived_from: frontend.derivedFrom,
   };
 }
 
