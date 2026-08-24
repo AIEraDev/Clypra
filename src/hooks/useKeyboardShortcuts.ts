@@ -17,7 +17,7 @@ import { clipboardService } from "@/core/clipboard/clipboardService";
 export const useKeyboardShortcuts = () => {
   const { pause, seek, setActiveContext, togglePlayback } = useTransportControls();
   const { time: transportTime } = useTransportSnapshot();
-  const { swapClips, addMarker } = useTimelineStore();
+  const { addMarker } = useTimelineStore();
   const { selectedClipIds, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
   const { project } = useProjectStore();
   const { undo, redo } = useHistoryStore();
@@ -151,7 +151,7 @@ export const useKeyboardShortcuts = () => {
         clipboardService.pasteClips(transportTime);
       } else if (isMeta && e.shiftKey && e.key === "S") {
         e.preventDefault();
-        const result = swapClips();
+        const result = EditingActions.swapSelectedClips();
         if (result.error) {
           toast.error(result.error);
         }
@@ -429,7 +429,7 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, pause, seek, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips, addMarker, undo, redo]);
+  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, pause, seek, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, addMarker, undo, redo]);
 
   return { toastMessage: null };
 };
