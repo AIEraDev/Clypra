@@ -10,6 +10,7 @@
 
 import type { Clip, Track, MediaAsset } from "@/types";
 import { toNativePath } from "@/lib/platform/pathConversion";
+import { expandCompoundClips } from "./compoundClips";
 
 export interface ExportAudioClipConfig {
   /** Stable timeline clip identity used by native mixer replacement. */
@@ -56,6 +57,7 @@ export interface ExportAudioClipConfig {
  * @returns Array of audio clip configurations ready for FFmpeg
  */
 export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: MediaAsset[], startTime: number, endTime: number): ExportAudioClipConfig[] {
+  clips = expandCompoundClips(clips);
   // Build map of track IDs to track objects (for muted status and track volume)
   const trackMap = new Map(tracks.map((t) => [t.id, t]));
   const activeTracks = new Set(tracks.filter((t) => !t.muted).map((t) => t.id));

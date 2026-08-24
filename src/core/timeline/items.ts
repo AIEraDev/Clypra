@@ -1,5 +1,6 @@
 import type { Clip, MediaAsset, MediaTimelineItem, TextClip, TextTimelineItem, TimelineItem, TimelineItemRole, Track } from "@/types";
 import { inferRoleFromTrackPosition } from "./adapter";
+import { expandCompoundClips } from "./compoundClips";
 
 const emptyEffects = () => ({ effects: [], version: 0 });
 
@@ -76,7 +77,7 @@ export function legacyClipToTimelineItem(clip: Clip, tracks: Track[], assets: Me
 }
 
 export function legacyClipsToTimelineItems(clips: Clip[], tracks: Track[], assets: MediaAsset[] = []): TimelineItem[] {
-  return clips.map((clip) => legacyClipToTimelineItem(clip, tracks, assets));
+  return expandCompoundClips(clips).map((clip) => legacyClipToTimelineItem(clip, tracks, assets));
 }
 
 export function timelineItemToLegacyClip(item: TimelineItem): Clip | null {
