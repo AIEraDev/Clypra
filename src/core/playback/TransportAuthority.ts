@@ -1,5 +1,6 @@
 import type { PlaybackContext, PlaybackContextType, PlaybackContextStateSnapshot } from "./PlaybackContext";
 import { SeekController, type SeekIntentInput } from "./seekController";
+import { recordSeekRequested } from "@/lib/playback/syncMetrics";
 
 export type AuthorityContextSwitchListener = (type: PlaybackContextType | null) => void;
 export type AuthorityStateListener = (state: PlaybackContextStateSnapshot) => void;
@@ -97,6 +98,7 @@ export class TransportAuthority {
   }
 
   seek(time: number, intent: Omit<SeekIntentInput, "time"> = { mode: "seek" }): void {
+    recordSeekRequested();
     this.seekController.request({ time, ...intent });
     this.activeContext?.seek(time);
   }
