@@ -7,7 +7,7 @@ import { EditingActions } from "@/core/interactions";
 import { usePreviewMode } from "@/hooks/usePreviewMode";
 import {
   usePlaybackStatus,
-  usePlaybackControls,
+  useTransportControls,
   getPlaybackClock,
 } from "@/hooks/usePlaybackClock";
 import {
@@ -30,6 +30,7 @@ import {
   getTimelineLaneClientX,
 } from "@/lib/timeline/timelineViewport";
 import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
+import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 
 
 import { TimelineToolbar } from "./TimelineToolbar";
@@ -55,10 +56,11 @@ export const Timeline: React.FC = () => {
   const hasClips = clips.length > 0;
 
   const previewMode = useUIStore((s) => s.previewMode);
+  const selectedClipIds = useUIStore((s) => s.selectedClipIds);
   const clearSelection = useUIStore((s) => s.clearSelection);
   const { exitSourceMode } = usePreviewMode();
   const { isPlaying, duration } = usePlaybackStatus();
-  const { seek } = usePlaybackControls();
+  const { seek: transportSeek } = useTransportControls();
   const containerRef = useRef<HTMLDivElement>(null);
   const wasPlayingRef = useRef(false);
   const runtime = useRenderRuntime();
@@ -160,6 +162,67 @@ export const Timeline: React.FC = () => {
     return runtime.attach(container);
   }, [runtime]);
 
+  // Keep a clip selected from the program monitor visible in the timeline.
+  // This is intentionally DOM-local so selection remains ephemeral UI state
+  // and does not introduce a second timeline viewport model.
+  const revealSelectedClip = useCallback(
+    (clipId: string) => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const clipElement = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-clip-id]"),
+      ).find((element) => element.dataset.clipId === clipId);
+      if (!clipElement) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const clipRect = clipElement.getBoundingClientRect();
+      const labelWidth = getTimelineLabelColumnWidth(hasClips);
+      const headerHeight = hasClips ? 24 : 0;
+      const leftEdge = containerRect.left + labelWidth;
+      const rightEdge = containerRect.right;
+      const topEdge = containerRect.top + headerHeight;
+      const bottomEdge = containerRect.bottom;
+
+      let nextScrollLeft = container.scrollLeft;
+      let nextScrollTop = container.scrollTop;
+
+      if (clipRect.left < leftEdge) {
+        nextScrollLeft -= leftEdge - clipRect.left;
+      } else if (clipRect.right > rightEdge) {
+        nextScrollLeft += clipRect.right - rightEdge;
+      }
+
+      if (clipRect.top < topEdge) {
+        nextScrollTop -= topEdge - clipRect.top;
+      } else if (clipRect.bottom > bottomEdge) {
+        nextScrollTop += clipRect.bottom - bottomEdge;
+      }
+
+      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      nextScrollLeft = Math.max(0, Math.min(nextScrollLeft, maxScrollLeft));
+      nextScrollTop = Math.max(0, Math.min(nextScrollTop, maxScrollTop));
+
+      if (Math.abs(container.scrollLeft - nextScrollLeft) > 0.5) {
+        container.scrollLeft = nextScrollLeft;
+        setScrollLeft(nextScrollLeft);
+      }
+      if (Math.abs(container.scrollTop - nextScrollTop) > 0.5) {
+        container.scrollTop = nextScrollTop;
+      }
+    },
+    [hasClips, setScrollLeft],
+  );
+
+  useEffect(() => {
+    const clipId = selectedClipIds[0];
+    if (!clipId) return;
+
+    const frame = window.requestAnimationFrame(() => revealSelectedClip(clipId));
+    return () => window.cancelAnimationFrame(frame);
+  }, [clips, selectedClipIds, revealSelectedClip]);
+
   // Notify runtime when zoom scale changes
   useEffect(() => {
     if (!runtime) return;
@@ -170,9 +233,9 @@ export const Timeline: React.FC = () => {
   useEffect(() => {
     const clock = getPlaybackClock();
     if (duration > 0 && clock.time > duration) {
-      seek(duration);
+      transportSeek(duration);
     }
-  }, [duration, seek]);
+  }, [duration, transportSeek]);
 
   // ✅ PERFORMANCE OPTIMIZED: RAF-based auto-scroll with throttled state updates
   const autoScrollRafRef = useRef<number | null>(null);
@@ -183,6 +246,57 @@ export const Timeline: React.FC = () => {
   const pixelsPerSecondRef = useRef(pixelsPerSecond);
   pixelsPerSecondRef.current = pixelsPerSecond;
   const SCROLL_STATE_THROTTLE = 100; // Update React state only every 100ms during playback
+
+  // PreviewTransport seeks through the shared clock while the timeline is
+  // mounted elsewhere in the editor. Follow those paused scrubs here so a
+  // preview scrub never leaves the playhead outside the visible timeline.
+  const keepProgramTimeVisible = useCallback(
+    (time: number) => {
+      const container = containerRef.current;
+      if (!container || !hasClips || duration <= 0) return;
+
+      const pps = pixelsPerSecondRef.current;
+      const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
+      const effectiveViewportWidth = Math.max(0, container.clientWidth - labelColumnWidth);
+      if (effectiveViewportWidth <= 0) return;
+
+      const playheadX = time * pps;
+      const leftEdge = container.scrollLeft;
+      const rightEdge = leftEdge + effectiveViewportWidth;
+      const maxScrollLeft = getTimelineMaxScrollLeft(
+        container.clientWidth,
+        getTimelineCanvasDuration(duration),
+        pps,
+        hasClips,
+      );
+
+      let nextScrollLeft = container.scrollLeft;
+      if (playheadX < leftEdge) {
+        nextScrollLeft = playheadX - effectiveViewportWidth * 0.15;
+      } else if (playheadX > rightEdge) {
+        nextScrollLeft = playheadX - effectiveViewportWidth * 0.85;
+      } else {
+        return;
+      }
+
+      nextScrollLeft = Math.max(0, Math.min(nextScrollLeft, maxScrollLeft));
+      if (Math.abs(container.scrollLeft - nextScrollLeft) <= 0.5) return;
+
+      container.scrollLeft = nextScrollLeft;
+      setScrollLeft(nextScrollLeft);
+    },
+    [duration, hasClips, setScrollLeft],
+  );
+
+  useEffect(() => {
+    if (previewMode !== "program" || isPlaying) return;
+
+    const clock = getPlaybackClock();
+    return clock.subscribe((state) => {
+      if (clock.getState().state === "playing") return;
+      keepProgramTimeVisible(state.time);
+    });
+  }, [isPlaying, keepProgramTimeVisible, previewMode]);
 
   // Auto-scroll during playback: viewport tracking
   // SMOOTH-2 fix: read clock inside RAF tick — effect only re-runs on isPlaying/pps/duration change
@@ -428,12 +542,13 @@ export const Timeline: React.FC = () => {
         event.clientX - rect.left - labelColumnWidth + container.scrollLeft;
       const time = Math.max(0, Math.min(pixelToTime(x, pixelsPerSecond), duration));
 
-      seek(time);
+      const frameRate = getPlaybackClock().frameRate;
+      transportSeek(clampAndSnapProgramTime(time, duration, frameRate));
     },
     [
       duration,
       pixelsPerSecond,
-      seek,
+      transportSeek,
       previewMode,
       exitSourceMode,
       clearSelection,
