@@ -65,6 +65,19 @@ export class SwapClipsCommand implements Command {
         return (right.startTime < end && right.startTime + left.duration > clip.startTime) || (left.startTime < end && left.startTime + right.duration > clip.startTime);
       });
       if (collision) return "Not enough space to swap — clips would overlap";
+    } else {
+      const collision = state.clips.some((clip) => {
+        if (clip.id === clipA.id || clip.id === clipB.id) return false;
+        const clipEnd = clip.startTime + clip.duration;
+        const aInDestination = clip.trackId === clipB.trackId &&
+          clipB.startTime < clipEnd &&
+          clipB.startTime + clipA.duration > clip.startTime;
+        const bInDestination = clip.trackId === clipA.trackId &&
+          clipA.startTime < clipEnd &&
+          clipA.startTime + clipB.duration > clip.startTime;
+        return aInDestination || bInDestination;
+      });
+      if (collision) return "Not enough space to swap — clips would overlap";
     }
     return null;
   }
