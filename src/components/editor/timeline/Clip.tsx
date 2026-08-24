@@ -41,6 +41,7 @@ interface ClipProps {
   trackVisualRole?: TrackVisualRole;
   trackVisualOpacity?: number;
   selected?: boolean;
+  active?: boolean;
   locked?: boolean;
   onDragStart?: (
     clipId: string,
@@ -74,6 +75,7 @@ const ClipInner: React.FC<ClipProps> = ({
   trackVisualRole,
   trackVisualOpacity = 1,
   selected,
+  active = false,
   locked = false,
   onDragStart,
   onDragMove,
@@ -674,6 +676,7 @@ const ClipInner: React.FC<ClipProps> = ({
       data-timeline-interactive="true"
       data-testid={`clip-${clip.id}`}
       data-clip-id={clip.id}
+      data-clip-active={active ? "true" : "false"}
       data-clip-start={clip.startTime}
       data-clip-duration={clip.duration}
       onPointerDown={handlePointerDown}
@@ -681,7 +684,7 @@ const ClipInner: React.FC<ClipProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       onContextMenu={handleContextMenu}
-      className={`absolute rounded-sm h-full overflow-hidden border ${trackToneClass} ${selected ? "border-white" : "border-transparent"} ${isResizing ? (isRippleResize ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
+      className={`absolute rounded-sm h-full overflow-hidden border ${trackToneClass} ${selected ? "border-white" : "border-transparent"} ${active ? "ring-1 ring-inset ring-accent/70" : ""} ${isResizing ? (isRippleResize ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
@@ -932,6 +935,7 @@ const arePropsEqual = (prevProps: ClipProps, nextProps: ClipProps) => {
     prevProps.pixelsPerSecond !== nextProps.pixelsPerSecond ||
     prevProps.trackHeightPx !== nextProps.trackHeightPx ||
     prevProps.selected !== nextProps.selected ||
+    prevProps.active !== nextProps.active ||
     prevProps.locked !== nextProps.locked ||
     prevProps.isBeingShifted !== nextProps.isBeingShifted
   ) {
