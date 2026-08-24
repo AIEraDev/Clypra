@@ -30,6 +30,7 @@ import { drawCanvasBackground } from "@/core/render/canvasBackground";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import { getPlaybackMetricsSnapshot, tracePlayback } from "@/core/playback/playbackTrace";
+import { getSyncMetricsSnapshot, startSyncMetricsFlushLoop } from "@/lib/playback/syncMetrics";
 import type { SeekIntent } from "@/core/playback/seekController";
 import {
   getNativePreviewSurfaceGeometry,
@@ -38,6 +39,8 @@ import {
   isTauriRuntime,
   onNativePreviewWindowMoved,
   presentNativeFrame,
+  getNativeFrameServiceStats,
+  getNativeSyncMetricsSnapshot,
   queueNativeFrame,
   registerNativeRasterAsset,
   probeNativeSurface,
@@ -242,31 +245,54 @@ export const NativeProgramPreview: React.FC = () => {
       return;
     }
 
-    const flushMetrics = () => {
+    startSyncMetricsFlushLoop();
+    let active = true;
+    const flushMetrics = async () => {
       const snapshot = getPlaybackMetricsSnapshot();
+      const frontendSync = getSyncMetricsSnapshot();
+      const [nativeSync, nativeRender] = await Promise.all([
+        getNativeSyncMetricsSnapshot().catch(() => null),
+        getNativeFrameServiceStats().catch(() => null),
+      ]);
+      if (!active) return;
+      const hasNativeDrift = Boolean(nativeSync && nativeSync.av_drift.n > 0);
+      const hasNativeSeeks = Boolean(nativeSync && nativeSync.seeks.n > 0);
+      const lastRender = nativeRender?.lastSample;
       const cacheTotal = snapshot.cacheHits + snapshot.cacheMisses;
       const next: TelemetryStats = {
-        avgEvaluationTimeMs: 0,
-        avgRasterTimeMs: 0,
-        avgTotalTimeMs: snapshot.seekP95Ms ?? 0,
-        cacheHitRate: cacheTotal > 0 ? snapshot.cacheHits / cacheTotal : 0,
-        active: 0,
-        droppedFrames: snapshot.droppedFrames,
-        driftMagnitude: snapshot.maxDriftMs / 1000,
-        seekP50Ms: snapshot.seekP50Ms,
-        seekP95Ms: snapshot.seekP95Ms,
+        avgEvaluationTimeMs: lastRender ? lastRender.decodeTimeUs / 1000 : 0,
+        avgRasterTimeMs: lastRender ? (lastRender.readbackTimeUs + (lastRender.presentTimeUs ?? 0)) / 1000 : 0,
+        avgTotalTimeMs: lastRender ? lastRender.totalTimeUs / 1000 : snapshot.seekP95Ms ?? 0,
+        cacheHitRate: nativeRender?.windowCacheHitRate ?? (cacheTotal > 0 ? snapshot.cacheHits / cacheTotal : 0),
+        active: nativeRender?.windowRequestCount ?? 0,
+        droppedFrames: Math.max(snapshot.droppedFrames, nativeSync?.dropped_frames ?? 0, nativeRender?.windowDroppedFrames ?? 0),
+        driftMagnitude: hasNativeDrift ? nativeSync!.av_drift.max_abs_micros / 1_000_000 : snapshot.maxDriftMs / 1000,
+        seekP50Ms: nativeRender?.windowSeekP50Ms ?? (hasNativeSeeks ? nativeSync!.seeks.avg_latency_micros / 1000 : snapshot.seekP50Ms),
+        seekP95Ms: nativeRender?.windowSeekP95Ms ?? (hasNativeSeeks ? nativeSync!.seeks.max_latency_micros / 1000 : snapshot.seekP95Ms),
         seekP99Ms: snapshot.seekP99Ms,
-        staleFrames: snapshot.staleFrames,
-        cancelledFrames: snapshot.cancelledFrames,
-        cacheMisses: snapshot.cacheMisses,
+        avDriftP95Ms: hasNativeDrift ? nativeSync!.av_drift.p95_abs_micros / 1000 : 0,
+        uiPlayheadDriftAvgMs: frontendSync.ui_playhead_drift.avg,
+        uiPlayheadDriftMaxMs: frontendSync.ui_playhead_drift.maxAbs,
+        paintIntervalAvgMs: frontendSync.playhead_paint_jitter.avg,
+        framePacingJank: nativeSync?.frame_pacing.jank_events ?? 0,
+        nativeSeekAvgMs: hasNativeSeeks ? nativeSync!.seeks.avg_latency_micros / 1000 : null,
+        nativeSeekMaxMs: hasNativeSeeks ? nativeSync!.seeks.max_latency_micros / 1000 : null,
+        nativeSeekCorrect: hasNativeSeeks ? nativeSync!.seeks.correct : 0,
+        nativeSeekCount: hasNativeSeeks ? nativeSync!.seeks.n : 0,
+        staleFrames: Math.max(snapshot.staleFrames, nativeRender?.windowStaleFrames ?? 0),
+        cancelledFrames: Math.max(snapshot.cancelledFrames, nativeRender?.windowCancelledFrames ?? 0),
+        cacheMisses: nativeRender ? nativeRender.cacheMisses : snapshot.cacheMisses,
       };
       telemetryRef.current = next;
       setTelemetryStats(next);
     };
 
-    flushMetrics();
-    const interval = window.setInterval(flushMetrics, 250);
-    return () => window.clearInterval(interval);
+    void flushMetrics();
+    const interval = window.setInterval(() => void flushMetrics(), 250);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, [showTelemetry]);
   renderStateRef.current.clips = clips;
   renderStateRef.current.tracks = tracks;
@@ -629,7 +655,6 @@ export const NativeProgramPreview: React.FC = () => {
     const seekController = getActiveSessionOrNull()?.transportAuthority?.getSeekController();
     let latestSeekIntent: SeekIntent | null = seekController?.getCurrent() ?? null;
     let visibleRequestGeneration = seekController?.getGeneration() ?? 0;
-    let prefetchCenterKey = "";
     let transportRevision = 0;
     const nativeTextRasterCache = new Map<string, Promise<NativeTextRasterAsset>>();
     const registeredNativeTextAssets = new Set<string>();
@@ -1019,7 +1044,6 @@ export const NativeProgramPreview: React.FC = () => {
       visibleRequestGeneration = Math.max(visibleRequestGeneration, intent.generation);
       nativePreviewScheduler.setVisibleGeneration(intent.generation);
       void cancelNativePreviewRequests(intent.generation).catch(() => undefined);
-      prefetchCenterKey = "";
       forceRenderNeeded = true;
       tracePlayback("seek.intent", {
         requestId: intent.requestId,
@@ -1067,12 +1091,14 @@ export const NativeProgramPreview: React.FC = () => {
       const requestIntent = latestSeekIntent
         ? {
             generation: latestSeekIntent.generation,
-            mode: latestSeekIntent.mode,
+            mode: isPlaying && latestSeekIntent.mode !== "scrub" ? "playback" as const : latestSeekIntent.mode,
             quality: isPlaying && latestSeekIntent.mode !== "scrub" ? "full" as const : latestSeekIntent.quality,
             velocityPxPerSecond: latestSeekIntent.velocityPxPerSecond,
             requestedAtMs: latestSeekIntent.issuedAtMs,
           }
-        : undefined;
+        : isPlaying
+          ? { mode: "playback" as const, quality: "full" as const }
+          : undefined;
 
       const timeChanged = frameIndex !== lastRenderedFrameIndex;
       const epochChanged = state.epoch !== lastRenderedEpoch;
@@ -1191,7 +1217,9 @@ export const NativeProgramPreview: React.FC = () => {
               state.canvasWidth,
               state.canvasHeight,
               [...lookAheadBackground, ...lookAheadTextRasters, ...lookAheadAnimatedStickers, ...lookAheadSmartOverlays],
-              requestIntent,
+              requestIntent
+                ? { ...requestIntent, mode: "playback-lookahead" as const }
+                : { mode: "playback-lookahead" as const, quality: "full" as const },
             ) ?? nativeRequest;
           }
         }
@@ -1224,7 +1252,6 @@ export const NativeProgramPreview: React.FC = () => {
         visibleRequestKey = nativeRequestKey;
         visibleRequestGeneration += 1;
         nativePreviewScheduler.setVisibleGeneration();
-        prefetchCenterKey = "";
       }
       const targetGeneration = visibleRequestGeneration;
       // Do not hand the visible surface to native video until native audio has
@@ -1511,46 +1538,11 @@ export const NativeProgramPreview: React.FC = () => {
             }
           }
 
-          // Prefetch only after the visible request is satisfied. The visible
-          // frame therefore always wins the decoder/GPU budget over lookahead.
-          if (nativePausedReadbackPath && exactNativeFrame && prefetchCenterKey !== nativeRequestKey) {
-            const durationFrames = Math.max(0, Math.ceil(state.clock.duration * frameRate));
-            const prefetchSources: NativePreviewRequestSource[] = [];
-            for (const offset of [1, 2, 3, 4, 5, 6, -1, -2]) {
-              const targetFrameIndex = frameIndex + offset;
-              if (targetFrameIndex < 0 || (durationFrames > 0 && targetFrameIndex >= durationFrames)) continue;
-
-              const targetTime = getFrameStartTime(targetFrameIndex / frameRate, frameRate);
-              const targetScene = evaluateTimelineSceneCached(
-                targetTime,
-                state.clips,
-                state.tracks,
-                state.mediaAssets,
-                state.project,
-                state.epoch,
-                state.transitions,
-                state.sceneVersions,
-              );
-              const targetRequest = buildNativeFrameRequest(
-                targetScene,
-                `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
-                targetFrameIndex,
-                frameRate,
-                state.canvasWidth,
-                state.canvasHeight,
-              );
-              if (!targetRequest) continue;
-              prefetchSources.push({
-                requestKey: getNativeFrameRequestKey(targetRequest),
-                frameIndex: targetFrameIndex,
-                request: targetRequest,
-                priority: offset > 0 ? offset : 10 + Math.abs(offset),
-                generation: targetGeneration,
-              });
-            }
-            nativePreviewScheduler.prefetch(prefetchSources);
-            prefetchCenterKey = nativeRequestKey;
-          }
+          // Do not speculative-prefetch paused readback frames. Each item would
+          // trigger a full GPU composition plus RGBA readback, and all requests
+          // for one source serialize on its decoder mutex. On a seek this turns
+          // eight background frames into visible latency for the next target.
+          // Playback lookahead uses the retained native surface path instead.
 
           if (!targetStillCurrent()) {
             forceRenderNeeded = true;
@@ -1617,7 +1609,6 @@ export const NativeProgramPreview: React.FC = () => {
       if (wasStateChange) {
         visibleRequestGeneration += 1;
         nativePreviewScheduler.setVisibleGeneration();
-        prefetchCenterKey = "";
         // A play/pause/stop transition is a new opportunity for native decode.
         // Clear the per-target circuit breaker without re-enabling retries every RAF.
         nativeBlockedKey = "";
