@@ -70,6 +70,15 @@ export function useFilmstrip(opts: UseFilmstripOptions): UseFilmstripResult {
   useEffect(() => {
     if (!runtime || !enabled || !opts.videoPath || !opts.duration) return;
 
+    console.log("[useFilmstrip:request]", {
+      clipId: opts.clipId,
+      videoPath: opts.videoPath,
+      pixelsPerSecond: opts.pixelsPerSecond,
+      viewportScrollLeft: opts.viewportScrollLeft,
+      viewportWidth: opts.viewportWidth,
+      playheadTime: opts.playheadTime,
+    });
+
     runtime.requestFilmstrip({
       clipId: opts.clipId,
       videoPath: opts.videoPath,

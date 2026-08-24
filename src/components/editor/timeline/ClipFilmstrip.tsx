@@ -301,6 +301,17 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
       currentEpochArtifacts.length > 0 ||
       (runtime?.tileCache && runtime.tileCache.getStats().tileCount > 0);
 
+    console.log("[ClipFilmstrip:render]", {
+      clipId: clip.id,
+      totalArtifactsReceived: artifacts.length,
+      currentEpochArtifactsCount: currentEpochArtifacts.length,
+      tileAddressesCount: tileAddresses.length,
+      tileCacheCount: runtime?.tileCache?.getStats()?.tileCount ?? 0,
+      spatialTier,
+      epochId,
+      hasAnyCacheOrArtifacts,
+    });
+
     if (hasAnyCacheOrArtifacts) {
       surface.drawFilmstrip(currentEpochArtifacts, layout);
       if (isReadyToCommit) {
@@ -324,6 +335,7 @@ export function ClipFilmstrip({ clip, mediaAsset, clipWidthPx, pixelsPerSecond, 
         });
       }
     } else if (!committedFilmstrip) {
+      console.log("[ClipFilmstrip:drawPlaceholder]", { clipId: clip.id, tileAddressesCount: tileAddresses.length });
       // Cold start: neutral placeholder
       surface.drawPlaceholder(layout);
     }
