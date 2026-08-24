@@ -187,10 +187,16 @@ export const Timeline: React.FC = () => {
       let nextScrollLeft = container.scrollLeft;
       let nextScrollTop = container.scrollTop;
 
-      if (clipRect.left < leftEdge) {
-        nextScrollLeft -= leftEdge - clipRect.left;
-      } else if (clipRect.right > rightEdge) {
-        nextScrollLeft += clipRect.right - rightEdge;
+      // Do not jump horizontally if any part of the clip is already visible in the viewport
+      const isHorizontallyVisible =
+        clipRect.right > leftEdge && clipRect.left < rightEdge;
+
+      if (!isHorizontallyVisible) {
+        if (clipRect.right <= leftEdge) {
+          nextScrollLeft -= leftEdge - clipRect.left;
+        } else if (clipRect.left >= rightEdge) {
+          nextScrollLeft += clipRect.right - rightEdge;
+        }
       }
 
       if (clipRect.top < topEdge) {
