@@ -22,6 +22,8 @@ Continuous playback does not reposition a shared decoder at a boundary. The mixe
 
 When a split is present, both halves can be installed simultaneously. They cannot interfere through a shared decoder cursor, but each half independently decodes its source range. The native mixer bounds resource usage at 64 clips and 512 MiB of PCM ([native_audio.rs](/Users/AIEraDev/Documents/clypra-family/clypra/src-tauri/src/native_audio.rs:10), [native_audio.rs](/Users/AIEraDev/Documents/clypra-family/clypra/src-tauri/src/native_audio.rs:151)). Native audio has no independent 2–3 second decoder lookahead; the separate video prewarm path is bounded at 1.5 seconds ([PreviewMediaPool.ts](/Users/AIEraDev/Documents/clypra-family/clypra/src/core/resources/PreviewMediaPool.ts:240)).
 
+The source-path/session question is therefore resolved explicitly: native audio is keyed by clip ID after independent decode, not by a shared source-path decoder session. There is also no native audio lookahead buffer with a second decode path to validate. The reproduction suite covers the closest equivalent by installing a future clip before its timeline boundary and asserting that it remains silent until the boundary, then starts with the correct source segment.
+
 ### Browser fallback
 
 The browser path is separate. Its decoded `AudioBuffer` is cached by media/source key, while active playback voices are keyed by clip ID ([AudioEngine.ts](/Users/AIEraDev/Documents/clypra-family/clypra/src/core/audio/AudioEngine.ts:142)). A shared full-source buffer is safe because each voice starts at `trimIn + timeIntoClip` ([AudioEngine.ts](/Users/AIEraDev/Documents/clypra-family/clypra/src/core/audio/AudioEngine.ts:158)). It does not reproduce the native shared-decoder-position bug, although it can share an incorrectly selected buffer if a clip's `audioPath` differs from the media asset while retaining the same `mediaId`.
@@ -71,8 +73,9 @@ The deterministic headless reproduction is implemented in [split_investigation_t
 | Two splits, continuous playback | Correct tones across both boundaries | Fix holds |
 | Independent same-source clips | Each clip plays its configured source range | No shared-position interference |
 | Immediate seek into second half | Starts in the second tone region | Fix holds |
-| Detached audio then split/seek | Uses explicit audio path and correct source range | Isolated from visual path |
+| Detached audio then split/seek | Uses explicit audio path and correct source range | Audio-only assertion; evaluator visual issue remains separately scoped |
 | Rapid scrubbing across boundary | Repeated timeline mixing selects the correct tone with no stale half | No stale decoder cursor |
+| Future clip preinstalled before boundary | Silent before boundary; correct tone at boundary | No separate native audio lookahead path |
 
 The focused Rust test passed, including the scoped waveform assertion. TypeScript typecheck passed, and the targeted Vitest suite passed 153 tests. Manual audible Tauri playback was not executable through the available non-interactive tool interface; the report therefore records the deterministic native decoder/mixer observations rather than claiming an unperformed listening session.
 
@@ -80,4 +83,5 @@ The focused Rust test passed, including the scoped waveform assertion. TypeScrip
 
 1. Consider a source-keyed/coarse waveform cache to avoid repeated full-file browser fallback decodes and repeated bounded native decodes.
 2. Align evaluator audio-layer path resolution with `audioClips.ts` so explicit `audioPath` is authoritative for audio-kind clips.
-3. Add an interactive desktop smoke test to CI or the QA checklist for the six audible scenarios.
+3. Add an interactive desktop smoke test to CI or the QA checklist for the seven audible/native scenarios.
+4. Track the waveform extraction redundancy separately as an efficiency follow-up; it is intentionally not part of this correctness fix.
