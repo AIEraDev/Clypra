@@ -74,6 +74,17 @@ export interface NativePerformanceSample {
   totalTimeUs: number;
   bytesTransferred: number;
   cacheHit: boolean;
+  generation?: number;
+  mode?: "playback" | "scrub" | "seek" | "frameStep";
+  quality?: NativeQualityTier;
+  strategy?: "HOT" | "WARM" | "COLD";
+  cancelled?: boolean;
+  stale?: boolean;
+  dropped?: boolean;
+  seekTimeUs?: number;
+  conversionTimeUs?: number;
+  uploadTimeUs?: number;
+  presentTimeUs?: number;
 }
 
 export interface NativeFrameServiceStats {
@@ -83,6 +94,15 @@ export interface NativeFrameServiceStats {
   cachedEntries: number;
   cachedBytes: number;
   lastSample: NativePerformanceSample | null;
+  windowStartedAtMs?: number;
+  windowRequestCount?: number;
+  windowDroppedFrames?: number;
+  windowStaleFrames?: number;
+  windowCancelledFrames?: number;
+  windowSeekP50Ms?: number;
+  windowSeekP95Ms?: number;
+  windowSeekP99Ms?: number;
+  windowCacheHitRate?: number;
 }
 
 export const NATIVE_PLAYBACK_POLICY = {
@@ -131,6 +151,10 @@ export interface NativeSurfacePresentation {
   audioPositionTicks: number;
   frameAgeTicks: number;
   surface: NativeSurfaceProbe;
+  generation?: number;
+  mode?: "playback" | "scrub" | "seek" | "frameStep";
+  stale?: boolean;
+  cancelled?: boolean;
 }
 
 export interface NativeFrameTime {
@@ -314,6 +338,11 @@ export interface NativeFrameRequest {
   quality: NativeQualityTier;
   colorPolicy: NativeColorPolicy;
   renderGraphVersion: number;
+  /** Optional asynchronous seek identity; omitted by legacy callers. */
+  generation?: number;
+  mode?: "playback" | "scrub" | "seek" | "frameStep";
+  scrubVelocityPxPerSecond?: number;
+  requestedAtMs?: number;
 }
 
 export type NativeFrameRequestInput = Omit<NativeFrameRequest, "contractVersion">;
