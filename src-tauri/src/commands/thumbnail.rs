@@ -326,7 +326,6 @@ pub async fn decode_frames_streaming(
 ) -> Result<(), String> {
     use crate::thumbnail_engine::atlas::{get_atlas_manager, AtlasBuilder, THUMBNAILS_PER_ATLAS};
 
-    let start = std::time::Instant::now();
     let video_id = format!("{:x}", md5::compute(&video_path));
     let resolution_tier = if width >= 160 {
         ResolutionTier::Tier2x
@@ -345,7 +344,6 @@ pub async fn decode_frames_streaming(
 
     // Check which frames are already in atlases
     let mut missing_times = Vec::new();
-    let mut sent_count = 0u32;
 
     {
         let manager = atlas_manager.read().await;
@@ -384,9 +382,7 @@ pub async fn decode_frames_streaming(
                     actual_height,
                 );
 
-                if on_tile.send(tile).is_ok() {
-                    sent_count += 1;
-                }
+                let _ = on_tile.send(tile);
             } else {
                 missing_times.push(time);
             }
@@ -399,10 +395,7 @@ pub async fn decode_frames_streaming(
     }
 
     // Spawn extraction task - IMMEDIATE RGBA streaming + background atlas persistence
-    let total_frames = timestamps.len();
     let handle = tokio::spawn(async move {
-        let _bg_start = std::time::Instant::now();
-
         // Get decoder
         let decoder = match get_decoder(&video_path).await {
             Ok(d) => d,
@@ -413,27 +406,17 @@ pub async fn decode_frames_streaming(
         };
 
         // Process frames in batches of THUMBNAILS_PER_ATLAS (32)
-        let mut frames_decoded = 0u32;
         let mut frames_failed = 0u32;
-        let mut frames_sent = sent_count;
-        let mut atlases_created = 0u32;
 
         for chunk in missing_times.chunks(THUMBNAILS_PER_ATLAS) {
-            let chunk_start = std::time::Instant::now();
-
             // Create atlas builder for background persistence
             let mut atlas_builder = AtlasBuilder::new(width, height);
             let mut chunk_frames: Vec<(f64, Vec<u8>, u32, u32)> = Vec::new();
 
             // IMMEDIATE PATH: Decode and stream RGBA to frontend (no compression!)
             for &time in chunk {
-                let decode_start = std::time::Instant::now();
-
-                // Create deduplication key
-                let timestamp_ms = (time * 1000.0).round() as u64;
-                let key = format!("{}:{}:{}x{}", video_id, timestamp_ms, width, height);
-
-                // Check if extraction is already in-flight
+                // Deduplicate extraction across concurrent requests
+                let key = format!("{}:{}:{}x{}", video_id, (time * 1000.0).round() as u64, width, height);
                 let (tx, is_new) = IN_FLIGHT_EXTRACTIONS.get_or_create(key.clone());
 
                 let rgba_bytes = if !is_new {
@@ -492,8 +475,6 @@ pub async fn decode_frames_streaming(
                     }
                 };
 
-                let decode_time = decode_start.elapsed();
-
                 let actual_width = (rgba_bytes.len() / 4 / height as usize) as u32;
                 let actual_height = height;
 
@@ -505,34 +486,14 @@ pub async fn decode_frames_streaming(
                                 "[decode_frames_streaming] WebP encoding failed at {}s: {}",
                                 time, e
                             );
-                            frames_failed += 1;
                             continue;
                         }
                     };
 
                 let tile = ThumbnailTile::from_path(time, webp_data_url, density);
-
-                match on_tile.send(tile) {
-                    Ok(_) => {
-                        frames_sent += 1;
-                        if frames_sent <= 3 || frames_sent.is_multiple_of(20) {
-                            eprintln!(
-                                "[STREAM] Sent WebP tile #{}/{}: time={:.2}s decode={:?}",
-                                frames_sent, total_frames, time, decode_time
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[STREAM] ✗ Failed to send tile #{}: {:?}",
-                            frames_sent + 1,
-                            e
-                        );
-                    }
-                }
+                let _ = on_tile.send(tile);
 
                 chunk_frames.push((time, rgba_bytes, actual_width, actual_height));
-                frames_decoded += 1;
             }
 
             if chunk_frames.is_empty() {
@@ -540,8 +501,6 @@ pub async fn decode_frames_streaming(
             }
 
             // BACKGROUND PATH: Persist to WebP atlas (non-blocking for frontend)
-            let persist_start = std::time::Instant::now();
-
             // Allocate atlas locations
             let mut locations = Vec::new();
             {
@@ -567,8 +526,6 @@ pub async fn decode_frames_streaming(
             if let Some((_, first_location, _, _)) = locations.first() {
                 if let Err(e) = atlas_builder.save(&first_location.atlas_path).await {
                     eprintln!("[decode_frames_streaming] Failed to save atlas: {}", e);
-                } else {
-                    atlases_created += 1;
                 }
             }
 
@@ -1126,18 +1083,11 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
         return Ok(0);
     }
 
-    eprintln!(
-        "[prewarm_decoders] Prewarming {} decoders in background",
-        video_paths.len()
-    );
-
-    let start = std::time::Instant::now();
     let mut success_count = 0;
 
     // Prewarm decoders concurrently (up to 4 at a time to avoid overwhelming system)
     let chunk_size = 4;
-    for (chunk_idx, chunk) in video_paths.chunks(chunk_size).enumerate() {
-        let chunk_start = std::time::Instant::now();
+    for chunk in video_paths.chunks(chunk_size) {
         let mut handles = vec![];
 
         for path in chunk {
