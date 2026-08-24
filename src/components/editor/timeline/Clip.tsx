@@ -796,7 +796,7 @@ const ClipInner: React.FC<ClipProps> = ({
               {formatDuration(clip.duration)}
             </div>
           </div>
-          {mediaAsset &&
+          {clip.kind !== "audio" && mediaAsset &&
           (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
               <div className="min-h-0 flex-1 overflow-hidden bg-black/10">
