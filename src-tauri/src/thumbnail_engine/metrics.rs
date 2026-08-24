@@ -333,4 +333,18 @@ mod tests {
         let summary = registry.l2.snapshot();
         assert_eq!(summary.tier_cache_hits, 5);
     }
+
+    #[test]
+    fn test_conversion_metrics_report_duration_and_path_counts() {
+        let metrics = TierMetrics::default();
+        metrics.convert.record(Duration::from_millis(4));
+        metrics.convert_fast_path.fetch_add(1, Ordering::Relaxed);
+        metrics.convert_slow_path.fetch_add(2, Ordering::Relaxed);
+
+        let summary = metrics.take_and_reset();
+
+        assert!((summary.convert_avg_ms - 4.0).abs() < 0.01);
+        assert_eq!(summary.convert_fast_hits, 1);
+        assert_eq!(summary.convert_slow_hits, 2);
+    }
 }
