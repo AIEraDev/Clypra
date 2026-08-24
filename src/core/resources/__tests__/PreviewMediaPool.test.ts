@@ -141,6 +141,29 @@ describe("PreviewMediaPool — Re-entrancy Protection", () => {
     expect(videoElements.size).toBeGreaterThan(0);
   });
 
+  it("does not allocate a video element for detached audio backed by a video asset", () => {
+    const detachedAudio = {
+      ...createMockClip("audio-1", "media-1", 0, 5),
+      kind: "audio" as const,
+      audioPath: "/path/to/video.mp4",
+      detachedFromClipId: "video-1",
+    };
+    const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
+    const tracks = [{ id: "track-1", type: "audio" }];
+
+    pool.sync([detachedAudio], assets, tracks, {
+      time: 2.5,
+      state: "paused",
+      speed: 1.0,
+      muted: false,
+      volume: 100,
+      frameRate: 30,
+    });
+
+    expect(pool.getVideoElements().size).toBe(0);
+    expect(pool.getAudioElements().get("audio-1")).toBeDefined();
+  });
+
   it("retains video clip audio elements across sync ticks", () => {
     const clips = [createMockClip("clip-1", "media-1", 0, 5)];
     const assets = [createMockAsset("media-1", "/path/to/video.mp4")];
