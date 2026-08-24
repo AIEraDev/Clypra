@@ -122,6 +122,36 @@ describe("TimelineDragCommand", () => {
     })).toBeNull();
   });
 
+  it("rejects a mixed selection when any source track is locked", () => {
+    const source = track("source");
+    const lockedSource = { ...track("locked-source"), locked: true };
+    const movable = clip("movable", "source", 0, 2);
+    const lockedClip = clip("locked", "locked-source", 0, 2);
+    const state = {
+      tracks: [source, lockedSource],
+      clips: [movable, lockedClip],
+      gaps: [] as Gap[],
+      mainVideoTrackId: "source",
+      epoch: 0,
+    };
+
+    expect(buildTimelineDragCommand({
+      state,
+      drag: drag({
+        draggingClipId: "movable",
+        draggedClipIds: ["movable", "locked"],
+        originalPlacements: {
+          movable: { trackId: "source", startTime: 0, index: 0 },
+          locked: { trackId: "locked-source", startTime: 0, index: 0 },
+        },
+      }),
+      clip: movable,
+      snapEnabled: false,
+      currentTime: 0,
+      pixelsPerSecond: 100,
+    })).toBeNull();
+  });
+
   it("preserves unrelated empty tracks and supports existing-track moves", () => {
     const source = track("source");
     const target = track("target", "audio");
