@@ -454,6 +454,10 @@ impl BackendTierCache {
         if let Some((_, frame)) = self.entries.remove(key) {
             self.total_bytes
                 .fetch_sub(frame.byte_size, Ordering::Relaxed);
+            crate::thumbnail_engine::metrics::METRICS
+                .for_tier(key.tier)
+                .evictions
+                .fetch_add(1, Ordering::Relaxed);
             // Update reentry record
             self.reentry
                 .entry(key.clone())
@@ -462,19 +466,6 @@ impl BackendTierCache {
                 .lock()
                 .map(|mut r| r.on_evict())
                 .ok();
-            // Track warning count (R20: warn if evicted 3× within 60s)
-            let count = self
-                .eviction_warnings
-                .entry(key.clone())
-                .or_insert_with(|| AtomicU32::new(0))
-                .fetch_add(1, Ordering::Relaxed)
-                + 1;
-            if count >= 3 {
-                eprintln!(
-                    "[BackendTierCache] ⚠ key {:?} evicted {} times — possible thrash",
-                    key.content_hash.0, count
-                );
-            }
         }
     }
 
@@ -600,9 +591,16 @@ pub fn downsample_pyramid(
     tiers
         .par_iter()
         .map(|&tier| {
+            let timer = crate::thumbnail_engine::metrics::Timer::start();
             let (out_w, out_h) = aspect_preserving_tier_dims(raw.width, raw.height, tier);
             let result = scale_rgba_lanczos(&raw.data, raw.width, raw.height, out_w, out_h)
                 .map(|data| Arc::new(TierRgbaFrame::new(data, out_w, out_h, tier)));
+            if let Some(elapsed) = timer.elapsed() {
+                crate::thumbnail_engine::metrics::METRICS
+                    .for_tier(tier)
+                    .downsample
+                    .record(elapsed);
+            }
             (tier, result)
         })
         .collect()
