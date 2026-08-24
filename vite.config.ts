@@ -94,6 +94,11 @@ export default defineConfig(async () => ({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
+    // The editor owns process-wide browser/media singletons (audio context,
+    // playback clock, and resource pools). Parallel file workers can retain
+    // those handles past worker teardown even though the tests themselves
+    // pass. Serialize files until those globals are worker-isolated.
+    fileParallelism: false,
     // The published Studio engine is otherwise externalized by Vitest. Inline
     // it so the lottie-web mock in test-setup also covers its animation bridge
     // and cannot leave a browser-only readiness timer behind after teardown.
