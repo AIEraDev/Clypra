@@ -16,3 +16,4 @@ export { TransformClipCommand } from "./TransformCommand";
 export { InsertGapCommand, RemoveGapCommand, ResizeGapCommand, ToggleGapProtectionCommand } from "./GapCommands";
 export { AddTransitionCommand, DeleteTransitionCommand } from "./TransitionCommands";
 export { InsertEditCommand } from "./InsertEditCommand";
+export { DetachAudioCommand } from "./DetachAudioCommand";
