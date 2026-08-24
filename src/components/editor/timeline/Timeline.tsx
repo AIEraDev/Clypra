@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { Film, ArrowLeft } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
@@ -27,6 +27,7 @@ import {
   getTimelineMaxScrollLeft,
   timeToPixel,
   pixelToTime,
+  getTimelineLaneClientX,
 } from "@/lib/timeline/timelineViewport";
 
 
@@ -36,6 +37,8 @@ import { TrackLabel } from "./TrackLabel";
 import { Track } from "./Track";
 import { Playhead } from "./Playhead";
 import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
+import { ClipContextMenu } from "./ClipContextMenu";
+import { TimelineEmptySpaceContextMenu } from "./TimelineEmptySpaceContextMenu";
 
 export const Timeline: React.FC = () => {
   const tracks = useTimelineStore((s) => s.tracks);
@@ -59,6 +62,66 @@ export const Timeline: React.FC = () => {
   const hasTimelineContent = hasClips || tracks.length > 0;
   const showInactivePreviewOverlay =
     !isProgramPreviewActive && hasTimelineContent;
+
+  const [clipContextMenu, setClipContextMenu] = useState<{
+    clickedClipId: string | null;
+    clickedTrackId?: string | null;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const [emptySpaceContextMenu, setEmptySpaceContextMenu] = useState<{
+    clickedTrackId: string | null;
+    clickedTime: number;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const handleClipContextMenu = useCallback(
+    (e: React.MouseEvent, clipId: string, trackId: string) => {
+      setEmptySpaceContextMenu(null);
+      setClipContextMenu({
+        clickedClipId: clipId,
+        clickedTrackId: trackId,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [],
+  );
+
+  const handleTrackContextMenu = useCallback(
+    (e: React.MouseEvent, trackId: string, time: number) => {
+      setClipContextMenu(null);
+      setEmptySpaceContextMenu({
+        clickedTrackId: trackId,
+        clickedTime: time,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [],
+  );
+
+  const handleTimelineContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest('[data-timeline-interactive="true"]')) return;
+      if (target && target.closest("[data-clip-id]")) return;
+      if (target && target.closest("[data-gap-id]")) return;
+      e.preventDefault();
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const clickedTime = pixelToTime(
+        getTimelineLaneClientX(e.clientX, rect.left, hasClips) + scrollLeft,
+        pixelsPerSecond,
+      );
+      setClipContextMenu(null);
+      setEmptySpaceContextMenu({
+        clickedTrackId: null,
+        clickedTime: Math.max(0, clickedTime),
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [hasClips, scrollLeft, pixelsPerSecond],
+  );
 
   // Consume extracted hooks
   useTimelineZoom(containerRef, hasTimelineContent);
@@ -424,6 +487,7 @@ export const Timeline: React.FC = () => {
           onScroll={handleScroll}
           onPointerDownCapture={handleTimelinePointerDownCapture}
           onClick={seekFromPointer}
+          onContextMenu={handleTimelineContextMenu}
           id="timeline-tracks-container"
           className={`h-full overflow-auto scrollbar-thin relative transition-colors ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}
           style={{
@@ -570,6 +634,8 @@ export const Timeline: React.FC = () => {
                           onClipDragStart={handleClipDragStart}
                           onClipDragMove={handleClipDragMove}
                           onClipDragEnd={handleClipDragEnd}
+                          onClipContextMenu={handleClipContextMenu}
+                          onTrackContextMenu={handleTrackContextMenu}
                           dragState={trackDragState}
                         />
                       </div>
@@ -672,6 +738,25 @@ export const Timeline: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Context Menus */}
+      {clipContextMenu && (
+        <ClipContextMenu
+          clickedClipId={clipContextMenu.clickedClipId}
+          clickedTrackId={clipContextMenu.clickedTrackId}
+          position={clipContextMenu.position}
+          onClose={() => setClipContextMenu(null)}
+        />
+      )}
+
+      {emptySpaceContextMenu && (
+        <TimelineEmptySpaceContextMenu
+          clickedTrackId={emptySpaceContextMenu.clickedTrackId}
+          clickedTime={emptySpaceContextMenu.clickedTime}
+          position={emptySpaceContextMenu.position}
+          onClose={() => setEmptySpaceContextMenu(null)}
+        />
+      )}
     </div>
   );
 };
