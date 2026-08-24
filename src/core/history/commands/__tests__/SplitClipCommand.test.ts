@@ -55,6 +55,18 @@ describe("SplitClipCommand", () => {
       expect(newState.clips.find((c) => c.id === "clip-1")).toBeUndefined();
     });
 
+    it("restores a middle clip to its original array position on undo", () => {
+      const before = createTestClip({ id: "before", startTime: 0, duration: 2, trimOut: 2 });
+      const middle = createTestClip({ id: "middle", startTime: 2, duration: 6, trimOut: 6 });
+      const after = createTestClip({ id: "after", startTime: 8, duration: 2, trimIn: 6, trimOut: 8 });
+      const command = new SplitClipCommand("middle", 5, 30, middle);
+
+      const split = command.apply({ clips: [before, middle, after], epoch: 0 });
+      const restored = command.invert().apply(split);
+
+      expect(restored.clips.map((clip: Clip) => clip.id)).toEqual(["before", "middle", "after"]);
+    });
+
     it("sets trimOut correctly on left clip", () => {
       const clip = createTestClip({
         startTime: 0,
