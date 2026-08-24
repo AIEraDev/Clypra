@@ -1,5 +1,11 @@
 # Native Media Architecture
 
+Program Preview performance changes must follow the
+[Program Preview Performance Runbook](program-preview-performance-runbook.md)
+and the [Native Performance Contract](performance-contract.md). These documents
+are the durable guardrails for path separation, stale-frame handling, telemetry,
+and release validation.
+
 Status: migration branch `codex/native-architecture-migration`.
 
 ## Authority
