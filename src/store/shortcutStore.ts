@@ -167,6 +167,12 @@ const DEFAULT_SHORTCUTS: Omit<ShortcutAction, "binding">[] = [
     defaultBinding: { key: "d", ctrl: true },
   },
   {
+    id: "group-clips",
+    label: "Group Selected Clips",
+    category: "Edit",
+    defaultBinding: { key: "g", alt: true },
+  },
+  {
     id: "copy-clips",
     label: "Copy Selected Clips",
     category: "Edit",
