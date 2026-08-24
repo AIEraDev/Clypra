@@ -137,12 +137,18 @@ export const timelineCommands: TimelineCommand[] = [
     icon: VolumeX,
     group: "track",
     isVisible: (ctx) => Boolean(ctx.clickedTrackId),
-    isEnabled: (ctx) => Boolean(ctx.clickedTrackId),
+    isEnabled: (ctx) => Boolean(ctx.clickedTrackId && !ctx.tracks.find((track) => track.id === ctx.clickedTrackId)?.locked),
+    disabledReason: () => "Unlock the track before changing mute",
     execute: (ctx) => {
       if (!ctx.clickedTrackId) return;
       const store = useTimelineStore.getState();
+      const trackBefore = store.tracks.find((track) => track.id === ctx.clickedTrackId);
+      if (trackBefore?.locked) {
+        toast.info("Unlock the track before changing mute");
+        return;
+      }
       store.toggleTrackMute(ctx.clickedTrackId);
-      const track = store.tracks.find((t) => t.id === ctx.clickedTrackId);
+      const track = useTimelineStore.getState().tracks.find((t) => t.id === ctx.clickedTrackId);
       toast.info(track?.muted ? "Track muted" : "Track unmuted");
     },
   },
