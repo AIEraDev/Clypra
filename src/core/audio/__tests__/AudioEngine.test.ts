@@ -145,6 +145,7 @@ describe("AudioEngine", () => {
 
     expect(engine.getActiveVoiceCount()).toBe(1);
     expect(mockCtx.createBufferSource).toHaveBeenCalled();
+    expect(mockSourceNode.start).toHaveBeenCalledWith(100, 4, 8);
   });
 
   it("terminates voices when timeline playhead moves outside clip boundaries", () => {
