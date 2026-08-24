@@ -11,6 +11,7 @@ import { EditingActions } from "@/core/interactions";
 import { generateId } from "@/lib/utils/id";
 import { useAnchoredTimelineZoom } from "./timeline/useAnchoredTimelineZoom";
 import { toast } from "@/lib/toast";
+import { formatSplitMessage } from "@/lib/timeline/clipName";
 
 import { clipboardService } from "@/core/clipboard/clipboardService";
 
@@ -178,7 +179,11 @@ export const useKeyboardShortcuts = () => {
             toast.info("No clips under playhead to split");
           } else {
             const successCount = results.filter((r) => r.success).length;
-            toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+            if (successCount > 0) {
+              toast.success(formatSplitMessage(results));
+            } else {
+              toast.error(results.find((result) => result.error)?.error || "Split failed");
+            }
           }
         } else {
           // PB-HIDDEN-005 fix: Ctrl+K splits only SELECTED clips at playhead
@@ -191,7 +196,11 @@ export const useKeyboardShortcuts = () => {
               toast.info("No selected clips under playhead to split");
             } else {
               const successCount = results.filter((r) => r.success).length;
-              toast.success(`Split ${successCount} selected clip${successCount > 1 ? "s" : ""}`);
+              if (successCount > 0) {
+                toast.success(formatSplitMessage(results));
+              } else {
+                toast.error(results.find((result) => result.error)?.error || "Split failed");
+              }
             }
           } else {
             // No selection — fall back to split all
@@ -200,7 +209,11 @@ export const useKeyboardShortcuts = () => {
               toast.info("No clips under playhead to split");
             } else {
               const successCount = results.filter((r) => r.success).length;
-              toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+              if (successCount > 0) {
+                toast.success(formatSplitMessage(results));
+              } else {
+                toast.error(results.find((result) => result.error)?.error || "Split failed");
+              }
             }
           }
         }
@@ -401,7 +414,7 @@ export const useKeyboardShortcuts = () => {
           const failCount = results.length - successCount;
 
           if (successCount > 0) {
-            toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+            toast.success(formatSplitMessage(results));
           } else if (failCount > 0) {
             toast.error(results[0].error || "Split failed");
           }
