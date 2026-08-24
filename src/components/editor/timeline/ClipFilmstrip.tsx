@@ -31,7 +31,10 @@ import { normalizePathForTauriInvoke } from "@/lib/platform/tauri";
 import { useTimelineStore } from "@/store/timelineStore";
 import type { Clip, MediaAsset } from "@/types";
 import type { RenderEpochId, SpatialTier } from "@/lib/renderEngine/types";
-import { startMetricsFlushLoop, recordPaintCommit } from "@/lib/renderEngine/filmstripMetrics";
+import {
+  startMetricsFlushLoop,
+  recordPaintCommit,
+} from "@/lib/renderEngine/filmstripMetrics";
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif)$/i;
 
@@ -46,12 +49,14 @@ function areRenderWindowsEqual(
   a: FilmstripRenderWindow | undefined,
   b: FilmstripRenderWindow,
 ): boolean {
-  return !!a &&
+  return (
+    !!a &&
     a.leftPx === b.leftPx &&
     a.widthPx === b.widthPx &&
     a.trimIn === b.trimIn &&
     a.trimOut === b.trimOut &&
-    a.isVisible === b.isVisible;
+    a.isVisible === b.isVisible
+  );
 }
 
 /** Resolve a media source path without double-converting already-converted URLs. */
@@ -381,7 +386,8 @@ export function ClipFilmstrip({
     const isReadyToCommit =
       hasAllTiles ||
       epochDebounceExpired ||
-      (tileAddresses.length > 0 && currentEpochArtifacts.length >= tileAddresses.length);
+      (tileAddresses.length > 0 &&
+        currentEpochArtifacts.length >= tileAddresses.length);
 
     const hasAnyCacheOrArtifacts =
       currentEpochArtifacts.length > 0 ||
@@ -536,7 +542,7 @@ export function ClipFilmstrip({
       <div
         data-testid="clip-filmstrip"
         className={cn(
-          "relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border bg-timeline-filmstrip-bg",
+          "relative overflow-hidden rounded-xs border border-timeline-filmstrip-border bg-timeline-filmstrip-bg",
           className,
         )}
         style={{
@@ -570,7 +576,7 @@ export function ClipFilmstrip({
       <div
         data-testid="clip-filmstrip-image"
         className={cn(
-          "relative overflow-hidden rounded-[2px] border border-timeline-filmstrip-border",
+          "relative overflow-hidden rounded-xs border border-timeline-filmstrip-border",
           className,
         )}
         style={{ height: stripHeightPx, width: "100%" }}
@@ -587,10 +593,7 @@ export function ClipFilmstrip({
   return (
     <div
       data-testid="clip-filmstrip-empty"
-      className={cn(
-        "w-full rounded-[2px] bg-timeline-filmstrip-empty",
-        className,
-      )}
+      className={cn("w-full rounded-xs bg-timeline-filmstrip-empty", className)}
       style={{ height: stripHeightPx }}
     />
   );

@@ -197,7 +197,7 @@ function LanguageSelector() {
       <div className="relative">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full flex items-center justify-between px-3 py-2 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg text-sm text-text-primary hover:border-(--clypra-violet,#7C6FFF) transition-colors"
+          className="w-full flex items-center justify-between px-3 py-2 bg-(--clypra-surface,#1E1E26) border focus:border-(--clypra-violet,#7C6FFF) rounded-lg text-sm text-text-primary hover:border-(--clypra-violet,#7C6FFF) transition-colors"
         >
           <span className="flex items-center gap-2">
             {selectedLanguage?.code === "auto" && (
@@ -214,18 +214,18 @@ function LanguageSelector() {
               className="fixed inset-0 z-40"
               onClick={() => setIsOpen(false)}
             />
-            <div className="absolute top-full left-0 right-0 mt-1 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg shadow-lg z-50 overflow-hidden">
-              <div className="p-2 border-b border-(--clypra-border,#2A2A38)">
+            <div className="absolute top-full left-0 right-0 mt-1 bg-(--clypra-surface,#1E1E26) border focus:border-(--clypra-violet,#7C6FFF) rounded-lg shadow-lg z-50 overflow-hidden">
+              <div className="p-2 border-b focus:border-(--clypra-violet,#7C6FFF)">
                 <input
                   type="text"
                   placeholder="Search languages..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-(--clypra-ink,#0E0E12) border border-(--clypra-border,#2A2A38) rounded text-sm text-text-primary placeholder:text-(--clypra-muted,#666677) focus:outline-none focus:border-(--clypra-violet,#7C6FFF)"
+                  className="w-full px-3 py-1.5 bg-(--clypra-ink,#0E0E12) border focus:border-(--clypra-violet,#7C6FFF) rounded text-sm placeholder:text-(--clypra-muted,#666677) focus:outline-none"
                   autoFocus
                 />
               </div>
-              <div className="max-h-[240px] overflow-y-auto scrollbar-thin">
+              <div className="max-h-60 overflow-y-auto scrollbar-thin">
                 {filteredLanguages.map((lang) => (
                   <button
                     key={lang.code}
@@ -417,7 +417,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
   return (
     <div
-      className={`bg-(--clypra-surface,#1E1E26) border rounded-xl p-4 transition-all ${isActive ? "border-(--clypra-violet,#7C6FFF) shadow-lg shadow-(--clypra-violet,#7C6FFF)/20" : "border-(--clypra-border,#2A2A38) hover:border-(--clypra-border,#2A2A38)"}`}
+      className={`bg-(--clypra-surface,#1E1E26) border rounded-xl p-4 transition-all ${isActive ? "border-(--clypra-violet,#7C6FFF) shadow-lg shadow-(--clypra-violet,#7C6FFF)/20" : "focus:border-(--clypra-violet,#7C6FFF) hover:focus:border-(--clypra-violet,#7C6FFF)"}`}
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
@@ -499,7 +499,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
           </button>
           <button
             onClick={handleDelete}
-            className="px-3 py-2 border border-(--clypra-border,#2A2A38) text-(--clypra-muted,#666677) rounded-lg hover:border-red-500/50 hover:text-red-400 transition-colors"
+            className="px-3 py-2 border focus:border-(--clypra-violet,#7C6FFF) text-(--clypra-muted,#666677) rounded-lg hover:border-red-500/50 hover:text-red-400 transition-colors"
             title="Delete model"
           >
             <Trash2 className="w-4 h-4" />
@@ -573,7 +573,7 @@ function ActiveModelIndicator() {
   }
 
   return (
-    <div className="flex items-center gap-3 p-4 bg-(--clypra-surface,#1E1E26) border border-(--clypra-border,#2A2A38) rounded-lg">
+    <div className="flex items-center gap-3 p-4 bg-(--clypra-surface,#1E1E26) border focus:border-(--clypra-violet,#7C6FFF) rounded-lg">
       <Check className="w-5 h-5 text-green-400" />
       <div className="flex-1">
         <p className="text-[13px] text-text-primary">

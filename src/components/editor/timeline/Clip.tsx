@@ -13,9 +13,10 @@ import { TimelineWaveform } from "./TimelineWaveform";
 import { VolumeWaveform } from "./VolumeWaveform";
 import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { useHistoryStore } from "@/store/historyStore";
+import { TimelineTrimCommand } from "@/core/history/commands/TimelineTrimCommand";
 
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
-
 
 const isExternalOrDataUrl = (value: string) =>
   value.startsWith("data:") ||
@@ -103,6 +104,8 @@ const ClipInner: React.FC<ClipProps> = ({
     trimIn: number;
     trimOut: number;
     isRipple: boolean;
+    beforeClips: ClipType[];
+    beforeGaps: import("@/types/gap").Gap[];
   } | null>(null);
   const [isRippleResize, setIsRippleResize] = useState(false);
   const clipRef = useRef<HTMLDivElement>(null);
@@ -292,6 +295,7 @@ const ClipInner: React.FC<ClipProps> = ({
 
     setIsResizing(side);
     setIsRippleResize(isRipple);
+    const timelineBeforeResize = useTimelineStore.getState();
     resizeStartRef.current = {
       x: e.clientX,
       startTime: clip.startTime,
@@ -299,6 +303,11 @@ const ClipInner: React.FC<ClipProps> = ({
       trimIn: clip.trimIn,
       trimOut: clip.trimOut,
       isRipple,
+      beforeClips: timelineBeforeResize.clips.map((candidate) => ({ ...candidate })),
+      beforeGaps: timelineBeforeResize.gaps.map((gap) => ({
+        ...gap,
+        metadata: gap.metadata ? { ...gap.metadata } : gap.metadata,
+      })),
     };
 
     // Let's prevent text selection during resize
@@ -547,9 +556,24 @@ const ClipInner: React.FC<ClipProps> = ({
       // Clear snap guides when resize ends
       clearSnapGuides();
 
-      // Sync gaps after resize completes
+      // Sync gaps before committing the completed gesture so the trim and its
+      // gap changes are restored atomically by one history entry.
       const store = useTimelineStore.getState();
       store.detectAndSyncGaps(trackId);
+      const afterResize = useTimelineStore.getState();
+      const clipsChanged =
+        JSON.stringify(initialResizeStart.beforeClips) !==
+        JSON.stringify(afterResize.clips);
+      if (clipsChanged) {
+        useHistoryStore.getState().execute(
+          new TimelineTrimCommand(
+            initialResizeStart.beforeClips,
+            afterResize.clips,
+            initialResizeStart.beforeGaps,
+            afterResize.gaps,
+          ),
+        );
+      }
     };
 
     const handlePointerUp = (e: PointerEvent) => {
@@ -589,6 +613,7 @@ const ClipInner: React.FC<ClipProps> = ({
     snapEnabled,
     setSnapGuides,
     clearSnapGuides,
+    useHistoryStore,
   ]);
 
   const formatDuration = (seconds: number) => {
@@ -688,7 +713,9 @@ const ClipInner: React.FC<ClipProps> = ({
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
-        opacity: isInvalidPosition ? trackVisualOpacity * 0.5 : trackVisualOpacity,
+        opacity: isInvalidPosition
+          ? trackVisualOpacity * 0.5
+          : trackVisualOpacity,
         pointerEvents: "auto",
         touchAction: "none",
         zIndex: isDragging ? 100 : 1,
@@ -720,7 +747,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-[2px] rounded-r bg-white/90 shadow-[0_0_4px_rgba(255,255,255,0.55)] transition-all group-hover/resize:w-[3px] group-hover/resize:bg-white ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300" : "bg-cyan-200") : ""}`}
+          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-0.5 rounded-r bg-white/90 shadow-[0_0_4px_rgba(255,255,255,0.55)] transition-all group-hover/resize:w-0.75 group-hover/resize:bg-white ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300" : "bg-cyan-200") : ""}`}
         />
       </div>
 
@@ -728,12 +755,23 @@ const ClipInner: React.FC<ClipProps> = ({
       {isCompound ? (
         <div className="relative flex h-full w-full items-center gap-2 px-2 select-none pointer-events-none">
           {clip.compoundPreview ? (
-            <img src={resolveMediaSrc(clip.compoundPreview)} alt="" className="h-full w-16 shrink-0 object-cover opacity-80" draggable={false} />
+            <img
+              src={resolveMediaSrc(clip.compoundPreview)}
+              alt=""
+              className="h-full w-16 shrink-0 object-cover opacity-80"
+              draggable={false}
+            />
           ) : (
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-black/20"><Layers className="h-4 w-4" /></div>
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-black/20">
+              <Layers className="h-4 w-4" />
+            </div>
           )}
-          <div className="min-w-0 truncate text-[11px] font-semibold">{clip.name || "Compound Clip"}</div>
-          <div className="shrink-0 rounded bg-black/20 px-1.5 py-0.5 text-[10px]">{clip.compoundChildren?.length ?? 0}</div>
+          <div className="min-w-0 truncate text-[11px] font-semibold">
+            {clip.name || "Compound Clip"}
+          </div>
+          <div className="shrink-0 rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+            {clip.compoundChildren?.length ?? 0}
+          </div>
         </div>
       ) : clip.kind === "text" ? (
         <div className="relative flex h-full w-full items-center px-3">
@@ -812,7 +850,8 @@ const ClipInner: React.FC<ClipProps> = ({
               {formatDuration(clip.duration)}
             </div>
           </div>
-          {clip.kind !== "audio" && mediaAsset &&
+          {clip.kind !== "audio" &&
+          mediaAsset &&
           (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
               <div className="min-h-0 flex-1 overflow-hidden bg-black/10">
@@ -898,7 +937,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-[2px] rounded-l bg-white/90 shadow-[0_0_4px_rgba(255,255,255,0.55)] transition-all group-hover/resize:w-[3px] group-hover/resize:bg-white ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300" : "bg-cyan-200") : ""}`}
+          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-0.5 rounded-l bg-white/90 shadow-[0_0_4px_rgba(255,255,255,0.55)] transition-all group-hover/resize:w-0.75 group-hover/resize:bg-white ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300" : "bg-cyan-200") : ""}`}
         />
       </div>
     </div>
