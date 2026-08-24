@@ -47,7 +47,10 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
   const gaps = useTimelineStore((state) => state.gaps ?? []);
   const transitions = useTimelineStore((state) => state.transitions ?? []);
   const allClips = useTimelineStore((state) => state.clips);
-  const allTracks = useTimelineStore((state) => state.tracks);
+  // Standalone track renders (including drag/drop previews and tests) may not
+  // provide the complete timeline store shape. The current track is enough
+  // for the visual-role fallback in that case.
+  const allTracks = useTimelineStore((state) => state.tracks ?? []);
   const mainVideoTrackId = useTimelineStore((state) => state.mainVideoTrackId);
   const scrollLeft = useTimelineStore((state) => state.scrollLeft);
   const frameRate = useProjectStore((state) => state.project?.frameRate ?? 30);
