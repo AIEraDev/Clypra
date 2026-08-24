@@ -14,6 +14,7 @@ pub mod models;
 pub mod native_audio;
 pub mod native_core;
 pub mod preview_golden;
+pub mod sync_metrics;
 pub mod thumbnail_engine;
 pub mod wgpu_compositor;
 
@@ -91,6 +92,7 @@ pub fn run() {
                     let _ = init_thumbnail_engine(dir).await;
                 }
             });
+            sync_metrics::ensure_metrics_flush_loop();
 
             // Initialize Whisper download state
             app.manage(whisper::init_download_state());
@@ -248,6 +250,7 @@ pub fn run() {
             get_render_artifacts_batch,
             check_coarse_baseline_cache,
             get_decode_metrics_snapshot,
+            get_sync_metrics_snapshot,
             get_disk_cache_stats,
             clear_disk_cache,
             set_cache_size_limit,
