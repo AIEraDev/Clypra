@@ -342,7 +342,25 @@ impl VideoDecoder {
         }
     }
 
+    /// Open a general-purpose CPU decoder. Background and legacy callers use
+    /// this safe default because they need CPU-readable frames.
     pub fn open(path: &str) -> Result<Self, String> {
+        Self::open_internal(path, false)
+    }
+
+    /// Open a background thumbnail decoder. Filmstrip extraction needs a
+    /// stable CPU frame for batch scaling; some VideoToolbox frame surfaces do
+    /// not support the transfer formats required by that path (EINVAL/-22).
+    pub fn open_software(path: &str) -> Result<Self, String> {
+        Self::open_internal(path, false)
+    }
+
+    /// Open an interactive decoder with platform hardware acceleration.
+    pub fn open_hardware(path: &str) -> Result<Self, String> {
+        Self::open_internal(path, true)
+    }
+
+    fn open_internal(path: &str, prefer_hardware: bool) -> Result<Self, String> {
         ffmpeg::init().map_err(|e| e.to_string())?;
         ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Error);
 
@@ -438,7 +456,11 @@ impl VideoDecoder {
         let codec_ctx = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
             .map_err(|e| e.to_string())?;
 
-        let (decoder, width, height) = Self::open_with_hw(codec_ctx)?;
+        let (decoder, width, height) = if prefer_hardware {
+            Self::open_with_hw(codec_ctx)?
+        } else {
+            Self::open_software_codec(codec_ctx)?
+        };
 
         let stream_metadata = VideoStreamMetadata {
             width,
@@ -576,15 +598,30 @@ impl VideoDecoder {
         ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NONE
     }
 
+    fn open_software_codec(
+        ctx: ffmpeg::codec::context::Context,
+    ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
+        let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
+        let w = decoder.width();
+        let h = decoder.height();
+        Ok((decoder, w, h))
+    }
+
     fn open_with_hw(
         mut ctx: ffmpeg::codec::context::Context,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
         #[cfg(target_os = "macos")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+        ];
         #[cfg(target_os = "windows")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
+        ];
         #[cfg(target_os = "linux")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
+            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
+        ];
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
 
@@ -1634,6 +1671,7 @@ async fn get_or_create_decoder_in_pool(
     pool: &DashMap<String, Arc<DecoderEntry>>,
     path: &str,
     max_pool_size: usize,
+    prefer_hardware: bool,
 ) -> Result<Arc<Mutex<VideoDecoder>>, String> {
     // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
     if let Some(entry) = pool.get(path) {
@@ -1659,8 +1697,12 @@ async fn get_or_create_decoder_in_pool(
     }
 
     // 3. Create new decoder — performed outside any DashMap lock
-    let decoder =
-        VideoDecoder::open(path).map_err(|e| format!("Failed to open {}: {}", path, e))?;
+    let decoder = if prefer_hardware {
+        VideoDecoder::open_hardware(path)
+    } else {
+        VideoDecoder::open_software(path)
+    }
+    .map_err(|e| format!("Failed to open {}: {}", path, e))?;
 
     let arc_decoder = Arc::new(Mutex::new(decoder));
     let entry = Arc::new(DecoderEntry {
@@ -1674,14 +1716,26 @@ async fn get_or_create_decoder_in_pool(
 
 /// Thumbnail/Filmstrip background decoder pool (used for timeline thumbnail caching)
 pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
-    get_or_create_decoder_in_pool(&THUMBNAIL_DECODER_POOL, path, MAX_THUMBNAIL_DECODER_POOL_SIZE).await
+    get_or_create_decoder_in_pool(
+        &THUMBNAIL_DECODER_POOL,
+        path,
+        MAX_THUMBNAIL_DECODER_POOL_SIZE,
+        false,
+    )
+    .await
 }
 
 /// Dedicated Interactive Preview & Playback decoder pool.
 /// Completely decoupled from background filmstrip decoding so playback/playhead scrubbing
 /// is NEVER blocked by background batch generation locks.
 pub async fn get_preview_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
-    get_or_create_decoder_in_pool(&PREVIEW_DECODER_POOL, path, MAX_PREVIEW_DECODER_POOL_SIZE).await
+    get_or_create_decoder_in_pool(
+        &PREVIEW_DECODER_POOL,
+        path,
+        MAX_PREVIEW_DECODER_POOL_SIZE,
+        true,
+    )
+    .await
 }
 
 /// Call this when a clip is removed from the project to free memory
