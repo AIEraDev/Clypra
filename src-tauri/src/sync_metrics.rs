@@ -95,6 +95,10 @@ impl FramePacingAccumulator {
         *last = Some(now);
     }
 
+    pub fn reset_last_frame(&self) {
+        *self.last_frame_instant.lock() = None;
+    }
+
     fn take_and_reset(&self) -> FramePacingSnapshot {
         let mut intervals = self.intervals.lock();
         let snapshot = pacing_snapshot(&intervals);
@@ -202,13 +206,46 @@ impl SyncMetricsRegistry {
     }
 
     pub fn record_frame_presented(&self, presented_ticks: i64, target_interval_micros: i64) {
-        self.frame_pacing.record_frame_presented(target_interval_micros);
+        self.record_frame_presented_with_pacing(presented_ticks, target_interval_micros, true);
+    }
+
+    pub fn record_frame_presented_with_pacing(
+        &self,
+        presented_ticks: i64,
+        target_interval_micros: i64,
+        measure_pacing: bool,
+    ) {
+        self.record_frame_presented_with_options(
+            presented_ticks,
+            target_interval_micros,
+            measure_pacing,
+            true,
+        );
+    }
+
+    pub fn record_frame_presented_with_options(
+        &self,
+        presented_ticks: i64,
+        target_interval_micros: i64,
+        measure_pacing: bool,
+        resolve_seek: bool,
+    ) {
+        if measure_pacing {
+            self.frame_pacing.record_frame_presented(target_interval_micros);
+        } else {
+            // Do not bridge a paused/seek frame to the next playback frame;
+            // that would turn a normal pause into seconds of fake jank.
+            self.frame_pacing.reset_last_frame();
+        }
         trace_event(
             "frame_presented",
             format_args!(
-                "presented_ticks={presented_ticks} target_interval_micros={target_interval_micros}"
+                "presented_ticks={presented_ticks} target_interval_micros={target_interval_micros} measure_pacing={measure_pacing} resolve_seek={resolve_seek}"
             ),
         );
+        if !resolve_seek {
+            return;
+        }
         let Some((requested_ticks, requested_at)) = self.pending_seeks.lock().pop_front() else {
             return;
         };
@@ -406,6 +443,29 @@ mod tests {
         assert_eq!(snapshot.n, 1);
         assert_eq!(snapshot.jank_events, 1);
         assert_eq!(accumulator.take_and_reset().n, 0);
+    }
+
+    #[test]
+    fn non_playback_frames_do_not_bridge_pacing_across_a_pause() {
+        let registry = SyncMetricsRegistry::default();
+        registry.record_frame_presented_with_pacing(0, 33_333, true);
+        registry.record_frame_presented_with_pacing(33_333, 33_333, false);
+        registry.record_frame_presented_with_pacing(66_666, 33_333, true);
+
+        assert_eq!(registry.frame_pacing.take_and_reset().n, 0);
+    }
+
+    #[test]
+    fn lookahead_frames_do_not_resolve_pending_seek() {
+        let registry = SyncMetricsRegistry::default();
+        registry.record_seek_requested(100_000);
+        registry.record_frame_presented_with_options(200_000, 33_333, true, false);
+        assert_eq!(registry.seek_events.lock().len(), 0);
+
+        registry.record_frame_presented_with_options(100_000, 33_333, true, true);
+        let snapshot = registry.take_and_reset();
+        assert_eq!(snapshot.seeks.n, 1);
+        assert_eq!(snapshot.seeks.correct, 1);
     }
 
     #[test]
