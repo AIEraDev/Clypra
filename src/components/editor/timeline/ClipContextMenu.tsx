@@ -7,6 +7,7 @@ export interface ClipContextMenuProps {
   clickedTrackId?: string | null;
   position: { x: number; y: number };
   onClose: () => void;
+  onRename?: (clipId: string) => void;
 }
 
 export const ClipContextMenu: React.FC<ClipContextMenuProps> = ({
@@ -14,6 +15,7 @@ export const ClipContextMenu: React.FC<ClipContextMenuProps> = ({
   clickedTrackId,
   position,
   onClose,
+  onRename,
 }) => {
   const { groupedCommands, executeCommand } = useClipCommands(clickedClipId, clickedTrackId);
 
@@ -26,7 +28,13 @@ export const ClipContextMenu: React.FC<ClipContextMenuProps> = ({
       danger: resolved.command.danger,
       disabled: !resolved.isEnabled,
       disabledReason: resolved.disabledReason,
-      onClick: () => executeCommand(resolved.command.id),
+      onClick: () => {
+        if (resolved.command.id === "clip.rename" && clickedClipId && onRename) {
+          onRename(clickedClipId);
+        } else {
+          executeCommand(resolved.command.id);
+        }
+      },
     })),
   }));
 
