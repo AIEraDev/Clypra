@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { registerActiveEpoch, unregisterActiveEpoch, isEpochStillValid, requestRenderArtifacts, requestBatchArtifacts, requestProgressiveTiers, SAB_SUPPORTED, type BackendRenderArtifact, type TransportArtifact } from "../transport";
+import { registerActiveEpoch, unregisterActiveEpoch, isEpochStillValid, requestRenderArtifacts, requestBatchArtifacts, requestProgressiveTiers, requestFilmstripArtifacts, resetFilmstripBatchSchedulerForTests, SAB_SUPPORTED, type BackendRenderArtifact, type TransportArtifact } from "../transport";
 import { SpatialTier } from "../types";
 import type { RenderEpochId } from "../types";
 
@@ -375,5 +375,90 @@ describe("requestProgressiveTiers", () => {
     // Only 1 invoke call (for L0 batch), not 2
     expect(mockInvoke).toHaveBeenCalledOnce();
     expect(onComplete).toHaveBeenCalledOnce();
+  });
+});
+
+describe("requestFilmstripArtifacts coalescing", () => {
+  beforeEach(() => {
+    resetTransportMocks();
+    resetFilmstripBatchSchedulerForTests();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+  });
+
+  afterEach(() => {
+    unregisterActiveEpoch("clip-coal");
+    resetFilmstripBatchSchedulerForTests();
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  it("merges overlapping in-flight timestamps into a single native batch", async () => {
+    registerActiveEpoch("clip-coal", eid("epoch-coal"));
+    let resolveFirst: (() => void) | undefined;
+    mockInvoke.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+
+    requestFilmstripArtifacts({
+      videoPath: "/storm.mp4",
+      timestampsMs: [41000, 42000, 43000],
+      spatialTier: SpatialTier.L2,
+      epochId: eid("epoch-coal"),
+      clipId: "clip-coal",
+      onArtifact: vi.fn(),
+    });
+    requestFilmstripArtifacts({
+      videoPath: "/storm.mp4",
+      timestampsMs: [41000, 42000],
+      spatialTier: SpatialTier.L2,
+      epochId: eid("epoch-coal"),
+      clipId: "clip-coal",
+      onArtifact: vi.fn(),
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    expect(mockInvoke.mock.calls[0][0]).toBe("get_render_artifacts_batch");
+
+    resolveFirst?.();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("queues a follow-up batch for timestamps not covered by the in-flight invoke", async () => {
+    registerActiveEpoch("clip-coal", eid("epoch-coal"));
+    const resolvers: Array<() => void> = [];
+    mockInvoke.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+
+    requestFilmstripArtifacts({
+      videoPath: "/storm.mp4",
+      timestampsMs: [41000],
+      spatialTier: SpatialTier.L2,
+      epochId: eid("epoch-coal"),
+      clipId: "clip-coal",
+      onArtifact: vi.fn(),
+    });
+    requestFilmstripArtifacts({
+      videoPath: "/storm.mp4",
+      timestampsMs: [50000],
+      spatialTier: SpatialTier.L2,
+      epochId: eid("epoch-coal"),
+      clipId: "clip-coal",
+      onArtifact: vi.fn(),
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+
+    resolvers[0]?.();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockInvoke).toHaveBeenCalledTimes(2);
   });
 });
