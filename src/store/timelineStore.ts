@@ -417,6 +417,8 @@ export const useTimelineStore = create<TimelineStore>(
     // HIDDEN-006 fix: toggleTrackMute and toggleTrackVisibility now increment epoch
     // so the evaluation cache is invalidated and the render pipeline sees the change.
     toggleTrackMute: (trackId) => {
+      if (get().tracks.find((track) => track.id === trackId)?.locked) return;
+
       set((state) => {
         const next: Partial<TimelineStore> = {
           tracks: state.tracks.map((track) => (track.id === trackId ? { ...track, muted: !track.muted } : track)),
