@@ -70,10 +70,23 @@ describe("EditingActions split interactions", () => {
     const rightClip = clips.find((clip) => clip.id === result.rightClipId);
 
     expect(result.success).toBe(true);
+    expect(result.clipName).toBe("Untitled clip");
     expect(result.rightClipId).toBeDefined();
     expect(rightClip).toBeDefined();
     expect(rightClip?.startTime).toBeCloseTo(snappedTime, 6);
     expect(useUIStore.getState().selectedClipIds).toEqual([result.rightClipId]);
+  });
+
+  it("renames a clip through the undoable command path", () => {
+    useTimelineStore.setState({ clips: [makeClip({ name: "Antler.mp4" })] });
+
+    const result = EditingActions.renameClip("clip-1", "A-roll");
+
+    expect(result).toEqual({ success: true, name: "A-roll" });
+    expect(useTimelineStore.getState().clips[0].name).toBe("A-roll");
+
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().clips[0].name).toBe("Antler.mp4");
   });
 
   it("deletes only the selected right split after splitting", () => {
