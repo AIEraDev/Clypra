@@ -7,6 +7,7 @@ import {
   useTransportControls,
 } from "@/hooks/usePlaybackClock";
 import type { Clip as ClipType, MediaAsset } from "@/types";
+import type { TrackVisualRole } from "@/lib/timeline/trackTypeConfig";
 import { ClipFilmstrip } from "./ClipFilmstrip";
 import { TimelineWaveform } from "./TimelineWaveform";
 import { VolumeWaveform } from "./VolumeWaveform";
@@ -37,6 +38,8 @@ interface ClipProps {
   mediaAsset?: MediaAsset;
   pixelsPerSecond: number;
   trackHeightPx?: number;
+  trackVisualRole?: TrackVisualRole;
+  trackVisualOpacity?: number;
   selected?: boolean;
   locked?: boolean;
   onDragStart?: (
@@ -68,6 +71,8 @@ const ClipInner: React.FC<ClipProps> = ({
   mediaAsset,
   pixelsPerSecond,
   trackHeightPx = 80,
+  trackVisualRole,
+  trackVisualOpacity = 1,
   selected,
   locked = false,
   onDragStart,
@@ -89,7 +94,6 @@ const ClipInner: React.FC<ClipProps> = ({
   const { pause } = useTransportControls();
 
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
-  const [isHovered, setIsHovered] = useState(false);
   const resizeStartRef = useRef<{
     x: number;
     startTime: number;
@@ -130,7 +134,23 @@ const ClipInner: React.FC<ClipProps> = ({
   const isDragging = dragState?.isDragging || false;
   const isInvalidPosition = dragState?.isInvalidPosition || false;
   const displayLeft = isDragging ? left + (dragState?.offsetX || 0) : left;
-  const showResizeHandles = Boolean(selected || isResizing || isHovered);
+  const trackToneClass =
+    trackVisualRole === "a-roll"
+      ? "border-accent/70"
+      : trackVisualRole === "b-roll"
+        ? "border-accent/30 saturate-75"
+        : trackVisualRole === "audio"
+          ? "border-white/15 saturate-50"
+          : trackVisualRole
+            ? "border-violet-400/25 saturate-75"
+            : "";
+  // Trim handles are a selection affordance, not a hover affordance. Keep
+  // both handles on the exact same visibility rule so an unselected clip has
+  // no visible or interactive trim edge.
+  const showResizeHandles = selected;
+  const resizeHandleVisibility = showResizeHandles
+    ? "opacity-100 pointer-events-auto"
+    : "pointer-events-none opacity-0";
 
   // Handle right-click context menu
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -645,42 +665,6 @@ const ClipInner: React.FC<ClipProps> = ({
     return { backgroundColor: "var(--color-accent)" }; // Fallback
   };
 
-  // Returns a darkened version of the clip's background for trim handle knobs.
-  // Hex/rgba colors are darkened directly; CSS variables are wrapped in
-  // color-mix() so the handle always reads as a darker shade of the clip body.
-  const getHandleBackgroundStyle = (): React.CSSProperties => {
-    if (
-      isClipFilter ||
-      isClipVideoEffect ||
-      isClipBodyEffect ||
-      isClipAnimatedOverlay
-    )
-      return { backgroundColor: "rgba(80, 30, 180, 0.85)" };
-    if (isSticker) return { backgroundColor: "#92500a" };
-    if (isClipText) {
-      if (isCaption) return { backgroundColor: "#5b1fa8" };
-      return { backgroundColor: "#9a3610" };
-    }
-    if (isClipAudio)
-      return {
-        backgroundColor:
-          "color-mix(in srgb, var(--color-timeline-clip-audio) 60%, black 40%)",
-      };
-    if (isClipVideo)
-      return {
-        backgroundColor:
-          "color-mix(in srgb, var(--color-accent) 55%, black 45%)",
-      };
-    if (isClipImage)
-      return {
-        backgroundColor:
-          "color-mix(in srgb, var(--color-timeline-clip-video) 55%, black 45%)",
-      };
-    return {
-      backgroundColor: "color-mix(in srgb, var(--color-accent) 55%, black 45%)",
-    };
-  };
-
   return (
     <div
       ref={clipRef}
@@ -693,14 +677,12 @@ const ClipInner: React.FC<ClipProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      onPointerEnter={() => setIsHovered(true)}
-      onPointerLeave={() => setIsHovered(false)}
       onContextMenu={handleContextMenu}
-      className={`absolute rounded-sm h-full overflow-hidden border ${selected ? "border-white" : ""} ${isResizing ? (isRippleResize ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
+      className={`absolute rounded-sm h-full overflow-hidden border ${trackToneClass} ${selected ? "border-white" : "border-transparent"} ${isResizing ? (isRippleResize ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
-        opacity: isInvalidPosition ? 0.5 : 1,
+        opacity: isInvalidPosition ? trackVisualOpacity * 0.5 : trackVisualOpacity,
         pointerEvents: "auto",
         touchAction: "none",
         zIndex: isDragging ? 100 : 1,
@@ -719,7 +701,7 @@ const ClipInner: React.FC<ClipProps> = ({
       <div
         data-testid={`clip-${clip.id}-resize-left`}
         data-clip-resize-handle="true"
-        className={`group/resize absolute left-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${showResizeHandles ? "opacity-100 pointer-events-auto" : "pointer-events-none"} ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent"}`}
+        className={`group/resize absolute left-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
@@ -732,13 +714,8 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className="pointer-events-none absolute inset-y-0 left-0 flex h-full w-2 flex-col items-center justify-center gap-1 rounded-r border border-l-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
-          style={getHandleBackgroundStyle()}
-        >
-          <span className="h-px w-1 bg-white/70" />
-          <span className="h-px w-1 bg-white/70" />
-          <span className="h-px w-1 bg-white/70" />
-        </div>
+          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-[2px] rounded-r bg-white/90 shadow-[0_0_4px_rgba(255,255,255,0.55)] transition-all group-hover/resize:w-[3px] group-hover/resize:bg-white ${isResizing === "left" ? (isRippleResize ? "bg-yellow-300" : "bg-cyan-200") : ""}`}
+        />
       </div>
 
       {/* Clip content */}
@@ -891,7 +868,7 @@ const ClipInner: React.FC<ClipProps> = ({
       <div
         data-testid={`clip-${clip.id}-resize-right`}
         data-clip-resize-handle="true"
-        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${showResizeHandles ? "opacity-100 pointer-events-auto" : "pointer-events-none opacity-0"} ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent"}`}
+        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300/35" : "bg-cyan-300/35") : "bg-transparent"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
@@ -905,13 +882,8 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className="pointer-events-none absolute inset-y-0 right-0 flex h-full w-2 flex-col items-center justify-center gap-1 rounded-l border border-r-0 border-white/20 py-1 shadow-[0_0_6px_rgba(0,0,0,0.35)] transition-colors group-hover/resize:border-white/40"
-          style={getHandleBackgroundStyle()}
-        >
-          <span className="h-px w-1 bg-white/70" />
-          <span className="h-px w-1 bg-white/70" />
-          <span className="h-px w-1 bg-white/70" />
-        </div>
+          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-[2px] rounded-l bg-white/90 shadow-[0_0_4px_rgba(255,255,255,0.55)] transition-all group-hover/resize:w-[3px] group-hover/resize:bg-white ${isResizing === "right" ? (isRippleResize ? "bg-yellow-300" : "bg-cyan-200") : ""}`}
+        />
       </div>
     </div>
   );
