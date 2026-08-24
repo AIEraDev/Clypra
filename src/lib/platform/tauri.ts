@@ -1,4 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DensityLevel, ThumbnailTile } from "../../types";
 import { toNativePath } from "./pathConversion";
@@ -15,9 +16,90 @@ import type {
   NativeSurfaceProbe,
   NativeSurfacePresentation,
   NativeRasterLayerSnapshot,
+  NativeSyncMetricsSnapshot,
 } from "./nativeCore";
 
 export const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export interface NativeMediaStream {
+  index: number;
+  type: "audio" | "video" | "data" | "subtitle" | "unknown";
+  codec: string;
+  codecLongName?: string;
+  duration?: number;
+  timeBaseNum?: number;
+  timeBaseDen?: number;
+  sampleRate?: number;
+  channels?: number;
+  channelLayout?: string;
+  bitrate?: number;
+  language?: string;
+  label?: string;
+}
+
+export interface AudioExtractionRequest {
+  sourceAssetId: string;
+  sourcePath: string;
+  sourceStreamIndex: number;
+  mode?: "auto" | "streamCopy" | "transcode";
+  outputCodec?: string;
+  outputContainer?: string;
+}
+
+export interface MediaJobUpdate {
+  jobId: string;
+  operation: string;
+  state: "queued" | "running" | "completed" | "failed" | "cancelled";
+  progress?: number;
+  resultingAssetId?: string;
+  errorSummary?: string;
+}
+
+export interface MediaJobResult {
+  jobId: string;
+  state: string;
+  asset?: {
+    id: string;
+    name: string;
+    path: string;
+    mediaType: "audio";
+    duration: number;
+    size: number;
+    streams: NativeMediaStream[];
+    sourceAssetId: string;
+    sourceStreamIndex: number;
+    extractionMethod: "streamCopy" | "transcode";
+    operationFingerprint: string;
+  };
+  errorSummary?: string;
+}
+
+export async function probeMediaStreams(path: string): Promise<NativeMediaStream[]> {
+  if (!isTauriRuntime()) throw new Error("Media stream probing requires the Tauri runtime");
+  return invoke<NativeMediaStream[]>("probe_media_streams", { path: toNativePath(path) });
+}
+
+export async function startAudioExtraction(request: AudioExtractionRequest): Promise<string> {
+  if (!isTauriRuntime()) throw new Error("Audio extraction requires the Tauri runtime");
+  return invoke<string>("start_audio_extraction", {
+    request: { ...request, sourcePath: toNativePath(request.sourcePath) },
+  });
+}
+
+export async function cancelMediaJob(jobId: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("cancel_media_job", { jobId });
+}
+
+export async function getMediaJobResult(jobId: string): Promise<MediaJobResult | null> {
+  if (!isTauriRuntime()) return null;
+  return invoke<MediaJobResult | null>("get_media_job_result", { jobId });
+}
+
+export function listenForMediaJobUpdates(handler: (update: MediaJobUpdate) => void): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return Promise.resolve(() => undefined);
+  return listen<MediaJobUpdate>("media_job_update", (event) => handler(event.payload));
+}
 
 /**
  * Tauri `invoke` / FFmpeg need a native filesystem path.
@@ -244,6 +326,12 @@ export async function queueNativeFrame(request: NativeFrameRequest): Promise<voi
   await invoke("queue_native_frame", { request: nativeRequest });
 }
 
+/** Invalidate native preview work from older seek generations. */
+export async function cancelNativePreviewRequests(generation: number): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("cancel_native_preview_requests", { generation });
+}
+
 /** Upload immutable raster pixels once so frame requests can reference them by id. */
 export async function registerNativeRasterAsset(
   asset: NativeRasterLayerSnapshot & { rgba: number[] },
@@ -266,6 +354,13 @@ export async function getNativeFrameServiceStats(): Promise<NativeFrameServiceSt
     throw new Error("getNativeFrameServiceStats requires the Tauri runtime");
   }
   return invoke<NativeFrameServiceStats>("get_native_frame_service_stats");
+}
+
+export async function getNativeSyncMetricsSnapshot(): Promise<NativeSyncMetricsSnapshot> {
+  if (!isTauriRuntime()) {
+    throw new Error("getNativeSyncMetricsSnapshot requires the Tauri runtime");
+  }
+  return invoke<NativeSyncMetricsSnapshot>("get_sync_metrics_snapshot");
 }
 
 export async function getNativeGpuStatus(): Promise<NativeGpuRuntimeStatus> {

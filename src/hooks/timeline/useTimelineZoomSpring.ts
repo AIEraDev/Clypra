@@ -50,6 +50,7 @@ export class TimelineZoomSpring {
   private mode: SpringMode = "idle";
   private inertiaVelocity = 0;
   private isApplyingFrame = false;
+  private animationGeneration = 0;
   private unsubscribeStore: () => void;
 
   constructor(container: HTMLDivElement) {
@@ -62,10 +63,7 @@ export class TimelineZoomSpring {
       if (state.pixelsPerSecond !== prevState.pixelsPerSecond) {
         // External zoom change (e.g. toolbar button, slider, keyboard shortcut)
         if (this.mode !== "idle") {
-          if (this.rafId !== null) {
-            cancelAnimationFrame(this.rafId);
-            this.rafId = null;
-          }
+          this.cancelScheduledFrame();
           this.mode = "idle";
         }
         this.currentPps = state.pixelsPerSecond;
@@ -114,17 +112,28 @@ export class TimelineZoomSpring {
   }
 
   dispose(): void {
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
+    this.cancelScheduledFrame();
     this.mode = "idle";
     this.unsubscribeStore();
   }
 
   private scheduleIfNeeded(): void {
     if (this.rafId !== null) return; // already ticking
-    this.rafId = requestAnimationFrame(() => this.tick());
+    const generation = this.animationGeneration;
+    this.rafId = requestAnimationFrame(() => {
+      // A callback can already be queued when cancelAnimationFrame runs.
+      // Ignore it if a newer animation or disposal invalidated this generation.
+      if (generation !== this.animationGeneration) return;
+      this.tick();
+    });
+  }
+
+  private cancelScheduledFrame(): void {
+    this.animationGeneration += 1;
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
   }
 
   private tick(): void {
@@ -169,7 +178,10 @@ export class TimelineZoomSpring {
 
     this.isApplyingFrame = true;
     try {
-      useTimelineStore.getState().setPixelsPerSecond(this.currentPps);
+      const state = useTimelineStore.getState();
+      if (!Object.is(state.pixelsPerSecond, this.currentPps)) {
+        state.setPixelsPerSecond(this.currentPps);
+      }
 
       const nextScrollLeft = getAnchoredZoomScrollLeft({
         anchorTime,
@@ -180,8 +192,12 @@ export class TimelineZoomSpring {
         hasClips,
       });
 
-      this.container.scrollLeft = nextScrollLeft;
-      useTimelineStore.getState().setScrollLeft(nextScrollLeft);
+      if (Math.abs(this.container.scrollLeft - nextScrollLeft) > 0.01) {
+        this.container.scrollLeft = nextScrollLeft;
+      }
+      if (Math.abs(useTimelineStore.getState().scrollLeft - nextScrollLeft) > 0.01) {
+        useTimelineStore.getState().setScrollLeft(nextScrollLeft);
+      }
     } finally {
       this.isApplyingFrame = false;
     }

@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-08-25
+
+### ✂️ Timeline Editing
+
+- **Ripple-left trim no longer creates a gap** — left-edge ripple trim now keeps the clip anchored at its start time; only `trimIn` and duration are updated, and downstream clips shift left cleanly.
+- **Atomic undo/redo for trim gestures** — every trim (including ripple-trim) is committed as one `TimelineTrimCommand` that restores clips, gaps, and downstream positions together.
+- **Atomic undo/redo for clip drag** — moving or dropping clips — including onto a new track — creates a single `TimelineDragCommand` entry; undo restores tracks, clips, gaps, and ordering exactly.
+- **New-track drops land at the pointer position** — clips no longer jump to `startTime = 0`; snapping remains active within 8 px of valid targets.
+- **Departure-gap closure** — when a clip moves to a new track only the gap it leaves behind is closed; earlier gaps on the source track are preserved.
+- **Split selects only the right clip** — after splitting, only the continuation clip is selected so Delete removes just the new half.
+- **Atomic split-all at playhead** — splitting all clips at once is wrapped in a single history transaction for a one-step undo.
+- **Swap clips is undoable** — `SwapClipsCommand` validates locks, same-track moves, and collisions before committing and updates transition references.
+- **Duplicate clips is undoable** — `DuplicateClipsCommand` regenerates IDs recursively through compound clip trees.
+
+### 🗂️ Clip Organisation
+
+- **Compound Clips (Group Clips)** — select multiple clips and press **Alt+G** (or use the context menu) to collapse them into one movable unit. Ungroup restores the originals. Compound clips are single-track only.
+- **Clip rename** — right-click any clip and choose **Rename Clip**, or use the context menu's rename item; the change is fully undoable.
+- **A-roll / B-roll visual hierarchy** — video tracks are now classified as A-roll (main, accent border) or B-roll (secondary, muted saturation) using `TrackVisualSpec`. Each track label shows a role icon.
+- **Media type labeling** — audio tracks display a waveform icon; text, sticker, effect, and filter tracks each have their own icon in the track label.
+- **Resize handles are selection-only** — trim handles are hidden on unselected clips, removing accidental resize interactions.
+
+### 🔊 Audio
+
+- **Detach Audio** — right-click a video clip and choose **Detach Audio** to split the embedded audio into an independent audio clip on its own track. The operation is undoable.
+- **Audio Extraction pipeline** — backend Tauri commands (`probe_media_streams`, `start_audio_extraction`, `cancel_media_job`, `get_media_job_result`) and a `mediaJobStore` lay the groundwork for background format-aware audio extraction.
+- **Audio decoder seek fix** — the native audio seek now uses the global microseconds time-base (`AV_TIME_BASE`) instead of the stream's sample-rate time-base, preventing mis-seeks on clips with non-zero `trimIn`.
+- **Preroll trimming** — decoded PCM preroll from keyframe-aligned seeks is trimmed before mixing so the audio starts at the exact requested source position.
+- **Detached audio is invisible to the compositor** — clips with `kind === "audio"` are excluded from the visual evaluator and `PreviewMediaPool` video-element allocation.
+
+### ⚡ Performance & Playback
+
+- **Adaptive scrub quality** — playhead drag velocity is tracked in real time; fast scrubs request `quarter` or `half` quality and settle on a full-quality frame on release.
+- **Seek generation tracking** — `SeekController` assigns a monotonically increasing generation to every seek so stale decode results can never overwrite a newer frame.
+- **Native batch cancel** — `cancel_native_preview_requests` stops FFmpeg work at packet and frame boundaries when a newer seek arrives, with per-request `AbortController` cancellation in the JS scheduler.
+- **Hardware acceleration re-enabled** — VideoToolbox (macOS), D3D11VA (Windows), and VAAPI (Linux) are active again with a `get_format` callback for per-frame pixel format negotiation.
+- **Native playback queue doubled** — queue capacity increased from 3 to 6 frames for smoother continuous playback.
+- **Filmstrip batch decode** — missing tiles are collected across an entire request, sorted chronologically, and decoded in chunks of 12 with a single GOP seek per chunk.
+- **L0 tile pinning** — coarse filmstrip tiles (L0) are protected from LRU eviction; dense L1–L3 tiles absorb all eviction pressure first.
+- **Per-file decode mutex** — concurrent zoom/scroll batch requests queue behind a per-file async mutex so the decoder is never stampeded.
+- **RAF-coalesced zoom slider** — toolbar zoom drag now coalesces pointer move events to one update per animation frame.
+- **Fit-sequence clamping fix** — "Fit Sequence" no longer clamps the zoom floor away; the overview level is preserved.
+
+### 📊 Metrics & Telemetry
+
+- **A/V sync metrics** — frontend (`syncMetrics.ts`) and Rust (`sync_metrics.rs`) modules track clock/poll drift, frame pacing jank, dropped frames, and end-to-end seek latency.
+- **Filmstrip metrics HUD** — press **Cmd+Shift+M** to open the live debug overlay showing per-tier decode/convert timing (SRC, L0–L3), cache hit rates, A/V drift p95, UI playhead drift, and native seek correctness.
+- **5-second aggregate logs** — both the Rust and JS metric collectors emit structured summaries every 5 seconds for profiling without log flood.
+- **Per-stage timing** — batch decode now records separate seek, decode, convert, and serialize durations per tier.
+
+### 🛠️ Editor & UX
+
+- **Right-click context menus** — clip and empty-space context menus are available throughout the timeline with viewport-aware flip placement, grouped items, disabled-state hints, and keyboard shortcut labels.
+- **Command registry** — all timeline editing actions (split, trim, delete, duplicate, swap, group, rename, close gaps) are routed through a shared `clipCommands`/`timelineCommands` registry for consistent keyboard, toolbar, and context-menu behavior.
+- **Close All Gaps** — new toolbar command packs every unlocked track in one undoable transaction.
+- **Preview scrub follows timeline** — paused preview scrubs keep the timeline playhead visible; selecting a clip from the program monitor scrolls it into view without jumping if it is already partially visible.
+- **Active clip highlight** — clips under the program preview playhead glow with a subtle accent ring in program mode.
+- **Full process exit on window close** — closing the app now calls `exit(0)` (macOS: `CloseRequested` handler) so the process does not linger after the window is dismissed.
+- **Updater manifest URL rewrite** — CI now rewrites GitHub API asset URLs to direct public download URLs in `latest.json` and `updater.json` before publishing, fixing auto-update on all platforms.
+
 ## [1.4.2] - 2026-08-24
 
 ### 🖱️ Timeline Context Menus & Command Orchestration

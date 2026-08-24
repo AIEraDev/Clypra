@@ -11,10 +11,11 @@ export interface NativePreviewRequestSource {
   frameIndex: number;
   request: NativeFrameRequest;
   priority?: number;
+  generation?: number;
 }
 
 export interface NativePreviewFrameSchedulerOptions {
-  load: (request: NativeFrameRequest) => Promise<NativePreviewFrame>;
+  load: (request: NativeFrameRequest, signal?: AbortSignal) => Promise<NativePreviewFrame>;
   maxCacheEntries?: number;
   maxInFlight?: number;
 }
@@ -30,6 +31,13 @@ type PrefetchEntry = NativePreviewRequestSource & {
   sequence: number;
 };
 
+type InFlightEntry = {
+  promise: Promise<NativePreviewFrame>;
+  controller: AbortController;
+  source: NativePreviewRequestSource;
+  visible: boolean;
+};
+
 /**
  * Coordinates exact visible-frame requests with low-priority neighboring work.
  * In-flight native calls cannot be cancelled portably, so stale callers are
@@ -40,10 +48,12 @@ export class NativePreviewFrameScheduler {
   private readonly maxCacheEntries: number;
   private readonly maxInFlight: number;
   private readonly cache = new Map<string, CacheEntry>();
-  private readonly inFlight = new Map<string, Promise<NativePreviewFrame>>();
+  private readonly inFlight = new Map<string, InFlightEntry>();
   private queued: PrefetchEntry[] = [];
   private sequence = 0;
   private disposed = false;
+  private visibleGeneration = 0;
+  private visibleKey: string | null = null;
 
   constructor(options: NativePreviewFrameSchedulerOptions) {
     this.load = options.load;
@@ -74,10 +84,23 @@ export class NativePreviewFrameScheduler {
     if (cached) return Promise.resolve(cached);
 
     const existing = this.inFlight.get(source.requestKey);
-    if (existing) return existing;
+    if (existing) return existing.promise;
+
+    const generation = source.generation ?? this.visibleGeneration + 1;
+    if (generation > this.visibleGeneration) {
+      this.setVisibleGeneration(generation);
+    }
+
+    // A newer visible request supersedes the previous one immediately. The
+    // AbortSignal lets native callers stop at packet boundaries while the
+    // generation check below protects runtimes that cannot abort an IPC call.
+    if (this.visibleKey && this.visibleKey !== source.requestKey) {
+      this.cancelVisibleWork();
+    }
 
     this.queued = this.queued.filter((entry) => entry.requestKey !== source.requestKey);
-    return this.start(source);
+    this.visibleKey = source.requestKey;
+    return this.start(source, true);
   }
 
   /**
@@ -102,8 +125,15 @@ export class NativePreviewFrameScheduler {
   }
 
   /** Invalidate queued lookahead work after a seek/project/timeline change. */
-  setVisibleGeneration(): void {
+  setVisibleGeneration(generation = this.visibleGeneration + 1): void {
+    if (generation < this.visibleGeneration) return;
+    this.visibleGeneration = generation;
     this.queued = [];
+    this.cancelVisibleWork();
+  }
+
+  isCurrent(generation: number): boolean {
+    return !this.disposed && generation === this.visibleGeneration;
   }
 
   clear(): void {
@@ -113,21 +143,26 @@ export class NativePreviewFrameScheduler {
 
   dispose(): void {
     this.disposed = true;
+    this.cancelVisibleWork();
+    for (const entry of this.inFlight.values()) entry.controller.abort();
     this.clear();
   }
 
-  private start(source: NativePreviewRequestSource): Promise<NativePreviewFrame> {
-    const promise = this.load(source.request)
+  private start(source: NativePreviewRequestSource, visible = false): Promise<NativePreviewFrame> {
+    const controller = new AbortController();
+    const generation = source.generation ?? this.visibleGeneration;
+    const promise = this.load(source.request, controller.signal)
       .then((frame) => {
-        if (!this.disposed) this.store(source, frame);
+        if (!this.disposed && (!visible || this.isCurrent(generation))) this.store(source, frame);
         return frame;
       })
       .finally(() => {
         this.inFlight.delete(source.requestKey);
+        if (visible && this.visibleKey === source.requestKey) this.visibleKey = null;
         this.pumpPrefetch();
       });
 
-    this.inFlight.set(source.requestKey, promise);
+    this.inFlight.set(source.requestKey, { promise, controller, source, visible });
     return promise;
   }
 
@@ -138,8 +173,15 @@ export class NativePreviewFrameScheduler {
     while (this.inFlight.size < this.maxInFlight && this.queued.length > 0) {
       const source = this.queued.shift();
       if (!source || this.cache.has(source.requestKey) || this.inFlight.has(source.requestKey)) continue;
-      void this.start(source).catch(() => undefined);
+      void this.start(source, false).catch(() => undefined);
     }
+  }
+
+  private cancelVisibleWork(): void {
+    if (!this.visibleKey) return;
+    const entry = this.inFlight.get(this.visibleKey);
+    entry?.controller.abort();
+    this.visibleKey = null;
   }
 
   private store(source: NativePreviewRequestSource, frame: NativePreviewFrame): void {

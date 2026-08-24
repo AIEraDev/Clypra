@@ -1,20 +1,16 @@
-import React, { useRef, useState } from "react";
-import { ZoomIn, ZoomOut, ArrowLeftRight, Waves, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, Link2, Mic, Search, Maximize2, Zap } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { ZoomIn, ZoomOut, ArrowLeftRight, Undo2, Redo2, ScissorsLineDashed, ChevronLeft, ChevronRight, Trash2, Copy, Maximize2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useTimelineStore } from "@/store/timelineStore";
-import { useUIStore } from "@/store/uiStore";
-import { generateId } from "@/lib/utils/id";
 import { useSettingsStore, type PreviewQuality } from "@/store/settingsStore";
 import { useHistoryStore } from "@/store/historyStore";
-import { toast } from "@/lib/toast";
 import { DEFAULT_SRP_CONFIG, SpatialTier } from "@/lib/renderEngine/types";
 import { clampTimelineZoom, formatCadenceSeconds, getSrpTierForZoom, getTimelineTemporalDetail, getZoomFromRatio, getZoomRatio, snapTimelineZoomToTierAnchors, TIMELINE_TIER_LABELS, TIMELINE_ZOOM_MAX, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_STEP } from "@/lib/timeline/timelineZoom";
-import { EditingActions } from "@/core/interactions";
-import { useSplitMode, useAnchoredTimelineZoom } from "@/hooks";
+import { useClipCommands, useTimelineCommands } from "@/core/commands";
+import { useAnchoredTimelineZoom } from "@/hooks";
 import type { TimelineZoomAnchor } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
-import { clipboardService } from "@/core/clipboard/clipboardService";
 
 const ZOOM_THUMB_SIZE_PX = 22;
 const ZOOM_RAIL_WIDTH_PX = 176; // w-44
@@ -36,31 +32,25 @@ const TIER_BAND_CLASS: Record<SpatialTier, string> = {
 const TimelineToolbarComponent: React.FC = () => {
   const zoomLevel = useTimelineStore((s) => s.zoomLevel);
   const pixelsPerSecond = useTimelineStore((s) => s.pixelsPerSecond);
-  const swapClips = useTimelineStore((s) => s.swapClips);
   const tracks = useTimelineStore((s) => s.tracks);
   const clips = useTimelineStore((s) => s.clips);
-  const normalizeTrack = useTimelineStore((s) => s.normalizeTrack);
 
-  const selectedClipIds = useUIStore((s) => s.selectedClipIds);
   const historyState = useHistoryStore((s) => s.state);
   const undo = useHistoryStore((s) => s.undo);
   const redo = useHistoryStore((s) => s.redo);
 
   const { previewQuality, setPreviewQuality, proxyEditingEnabled } = useSettingsStore();
-  const [splitMode, setSplitMode] = useState(false);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const zoomRailRef = useRef<HTMLDivElement>(null);
   const zoomGestureAnchorRef = useRef<TimelineZoomAnchor | null>(null);
+  const zoomDragRafRef = useRef<number | null>(null);
+  const pendingZoomClientXRef = useRef<number | null>(null);
   const { captureZoomAnchor, applyZoomLevel, zoomByStep, fitSequence } = useAnchoredTimelineZoom();
+  const { resolvedCommands: resolvedClipCommands, executeCommand: executeClipCommand } = useClipCommands(null);
+  const { resolvedCommands: resolvedTimelineCommands, executeCommand: executeTimelineCommand } = useTimelineCommands(null, 0);
 
-  // Split mode hook
-  useSplitMode({
-    enabled: splitMode,
-    onSplit: (clipId, time) => {},
-    onMessage: (message) => {
-      toast.info(message);
-    },
-  });
+  const getClipCommand = (id: string) => resolvedClipCommands.find((item) => item.command.id === id);
+  const getTimelineCommand = (id: string) => resolvedTimelineCommands.find((item) => item.command.id === id);
 
   const zoomRatio = getZoomRatio(zoomLevel);
   const zoomProgress = zoomRatio * 100;
@@ -86,6 +76,34 @@ const TimelineToolbarComponent: React.FC = () => {
     applyZoomLevel(clampTimelineZoom(snapZoom(getZoomFromRatio(ratio))), zoomGestureAnchorRef.current);
   };
 
+  const flushZoomDrag = () => {
+    if (zoomDragRafRef.current !== null) {
+      cancelAnimationFrame(zoomDragRafRef.current);
+      zoomDragRafRef.current = null;
+    }
+    const clientX = pendingZoomClientXRef.current;
+    pendingZoomClientXRef.current = null;
+    if (clientX !== null) setZoomFromClientX(clientX);
+  };
+
+  const queueZoomDrag = (clientX: number) => {
+    pendingZoomClientXRef.current = clientX;
+    if (zoomDragRafRef.current === null) {
+      zoomDragRafRef.current = requestAnimationFrame(() => {
+        zoomDragRafRef.current = null;
+        const nextClientX = pendingZoomClientXRef.current;
+        pendingZoomClientXRef.current = null;
+        if (nextClientX !== null) setZoomFromClientX(nextClientX);
+      });
+    }
+  };
+
+  useEffect(() => () => {
+    if (zoomDragRafRef.current !== null) cancelAnimationFrame(zoomDragRafRef.current);
+    zoomDragRafRef.current = null;
+    pendingZoomClientXRef.current = null;
+  }, []);
+
   const handleZoomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!hasTimelineContent) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -96,11 +114,12 @@ const TimelineToolbarComponent: React.FC = () => {
   const handleZoomPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!hasTimelineContent) return;
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-    setZoomFromClientX(e.clientX);
+    queueZoomDrag(e.clientX);
   };
 
   const handleZoomPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!hasTimelineContent) return;
+    flushZoomDrag();
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
@@ -108,6 +127,9 @@ const TimelineToolbarComponent: React.FC = () => {
   };
 
   const handleZoomPointerCancel = () => {
+    if (zoomDragRafRef.current !== null) cancelAnimationFrame(zoomDragRafRef.current);
+    zoomDragRafRef.current = null;
+    pendingZoomClientXRef.current = null;
     zoomGestureAnchorRef.current = null;
   };
 
@@ -139,66 +161,6 @@ const TimelineToolbarComponent: React.FC = () => {
     </Tooltip>
   );
 
-  const handleSwapClick = () => {
-    const result = swapClips();
-    if (result.error) {
-      toast.error(result.error);
-    }
-  };
-
-  const handleSplitAllAtPlayhead = () => {
-    const results = EditingActions.splitAtPlayhead();
-    if (results.length === 0) {
-      toast.info("No clips under playhead to split");
-    } else {
-      const successCount = results.filter((r) => r.success).length;
-      toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
-    }
-  };
-
-  const handleDeleteLeftAtPlayhead = () => {
-    const results = EditingActions.deleteLeftAtPlayhead();
-    if (results.length === 0) {
-      toast.info("No clips to delete left at playhead");
-    } else {
-      const successCount = results.filter((r) => r.success).length;
-      toast.success(`Delete left applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
-    }
-  };
-
-  const handleDeleteRightAtPlayhead = () => {
-    const results = EditingActions.deleteRightAtPlayhead();
-    if (results.length === 0) {
-      toast.info("No clips to delete right at playhead");
-    } else {
-      const successCount = results.filter((r) => r.success).length;
-      toast.success(`Delete right applied to ${successCount} clip${successCount > 1 ? "s" : ""}`);
-    }
-  };
-
-  const handleDeleteSelectedClips = () => {
-    if (selectedClipIds.length === 0) return;
-    const result = EditingActions.deleteSelection(selectedClipIds);
-    if (!result) {
-      toast.warning("No unlocked clips selected");
-    } else {
-      toast.success(`Deleted ${selectedClipIds.length} clip${selectedClipIds.length > 1 ? "s" : ""}`);
-    }
-  };
-
-  const handleDuplicateSelectedClips = () => {
-    if (selectedClipIds.length === 0) return;
-    clipboardService.duplicateClips(selectedClipIds);
-  };
-
-  const handleCloseGaps = () => {
-    const { removeEmptyNonMainTracks } = useTimelineStore.getState();
-    const trackIds = tracks.map((t) => t.id);
-    trackIds.forEach((trackId) => normalizeTrack(trackId));
-    removeEmptyNonMainTracks(trackIds);
-    toast.success("Closed timeline gaps");
-  };
-
   return (
     <TooltipProvider>
       <div data-timeline-interactive="true" className="border-b border-timeline-toolbar-border flex items-center p-1 gap-2">
@@ -215,46 +177,46 @@ const TimelineToolbarComponent: React.FC = () => {
             </Button>
           </Tool>
 
-          {selectedClipIds.length === 2 && (
+          {getClipCommand("clip.swap")?.isVisible && (
             <Tool label="Swap selected clips (Ctrl+Shift+S)">
-              <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleSwapClick}>
+              <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.swap")} disabled={!getClipCommand("clip.swap")?.isEnabled}>
                 <ArrowLeftRight className="w-4 h-4" />
               </Button>
             </Tool>
           )}
 
           <Tool label="Delete left at playhead (Q)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteLeftAtPlayhead}>
+            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.trimStartToPlayhead")} disabled={!getClipCommand("clip.trimStartToPlayhead")?.isEnabled}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
           </Tool>
 
           <Tool label="Delete right at playhead (W)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteRightAtPlayhead}>
+            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.trimEndToPlayhead")} disabled={!getClipCommand("clip.trimEndToPlayhead")?.isEnabled}>
               <ChevronRight className="w-4 h-4" />
             </Button>
           </Tool>
 
           <Tool label="Split all at playhead (S)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleSplitAllAtPlayhead}>
+            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.splitAllAtPlayhead")} disabled={!getClipCommand("clip.splitAllAtPlayhead")?.isEnabled}>
               <ScissorsLineDashed className="w-4 h-4" />
             </Button>
           </Tool>
 
           <Tool label="Delete selected clip(s)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDeleteSelectedClips} disabled={selectedClipIds.length === 0}>
+            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.rippleDelete")} disabled={!getClipCommand("clip.rippleDelete")?.isEnabled}>
               <Trash2 className="w-4 h-4" />
             </Button>
           </Tool>
 
           <Tool label="Duplicate selected clip(s) (Cmd/Ctrl+D)">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleDuplicateSelectedClips} disabled={selectedClipIds.length === 0}>
+            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeClipCommand("clip.duplicate")} disabled={!getClipCommand("clip.duplicate")?.isEnabled}>
               <Copy className="w-4 h-4" />
             </Button>
           </Tool>
 
           <Tool label="Close gaps">
-            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={handleCloseGaps}>
+            <Button variant="ghost" size="icon-sm" className={toolButton} onClick={() => executeTimelineCommand("timeline.closeAllGaps")} disabled={!getTimelineCommand("timeline.closeAllGaps")?.isEnabled}>
               <ScissorsLineDashed className="w-4 h-4" />
             </Button>
           </Tool>
@@ -341,4 +303,3 @@ const TimelineToolbarComponent: React.FC = () => {
 };
 
 export const TimelineToolbar = React.memo(TimelineToolbarComponent);
-

@@ -18,6 +18,7 @@ import { clipboardService } from "@/core/clipboard/clipboardService";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { toast } from "@/lib/toast";
+import { GapManager } from "@/lib/timeline/gapManager";
 
 export const timelineCommands: TimelineCommand[] = [
   // ─── Clipboard ──────────────────────────────────────────────────────────────
@@ -60,13 +61,25 @@ export const timelineCommands: TimelineCommand[] = [
     icon: Scissors,
     group: "gap",
     isVisible: (ctx) => Boolean(ctx.clickedTrackId),
-    isEnabled: (ctx) => Boolean(ctx.clickedTrackId),
-    disabledReason: () => "No track selected",
+    isEnabled: (ctx) => Boolean(ctx.clickedTrackId && !ctx.tracks.find((track) => track.id === ctx.clickedTrackId)?.locked),
+    disabledReason: () => "Track is locked or no track is selected",
     execute: (ctx) => {
       if (!ctx.clickedTrackId) return;
-      const store = useTimelineStore.getState();
-      store.normalizeTrack(ctx.clickedTrackId);
+      GapManager.packTrack(ctx.clickedTrackId);
       toast.success("Closed track gaps");
+    },
+  },
+  {
+    id: "timeline.closeAllGaps",
+    label: "Close All Timeline Gaps",
+    icon: Scissors,
+    group: "gap",
+    isVisible: () => true,
+    isEnabled: (ctx) => ctx.tracks.some((track) => !track.locked),
+    disabledReason: () => "No unlocked track available",
+    execute: () => {
+      GapManager.packAllTracks();
+      toast.success("Closed timeline gaps");
     },
   },
 

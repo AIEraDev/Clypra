@@ -14,6 +14,7 @@
 
 import { useEffect } from "react";
 import { EditingActions } from "@/core/interactions";
+import { formatSplitMessage } from "@/lib/timeline/clipName";
 
 interface UseSplitModeOptions {
   /** Whether split mode is active */
@@ -118,7 +119,7 @@ export const useSplitMode = ({ enabled, onSplit, onMessage }: UseSplitModeOption
 
       if (result.success) {
         onSplit?.(clipId, splitTime);
-        onMessage?.(`Clip split at ${splitTime.toFixed(2)}s`);
+        onMessage?.(`${formatSplitMessage([result])} at ${splitTime.toFixed(2)}s`);
       } else {
         onMessage?.(result.error || "Split failed");
       }

@@ -1,4 +1,6 @@
 import type { PlaybackContext, PlaybackContextType, PlaybackContextStateSnapshot } from "./PlaybackContext";
+import { SeekController, type SeekIntentInput } from "./seekController";
+import { recordSeekRequested } from "@/lib/playback/syncMetrics";
 
 export type AuthorityContextSwitchListener = (type: PlaybackContextType | null) => void;
 export type AuthorityStateListener = (state: PlaybackContextStateSnapshot) => void;
@@ -10,6 +12,7 @@ export type AuthorityStateListener = (state: PlaybackContextStateSnapshot) => vo
  * Delegates transport commands (play, pause, seek) to the active context.
  */
 export class TransportAuthority {
+  private readonly seekController = new SeekController();
   private activeContext: PlaybackContext | null = null;
   private contexts = new Map<PlaybackContextType, PlaybackContext>();
   private _switchListeners = new Set<AuthorityContextSwitchListener>();
@@ -34,6 +37,8 @@ export class TransportAuthority {
       console.warn(`[TransportAuthority] No context registered for type: ${type}`);
       return;
     }
+
+    this.seekController.invalidate();
 
     // Pause previous context before switching
     if (this.activeContext && this.activeContext !== next) {
@@ -67,6 +72,7 @@ export class TransportAuthority {
   // ─── Unified Transport Controls ────────────────────────────────────────
 
   play(): void {
+    this.issueTransportIntent("playback");
     this.activeContext?.play();
   }
 
@@ -82,15 +88,23 @@ export class TransportAuthority {
   }
 
   pause(): void {
+    this.issueTransportIntent("seek");
     this.activeContext?.pause();
   }
 
   stop(): void {
+    this.issueTransportIntent("seek");
     this.activeContext?.stop();
   }
 
-  seek(time: number): void {
+  seek(time: number, intent: Omit<SeekIntentInput, "time"> = { mode: "seek" }): void {
+    recordSeekRequested();
+    this.seekController.request({ time, ...intent });
     this.activeContext?.seek(time);
+  }
+
+  getSeekController(): SeekController {
+    return this.seekController;
   }
 
   setSpeed(speed: number): void {
@@ -143,6 +157,7 @@ export class TransportAuthority {
   // ─── Cleanup ───────────────────────────────────────────────────────────
 
   dispose(): void {
+    this.seekController.dispose();
     if (this._ctxUnsubscribe) {
       this._ctxUnsubscribe();
       this._ctxUnsubscribe = null;
@@ -152,5 +167,14 @@ export class TransportAuthority {
     this.contexts.forEach((ctx) => ctx.dispose());
     this.contexts.clear();
     this.activeContext = null;
+  }
+
+  private issueTransportIntent(mode: "playback" | "seek"): void {
+    const context = this.activeContext;
+    if (!context) {
+      this.seekController.invalidate();
+      return;
+    }
+    this.seekController.request({ time: context.getTime(), mode });
   }
 }

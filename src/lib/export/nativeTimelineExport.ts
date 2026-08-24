@@ -6,6 +6,7 @@ import type {
   TransitionTimelineItem,
 } from "@/types";
 import { toNativePath } from "@/lib/platform/pathConversion";
+import { expandCompoundClips } from "@/core/timeline/compoundClips";
 
 export interface NativeTimelineClipPlan {
   path: string;
@@ -101,7 +102,8 @@ export function analyzeNativeTimelineExport(
   }
 
   const primaryTrackId = videoTracks[0]?.id;
-  const activeClips = input.clips
+  const expandedClips = expandCompoundClips(input.clips);
+  const activeClips = expandedClips
     .filter(
       (clip) =>
         clip.startTime < endTime &&

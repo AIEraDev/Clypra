@@ -158,6 +158,12 @@ describe("Clip Component", () => {
       expect(screen.getByTestId("clip-audio-waveform")).toBeInTheDocument();
     });
 
+    it("renders an audio-kind clip as waveform even when its asset is a video", () => {
+      renderClip(createMockClip({ kind: "audio", audioPath: "/path/to/video.mp4" }), createMockMediaAsset());
+
+      expect(screen.queryByTestId("clip-filmstrip")).not.toBeInTheDocument();
+    });
+
     it("applies selected styling when selected", () => {
       const clip = createMockClip();
       renderClip(clip, undefined, { selected: true });
@@ -217,6 +223,32 @@ describe("Clip Component", () => {
   });
 
   describe("Resize Handles", () => {
+    it("hides both resize handles until the clip is selected", () => {
+      const clip = createMockClip();
+      renderClip(clip);
+
+      const leftHandle = screen.getByTestId("clip-clip-1-resize-left");
+      const rightHandle = screen.getByTestId("clip-clip-1-resize-right");
+
+      expect(leftHandle.className).toContain("opacity-0");
+      expect(rightHandle.className).toContain("opacity-0");
+      expect(leftHandle.className).toContain("pointer-events-none");
+      expect(rightHandle.className).toContain("pointer-events-none");
+    });
+
+    it("shows both resize handles when the clip is selected", () => {
+      const clip = createMockClip();
+      renderClip(clip, undefined, { selected: true });
+
+      const leftHandle = screen.getByTestId("clip-clip-1-resize-left");
+      const rightHandle = screen.getByTestId("clip-clip-1-resize-right");
+
+      expect(leftHandle.className).toContain("opacity-100");
+      expect(rightHandle.className).toContain("opacity-100");
+      expect(leftHandle.className).toContain("pointer-events-auto");
+      expect(rightHandle.className).toContain("pointer-events-auto");
+    });
+
     it("renders left resize handle", () => {
       const clip = createMockClip();
       renderClip(clip);
@@ -256,6 +288,18 @@ describe("Clip Component", () => {
       expect(leftGrip?.className).toContain("h-full");
       expect(rightGrip?.className).toContain("h-full");
     });
+  });
+
+  it("applies muted visual treatment to a B-roll clip", () => {
+    const clip = createMockClip();
+    renderClip(clip, undefined, {
+      trackVisualRole: "b-roll",
+      trackVisualOpacity: 0.8,
+    });
+
+    const clipElement = screen.getByTestId("clip-clip-1");
+    expect(clipElement).toHaveStyle({ opacity: "0.8" });
+    expect(clipElement.className).toContain("saturate-75");
   });
 
   describe("Resize Logic Validation", () => {

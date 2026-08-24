@@ -1,14 +1,48 @@
 import React from "react";
-import { Volume2, VolumeX, Lock, Unlock, Eye, EyeOff, Minimize2 } from "lucide-react";
+import {
+  AudioLines,
+  Eye,
+  EyeOff,
+  Layers,
+  Lock,
+  Minimize2,
+  SlidersHorizontal,
+  Sparkles,
+  Sticker,
+  Type,
+  Unlock,
+  UserRound,
+  Video,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { GapManager } from "@/lib/timeline/gapManager";
 import { TIMELINE_TRACK_LABEL_WIDTH_PX } from "@/lib/timeline/timelineViewport";
+import {
+  getTrackVisualSpec,
+  type TrackVisualRole,
+  type TrackVisualSpec,
+} from "@/lib/timeline/trackTypeConfig";
 import type { Track } from "@/types";
 
 interface TrackLabelProps {
   track: Track;
+  visualSpec?: TrackVisualSpec;
 }
+
+const TRACK_ROLE_ICONS: Record<TrackVisualRole, typeof Video> = {
+  "a-roll": Video,
+  "b-roll": Video,
+  audio: AudioLines,
+  text: Type,
+  sticker: Sticker,
+  filter: SlidersHorizontal,
+  "video-effect": Sparkles,
+  "body-effect": UserRound,
+  "animated-overlay": Layers,
+};
 
 /**
  * Single track label panel — renders lock/visibility/mute controls.
@@ -16,19 +50,21 @@ interface TrackLabelProps {
  * Designed to live inside a CSS Grid as a `sticky left-0` cell so it
  * stays pinned while the clip area scrolls horizontally.
  */
-export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
-  const { clips, gaps, toggleTrackLock, toggleTrackMute, toggleTrackVisibility } = useTimelineStore();
+export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visualSpecProp }) => {
+  const { tracks, clips, gaps, mainVideoTrackId, toggleTrackLock, toggleTrackMute, toggleTrackVisibility } = useTimelineStore();
   const { selectedTrackId, selectTrack } = useUIStore();
+  const visualSpec = visualSpecProp ?? getTrackVisualSpec(track, tracks.length > 0 ? tracks : [track], mainVideoTrackId);
 
   const isEmpty = !clips.some((c) => c.trackId === track.id);
   const hasGaps = gaps.some((g) => g.trackId === track.id && !g.protected);
   const isSelected = selectedTrackId === track.id;
+  const TrackRoleIcon = TRACK_ROLE_ICONS[visualSpec.role];
 
   return (
     <div
-      className={`group relative flex items-center gap-2 px-2 transition-colors bg-surface-raised ${isSelected ? "bg-timeline-track-selected ring-1 ring-inset ring-timeline-track-active" : "hover:bg-timeline-track-hover"} ${isEmpty ? "opacity-70" : ""} ${track.locked ? "bg-timeline-track-active/60" : ""}`}
+      className={`group relative flex items-center gap-2 px-2 transition-colors bg-surface-raised ${visualSpec.tone === "primary" ? "border-l-2 border-accent/70" : visualSpec.tone === "secondary" ? "border-l border-accent/30" : visualSpec.tone === "audio" ? "border-l border-white/15" : "border-l border-violet-400/25"} ${isSelected ? "bg-timeline-track-selected ring-1 ring-inset ring-timeline-track-active" : "hover:bg-timeline-track-hover"} ${isEmpty ? "opacity-70" : ""} ${track.locked ? "bg-timeline-track-active/60" : ""}`}
       style={{
-        height: `${track.height}px`,
+        height: `${visualSpec.height}px`,
         position: "sticky",
         left: 0,
         zIndex: 150,
@@ -40,6 +76,14 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
       onClick={() => selectTrack(track.id)}
     >
       <div className={`absolute left-0 top-0 h-full w-[2px] ${isSelected ? "bg-timeline-track-label" : "bg-transparent"}`} />
+      <span
+        data-testid={`track-${track.id}-visual-role`}
+        className={`pointer-events-none inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${visualSpec.tone === "primary" ? "text-accent" : visualSpec.tone === "secondary" ? "text-accent/70" : visualSpec.tone === "audio" ? "text-text-muted" : "text-violet-300/75"}`}
+        aria-label={visualSpec.label}
+        title={visualSpec.label}
+      >
+        <TrackRoleIcon className="h-4 w-4" aria-hidden="true" />
+      </span>
       <button
         onClick={(e) => {
           e.stopPropagation();

@@ -97,4 +97,75 @@ describe("audioClips — getActiveAudioClips range export fades", () => {
     expect(audioConfigs.length).toBe(1);
     expect(audioConfigs[0].fadeIn + audioConfigs[0].fadeOut).toBeLessThanOrEqual(4);
   });
+
+  it("expands compound children so grouped video audio reaches export mixing", () => {
+    const videoTrack: Track = { ...mockTrack, id: "video-track", type: "video", name: "Video" };
+    const videoAsset: MediaAsset = {
+      id: "video-asset",
+      name: "video.mp4",
+      path: "/media/video.mp4",
+      type: "video",
+      duration: 20,
+      width: 1920,
+      height: 1080,
+      size: 1,
+    };
+    const compound: Clip = {
+      id: "compound-1",
+      trackId: videoTrack.id,
+      mediaId: "compound-compound-1",
+      kind: "compound",
+      startTime: 5,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+      compoundChildren: [
+        {
+          id: "child-a",
+          trackId: videoTrack.id,
+          mediaId: videoAsset.id,
+          kind: "video",
+          startTime: 0,
+          duration: 2,
+          trimIn: 0,
+          trimOut: 2,
+          x: 0,
+          y: 0,
+          width: 1920,
+          height: 1080,
+          opacity: 1,
+          rotation: 0,
+        },
+        {
+          id: "child-b",
+          trackId: videoTrack.id,
+          mediaId: videoAsset.id,
+          kind: "video",
+          startTime: 3,
+          duration: 2,
+          trimIn: 2,
+          trimOut: 4,
+          x: 0,
+          y: 0,
+          width: 1920,
+          height: 1080,
+          opacity: 1,
+          rotation: 0,
+        },
+      ],
+    };
+
+    const audioConfigs = getActiveAudioClips([compound], [videoTrack], [videoAsset], 0, 10);
+
+    expect(audioConfigs.map((config) => ({ clipId: config.clipId, startTime: config.startTime, duration: config.duration, trimIn: config.trimIn }))).toEqual([
+      { clipId: "child-a", startTime: 5, duration: 2, trimIn: 0 },
+      { clipId: "child-b", startTime: 8, duration: 2, trimIn: 2 },
+    ]);
+  });
 });

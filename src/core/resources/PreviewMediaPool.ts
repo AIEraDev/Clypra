@@ -29,6 +29,7 @@
  */
 
 import type { Clip, MediaAsset, TransitionTimelineItem } from "@/types";
+import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
@@ -308,6 +309,7 @@ export class PreviewMediaPool {
    * It does NOT initiate playback. Playback is controlled separately.
    */
   sync(clips: Clip[], assets: MediaAsset[], tracks: Array<{ id: string; type: string }>, syncState: PreviewSyncState): void {
+    clips = expandCompoundClips(clips);
     if (this._isDisposed) {
       console.error(`[PreviewMediaPool] Pool is disposed!`);
       return;
@@ -404,7 +406,7 @@ export class PreviewMediaPool {
         const track = this.trackMap.get(clip.trackId);
         if (track?.visible === false) continue;
 
-        if (asset?.type === "video") {
+        if (asset?.type === "video" && clip.kind !== "audio") {
           const sourcePath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
 
           const cacheKey = clip.id;
@@ -607,7 +609,7 @@ export class PreviewMediaPool {
         const track = this.trackMap.get(clip.trackId);
         if (track?.visible === false) continue;
 
-        const rawPath = (asset ? asset.path : directAudioPath) || (clip as any).path;
+        const rawPath = directAudioPath || asset?.path || (clip as any).path;
         if (!rawPath) continue;
         const sourcePath = isWebviewOrExternalUrl(rawPath) ? rawPath : convertFileSrc(rawPath);
         const key = clip.id;

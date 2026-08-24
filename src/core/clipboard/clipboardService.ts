@@ -7,47 +7,22 @@
 
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
+import { useHistoryStore } from "@/store/historyStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { EditingActions } from "@/core/interactions";
 import { generateId } from "@/lib/utils/id";
 import { toast } from "@/lib/toast";
 import type { Clip } from "@/types";
+import { DuplicateClipsCommand } from "@/core/history/commands/DuplicateClipCommand";
 
-export interface CopiedClipItem {
-  trackId: string;
-  mediaId: string;
-  duration: number;
-  trimIn: number;
-  trimOut: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  opacity: number;
-  rotation: number;
+/**
+ * A clipboard item preserves the complete clip model by default. Only the
+ * identity and absolute start position are regenerated when materialized;
+ * trackId remains as the source-track preference used by paste routing.
+ */
+export type CopiedClipItem = Omit<Clip, "id" | "startTime"> & {
   startOffset: number;
-  aspectRatioLocked?: boolean;
-  sourceAspectRatio?: number;
-  fitMode?: "contain" | "cover" | "fill" | "stretch" | "original";
-  volume?: number;
-  fadeIn?: number;
-  fadeOut?: number;
-  volumeKeyframes?: Clip["volumeKeyframes"];
-  audioFX?: Clip["audioFX"];
-  overlays?: Clip["overlays"];
-  effects?: Clip["effects"];
-  filter?: Clip["filter"];
-  name?: string;
-  kind?: Clip["kind"];
-  stickerFormat?: Clip["stickerFormat"];
-  stickerAnimationPath?: string;
-  stickerSourceId?: string;
-  stickerImagePath?: string;
-  templateId?: string;
-  adjustments?: Clip["adjustments"];
-  chromaKey?: Clip["chromaKey"];
-  colorGrade?: Clip["colorGrade"];
-}
+};
 
 let clipboard: CopiedClipItem[] = [];
 const clipboardListeners = new Set<() => void>();
@@ -62,6 +37,41 @@ function notifyClipboardChanged() {
   });
 }
 
+function cloneClipData<T>(value: T): T {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** Create the one canonical, structurally complete clipboard snapshot. */
+function createClipSnapshot(clip: Clip, minStart: number): CopiedClipItem {
+  const { id: _id, startTime: _startTime, ...clipData } = cloneClipData(clip);
+  void _id;
+  void _startTime;
+  return {
+    ...clipData,
+    startOffset: clip.startTime - minStart,
+  };
+}
+
+/** Materialize a clipboard snapshot with regenerated identity and placement. */
+function materializeClip(
+  item: CopiedClipItem,
+  id: string,
+  startTime: number,
+  trackId: string,
+): Clip {
+  const { startOffset: _startOffset, ...clipData } = cloneClipData(item);
+  void _startOffset;
+  return {
+    ...clipData,
+    id,
+    trackId,
+    startTime,
+  };
+}
+
 export const clipboardService = {
   /** Copy selected clips to clipboard */
   copyClips(clipIds: string[]): boolean {
@@ -74,41 +84,7 @@ export const clipboardService = {
     if (selected.length === 0) return false;
 
     const minStart = selected[0].startTime;
-    clipboard = selected.map((clip) => ({
-      trackId: clip.trackId,
-      mediaId: clip.mediaId,
-      duration: clip.duration,
-      trimIn: clip.trimIn,
-      trimOut: clip.trimOut,
-      x: clip.x,
-      y: clip.y,
-      width: clip.width,
-      height: clip.height,
-      opacity: clip.opacity,
-      rotation: clip.rotation,
-      startOffset: clip.startTime - minStart,
-      aspectRatioLocked: clip.aspectRatioLocked,
-      sourceAspectRatio: clip.sourceAspectRatio,
-      fitMode: clip.fitMode,
-      volume: clip.volume,
-      fadeIn: clip.fadeIn,
-      fadeOut: clip.fadeOut,
-      volumeKeyframes: clip.volumeKeyframes ? JSON.parse(JSON.stringify(clip.volumeKeyframes)) : undefined,
-      audioFX: clip.audioFX ? JSON.parse(JSON.stringify(clip.audioFX)) : undefined,
-      overlays: clip.overlays ? JSON.parse(JSON.stringify(clip.overlays)) : undefined,
-      effects: clip.effects ? JSON.parse(JSON.stringify(clip.effects)) : undefined,
-      filter: clip.filter ? { ...clip.filter } : undefined,
-      name: clip.name,
-      kind: clip.kind,
-      stickerFormat: clip.stickerFormat,
-      stickerAnimationPath: clip.stickerAnimationPath,
-      stickerSourceId: clip.stickerSourceId,
-      stickerImagePath: clip.stickerImagePath,
-      templateId: clip.templateId,
-      adjustments: clip.adjustments ? { ...clip.adjustments } : undefined,
-      chromaKey: clip.chromaKey ? { ...clip.chromaKey } : undefined,
-      colorGrade: clip.colorGrade ? { ...clip.colorGrade } : undefined,
-    }));
+    clipboard = selected.map((clip) => createClipSnapshot(clip, minStart));
 
     notifyClipboardChanged();
     toast.info(`Copied ${clipboard.length} clip${clipboard.length > 1 ? "s" : ""}`);
@@ -143,12 +119,12 @@ export const clipboardService = {
         if (!destinationTrackId) return;
 
         const newId = generateId("clip");
-        const newClip: Clip = {
-          ...item,
-          id: newId,
-          trackId: destinationTrackId,
-          startTime: Math.max(0, pasteBaseTime + item.startOffset),
-        };
+        const newClip = materializeClip(
+          item,
+          newId,
+          Math.max(0, pasteBaseTime + item.startOffset),
+          destinationTrackId,
+        );
 
         store.addClip(newClip);
         pastedClipIds.push(newId);
@@ -181,22 +157,9 @@ export const clipboardService = {
 
     if (selected.length === 0) return [];
 
-    const minStart = selected[0].startTime;
-    const maxEnd = Math.max(...selected.map((c) => c.startTime + c.duration));
-    const offset = maxEnd - minStart;
-    const duplicatedClipIds: string[] = [];
-
-    store.withBatch(() => {
-      selected.forEach((clip) => {
-        const newId = generateId("clip");
-        store.addClip({
-          ...clip,
-          id: newId,
-          startTime: clip.startTime + offset,
-        });
-        duplicatedClipIds.push(newId);
-      });
-    });
+    const command = new DuplicateClipsCommand(selected, store.clips);
+    useHistoryStore.getState().execute(command);
+    const duplicatedClipIds = command.getDuplicatedClipIds();
 
     if (duplicatedClipIds.length > 0) {
       uiStore.clearSelection();

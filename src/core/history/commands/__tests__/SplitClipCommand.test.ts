@@ -145,13 +145,13 @@ describe("SplitClipCommand", () => {
   describe("split with existing trim", () => {
     it("handles clips with non-zero trimIn", () => {
       const clip = createTestClip({
-        startTime: 0,
+        startTime: 10,
         duration: 6,
         trimIn: 2, // Clip starts 2s into media
         trimOut: 8,
       });
 
-      const command = new SplitClipCommand("clip-1", 3.0, 30, clip);
+      const command = new SplitClipCommand("clip-1", 13.0, 30, clip);
       const newState = command.apply({ clips: [clip], epoch: 0 });
 
       // Use getLeftClipId() and getRightClipId()
@@ -160,13 +160,17 @@ describe("SplitClipCommand", () => {
       const leftClip = newState.clips.find((c) => c.id === leftClipId);
       const rightClip = newState.clips.find((c) => c.id === rightClipId);
 
-      // Left: trimIn 2 → trimOut 5 (3s into clip from trimIn 2)
+      // Left: trimIn 2 → trimOut 5 (3s into the timeline clip)
       expect(leftClip?.trimIn).toBe(2);
       expect(leftClip?.trimOut).toBe(5);
+      expect(leftClip?.duration).toBe(3);
 
-      // Right: trimIn 5 → trimOut 8
+      // Right: starts at the split and continues from the matching source
+      // position, rather than restarting at source time zero.
       expect(rightClip?.trimIn).toBe(5);
       expect(rightClip?.trimOut).toBe(8);
+      expect(rightClip?.startTime).toBe(13);
+      expect(rightClip?.duration).toBe(3);
     });
 
     it("handles already-split clips (middle piece)", () => {

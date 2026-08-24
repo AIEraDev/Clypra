@@ -88,7 +88,7 @@ interface TimelineStore {
   moveClip: (clipId: string, startTime: number) => void;
   setZoom: (level: number) => void;
   /** Clamps to the SRP zoom range and syncs `zoomLevel` to `pixelsPerSecond / 100`. */
-  setPixelsPerSecond: (pps: number) => void;
+  setPixelsPerSecond: (pps: number, allowOverviewFloor?: boolean) => void;
   setScrollLeft: (left: number) => void;
   setViewportWidth: (width: number) => void;
   getTimelineEndTime: () => number;
@@ -825,11 +825,19 @@ export const useTimelineStore = create<TimelineStore>(
       });
     },
 
-    setPixelsPerSecond: (pps) => {
-      const clamped = clampTimelinePixelsPerSecond(pps);
-      set({
-        pixelsPerSecond: clamped,
-        zoomLevel: clamped / TIMELINE_PPS_PER_ZOOM,
+    setPixelsPerSecond: (pps, allowOverviewFloor = false) => {
+      const clamped = clampTimelinePixelsPerSecond(pps, allowOverviewFloor);
+      const zoomLevel = clamped / TIMELINE_PPS_PER_ZOOM;
+      set((state) => {
+        // Zoom animation writes on every RAF. Avoid notifying every subscriber
+        // when a frame has already reached the requested value.
+        if (Object.is(state.pixelsPerSecond, clamped) && Object.is(state.zoomLevel, zoomLevel)) {
+          return state;
+        }
+        return {
+          pixelsPerSecond: clamped,
+          zoomLevel,
+        };
       });
     },
 
@@ -993,10 +1001,11 @@ export const useTimelineStore = create<TimelineStore>(
         newDuration = Math.max(minDuration, Math.min(desiredDuration, maxDuration));
         rippleAmount = newDuration - clip.duration;
       } else {
-        // Trimming left edge - changes both start time and duration
+        // Trimming left edge changes the media in-point and duration. In
+        // ripple mode the clip remains anchored at its timeline start; only
+        // the shortened/extended duration is rippled to downstream clips.
         const maxTrimIn = Math.min(mediaDurationBound, clip.trimOut - 0.001);
-        const desiredStartTime = clip.startTime + deltaTime;
-        const desiredDelta = desiredStartTime - clip.startTime;
+        const desiredDelta = deltaTime;
         const previousClipEnd = state.clips
           .filter((c) => c.id !== clipId && c.trackId === clip.trackId)
           .reduce((maxEnd, c) => {
@@ -1011,9 +1020,9 @@ export const useTimelineStore = create<TimelineStore>(
         // TL-01 fix: Clamp against clip.trimIn to prevent negative source timestamps
         const clampedDelta = Math.max(minDelta, -clip.trimIn, Math.min(desiredDelta, maxDeltaByDuration, maxDeltaByMedia));
 
-        newStartTime = clip.startTime + clampedDelta;
+        newStartTime = clip.startTime;
         newDuration = clip.duration - clampedDelta;
-        rippleAmount = clampedDelta;
+        rippleAmount = newDuration - clip.duration;
       }
 
       // Find all clips downstream on the same track
@@ -1044,7 +1053,7 @@ export const useTimelineStore = create<TimelineStore>(
 
               // Update trim points for media
               if (side === "left") {
-                updates.trimIn = clip.trimIn + (newStartTime - clip.startTime);
+                updates.trimIn = clip.trimIn + (clip.duration - newDuration);
                 updates.duration = clip.trimOut - updates.trimIn;
               } else {
                 updates.trimOut = Math.min(clip.trimIn + newDuration, mediaDurationBound);

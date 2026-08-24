@@ -119,10 +119,22 @@ function getNativeTransitionSnapshot(
  * text inputs, so excluding the bytes here cannot alias two visible assets.
  */
 export function getNativeFrameRequestKey(request: NativeFrameRequest): string {
-  if (!request.project.rasterLayers?.length) return JSON.stringify(request);
+  // Match NativeFrameRequest::cache_key on the Rust side. These fields identify
+  // scheduling/cancellation, not rendered pixels; retaining them here prevents
+  // a frame decoded during lookahead or a previous seek generation from being
+  // reused by the visible request.
+  const {
+    generation: _generation,
+    mode: _mode,
+    scrubVelocityPxPerSecond: _scrubVelocityPxPerSecond,
+    requestedAtMs: _requestedAtMs,
+    ...cacheIdentity
+  } = request;
+
+  if (!request.project.rasterLayers?.length) return JSON.stringify(cacheIdentity);
 
   return JSON.stringify({
-    ...request,
+    ...cacheIdentity,
     project: {
       ...request.project,
       rasterLayers: request.project.rasterLayers.map(({ rgba: _rgba, ...layer }) => layer),
@@ -1043,6 +1055,13 @@ export function buildNativeFrameRequest(
   outputWidth: number,
   outputHeight: number,
   rasterLayers: NativeRasterLayerSnapshot[] = [],
+  intent: {
+    generation?: number;
+    mode?: "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep";
+    quality?: NativeFrameRequest["quality"];
+    velocityPxPerSecond?: number;
+    requestedAtMs?: number;
+  } = {},
 ): NativeFrameRequest | null {
   const request = buildNativeVideoProjectRequest(scene, rasterLayers);
   if (!request) return null;
@@ -1094,6 +1113,7 @@ export function buildNativeFrameRequest(
     project: {
       schemaVersion: 1,
       projectRevision,
+      frameRate,
       canvasWidth: request.canvasWidth,
       canvasHeight: request.canvasHeight,
       clearColor: request.clearColor ?? [0, 0, 0, 1],
@@ -1103,8 +1123,12 @@ export function buildNativeFrameRequest(
     },
     outputWidth,
     outputHeight,
-    quality: "full",
+    quality: intent.quality ?? "full",
     colorPolicy: DEFAULT_NATIVE_COLOR_POLICY,
     renderGraphVersion: 1,
+    ...(intent.generation !== undefined ? { generation: intent.generation } : {}),
+    ...(intent.mode ? { mode: intent.mode } : {}),
+    ...(intent.velocityPxPerSecond !== undefined ? { scrubVelocityPxPerSecond: intent.velocityPxPerSecond } : {}),
+    ...(intent.requestedAtMs !== undefined ? { requestedAtMs: intent.requestedAtMs } : {}),
   });
 }

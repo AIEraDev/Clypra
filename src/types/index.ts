@@ -129,6 +129,30 @@ export interface Track {
   volume?: number;
 }
 
+/** Audio/video stream metadata cached from the native media probe. */
+export interface MediaStreamInfo {
+  index: number;
+  type: "audio" | "video" | "data" | "subtitle" | "unknown";
+  codec: string;
+  codecLongName?: string;
+  duration?: number;
+  timeBaseNum?: number;
+  timeBaseDen?: number;
+  sampleRate?: number;
+  channels?: number;
+  channelLayout?: string;
+  bitrate?: number;
+  language?: string;
+  label?: string;
+}
+
+export interface DerivedMediaProvenance {
+  sourceAssetId: string;
+  sourceStreamIndex: number;
+  extractionMethod: "streamCopy" | "transcode";
+  operationFingerprint: string;
+}
+
 /** Waveform bucket containing peak and RMS amplitude data */
 export interface WaveformBucket {
   /** Peak amplitude (absolute max) - range [0.0, 1.0] */
@@ -175,6 +199,8 @@ export interface MediaAsset {
   stickerAnimationPath?: string;
   /** Stable sticker library id used to recover cached metadata. */
   stickerSourceId?: string;
+  streams?: MediaStreamInfo[];
+  derivedFrom?: DerivedMediaProvenance;
 }
 
 /** Type guard to check if asset has visual dimensions */
@@ -182,7 +208,7 @@ export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { 
   return (asset.type === "video" || asset.type === "image") && asset.width !== undefined && asset.height !== undefined;
 }
 
-export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay";
+export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay" | "compound";
 export type { SmartOverlayClip, SmartOverlayType, SmartOverlayContentUnion, SmartOverlayStyle, SmartOverlayPreset } from "./smartOverlay";
 
 
@@ -282,6 +308,12 @@ export interface Clip {
   /** Visual property animation keyframes */
   visualKeyframes?: Partial<Record<VisualPropertyKey, VisualPropertyKeyframe[]>>;
   audioPath?: string;
+  /** Source clip identity for generated detach-audio clips. */
+  detachedFromClipId?: string;
+  /** Nested children for a persisted compound/group clip. Child times are relative to the parent. */
+  compoundChildren?: Clip[];
+  /** Optional preview image used by the compact parent timeline block. */
+  compoundPreview?: string;
 }
 
 export type EasingType = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bezier";
@@ -602,4 +634,3 @@ export * from "./export";
 export * from "./gap";
 export * from "./serialization";
 export * from "./compositor";
-

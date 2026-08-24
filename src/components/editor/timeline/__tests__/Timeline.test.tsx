@@ -62,7 +62,7 @@ vi.mock("@/hooks/usePlaybackClock", () => ({
     play: vi.fn(),
     pause: vi.fn(),
     stop: vi.fn(),
-    seek: vi.fn(),
+    seek: seekMock,
     setSpeed: vi.fn(),
     setActiveContext: vi.fn(),
   }),
@@ -98,6 +98,9 @@ vi.mock("../Track", () => ({
     return (
       <div data-timeline-interactive="true" data-track-id={props.track.id} style={{ height: `${props.track.height}px` }}>
         Interactive Clip
+        {(props.clips ?? []).map((clip: any) => (
+          <div key={clip.id} data-clip-id={clip.id} data-testid={`mock-clip-${clip.id}`} />
+        ))}
       </div>
     );
   },
@@ -171,6 +174,248 @@ describe("Timeline click behavior", () => {
     fireEvent.click(screen.getByText("Playhead"));
 
     expect(seekMock).not.toHaveBeenCalled();
+  });
+
+  it("reveals a clip selected from the program preview", () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    useTimelineStore.setState({
+      tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [
+        {
+          id: "far-clip",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "m1",
+          startTime: 8,
+          duration: 3,
+          trimIn: 0,
+          trimOut: 3,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          opacity: 1,
+          rotation: 0,
+        },
+      ],
+      scrollLeft: 0,
+      pixelsPerSecond: 100,
+    });
+
+    const { container } = render(<Timeline />);
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+    const clip = screen.getByTestId("mock-clip-far-clip");
+
+    Object.defineProperty(scroller, "clientWidth", { value: 400, configurable: true });
+    Object.defineProperty(scroller, "scrollWidth", { value: 1200, configurable: true });
+    Object.defineProperty(scroller, "scrollLeft", { value: 0, writable: true, configurable: true });
+    scroller.getBoundingClientRect = () => ({
+      left: 0,
+      right: 400,
+      top: 0,
+      bottom: 120,
+      width: 400,
+      height: 120,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+    clip.getBoundingClientRect = () => ({
+      left: 500,
+      right: 600,
+      top: 30,
+      bottom: 80,
+      width: 100,
+      height: 50,
+      x: 500,
+      y: 30,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    act(() => {
+      useUIStore.getState().selectClip("far-clip");
+    });
+
+    expect(scroller.scrollLeft).toBeGreaterThan(0);
+    expect(useTimelineStore.getState().scrollLeft).toBeGreaterThan(0);
+    vi.unstubAllGlobals();
+  });
+
+  it("does not jump timeline scroll when selecting a clip whose end is currently visible", () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    useTimelineStore.setState({
+      tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [
+        {
+          id: "long-clip",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "m1",
+          startTime: 0,
+          duration: 30,
+          trimIn: 0,
+          trimOut: 30,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          opacity: 1,
+          rotation: 0,
+        },
+      ],
+      scrollLeft: 800,
+      pixelsPerSecond: 50,
+    });
+
+    const { container } = render(<Timeline />);
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+    const clip = screen.getByTestId("mock-clip-long-clip");
+
+    Object.defineProperty(scroller, "clientWidth", { value: 600, configurable: true });
+    Object.defineProperty(scroller, "scrollWidth", { value: 2000, configurable: true });
+    Object.defineProperty(scroller, "scrollLeft", { value: 800, writable: true, configurable: true });
+
+    // Scroller viewport from left=0 to right=600 (with label column 160px)
+    scroller.getBoundingClientRect = () => ({
+      left: 0,
+      right: 600,
+      top: 0,
+      bottom: 120,
+      width: 600,
+      height: 120,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    // Clip starts at -640 (offscreen left), ends at 400 (visible inside [160, 600])
+    clip.getBoundingClientRect = () => ({
+      left: -640,
+      right: 400,
+      top: 30,
+      bottom: 80,
+      width: 1040,
+      height: 50,
+      x: -640,
+      y: 30,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    act(() => {
+      useUIStore.getState().selectClip("long-clip");
+    });
+
+    // scrollLeft must NOT have jumped back to 0
+    expect(scroller.scrollLeft).toBe(800);
+    expect(useTimelineStore.getState().scrollLeft).toBe(800);
+    vi.unstubAllGlobals();
+  });
+
+  it("does not jump timeline scroll when selecting a clip that spans across the entire viewport", () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    useTimelineStore.setState({
+      tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [
+        {
+          id: "spanning-clip",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "m1",
+          startTime: 0,
+          duration: 60,
+          trimIn: 0,
+          trimOut: 60,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          opacity: 1,
+          rotation: 0,
+        },
+      ],
+      scrollLeft: 500,
+      pixelsPerSecond: 50,
+    });
+
+    const { container } = render(<Timeline />);
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+    const clip = screen.getByTestId("mock-clip-spanning-clip");
+
+    Object.defineProperty(scroller, "clientWidth", { value: 600, configurable: true });
+    Object.defineProperty(scroller, "scrollWidth", { value: 3000, configurable: true });
+    Object.defineProperty(scroller, "scrollLeft", { value: 500, writable: true, configurable: true });
+
+    scroller.getBoundingClientRect = () => ({
+      left: 0,
+      right: 600,
+      top: 0,
+      bottom: 120,
+      width: 600,
+      height: 120,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    // Clip starts at -340 (left of viewport), ends at 1200 (right of viewport)
+    clip.getBoundingClientRect = () => ({
+      left: -340,
+      right: 1200,
+      top: 30,
+      bottom: 80,
+      width: 1540,
+      height: 50,
+      x: -340,
+      y: 30,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    act(() => {
+      useUIStore.getState().selectClip("spanning-clip");
+    });
+
+    expect(scroller.scrollLeft).toBe(500);
+    expect(useTimelineStore.getState().scrollLeft).toBe(500);
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps a video inserted above the main track classified as B-roll", () => {
+    useTimelineStore.setState({
+      mainVideoTrackId: "track-main",
+      tracks: [
+        { id: "track-overlay", type: "video", name: "Overlay", muted: false, locked: false, visible: true, height: 68 },
+        { id: "track-main", type: "video", name: "Main", muted: false, locked: false, visible: true, height: 68 },
+      ],
+      clips: [
+        { id: "overlay-clip", trackId: "track-overlay", mediaId: "m-overlay", startTime: 0, duration: 1, trimIn: 0, trimOut: 1, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+        { id: "main-clip", trackId: "track-main", mediaId: "m-main", startTime: 0, duration: 1, trimIn: 0, trimOut: 1, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+      ],
+    });
+
+    render(<Timeline />);
+
+    const overlayProps = trackPropsSpy.mock.calls.map((call) => call[0]).find((props) => props.track.id === "track-overlay");
+    const mainProps = trackPropsSpy.mock.calls.map((call) => call[0]).find((props) => props.track.id === "track-main");
+
+    expect(overlayProps.visualSpec).toMatchObject({ role: "b-roll", height: 80 });
+    expect(overlayProps.track.height).toBe(80);
+    expect(mainProps.visualSpec).toMatchObject({ role: "a-roll", height: 80 });
+    expect(mainProps.track.height).toBe(80);
   });
 });
 

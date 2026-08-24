@@ -9,7 +9,7 @@
  * All audio voice synchronization runs imperatively on the animation frame loop.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { getPlaybackClock } from "@/core/playback/PlaybackClock";
 import { AudioEngine } from "@/core/audio/AudioEngine";
 import {
@@ -23,6 +23,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import { NativeAudioPreviewController, type NativeAudioPreviewSource } from "@/core/audio/nativeAudioPreviewController";
+import { expandCompoundClips } from "@/core/timeline/compoundClips";
 
 interface UseAudioSyncEngineOptions {
   audioEngine?: AudioEngine;
@@ -53,6 +54,7 @@ export function stopGlobalAudioEngine(): void {
 
 export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   const clips = useTimelineStore((s) => s.clips);
+  const expandedClips = useMemo(() => expandCompoundClips(clips), [clips]);
   const tracks = useTimelineStore((s) => s.tracks);
   const timelineEpoch = useTimelineStore((s) => s.epoch);
   const mediaAssets = useProjectStore((s) => s.mediaAssets);
@@ -70,7 +72,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   const nativeDisposeChainRef = useRef<Promise<void>>(Promise.resolve());
   const latestNativeSourceRef = useRef<NativeAudioPreviewSource | null>(null);
 
-  const timelineDuration = clips.reduce(
+  const timelineDuration = expandedClips.reduce(
     (maximum, clip) => Math.max(maximum, clip.startTime + clip.duration),
     0,
   );
@@ -83,7 +85,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
         frameRate: project.frameRate,
         duration: nativeDuration,
         audioTrackCount: tracks.filter((track) => track.type === "audio" && !track.muted).length,
-        clips,
+        clips: expandedClips,
         tracks,
         assets: mediaAssets,
       }
@@ -182,7 +184,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     project?.id,
     project?.duration,
     timelineEpoch,
-    clips,
+    expandedClips,
     tracks,
     mediaAssets,
   ]);
@@ -198,7 +200,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     if (!engine) return;
     const pool = engine.bufferPool;
 
-    for (const clip of clips) {
+    for (const clip of expandedClips) {
       const audioKey = clip.mediaId || clip.audioPath || clip.id;
       if (pool.has(audioKey)) continue;
 
@@ -223,7 +225,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
         });
       }
     }
-  }, [clips, mediaAssets]);
+  }, [expandedClips, mediaAssets]);
 
   // 2. High-performance RAF playback synchronizer loop (ZERO REACT DOM RE-RENDERS)
   useEffect(() => {
@@ -239,7 +241,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
       const speed = clock.speed;
 
       engine.syncPlayback(
-        clips,
+        expandedClips,
         tracks,
         currentTime,
         isPlaying,
@@ -265,7 +267,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
         rafRef.current = null;
       }
     };
-  }, [clips, tracks, options.volume, options.muted]);
+  }, [expandedClips, tracks, options.volume, options.muted]);
 
   // Keep this separate from the sync-loop effect. Timeline edits can recreate
   // the loop while playback continues and must not cut the audible voices.

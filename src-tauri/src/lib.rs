@@ -14,6 +14,7 @@ pub mod models;
 pub mod native_audio;
 pub mod native_core;
 pub mod preview_golden;
+pub mod sync_metrics;
 pub mod thumbnail_engine;
 pub mod wgpu_compositor;
 
@@ -91,6 +92,7 @@ pub fn run() {
                     let _ = init_thumbnail_engine(dir).await;
                 }
             });
+            sync_metrics::ensure_metrics_flush_loop();
 
             // Initialize Whisper download state
             app.manage(whisper::init_download_state());
@@ -113,7 +115,7 @@ pub fn run() {
                 commands::native_surface::NativeSurfaceRuntime::new(),
             )));
             app.manage(Arc::new(tokio::sync::Mutex::new(
-                commands::native_preview::NativePreviewFrameQueue::new(3),
+                commands::native_preview::NativePreviewFrameQueue::new(6),
             )));
             app.manage(Arc::new(Mutex::new(
                 commands::native_playback::NativePlaybackRuntime::new(),
@@ -189,6 +191,10 @@ pub fn run() {
             extract_poster_frame,
             extract_audio_artwork,
             extract_audio_track,
+            probe_media_streams,
+            start_audio_extraction,
+            cancel_media_job,
+            get_media_job_result,
             extract_waveform_data,
             transcribe_audio_local,
             save_project,
@@ -205,6 +211,7 @@ pub fn run() {
             render_native_video_project_frame,
             render_native_frame,
             queue_native_frame,
+            cancel_native_preview_requests,
             register_native_raster_asset,
             present_native_frame,
             get_native_frame_service_stats,
@@ -243,6 +250,7 @@ pub fn run() {
             get_render_artifacts_batch,
             check_coarse_baseline_cache,
             get_decode_metrics_snapshot,
+            get_sync_metrics_snapshot,
             get_disk_cache_stats,
             clear_disk_cache,
             set_cache_size_limit,

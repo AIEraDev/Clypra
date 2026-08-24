@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { TimelineToolbar } from "../TimelineToolbar";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
@@ -63,5 +63,28 @@ describe("TimelineToolbar zoom controls", () => {
     expect(useTimelineStore.getState().pixelsPerSecond).toBeCloseTo(125, 5);
     expect(scroller.scrollLeft).toBeCloseTo(150, 5);
     expect(useTimelineStore.getState().scrollLeft).toBeCloseTo(150, 5);
+  });
+
+  it("coalesces rapid slider movement into one animation-frame update", () => {
+    const callbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", { configurable: true, value: vi.fn() });
+    Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: vi.fn(() => true) });
+    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: vi.fn() });
+
+    render(<TimelineToolbar />);
+    const slider = screen.getByRole("slider", { name: "Timeline zoom" });
+
+    fireEvent.pointerDown(slider, { pointerId: 1, clientX: 100 });
+    fireEvent.pointerMove(slider, { pointerId: 1, clientX: 140 });
+    fireEvent.pointerMove(slider, { pointerId: 1, clientX: 180 });
+
+    expect(callbacks).toHaveLength(1);
+    act(() => callbacks[0](0));
+    expect(useTimelineStore.getState().zoomLevel).not.toBe(1);
   });
 });

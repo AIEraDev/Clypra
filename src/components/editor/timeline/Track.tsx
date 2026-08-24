@@ -10,14 +10,19 @@ import { TransitionIndicator } from "./TransitionIndicator";
 import { handleDropOnTrack } from "@/lib/timeline/timelineUtils";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 import { getTimelineLaneClientX } from "@/lib/timeline/timelineViewport";
+import { calculateDepartureClosurePositions } from "@/lib/timeline/clipPositions";
 import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
 import { resolveClipDuration } from "@/lib/timeline/timelineClip";
 import { useProjectStore } from "@/store/projectStore";
+import { getTrackVisualSpec, type TrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
+import { usePlaybackClock } from "@/hooks/usePlaybackClock";
+import { getActiveProgramBridgeClips } from "@/lib/timeline/programTimelineBridge";
 import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
 
 
 interface TrackProps {
   track: TrackType;
+  visualSpec?: TrackVisualSpec;
   pixelsPerSecond: number;
   clips: any[];
   onClipDragStart?: (clipId: string, startX: number, startY: number) => void;
@@ -38,17 +43,25 @@ interface TrackProps {
   };
 }
 
-const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, onClipContextMenu, onTrackContextMenu, dragState }) => {
+const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, onClipContextMenu, onTrackContextMenu, dragState }) => {
   const selectedClipIds = useUIStore((state) => state.selectedClipIds);
   const selectedGapId = useUIStore((state) => state.selectedGapId);
   const selectedTrackId = useUIStore((state) => state.selectedTrackId);
+  const previewMode = useUIStore((state) => state.previewMode);
   const gaps = useTimelineStore((state) => state.gaps ?? []);
   const transitions = useTimelineStore((state) => state.transitions ?? []);
   const allClips = useTimelineStore((state) => state.clips);
+  // Standalone track renders (including drag/drop previews and tests) may not
+  // provide the complete timeline store shape. The current track is enough
+  // for the visual-role fallback in that case.
+  const allTracks = useTimelineStore((state) => state.tracks ?? []);
+  const mainVideoTrackId = useTimelineStore((state) => state.mainVideoTrackId);
   const scrollLeft = useTimelineStore((state) => state.scrollLeft);
   const frameRate = useProjectStore((state) => state.project?.frameRate ?? 30);
+  const playbackTime = usePlaybackClock().time;
   const { getMediaAsset } = useTimeline();
   const [mediaDropPreview, setMediaDropPreview] = useState<{ startTime: number; duration: number; splitClipId: string | null; shiftedClipIds: string[] } | null>(null);
+  const visualSpec = visualSpecProp ?? getTrackVisualSpec(track, allTracks.length > 0 ? allTracks : [track], mainVideoTrackId);
 
   // Drop handler for media assets from MediaTab
   const [{ isOver, canDrop }, drop] = useDrop(
@@ -96,6 +109,11 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
   // No need to filter again - this was causing unnecessary re-computation
   const trackClips = clips;
 
+  const activeClipIds = useMemo(() => {
+    if (previewMode !== "program") return new Set<string>();
+    return new Set(getActiveProgramBridgeClips(allClips, playbackTime).map((clip) => clip.id));
+  }, [allClips, playbackTime, previewMode]);
+
   // Chronological order
   const sortedTrackClips = useMemo(() => [...trackClips].sort((a, b) => a.startTime - b.startTime), [trackClips]);
 
@@ -126,19 +144,15 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
 
     const isTargetTrack = dragState.targetTrackId === track.id;
 
-    // Source track: Show ripple closure (clips pack together)
+    // Source track: Show departure-gap closure while preserving earlier gaps.
     if (isDraggedFromThisTrack && !isTargetTrack) {
-      // Calculate positions without the dragged clips (they've "left" the track)
-      const displayMap = new Map<string, number>();
-      const draggedSet = new Set(dragState.draggedClipIds);
-      const restClips = sortedTrackClips.filter((c) => !draggedSet.has(c.id));
-
-      // Pack remaining clips tightly (no gaps)
-      let currentTime = 0;
-      for (const clip of restClips) {
-        displayMap.set(clip.id, currentTime);
-        currentTime += clip.duration;
-      }
+      // Preview the same departure closure that is committed on drop: shift
+      // only clips after the removed block, preserving earlier gaps.
+      const displayMap = calculateDepartureClosurePositions({
+        trackClips: sortedTrackClips,
+        draggedClipIds: dragState.draggedClipIds,
+        originalPlacements: dragState.originalPlacements,
+      });
 
       return {
         displayPositions: displayMap,
@@ -219,8 +233,8 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
       }}
       data-track-id={track.id}
       onContextMenu={handleTrackContextMenu}
-      className={`relative transition-colors mb-0 bg-surface-raised/40 ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-accent/10" : ""} ${track.locked ? "bg-slate-900/45" : ""}`}
-      style={{ height: `${track.height}px` }}
+      className={`relative transition-colors mb-0 bg-surface-raised/40 ${visualSpec.tone === "primary" ? "border-l-2 border-accent/70" : visualSpec.tone === "secondary" ? "border-l border-accent/30" : visualSpec.tone === "audio" ? "border-l border-white/15" : "border-l border-violet-400/25"} ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-accent/10" : ""} ${track.locked ? "bg-slate-900/45" : ""}`}
+      style={{ height: `${visualSpec.height}px` }}
     >
       {/* Clips layer */}
       {track.visible &&
@@ -252,8 +266,11 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
               clip={displayClip}
               mediaAsset={getMediaAsset(clip.mediaId)}
               pixelsPerSecond={pixelsPerSecond}
-              trackHeightPx={track.height}
+              trackHeightPx={visualSpec.height}
+              trackVisualRole={visualSpec.role}
+              trackVisualOpacity={visualSpec.opacity}
               selected={selectedClipIds.includes(clip.id)}
+              active={activeClipIds.has(clip.id)}
               locked={track.locked}
               onDragStart={onClipDragStart}
               onDragMove={onClipDragMove}
@@ -348,6 +365,16 @@ const arePropsEqual = (prevProps: TrackProps, nextProps: TrackProps) => {
 
   // Check pixelsPerSecond
   if (prevProps.pixelsPerSecond !== nextProps.pixelsPerSecond) {
+    return false;
+  }
+
+  const prevVisual = prevProps.visualSpec;
+  const nextVisual = nextProps.visualSpec;
+  if (
+    prevVisual?.role !== nextVisual?.role ||
+    prevVisual?.height !== nextVisual?.height ||
+    prevVisual?.opacity !== nextVisual?.opacity
+  ) {
     return false;
   }
 

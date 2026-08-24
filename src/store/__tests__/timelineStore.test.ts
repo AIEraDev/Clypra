@@ -20,6 +20,16 @@ describe("timelineStore clip operations", () => {
     });
   });
 
+  it("allows sequence-fit density below the normal edit density floor", () => {
+    const store = useTimelineStore.getState();
+
+    store.setPixelsPerSecond(0.0001, true);
+    expect(useTimelineStore.getState().pixelsPerSecond).toBe(0.0001);
+
+    store.setPixelsPerSecond(0.0001);
+    expect(useTimelineStore.getState().pixelsPerSecond).toBe(10);
+  });
+
   describe("transitions", () => {
     const makeClip = (id: string, startTime: number): Clip => ({
       id,

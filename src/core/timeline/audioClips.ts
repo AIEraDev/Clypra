@@ -10,6 +10,7 @@
 
 import type { Clip, Track, MediaAsset } from "@/types";
 import { toNativePath } from "@/lib/platform/pathConversion";
+import { expandCompoundClips } from "./compoundClips";
 
 export interface ExportAudioClipConfig {
   /** Stable timeline clip identity used by native mixer replacement. */
@@ -56,6 +57,7 @@ export interface ExportAudioClipConfig {
  * @returns Array of audio clip configurations ready for FFmpeg
  */
 export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: MediaAsset[], startTime: number, endTime: number): ExportAudioClipConfig[] {
+  clips = expandCompoundClips(clips);
   // Build map of track IDs to track objects (for muted status and track volume)
   const trackMap = new Map(tracks.map((t) => [t.id, t]));
   const activeTracks = new Set(tracks.filter((t) => !t.muted).map((t) => t.id));
@@ -68,7 +70,7 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       // Find asset
       const asset = assets.find((a) => a.id === clip.mediaId);
       const directAudioPath = (clip as any).audioPath as string | undefined;
-      const isAudioClip = asset?.type === "audio" || asset?.type === "video" || (clip.kind === "audio" && !!directAudioPath);
+      const isAudioClip = clip.kind === "audio" || asset?.type === "audio" || asset?.type === "video" || !!directAudioPath;
 
       if (!isAudioClip) return false;
 
@@ -80,7 +82,7 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
     .map((clip) => {
       const asset = assets.find((a) => a.id === clip.mediaId);
       const directAudioPath = (clip as any).audioPath as string | undefined;
-      const rawPath = asset ? asset.path : directAudioPath!;
+      const rawPath = directAudioPath || asset?.path || "";
       const track = trackMap.get(clip.trackId);
 
       // Calculate overlap with export time range

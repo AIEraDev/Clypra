@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Runtime limits used to protect the fast editing path during migration.
 /// Durations are integer microseconds; timestamps remain governed by FrameTime.
@@ -53,6 +54,28 @@ pub struct PerformanceSample {
     pub total_time_us: u32,
     pub bytes_transferred: u64,
     pub cache_hit: bool,
+    #[serde(default)]
+    pub generation: Option<u64>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub quality: Option<String>,
+    #[serde(default)]
+    pub strategy: Option<String>,
+    #[serde(default)]
+    pub cancelled: bool,
+    #[serde(default)]
+    pub stale: bool,
+    #[serde(default)]
+    pub dropped: bool,
+    #[serde(default)]
+    pub seek_time_us: u32,
+    #[serde(default)]
+    pub conversion_time_us: u32,
+    #[serde(default)]
+    pub upload_time_us: u32,
+    #[serde(default)]
+    pub present_time_us: u32,
 }
 
 impl PerformanceSample {
@@ -61,7 +84,7 @@ impl PerformanceSample {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeFrameServiceStats {
     pub total_requests: u64,
@@ -70,6 +93,40 @@ pub struct NativeFrameServiceStats {
     pub cached_entries: usize,
     pub cached_bytes: usize,
     pub last_sample: Option<PerformanceSample>,
+    #[serde(default)]
+    pub window_started_at_ms: u64,
+    #[serde(default)]
+    pub window_request_count: u64,
+    #[serde(default)]
+    pub window_dropped_frames: u64,
+    #[serde(default)]
+    pub window_stale_frames: u64,
+    #[serde(default)]
+    pub window_cancelled_frames: u64,
+    #[serde(default)]
+    pub window_seek_p50_ms: Option<f64>,
+    #[serde(default)]
+    pub window_seek_p95_ms: Option<f64>,
+    #[serde(default)]
+    pub window_seek_p99_ms: Option<f64>,
+    #[serde(default)]
+    pub window_cache_hit_rate: f64,
+}
+
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
+        .unwrap_or(0)
+}
+
+pub fn percentile_ms(samples: &mut [u32], percentile: f64) -> Option<f64> {
+    if samples.is_empty() {
+        return None;
+    }
+    samples.sort_unstable();
+    let index = ((samples.len() - 1) as f64 * percentile).round() as usize;
+    samples.get(index).map(|value| *value as f64 / 1000.0)
 }
 
 #[cfg(test)]
@@ -96,7 +153,25 @@ mod tests {
             total_time_us: 17_000,
             bytes_transferred: 1_024,
             cache_hit: false,
+            generation: None,
+            mode: None,
+            quality: None,
+            strategy: None,
+            cancelled: false,
+            stale: false,
+            dropped: false,
+            seek_time_us: 0,
+            conversion_time_us: 0,
+            upload_time_us: 0,
+            present_time_us: 0,
         };
         assert!(sample.exceeds_render_budget(&budget));
+    }
+
+    #[test]
+    fn percentile_metrics_are_sorted_and_reported_in_milliseconds() {
+        let mut values = vec![30_000, 10_000, 20_000];
+        assert_eq!(percentile_ms(&mut values, 0.50), Some(20.0));
+        assert_eq!(percentile_ms(&mut [], 0.95), None);
     }
 }

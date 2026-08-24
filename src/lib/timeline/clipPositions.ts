@@ -29,6 +29,50 @@ export interface DisplayPositionsInput {
   insertionIndex: number;
 }
 
+export interface OriginalClipPlacement {
+  trackId: string;
+  startTime: number;
+  index: number;
+}
+
+/**
+ * Calculate the committed positions after dragged clips leave a track.
+ *
+ * Only the time occupied by the removed block is closed. Any gap before the
+ * block is preserved, so moving a clip does not unexpectedly pack the entire
+ * source track to time zero.
+ */
+export function calculateDepartureClosurePositions(input: {
+  trackClips: Clip[];
+  draggedClipIds: string[];
+  originalPlacements: Record<string, OriginalClipPlacement>;
+}): Map<string, number> {
+  const { trackClips, draggedClipIds, originalPlacements } = input;
+  const draggedSet = new Set(draggedClipIds);
+  const draggedClips = trackClips.filter((clip) => draggedSet.has(clip.id));
+  if (draggedClips.length === 0) return new Map();
+
+  const blockStart = Math.min(
+    ...draggedClips.map((clip) => originalPlacements[clip.id]?.startTime ?? clip.startTime),
+  );
+  const blockEnd = Math.max(
+    ...draggedClips.map((clip) => {
+      const startTime = originalPlacements[clip.id]?.startTime ?? clip.startTime;
+      return startTime + clip.duration;
+    }),
+  );
+  const removedDuration = Math.max(0, blockEnd - blockStart);
+  const positions = new Map<string, number>();
+
+  for (const clip of trackClips) {
+    if (draggedSet.has(clip.id)) continue;
+    const shouldShift = clip.startTime >= blockEnd - 0.001;
+    positions.set(clip.id, shouldShift ? Math.max(0, clip.startTime - removedDuration) : clip.startTime);
+  }
+
+  return positions;
+}
+
 /**
  * Calculate display positions for all clips on a track during drag.
  *

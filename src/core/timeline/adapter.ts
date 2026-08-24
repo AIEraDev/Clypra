@@ -7,6 +7,7 @@
 
 import type { Clip, Track } from "@/types";
 import type { CompositorClip, ClipRole } from "../compositor/types";
+import { expandCompoundClips } from "./compoundClips";
 
 /**
  * Convert legacy Clip to CompositorClip.
@@ -47,7 +48,7 @@ export function toCompositorClip(clip: Clip, tracks: Track[]): CompositorClip {
  * Convert multiple legacy clips to compositor clips.
  */
 export function toCompositorClips(clips: Clip[], tracks: Track[]): CompositorClip[] {
-  return clips.map((clip) => toCompositorClip(clip, tracks));
+  return expandCompoundClips(clips).map((clip) => toCompositorClip(clip, tracks));
 }
 
 /**

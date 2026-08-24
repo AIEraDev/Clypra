@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, RefObject } from "react";
-import { useTimelineStore, getInsertIndexForNewTrack, getInsertIndexForNewTrackSmart } from "@/store/timelineStore";
+import { useTimelineStore, getInsertIndexForNewTrackSmart } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
 import type { Clip } from "@/types";
@@ -13,6 +13,8 @@ import { findSnap, type SnapResult } from "@/lib/timeline/snapTargets";
 import { classifyDropTarget, type DropTarget } from "@/lib/timeline/dropTarget";
 import { buildPlacementPreview, createPreviewKey, type PlacementPreview } from "@/lib/timeline/placementPreview";
 import { TIMELINE_TRACK_LABEL_WIDTH_PX } from "@/lib/timeline/timelineViewport";
+import { useHistoryStore } from "@/store/historyStore";
+import { buildTimelineDragCommand } from "@/core/history/commands/TimelineDragCommand";
 
 const DRAG_RENDER_EPSILON_PX = 0.25;
 const EDGE_HIT_WIDTH_PX = 8; // Screen-space edge detection (stable at any zoom)
@@ -219,7 +221,7 @@ export interface DragState {
 }
 
 export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) {
-  const { tracks, clips, updateClip, withBatch, normalizeTrack, insertClipAtIndex, removeEmptyNonMainTracks, setSnapGuides, clearSnapGuides } = useTimelineStore();
+  const { tracks, clips, setSnapGuides, clearSnapGuides } = useTimelineStore();
   const snapEnabled = useTimelineStore((state) => state.snapEnabled);
   const clockState = usePlaybackClock();
   const currentTime = clockState.time;
@@ -655,8 +657,6 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
         return;
       }
 
-      const sourceTrackIds = Array.from(new Set(Object.values(dragSnapshot.originalPlacements).map((p) => p.trackId)));
-
       if (dragSnapshot.isInvalidPosition) {
         dragStateRef.current = null;
         setDragState(null);
@@ -687,33 +687,17 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
           newTrackPosition: dragSnapshot.newTrackPosition,
           betweenTrackIds: dragSnapshot.betweenTrackIds,
         });
-        const newTrackId = store.insertTrackAt(trackType, insertIndex);
-
-        const orderedDragged = [...dragSnapshot.draggedClipIds].sort((a, b) => {
-          const pa = dragSnapshot.originalPlacements[a];
-          const pb = dragSnapshot.originalPlacements[b];
-          if (!pa || !pb) return a.localeCompare(b);
-          if (pa.startTime !== pb.startTime) return pa.startTime - pb.startTime;
-          return a.localeCompare(b);
+        const command = buildTimelineDragCommand({
+          state: store,
+          drag: dragSnapshot,
+          clip,
+          trackType,
+          snapEnabled,
+          currentTime,
+          pixelsPerSecond: store.pixelsPerSecond,
+          newTrackInsertIndex: insertIndex,
         });
-
-        const baseStartTime = 0; // New track: clips land at time 0
-        const primaryDraggedId = dragSnapshot.draggingClipId ?? dragSnapshot.draggedClipIds[0];
-        const primaryOriginalStart = (primaryDraggedId ? dragSnapshot.originalPlacements[primaryDraggedId]?.startTime : undefined) ?? 0;
-
-        withBatch(() => {
-          orderedDragged.forEach((id) => {
-            const placement = dragSnapshot.originalPlacements[id];
-            if (!placement) return;
-            const relativeStartOffset = placement.startTime - primaryOriginalStart;
-            updateClip(id, {
-              trackId: newTrackId,
-              startTime: Math.max(0, baseStartTime + relativeStartOffset),
-            });
-          });
-        });
-
-        removeEmptyNonMainTracks(sourceTrackIds);
+        if (command) useHistoryStore.getState().execute(command);
         dragStateRef.current = null;
         setDragState(null);
         clearQueuedDragMove();
@@ -731,156 +715,45 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
       }
 
       const dropTarget = dragSnapshot.dropTarget;
-      const preview = dragSnapshot.placementPreview;
-      const sourceTrackId = dragSnapshot.originalTrackId;
 
       switch (dropTarget.type) {
         case "insert": {
-          // Use preview's insertion index (already resolved from clip identity)
-          const insertionIndex = preview.type === "insert" ? preview.insertionIndex : 0;
-
-          const orderedDragged = [...dragSnapshot.draggedClipIds].sort((a, b) => {
-            const pa = dragSnapshot.originalPlacements[a];
-            const pb = dragSnapshot.originalPlacements[b];
-            if (!pa || !pb) return a.localeCompare(b);
-            if (pa.startTime !== pb.startTime) return pa.startTime - pb.startTime;
-            return a.localeCompare(b);
-          });
-
-          withBatch(() => {
-            orderedDragged.forEach((id, i) => {
-              insertClipAtIndex(id, dragSnapshot.targetTrackId!, insertionIndex + i);
-            });
-          });
-
-          // DON'T call normalizeTrack() - gaps preserved automatically!
-          // The prefix-sum algorithm closes departure gap naturally.
-
-          // Detect and sync gaps after drag operation
           const store = useTimelineStore.getState();
-          if (sourceTrackId !== dragSnapshot.targetTrackId) {
-            // Cross-track: detect gaps on source track (departure gap)
-            store.detectAndSyncGaps(sourceTrackId);
-          }
-          // Also sync target track gaps
-          store.detectAndSyncGaps(dragSnapshot.targetTrackId);
+          const command = buildTimelineDragCommand({
+            state: store,
+            drag: dragSnapshot,
+            clip,
+            snapEnabled,
+            currentTime,
+            pixelsPerSecond: store.pixelsPerSecond,
+          });
+          if (command) useHistoryStore.getState().execute(command);
 
           break;
         }
 
         case "gap":
         case "append": {
-          // Free positioning - ONLY allow drops in valid gaps, reject overlaps
-          const primaryDraggedId = dragSnapshot.draggingClipId ?? dragSnapshot.draggedClipIds[0];
-          const primaryOriginalStart = dragSnapshot.originalPlacements[primaryDraggedId]?.startTime ?? 0;
-
-          // Calculate the time offset for the entire selection
-          const baseStartTime = dropTarget.startTime;
-
-          // Get LATEST clips from store (not stale closure)
-          const liveClips = useTimelineStore.getState().clips;
-
-          // Get all clips on target track (excluding dragged clips)
-          const targetTrackClips = liveClips.filter((c) => c.trackId === dragSnapshot.targetTrackId && !dragSnapshot.draggedClipIds.includes(c.id)).sort((a, b) => a.startTime - b.startTime);
-
-          // Sort dragged clips by their original order
-          const orderedDragged = [...dragSnapshot.draggedClipIds]
-            .map((id) => {
-              const placement = dragSnapshot.originalPlacements[id];
-              return { id, startTime: placement?.startTime ?? 0 };
-            })
-            .sort((a, b) => a.startTime - b.startTime);
-
-          // Calculate positions for dragged clips (maintaining relative spacing)
-          const draggedClipsWithPositions = orderedDragged
-            .map((item) => {
-              const clip = liveClips.find((c) => c.id === item.id);
-              if (!clip) {
-                console.error(`[DRAG ERROR] Clip not found: ${item.id}`);
-                return null;
-              }
-              const relativeOffset = item.startTime - primaryOriginalStart;
-              return {
-                clip,
-                desiredStartTime: baseStartTime + relativeOffset,
-              };
-            })
-            .filter((item): item is NonNullable<typeof item> => item !== null);
-
-          // VALIDATE: Check if ALL dragged clips fit without overlapping
-          let isValidDrop = true;
-          const proposedPositions: Array<{ clipId: string; startTime: number }> = [];
-
-          for (const { clip, desiredStartTime } of draggedClipsWithPositions) {
-            const finalStartTime = Math.max(0, desiredStartTime);
-            const clipEnd = finalStartTime + clip.duration;
-
-            // Check for overlap with existing clips
-            for (const existingClip of targetTrackClips) {
-              const existingEnd = existingClip.startTime + existingClip.duration;
-
-              // Check if there's any overlap
-              if (finalStartTime < existingEnd - 0.001 && clipEnd > existingClip.startTime + 0.001) {
-                // Overlap detected - drop is invalid
-                isValidDrop = false;
-                break;
-              }
-            }
-
-            if (!isValidDrop) break;
-
-            // Also check for overlap with other dragged clips (shouldn't happen, but safety check)
-            for (const other of proposedPositions) {
-              const otherClip = liveClips.find((c) => c.id === other.clipId);
-              if (!otherClip) continue;
-
-              const otherEnd = other.startTime + otherClip.duration;
-              if (finalStartTime < otherEnd - 0.001 && clipEnd > other.startTime + 0.001) {
-                isValidDrop = false;
-                break;
-              }
-            }
-
-            if (!isValidDrop) break;
-
-            proposedPositions.push({ clipId: clip.id, startTime: finalStartTime });
-          }
-
-          // Only apply the drop if it's valid (no overlaps)
-          if (isValidDrop) {
-            withBatch(() => {
-              proposedPositions.forEach(({ clipId, startTime }) => {
-                updateClip(clipId, {
-                  startTime,
-                  trackId: dragSnapshot.targetTrackId!,
-                });
-              });
-            });
-
-            // Detect and sync gaps after successful drop
-            const store = useTimelineStore.getState();
-            if (sourceTrackId !== dragSnapshot.targetTrackId) {
-              // Cross-track: detect gaps on source track
-              store.detectAndSyncGaps(sourceTrackId);
-            }
-            // Also sync target track gaps
-            store.detectAndSyncGaps(dragSnapshot.targetTrackId);
-          } else {
-            // Invalid drop - clips would overlap
-            // Do nothing, clips stay in original position
-            console.log("[DRAG] Drop rejected: would cause overlap");
-          }
+          const store = useTimelineStore.getState();
+          const command = buildTimelineDragCommand({
+            state: store,
+            drag: dragSnapshot,
+            clip,
+            snapEnabled,
+            currentTime,
+            pixelsPerSecond: store.pixelsPerSecond,
+          });
+          if (command) useHistoryStore.getState().execute(command);
           break;
         }
       }
 
-      removeEmptyNonMainTracks(sourceTrackIds);
       dragStateRef.current = null;
       setDragState(null);
       clearQueuedDragMove();
       resumeAutoSave();
     },
-    [flushQueuedClipDragMove, clearQueuedDragMove, updateClip, insertClipAtIndex, removeEmptyNonMainTracks, withBatch, clearSnapGuides],
+    [flushQueuedClipDragMove, clearQueuedDragMove, clearSnapGuides, snapEnabled, currentTime],
   );
 
   // Handle ESC key to cancel drag

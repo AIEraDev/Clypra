@@ -80,8 +80,8 @@ describe("NativePreviewFrameScheduler", () => {
     scheduler.prefetch([makeSource(3)]);
 
     resolveFrame(pending, 1);
-    await vi.waitFor(() => expect(load).toHaveBeenCalledWith(makeRequest(3)));
-    expect(load).not.toHaveBeenCalledWith(makeRequest(2));
+    await vi.waitFor(() => expect(load).toHaveBeenCalledWith(makeRequest(3), expect.any(AbortSignal)));
+    expect(load).not.toHaveBeenCalledWith(makeRequest(2), expect.any(AbortSignal));
 
     resolveFrame(pending, 3);
     scheduler.dispose();
@@ -115,6 +115,38 @@ describe("NativePreviewFrameScheduler", () => {
     await scheduler.requestVisible(makeSource(1));
 
     expect(load).toHaveBeenCalledTimes(4);
+    scheduler.dispose();
+  });
+
+  it("aborts obsolete visible work and keeps only the newest generation cacheable", async () => {
+    const pending = new Map<number, { resolve: (frame: NativePreviewFrame) => void; signal?: AbortSignal }>();
+    const load = vi.fn((request: NativeFrameRequest, signal?: AbortSignal) => new Promise<NativePreviewFrame>((resolve) => {
+      pending.set(request.frameTime.frameIndex, { resolve, signal });
+    }));
+    const scheduler = new NativePreviewFrameScheduler({ load });
+
+    const old = scheduler.requestVisible({ ...makeSource(1), generation: 1 });
+    const current = scheduler.requestVisible({ ...makeSource(2), generation: 2 });
+
+    expect(pending.get(1)?.signal?.aborted).toBe(true);
+    pending.get(1)?.resolve(makeFrame(1));
+    pending.get(2)?.resolve(makeFrame(2));
+    await expect(old).resolves.toEqual(makeFrame(1));
+    await expect(current).resolves.toEqual(makeFrame(2));
+    expect(scheduler.getCached("frame-1")).toBeNull();
+    expect(scheduler.getCached("frame-2")).toEqual(makeFrame(2));
+    scheduler.dispose();
+  });
+
+  it("clears queued work when the visible generation advances", () => {
+    const load = vi.fn(async (request: NativeFrameRequest) => makeFrame(request.frameTime.frameIndex));
+    const scheduler = new NativePreviewFrameScheduler({ load, maxInFlight: 1 });
+
+    scheduler.prefetch([{ ...makeSource(1), generation: 1 }]);
+    scheduler.setVisibleGeneration(2);
+    scheduler.prefetch([{ ...makeSource(2), generation: 2 }]);
+
+    expect(load).not.toHaveBeenCalledWith(makeRequest(1));
     scheduler.dispose();
   });
 });

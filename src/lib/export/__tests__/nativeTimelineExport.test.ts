@@ -192,4 +192,40 @@ describe("analyzeNativeTimelineExport", () => {
       reasons: ["Clip clip uses compositor-only visual settings"],
     });
   });
+
+  it("expands a compound into its visual children before building the native plan", () => {
+    const compound: Clip = {
+      ...clip({ id: "compound-1", mediaId: "compound-compound-1", startTime: 0, duration: 9, trimIn: 0, trimOut: 9 }),
+      kind: "compound",
+      compoundChildren: [
+        clip({ id: "child-a", startTime: 0, duration: 3, trimIn: 10, trimOut: 13 }),
+        clip({ id: "child-b", startTime: 3, duration: 6, trimIn: 0, trimOut: 6, mediaId: "ident" }),
+      ],
+    };
+
+    const result = analyzeNativeTimelineExport({
+      clips: [compound],
+      tracks,
+      transitions: [],
+      assets,
+      project,
+      startTime: 0,
+      endTime: 9,
+      outputPath: "/output/compound.mp4",
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      codec: "h264",
+      preset: "fast",
+      crf: 23,
+      pixelFormat: "yuv420p",
+    });
+
+    expect(result.eligible).toBe(true);
+    if (!result.eligible) return;
+    expect(result.plan.clips.map((planned) => [planned.path, planned.trimIn, planned.duration])).toEqual([
+      ["/media/main.mov", 10, 3],
+      ["/media/ident.mp4", 0, 6],
+    ]);
+  });
 });

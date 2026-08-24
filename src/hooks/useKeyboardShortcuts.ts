@@ -11,13 +11,14 @@ import { EditingActions } from "@/core/interactions";
 import { generateId } from "@/lib/utils/id";
 import { useAnchoredTimelineZoom } from "./timeline/useAnchoredTimelineZoom";
 import { toast } from "@/lib/toast";
+import { formatSplitMessage } from "@/lib/timeline/clipName";
 
 import { clipboardService } from "@/core/clipboard/clipboardService";
 
 export const useKeyboardShortcuts = () => {
   const { pause, seek, setActiveContext, togglePlayback } = useTransportControls();
   const { time: transportTime } = useTransportSnapshot();
-  const { swapClips, addMarker } = useTimelineStore();
+  const { addMarker } = useTimelineStore();
   const { selectedClipIds, selectClip, selectTrack, previewMode, exitSourceMode, markSourceIn, markSourceOut } = useUIStore();
   const { project } = useProjectStore();
   const { undo, redo } = useHistoryStore();
@@ -119,6 +120,14 @@ export const useKeyboardShortcuts = () => {
 
       // ─── Program mode shortcuts ──────────────────────────────────────────
 
+      if (useShortcutStore.getState().getMatchingAction(e) === "group-clips") {
+        e.preventDefault();
+        const result = EditingActions.groupSelectedClips(selectedClipIds);
+        if (result.success) toast.success("Grouped clips");
+        else if (result.error) toast.error(result.error);
+        return;
+      }
+
       if (isMeta && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -143,7 +152,7 @@ export const useKeyboardShortcuts = () => {
         clipboardService.pasteClips(transportTime);
       } else if (isMeta && e.shiftKey && e.key === "S") {
         e.preventDefault();
-        const result = swapClips();
+        const result = EditingActions.swapSelectedClips();
         if (result.error) {
           toast.error(result.error);
         }
@@ -170,7 +179,11 @@ export const useKeyboardShortcuts = () => {
             toast.info("No clips under playhead to split");
           } else {
             const successCount = results.filter((r) => r.success).length;
-            toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+            if (successCount > 0) {
+              toast.success(formatSplitMessage(results));
+            } else {
+              toast.error(results.find((result) => result.error)?.error || "Split failed");
+            }
           }
         } else {
           // PB-HIDDEN-005 fix: Ctrl+K splits only SELECTED clips at playhead
@@ -183,7 +196,11 @@ export const useKeyboardShortcuts = () => {
               toast.info("No selected clips under playhead to split");
             } else {
               const successCount = results.filter((r) => r.success).length;
-              toast.success(`Split ${successCount} selected clip${successCount > 1 ? "s" : ""}`);
+              if (successCount > 0) {
+                toast.success(formatSplitMessage(results));
+              } else {
+                toast.error(results.find((result) => result.error)?.error || "Split failed");
+              }
             }
           } else {
             // No selection — fall back to split all
@@ -192,7 +209,11 @@ export const useKeyboardShortcuts = () => {
               toast.info("No clips under playhead to split");
             } else {
               const successCount = results.filter((r) => r.success).length;
-              toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+              if (successCount > 0) {
+                toast.success(formatSplitMessage(results));
+              } else {
+                toast.error(results.find((result) => result.error)?.error || "Split failed");
+              }
             }
           }
         }
@@ -393,7 +414,7 @@ export const useKeyboardShortcuts = () => {
           const failCount = results.length - successCount;
 
           if (successCount > 0) {
-            toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+            toast.success(formatSplitMessage(results));
           } else if (failCount > 0) {
             toast.error(results[0].error || "Split failed");
           }
@@ -421,7 +442,7 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, pause, seek, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, swapClips, addMarker, undo, redo]);
+  }, [transportTime, frameRate, selectedClipIds, previewMode, togglePlayback, pause, seek, setActiveContext, zoomByStep, fitSequence, selectClip, selectTrack, exitSourceMode, markSourceIn, markSourceOut, addMarker, undo, redo]);
 
   return { toastMessage: null };
 };

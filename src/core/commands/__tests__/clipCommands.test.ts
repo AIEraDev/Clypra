@@ -137,6 +137,20 @@ describe("clipCommands registry", () => {
     expect(splitCmd.disabledReason?.(ctxLocked)).toBe("Clip is on a locked track");
   });
 
+  it("keeps Split All enabled when an unselected clip is under the playhead", () => {
+    const splitAllCmd = clipCommands.find((c) => c.id === "clip.splitAllAtPlayhead")!;
+    const ctx: ClipCommandContext = {
+      selectedClipIds: ["clip-2"],
+      clickedClipId: "clip-2",
+      playheadTime: 5,
+      clips: sampleClips,
+      tracks: sampleTracks,
+    };
+
+    expect(splitAllCmd.isVisible(ctx)).toBe(true);
+    expect(splitAllCmd.isEnabled(ctx)).toBe(true);
+  });
+
   it("evaluates clip.swap correctly: only enabled when exactly 2 clips are selected", () => {
     const swapCmd = clipCommands.find((c) => c.id === "clip.swap")!;
     expect(swapCmd).toBeDefined();
@@ -213,5 +227,94 @@ describe("clipCommands registry", () => {
     const duplicated = useTimelineStore.getState().clips.find((c) => c.id === dupIds[0])!;
     expect(duplicated).toBeDefined();
     expect(duplicated.startTime).toBe(20); // clip-2 start (15) + duration (5) = 20
+  });
+
+  it("preserves full clip metadata through copy/paste and duplicate", () => {
+    const audioTrack: Track = { id: "track-a1", type: "audio", name: "Audio", muted: false, locked: false, visible: true, height: 52 };
+    const detachedAudio: Clip & { futureMetadata?: { preserve: boolean } } = {
+      ...sampleClips[0],
+      id: "detached-audio",
+      trackId: audioTrack.id,
+      kind: "audio",
+      audioPath: "/media/source.mp4",
+      detachedFromClipId: "clip-1",
+      futureMetadata: { preserve: true },
+    };
+    const compound: Clip = {
+      ...sampleClips[0],
+      id: "compound-1",
+      kind: "compound",
+      mediaId: "compound-compound-1",
+      name: "Compound (2 clips)",
+      compoundPreview: "data:image/png;base64,preview",
+      compoundChildren: [
+        { ...sampleClips[0], id: "child-1", startTime: 0, duration: 2 },
+        { ...sampleClips[1], id: "child-2", startTime: 4, duration: 1 },
+      ],
+    };
+
+    useTimelineStore.setState({
+      tracks: [...sampleTracks, audioTrack],
+      clips: [detachedAudio, compound],
+    });
+
+    clipboardService.copyClips([detachedAudio.id]);
+    const pastedAudioId = clipboardService.pasteClips(25, audioTrack.id)[0];
+    const pastedAudio = useTimelineStore.getState().clips.find((clip) => clip.id === pastedAudioId) as Clip & { futureMetadata?: { preserve: boolean } };
+    expect(pastedAudio).toMatchObject({
+      kind: "audio",
+      audioPath: "/media/source.mp4",
+      detachedFromClipId: "clip-1",
+      futureMetadata: { preserve: true },
+    });
+
+    clipboardService.copyClips([compound.id]);
+    const pastedCompoundId = clipboardService.pasteClips(40, "track-v1")[0];
+    const pastedCompound = useTimelineStore.getState().clips.find((clip) => clip.id === pastedCompoundId)!;
+    expect(pastedCompound).toMatchObject({
+      kind: "compound",
+      compoundPreview: "data:image/png;base64,preview",
+    });
+    expect(pastedCompound.compoundChildren?.map((child) => child.id)).toEqual(["child-1", "child-2"]);
+
+    const duplicatedAudioId = clipboardService.duplicateClips([detachedAudio.id])[0];
+    const duplicatedAudio = useTimelineStore.getState().clips.find((clip) => clip.id === duplicatedAudioId)!;
+    expect(duplicatedAudio).toMatchObject({
+      kind: "audio",
+      audioPath: "/media/source.mp4",
+      detachedFromClipId: "clip-1",
+      futureMetadata: { preserve: true },
+    });
+  });
+
+  it("regenerates every ID in a duplicated compound clip tree", () => {
+    const compound: Clip = {
+      ...sampleClips[0],
+      id: "compound-source",
+      kind: "compound",
+      compoundChildren: [
+        { ...sampleClips[0], id: "child-source-1", startTime: 0, duration: 2 },
+        {
+          ...sampleClips[1],
+          id: "child-source-2",
+          startTime: 2,
+          duration: 1,
+          compoundChildren: [{ ...sampleClips[1], id: "grandchild-source", startTime: 0, duration: 0.5 }],
+        },
+      ],
+    };
+    useTimelineStore.setState({ clips: [compound] });
+
+    const duplicatedId = clipboardService.duplicateClips([compound.id])[0];
+    const duplicated = useTimelineStore.getState().clips.find((clip) => clip.id === duplicatedId)!;
+    const sourceIds = [compound.id, "child-source-1", "child-source-2", "grandchild-source"];
+    const duplicatedTreeIds = [
+      duplicated.id,
+      ...(duplicated.compoundChildren ?? []).flatMap((child) => [child.id, ...(child.compoundChildren ?? []).map((grandchild) => grandchild.id)]),
+    ];
+
+    expect(duplicated.kind).toBe("compound");
+    expect(new Set(duplicatedTreeIds).size).toBe(duplicatedTreeIds.length);
+    expect(duplicatedTreeIds.every((id) => !sourceIds.includes(id))).toBe(true);
   });
 });

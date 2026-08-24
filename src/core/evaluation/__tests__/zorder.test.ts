@@ -328,6 +328,24 @@ describe("Z-Order and Track Compositing", () => {
       expect(scene.audioLayers.some((l) => l.clipId === "audio")).toBe(true);
     });
 
+    it("does not render detached audio backed by a video asset as a visual layer", () => {
+      const tracks = [createTrack("t0", "video"), createTrack("t1", "audio")];
+      const assets = [createVideoAsset("v1", "video.mp4")];
+      const detachedAudio = {
+        ...createVideoClip("audio", "t1", "v1"),
+        kind: "audio",
+        audioPath: "/path/to/video.mp4",
+        detachedFromClipId: "video",
+        role: "audio",
+      } as Clip;
+
+      const scene = evaluateScene(5, [detachedAudio], tracks, assets, project);
+
+      expect(scene.visualLayers).toHaveLength(0);
+      expect(scene.audioLayers).toHaveLength(1);
+      expect(scene.audioLayers[0].clipId).toBe("audio");
+    });
+
     it("maintains order regardless of opacity", () => {
       const tracks = [createTrack("t0"), createTrack("t1")];
       const assets = [createImageAsset("i1", "transparent.png"), createVideoAsset("v1", "background.mp4")];

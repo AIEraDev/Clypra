@@ -375,6 +375,8 @@ pub struct RasterLayerSnapshot {
 pub struct ProjectSnapshot {
     pub schema_version: u32,
     pub project_revision: String,
+    #[serde(default = "default_frame_rate")]
+    pub frame_rate: u32,
     pub canvas_width: u32,
     pub canvas_height: u32,
     pub clear_color: [f32; 4],
@@ -383,6 +385,10 @@ pub struct ProjectSnapshot {
     pub raster_layers: Vec<RasterLayerSnapshot>,
     #[serde(default)]
     pub transition: Option<TransitionSnapshot>,
+}
+
+fn default_frame_rate() -> u32 {
+    30
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,6 +403,14 @@ pub struct FrameRequest {
     pub quality: QualityTier,
     pub color_policy: ColorPolicy,
     pub render_graph_version: u32,
+    #[serde(default)]
+    pub generation: Option<u64>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub scrub_velocity_px_per_second: Option<f64>,
+    #[serde(default)]
+    pub requested_at_ms: Option<f64>,
 }
 
 impl FrameRequest {
@@ -430,6 +444,22 @@ impl FrameRequest {
         if self.output_width > 8192 || self.output_height > 8192 {
             return Err(NativeCoreError::InvalidContract(
                 "FrameRequest output dimensions exceed the native limit".to_string(),
+            ));
+        }
+        if let Some(mode) = self.mode.as_deref() {
+            if !matches!(mode, "playback" | "scrub" | "seek" | "frameStep") {
+                return Err(NativeCoreError::InvalidContract(
+                    "FrameRequest mode is not supported".to_string(),
+                ));
+            }
+        }
+        if self
+            .scrub_velocity_px_per_second
+            .map(|velocity| !velocity.is_finite())
+            .unwrap_or(false)
+        {
+            return Err(NativeCoreError::InvalidContract(
+                "FrameRequest scrub velocity must be finite".to_string(),
             ));
         }
         if self.project.canvas_width == 0 || self.project.canvas_height == 0 {
@@ -811,7 +841,16 @@ impl FrameRequest {
 
     pub fn cache_key(&self) -> Result<String, NativeCoreError> {
         self.validate()?;
-        let bytes = serde_json::to_vec(self).map_err(|error| {
+        // Request identity controls cancellation/telemetry, not decoded-frame
+        // identity. Keep those fields out of the cache key so a new seek
+        // generation can reuse an already-rendered exact frame.
+        let mut cache_request = self.clone();
+        cache_request.request_id.clear();
+        cache_request.generation = None;
+        cache_request.mode = None;
+        cache_request.scrub_velocity_px_per_second = None;
+        cache_request.requested_at_ms = None;
+        let bytes = serde_json::to_vec(&cache_request).map_err(|error| {
             NativeCoreError::InvalidContract(format!("Unable to serialize FrameRequest: {error}"))
         })?;
         let digest = Sha256::digest(bytes);
@@ -872,6 +911,7 @@ mod tests {
             project: ProjectSnapshot {
                 schema_version: 1,
                 project_revision: "project-rev-1".to_string(),
+                frame_rate: 30,
                 canvas_width: 1920,
                 canvas_height: 1080,
                 clear_color: [0.0, 0.0, 0.0, 1.0],
@@ -899,6 +939,10 @@ mod tests {
             quality: QualityTier::Full,
             color_policy: ColorPolicy::default(),
             render_graph_version: 1,
+            generation: None,
+            mode: None,
+            scrub_velocity_px_per_second: None,
+            requested_at_ms: None,
         }
     }
 
@@ -918,6 +962,27 @@ mod tests {
         let mut third = first;
         third.color_policy.version += 1;
         assert_ne!(first_key, third.cache_key().unwrap());
+    }
+
+    #[test]
+    fn request_cache_key_ignores_seek_generation_metadata() {
+        let mut first = request();
+        first.generation = Some(1);
+        first.mode = Some("scrub".to_string());
+        first.scrub_velocity_px_per_second = Some(2_000.0);
+        let mut second = first.clone();
+        second.generation = Some(2);
+        second.mode = Some("seek".to_string());
+        second.scrub_velocity_px_per_second = Some(0.0);
+
+        assert_eq!(first.cache_key().unwrap(), second.cache_key().unwrap());
+    }
+
+    #[test]
+    fn request_validation_rejects_unknown_seek_modes() {
+        let mut invalid = request();
+        invalid.mode = Some("unknown".to_string());
+        assert!(invalid.validate().is_err());
     }
 
     #[test]
