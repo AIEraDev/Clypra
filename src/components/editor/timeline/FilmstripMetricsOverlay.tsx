@@ -20,6 +20,7 @@ interface BackendTierSummary {
 }
 
 interface BackendMetricsSnapshot {
+  source: BackendTierSummary;
   l0: BackendTierSummary;
   l1: BackendTierSummary;
   l2: BackendTierSummary;
@@ -168,8 +169,24 @@ export const FilmstripMetricsOverlay: React.FC = () => {
                   </tr>
                 );
               })}
+              {backendData?.source && (
+                <tr className="border-t border-amber-400/20 bg-amber-400/5">
+                  <td className="py-1 font-medium text-amber-200">SRC</td>
+                  <td className="py-1">{backendData.source.seek_avg_ms.toFixed(1)}ms</td>
+                  <td className="py-1">{backendData.source.decode_avg_ms.toFixed(1)}ms</td>
+                  <td className="py-1">—</td>
+                  <td className="py-1">—</td>
+                  <td className="py-1">—</td>
+                </tr>
+              )}
             </tbody>
           </table>
+          {backendData?.source && (
+            <div className="mt-2 text-[10px] text-amber-200/80">
+              Shared source convert: {backendData.source.convert_avg_ms.toFixed(1)}ms
+              ({backendData.source.convert_fast_hits} fast / {backendData.source.convert_slow_hits} slow)
+            </div>
+          )}
         </div>
       </div>
 
