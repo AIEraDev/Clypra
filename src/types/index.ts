@@ -208,7 +208,7 @@ export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { 
   return (asset.type === "video" || asset.type === "image") && asset.width !== undefined && asset.height !== undefined;
 }
 
-export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay";
+export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay" | "compound";
 export type { SmartOverlayClip, SmartOverlayType, SmartOverlayContentUnion, SmartOverlayStyle, SmartOverlayPreset } from "./smartOverlay";
 
 
@@ -310,6 +310,10 @@ export interface Clip {
   audioPath?: string;
   /** Source clip identity for generated detach-audio clips. */
   detachedFromClipId?: string;
+  /** Nested children for a persisted compound/group clip. Child times are relative to the parent. */
+  compoundChildren?: Clip[];
+  /** Optional preview image used by the compact parent timeline block. */
+  compoundPreview?: string;
 }
 
 export type EasingType = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bezier";
