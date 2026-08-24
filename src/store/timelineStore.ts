@@ -827,9 +827,17 @@ export const useTimelineStore = create<TimelineStore>(
 
     setPixelsPerSecond: (pps) => {
       const clamped = clampTimelinePixelsPerSecond(pps);
-      set({
-        pixelsPerSecond: clamped,
-        zoomLevel: clamped / TIMELINE_PPS_PER_ZOOM,
+      const zoomLevel = clamped / TIMELINE_PPS_PER_ZOOM;
+      set((state) => {
+        // Zoom animation writes on every RAF. Avoid notifying every subscriber
+        // when a frame has already reached the requested value.
+        if (Object.is(state.pixelsPerSecond, clamped) && Object.is(state.zoomLevel, zoomLevel)) {
+          return state;
+        }
+        return {
+          pixelsPerSecond: clamped,
+          zoomLevel,
+        };
       });
     },
 
