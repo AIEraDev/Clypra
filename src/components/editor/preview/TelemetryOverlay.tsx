@@ -8,6 +8,12 @@ export interface TelemetryStats {
   active: number;
   droppedFrames: number;
   driftMagnitude: number;
+  seekP50Ms?: number | null;
+  seekP95Ms?: number | null;
+  seekP99Ms?: number | null;
+  staleFrames?: number;
+  cancelledFrames?: number;
+  cacheMisses?: number;
 }
 
 interface TelemetryOverlayProps {
@@ -55,6 +61,14 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
         <span className={telemetryStats.driftMagnitude > 0.04 ? "text-yellow-400" : ""}>
           {(telemetryStats.driftMagnitude * 1000).toFixed(0)}ms
         </span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-white/60">Seek p50/p95:</span>
+        <span>{telemetryStats.seekP50Ms == null ? "—" : `${telemetryStats.seekP50Ms.toFixed(1)}/${telemetryStats.seekP95Ms?.toFixed(1) ?? "—"}ms`}</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-white/60">Stale/Cancel:</span>
+        <span>{telemetryStats.staleFrames ?? 0}/{telemetryStats.cancelledFrames ?? 0}</span>
       </div>
     </div>
   );
