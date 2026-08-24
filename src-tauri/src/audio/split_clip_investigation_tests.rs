@@ -63,10 +63,21 @@ async fn split_clip_matrix_preserves_source_segments_and_scopes_waveforms() {
         assert_segment(&detached, 1);
         assert_mixed_boundary(std::slice::from_ref(&detached), 2);
 
+        // This is intentionally audio-content-only. It does not exercise the
+        // evaluator/compositor path for detached audio; any visual-layer
+        // failure there belongs to the separately tracked evaluator issue.
+
         // 6. Rapid scrubbing is a timeline seek over already-installed PCM;
         // repeatedly querying the same graph must never expose the other half.
         assert_mixed_boundary(&split_once, 0);
         assert_mixed_boundary(&split_once, 2);
+
+        // 7. Native audio has no separate lookahead decoder path. The native
+        // equivalent is a future clip already installed before the playhead
+        // reaches it; it must remain silent before its boundary and begin with
+        // its own source segment exactly at the boundary.
+        assert_tone_at(&split_once, 1, 0);
+        assert_tone_at(&split_once, 2, 1);
         assert_mixed_boundary(&split_once, 0);
         assert_mixed_boundary(&split_once, 2);
 
@@ -164,6 +175,14 @@ fn assert_segment(clip: &NativePcmClip, segment: usize) {
 }
 
 fn assert_mixed_boundary(clips: &[NativePcmClip], boundary_seconds: i64) {
+    assert_tone_at(
+        clips,
+        boundary_seconds,
+        (boundary_seconds / SEGMENT_SECONDS) as usize,
+    );
+}
+
+fn assert_tone_at(clips: &[NativePcmClip], timeline_seconds: i64, expected_segment: usize) {
     let mut mixer = NativeAudioMixer::default();
     for clip in clips {
         mixer
@@ -176,23 +195,19 @@ fn assert_mixed_boundary(clips: &[NativePcmClip], boundary_seconds: i64) {
         &mut output,
         1,
         SAMPLE_RATE,
-        boundary_seconds * TICKS_PER_SECOND,
+        timeline_seconds * TICKS_PER_SECOND,
         1.0,
     ));
-    let observed = tone_energy_slice(
-        &output,
-        SAMPLE_RATE,
-        TONE_FREQUENCIES[(boundary_seconds / SEGMENT_SECONDS) as usize],
-    );
+    let observed = tone_energy_slice(&output, SAMPLE_RATE, TONE_FREQUENCIES[expected_segment]);
     let competing = TONE_FREQUENCIES
         .iter()
         .enumerate()
-        .filter(|(index, _)| *index != (boundary_seconds / SEGMENT_SECONDS) as usize)
+        .filter(|(index, _)| *index != expected_segment)
         .map(|(_, frequency)| tone_energy_slice(&output, SAMPLE_RATE, *frequency))
         .fold(0.0_f32, f32::max);
     assert!(
         observed > competing * 1.5,
-        "boundary {boundary_seconds}s selected the wrong tone"
+        "timeline {timeline_seconds}s selected the wrong tone"
     );
 }
 
