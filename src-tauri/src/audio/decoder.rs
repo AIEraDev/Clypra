@@ -15,8 +15,7 @@ static AUDIO_DECODE_SEMAPHORE: Lazy<Arc<Semaphore>> = Lazy::new(|| {
     let permits = std::thread::available_parallelism()
         .map(|p| p.get())
         .unwrap_or(4)
-        .min(8)
-        .max(2);
+        .clamp(2, 8);
     Arc::new(Semaphore::new(permits))
 });
 
