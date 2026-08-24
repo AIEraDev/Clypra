@@ -505,7 +505,8 @@ const App = () => {
   }, []);
 
   // Borderless windows do not have an OS-owned close button. Keep native
-  // close requests on the same save/cleanup path as the custom title bar.
+  // close requests on the same save/cleanup path as the custom title bar,
+  // and ensure the entire app process exits completely.
   useEffect(() => {
     if (!platform.isTauri()) return;
 
@@ -519,13 +520,21 @@ const App = () => {
         unlisten = await win.onCloseRequested(async (event) => {
           if (closingWindowRef.current) return;
 
-          if (!useProjectStore.getState().project) return;
-
           event.preventDefault();
           closingWindowRef.current = true;
           try {
-            await handleCloseProject();
-            await win.close();
+            if (useProjectStore.getState().project) {
+              await handleCloseProject();
+            }
+            try {
+              const { exit } = await import("@tauri-apps/plugin-process");
+              await exit(0);
+            } catch {
+              await win.destroy();
+            }
+          } catch (err) {
+            console.error("[App] Failed to cleanly exit app:", err);
+            await win.destroy();
           } finally {
             closingWindowRef.current = false;
           }
