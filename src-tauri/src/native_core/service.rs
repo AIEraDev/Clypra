@@ -132,6 +132,7 @@ mod tests {
             project: ProjectSnapshot {
                 schema_version: 1,
                 project_revision: "project:1".to_string(),
+                frame_rate: 30,
                 canvas_width: 2,
                 canvas_height: 2,
                 clear_color: [0.0, 0.0, 0.0, 1.0],
