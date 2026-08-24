@@ -73,7 +73,27 @@ describe("EditingActions split interactions", () => {
     expect(result.rightClipId).toBeDefined();
     expect(rightClip).toBeDefined();
     expect(rightClip?.startTime).toBeCloseTo(snappedTime, 6);
-    expect(useUIStore.getState().selectedClipIds).toEqual([result.leftClipId, result.rightClipId]);
+    expect(useUIStore.getState().selectedClipIds).toEqual([result.rightClipId]);
+  });
+
+  it("deletes only the selected right split after splitting", () => {
+    const result = EditingActions.executeSplit({
+      clipId: "clip-1",
+      time: 5,
+      source: "click",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.rightClipId).toBeDefined();
+
+    const selectedClipIds = useUIStore.getState().selectedClipIds;
+    expect(selectedClipIds).toEqual([result.rightClipId]);
+
+    EditingActions.deleteSelection(selectedClipIds);
+
+    const remainingClips = useTimelineStore.getState().clips;
+    expect(remainingClips).toHaveLength(1);
+    expect(remainingClips[0].id).toBe(result.leftClipId);
   });
 
   it("rejects split when the requested time snaps to a clip boundary", () => {
