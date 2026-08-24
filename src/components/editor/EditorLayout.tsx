@@ -3,6 +3,7 @@ import { TopBar } from "./TopBar";
 import { Sidebar as EnhancedMediaPanel } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
 import { SourcePreview } from "./preview/SourcePreview";
+import { PreviewMonitorWorkspace } from "./preview/PreviewMonitorWorkspace";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
 import { FilmstripMetricsOverlay } from "./timeline/FilmstripMetricsOverlay";
@@ -40,9 +41,26 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   } = useSettingsStore();
 
   const isTimelineFocus = layoutPreset === "timeline-focus";
+  const isDualPlayer = layoutPreset === "dual-player";
+  const isCinemaPreview = layoutPreset === "cinema-preview";
+  const isInspectorFocus = layoutPreset === "inspector-focus";
   const defaultTimelineH = isTimelineFocus
     ? (typeof window !== "undefined" ? Math.round(window.innerHeight * 0.58) : 520)
     : 400;
+  const initialSidebarWidth = isTimelineFocus || isDualPlayer
+    ? 260
+    : isCinemaPreview
+      ? 220
+      : isInspectorFocus
+        ? 240
+        : sidebarWidth;
+  const initialPropertiesPanelWidth = isTimelineFocus || isDualPlayer
+    ? 260
+    : isCinemaPreview
+      ? 220
+      : isInspectorFocus
+        ? Math.max(propertiesPanelWidth, 460)
+        : propertiesPanelWidth;
 
   // Timeline vertical height resizer
   const {
@@ -67,8 +85,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
     handlePointerDown: handleSidebarResizerPointerDown,
     handleDoubleClick: handleSidebarDoubleClick,
   } = usePanelResize({
-    initial: isTimelineFocus ? 260 : sidebarWidth,
-    defaultSize: isTimelineFocus ? 260 : 400,
+    initial: initialSidebarWidth,
+    defaultSize: initialSidebarWidth,
     snapPoints: [260, 400],
     min: 220,
     max: 560,
@@ -83,8 +101,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
     handlePointerDown: handlePropertiesResizerPointerDown,
     handleDoubleClick: handlePropertiesDoubleClick,
   } = usePanelResize({
-    initial: isTimelineFocus ? 260 : propertiesPanelWidth,
-    defaultSize: isTimelineFocus ? 260 : 400,
+    initial: initialPropertiesPanelWidth,
+    defaultSize: initialPropertiesPanelWidth,
     snapPoints: [260, 400],
     min: 220,
     max: 560,
@@ -200,7 +218,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell flex flex-col overflow-hidden shrink-0"
             style={{ width: `${tallPlayerW}px` }}
           >
-            <PreviewPanel />
+            <PreviewMonitorWorkspace orientation="column" />
           </div>
 
           {/* Live Dimension HUDs */}
@@ -251,7 +269,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell flex flex-col overflow-hidden shrink-0"
             style={{ width: `${tallPlayerW}px` }}
           >
-            <PreviewPanel />
+            <PreviewMonitorWorkspace orientation="column" />
           </div>
 
           {/* Horizontal Resizer */}
@@ -359,7 +377,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             {/* Left Media Sidebar */}
             <EnhancedMediaPanel
               onAddToTimeline={handleAddToTimeline}
-              width={sidebarCollapsed ? 44 : 260}
+              width={sidebarCollapsed ? 44 : sidebarW}
               collapsed={sidebarCollapsed}
               onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
             />
@@ -387,7 +405,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 </span>
               </div>
               <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                <SourcePreview />
+                <SourcePreview claimTransportOnMount={false} />
               </div>
             </div>
 
@@ -403,7 +421,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 </span>
               </div>
               <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                <PreviewPanel />
+                <PreviewPanel mode="program" />
               </div>
             </div>
 
@@ -423,7 +441,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Right Properties Panel */}
             <PropertiesPanel
-              width={propertiesPanelCollapsed ? 0 : 260}
+              width={propertiesPanelCollapsed ? 0 : propertiesW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
                 setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
@@ -468,7 +486,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             {/* Collapsed/Compact Media Sidebar */}
             <EnhancedMediaPanel
               onAddToTimeline={handleAddToTimeline}
-              width={sidebarCollapsed ? 44 : 220}
+              width={sidebarCollapsed ? 44 : sidebarW}
               collapsed={sidebarCollapsed}
               onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
             />
@@ -489,7 +507,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Giant Center Preview Monitor */}
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell shadow-2xl">
-              <PreviewPanel />
+              <PreviewMonitorWorkspace orientation="row" />
             </div>
 
             {!propertiesPanelCollapsed && (
@@ -508,7 +526,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Collapsed/Compact Properties */}
             <PropertiesPanel
-              width={propertiesPanelCollapsed ? 0 : 220}
+              width={propertiesPanelCollapsed ? 0 : propertiesW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
                 setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
@@ -574,7 +592,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             {/* Centered 9:16 Portrait Preview Monitor */}
             <div className="flex-1 min-w-0 flex items-center justify-center overflow-hidden panel-shell bg-surface/30">
               <div className="w-full h-full max-w-[460px] flex flex-col overflow-hidden">
-                <PreviewPanel />
+                <PreviewMonitorWorkspace orientation="column" />
               </div>
             </div>
 
@@ -639,7 +657,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             {/* Left Media Rail */}
             <EnhancedMediaPanel
               onAddToTimeline={handleAddToTimeline}
-              width={sidebarCollapsed ? 44 : 240}
+              width={sidebarCollapsed ? 44 : sidebarW}
               collapsed={sidebarCollapsed}
               onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
             />
@@ -660,7 +678,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Preview Monitor */}
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
-              <PreviewPanel />
+              <PreviewMonitorWorkspace orientation="row" />
             </div>
 
             {!propertiesPanelCollapsed && (
@@ -763,7 +781,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {/* Center Preview Panel */}
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
-            <PreviewPanel />
+            <PreviewMonitorWorkspace orientation="row" />
           </div>
 
           {/* Properties Dimension HUD */}
