@@ -47,6 +47,29 @@ function spatialTierToLabel(tier: SpatialTier): string {
   return `l${tier}`;
 }
 
+/**
+ * Convert string label or number to standard SpatialTier enum.
+ * "l0" / 0 → SpatialTier.L0 (0)
+ * "l1" / 1 → SpatialTier.L1 (1)
+ * "l2" / 2 → SpatialTier.L2 (2)
+ * "l3" / 3 → SpatialTier.L3 (3)
+ */
+export function normalizeSpatialTier(tier: unknown): SpatialTier {
+  if (typeof tier === "number") {
+    return tier as SpatialTier;
+  }
+  if (typeof tier === "string") {
+    const lower = tier.toLowerCase();
+    if (lower === "l0" || lower === "0") return SpatialTier.L0;
+    if (lower === "l1" || lower === "1") return SpatialTier.L1;
+    if (lower === "l2" || lower === "2") return SpatialTier.L2;
+    if (lower === "l3" || lower === "3") return SpatialTier.L3;
+    const parsed = parseInt(lower.replace(/^l/, ""), 10);
+    return isNaN(parsed) ? SpatialTier.L0 : (parsed as SpatialTier);
+  }
+  return SpatialTier.L0;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /**
@@ -63,7 +86,7 @@ function spatialTierToLabel(tier: SpatialTier): string {
 export interface BackendRenderArtifact {
   frame_id: string;
   content_hash: string;
-  spatial_tier: SpatialTier;
+  spatial_tier: SpatialTier | string;
   /** RGBA bytes — length must equal width * height * 4 */
   rgba_data: number[] | Uint8ClampedArray;
   width: number;
@@ -127,8 +150,13 @@ export function unregisterActiveEpoch(clipId: string): void {
  * Without clipId, checks if ANY clip holds this epoch (backward compat).
  */
 export function isEpochStillValid(epochId: RenderEpochId, clipId?: string): boolean {
+  if (epochId === ("epoch-preload" as RenderEpochId)) {
+    return true;
+  }
   if (clipId) {
-    return _activeEpochs.get(clipId) === epochId;
+    const active = _activeEpochs.get(clipId);
+    if (!active) return true;
+    return active === epochId;
   }
   for (const active of _activeEpochs.values()) {
     if (active === epochId) return true;
@@ -179,6 +207,8 @@ export interface RequestNativeFilmstripArtifactsOptions {
   onComplete?: () => void;
   onError?: (err: unknown) => void;
   concurrency?: number;
+  /** Higher numbers run before background preload/prefetch. Default 10. */
+  priority?: number;
 }
 
 /**
@@ -285,6 +315,205 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
   return cancel;
 }
 
+const DEFAULT_FILMSTRIP_BATCH_PRIORITY = 10;
+
+interface FilmstripBatchSubscriber {
+  clipId: string;
+  epochId: RenderEpochId;
+  spatialTier: SpatialTier;
+  timestamps: Set<number>;
+  priority: number;
+  cancelled: boolean;
+  onArtifact: (artifact: TransportArtifact) => void;
+  onComplete?: () => void;
+  onError?: (err: unknown) => void;
+}
+
+interface VideoFilmstripLane {
+  inFlight: {
+    timestamps: Set<number>;
+    spatialTier: SpatialTier;
+    clipIds: Set<string>;
+    subscribers: FilmstripBatchSubscriber[];
+  } | null;
+  queued: FilmstripBatchSubscriber[];
+}
+
+const filmstripLanes = new Map<string, VideoFilmstripLane>();
+
+function getFilmstripLane(videoPath: string): VideoFilmstripLane {
+  let lane = filmstripLanes.get(videoPath);
+  if (!lane) {
+    lane = { inFlight: null, queued: [] };
+    filmstripLanes.set(videoPath, lane);
+  }
+  return lane;
+}
+
+function timestampWanted(timestamps: Set<number>, ts: number): boolean {
+  if (timestamps.has(ts)) return true;
+  for (const requested of timestamps) {
+    if (Math.abs(requested - ts) <= 25) return true;
+  }
+  return false;
+}
+
+async function fanOutFilmstripArtifact(
+  subscribers: FilmstripBatchSubscriber[],
+  artifact: TransportArtifact,
+): Promise<void> {
+  const artifactTier = normalizeSpatialTier(artifact.spatialTier);
+  const targets = subscribers.filter(
+    (sub) =>
+      !sub.cancelled &&
+      normalizeSpatialTier(sub.spatialTier) === artifactTier &&
+      isEpochStillValid(sub.epochId, sub.clipId) &&
+      timestampWanted(sub.timestamps, artifact.timestampMs),
+  );
+
+  console.log("[transport:fanOut]", {
+    timestampMs: artifact.timestampMs,
+    spatialTier: artifactTier,
+    epochId: artifact.epochId,
+    targetsCount: targets.length,
+    subscribersCount: subscribers.length,
+    subscriberEpochs: subscribers.map((s) => ({ clipId: s.clipId, epochId: s.epochId, tier: s.spatialTier, cancelled: s.cancelled })),
+  });
+
+  for (let i = 0; i < targets.length; i++) {
+    const payload =
+      i === targets.length - 1
+        ? artifact
+        : { ...artifact, bitmap: await createImageBitmap(artifact.bitmap) };
+    targets[i].onArtifact(payload);
+  }
+  if (targets.length === 0) {
+    console.warn("[transport:drop] No valid subscriber target for artifact:", {
+      timestampMs: artifact.timestampMs,
+      spatialTier: artifact.spatialTier,
+      epochId: artifact.epochId,
+    });
+    try {
+      artifact.bitmap.close();
+    } catch {
+      // Bitmap may already be closed.
+    }
+  }
+}
+
+function pumpFilmstripLane(videoPath: string): void {
+  const lane = getFilmstripLane(videoPath);
+  if (lane.inFlight) return;
+
+  lane.queued = lane.queued.filter((sub) => !sub.cancelled);
+  if (lane.queued.length === 0) {
+    filmstripLanes.delete(videoPath);
+    return;
+  }
+
+  const preferredPriority = Math.max(...lane.queued.map((sub) => sub.priority));
+  const preferredTier = Math.max(
+    ...lane.queued
+      .filter((sub) => sub.priority === preferredPriority)
+      .map((sub) => sub.spatialTier),
+  ) as SpatialTier;
+
+  const runNow: FilmstripBatchSubscriber[] = [];
+  const defer: FilmstripBatchSubscriber[] = [];
+  for (const sub of lane.queued) {
+    if (sub.spatialTier === preferredTier && sub.priority === preferredPriority) {
+      runNow.push(sub);
+    } else {
+      defer.push(sub);
+    }
+  }
+  lane.queued = defer;
+
+  const timestamps = Array.from(new Set(runNow.flatMap((sub) => Array.from(sub.timestamps)))).sort(
+    (a, b) => a - b,
+  );
+  if (timestamps.length === 0) {
+    for (const sub of runNow) {
+      if (!sub.cancelled) sub.onComplete?.();
+    }
+    pumpFilmstripLane(videoPath);
+    return;
+  }
+
+  requestBatchRenderArtifacts({
+    videoPath,
+    timestampsMs: timestamps,
+    spatialTiers: [preferredTier],
+    epochId: runNow[0].epochId,
+    clipId: runNow[0].clipId,
+    onArtifact: (artifact) => {
+      void fanOutFilmstripArtifact(runNow, artifact);
+    },
+    onComplete: () => {
+      for (const sub of runNow) {
+        if (!sub.cancelled) sub.onComplete?.();
+      }
+      const current = getFilmstripLane(videoPath);
+      current.inFlight = null;
+      pumpFilmstripLane(videoPath);
+    },
+    onError: (err) => {
+      for (const sub of runNow) {
+        if (!sub.cancelled) sub.onError?.(err);
+      }
+      const current = getFilmstripLane(videoPath);
+      current.inFlight = null;
+      pumpFilmstripLane(videoPath);
+    },
+  });
+
+  lane.inFlight = {
+    timestamps: new Set(timestamps),
+    spatialTier: preferredTier,
+    clipIds: new Set(runNow.map((sub) => sub.clipId)),
+    subscribers: runNow,
+  };
+}
+
+function enqueueFilmstripBatch(opts: RequestNativeFilmstripArtifactsOptions): () => void {
+  const timestamps = opts.timestampsMs.map((t) => Math.round(t));
+  const sub: FilmstripBatchSubscriber = {
+    clipId: opts.clipId,
+    epochId: opts.epochId,
+    spatialTier: opts.spatialTier,
+    timestamps: new Set(timestamps),
+    priority: opts.priority ?? DEFAULT_FILMSTRIP_BATCH_PRIORITY,
+    cancelled: false,
+    onArtifact: opts.onArtifact,
+    onComplete: opts.onComplete,
+    onError: opts.onError,
+  };
+
+  const lane = getFilmstripLane(opts.videoPath);
+  if (
+    lane.inFlight &&
+    lane.inFlight.spatialTier === sub.spatialTier &&
+    lane.inFlight.clipIds.has(sub.clipId) &&
+    timestamps.every((t) => timestampWanted(lane.inFlight!.timestamps, t))
+  ) {
+    lane.inFlight.subscribers.push(sub);
+    return () => {
+      sub.cancelled = true;
+    };
+  }
+
+  lane.queued.push(sub);
+  pumpFilmstripLane(opts.videoPath);
+  return () => {
+    sub.cancelled = true;
+  };
+}
+
+/** Test-only: drop coalesced native filmstrip batches between cases. */
+export function resetFilmstripBatchSchedulerForTests(): void {
+  filmstripLanes.clear();
+}
+
 /**
  * Runtime adapter for the migration boundary. Desktop Tauri is native-core
  * authoritative; frozen web/mobile adapters retain their existing transport
@@ -292,16 +521,7 @@ export function requestNativeFilmstripArtifacts(opts: RequestNativeFilmstripArti
  */
 export function requestFilmstripArtifacts(opts: RequestNativeFilmstripArtifactsOptions): () => void {
   if (isTauriRuntime()) {
-    return requestBatchRenderArtifacts({
-      videoPath: opts.videoPath,
-      timestampsMs: opts.timestampsMs,
-      spatialTiers: [opts.spatialTier],
-      epochId: opts.epochId,
-      clipId: opts.clipId,
-      onArtifact: opts.onArtifact,
-      onComplete: opts.onComplete,
-      onError: opts.onError,
-    });
+    return enqueueFilmstripBatch(opts);
   }
   return requestProgressiveTiers({
     videoPath: opts.videoPath,
@@ -346,7 +566,7 @@ export function requestRenderArtifacts(opts: RequestRenderArtifactsOptions): () 
       onArtifact({
         frameId: raw.frame_id,
         contentHash: raw.content_hash,
-        spatialTier: raw.spatial_tier,
+        spatialTier: normalizeSpatialTier(raw.spatial_tier),
         bitmap,
         width: raw.width,
         height: raw.height,
@@ -415,7 +635,7 @@ export function checkCoarseBaselineCache(opts: CheckCoarseBaselineCacheOptions):
       onArtifact({
         frameId: raw.frame_id,
         contentHash: raw.content_hash,
-        spatialTier: raw.spatial_tier,
+        spatialTier: normalizeSpatialTier(raw.spatial_tier),
         bitmap,
         width: raw.width,
         height: raw.height,
@@ -577,7 +797,7 @@ export function requestBatchRenderArtifacts(opts: RequestBatchRenderArtifactsOpt
       onArtifact({
         frameId: raw.frame_id,
         contentHash: raw.content_hash,
-        spatialTier: raw.spatial_tier,
+        spatialTier: normalizeSpatialTier(raw.spatial_tier),
         bitmap,
         width: raw.width,
         height: raw.height,
