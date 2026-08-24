@@ -7,6 +7,7 @@ use crate::native_audio::NativeAudioClock;
 use crate::commands::lut::LutCache;
 use crate::commands::native_surface::NativeSurfaceRuntime;
 use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
+use crate::sync_metrics::SYNC_METRICS;
 use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
 use crate::wgpu_compositor::{
     BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms, CompositeLayer,
@@ -45,6 +46,18 @@ fn native_presentation_timing(
         .saturating_mul(1_000_000)
         .checked_div(frame_timescale as u128)
         .unwrap_or(0);
+    let frame_position_ticks = frame_position_ticks.min(i64::MAX as u128) as i64;
+    SYNC_METRICS
+        .av_drift
+        .record(frame_position_ticks.saturating_sub(status.audio_position_ticks as i64));
+    crate::sync_metrics::trace_event(
+        "av_drift",
+        format_args!(
+            "video_pts_ticks={frame_position_ticks} audio_position_ticks={} drift_ticks={}",
+            status.audio_position_ticks,
+            frame_position_ticks.saturating_sub(status.audio_position_ticks as i64),
+        ),
+    );
     let age = status.audio_position_ticks as i128 - frame_position_ticks as i128;
     let frame_age_ticks = age.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
     (
@@ -1480,6 +1493,7 @@ pub async fn present_native_frame(
         request.frame_time.timescale,
     );
     if !surface.accept_presentation(presentation_sequence) {
+        SYNC_METRICS.record_dropped_frame();
         return Ok(NativeSurfacePresentation {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
@@ -1496,6 +1510,7 @@ pub async fn present_native_frame(
         });
     }
     if late_for_audio {
+        SYNC_METRICS.record_dropped_frame();
         return Ok(NativeSurfacePresentation {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
@@ -1676,6 +1691,13 @@ pub async fn present_native_frame(
     let _textures = textures;
     surface_texture.present();
     surface.show_surface()?;
+    let presented_ticks = (request.frame_time.ticks.max(0) as i128 * 1_000_000i128
+        / request.frame_time.timescale.max(1) as i128)
+        .min(i64::MAX as i128) as i64;
+    SYNC_METRICS.record_frame_presented(
+        presented_ticks,
+        1_000_000i64 / i64::from(request.project.frame_rate.max(1)),
+    );
 
     Ok(NativeSurfacePresentation {
         contract_version: NATIVE_CORE_CONTRACT_VERSION,
