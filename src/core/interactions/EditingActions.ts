@@ -30,6 +30,7 @@ import { DeleteClipCommand, RippleDeleteRangeCommand, SplitClipCommand, UpdateCl
 import type { Clip } from "@/types";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
 import { getScrollLeftToRevealTime, getTimelineViewportEndForDuration } from "@/lib/timeline/timelineViewport";
+import { getClipDisplayName } from "@/lib/timeline/clipName";
 
 /**
  * Split interaction context.
@@ -50,6 +51,8 @@ export interface SplitIntent {
 export interface SplitResult {
   success: boolean;
   error?: string;
+  /** Stable user-facing name captured before the original clip is replaced. */
+  clipName?: string;
   leftClipId?: string;
   rightClipId?: string;
 }
@@ -67,6 +70,12 @@ export interface DeleteSelectionResult {
   selectedClipId: string | null;
 }
 
+export interface RenameClipResult {
+  success: boolean;
+  name?: string;
+  error?: string;
+}
+
 /**
  * Editing Actions - Unified interaction layer.
  *
@@ -74,6 +83,21 @@ export interface DeleteSelectionResult {
  * This ensures consistent command execution and history tracking.
  */
 export class EditingActions {
+  /** Rename one timeline clip while keeping the edit undoable. */
+  static renameClip(clipId: string, name: string): RenameClipResult {
+    const clip = useTimelineStore.getState().clips.find((candidate) => candidate.id === clipId);
+    if (!clip) return { success: false, error: "Clip not found" };
+
+    const trimmedName = name.trim();
+    if (!trimmedName) return { success: false, error: "Clip name cannot be empty" };
+
+    useHistoryStore.getState().execute(
+      new UpdateClipCommand(clipId, { name: clip.name }, { name: trimmedName }),
+    );
+
+    return { success: true, name: trimmedName };
+  }
+
   static swapSelectedClips(): { error: string | null } {
     const selectedClipIds = useUIStore.getState().selectedClipIds;
     if (selectedClipIds.length !== 2) return { error: "Select exactly 2 clips to swap" };
@@ -232,6 +256,7 @@ export class EditingActions {
 
     // Create and execute command
     const command = new SplitClipCommand(clipId, time, frameRate, clip);
+    const clipName = getClipDisplayName(clip, useProjectStore.getState().mediaAssets);
 
     try {
       useHistoryStore.getState().execute(command);
@@ -266,6 +291,7 @@ export class EditingActions {
 
       return {
         success: true,
+        clipName,
         leftClipId,
         rightClipId,
       };
