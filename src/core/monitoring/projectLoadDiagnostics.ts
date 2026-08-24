@@ -30,7 +30,6 @@ class ProjectLoadDiagnostics {
 
     this.phases = [];
     this.loadStartTime = performance.now();
-    console.log("🔵 [ProjectLoad] Started loading project");
   }
 
   startPhase(name: string, metadata?: Record<string, unknown>): void {
@@ -41,8 +40,6 @@ class ProjectLoadDiagnostics {
       startTime: performance.now(),
       metadata,
     });
-
-    console.log(`  ⏩ [ProjectLoad:${name}] Started`, metadata || "");
   }
 
   endPhase(name: string): void {
@@ -50,24 +47,29 @@ class ProjectLoadDiagnostics {
 
     const phase = this.phases.find((p) => p.name === name && !p.endTime);
     if (!phase) {
-      console.warn(`  ⚠️ [ProjectLoad] Phase "${name}" not found or already ended`);
+      console.warn(
+        `  ⚠️ [ProjectLoad] Phase "${name}" not found or already ended`,
+      );
       return;
     }
 
     phase.endTime = performance.now();
     phase.duration = phase.endTime - phase.startTime;
 
-    const emoji = phase.duration < 100 ? "✅" : phase.duration < 500 ? "⚠️" : "🔴";
-    const color = phase.duration < 100 ? "color: #22c55e" : phase.duration < 500 ? "color: #f59e0b" : "color: #ef4444";
-    console.log(`  %c${emoji} [ProjectLoad:${name}] Completed in ${phase.duration.toFixed(2)}ms`, color);
+    const emoji =
+      phase.duration < 100 ? "✅" : phase.duration < 500 ? "⚠️" : "🔴";
+    const color =
+      phase.duration < 100
+        ? "color: #22c55e"
+        : phase.duration < 500
+          ? "color: #f59e0b"
+          : "color: #ef4444";
   }
 
   endLoad(): void {
     if (!isProjectLoadDiagnosticsEnabled()) return;
 
     const totalDuration = performance.now() - this.loadStartTime;
-
-    console.log(`\n🟢 [ProjectLoad] Completed in ${totalDuration.toFixed(2)}ms\n`);
 
     // Generate summary
     console.group("📊 Project Load Breakdown");
@@ -83,12 +85,17 @@ class ProjectLoadDiagnostics {
     console.table(phaseSummary);
 
     // Identify bottlenecks
-    const slowPhases = this.phases.filter((p) => p.duration && p.duration > 200).sort((a, b) => (b.duration || 0) - (a.duration || 0));
+    const slowPhases = this.phases
+      .filter((p) => p.duration && p.duration > 200)
+      .sort((a, b) => (b.duration || 0) - (a.duration || 0));
 
     if (slowPhases.length > 0) {
       console.warn("⚠️ Slow Phases (>200ms):");
       slowPhases.forEach((p) => {
-        console.warn(`  • ${p.name}: ${p.duration!.toFixed(2)}ms`, p.metadata || "");
+        console.warn(
+          `  • ${p.name}: ${p.duration!.toFixed(2)}ms`,
+          p.metadata || "",
+        );
       });
     }
 
@@ -105,7 +112,9 @@ class ProjectLoadDiagnostics {
     if (!isProjectLoadDiagnosticsEnabled()) return;
 
     if (renderCount > 10) {
-      console.warn(`⚠️ [ProjectLoad] ${componentName} rendered ${renderCount} times after project load`);
+      console.warn(
+        `⚠️ [ProjectLoad] ${componentName} rendered ${renderCount} times after project load`,
+      );
     }
   }
 
@@ -127,7 +136,9 @@ class ProjectLoadDiagnostics {
 
     // Log warning if clip re-renders too many times
     if (count === 5 || count === 10 || count === 20) {
-      console.warn(`⚠️ [ProjectLoad] Clip ${clipId} on track ${trackId} has rendered ${count + 1} times`);
+      console.warn(
+        `⚠️ [ProjectLoad] Clip ${clipId} on track ${trackId} has rendered ${count + 1} times`,
+      );
     }
   }
 
