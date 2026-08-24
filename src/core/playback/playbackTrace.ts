@@ -86,26 +86,46 @@ class PlaybackMetricsCollector {
       if (this.seekLatencies.length > 1_000) this.seekLatencies.splice(0, 250);
     }
 
-    if ((this.debugEnabled || import.meta.env.DEV) && now - this.lastAggregateLogMs >= 1000) {
+    if (
+      (this.debugEnabled || import.meta.env.DEV) &&
+      now - this.lastAggregateLogMs >= 1000
+    ) {
       this.lastAggregateLogMs = now;
-      console.debug("[playback:5s]", JSON.stringify(this.snapshot()));
     }
   }
 
   shouldLogEvent(event: string): boolean {
-    return event.includes("seek") || event.includes("stale") || event.includes("drop") || event.includes("error");
+    return (
+      event.includes("seek") ||
+      event.includes("stale") ||
+      event.includes("drop") ||
+      event.includes("error")
+    );
   }
 
   snapshot(): PlaybackMetricsSnapshot {
     const now = performance.now();
     const recent = this.events.filter((event) => now - event.timeMs <= 5_000);
-    const values = this.seekLatencies.filter((_, index) => index >= Math.max(0, this.seekLatencies.length - recent.length)).sort((a, b) => a - b);
+    const values = this.seekLatencies
+      .filter(
+        (_, index) =>
+          index >= Math.max(0, this.seekLatencies.length - recent.length),
+      )
+      .sort((a, b) => a - b);
     const percentile = (p: number): number | null => {
       if (values.length === 0) return null;
-      return values[Math.min(values.length - 1, Math.floor(values.length * p))] ?? null;
+      return (
+        values[Math.min(values.length - 1, Math.floor(values.length * p))] ??
+        null
+      );
     };
-    const count = (key: string, expected?: unknown) => recent.filter((event) => expected === undefined ? event[key] : event[key] === expected).length;
-    const drifts = recent.map((event) => event["driftMs"]).filter((value): value is number => typeof value === "number");
+    const count = (key: string, expected?: unknown) =>
+      recent.filter((event) =>
+        expected === undefined ? event[key] : event[key] === expected,
+      ).length;
+    const drifts = recent
+      .map((event) => event["driftMs"])
+      .filter((value): value is number => typeof value === "number");
     return {
       windowMs: 5_000,
       events: recent.length,
@@ -118,7 +138,10 @@ class PlaybackMetricsCollector {
       cancelledFrames: count("cancelled", true),
       cacheHits: count("cacheHit", true),
       cacheMisses: count("cacheHit", false),
-      maxDriftMs: drifts.length > 0 ? Math.max(...drifts.map((value) => Math.abs(value))) : 0,
+      maxDriftMs:
+        drifts.length > 0
+          ? Math.max(...drifts.map((value) => Math.abs(value)))
+          : 0,
     };
   }
 }
