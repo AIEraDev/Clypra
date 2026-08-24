@@ -67,6 +67,26 @@ fn native_presentation_timing(
     )
 }
 
+fn record_successful_readback_metrics(app: &tauri::AppHandle, request: &FrameRequest) {
+    // Readback is the active fallback shown as "Native readback" in the
+    // preview header. It still needs the same A/V and seek accounting as the
+    // retained-surface path; otherwise the visible preview can report zeros
+    // while the surface-only path reports real values.
+    if request.mode.as_deref() == Some("prefetch") {
+        return;
+    }
+    let _ = native_presentation_timing(app, request.frame_time.ticks, request.frame_time.timescale);
+    let presented_ticks = (request.frame_time.ticks.max(0) as i128 * 1_000_000i128
+        / request.frame_time.timescale.max(1) as i128)
+        .min(i64::MAX as i128) as i64;
+    SYNC_METRICS.record_frame_presented_with_options(
+        presented_ticks,
+        1_000_000i64 / i64::from(request.project.frame_rate.max(1)),
+        matches!(request.mode.as_deref(), Some("playback") | Some("playback-lookahead")),
+        request.mode.as_deref() != Some("playback-lookahead"),
+    );
+}
+
 /// Bounded native decode-ahead storage for continuous preview playback.
 ///
 /// The queue owns decoded NV12 planes, not GPU textures. Decoding can happen
@@ -1694,9 +1714,11 @@ pub async fn present_native_frame(
     let presented_ticks = (request.frame_time.ticks.max(0) as i128 * 1_000_000i128
         / request.frame_time.timescale.max(1) as i128)
         .min(i64::MAX as i128) as i64;
-    SYNC_METRICS.record_frame_presented(
+    SYNC_METRICS.record_frame_presented_with_options(
         presented_ticks,
         1_000_000i64 / i64::from(request.project.frame_rate.max(1)),
+        matches!(request.mode.as_deref(), Some("playback") | Some("playback-lookahead")),
+        request.mode.as_deref() != Some("playback-lookahead"),
     );
 
     Ok(NativeSurfacePresentation {
@@ -1777,6 +1799,7 @@ pub async fn render_native_frame(
                 upload_time_us: 0,
                 present_time_us: 0,
             });
+            record_successful_readback_metrics(&app, &request);
             return Ok(tauri::ipc::Response::new(packet.data));
         }
     }
@@ -1827,6 +1850,7 @@ pub async fn render_native_frame(
         });
     }
 
+    record_successful_readback_metrics(&app, &request);
     Ok(tauri::ipc::Response::new(rgba))
 }
 
