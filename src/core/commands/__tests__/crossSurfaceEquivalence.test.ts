@@ -150,12 +150,12 @@ describe("Cross-Surface Equivalence Tests (Toolbar vs Keyboard vs Context Menu)"
 
     // Assert absolute parity across timeline clips and selection
     expect(stateAfterMenu).toEqual(stateAfterDirect);
-    expect(selectionAfterMenu.length).toBe(2);
-    expect(selectionAfterDirect.length).toBe(2);
+    expect(selectionAfterMenu.length).toBe(1);
+    expect(selectionAfterDirect.length).toBe(1);
     expect(stateAfterMenu.length).toBe(3); // clip-2 (duration 8), plus 2 split clips (duration 5 each)
     const splitClips = stateAfterMenu.filter((c) => c.duration === 5);
     expect(splitClips.length).toBe(2);
-    // Both split segments are selected in both cases
+    // Only the right split segment is selected in both cases
     const menuClips = useTimelineStore.getState().clips;
     expect(selectionAfterDirect.every((id) => menuClips.some((c) => c.id === id))).toBe(true);
   });
