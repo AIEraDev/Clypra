@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Sparkles } from "lucide-react";
+import { Layers, Sparkles } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import {
@@ -147,7 +147,7 @@ const ClipInner: React.FC<ClipProps> = ({
   // Trim handles are a selection affordance, not a hover affordance. Keep
   // both handles on the exact same visibility rule so an unselected clip has
   // no visible or interactive trim edge.
-  const showResizeHandles = selected;
+  const showResizeHandles = selected && clip.kind !== "compound";
   const resizeHandleVisibility = showResizeHandles
     ? "opacity-100 pointer-events-auto"
     : "pointer-events-none opacity-0";
@@ -617,6 +617,7 @@ const ClipInner: React.FC<ClipProps> = ({
   const isClipVideoEffect = inferredKind === "video-effect";
   const isClipBodyEffect = inferredKind === "body-effect";
   const isClipAnimatedOverlay = inferredKind === "animated-overlay";
+  const isCompound = inferredKind === "compound";
 
   // Check if text clip is a caption or title
   const textClip = isClipText ? (clip as any) : null;
@@ -625,6 +626,7 @@ const ClipInner: React.FC<ClipProps> = ({
   const isTitle = textRole === "title";
 
   const getClipStyle = () => {
+    if (isCompound) return "bg-indigo-600/70 border-indigo-300/60 text-white";
     if (
       isClipFilter ||
       isClipVideoEffect ||
@@ -648,6 +650,7 @@ const ClipInner: React.FC<ClipProps> = ({
   };
 
   const getClipBackgroundStyle = () => {
+    if (isCompound) return { backgroundColor: "#4f46a5" };
     if (
       isClipFilter ||
       isClipVideoEffect ||
@@ -719,7 +722,17 @@ const ClipInner: React.FC<ClipProps> = ({
       </div>
 
       {/* Clip content */}
-      {clip.kind === "text" ? (
+      {isCompound ? (
+        <div className="relative flex h-full w-full items-center gap-2 px-2 select-none pointer-events-none">
+          {clip.compoundPreview ? (
+            <img src={resolveMediaSrc(clip.compoundPreview)} alt="" className="h-full w-16 shrink-0 object-cover opacity-80" draggable={false} />
+          ) : (
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-black/20"><Layers className="h-4 w-4" /></div>
+          )}
+          <div className="min-w-0 truncate text-[11px] font-semibold">{clip.name || "Compound Clip"}</div>
+          <div className="shrink-0 rounded bg-black/20 px-1.5 py-0.5 text-[10px]">{clip.compoundChildren?.length ?? 0}</div>
+        </div>
+      ) : clip.kind === "text" ? (
         <div className="relative flex h-full w-full items-center px-3">
           {/* Icon badge for text role differentiation */}
           {(isCaption || isTitle) && (
