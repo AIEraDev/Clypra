@@ -21,6 +21,7 @@ import {
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
+  AudioLines,
 } from "lucide-react";
 import type { ClipCommand, ClipCommandContext } from "./types";
 import { clipboardService } from "@/core/clipboard/clipboardService";
@@ -28,6 +29,10 @@ import { EditingActions } from "@/core/interactions";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { toast } from "@/lib/toast";
+import { useHistoryStore } from "@/store/historyStore";
+import { useProjectStore } from "@/store/projectStore";
+import { DetachAudioCommand } from "@/core/history/commands/DetachAudioCommand";
+import { useMediaJobStore } from "@/store/mediaJobStore";
 
 function getTargetClipIds(ctx: ClipCommandContext): string[] {
   if (ctx.selectedClipIds.length > 0) {
@@ -257,6 +262,55 @@ export const clipCommands: ClipCommand[] = [
   },
 
   // ─── Audio ──────────────────────────────────────────────────────────────────
+  {
+    id: "clip.detachAudio",
+    label: "Detach Audio",
+    icon: AudioLines,
+    group: "audio",
+    isVisible: (ctx) => getTargetClipIds(ctx).some((id) => ctx.clips.some((clip) => clip.id === id && clip.kind !== "audio")),
+    isEnabled: (ctx) => {
+      const assets = useProjectStore.getState().mediaAssets;
+      return getTargetClipIds(ctx).some((id) => {
+        const clip = ctx.clips.find((candidate) => candidate.id === id);
+        if (!clip || clip.kind === "audio") return false;
+        const track = ctx.tracks.find((candidate) => candidate.id === clip.trackId);
+        const asset = assets.find((candidate) => candidate.id === clip.mediaId);
+        return track?.type === "video" && !track.locked && asset?.type === "video" && !DetachAudioCommand.isAlreadyDetached(clip, ctx.clips);
+      });
+    },
+    disabledReason: () => "Audio is already detached, the clip has no video source, or its track is locked",
+    execute: (ctx) => {
+      const assets = useProjectStore.getState().mediaAssets;
+      const clipId = getTargetClipIds(ctx)[0];
+      const clip = ctx.clips.find((candidate) => candidate.id === clipId);
+      if (!clip) return;
+      const asset = assets.find((candidate) => candidate.id === clip.mediaId);
+      if (!asset) return;
+      useHistoryStore.getState().execute(new DetachAudioCommand(clip, asset.path, ctx.tracks));
+      toast.success("Audio detached");
+    },
+  },
+  {
+    id: "clip.extractAudio",
+    label: "Extract Audio",
+    icon: AudioLines,
+    group: "audio",
+    isVisible: (ctx) => getTargetClipIds(ctx).some((id) => ctx.clips.some((clip) => clip.id === id && clip.kind !== "audio")),
+    isEnabled: (ctx) => {
+      const assets = useProjectStore.getState().mediaAssets;
+      return getTargetClipIds(ctx).some((id) => {
+        const clip = ctx.clips.find((candidate) => candidate.id === id);
+        const track = clip && ctx.tracks.find((candidate) => candidate.id === clip.trackId);
+        return !!clip && clip.kind !== "audio" && track?.type === "video" && !track.locked && assets.some((asset) => asset.id === clip.mediaId && asset.type === "video");
+      });
+    },
+    disabledReason: () => "Only unlocked video clips can extract audio",
+    execute: (ctx) => {
+      const clip = ctx.clips.find((candidate) => candidate.id === getTargetClipIds(ctx)[0]);
+      const asset = clip && useProjectStore.getState().mediaAssets.find((candidate) => candidate.id === clip.mediaId);
+      if (asset) void useMediaJobStore.getState().prepareExtraction(asset).catch((error) => toast.error(error instanceof Error ? error.message : "Unable to probe audio streams"));
+    },
+  },
   {
     id: "clip.toggleMute",
     label: "Mute / Unmute",
