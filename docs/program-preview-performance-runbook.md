@@ -72,6 +72,25 @@ The direct native-surface path must remain the continuous playback path. The
 RGBA bridge is a paused-frame fallback and diagnostic path, not a playback
 target.
 
+## Monitor-space ownership
+
+Source media preview and Program Preview are separate monitor spaces. A layout
+must never use one mode-switching component as both monitors or allow Source
+mode to replace the Program monitor when both are visible.
+
+- `PreviewPanel` represents one monitor and accepts an explicit `program` or
+  `source` role when a layout owns both monitors.
+- `PreviewMonitorWorkspace` composes the two monitors. Wide layouts use a row;
+  tall and portrait layouts use a column.
+- `dual-player` owns an explicit Source monitor on the left and Program monitor
+  on the right.
+- Source and Program have separate DOM/media lifecycles and separate playback
+  contexts. Source controls claim Source transport on interaction; Program
+  controls claim Program transport on interaction.
+- Mount order must not decide which context receives transport commands.
+- When no source asset or text preset is active, layouts show only the Program
+  monitor rather than reserving a misleading empty Source monitor.
+
 ## Failure modes and permanent fixes
 
 ### 1. High-frequency logging was inside the frame path
