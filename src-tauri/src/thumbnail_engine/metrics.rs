@@ -156,6 +156,10 @@ pub struct TierMetricsSummary {
 
 #[derive(Default, Debug)]
 pub struct DecoderMetricsRegistry {
+    /// Shared full-resolution decode/convert work. This is intentionally not
+    /// stored on L0-L3: one source frame is decoded and converted once, then
+    /// fan-outs are downsampled into the requested tiers.
+    pub source: TierMetrics,
     pub l0: TierMetrics,
     pub l1: TierMetrics,
     pub l2: TierMetrics,
@@ -175,6 +179,7 @@ impl DecoderMetricsRegistry {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FullDecodeMetricsSnapshot {
+    pub source: TierMetricsSummary,
     pub l0: TierMetricsSummary,
     pub l1: TierMetricsSummary,
     pub l2: TierMetricsSummary,
@@ -208,12 +213,14 @@ pub fn ensure_metrics_flush_loop() {
 }
 
 fn flush_periodic_metrics() {
+    let source = METRICS.source.take_and_reset();
     let s0 = METRICS.l0.take_and_reset();
     let s1 = METRICS.l1.take_and_reset();
     let s2 = METRICS.l2.take_and_reset();
     let s3 = METRICS.l3.take_and_reset();
 
-    let has_any = s0.operations > 0 || s0.tier_cache_hits > 0 || s0.evictions > 0
+    let has_any = source.operations > 0 || source.tier_cache_hits > 0 || source.evictions > 0
+        || s0.operations > 0 || s0.tier_cache_hits > 0 || s0.evictions > 0
         || s1.operations > 0 || s1.tier_cache_hits > 0 || s1.evictions > 0
         || s2.operations > 0 || s2.tier_cache_hits > 0 || s2.evictions > 0
         || s3.operations > 0 || s3.tier_cache_hits > 0 || s3.evictions > 0;
@@ -223,6 +230,7 @@ fn flush_periodic_metrics() {
     }
 
     eprintln!("─────── 🎬 [Filmstrip Metrics: 5s Window] ───────");
+    print_tier_line("SRC", &source);
     print_tier_line("L0", &s0);
     print_tier_line("L1", &s1);
     print_tier_line("L2", &s2);
@@ -258,6 +266,7 @@ pub fn get_metrics_snapshot() -> FullDecodeMetricsSnapshot {
         .unwrap_or(0);
 
     FullDecodeMetricsSnapshot {
+        source: METRICS.source.snapshot(),
         l0: METRICS.l0.snapshot(),
         l1: METRICS.l1.snapshot(),
         l2: METRICS.l2.snapshot(),
