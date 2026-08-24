@@ -20,3 +20,4 @@ export { DetachAudioCommand } from "./DetachAudioCommand";
 export { GroupClipsCommand, UngroupClipsCommand, validateGroupSelection } from "./CompoundClipCommands";
 export { DuplicateClipsCommand } from "./DuplicateClipCommand";
 export { SwapClipsCommand } from "./SwapClipsCommand";
+export { TimelineDragCommand, buildTimelineDragCommand, buildTimelineDragResult } from "./TimelineDragCommand";
