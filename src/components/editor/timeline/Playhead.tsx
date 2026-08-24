@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState, RefObject } from "react";
-import { usePlaybackClock, usePlaybackControls } from "@/hooks/usePlaybackClock";
+import { usePlaybackClock, useTransportControls } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
+import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 
 
@@ -15,7 +16,7 @@ interface PlayheadProps {
 
 export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, containerRef, rulerHeight = 5 }) => {
   const clockState = usePlaybackClock();
-  const { seek } = usePlaybackControls();
+  const { seek: transportSeek } = useTransportControls();
   const { setScrollLeft } = useTimelineStore();
   const [isDragging, setIsDragging] = useState(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);
@@ -93,11 +94,11 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       // Prevents "sticky" playhead at extreme zoom-out levels
       const pixelsPerFrame = pixelsPerSecond / frameRate;
       const snappedTime = pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
-      const newTime = Math.max(0, Math.min(snappedTime, duration));
+      const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
 
       // Throttled seek calls (reduce clock update frequency)
       if (now - lastSeekUpdateRef.current >= SEEK_THROTTLE) {
-        seek(newTime);
+        transportSeek(newTime);
         lastSeekUpdateRef.current = now;
       }
 
@@ -112,7 +113,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         rafRef.current = null;
       }
     };
-  }, [isDragging, containerRef, setScrollLeft, pixelsPerSecond, duration, seek]);
+  }, [isDragging, containerRef, setScrollLeft, pixelsPerSecond, duration, transportSeek]);
 
   // ✅ Global pointer tracking - only updates pointer position and velocity
   useEffect(() => {
@@ -254,8 +255,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     // Only snap if frames are visually distinguishable (> 3px apart)
     const pixelsPerFrame = pixelsPerSecond / frameRate;
     const snappedTime = pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
-    const newTime = Math.max(0, Math.min(snappedTime, duration));
-    seek(newTime);
+    const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
+    transportSeek(newTime);
 
     setIsDragging(true);
   };
