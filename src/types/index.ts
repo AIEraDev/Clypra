@@ -129,6 +129,30 @@ export interface Track {
   volume?: number;
 }
 
+/** Audio/video stream metadata cached from the native media probe. */
+export interface MediaStreamInfo {
+  index: number;
+  type: "audio" | "video" | "data" | "subtitle" | "unknown";
+  codec: string;
+  codecLongName?: string;
+  duration?: number;
+  timeBaseNum?: number;
+  timeBaseDen?: number;
+  sampleRate?: number;
+  channels?: number;
+  channelLayout?: string;
+  bitrate?: number;
+  language?: string;
+  label?: string;
+}
+
+export interface DerivedMediaProvenance {
+  sourceAssetId: string;
+  sourceStreamIndex: number;
+  extractionMethod: "streamCopy" | "transcode";
+  operationFingerprint: string;
+}
+
 /** Waveform bucket containing peak and RMS amplitude data */
 export interface WaveformBucket {
   /** Peak amplitude (absolute max) - range [0.0, 1.0] */
@@ -175,6 +199,8 @@ export interface MediaAsset {
   stickerAnimationPath?: string;
   /** Stable sticker library id used to recover cached metadata. */
   stickerSourceId?: string;
+  streams?: MediaStreamInfo[];
+  derivedFrom?: DerivedMediaProvenance;
 }
 
 /** Type guard to check if asset has visual dimensions */
@@ -282,6 +308,8 @@ export interface Clip {
   /** Visual property animation keyframes */
   visualKeyframes?: Partial<Record<VisualPropertyKey, VisualPropertyKeyframe[]>>;
   audioPath?: string;
+  /** Source clip identity for generated detach-audio clips. */
+  detachedFromClipId?: string;
 }
 
 export type EasingType = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bezier";
@@ -602,4 +630,3 @@ export * from "./export";
 export * from "./gap";
 export * from "./serialization";
 export * from "./compositor";
-
