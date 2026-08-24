@@ -11,6 +11,15 @@ export interface TelemetryStats {
   seekP50Ms?: number | null;
   seekP95Ms?: number | null;
   seekP99Ms?: number | null;
+  avDriftP95Ms?: number;
+  uiPlayheadDriftAvgMs?: number;
+  uiPlayheadDriftMaxMs?: number;
+  paintIntervalAvgMs?: number;
+  framePacingJank?: number;
+  nativeSeekAvgMs?: number | null;
+  nativeSeekMaxMs?: number | null;
+  nativeSeekCorrect?: number;
+  nativeSeekCount?: number;
   staleFrames?: number;
   cancelledFrames?: number;
   cacheMisses?: number;
@@ -47,7 +56,7 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
         <span>{(telemetryStats.cacheHitRate * 100).toFixed(0)}%</span>
       </div>
       <div className="flex justify-between gap-4">
-        <span className="text-white/60">Active:</span>
+        <span className="text-white/60">Requests:</span>
         <span>{telemetryStats.active}</span>
       </div>
       <div className="flex justify-between gap-4">
@@ -63,8 +72,24 @@ export const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
         </span>
       </div>
       <div className="flex justify-between gap-4">
-        <span className="text-white/60">Seek p50/p95:</span>
-        <span>{telemetryStats.seekP50Ms == null ? "—" : `${telemetryStats.seekP50Ms.toFixed(1)}/${telemetryStats.seekP95Ms?.toFixed(1) ?? "—"}ms`}</span>
+        <span className="text-white/60">A/V p95:</span>
+        <span>{telemetryStats.avDriftP95Ms?.toFixed(1) ?? "0.0"}ms</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-white/60">UI Drift:</span>
+        <span>{telemetryStats.uiPlayheadDriftAvgMs?.toFixed(1) ?? "0.0"}ms / {telemetryStats.uiPlayheadDriftMaxMs?.toFixed(1) ?? "0.0"}ms</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-white/60">Paint/Pacing:</span>
+        <span>{telemetryStats.paintIntervalAvgMs?.toFixed(1) ?? "0.0"}ms / {telemetryStats.framePacingJank ?? 0}</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-white/60">Seek avg/max:</span>
+        <span>{telemetryStats.nativeSeekAvgMs == null ? (telemetryStats.seekP50Ms == null ? "—" : `${telemetryStats.seekP50Ms.toFixed(1)}/${telemetryStats.seekP95Ms?.toFixed(1) ?? "—"}ms`) : `${telemetryStats.nativeSeekAvgMs.toFixed(1)}/${telemetryStats.nativeSeekMaxMs?.toFixed(1) ?? "—"}ms`}</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-white/60">Seek correct:</span>
+        <span>{telemetryStats.nativeSeekCount ? `${telemetryStats.nativeSeekCorrect ?? 0}/${telemetryStats.nativeSeekCount}` : "—"}</span>
       </div>
       <div className="flex justify-between gap-4">
         <span className="text-white/60">Stale/Cancel:</span>
