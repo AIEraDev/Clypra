@@ -241,6 +241,13 @@ export class CommandJournal {
     const composite = transaction.toCompositeCommand();
     transaction.commit();
 
+    // A committed transaction is a new edit just like a standalone command.
+    // Discard any commands that were undone before this transaction started;
+    // they describe a stale future and must not remain redoable.
+    if (this._position < this._history.length - 1) {
+      this._history = this._history.slice(0, this._position + 1);
+    }
+
     // Add to history (without executing - already applied)
     this._history.push(composite);
     this._position++;
