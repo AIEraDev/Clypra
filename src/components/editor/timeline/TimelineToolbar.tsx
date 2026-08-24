@@ -14,6 +14,7 @@ import { EditingActions } from "@/core/interactions";
 import { useSplitMode, useAnchoredTimelineZoom } from "@/hooks";
 import type { TimelineZoomAnchor } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
+import { clipboardService } from "@/core/clipboard/clipboardService";
 
 const ZOOM_THUMB_SIZE_PX = 22;
 const ZOOM_RAIL_WIDTH_PX = 176; // w-44
@@ -187,20 +188,7 @@ const TimelineToolbarComponent: React.FC = () => {
 
   const handleDuplicateSelectedClips = () => {
     if (selectedClipIds.length === 0) return;
-    const { clips, addClip } = useTimelineStore.getState();
-    const selected = clips.filter((c) => selectedClipIds.includes(c.id)).sort((a, b) => a.startTime - b.startTime);
-    if (selected.length === 0) return;
-    const minStart = selected[0].startTime;
-    const maxEnd = Math.max(...selected.map((c) => c.startTime + c.duration));
-    const offset = maxEnd - minStart;
-    selected.forEach((clip) => {
-      addClip({
-        ...clip,
-        id: generateId("clip"),
-        startTime: clip.startTime + offset,
-      });
-    });
-    toast.success(`Duplicated ${selected.length} clip${selected.length > 1 ? "s" : ""}`);
+    clipboardService.duplicateClips(selectedClipIds);
   };
 
   const handleCloseGaps = () => {
