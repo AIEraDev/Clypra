@@ -1043,6 +1043,13 @@ export function buildNativeFrameRequest(
   outputWidth: number,
   outputHeight: number,
   rasterLayers: NativeRasterLayerSnapshot[] = [],
+  intent: {
+    generation?: number;
+    mode?: "playback" | "scrub" | "seek" | "frameStep";
+    quality?: NativeFrameRequest["quality"];
+    velocityPxPerSecond?: number;
+    requestedAtMs?: number;
+  } = {},
 ): NativeFrameRequest | null {
   const request = buildNativeVideoProjectRequest(scene, rasterLayers);
   if (!request) return null;
@@ -1103,8 +1110,12 @@ export function buildNativeFrameRequest(
     },
     outputWidth,
     outputHeight,
-    quality: "full",
+    quality: intent.quality ?? "full",
     colorPolicy: DEFAULT_NATIVE_COLOR_POLICY,
     renderGraphVersion: 1,
+    ...(intent.generation !== undefined ? { generation: intent.generation } : {}),
+    ...(intent.mode ? { mode: intent.mode } : {}),
+    ...(intent.velocityPxPerSecond !== undefined ? { scrubVelocityPxPerSecond: intent.velocityPxPerSecond } : {}),
+    ...(intent.requestedAtMs !== undefined ? { requestedAtMs: intent.requestedAtMs } : {}),
   });
 }
