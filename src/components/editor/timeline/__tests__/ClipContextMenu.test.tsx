@@ -78,6 +78,7 @@ describe("ClipContextMenu component", () => {
     expect(screen.getByText("Cut")).toBeInTheDocument();
     expect(screen.getByText("Copy")).toBeInTheDocument();
     expect(screen.getByText("Duplicate")).toBeInTheDocument();
+    expect(screen.getByText("Rename Clip")).toBeInTheDocument();
     expect(screen.getByText("Split at Playhead")).toBeInTheDocument();
     expect(screen.getByText("Ripple Delete")).toBeInTheDocument();
     expect(screen.getByText("Mute / Unmute")).toBeInTheDocument();
