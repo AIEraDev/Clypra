@@ -88,6 +88,30 @@ describe("CommandHistory — CommandJournal & Transaction", () => {
     expect(journal.getState().size).toBe(2);
   });
 
+  it("should clear redo history when committing a new transaction", () => {
+    const journal = new CommandJournal();
+    let state = { count: 10 };
+
+    state = journal.execute(new MockCommand(15, 10), state); // 15
+    state = journal.execute(new MockCommand(18, 15), state); // 18
+    state = journal.undo(state); // 15; 18 is now a redo candidate
+    expect(journal.canRedo()).toBe(true);
+
+    journal.beginTransaction("Replace Future");
+    state = journal.execute(new MockCommand(16, 15), state);
+    state = journal.commitTransaction(state);
+
+    expect(state.count).toBe(16);
+    expect(journal.canRedo()).toBe(false);
+    expect(journal.getState().size).toBe(2);
+
+    // The committed transaction is the only valid redo future.
+    state = journal.undo(state);
+    expect(state.count).toBe(15);
+    state = journal.redo(state);
+    expect(state.count).toBe(16);
+  });
+
   it("should enforce maximum history size limits", () => {
     const journal = new CommandJournal({ maxSize: 2 });
     let state = { count: 10 };
