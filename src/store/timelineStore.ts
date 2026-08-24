@@ -88,7 +88,7 @@ interface TimelineStore {
   moveClip: (clipId: string, startTime: number) => void;
   setZoom: (level: number) => void;
   /** Clamps to the SRP zoom range and syncs `zoomLevel` to `pixelsPerSecond / 100`. */
-  setPixelsPerSecond: (pps: number) => void;
+  setPixelsPerSecond: (pps: number, allowOverviewFloor?: boolean) => void;
   setScrollLeft: (left: number) => void;
   setViewportWidth: (width: number) => void;
   getTimelineEndTime: () => number;
@@ -825,8 +825,8 @@ export const useTimelineStore = create<TimelineStore>(
       });
     },
 
-    setPixelsPerSecond: (pps) => {
-      const clamped = clampTimelinePixelsPerSecond(pps);
+    setPixelsPerSecond: (pps, allowOverviewFloor = false) => {
+      const clamped = clampTimelinePixelsPerSecond(pps, allowOverviewFloor);
       const zoomLevel = clamped / TIMELINE_PPS_PER_ZOOM;
       set((state) => {
         // Zoom animation writes on every RAF. Avoid notifying every subscriber
