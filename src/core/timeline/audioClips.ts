@@ -68,7 +68,7 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       // Find asset
       const asset = assets.find((a) => a.id === clip.mediaId);
       const directAudioPath = (clip as any).audioPath as string | undefined;
-      const isAudioClip = asset?.type === "audio" || asset?.type === "video" || (clip.kind === "audio" && !!directAudioPath);
+      const isAudioClip = clip.kind === "audio" || asset?.type === "audio" || asset?.type === "video" || !!directAudioPath;
 
       if (!isAudioClip) return false;
 
@@ -80,7 +80,7 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
     .map((clip) => {
       const asset = assets.find((a) => a.id === clip.mediaId);
       const directAudioPath = (clip as any).audioPath as string | undefined;
-      const rawPath = asset ? asset.path : directAudioPath!;
+      const rawPath = directAudioPath || asset?.path || "";
       const track = trackMap.get(clip.trackId);
 
       // Calculate overlap with export time range

@@ -607,7 +607,7 @@ export class PreviewMediaPool {
         const track = this.trackMap.get(clip.trackId);
         if (track?.visible === false) continue;
 
-        const rawPath = (asset ? asset.path : directAudioPath) || (clip as any).path;
+        const rawPath = directAudioPath || asset?.path || (clip as any).path;
         if (!rawPath) continue;
         const sourcePath = isWebviewOrExternalUrl(rawPath) ? rawPath : convertFileSrc(rawPath);
         const key = clip.id;
