@@ -137,6 +137,14 @@ pub struct NativeSurfacePresentation {
     /// Audio position minus frame position in canonical 1 MHz ticks.
     pub frame_age_ticks: i64,
     pub surface: NativeSurfaceProbe,
+    #[serde(default)]
+    pub generation: Option<u64>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub stale: bool,
+    #[serde(default)]
+    pub cancelled: bool,
 }
 
 #[cfg(test)]
