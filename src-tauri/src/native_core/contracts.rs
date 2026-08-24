@@ -375,6 +375,8 @@ pub struct RasterLayerSnapshot {
 pub struct ProjectSnapshot {
     pub schema_version: u32,
     pub project_revision: String,
+    #[serde(default = "default_frame_rate")]
+    pub frame_rate: u32,
     pub canvas_width: u32,
     pub canvas_height: u32,
     pub clear_color: [f32; 4],
@@ -383,6 +385,10 @@ pub struct ProjectSnapshot {
     pub raster_layers: Vec<RasterLayerSnapshot>,
     #[serde(default)]
     pub transition: Option<TransitionSnapshot>,
+}
+
+fn default_frame_rate() -> u32 {
+    30
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -905,6 +911,7 @@ mod tests {
             project: ProjectSnapshot {
                 schema_version: 1,
                 project_revision: "project-rev-1".to_string(),
+                frame_rate: 30,
                 canvas_width: 1920,
                 canvas_height: 1080,
                 clear_color: [0.0, 0.0, 0.0, 1.0],
