@@ -19,3 +19,14 @@ export type { AuthorityContextSwitchListener, AuthorityStateListener } from "./T
 export { ProgramPlaybackContext } from "./ProgramPlaybackContext";
 export { SourcePlaybackContext } from "./SourcePlaybackContext";
 export * from "./frameSkipping";
+export {
+  SeekController,
+  qualityForScrubVelocity,
+} from "./seekController";
+export type {
+  SeekIntent,
+  SeekIntentInput,
+  SeekIntentListener,
+  SeekMode,
+  SeekQuality,
+} from "./seekController";
