@@ -406,7 +406,7 @@ export class PreviewMediaPool {
         const track = this.trackMap.get(clip.trackId);
         if (track?.visible === false) continue;
 
-        if (asset?.type === "video") {
+        if (asset?.type === "video" && clip.kind !== "audio") {
           const sourcePath = isWebviewOrExternalUrl(asset.path) ? asset.path : convertFileSrc(asset.path);
 
           const cacheKey = clip.id;
