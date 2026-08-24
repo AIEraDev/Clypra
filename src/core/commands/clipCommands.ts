@@ -24,6 +24,7 @@ import {
   AudioLines,
   Layers,
   Ungroup,
+  Pencil,
 } from "lucide-react";
 import type { ClipCommand, ClipCommandContext } from "./types";
 import { clipboardService } from "@/core/clipboard/clipboardService";
@@ -37,6 +38,8 @@ import { DetachAudioCommand } from "@/core/history/commands/DetachAudioCommand";
 import { SwapClipsCommand } from "@/core/history/commands/SwapClipsCommand";
 import { useMediaJobStore } from "@/store/mediaJobStore";
 import { validateGroupSelection } from "@/core/history/commands/CompoundClipCommands";
+import { formatSplitMessage } from "@/lib/timeline/clipName";
+import { getClipDisplayName } from "@/lib/timeline/clipName";
 
 function getTargetClipIds(ctx: ClipCommandContext): string[] {
   if (ctx.selectedClipIds.length > 0) {
@@ -61,6 +64,31 @@ function isWithinPlayhead(clip: ClipCommandContext["clips"][number], playheadTim
 }
 
 export const clipCommands: ClipCommand[] = [
+  {
+    id: "clip.rename",
+    label: "Rename Clip",
+    icon: Pencil,
+    group: "organize",
+    isVisible: (ctx) => getTargetClipIds(ctx).length === 1,
+    isEnabled: (ctx) => {
+      const clip = ctx.clips.find((candidate) => candidate.id === getTargetClipIds(ctx)[0]);
+      return !!clip && !ctx.tracks.find((track) => track.id === clip.trackId)?.locked;
+    },
+    disabledReason: () => "The clip is on a locked track",
+    execute: (ctx) => {
+      const clipId = getTargetClipIds(ctx)[0];
+      const clip = ctx.clips.find((candidate) => candidate.id === clipId);
+      if (!clip) return;
+
+      const currentName = getClipDisplayName(clip, useProjectStore.getState().mediaAssets);
+      const nextName = typeof window !== "undefined" ? window.prompt("Rename Clip", currentName) : null;
+      if (nextName === null) return;
+
+      const result = EditingActions.renameClip(clipId, nextName);
+      if (result.success) toast.success(`Renamed clip to “${result.name}”`);
+      else if (result.error) toast.error(result.error);
+    },
+  },
   {
     id: "clip.group",
     label: "Group Clips",
@@ -180,7 +208,7 @@ export const clipCommands: ClipCommand[] = [
     execute: () => {
       const results = EditingActions.splitAllAtPlayhead();
       const successCount = results.filter((result) => result.success).length;
-      if (successCount > 0) toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+      if (successCount > 0) toast.success(formatSplitMessage(results));
       else toast.info("No clips under playhead to split");
     },
   },
@@ -212,7 +240,7 @@ export const clipCommands: ClipCommand[] = [
       if (results.length > 0) {
         const successCount = results.filter((r) => r.success).length;
         if (successCount > 0) {
-          toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+          toast.success(formatSplitMessage(results));
         } else if (results[0].error) {
           toast.error(results[0].error);
         }
