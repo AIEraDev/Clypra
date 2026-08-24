@@ -28,6 +28,7 @@ import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { drawCanvasBackground } from "@/core/render/canvasBackground";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
+import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 import {
   getNativePreviewSurfaceGeometry,
@@ -120,8 +121,14 @@ export const NativeProgramPreview: React.FC = () => {
 
   const clockState = usePlaybackClock();
   const clock = getPlaybackClock();
-  const { seek, setSpeed, setDuration, setFrameRate } = usePlaybackControls();
-  const { play: transportPlay, pause: transportPause, setActiveContext } = useTransportControls();
+  const { setDuration, setFrameRate } = usePlaybackControls();
+  const {
+    play: transportPlay,
+    pause: transportPause,
+    seek: transportSeek,
+    setSpeed: transportSetSpeed,
+    setActiveContext,
+  } = useTransportControls();
 
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(100);
@@ -1693,22 +1700,22 @@ export const NativeProgramPreview: React.FC = () => {
         }}
         onSeek={(time) => {
           if (clips.length === 0) return;
-          seek(time);
+          transportSeek(clampAndSnapProgramTime(time, duration, frameRate));
         }}
         formatTime={formatTime}
         onStepBack={() => {
           if (clips.length === 0) return;
           const targetTime = Math.max(0, currentTime - step);
-          seek(targetTime);
+          transportSeek(clampAndSnapProgramTime(targetTime, duration, frameRate));
         }}
         onStepForward={() => {
           if (clips.length === 0) return;
           const targetTime = Math.min(duration, currentTime + step);
-          seek(targetTime);
+          transportSeek(clampAndSnapProgramTime(targetTime, duration, frameRate));
         }}
         leftActions={
           <div className="relative" ref={speedMenuRef}>
-            <PlaybackSpeedSelector playbackSpeed={playbackSpeed} speedMenuOpen={speedMenuOpen} setSpeedMenuOpen={setSpeedMenuOpen} setSpeed={setSpeed} />
+            <PlaybackSpeedSelector playbackSpeed={playbackSpeed} speedMenuOpen={speedMenuOpen} setSpeedMenuOpen={setSpeedMenuOpen} setSpeed={transportSetSpeed} />
           </div>
         }
         rightActions={
