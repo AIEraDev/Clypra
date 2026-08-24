@@ -5,12 +5,14 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track, TransitionTimelineItem } from "@/types";
+import type { Gap } from "@/types/gap";
 import { shouldAutoPruneTrack } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks?: Track[];
   clips: Clip[];
   transitions?: TransitionTimelineItem[];
+  gaps?: Gap[];
   epoch: number;
 }
 
@@ -24,6 +26,8 @@ export class DeleteClipCommand implements Command {
   private deletedTrack: Track | null = null;
   private deletedTrackIndex: number = -1;
   private deletedTransitions: TransitionTimelineItem[] = [];
+  private deletedClipIndex: number = -1;
+  private deletedGaps: Gap[] | undefined;
 
   constructor(private readonly clipId: string) {
     this.id = generateCommandId();
@@ -36,6 +40,12 @@ export class DeleteClipCommand implements Command {
     this.deletedClip = clip || null;
 
     if (!clip) return state;
+
+    this.deletedClipIndex = state.clips.findIndex((candidate) => candidate.id === this.clipId);
+    this.deletedGaps = state.gaps?.map((gap) => ({
+      ...gap,
+      metadata: gap.metadata ? { ...gap.metadata } : gap.metadata,
+    }));
 
     const remainingClips = state.clips.filter((c) => c.id !== this.clipId);
     const hasOtherClips = remainingClips.some((c) => c.trackId === clip.trackId);
@@ -78,7 +88,14 @@ export class DeleteClipCommand implements Command {
     if (!this.deletedClip) {
       throw new Error("Cannot invert DeleteClipCommand: no deleted clip stored");
     }
-    return new AddClipCommand(this.deletedClip, this.deletedTrack, this.deletedTrackIndex, this.deletedTransitions);
+    return new AddClipCommand(
+      this.deletedClip,
+      this.deletedTrack,
+      this.deletedTrackIndex,
+      this.deletedTransitions,
+      this.deletedClipIndex,
+      this.deletedGaps,
+    );
   }
 
   toJSON(): Record<string, any> {
@@ -88,6 +105,8 @@ export class DeleteClipCommand implements Command {
       deletedClip: this.deletedClip,
       deletedTrack: this.deletedTrack,
       deletedTrackIndex: this.deletedTrackIndex,
+      deletedClipIndex: this.deletedClipIndex,
+      deletedGaps: this.deletedGaps,
     };
   }
 
@@ -96,6 +115,8 @@ export class DeleteClipCommand implements Command {
     cmd.deletedClip = data.deletedClip;
     cmd.deletedTrack = data.deletedTrack;
     cmd.deletedTrackIndex = data.deletedTrackIndex ?? -1;
+    cmd.deletedClipIndex = data.deletedClipIndex ?? -1;
+    cmd.deletedGaps = data.deletedGaps;
     return cmd;
   }
 }
@@ -114,6 +135,8 @@ export class AddClipCommand implements Command {
     private readonly restoredTrack?: Track | null,
     private readonly restoredTrackIndex?: number,
     private readonly restoredTransitions: TransitionTimelineItem[] = [],
+    private readonly restoredClipIndex: number = -1,
+    private readonly restoredGaps?: Gap[],
   ) {
     this.id = generateCommandId();
     this.label = "Add Clip";
@@ -128,35 +151,37 @@ export class AddClipCommand implements Command {
       tracks.splice(insertIndex, 0, this.restoredTrack);
     }
 
-    // Check for overlap and adjust position if needed
-    const trackClips = state.clips.filter((c) => c.trackId === this.clip.trackId).sort((a, b) => a.startTime - b.startTime);
+    let clips: Clip[];
+    if (this.restoredClipIndex >= 0) {
+      clips = [...state.clips];
+      const insertIndex = Math.max(0, Math.min(this.restoredClipIndex, clips.length));
+      clips.splice(insertIndex, 0, { ...this.clip });
+    } else {
+      // New clips use the legacy safe-position behavior; deleted clips carry
+      // an explicit index and are restored exactly at their original slot.
+      const trackClips = state.clips.filter((c) => c.trackId === this.clip.trackId).sort((a, b) => a.startTime - b.startTime);
+      let finalStartTime = this.clip.startTime;
+      let hasOverlap = true;
 
-    let finalStartTime = this.clip.startTime;
-    let hasOverlap = true;
-
-    // Keep checking until no overlaps (handle cascading shifts)
-    while (hasOverlap) {
-      hasOverlap = false;
-      for (const existingClip of trackClips) {
-        const existingEnd = existingClip.startTime + existingClip.duration;
-        const newEnd = finalStartTime + this.clip.duration;
-
-        // Check for overlap
-        if (finalStartTime < existingEnd && newEnd > existingClip.startTime) {
-          // Overlap detected - move to end of conflicting clip
-          finalStartTime = existingEnd;
-          hasOverlap = true; // Re-check with new position
-          break; // Restart the loop from beginning
+      while (hasOverlap) {
+        hasOverlap = false;
+        for (const existingClip of trackClips) {
+          const existingEnd = existingClip.startTime + existingClip.duration;
+          const newEnd = finalStartTime + this.clip.duration;
+          if (finalStartTime < existingEnd && newEnd > existingClip.startTime) {
+            finalStartTime = existingEnd;
+            hasOverlap = true;
+            break;
+          }
         }
       }
-    }
 
-    // Create clip with safe position
-    const safeClip = { ...this.clip, startTime: finalStartTime };
+      clips = [...state.clips, { ...this.clip, startTime: finalStartTime }];
+    }
 
     const nextState: TimelineState = {
       ...state,
-      clips: [...state.clips, safeClip],
+      clips,
       epoch: state.epoch + 1, // ✅ Epoch increment inside command
     };
 
@@ -168,6 +193,13 @@ export class AddClipCommand implements Command {
       const existingIds = new Set(state.transitions.map((t) => t.id));
       const transitionsToAdd = this.restoredTransitions.filter((t) => !existingIds.has(t.id));
       nextState.transitions = [...state.transitions, ...transitionsToAdd];
+    }
+
+    if (state.gaps !== undefined && this.restoredGaps !== undefined) {
+      nextState.gaps = this.restoredGaps.map((gap) => ({
+        ...gap,
+        metadata: gap.metadata ? { ...gap.metadata } : gap.metadata,
+      }));
     }
 
     return nextState;
@@ -183,10 +215,19 @@ export class AddClipCommand implements Command {
       clip: this.clip,
       restoredTrack: this.restoredTrack,
       restoredTrackIndex: this.restoredTrackIndex,
+      restoredClipIndex: this.restoredClipIndex,
+      restoredGaps: this.restoredGaps,
     };
   }
 
   static fromJSON(data: Record<string, any>): AddClipCommand {
-    return new AddClipCommand(data.clip, data.restoredTrack, data.restoredTrackIndex);
+    return new AddClipCommand(
+      data.clip,
+      data.restoredTrack,
+      data.restoredTrackIndex,
+      data.restoredTransitions ?? [],
+      data.restoredClipIndex ?? -1,
+      data.restoredGaps,
+    );
   }
 }
