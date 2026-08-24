@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-08-24
+
+### 🖱️ Timeline Context Menus & Command Orchestration
+
+- **Clip & Empty-Space Context Menus**: Introduced right-click context menus for timeline clips (`ClipContextMenu`) and empty track regions (`TimelineEmptySpaceContextMenu`), providing instant access to essential editing workflows (Cut, Copy, Duplicate, Split Clip at Playhead, Ripple Delete, Delete, Mute/Unmute, and Properties).
+- **Viewport-Aware Context Menu Placement**: Upgraded `ContextMenu` with automated viewport collision detection and flip placement, grouped item support with visual dividers, disabled item states, and shortcut hint badges.
+- **Unified Command Layer**: Added `useClipCommands` and `useTimelineCommands` hooks to centralize clip action execution across context menus, the timeline toolbar, and keyboard shortcuts.
+- **Structured Clipboard Engine**: Introduced `ClipboardService` for structured multi-clip copy/paste and duplication with track index mapping, playhead offset calculation, and duplicate placement offsets.
+
+### ⚡ Filmstrip & Thumbnail Decoding Optimizations
+
+- **Single-Seek Forward GOP Sweep (`decode_frames_batch_full_res`)**: Accelerated batch thumbnail decoding in Rust by replacing repeated per-frame seeks with a single forward keyframe sweep per chunk.
+- **Optimized Hardware Decoding & Color Conversion**: Added static HW-to-CPU frame transfers, format callbacks, `FAST_BILINEAR` 1:1 color conversion, and zero-swscale YUV420P→NV12 conversion paths.
+- **Multi-Tier Raster & Pyramid Fallback**: Enhanced `webglRasterSurface` and `FilmstripTileCache` with L0 thumbnail protection/pinning during time-eviction, two-pass LRU cache eviction, and seamless pyramid fallback resolution during high-speed zoom and scrub.
+- **Batch Serialization & Coalescing**: Added file-level mutex gating to prevent concurrent duplicate decodes of identical video files, normalized spatial tiers, and coalesced in-flight native batches.
+- **Timeline Zoom Spring Synchronization**: Enhanced `useTimelineZoomSpring` and epoch debounce mechanisms to guarantee continuous zooming SLA (sub-150ms resolution) and prevent clip render churn.
+
+### 📊 Real-Time Metrics & Performance HUD
+
+- **Live Filmstrip Performance HUD (`FilmstripMetricsOverlay`)**: Added an in-editor diagnostics HUD toggled via `Cmd+Shift+M` (macOS) / `Ctrl+Shift+M` (Windows/Linux) showing real-time frontend render timings and native Rust backend stats.
+- **Frontend Telemetry**: Added telemetry tracking per-tier decode rates, request dispatch frequencies, cache hits/misses, first-artifact latencies, and paint commit durations.
+- **Rust Backend Metrics Snapshot**: Added `get_decode_metrics_snapshot` Tauri invoke command backed by atomic metrics accumulators in the thumbnail engine.
+
+### 🎯 UI Polish & Frontend React Optimization
+
+- **Selective Store Subscriptions & Memoization**: Applied granular store selectors and `React.memo` across `TopBar`, `PropertiesPanel`, `Sidebar`, and `TimelineToolbar` to eliminate redundant re-render cycles.
+- **Playback Clock Decoupling (`usePlaybackStatus`)**: Replaced high-frequency requestAnimationFrame clock subscriptions in timeline containers with discrete playback status hooks, stopping timeline re-renders on pure time ticks.
+- **Reusable Outside-Click Dismissal (`useClickOutside`)**: Unified outside-click and Escape dismissal across layout menus, speed/aspect/quality popovers, and context menus.
+- **Popover Stacking & Positioning**: Resolved stacking context and clipping issues in `PreviewTransport` popovers.
+
+### 🖼️ Project Thumbnail Service
+
+- **Background Project Cover Generation**: Added `ProjectThumbnailService` to automatically generate and cache project preview thumbnails in the background during save without blocking the UI thread or marking projects as dirty.
+- **Auto-Save Suppression on Hydration**: Suppressed auto-save triggers during initial project loading and state hydration.
+
+### 🐛 Bug Fixes & Process Lifecycle
+
+- **macOS Window Close Process Exit**: Fixed a process hang on macOS window close by listening to the `CloseRequested` window event and cleanly terminating the process across all project states.
+- **Auto-Updater Manifest Public URLs**: Fixed auto-updater manifest generation in CI to rewrite GitHub API asset URLs to public download URLs, ensuring unauthenticated clients can fetch update binaries reliably.
+- **Cleaned Up Diagnostic Logs**: Removed noisy console logs and `eprintln` spam from hot rendering and playback paths.
+
+### 🧪 Test Verification
+
+- **Comprehensive Test Suite**: Verified 100% pass rate across all 238 frontend test files (1,989 unit/integration tests) and 161 Rust backend unit and stress tests.
+
 ## [1.4.1] - 2026-08-23
 
 ### 🔊 Native Audio Playback
