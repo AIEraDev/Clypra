@@ -278,6 +278,7 @@ export class FilmstripCache {
         epochId: options.epochId,
         clipId: options.clipId,
         concurrency: 1,
+        priority: 3,
         onArtifact: (artifact) => {
           if (!isValidArtifact(artifact) || artifact.epochId !== options.epochId || artifact.spatialTier !== tier) {
             try { artifact.bitmap.close(); } catch {}
@@ -418,6 +419,7 @@ export class FilmstripCache {
           epochId: "epoch-preload" as RenderEpochId,
           clipId: videoPath,
           concurrency: 2,
+          priority: 0,
           onArtifact: (artifact) => {
             if (!isValidArtifact(artifact)) {
               try { artifact.bitmap.close(); } catch {}
@@ -742,10 +744,14 @@ export class FilmstripCache {
       return distA - distB;
     });
 
-    const timestampsMs = sortedTileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
-    const totalToDecode = timestampsMs.length;
-    const requestStartTime = performance.now();
-    let arrivedCount = 0;
+    const missingTileAddresses = sortedTileAddresses.filter((addr) => {
+      const cached = this.tileCache.getTile(addr);
+      return !(
+        cached &&
+        isValidArtifact(cached.artifact) &&
+        cached.artifact.spatialTier === spatialTier
+      );
+    });
 
     // Create entry
     const entry: FilmstripCacheEntry = {
@@ -768,6 +774,27 @@ export class FilmstripCache {
       onUpdate([...keptArtifacts]);
     }
 
+    if (missingTileAddresses.length === 0) {
+      console.log("[FilmstripCache:allCached]", {
+        clipId,
+        epochId,
+        spatialTier,
+        totalTiles: tileAddresses.length,
+      });
+      return;
+    }
+
+    const timestampsMs = missingTileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
+    console.log("[FilmstripCache:requestMissing]", {
+      clipId,
+      epochId,
+      spatialTier,
+      totalTiles: tileAddresses.length,
+      missingCount: timestampsMs.length,
+      timestampsMs,
+    });
+    let arrivedCount = 0;
+
     // Request artifacts through the same native FrameRequest path used by the
     // program preview. FilmstripCache still owns epochs and bitmap lifetime.
     const cancelFn = requestFilmstripArtifacts({
@@ -776,18 +803,32 @@ export class FilmstripCache {
       spatialTier,
       epochId,
       clipId,
+      priority: 10,
       onArtifact: (artifact) => {
+        console.log("[FilmstripCache:onArtifact]", {
+          clipId,
+          incomingEpochId: artifact.epochId,
+          expectedEpochId: epochId,
+          spatialTier: artifact.spatialTier,
+          timestampMs: artifact.timestampMs,
+          width: artifact.width,
+          height: artifact.height,
+        });
+
         // Check if entry still valid (not invalidated during async decode)
         const currentEntry = this.entries.get(clipId);
         if (!currentEntry) {
+          console.warn("[FilmstripCache:drop] Entry deleted for clip:", clipId);
           artifact.bitmap.close();
           return;
         }
         if (currentEntry.epochId !== epochId) {
+          console.warn("[FilmstripCache:drop] Epoch mismatch:", { current: currentEntry.epochId, expected: epochId });
           artifact.bitmap.close();
           return;
         }
         if (!isValidArtifact(artifact)) {
+          console.warn("[FilmstripCache:drop] Invalid artifact:", artifact);
           try {
             artifact.bitmap.close();
           } catch {}
@@ -801,6 +842,12 @@ export class FilmstripCache {
         if (matchingAddr) {
           // Store in tile cache for reuse across zoom transitions
           this.tileCache.setTile(matchingAddr, artifact);
+        } else {
+          console.warn("[FilmstripCache:noMatchingAddress]", {
+            clipId,
+            artifactTs: artifact.timestampMs,
+            tileAddressesCount: currentEntry.tileAddresses.length,
+          });
         }
 
         // Enforce memory budget BEFORE scheduling
