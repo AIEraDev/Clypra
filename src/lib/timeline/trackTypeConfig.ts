@@ -54,6 +54,22 @@ export interface TrackTypeConfig {
   displayName: string;
 }
 
+/** Visual role used by the timeline UI. This is intentionally separate from
+ * TrackType because video tracks can be either the primary A-roll or a
+ * secondary B-roll track. */
+export type TrackVisualRole =
+  | "a-roll"
+  | "b-roll"
+  | Exclude<TrackType, "video">;
+
+export interface TrackVisualSpec {
+  role: TrackVisualRole;
+  label: string;
+  height: number;
+  opacity: number;
+  tone: "primary" | "secondary" | "audio" | "auxiliary";
+}
+
 // ─── Registry ────────────────────────────────────────────────────────────────
 
 /**
@@ -118,6 +134,59 @@ export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
     displayName: "Overlays",
   },
 };
+
+/**
+ * Resolves the display role for a track without relying on array position.
+ * mainVideoTrackId is authoritative; the first video track is the compatibility
+ * fallback for older or partially hydrated projects.
+ */
+export function getTrackVisualSpec(
+  track: Pick<Track, "id" | "type">,
+  tracks: Array<Pick<Track, "id" | "type">>,
+  mainVideoTrackId?: string | null,
+): TrackVisualSpec {
+  if (track.type === "video") {
+    const configuredPrimaryIsVideo = tracks.some(
+      (candidate) => candidate.id === mainVideoTrackId && candidate.type === "video",
+    );
+    const primaryVideoId = configuredPrimaryIsVideo
+      ? mainVideoTrackId
+      : tracks.find((candidate) => candidate.type === "video")?.id;
+    const isARoll = track.id === primaryVideoId;
+
+    return {
+      role: isARoll ? "a-roll" : "b-roll",
+      label: isARoll ? "A-Roll (Main)" : "B-Roll",
+      // Keep all video rows aligned. A/B-roll hierarchy is communicated by
+      // tone and opacity, not by changing the geometry of the video lanes.
+      height: TRACK_TYPE_CONFIG.video.height,
+      opacity: isARoll ? 1 : 0.8,
+      tone: isARoll ? "primary" : "secondary",
+    };
+  }
+
+  const config = TRACK_TYPE_CONFIG[track.type];
+  const labels: Record<Exclude<TrackType, "video">, string> = {
+    audio: "Audio",
+    text: "Text",
+    sticker: "Sticker",
+    filter: "Filter",
+    "video-effect": "Video Effect",
+    "body-effect": "Body Effect",
+    "animated-overlay": "Animated Overlay",
+  };
+
+  return {
+    role: track.type,
+    label: labels[track.type],
+    height:
+      track.type === "audio"
+        ? Math.round(TRACK_TYPE_CONFIG.video.height * 0.5)
+        : config.height,
+    opacity: track.type === "audio" ? 0.6 : 0.8,
+    tone: track.type === "audio" ? "audio" : "auxiliary",
+  };
+}
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
