@@ -34,6 +34,7 @@ import { toast } from "@/lib/toast";
 import { useHistoryStore } from "@/store/historyStore";
 import { useProjectStore } from "@/store/projectStore";
 import { DetachAudioCommand } from "@/core/history/commands/DetachAudioCommand";
+import { SwapClipsCommand } from "@/core/history/commands/SwapClipsCommand";
 import { useMediaJobStore } from "@/store/mediaJobStore";
 import { validateGroupSelection } from "@/core/history/commands/CompoundClipCommands";
 
@@ -47,6 +48,16 @@ function getTargetClipIds(ctx: ClipCommandContext): string[] {
     return ctx.selectedClipIds;
   }
   return ctx.clickedClipId ? [ctx.clickedClipId] : [];
+}
+
+function getPlayheadTargetClips(ctx: ClipCommandContext): ClipCommandContext["clips"] {
+  const ids = getTargetClipIds(ctx);
+  if (ids.length > 0) return ctx.clips.filter((clip) => ids.includes(clip.id));
+  return ctx.clips.filter((clip) => ctx.playheadTime > clip.startTime && ctx.playheadTime < clip.startTime + clip.duration);
+}
+
+function isWithinPlayhead(clip: ClipCommandContext["clips"][number], playheadTime: number): boolean {
+  return playheadTime > clip.startTime && playheadTime < clip.startTime + clip.duration;
 }
 
 export const clipCommands: ClipCommand[] = [
@@ -158,6 +169,22 @@ export const clipCommands: ClipCommand[] = [
 
   // ─── Trim & Split ───────────────────────────────────────────────────────────
   {
+    id: "clip.splitAllAtPlayhead",
+    label: "Split All at Playhead",
+    shortcutLabel: "S",
+    icon: ScissorsLineDashed,
+    group: "trim",
+    isVisible: () => true,
+    isEnabled: (ctx) => getPlayheadTargetClips(ctx).some((clip) => clip.kind !== "compound" && !ctx.tracks.find((track) => track.id === clip.trackId)?.locked),
+    disabledReason: () => "No unlocked clips under playhead",
+    execute: () => {
+      const results = EditingActions.splitAllAtPlayhead();
+      const successCount = results.filter((result) => result.success).length;
+      if (successCount > 0) toast.success(`Split ${successCount} clip${successCount > 1 ? "s" : ""}`);
+      else toast.info("No clips under playhead to split");
+    },
+  },
+  {
     id: "clip.splitAtPlayhead",
     label: "Split at Playhead",
     shortcutId: "split-selected-at-playhead",
@@ -166,21 +193,17 @@ export const clipCommands: ClipCommand[] = [
     group: "trim",
     isVisible: () => true,
     isEnabled: (ctx) => {
-      const ids = getTargetClipIds(ctx);
-      const targetClips = ctx.clips.filter((c) => ids.includes(c.id));
+      const targetClips = getPlayheadTargetClips(ctx);
       return targetClips.some((c) => {
         const isUnlocked = !ctx.tracks.find((t) => t.id === c.trackId)?.locked;
         return c.kind !== "compound" && isUnlocked && ctx.playheadTime > c.startTime && ctx.playheadTime < c.startTime + c.duration;
       });
     },
     disabledReason: (ctx) => {
-      const ids = getTargetClipIds(ctx);
-      const targetClips = ctx.clips.filter((c) => ids.includes(c.id));
-      const intersects = targetClips.some(
-        (c) => c.kind !== "compound" && ctx.playheadTime > c.startTime && ctx.playheadTime < c.startTime + c.duration,
-      );
+      const targetClips = getPlayheadTargetClips(ctx);
+      const intersects = targetClips.some((c) => c.kind !== "compound" && !ctx.tracks.find((track) => track.id === c.trackId)?.locked && isWithinPlayhead(c, ctx.playheadTime));
       if (targetClips.some((clip) => clip.kind === "compound")) return "Compound clips are move-only; ungroup them before splitting";
-      if (!intersects) return "Playhead is outside clip bounds";
+      if (!intersects && !targetClips.some((clip) => isWithinPlayhead(clip, ctx.playheadTime))) return "Playhead is outside clip bounds";
       return "Clip is on a locked track";
     },
     execute: (ctx) => {
@@ -207,14 +230,13 @@ export const clipCommands: ClipCommand[] = [
     group: "trim",
     isVisible: (ctx) => ctx.selectedClipIds.length <= 1,
     isEnabled: (ctx) => {
-      const ids = getTargetClipIds(ctx);
-      const targetClips = ctx.clips.filter((c) => ids.includes(c.id));
+      const targetClips = getPlayheadTargetClips(ctx);
       return targetClips.some((c) => {
         const isUnlocked = !ctx.tracks.find((t) => t.id === c.trackId)?.locked;
         return c.kind !== "compound" && isUnlocked && ctx.playheadTime > c.startTime && ctx.playheadTime < c.startTime + c.duration;
       });
     },
-    disabledReason: (ctx) => getTargetClipIds(ctx).some((id) => ctx.clips.some((clip) => clip.id === id && clip.kind === "compound"))
+    disabledReason: (ctx) => getPlayheadTargetClips(ctx).some((clip) => clip.kind === "compound")
       ? "Compound clips are move-only; ungroup them before trimming"
       : "Playhead is outside clip bounds",
     execute: () => {
@@ -236,14 +258,13 @@ export const clipCommands: ClipCommand[] = [
     group: "trim",
     isVisible: (ctx) => ctx.selectedClipIds.length <= 1,
     isEnabled: (ctx) => {
-      const ids = getTargetClipIds(ctx);
-      const targetClips = ctx.clips.filter((c) => ids.includes(c.id));
+      const targetClips = getPlayheadTargetClips(ctx);
       return targetClips.some((c) => {
         const isUnlocked = !ctx.tracks.find((t) => t.id === c.trackId)?.locked;
         return c.kind !== "compound" && isUnlocked && ctx.playheadTime > c.startTime && ctx.playheadTime < c.startTime + c.duration;
       });
     },
-    disabledReason: (ctx) => getTargetClipIds(ctx).some((id) => ctx.clips.some((clip) => clip.id === id && clip.kind === "compound"))
+    disabledReason: (ctx) => getPlayheadTargetClips(ctx).some((clip) => clip.kind === "compound")
       ? "Compound clips are move-only; ungroup them before trimming"
       : "Playhead is outside clip bounds",
     execute: () => {
@@ -407,10 +428,20 @@ export const clipCommands: ClipCommand[] = [
     icon: ArrowLeftRight,
     group: "organize",
     isVisible: (ctx) => ctx.selectedClipIds.length === 2,
-    isEnabled: (ctx) => ctx.selectedClipIds.length === 2,
-    disabledReason: () => "Requires exactly 2 clips selected",
+    isEnabled: (ctx) => ctx.selectedClipIds.length === 2 && !SwapClipsCommand.validate({
+      clips: ctx.clips,
+      tracks: ctx.tracks,
+      transitions: ctx.transitions ?? [],
+      epoch: 0,
+    }, ctx.selectedClipIds[0], ctx.selectedClipIds[1]),
+    disabledReason: (ctx) => SwapClipsCommand.validate({
+      clips: ctx.clips,
+      tracks: ctx.tracks,
+      transitions: ctx.transitions ?? [],
+      epoch: 0,
+    }, ctx.selectedClipIds[0], ctx.selectedClipIds[1]) ?? "Selected clips must be on unlocked tracks",
     execute: () => {
-      const result = useTimelineStore.getState().swapClips();
+      const result = EditingActions.swapSelectedClips();
       if (result.error) {
         toast.error(result.error);
       } else {
