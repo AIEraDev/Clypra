@@ -37,4 +37,20 @@ describe("SwapClipsCommand", () => {
     const state: { tracks: Track[]; clips: Clip[]; transitions: []; epoch: number } = { tracks: [track], clips: [makeClip("a", 0, 2), makeClip("b", 12, 10), makeClip("c", 2, 10)], transitions: [], epoch: 0 };
     expect(SwapClipsCommand.validate(state, "a", "b")).toContain("overlap");
   });
+
+  it("rejects a cross-track swap that would overlap a destination neighbor", () => {
+    const otherTrack: Track = { ...track, id: "track-2", name: "Video 2" };
+    const a = { ...makeClip("a", 0, 10), trackId: track.id };
+    const b = { ...makeClip("b", 0, 20), trackId: otherTrack.id };
+    const neighborOnA = { ...makeClip("neighbor-a", 10, 5), trackId: track.id };
+    const neighborOnB = { ...makeClip("neighbor-b", 20, 5), trackId: otherTrack.id };
+    const state: { tracks: Track[]; clips: Clip[]; transitions: []; epoch: number } = {
+      tracks: [track, otherTrack],
+      clips: [a, b, neighborOnA, neighborOnB],
+      transitions: [],
+      epoch: 0,
+    };
+
+    expect(SwapClipsCommand.validate(state, "a", "b")).toContain("overlap");
+  });
 });
