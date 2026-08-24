@@ -120,6 +120,8 @@ export interface RustClip {
   kind?: string;
   audioPath?: string;
   detachedFromClipId?: string;
+  compoundChildren?: RustClip[];
+  compoundPreview?: string;
 }
 
 /**
