@@ -157,6 +157,42 @@ export interface NativeSurfacePresentation {
   cancelled?: boolean;
 }
 
+export interface NativeSyncDriftSnapshot {
+  n: number;
+  avg_micros: number;
+  max_abs_micros: number;
+  p95_abs_micros: number;
+}
+
+export interface NativeSyncFramePacingSnapshot {
+  n: number;
+  target_interval_micros: number;
+  stddev_micros: number;
+  jank_events: number;
+}
+
+export interface NativeSyncSeekSnapshot {
+  n: number;
+  avg_latency_micros: number;
+  max_latency_micros: number;
+  correct: number;
+  events: Array<{
+    requested_ticks: number;
+    presented_ticks: number;
+    latency_micros: number;
+    correct: boolean;
+  }>;
+}
+
+/** Snapshot returned by the native A/V synchronization metrics command. */
+export interface NativeSyncMetricsSnapshot {
+  av_drift: NativeSyncDriftSnapshot;
+  frame_pacing: NativeSyncFramePacingSnapshot;
+  dropped_frames: number;
+  seeks: NativeSyncSeekSnapshot;
+  timestamp_epoch_ms: number;
+}
+
 export interface NativeFrameTime {
   frameIndex: number;
   ticks: number;
@@ -342,7 +378,7 @@ export interface NativeFrameRequest {
   renderGraphVersion: number;
   /** Optional asynchronous seek identity; omitted by legacy callers. */
   generation?: number;
-  mode?: "playback" | "scrub" | "seek" | "frameStep";
+  mode?: "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch";
   scrubVelocityPxPerSecond?: number;
   requestedAtMs?: number;
 }
