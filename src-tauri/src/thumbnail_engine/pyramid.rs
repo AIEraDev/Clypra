@@ -423,18 +423,25 @@ impl BackendTierCache {
     }
 
     pub fn insert(&self, key: TierCacheKey, frame: Arc<TierRgbaFrame>) {
-        let bytes = frame.byte_size;
-        self.entries.insert(key, frame);
-        self.total_bytes.fetch_add(bytes, Ordering::Relaxed);
+        let new_bytes = frame.byte_size;
+        if let Some(old) = self.entries.insert(key.clone(), frame) {
+            self.total_bytes
+                .fetch_sub(old.byte_size, Ordering::Relaxed);
+        }
+        self.total_bytes.fetch_add(new_bytes, Ordering::Relaxed);
         self.evict_if_needed();
     }
 
     /// Evict entries inactive for >10s (R18 tier inactive rule).
+    /// L0 is the filmstrip fallback floor — never time-evict it.
     pub fn evict_inactive(&self) {
         let keys_to_evict: Vec<TierCacheKey> = self
             .entries
             .iter()
-            .filter(|e| e.value().seconds_since_access() > TIER_INACTIVE_EVICT_SECS)
+            .filter(|e| {
+                e.value().tier != SpatialTier::L0
+                    && e.value().seconds_since_access() > TIER_INACTIVE_EVICT_SECS
+            })
             .map(|e| e.key().clone())
             .collect();
 
@@ -472,13 +479,27 @@ impl BackendTierCache {
     }
 
     fn evict_if_needed(&self) {
-        if self.total_bytes.load(Ordering::Relaxed) <= TIER_CACHE_BUDGET {
+        self.evict_down_to(TIER_CACHE_BUDGET);
+    }
+
+    fn evict_down_to(&self, budget: u64) {
+        if self.total_bytes.load(Ordering::Relaxed) <= budget {
             return;
         }
-        // Score all entries; evict lowest-stability first
+
+        // Dense tiers are sacrificial. L0 is the fallback floor and is only
+        // evicted after every L1/L2/L3 entry is gone.
+        self.evict_scored_until(budget, |frame| frame.tier != SpatialTier::L0);
+        if self.total_bytes.load(Ordering::Relaxed) > budget {
+            self.evict_scored_until(budget, |_| true);
+        }
+    }
+
+    fn evict_scored_until(&self, budget: u64, predicate: impl Fn(&TierRgbaFrame) -> bool) {
         let mut scored: Vec<(TierCacheKey, f64)> = self
             .entries
             .iter()
+            .filter(|e| predicate(e.value()))
             .map(|e| {
                 let key = e.key().clone();
                 let frame = e.value();
@@ -496,22 +517,32 @@ impl BackendTierCache {
         scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         for (key, _) in scored {
-            if self.total_bytes.load(Ordering::Relaxed) <= TIER_CACHE_BUDGET {
+            if self.total_bytes.load(Ordering::Relaxed) <= budget {
                 break;
             }
             self.evict_key(&key);
         }
     }
+
+    #[cfg(test)]
+    pub fn evict_down_to_for_test(&self, budget: u64) {
+        self.evict_down_to(budget);
+    }
+
+    #[cfg(test)]
+    pub fn current_bytes_for_test(&self) -> u64 {
+        self.total_bytes.load(Ordering::Relaxed)
+    }
 }
 
-/// Decode cost weight by tier (smaller tier = cheaper; larger tier = more
-/// expensive to re-decode). Used in stability score to protect expensive frames.
+/// Decode cost weight by tier. L0 is the cheapest to decode but the most
+/// expensive to lose — it is the only guaranteed filmstrip fallback floor.
 fn decode_cost_weight(tier: SpatialTier) -> f64 {
     match tier {
-        SpatialTier::L0 => 0.5,
-        SpatialTier::L1 => 0.8,
+        SpatialTier::L0 => 4.0,
+        SpatialTier::L1 => 2.0,
         SpatialTier::L2 => 1.2,
-        SpatialTier::L3 => 2.0,
+        SpatialTier::L3 => 0.8,
     }
 }
 
@@ -649,6 +680,7 @@ pub struct ExtractionProgressEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn solid_rgba(width: u32, height: u32) -> Vec<u8> {
         vec![128; (width * height * 4) as usize]
@@ -706,5 +738,48 @@ mod tests {
         assert_eq!((frame.width, frame.height), (92, 160));
         assert_eq!(frame.data.len(), (frame.width * frame.height * 4) as usize);
         assert_aspect_close(frame.width, frame.height, 18.0 / 32.0);
+    }
+
+    #[test]
+    fn tier_cache_replace_does_not_double_count_bytes() {
+        let cache = BackendTierCache::new();
+        let hash = FrameContentHash::compute("vid", 1000, 1, 1.0, 0, u64::MAX, false);
+        let key = TierCacheKey {
+            content_hash: hash,
+            tier: SpatialTier::L2,
+        };
+        cache.insert(
+            key.clone(),
+            Arc::new(TierRgbaFrame::new(vec![0; 400], 10, 10, SpatialTier::L2)),
+        );
+        cache.insert(
+            key,
+            Arc::new(TierRgbaFrame::new(vec![1; 400], 10, 10, SpatialTier::L2)),
+        );
+        assert_eq!(cache.current_bytes_for_test(), 400);
+    }
+
+    #[test]
+    fn tier_cache_evicts_dense_tiers_before_l0() {
+        let cache = BackendTierCache::new();
+        let l0_key = TierCacheKey {
+            content_hash: FrameContentHash::compute("vid", 0, 1, 1.0, 0, u64::MAX, false),
+            tier: SpatialTier::L0,
+        };
+        let l2_key = TierCacheKey {
+            content_hash: FrameContentHash::compute("vid", 1000, 1, 1.0, 0, u64::MAX, false),
+            tier: SpatialTier::L2,
+        };
+        cache.insert(
+            l0_key.clone(),
+            Arc::new(TierRgbaFrame::new(vec![0; 800], 10, 20, SpatialTier::L0)),
+        );
+        cache.insert(
+            l2_key.clone(),
+            Arc::new(TierRgbaFrame::new(vec![0; 800], 10, 20, SpatialTier::L2)),
+        );
+        cache.evict_down_to_for_test(800);
+        assert!(cache.contains(&l0_key));
+        assert!(!cache.contains(&l2_key));
     }
 }
