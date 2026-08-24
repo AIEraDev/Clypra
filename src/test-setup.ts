@@ -3,9 +3,11 @@
  * Configures testing environment and global utilities
  */
 
-import { expect, afterEach, vi } from "vitest";
+import { expect, afterAll, afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import * as matchers from "@testing-library/jest-dom/matchers";
+import { resetSharedAudioEngine } from "@/core/audio/audioRuntime";
+import { resetPlaybackClock } from "@/core/playback/PlaybackClock";
 
 // lottie-web schedules a browser-only readiness timer at module load. The
 // editor's native tests do not exercise its DOM renderer, so keep the test
@@ -64,6 +66,14 @@ expect.extend(matchers);
 // Cleanup after each test
 afterEach(() => {
   cleanup();
+});
+
+// AudioContext is intentionally shared across real project sessions, but a
+// Vitest file must not leave that process-wide runtime alive for the next
+// worker/file teardown. Reset the clock before closing its attached context.
+afterAll(async () => {
+  resetPlaybackClock();
+  await resetSharedAudioEngine();
 });
 
 // Mock AudioContext for tests
@@ -261,4 +271,3 @@ const setupCanvasMock = () => {
 };
 
 setupCanvasMock();
-
