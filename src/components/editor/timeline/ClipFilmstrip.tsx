@@ -40,6 +40,20 @@ const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif)$/i;
  */
 export function clearFilmstripFrameCache(): void {}
 
+type FilmstripRenderWindow = ReturnType<typeof getFilmstripRenderWindow>;
+
+function areRenderWindowsEqual(
+  a: FilmstripRenderWindow | undefined,
+  b: FilmstripRenderWindow,
+): boolean {
+  return !!a &&
+    a.leftPx === b.leftPx &&
+    a.widthPx === b.widthPx &&
+    a.trimIn === b.trimIn &&
+    a.trimOut === b.trimOut &&
+    a.isVisible === b.isVisible;
+}
+
 /** Resolve a media source path without double-converting already-converted URLs. */
 function resolveMediaSrc(path: string): string {
   if (!path) return "";
@@ -80,7 +94,7 @@ export function ClipFilmstrip({
   const surfaceRef = useRef<AnyRasterSurface | null>(null);
   const imageCanvasRef = useRef<HTMLCanvasElement>(null);
   const cachedImageRef = useRef<HTMLImageElement | null>(null);
-  const [committedFilmstrip, setCommittedFilmstrip] = useState<{
+  const committedFilmstripRef = useRef<{
     clipId: string;
     epochId: RenderEpochId;
     spatialTier: SpatialTier;
@@ -212,7 +226,7 @@ export function ClipFilmstrip({
 
   // A reused Clip component must not briefly display the previous clip's committed pixels.
   useEffect(() => {
-    setCommittedFilmstrip(null);
+    committedFilmstripRef.current = null;
   }, [clip.id, videoPath]);
 
   // ── RasterSurface lifecycle ───────────────────────────────────────────────
@@ -367,7 +381,7 @@ export function ClipFilmstrip({
     const isReadyToCommit =
       hasAllTiles ||
       epochDebounceExpired ||
-      currentEpochArtifacts.length >= tileAddresses.length;
+      (tileAddresses.length > 0 && currentEpochArtifacts.length >= tileAddresses.length);
 
     const hasAnyCacheOrArtifacts =
       currentEpochArtifacts.length > 0 ||
@@ -380,26 +394,24 @@ export function ClipFilmstrip({
         recordPaintCommit(spatialTier, performance.now() - t0);
       }
       if (isReadyToCommit) {
-        setCommittedFilmstrip((previous) => {
-          if (
-            previous?.clipId === clip.id &&
-            previous.epochId === epochId &&
-            previous.spatialTier === spatialTier &&
-            previous.signature === tileSignature &&
-            previous.renderWindow === renderWindow
-          ) {
-            return previous;
-          }
-          return {
+        const previous = committedFilmstripRef.current;
+        if (
+          previous?.clipId !== clip.id ||
+          previous.epochId !== epochId ||
+          previous.spatialTier !== spatialTier ||
+          previous.signature !== tileSignature ||
+          !areRenderWindowsEqual(previous.renderWindow, renderWindow)
+        ) {
+          committedFilmstripRef.current = {
             clipId: clip.id,
             epochId,
             spatialTier,
             signature: tileSignature,
             renderWindow,
           };
-        });
+        }
       }
-    } else if (!committedFilmstrip) {
+    } else if (!committedFilmstripRef.current) {
       // Cold start: neutral placeholder
       surface.drawPlaceholder(layout);
     }
@@ -413,7 +425,6 @@ export function ClipFilmstrip({
     epochId,
     spatialTier,
     tileSignature,
-    committedFilmstrip,
     epochDebounceExpired,
     runtime,
     videoPath,
