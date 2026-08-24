@@ -876,12 +876,10 @@ pub async fn get_render_artifacts_batch(
         };
         if !decoded_batch.frames.is_empty() {
             let per_frame_decode = decoded_batch.decode_elapsed / decoded_batch.frames.len() as u32;
-            for tier in &tiers {
-                let metrics = crate::thumbnail_engine::metrics::METRICS.for_tier(*tier);
-                metrics.decode.record(per_frame_decode);
-                if decoded_batch.seek_elapsed > std::time::Duration::ZERO {
-                    metrics.seek.record(decoded_batch.seek_elapsed);
-                }
+            let source_metrics = &crate::thumbnail_engine::metrics::METRICS.source;
+            source_metrics.decode.record(per_frame_decode);
+            if decoded_batch.seek_elapsed > std::time::Duration::ZERO {
+                source_metrics.seek.record(decoded_batch.seek_elapsed);
             }
         }
 
@@ -898,18 +896,16 @@ pub async fn get_render_artifacts_batch(
                 false,
             );
             let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
-            for tier in &tiers {
-                let metrics = crate::thumbnail_engine::metrics::METRICS.for_tier(*tier);
-                metrics.convert.record(decoded_frame.convert_elapsed);
-                if decoded_frame.conversion_fast_path {
-                    metrics
-                        .convert_fast_path
-                        .fetch_add(1, Ordering::Relaxed);
-                } else {
-                    metrics
-                        .convert_slow_path
-                        .fetch_add(1, Ordering::Relaxed);
-                }
+            let source_metrics = &crate::thumbnail_engine::metrics::METRICS.source;
+            source_metrics.convert.record(decoded_frame.convert_elapsed);
+            if decoded_frame.conversion_fast_path {
+                source_metrics
+                    .convert_fast_path
+                    .fetch_add(1, Ordering::Relaxed);
+            } else {
+                source_metrics
+                    .convert_slow_path
+                    .fetch_add(1, Ordering::Relaxed);
             }
             let raw_arc = Arc::new(RawRgbaFrame::new(
                 decoded_frame.rgba,
@@ -1253,4 +1249,3 @@ pub async fn check_coarse_baseline_cache(
 
     Ok(())
 }
-
