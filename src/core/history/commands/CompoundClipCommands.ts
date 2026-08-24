@@ -1,4 +1,5 @@
 import type { Clip, Track, TransitionTimelineItem } from "@/types";
+import type { Gap } from "@/types/gap";
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import { generateId } from "@/lib/utils/id";
@@ -8,6 +9,7 @@ interface TimelineState {
   tracks: Track[];
   clips: Clip[];
   transitions?: TransitionTimelineItem[];
+  gaps?: Gap[];
   epoch: number;
 }
 
@@ -34,6 +36,7 @@ export class GroupClipsCommand implements Command {
   private readonly originalClips: Clip[];
   private readonly parent: Clip;
   private readonly originalIndex: number;
+  private originalGaps: Gap[] | null = null;
 
   constructor(clipIds: string[], clips: Clip[], tracks: Track[], preview?: string, transitions: TransitionTimelineItem[] = [], parentId?: string) {
     const validation = validateGroupSelection(clipIds, clips, tracks, transitions);
@@ -70,14 +73,24 @@ export class GroupClipsCommand implements Command {
     if (state.clips.some((clip) => clip.id === this.parent.id)) return state;
     const selectedIds = new Set(this.originalClips.map((clip) => clip.id));
     if (!this.originalClips.every((clip) => state.clips.some((candidate) => candidate.id === clip.id))) return state;
+    this.originalGaps = state.gaps?.map((gap) => ({
+      ...gap,
+      metadata: gap.metadata ? { ...gap.metadata } : gap.metadata,
+    })) ?? null;
     const remaining = state.clips.filter((clip) => !selectedIds.has(clip.id));
     const insertIndex = Math.max(0, Math.min(this.originalIndex, remaining.length));
     remaining.splice(insertIndex, 0, this.parent);
-    return { ...state, clips: remaining, epoch: state.epoch + 1 };
+    const groupEnd = this.parent.startTime + this.parent.duration;
+    const gaps = state.gaps?.filter((gap) => {
+      if (gap.trackId !== this.parent.trackId) return true;
+      const gapEnd = gap.startTime + gap.duration;
+      return !(gap.startTime >= this.parent.startTime - 0.001 && gapEnd <= groupEnd + 0.001);
+    });
+    return { ...state, clips: remaining, ...(gaps ? { gaps } : {}), epoch: state.epoch + 1 };
   }
 
   invert(): UngroupClipsCommand {
-    return new UngroupClipsCommand(this.parent, this.originalClips, this.originalIndex, this);
+    return new UngroupClipsCommand(this.parent, this.originalClips, this.originalIndex, this, [], this.originalGaps ?? undefined);
   }
 
   getParentClip(): Clip { return this.parent; }
@@ -96,6 +109,7 @@ export class UngroupClipsCommand implements Command {
     private readonly _parentIndex = 0,
     private readonly inverse?: GroupClipsCommand,
     private readonly tracks: Track[] = [],
+    private readonly restoredGaps?: Gap[],
   ) {}
 
   apply(state: TimelineState): TimelineState {
@@ -104,7 +118,11 @@ export class UngroupClipsCommand implements Command {
     const children = this.originalChildren.map((child) => ({ ...child, startTime: this.parent.startTime + child.startTime, trackId: this.parent.trackId }));
     const clips = [...state.clips.filter((clip) => clip.id !== this.parent.id)];
     clips.splice(Math.min(parentIndex, clips.length), 0, ...children);
-    return { ...state, clips, epoch: state.epoch + 1 };
+    const gaps = this.restoredGaps?.map((gap) => ({
+      ...gap,
+      metadata: gap.metadata ? { ...gap.metadata } : gap.metadata,
+    }));
+    return { ...state, clips, ...(gaps ? { gaps } : {}), epoch: state.epoch + 1 };
   }
 
   invert(): GroupClipsCommand {
