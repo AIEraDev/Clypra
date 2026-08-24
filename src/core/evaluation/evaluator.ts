@@ -31,6 +31,7 @@ import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
 import { normalizeFilterIntensity } from "../render/filterIR";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
+import { expandCompoundClips } from "@/core/timeline/compoundClips";
 
 /**
  * Evaluate the NLE timeline at a specific time.
@@ -43,6 +44,7 @@ import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
  * @param project - Project settings
  */
 export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track[], assets: MediaAsset[], project: Project | null, transitions: TransitionTimelineItem[] = []): EvaluatedScene {
+  clips = expandCompoundClips(clips);
   // Convert to compositor clips (adds roles, priorities)
   const compositorClips = toCompositorClips(clips, tracks);
 
