@@ -18,15 +18,16 @@ export function tracePlayback(
   } catch {}
 
   const debugLoggingEnabled =
-    !import.meta.env.DEV &&
-    !globalWithDebugFlag.__CLYPRA_DEBUG_AUDIO__ &&
-    !localStorageEnabled;
+    import.meta.env.DEV ||
+    globalWithDebugFlag.__CLYPRA_DEBUG_AUDIO__ === true ||
+    localStorageEnabled;
 
   const timeMs = performance.now();
   const payload: PlaybackTraceEvent = {
     category: "playback",
     event,
     timeMs: Number(timeMs.toFixed(2)),
+    tsEpochMs: Date.now(),
     ...details,
   };
 
@@ -35,7 +36,7 @@ export function tracePlayback(
   // Keep developer logs structured and cheap. Aggregates are emitted by the
   // collector, so this path never floods the console on every RAF tick.
   if (debugLoggingEnabled && playbackMetrics.shouldLogEvent(event)) {
-    console.debug("[playback]", JSON.stringify(payload));
+    console.debug("[av-sync][react][playback]", JSON.stringify(payload));
   }
 }
 
