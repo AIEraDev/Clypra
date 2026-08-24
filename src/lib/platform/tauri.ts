@@ -325,6 +325,12 @@ export async function queueNativeFrame(request: NativeFrameRequest): Promise<voi
   await invoke("queue_native_frame", { request: nativeRequest });
 }
 
+/** Invalidate native preview work from older seek generations. */
+export async function cancelNativePreviewRequests(generation: number): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("cancel_native_preview_requests", { generation });
+}
+
 /** Upload immutable raster pixels once so frame requests can reference them by id. */
 export async function registerNativeRasterAsset(
   asset: NativeRasterLayerSnapshot & { rgba: number[] },
