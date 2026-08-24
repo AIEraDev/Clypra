@@ -18,3 +18,5 @@ export { AddTransitionCommand, DeleteTransitionCommand } from "./TransitionComma
 export { InsertEditCommand } from "./InsertEditCommand";
 export { DetachAudioCommand } from "./DetachAudioCommand";
 export { GroupClipsCommand, UngroupClipsCommand, validateGroupSelection } from "./CompoundClipCommands";
+export { DuplicateClipsCommand } from "./DuplicateClipCommand";
+export { SwapClipsCommand } from "./SwapClipsCommand";
