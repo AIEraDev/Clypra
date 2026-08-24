@@ -248,13 +248,10 @@ export class EditingActions {
         };
       }
 
-      // Select BOTH splits (user expectation: both are "new")
-      // TL-BUG-003 fix: selectClip replaces the array, so use toggleClipSelection
-      // for the second clip to append it instead of overwriting.
-      const uiStore = useUIStore.getState();
-      uiStore.clearSelection();
-      uiStore.selectClip(leftClipId);
-      uiStore.toggleClipSelection(rightClipId);
+      // Select only the right split. This keeps the split workflow focused on
+      // the newly created continuation and prevents Delete from removing both
+      // halves when the user immediately edits the selected result.
+      useUIStore.getState().selectClip(rightClipId);
 
       return {
         success: true,
