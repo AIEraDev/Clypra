@@ -25,6 +25,7 @@ import type { TransportAuthority, PlaybackContextStateSnapshot } from "../core/p
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { resumeGlobalAudioEngine } from "@/hooks/useAudioSyncEngine";
 import { isTauriRuntime } from "@/lib/platform/tauri";
+import type { SeekIntentInput } from "@/core/playback/seekController";
 
 /**
  * Hook for UI snapshots of playback state.
@@ -148,7 +149,8 @@ export function useTransportControls() {
         },
         pause: () => authority?.pause(),
         stop: () => authority?.stop(),
-        seek: (time: number) => authority?.seek(time),
+        seek: (time: number, intent?: Omit<SeekIntentInput, "time">) =>
+          authority?.seek(time, intent ?? { mode: "seek" }),
         setSpeed: (speed: number) => authority?.setSpeed(speed),
         setActiveContext: (type: "program" | "source") => authority?.setActiveContext(type),
       };
