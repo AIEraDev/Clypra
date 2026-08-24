@@ -877,6 +877,22 @@ export const useTimelineStore = create<TimelineStore>(
 
       // Case: different tracks — simple position + track swap
       if (clipA.trackId !== clipB.trackId) {
+        const collision = state.clips.some((clip) => {
+          if (clip.id === clipA.id || clip.id === clipB.id) return false;
+          const clipEnd = clip.startTime + clip.duration;
+          const clipAOverlapsDestination = clip.trackId === clipB.trackId &&
+            clipB.startTime < clipEnd &&
+            clipB.startTime + clipA.duration > clip.startTime;
+          const clipBOverlapsDestination = clip.trackId === clipA.trackId &&
+            clipA.startTime < clipEnd &&
+            clipA.startTime + clipB.duration > clip.startTime;
+          return clipAOverlapsDestination || clipBOverlapsDestination;
+        });
+
+        if (collision) {
+          return { error: "Not enough space to swap — clips would overlap" };
+        }
+
         set((state) => {
           // TL-04 fix: Remove transitions that would bridge different tracks after swap
           const updatedTransitions = state.transitions.filter((t) => {
