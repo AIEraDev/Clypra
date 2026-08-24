@@ -172,6 +172,30 @@ describe("Timeline click behavior", () => {
 
     expect(seekMock).not.toHaveBeenCalled();
   });
+
+  it("keeps a video inserted above the main track classified as B-roll", () => {
+    useTimelineStore.setState({
+      mainVideoTrackId: "track-main",
+      tracks: [
+        { id: "track-overlay", type: "video", name: "Overlay", muted: false, locked: false, visible: true, height: 68 },
+        { id: "track-main", type: "video", name: "Main", muted: false, locked: false, visible: true, height: 68 },
+      ],
+      clips: [
+        { id: "overlay-clip", trackId: "track-overlay", mediaId: "m-overlay", startTime: 0, duration: 1, trimIn: 0, trimOut: 1, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+        { id: "main-clip", trackId: "track-main", mediaId: "m-main", startTime: 0, duration: 1, trimIn: 0, trimOut: 1, x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0 },
+      ],
+    });
+
+    render(<Timeline />);
+
+    const overlayProps = trackPropsSpy.mock.calls.map((call) => call[0]).find((props) => props.track.id === "track-overlay");
+    const mainProps = trackPropsSpy.mock.calls.map((call) => call[0]).find((props) => props.track.id === "track-main");
+
+    expect(overlayProps.visualSpec).toMatchObject({ role: "b-roll", height: 80 });
+    expect(overlayProps.track.height).toBe(80);
+    expect(mainProps.visualSpec).toMatchObject({ role: "a-roll", height: 80 });
+    expect(mainProps.track.height).toBe(80);
+  });
 });
 
 describe("Timeline drag interactions", () => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Track } from "../Track";
 import { useUIStore } from "@/store/uiStore";
+import type { TrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 
 const addClipFromAsset = vi.fn();
 const getMediaAsset = vi.fn(() => ({ id: "asset-1", name: "Clip A", type: "video", duration: 5, path: "/a", size: 1 }));
@@ -95,5 +96,20 @@ describe("Track timeline behavior", () => {
       "aria-valuenow",
       "31",
     );
+  });
+
+  it("passes the strict B-roll visual role to the track and its clips", () => {
+    const visualSpec: TrackVisualSpec = {
+      role: "b-roll",
+      label: "B-Roll",
+      height: 80,
+      opacity: 0.8,
+      tone: "secondary",
+    };
+    const track = { id: "track-b", type: "video", name: "Overlay", muted: false, locked: false, visible: true, height: 68 } as any;
+
+    render(<Track track={track} visualSpec={visualSpec} pixelsPerSecond={100} clips={[]} />);
+
+    expect(document.querySelector('[data-track-id="track-b"]')).toHaveStyle({ height: "80px" });
   });
 });
