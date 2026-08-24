@@ -29,6 +29,7 @@ import {
   pixelToTime,
   getTimelineLaneClientX,
 } from "@/lib/timeline/timelineViewport";
+import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 
 
 import { TimelineToolbar } from "./TimelineToolbar";
@@ -39,9 +40,12 @@ import { Playhead } from "./Playhead";
 import { EmptyTimelineDropZone } from "./EmptyTimelineDropZone";
 import { ClipContextMenu } from "./ClipContextMenu";
 import { TimelineEmptySpaceContextMenu } from "./TimelineEmptySpaceContextMenu";
+import { AudioStreamPicker } from "./AudioStreamPicker";
+import { MediaJobIndicator } from "./MediaJobIndicator";
 
 export const Timeline: React.FC = () => {
   const tracks = useTimelineStore((s) => s.tracks);
+  const mainVideoTrackId = useTimelineStore((s) => s.mainVideoTrackId);
   const clips = useTimelineStore((s) => s.clips);
   const pixelsPerSecond = useTimelineStore((s) => s.pixelsPerSecond);
   const scrollLeft = useTimelineStore((s) => s.scrollLeft);
@@ -592,6 +596,12 @@ export const Timeline: React.FC = () => {
                   )}
 
                 {tracks.map((track) => {
+                  const visualSpec = getTrackVisualSpec(track, tracks, mainVideoTrackId);
+                  const visualTrack =
+                    track.height === visualSpec.height
+                      ? track
+                      : { ...track, height: visualSpec.height };
+
                   // FIX: Filter clips per track to avoid passing entire clips array
                   // This prevents tracks from re-rendering when clips on OTHER tracks change
                   const trackClips = clips.filter(
@@ -617,18 +627,19 @@ export const Timeline: React.FC = () => {
                   return (
                     <React.Fragment key={track.id}>
                       {/* LEFT: Track label — sticky left, scrolls vertically with clips */}
-                      <TrackLabel track={track} />
+                      <TrackLabel track={visualTrack} visualSpec={visualSpec} />
 
                       {/* RIGHT: Track clips — scrolls both directions */}
                       <div
                         className="relative mb-0"
                         style={{
                           width: `${contentWidth}px`,
-                          height: `${track.height}px`,
+                          height: `${visualTrack.height}px`,
                         }}
                       >
                         <Track
-                          track={track}
+                          track={visualTrack}
+                          visualSpec={visualSpec}
                           pixelsPerSecond={pixelsPerSecond}
                           clips={trackClips}
                           onClipDragStart={handleClipDragStart}
@@ -757,6 +768,8 @@ export const Timeline: React.FC = () => {
           onClose={() => setEmptySpaceContextMenu(null)}
         />
       )}
+      <AudioStreamPicker />
+      <MediaJobIndicator />
     </div>
   );
 };
