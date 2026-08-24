@@ -26,7 +26,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useUIStore } from "@/store/uiStore";
-import { DeleteClipCommand, RippleDeleteRangeCommand, SplitClipCommand, UpdateClipCommand, GroupClipsCommand, UngroupClipsCommand, validateGroupSelection } from "../history/commands";
+import { DeleteClipCommand, RippleDeleteRangeCommand, SplitClipCommand, UpdateClipCommand, GroupClipsCommand, UngroupClipsCommand, SwapClipsCommand, validateGroupSelection } from "../history/commands";
 import type { Clip } from "@/types";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
 import { getScrollLeftToRevealTime, getTimelineViewportEndForDuration } from "@/lib/timeline/timelineViewport";
@@ -74,6 +74,17 @@ export interface DeleteSelectionResult {
  * This ensures consistent command execution and history tracking.
  */
 export class EditingActions {
+  static swapSelectedClips(): { error: string | null } {
+    const selectedClipIds = useUIStore.getState().selectedClipIds;
+    if (selectedClipIds.length !== 2) return { error: "Select exactly 2 clips to swap" };
+    const timeline = useTimelineStore.getState();
+    const validationError = SwapClipsCommand.validate(timeline, selectedClipIds[0], selectedClipIds[1]);
+    if (validationError) return { error: validationError };
+    const command = new SwapClipsCommand(selectedClipIds[0], selectedClipIds[1]);
+    useHistoryStore.getState().execute(command);
+    return { error: command.getError() };
+  }
+
   static groupSelectedClips(clipIds: string[]): { success: boolean; compoundClipId?: string; error?: string } {
     const timeline = useTimelineStore.getState();
     const selected = timeline.clips.filter((clip) => clipIds.includes(clip.id));
@@ -361,16 +372,23 @@ export class EditingActions {
     const unlockedTrackIds = new Set(tracks.filter((t) => !t.locked).map((t) => t.id));
     const clipsUnderPlayhead = clips.filter((clip) => {
       const clipEndTime = clip.startTime + clip.duration;
-      return unlockedTrackIds.has(clip.trackId) && currentTime > clip.startTime && currentTime < clipEndTime;
+      return clip.kind !== "compound" && unlockedTrackIds.has(clip.trackId) && currentTime > clip.startTime && currentTime < clipEndTime;
     });
 
-    return clipsUnderPlayhead.map((clip) =>
+    if (clipsUnderPlayhead.length === 0) return [];
+
+    const history = useHistoryStore.getState();
+    history.beginTransaction("Split All at Playhead");
+    const results = clipsUnderPlayhead.map((clip) =>
       this.executeSplit({
         clipId: clip.id,
         time: currentTime,
         source: "playhead",
       }),
     );
+    if (results.every((result) => result.success)) history.commitTransaction();
+    else history.rollbackTransaction();
+    return results;
   }
 
   /**
