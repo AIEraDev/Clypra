@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Clip, Track } from "@/types";
 import { GroupClipsCommand, UngroupClipsCommand, validateGroupSelection } from "../CompoundClipCommands";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
+import type { Gap } from "@/types/gap";
 
 const track: Track = { id: "track-v", type: "video", name: "Video", muted: false, locked: false, visible: true, height: 80 };
 const makeClip = (id: string, startTime: number, duration: number): Clip => ({
@@ -12,13 +13,18 @@ const makeClip = (id: string, startTime: number, duration: number): Clip => ({
 describe("CompoundClipCommands", () => {
   it("preserves same-track timing gaps and expands recursively", () => {
     const clips = [makeClip("a", 2, 3), makeClip("b", 8, 2)];
+    const internalGap: Gap = { id: "internal-gap", trackId: track.id, startTime: 5, duration: 3, type: "auto", source: "clip-delete", protected: false };
     const command = new GroupClipsCommand(["a", "b"], clips, [track]);
-    const grouped = command.apply({ tracks: [track], clips, epoch: 0 });
+    const grouped = command.apply({ tracks: [track], clips, gaps: [internalGap], epoch: 0 });
     const parent = grouped.clips[0];
 
     expect(parent).toMatchObject({ kind: "compound", startTime: 2, duration: 8 });
     expect(parent.compoundChildren?.map((child) => child.startTime)).toEqual([0, 6]);
     expect(expandCompoundClips(grouped.clips).map((clip) => [clip.id, clip.startTime])).toEqual([["a", 2], ["b", 8]]);
+    expect(grouped.gaps).toEqual([]);
+
+    const restored = command.invert().apply(grouped);
+    expect(restored.gaps).toEqual([internalGap]);
   });
 
   it("restores exact child and parent IDs through undo/redo", () => {
