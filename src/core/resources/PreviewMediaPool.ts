@@ -29,6 +29,7 @@
  */
 
 import type { Clip, MediaAsset, TransitionTimelineItem } from "@/types";
+import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
@@ -308,6 +309,7 @@ export class PreviewMediaPool {
    * It does NOT initiate playback. Playback is controlled separately.
    */
   sync(clips: Clip[], assets: MediaAsset[], tracks: Array<{ id: string; type: string }>, syncState: PreviewSyncState): void {
+    clips = expandCompoundClips(clips);
     if (this._isDisposed) {
       console.error(`[PreviewMediaPool] Pool is disposed!`);
       return;
