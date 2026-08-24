@@ -31,6 +31,7 @@ import { requestFilmstripArtifacts, checkCoarseBaselineCache, type TransportArti
 import { FilmstripTileCache } from "../filmstrip/FilmstripTileCache";
 import { generateViewportTileAddresses, FILMSTRIP_DENSITY_TIERS, type FilmstripTileAddress } from "../filmstrip/filmstripTiers";
 import { timeToPixel, pixelToTime } from "../timeline/timelineViewport";
+import { recordCacheApply } from "./filmstripMetrics";
 
 
 interface FilmstripCacheEntry {
@@ -775,24 +776,10 @@ export class FilmstripCache {
     }
 
     if (missingTileAddresses.length === 0) {
-      console.log("[FilmstripCache:allCached]", {
-        clipId,
-        epochId,
-        spatialTier,
-        totalTiles: tileAddresses.length,
-      });
       return;
     }
 
     const timestampsMs = missingTileAddresses.map((addr) => Math.round(addr.timestamp * 1000));
-    console.log("[FilmstripCache:requestMissing]", {
-      clipId,
-      epochId,
-      spatialTier,
-      totalTiles: tileAddresses.length,
-      missingCount: timestampsMs.length,
-      timestampsMs,
-    });
     let arrivedCount = 0;
 
     // Request artifacts through the same native FrameRequest path used by the
@@ -805,30 +792,17 @@ export class FilmstripCache {
       clipId,
       priority: 10,
       onArtifact: (artifact) => {
-        console.log("[FilmstripCache:onArtifact]", {
-          clipId,
-          incomingEpochId: artifact.epochId,
-          expectedEpochId: epochId,
-          spatialTier: artifact.spatialTier,
-          timestampMs: artifact.timestampMs,
-          width: artifact.width,
-          height: artifact.height,
-        });
-
         // Check if entry still valid (not invalidated during async decode)
         const currentEntry = this.entries.get(clipId);
         if (!currentEntry) {
-          console.warn("[FilmstripCache:drop] Entry deleted for clip:", clipId);
           artifact.bitmap.close();
           return;
         }
         if (currentEntry.epochId !== epochId) {
-          console.warn("[FilmstripCache:drop] Epoch mismatch:", { current: currentEntry.epochId, expected: epochId });
           artifact.bitmap.close();
           return;
         }
         if (!isValidArtifact(artifact)) {
-          console.warn("[FilmstripCache:drop] Invalid artifact:", artifact);
           try {
             artifact.bitmap.close();
           } catch {}
@@ -841,13 +815,11 @@ export class FilmstripCache {
         const matchingAddr = currentEntry.tileAddresses.find((a) => Math.abs(a.timestamp * 1000 - artifact.timestampMs) < 1);
         if (matchingAddr) {
           // Store in tile cache for reuse across zoom transitions
+          const t0 = typeof performance !== "undefined" ? performance.now() : 0;
           this.tileCache.setTile(matchingAddr, artifact);
-        } else {
-          console.warn("[FilmstripCache:noMatchingAddress]", {
-            clipId,
-            artifactTs: artifact.timestampMs,
-            tileAddressesCount: currentEntry.tileAddresses.length,
-          });
+          if (t0 > 0) {
+            recordCacheApply(artifact.spatialTier, performance.now() - t0);
+          }
         }
 
         // Enforce memory budget BEFORE scheduling
