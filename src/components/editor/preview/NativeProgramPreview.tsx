@@ -20,7 +20,7 @@ import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 
-import { type TelemetryStats } from "./TelemetryOverlay";
+import { TelemetryOverlay, type TelemetryStats } from "./TelemetryOverlay";
 import { AspectSelector } from "./AspectSelector";
 import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
 import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
@@ -29,10 +29,12 @@ import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { drawCanvasBackground } from "@/core/render/canvasBackground";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
-import { tracePlayback } from "@/core/playback/playbackTrace";
+import { getPlaybackMetricsSnapshot, tracePlayback } from "@/core/playback/playbackTrace";
+import type { SeekIntent } from "@/core/playback/seekController";
 import {
   getNativePreviewSurfaceGeometry,
   hideNativeSurface,
+  cancelNativePreviewRequests,
   isTauriRuntime,
   onNativePreviewWindowMoved,
   presentNativeFrame,
@@ -233,6 +235,39 @@ export const NativeProgramPreview: React.FC = () => {
   });
 
   showTelemetryRef.current = showTelemetry;
+
+  useEffect(() => {
+    if (!showTelemetry) {
+      setTelemetryStats(null);
+      return;
+    }
+
+    const flushMetrics = () => {
+      const snapshot = getPlaybackMetricsSnapshot();
+      const cacheTotal = snapshot.cacheHits + snapshot.cacheMisses;
+      const next: TelemetryStats = {
+        avgEvaluationTimeMs: 0,
+        avgRasterTimeMs: 0,
+        avgTotalTimeMs: snapshot.seekP95Ms ?? 0,
+        cacheHitRate: cacheTotal > 0 ? snapshot.cacheHits / cacheTotal : 0,
+        active: 0,
+        droppedFrames: snapshot.droppedFrames,
+        driftMagnitude: snapshot.maxDriftMs / 1000,
+        seekP50Ms: snapshot.seekP50Ms,
+        seekP95Ms: snapshot.seekP95Ms,
+        seekP99Ms: snapshot.seekP99Ms,
+        staleFrames: snapshot.staleFrames,
+        cancelledFrames: snapshot.cancelledFrames,
+        cacheMisses: snapshot.cacheMisses,
+      };
+      telemetryRef.current = next;
+      setTelemetryStats(next);
+    };
+
+    flushMetrics();
+    const interval = window.setInterval(flushMetrics, 250);
+    return () => window.clearInterval(interval);
+  }, [showTelemetry]);
   renderStateRef.current.clips = clips;
   renderStateRef.current.tracks = tracks;
   renderStateRef.current.transitions = transitions;
@@ -591,7 +626,9 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeSurfaceShown = false;
     let lastNativePlaybackRequestKey = "";
     let visibleRequestKey = "";
-    let visibleRequestGeneration = 0;
+    const seekController = getActiveSessionOrNull()?.transportAuthority?.getSeekController();
+    let latestSeekIntent: SeekIntent | null = seekController?.getCurrent() ?? null;
+    let visibleRequestGeneration = seekController?.getGeneration() ?? 0;
     let prefetchCenterKey = "";
     let transportRevision = 0;
     const nativeTextRasterCache = new Map<string, Promise<NativeTextRasterAsset>>();
@@ -954,7 +991,10 @@ export const NativeProgramPreview: React.FC = () => {
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
       maxCacheEntries: 12,
       maxInFlight: 2,
-      load: async (request) => {
+      load: async (request, signal) => {
+        if (signal?.aborted) {
+          throw new DOMException("Native preview request cancelled", "AbortError");
+        }
         const render = () => renderNativeFrame(request);
         let rgba: ArrayBuffer;
         try {
@@ -972,6 +1012,23 @@ export const NativeProgramPreview: React.FC = () => {
           height: request.outputHeight,
         };
       },
+    });
+
+    const unsubscribeSeekIntent = seekController?.subscribe((intent) => {
+      latestSeekIntent = intent;
+      visibleRequestGeneration = Math.max(visibleRequestGeneration, intent.generation);
+      nativePreviewScheduler.setVisibleGeneration(intent.generation);
+      void cancelNativePreviewRequests(intent.generation).catch(() => undefined);
+      prefetchCenterKey = "";
+      forceRenderNeeded = true;
+      tracePlayback("seek.intent", {
+        requestId: intent.requestId,
+        generation: intent.generation,
+        mode: intent.mode,
+        targetTime: intent.time,
+        quality: intent.quality,
+        velocityPxPerSecond: intent.velocityPxPerSecond,
+      });
     });
 
     const presentNativePlaybackFrame = async (request: NativeFrameRequest) => {
@@ -1007,6 +1064,15 @@ export const NativeProgramPreview: React.FC = () => {
       const frameRate = state.project?.frameRate ?? 30;
       const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
       const frameStartTime = getFrameStartTime(timeToRender, frameRate);
+      const requestIntent = latestSeekIntent
+        ? {
+            generation: latestSeekIntent.generation,
+            mode: latestSeekIntent.mode,
+            quality: isPlaying && latestSeekIntent.mode !== "scrub" ? "full" as const : latestSeekIntent.quality,
+            velocityPxPerSecond: latestSeekIntent.velocityPxPerSecond,
+            requestedAtMs: latestSeekIntent.issuedAtMs,
+          }
+        : undefined;
 
       const timeChanged = frameIndex !== lastRenderedFrameIndex;
       const epochChanged = state.epoch !== lastRenderedEpoch;
@@ -1075,6 +1141,7 @@ export const NativeProgramPreview: React.FC = () => {
         state.canvasWidth,
         state.canvasHeight,
         nativeRasterLayers,
+        requestIntent,
       );
       let nativePlaybackRequest = nativeRequest;
       if (isPlaying && nativeRequest && nativePresentationLatencyMs > 0) {
@@ -1124,6 +1191,7 @@ export const NativeProgramPreview: React.FC = () => {
               state.canvasWidth,
               state.canvasHeight,
               [...lookAheadBackground, ...lookAheadTextRasters, ...lookAheadAnimatedStickers, ...lookAheadSmartOverlays],
+              requestIntent,
             ) ?? nativeRequest;
           }
         }
@@ -1248,6 +1316,7 @@ export const NativeProgramPreview: React.FC = () => {
               requestKey,
               frameIndex: requestToPresent.frameTime.frameIndex,
               request: requestToPresent,
+              generation: targetGeneration,
             };
 
             if (nativeSurfaceUsable) {
@@ -1390,6 +1459,7 @@ export const NativeProgramPreview: React.FC = () => {
                 requestKey: nativeRequestKey,
                 frameIndex,
                 request: requestForRender,
+                generation: targetGeneration,
               };
               const loadedFrame = await nativePreviewScheduler.requestVisible(visibleSource);
               // A seek or play action may have happened while native decode
@@ -1475,6 +1545,7 @@ export const NativeProgramPreview: React.FC = () => {
                 frameIndex: targetFrameIndex,
                 request: targetRequest,
                 priority: offset > 0 ? offset : 10 + Math.abs(offset),
+                generation: targetGeneration,
               });
             }
             nativePreviewScheduler.prefetch(prefetchSources);
@@ -1559,6 +1630,7 @@ export const NativeProgramPreview: React.FC = () => {
     return () => {
       isActive = false;
       unsubscribeClock();
+      unsubscribeSeekIntent?.();
       nativePreviewScheduler.dispose();
       nativeAnimatedStickerRenderer.dispose();
       if (rafId !== null) cancelAnimationFrame(rafId);
@@ -1607,12 +1679,16 @@ export const NativeProgramPreview: React.FC = () => {
         <span className="text-[13px] text-text-muted leading-none">
           — {isTauriRuntime() ? (nativeSurfacePresenting ? "wgpu Surface" : "Native readback") : "Open the desktop runtime"}
         </span>
-        <button onClick={() => setShowSafeOverlay((s) => !s)} className={cn("ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer", showSafeOverlay ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text-primary hover:bg-white/6")}>
+        <button onClick={() => setShowTelemetry((s) => !s)} className={cn("ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer", showTelemetry ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text-primary hover:bg-white/6")}>
+          Metrics
+        </button>
+        <button onClick={() => setShowSafeOverlay((s) => !s)} className={cn("px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer", showSafeOverlay ? "bg-accent/20 text-accent" : "text-text-muted hover:text-text-primary hover:bg-white/6")}>
           Safe Zones
         </button>
       </div>
 
       <div className="flex-1 flex items-center justify-center overflow-hidden bg-[#06080a] relative">
+        <TelemetryOverlay showTelemetry={showTelemetry} telemetryStats={telemetryStats} />
         <div ref={previewContainerCallback} onPointerDownCapture={handlePreviewPointerDownCapture} className={cn("w-full h-full flex items-center justify-center relative z-10 overflow-hidden", isPanning && "cursor-grabbing", spacePressed && !isPanning && "cursor-grab")}>
           <div ref={nativeSurfaceTargetRef} data-testid="program-preview-viewport" className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]" style={{ width: displayWidth, height: displayHeight }}>
             <>
@@ -1706,12 +1782,12 @@ export const NativeProgramPreview: React.FC = () => {
         onStepBack={() => {
           if (clips.length === 0) return;
           const targetTime = Math.max(0, currentTime - step);
-          transportSeek(clampAndSnapProgramTime(targetTime, duration, frameRate));
+          transportSeek(clampAndSnapProgramTime(targetTime, duration, frameRate), { mode: "frameStep", quality: "full" });
         }}
         onStepForward={() => {
           if (clips.length === 0) return;
           const targetTime = Math.min(duration, currentTime + step);
-          transportSeek(clampAndSnapProgramTime(targetTime, duration, frameRate));
+          transportSeek(clampAndSnapProgramTime(targetTime, duration, frameRate), { mode: "frameStep", quality: "full" });
         }}
         leftActions={
           <div className="relative" ref={speedMenuRef}>
