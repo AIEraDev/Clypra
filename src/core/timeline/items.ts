@@ -61,7 +61,10 @@ export function legacyClipToTimelineItem(clip: Clip, tracks: Track[], assets: Me
 
   return {
     id: clip.id,
-    kind: asset?.type ?? "video",
+    // A detached audio clip may retain a video asset as its source. Preserve
+    // the explicit clip kind so compatibility consumers do not reclassify it
+    // as visual video content.
+    kind: clip.kind === "audio" ? "audio" : asset?.type ?? "video",
     placement,
     source: {
       mediaId: clip.mediaId,
