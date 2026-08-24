@@ -1,10 +1,11 @@
-import React, { useRef, useEffect, useState, RefObject } from "react";
+import React, { useRef, useEffect, useLayoutEffect, useState, RefObject } from "react";
 import { usePlaybackClock, useTransportControls, getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
+import { recordPlayheadPaint, recordSeekResolved } from "@/lib/playback/syncMetrics";
 
 
 interface PlayheadProps {
@@ -36,6 +37,11 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
 
   // ✅ Use canonical timeToPixel helper for playhead left calculation
   const left = Math.max(0, timeToPixel(currentTime, pixelsPerSecond));
+
+  useLayoutEffect(() => {
+    recordPlayheadPaint();
+    recordSeekResolved();
+  }, [left, pixelsPerSecond]);
 
 
   // ✅ PERFORMANCE OPTIMIZED: Throttled state updates to reduce React render storms
