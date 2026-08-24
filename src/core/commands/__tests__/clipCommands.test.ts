@@ -137,6 +137,20 @@ describe("clipCommands registry", () => {
     expect(splitCmd.disabledReason?.(ctxLocked)).toBe("Clip is on a locked track");
   });
 
+  it("keeps Split All enabled when an unselected clip is under the playhead", () => {
+    const splitAllCmd = clipCommands.find((c) => c.id === "clip.splitAllAtPlayhead")!;
+    const ctx: ClipCommandContext = {
+      selectedClipIds: ["clip-2"],
+      clickedClipId: "clip-2",
+      playheadTime: 5,
+      clips: sampleClips,
+      tracks: sampleTracks,
+    };
+
+    expect(splitAllCmd.isVisible(ctx)).toBe(true);
+    expect(splitAllCmd.isEnabled(ctx)).toBe(true);
+  });
+
   it("evaluates clip.swap correctly: only enabled when exactly 2 clips are selected", () => {
     const swapCmd = clipCommands.find((c) => c.id === "clip.swap")!;
     expect(swapCmd).toBeDefined();
@@ -271,5 +285,36 @@ describe("clipCommands registry", () => {
       detachedFromClipId: "clip-1",
       futureMetadata: { preserve: true },
     });
+  });
+
+  it("regenerates every ID in a duplicated compound clip tree", () => {
+    const compound: Clip = {
+      ...sampleClips[0],
+      id: "compound-source",
+      kind: "compound",
+      compoundChildren: [
+        { ...sampleClips[0], id: "child-source-1", startTime: 0, duration: 2 },
+        {
+          ...sampleClips[1],
+          id: "child-source-2",
+          startTime: 2,
+          duration: 1,
+          compoundChildren: [{ ...sampleClips[1], id: "grandchild-source", startTime: 0, duration: 0.5 }],
+        },
+      ],
+    };
+    useTimelineStore.setState({ clips: [compound] });
+
+    const duplicatedId = clipboardService.duplicateClips([compound.id])[0];
+    const duplicated = useTimelineStore.getState().clips.find((clip) => clip.id === duplicatedId)!;
+    const sourceIds = [compound.id, "child-source-1", "child-source-2", "grandchild-source"];
+    const duplicatedTreeIds = [
+      duplicated.id,
+      ...(duplicated.compoundChildren ?? []).flatMap((child) => [child.id, ...(child.compoundChildren ?? []).map((grandchild) => grandchild.id)]),
+    ];
+
+    expect(duplicated.kind).toBe("compound");
+    expect(new Set(duplicatedTreeIds).size).toBe(duplicatedTreeIds.length);
+    expect(duplicatedTreeIds.every((id) => !sourceIds.includes(id))).toBe(true);
   });
 });
