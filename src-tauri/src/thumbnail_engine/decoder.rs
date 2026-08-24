@@ -11,6 +11,7 @@ use ffmpeg_next as ffmpeg;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 /// Explicit color metadata carried from FFmpeg into the native render path.
@@ -86,6 +87,28 @@ pub struct DecodedFrameMetadata {
     pub sample_aspect_ratio_num: i32,
     pub sample_aspect_ratio_den: i32,
     pub color: VideoColorMetadata,
+}
+
+/// One full-resolution frame produced by the batch filmstrip decoder.
+///
+/// Timing metadata is internal to the native pipeline and is consumed by the
+/// thumbnail command when populating per-tier metrics. It is not serialized to
+/// the frontend artifact.
+#[derive(Debug)]
+pub struct BatchDecodedFrame {
+    pub target_ts_secs: f64,
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub convert_elapsed: Duration,
+    pub conversion_fast_path: bool,
+}
+
+#[derive(Debug)]
+pub struct BatchDecodeResult {
+    pub frames: Vec<BatchDecodedFrame>,
+    pub seek_elapsed: Duration,
+    pub decode_elapsed: Duration,
 }
 
 fn color_metadata(
@@ -691,9 +714,13 @@ impl VideoDecoder {
     pub fn decode_frames_batch_full_res(
         &mut self,
         target_timestamps_secs: &[f64],
-    ) -> Result<Vec<(f64, Vec<u8>, u32, u32)>, String> {
+    ) -> Result<BatchDecodeResult, String> {
         if target_timestamps_secs.is_empty() {
-            return Ok(Vec::new());
+            return Ok(BatchDecodeResult {
+                frames: Vec::new(),
+                seek_elapsed: Duration::ZERO,
+                decode_elapsed: Duration::ZERO,
+            });
         }
 
         let first_ts = self.clamp_timestamp(target_timestamps_secs[0]);
@@ -705,7 +732,8 @@ impl VideoDecoder {
             || first_target_pts < self.state.current_pts
             || !self.state.can_decode_forward(first_target_pts, sequential_window);
 
-        if needs_seek {
+        let seek_elapsed = if needs_seek {
+            let seek_start = Instant::now();
             unsafe {
                 let ret = ffmpeg::ffi::av_seek_frame(
                     self.input_ctx.as_mut_ptr(),
@@ -720,7 +748,10 @@ impl VideoDecoder {
             self.decoder.flush();
             self.state.current_pts = -1;
             self.state.gop_start_pts = first_target_pts;
-        }
+            seek_start.elapsed()
+        } else {
+            Duration::ZERO
+        };
 
         let (display_w, display_h) = self.display_dimensions();
         let (scale_w, scale_h) = if self.rotation == 90 || self.rotation == 270 {
@@ -732,6 +763,7 @@ impl VideoDecoder {
         let mut cpu_frames = Vec::with_capacity(target_timestamps_secs.len());
         let mut next_target_idx = 0;
 
+        let decode_start = Instant::now();
         'packet_loop: for (stream, packet) in self.input_ctx.packets() {
             if stream.index() != self.stream_index {
                 continue;
@@ -771,19 +803,34 @@ impl VideoDecoder {
                 frame = ffmpeg::frame::Video::empty();
             }
         }
+        let decode_elapsed = decode_start.elapsed();
 
         let mut results = Vec::with_capacity(cpu_frames.len());
         for (target_ts, cpu_frame) in cpu_frames {
-            let scaled = self.scale_to_rgba_explicit(&cpu_frame, scale_w, scale_h)?;
+            let convert_start = Instant::now();
+            let (scaled, conversion_fast_path) =
+                self.scale_to_rgba_explicit_with_path(&cpu_frame, scale_w, scale_h)?;
+            let convert_elapsed = convert_start.elapsed();
             let rgba = if self.rotation != 0 {
                 Self::rotate_rgba(&scaled, scale_w, scale_h, self.rotation)
             } else {
                 scaled
             };
-            results.push((target_ts, rgba, display_w, display_h));
+            results.push(BatchDecodedFrame {
+                target_ts_secs: target_ts,
+                rgba,
+                width: display_w,
+                height: display_h,
+                convert_elapsed,
+                conversion_fast_path,
+            });
         }
 
-        Ok(results)
+        Ok(BatchDecodeResult {
+            frames: results,
+            seek_elapsed,
+            decode_elapsed,
+        })
     }
 
     /// Fast keyframe decode for poster frames / library thumbnails.
@@ -1352,12 +1399,23 @@ impl VideoDecoder {
         out_w: u32,
         out_h: u32,
     ) -> Result<Vec<u8>, String> {
+        self.scale_to_rgba_explicit_with_path(frame, out_w, out_h)
+            .map(|(rgba, _)| rgba)
+    }
+
+    fn scale_to_rgba_explicit_with_path(
+        &self,
+        frame: &ffmpeg::frame::Video,
+        out_w: u32,
+        out_h: u32,
+    ) -> Result<(Vec<u8>, bool), String> {
         use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
 
         // For 1:1 format conversion (YUV420P → RGBA at native resolution), use FAST_BILINEAR
         // to enable SIMD vector colorspace matrices (NEON/AVX2) without filter overhead.
         // For spatial downscaling/upscaling, use LANCZOS for high-order anti-aliasing.
-        let flags = if frame.width() == out_w && frame.height() == out_h {
+        let conversion_fast_path = frame.width() == out_w && frame.height() == out_h;
+        let flags = if conversion_fast_path {
             Flags::FAST_BILINEAR
         } else {
             Flags::LANCZOS
@@ -1391,7 +1449,7 @@ impl VideoDecoder {
             rgba.extend_from_slice(row_pixels);
         }
 
-        Ok(rgba)
+        Ok((rgba, conversion_fast_path))
     }
 
     /// Scale an RGBA buffer to new dimensions
