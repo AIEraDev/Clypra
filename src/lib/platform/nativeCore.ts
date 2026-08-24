@@ -320,6 +320,8 @@ export interface NativeRasterLayerSnapshot {
 export interface NativeProjectSnapshot {
   schemaVersion: number;
   projectRevision: string;
+  /** Authoritative project frame rate used by native pacing telemetry. */
+  frameRate?: number;
   canvasWidth: number;
   canvasHeight: number;
   clearColor: [number, number, number, number];
