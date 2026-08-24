@@ -870,27 +870,24 @@ pub async fn get_render_artifacts_batch(
     // Process in chunks of 12 with a single decoder lock and forward sweep per chunk
     for chunk in missing_timestamps.chunks(12) {
         let chunk_secs: Vec<f64> = chunk.iter().map(|&ms| ms as f64 / 1000.0).collect();
-        let decode_timer = crate::thumbnail_engine::metrics::Timer::start();
-        let decoded_frames = {
+        let decoded_batch = {
             let mut dec = decoder_arc.lock().await;
             dec.decode_frames_batch_full_res(&chunk_secs)?
         };
-        let chunk_decode_elapsed = decode_timer.elapsed();
-        if let Some(dur) = chunk_decode_elapsed {
-            if !decoded_frames.is_empty() {
-                let per_frame_dur = dur / decoded_frames.len() as u32;
-                for tier in &tiers {
-                    crate::thumbnail_engine::metrics::METRICS
-                        .for_tier(*tier)
-                        .decode
-                        .record(per_frame_dur);
+        if !decoded_batch.frames.is_empty() {
+            let per_frame_decode = decoded_batch.decode_elapsed / decoded_batch.frames.len() as u32;
+            for tier in &tiers {
+                let metrics = crate::thumbnail_engine::metrics::METRICS.for_tier(*tier);
+                metrics.decode.record(per_frame_decode);
+                if decoded_batch.seek_elapsed > std::time::Duration::ZERO {
+                    metrics.seek.record(decoded_batch.seek_elapsed);
                 }
             }
         }
 
-        for (matched_ts_secs, rgba, w, h) in decoded_frames {
+        for decoded_frame in decoded_batch.frames {
             decodes += 1;
-            let timestamp_ms = (matched_ts_secs * 1000.0).round() as u64;
+            let timestamp_ms = (decoded_frame.target_ts_secs * 1000.0).round() as u64;
             let content_hash = FrameContentHash::compute(
                 &video_id,
                 timestamp_ms,
@@ -901,7 +898,24 @@ pub async fn get_render_artifacts_batch(
                 false,
             );
             let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
-            let raw_arc = Arc::new(RawRgbaFrame::new(rgba, w, h));
+            for tier in &tiers {
+                let metrics = crate::thumbnail_engine::metrics::METRICS.for_tier(*tier);
+                metrics.convert.record(decoded_frame.convert_elapsed);
+                if decoded_frame.conversion_fast_path {
+                    metrics
+                        .convert_fast_path
+                        .fetch_add(1, Ordering::Relaxed);
+                } else {
+                    metrics
+                        .convert_slow_path
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            let raw_arc = Arc::new(RawRgbaFrame::new(
+                decoded_frame.rgba,
+                decoded_frame.width,
+                decoded_frame.height,
+            ));
             FRAME_CACHE.insert(content_hash.clone(), raw_arc.clone());
 
             let missing_for_frame = tiers.clone();
@@ -1239,5 +1253,4 @@ pub async fn check_coarse_baseline_cache(
 
     Ok(())
 }
-
 
