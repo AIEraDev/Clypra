@@ -10,6 +10,7 @@ import { TransitionIndicator } from "./TransitionIndicator";
 import { handleDropOnTrack } from "@/lib/timeline/timelineUtils";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 import { getTimelineLaneClientX } from "@/lib/timeline/timelineViewport";
+import { calculateDepartureClosurePositions } from "@/lib/timeline/clipPositions";
 import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
 import { resolveClipDuration } from "@/lib/timeline/timelineClip";
 import { useProjectStore } from "@/store/projectStore";
@@ -143,19 +144,15 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
 
     const isTargetTrack = dragState.targetTrackId === track.id;
 
-    // Source track: Show ripple closure (clips pack together)
+    // Source track: Show departure-gap closure while preserving earlier gaps.
     if (isDraggedFromThisTrack && !isTargetTrack) {
-      // Calculate positions without the dragged clips (they've "left" the track)
-      const displayMap = new Map<string, number>();
-      const draggedSet = new Set(dragState.draggedClipIds);
-      const restClips = sortedTrackClips.filter((c) => !draggedSet.has(c.id));
-
-      // Pack remaining clips tightly (no gaps)
-      let currentTime = 0;
-      for (const clip of restClips) {
-        displayMap.set(clip.id, currentTime);
-        currentTime += clip.duration;
-      }
+      // Preview the same departure closure that is committed on drop: shift
+      // only clips after the removed block, preserving earlier gaps.
+      const displayMap = calculateDepartureClosurePositions({
+        trackClips: sortedTrackClips,
+        draggedClipIds: dragState.draggedClipIds,
+        originalPlacements: dragState.originalPlacements,
+      });
 
       return {
         displayPositions: displayMap,
