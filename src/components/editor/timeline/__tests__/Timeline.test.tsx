@@ -246,6 +246,154 @@ describe("Timeline click behavior", () => {
     vi.unstubAllGlobals();
   });
 
+  it("does not jump timeline scroll when selecting a clip whose end is currently visible", () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    useTimelineStore.setState({
+      tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [
+        {
+          id: "long-clip",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "m1",
+          startTime: 0,
+          duration: 30,
+          trimIn: 0,
+          trimOut: 30,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          opacity: 1,
+          rotation: 0,
+        },
+      ],
+      scrollLeft: 800,
+      pixelsPerSecond: 50,
+    });
+
+    const { container } = render(<Timeline />);
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+    const clip = screen.getByTestId("mock-clip-long-clip");
+
+    Object.defineProperty(scroller, "clientWidth", { value: 600, configurable: true });
+    Object.defineProperty(scroller, "scrollWidth", { value: 2000, configurable: true });
+    Object.defineProperty(scroller, "scrollLeft", { value: 800, writable: true, configurable: true });
+
+    // Scroller viewport from left=0 to right=600 (with label column 160px)
+    scroller.getBoundingClientRect = () => ({
+      left: 0,
+      right: 600,
+      top: 0,
+      bottom: 120,
+      width: 600,
+      height: 120,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    // Clip starts at -640 (offscreen left), ends at 400 (visible inside [160, 600])
+    clip.getBoundingClientRect = () => ({
+      left: -640,
+      right: 400,
+      top: 30,
+      bottom: 80,
+      width: 1040,
+      height: 50,
+      x: -640,
+      y: 30,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    act(() => {
+      useUIStore.getState().selectClip("long-clip");
+    });
+
+    // scrollLeft must NOT have jumped back to 0
+    expect(scroller.scrollLeft).toBe(800);
+    expect(useTimelineStore.getState().scrollLeft).toBe(800);
+    vi.unstubAllGlobals();
+  });
+
+  it("does not jump timeline scroll when selecting a clip that spans across the entire viewport", () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    useTimelineStore.setState({
+      tracks: [{ id: "track-1", type: "video", name: "Video 1", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [
+        {
+          id: "spanning-clip",
+          kind: "video",
+          trackId: "track-1",
+          mediaId: "m1",
+          startTime: 0,
+          duration: 60,
+          trimIn: 0,
+          trimOut: 60,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          opacity: 1,
+          rotation: 0,
+        },
+      ],
+      scrollLeft: 500,
+      pixelsPerSecond: 50,
+    });
+
+    const { container } = render(<Timeline />);
+    const scroller = container.querySelector("#timeline-tracks-container") as HTMLDivElement;
+    const clip = screen.getByTestId("mock-clip-spanning-clip");
+
+    Object.defineProperty(scroller, "clientWidth", { value: 600, configurable: true });
+    Object.defineProperty(scroller, "scrollWidth", { value: 3000, configurable: true });
+    Object.defineProperty(scroller, "scrollLeft", { value: 500, writable: true, configurable: true });
+
+    scroller.getBoundingClientRect = () => ({
+      left: 0,
+      right: 600,
+      top: 0,
+      bottom: 120,
+      width: 600,
+      height: 120,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    // Clip starts at -340 (left of viewport), ends at 1200 (right of viewport)
+    clip.getBoundingClientRect = () => ({
+      left: -340,
+      right: 1200,
+      top: 30,
+      bottom: 80,
+      width: 1540,
+      height: 50,
+      x: -340,
+      y: 30,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    act(() => {
+      useUIStore.getState().selectClip("spanning-clip");
+    });
+
+    expect(scroller.scrollLeft).toBe(500);
+    expect(useTimelineStore.getState().scrollLeft).toBe(500);
+    vi.unstubAllGlobals();
+  });
+
   it("keeps a video inserted above the main track classified as B-roll", () => {
     useTimelineStore.setState({
       mainVideoTrackId: "track-main",
