@@ -1250,6 +1250,21 @@ impl VideoDecoder {
         &mut self,
         timestamp_secs: f64,
     ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata), String> {
+        self.decode_frame_raw_nv12_with_cancel(timestamp_secs, || false)
+    }
+
+    /// Decode a frame while allowing the native preview owner to supersede it
+    /// at packet/frame boundaries. The regular decoder API remains unchanged
+    /// for thumbnails and other callers.
+    #[allow(clippy::type_complexity)]
+    pub fn decode_frame_raw_nv12_with_cancel<F: Fn() -> bool>(
+        &mut self,
+        timestamp_secs: f64,
+        is_cancelled: F,
+    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata), String> {
+        if is_cancelled() {
+            return Err("Native preview request cancelled".to_string());
+        }
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -1260,6 +1275,9 @@ impl VideoDecoder {
             || !self.state.can_decode_forward(target_pts, sequential_window);
 
         if needs_seek {
+            if is_cancelled() {
+                return Err("Native preview request cancelled".to_string());
+            }
             unsafe {
                 let ret = ffmpeg::ffi::av_seek_frame(
                     self.input_ctx.as_mut_ptr(),
@@ -1280,6 +1298,9 @@ impl VideoDecoder {
         let mut found = false;
 
         'decode: for (stream, packet) in self.input_ctx.packets() {
+            if is_cancelled() {
+                return Err("Native preview request cancelled".to_string());
+            }
             if stream.index() != self.stream_index {
                 continue;
             }
@@ -1288,6 +1309,9 @@ impl VideoDecoder {
             }
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
                 let pts = frame.pts().unwrap_or(0);
                 self.state.current_pts = pts;
                 let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
@@ -1321,6 +1345,9 @@ impl VideoDecoder {
                     self.state.gop_start_pts = retry_pts;
 
                     'retry_decode: for (stream, packet) in self.input_ctx.packets() {
+                        if is_cancelled() {
+                            return Err("Native preview request cancelled".to_string());
+                        }
                         if stream.index() != self.stream_index {
                             continue;
                         }
@@ -1329,6 +1356,9 @@ impl VideoDecoder {
                         }
                         let mut frame = ffmpeg::frame::Video::empty();
                         while self.decoder.receive_frame(&mut frame).is_ok() {
+                            if is_cancelled() {
+                                return Err("Native preview request cancelled".to_string());
+                            }
                             let pts = frame.pts().unwrap_or(0);
                             self.state.current_pts = pts;
                             let frame_ts =
@@ -1350,6 +1380,9 @@ impl VideoDecoder {
         if !found && self.decoder.send_eof().is_ok() {
             let mut frame = ffmpeg::frame::Video::empty();
             while self.decoder.receive_frame(&mut frame).is_ok() {
+                if is_cancelled() {
+                    return Err("Native preview request cancelled".to_string());
+                }
                 let pts = frame.pts().unwrap_or(0);
                 self.state.current_pts = pts;
                 best_frame = frame;
