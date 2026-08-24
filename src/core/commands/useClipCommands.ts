@@ -41,6 +41,7 @@ const GROUP_ORDER: ClipCommandGroup[] = [
 export function useClipCommands(clickedClipId: string | null, clickedTrackId?: string | null) {
   const clips = useTimelineStore((s) => s.clips);
   const tracks = useTimelineStore((s) => s.tracks);
+  const transitions = useTimelineStore((s) => s.transitions);
   const selectedClipIds = useUIStore((s) => s.selectedClipIds);
   const shortcuts = useShortcutStore((s) => s.shortcuts);
 
@@ -59,6 +60,7 @@ export function useClipCommands(clickedClipId: string | null, clickedTrackId?: s
       playheadTime,
       clips,
       tracks,
+      transitions,
     };
 
     return clipCommands.map((command): ResolvedClipCommand => {
@@ -80,7 +82,7 @@ export function useClipCommands(clickedClipId: string | null, clickedTrackId?: s
         disabledReason,
       };
     });
-  }, [clips, tracks, selectedClipIds, clickedClipId, clickedTrackId, shortcuts, clipboardVersion]);
+  }, [clips, tracks, transitions, selectedClipIds, clickedClipId, clickedTrackId, shortcuts, clipboardVersion]);
 
   const groupedCommands = useMemo(() => {
     const visibleCommands = resolvedCommands.filter((r) => r.isVisible);
@@ -108,6 +110,7 @@ export function useClipCommands(clickedClipId: string | null, clickedTrackId?: s
       playheadTime,
       clips,
       tracks,
+      transitions,
     };
 
     if (item.isEnabled(ctx)) {

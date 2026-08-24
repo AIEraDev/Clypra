@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import type { Clip, Track } from "@/types";
+import type { Clip, Track, TransitionTimelineItem } from "@/types";
 
 export type ClipCommandGroup =
   | "clipboard"
@@ -19,6 +19,7 @@ export interface ClipCommandContext {
   playheadTime: number;
   clips: Clip[];
   tracks: Track[];
+  transitions?: TransitionTimelineItem[];
 }
 
 export interface ClipCommand {
