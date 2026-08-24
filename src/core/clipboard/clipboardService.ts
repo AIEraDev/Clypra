@@ -7,11 +7,13 @@
 
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
+import { useHistoryStore } from "@/store/historyStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { EditingActions } from "@/core/interactions";
 import { generateId } from "@/lib/utils/id";
 import { toast } from "@/lib/toast";
 import type { Clip } from "@/types";
+import { DuplicateClipsCommand } from "@/core/history/commands/DuplicateClipCommand";
 
 /**
  * A clipboard item preserves the complete clip model by default. Only the
@@ -155,19 +157,9 @@ export const clipboardService = {
 
     if (selected.length === 0) return [];
 
-    const minStart = selected[0].startTime;
-    const maxEnd = Math.max(...selected.map((c) => c.startTime + c.duration));
-    const offset = maxEnd - minStart;
-    const duplicatedClipIds: string[] = [];
-
-    store.withBatch(() => {
-      selected.forEach((clip) => {
-        const newId = generateId("clip");
-        const snapshot = createClipSnapshot(clip, minStart);
-        store.addClip(materializeClip(snapshot, newId, minStart + snapshot.startOffset + offset, clip.trackId));
-        duplicatedClipIds.push(newId);
-      });
-    });
+    const command = new DuplicateClipsCommand(selected, store.clips);
+    useHistoryStore.getState().execute(command);
+    const duplicatedClipIds = command.getDuplicatedClipIds();
 
     if (duplicatedClipIds.length > 0) {
       uiStore.clearSelection();
