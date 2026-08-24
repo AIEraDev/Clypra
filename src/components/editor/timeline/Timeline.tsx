@@ -43,6 +43,7 @@ import { ClipContextMenu } from "./ClipContextMenu";
 import { TimelineEmptySpaceContextMenu } from "./TimelineEmptySpaceContextMenu";
 import { AudioStreamPicker } from "./AudioStreamPicker";
 import { MediaJobIndicator } from "./MediaJobIndicator";
+import { RenameClipDialog } from "./RenameClipDialog";
 
 export const Timeline: React.FC = () => {
   const tracks = useTimelineStore((s) => s.tracks);
@@ -80,6 +81,7 @@ export const Timeline: React.FC = () => {
     clickedTime: number;
     position: { x: number; y: number };
   } | null>(null);
+  const [renameClipId, setRenameClipId] = useState<string | null>(null);
 
   const handleClipContextMenu = useCallback(
     (e: React.MouseEvent, clipId: string, trackId: string) => {
@@ -878,6 +880,7 @@ export const Timeline: React.FC = () => {
           clickedTrackId={clipContextMenu.clickedTrackId}
           position={clipContextMenu.position}
           onClose={() => setClipContextMenu(null)}
+          onRename={(clipId) => setRenameClipId(clipId)}
         />
       )}
 
@@ -889,6 +892,7 @@ export const Timeline: React.FC = () => {
           onClose={() => setEmptySpaceContextMenu(null)}
         />
       )}
+      <RenameClipDialog clipId={renameClipId} onClose={() => setRenameClipId(null)} />
       <AudioStreamPicker />
       <MediaJobIndicator />
     </div>
