@@ -49,6 +49,11 @@ impl InFlightMap {
 
 static IN_FLIGHT_EXTRACTIONS: Lazy<InFlightMap> = Lazy::new(InFlightMap::new);
 
+/// Serializes chunked GOP decode per source file so overlapping zoom/scroll
+/// batches cannot stampede the decoder or thrash TIER_CACHE.
+static BATCH_DECODE_GATES: Lazy<DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+    Lazy::new(DashMap::new);
+
 /// Global cache statistics for monitoring cache effectiveness
 static GLOBAL_ATLAS_HITS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 static GLOBAL_TIER_CACHE_HITS: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
@@ -884,6 +889,66 @@ pub async fn get_render_artifacts_batch(
 
     // Sort missing timestamps chronologically for forward GOP packet scanning
     missing_timestamps.sort_unstable();
+    missing_timestamps.dedup();
+
+    let gate = BATCH_DECODE_GATES
+        .entry(video_path.clone())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+    let _batch_gate = gate.lock().await;
+
+    // A concurrent batch may have filled TIER_CACHE while we waited.
+    let mut still_missing: Vec<u64> = Vec::new();
+    for timestamp_ms in missing_timestamps {
+        let content_hash = FrameContentHash::compute(
+            &video_id,
+            timestamp_ms,
+            effect_graph_version,
+            1.0,
+            0,
+            u64::MAX,
+            false,
+        );
+        let frame_id = format!("{}-{}", content_hash.0, timestamp_ms);
+        let mut any_missing = false;
+        for tier in &tiers {
+            let key = TierCacheKey {
+                content_hash: content_hash.clone(),
+                tier: *tier,
+            };
+            if let Some(frame) = TIER_CACHE.get(&key) {
+                tier_cache_hits += 1;
+                let artifact = RenderArtifact {
+                    frame_id: frame_id.clone(),
+                    content_hash: content_hash.0.clone(),
+                    spatial_tier: *tier,
+                    rgba_data: frame.data.clone(),
+                    width: frame.width,
+                    height: frame.height,
+                    timestamp_ms,
+                    source: ArtifactSource::BackendTierCache,
+                };
+                let _ = on_artifact.send(artifact);
+            } else {
+                any_missing = true;
+            }
+        }
+        if any_missing {
+            still_missing.push(timestamp_ms);
+        }
+    }
+    missing_timestamps = still_missing;
+
+    if missing_timestamps.is_empty() {
+        eprintln!(
+            "[batch:complete] req={} atlas_hits={} tier_cache_hits={} decodes={}",
+            req_id, atlas_hits, tier_cache_hits, decodes
+        );
+        GLOBAL_ATLAS_HITS.fetch_add(atlas_hits as u64, Ordering::Relaxed);
+        GLOBAL_TIER_CACHE_HITS.fetch_add(tier_cache_hits as u64, Ordering::Relaxed);
+        GLOBAL_DECODES.fetch_add(decodes as u64, Ordering::Relaxed);
+        return Ok(());
+    }
 
     let decoder_arc = get_decoder(&video_path).await?;
 
@@ -937,7 +1002,9 @@ pub async fn get_render_artifacts_batch(
                             source: ArtifactSource::FreshDecode,
                         };
                         TIER_CACHE.insert(key, tier_frame);
+                        eprintln!("[batch:artifact:send] req={} ts={} tier={:?} dims={}x{}", req_id, timestamp_ms, tier, artifact.width, artifact.height);
                         if on_artifact.send(artifact).is_err() {
+                            eprintln!("[batch:abort] Channel closed by client for req={}", req_id);
                             // Channel closed by client; stop further decode work
                             return Ok(());
                         }
@@ -950,7 +1017,10 @@ pub async fn get_render_artifacts_batch(
         }
     }
 
-    eprintln!("[batch:complete] req={} atlas_hits={} tier_cache_hits={} decodes={}", req_id, atlas_hits, tier_cache_hits, decodes);
+    eprintln!(
+        "[batch:complete] req={} atlas_hits={} tier_cache_hits={} decodes={}",
+        req_id, atlas_hits, tier_cache_hits, decodes
+    );
 
     GLOBAL_ATLAS_HITS.fetch_add(atlas_hits as u64, Ordering::Relaxed);
     GLOBAL_TIER_CACHE_HITS.fetch_add(tier_cache_hits as u64, Ordering::Relaxed);
