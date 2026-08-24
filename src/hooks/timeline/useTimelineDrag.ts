@@ -4,7 +4,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
 import type { Clip } from "@/types";
 import { suspendAutoSave, resumeAutoSave } from "@/store/middleware/autoSaveMiddleware";
-import { calculateDraggedBlockDuration } from "@/lib/timeline/clipPositions";
+import { calculateDepartureClosurePositions, calculateDraggedBlockDuration } from "@/lib/timeline/clipPositions";
 import { usePlaybackClock, useTransportControls } from "@/hooks/usePlaybackClock";
 
 // Three-layer architecture imports
@@ -689,6 +689,20 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
         });
         const newTrackId = store.insertTrackAt(trackType, insertIndex);
 
+        const liveClips = store.clips;
+        const livePps = Math.max(1, store.pixelsPerSecond);
+        const candidateStartTime = Math.max(0, dragSnapshot.originalStartTime + dragSnapshot.offsetX / livePps);
+        const newTrackSnap = findSnap({
+          candidateTime: candidateStartTime,
+          trackClips: liveClips,
+          draggedClipIds: dragSnapshot.draggedClipIds,
+          snapEnabled,
+          snapThresholdPx: 8,
+          pixelsPerSecond: livePps,
+          playheadTime: currentTime,
+        });
+        const baseStartTime = newTrackSnap.snapped ? newTrackSnap.snappedTime! : candidateStartTime;
+
         const orderedDragged = [...dragSnapshot.draggedClipIds].sort((a, b) => {
           const pa = dragSnapshot.originalPlacements[a];
           const pb = dragSnapshot.originalPlacements[b];
@@ -697,11 +711,22 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
           return a.localeCompare(b);
         });
 
-        const baseStartTime = 0; // New track: clips land at time 0
         const primaryDraggedId = dragSnapshot.draggingClipId ?? dragSnapshot.draggedClipIds[0];
         const primaryOriginalStart = (primaryDraggedId ? dragSnapshot.originalPlacements[primaryDraggedId]?.startTime : undefined) ?? 0;
 
         withBatch(() => {
+          for (const sourceTrackId of sourceTrackIds) {
+            const sourceTrackClips = liveClips.filter((c) => c.trackId === sourceTrackId);
+            const closurePositions = calculateDepartureClosurePositions({
+              trackClips: sourceTrackClips,
+              draggedClipIds: dragSnapshot.draggedClipIds,
+              originalPlacements: dragSnapshot.originalPlacements,
+            });
+            for (const [id, startTime] of closurePositions) {
+              updateClip(id, { startTime });
+            }
+          }
+
           orderedDragged.forEach((id) => {
             const placement = dragSnapshot.originalPlacements[id];
             if (!placement) return;
@@ -712,6 +737,10 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
             });
           });
         });
+
+        for (const sourceTrackId of sourceTrackIds) {
+          store.detectAndSyncGaps(sourceTrackId);
+        }
 
         removeEmptyNonMainTracks(sourceTrackIds);
         dragStateRef.current = null;
@@ -880,7 +909,7 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
       clearQueuedDragMove();
       resumeAutoSave();
     },
-    [flushQueuedClipDragMove, clearQueuedDragMove, updateClip, insertClipAtIndex, removeEmptyNonMainTracks, withBatch, clearSnapGuides],
+    [flushQueuedClipDragMove, clearQueuedDragMove, updateClip, insertClipAtIndex, removeEmptyNonMainTracks, withBatch, clearSnapGuides, snapEnabled, currentTime],
   );
 
   // Handle ESC key to cancel drag
