@@ -222,7 +222,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         stickerSourceId: clip.stickerSourceId,
       };
     }
-    if (!asset || (asset.type !== "video" && asset.type !== "image")) continue;
+    // Explicit audio clips can retain their source video asset so the audio
+    // router can resolve the embedded/direct audio path. They must never enter
+    // the visual compositor as video layers.
+    if (clip.kind === "audio" || !asset || (asset.type !== "video" && asset.type !== "image")) continue;
 
     const sourceTime = resolveClipSourceTime(clip, evalTime, {
       clampToRange: true,
