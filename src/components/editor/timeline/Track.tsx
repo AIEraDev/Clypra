@@ -23,6 +23,8 @@ interface TrackProps {
   onClipDragStart?: (clipId: string, startX: number, startY: number) => void;
   onClipDragMove?: (clipId: string, deltaX: number, deltaY: number, clientX: number, clientY: number) => void;
   onClipDragEnd?: (clipId: string) => void;
+  onClipContextMenu?: (e: React.MouseEvent, clipId: string, trackId: string) => void;
+  onTrackContextMenu?: (e: React.MouseEvent, trackId: string, time: number) => void;
   dragState?: {
     draggingClipId: string | null;
     draggedClipIds?: string[];
@@ -36,7 +38,7 @@ interface TrackProps {
   };
 }
 
-const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, dragState }) => {
+const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, onClipContextMenu, onTrackContextMenu, dragState }) => {
   const selectedClipIds = useUIStore((state) => state.selectedClipIds);
   const selectedGapId = useUIStore((state) => state.selectedGapId);
   const selectedTrackId = useUIStore((state) => state.selectedTrackId);
@@ -197,12 +199,26 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
 
   const { displayPositions, gapIndicator } = displayInfo;
 
+  const handleTrackContextMenu = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target && target.closest("[data-clip-id]")) return;
+    if (target && target.closest("[data-gap-id]")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const container = document.getElementById("timeline-tracks-container");
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const clickedTime = pixelToTime(getTimelineLaneClientX(e.clientX, rect.left, allClips.length > 0) + scrollLeft, pixelsPerSecond);
+    onTrackContextMenu?.(e, track.id, Math.max(0, clickedTime));
+  };
+
   return (
     <div
       ref={(node) => {
         drop(node);
       }}
       data-track-id={track.id}
+      onContextMenu={handleTrackContextMenu}
       className={`relative transition-colors mb-0 bg-surface-raised/40 ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-accent/10" : ""} ${track.locked ? "bg-slate-900/45" : ""}`}
       style={{ height: `${track.height}px` }}
     >
@@ -242,6 +258,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, pixelsPerSecond, clips, onCli
               onDragStart={onClipDragStart}
               onDragMove={onClipDragMove}
               onDragEnd={onClipDragEnd}
+              onContextMenu={(e, clipId) => onClipContextMenu?.(e, clipId, track.id)}
               isBeingShifted={isShifted}
               dragState={
                 isDragging
