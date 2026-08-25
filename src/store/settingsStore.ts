@@ -1,8 +1,26 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type Theme = "dark" | "midnight" | "ocean" | "forest" | "midnight-carbon" | "ember-studio" | "forest-console" | "slate-noir" | "rose-cut" | "custom";
-export type FontFamily = "inter" | "montserrat" | "geist" | "outfit" | "roboto" | "space-grotesk" | "system" | "mono";
+export type Theme =
+  | "dark"
+  | "midnight"
+  | "ocean"
+  | "forest"
+  | "midnight-carbon"
+  | "ember-studio"
+  | "forest-console"
+  | "slate-noir"
+  | "rose-cut"
+  | "custom";
+export type FontFamily =
+  | "inter"
+  | "montserrat"
+  | "geist"
+  | "outfit"
+  | "roboto"
+  | "space-grotesk"
+  | "system"
+  | "mono";
 export type FrameRate = 24 | 30 | 60;
 export type PreviewQuality = "full" | "high" | "medium" | "low";
 export type LayoutPreset =
@@ -72,12 +90,18 @@ export const useSettingsStore = create<SettingsStore>()(
       layoutPreset: "default",
       sidebarWidth: (() => {
         if (typeof window === "undefined") return 400;
-        const v = parseInt(localStorage.getItem("clypra_sidebar_width") ?? "", 10);
+        const v = parseInt(
+          localStorage.getItem("clypra_sidebar_width") ?? "",
+          10,
+        );
         return !isNaN(v) && v >= 240 ? v : 400;
       })(),
       propertiesPanelWidth: (() => {
         if (typeof window === "undefined") return 400;
-        const v = parseInt(localStorage.getItem("clypra_properties_width") ?? "", 10);
+        const v = parseInt(
+          localStorage.getItem("clypra_properties_width") ?? "",
+          10,
+        );
         return !isNaN(v) && v >= 240 ? v : 400;
       })(),
       tallPlayerWidth: 480,
@@ -85,7 +109,10 @@ export const useSettingsStore = create<SettingsStore>()(
       propertiesPanelCollapsed: false,
       timelineHeight: (() => {
         if (typeof window === "undefined") return 400;
-        const v = parseInt(localStorage.getItem("clypra_timeline_height") ?? "", 10);
+        const v = parseInt(
+          localStorage.getItem("clypra_timeline_height") ?? "",
+          10,
+        );
         return !isNaN(v) && v >= 160 ? v : 400;
       })(),
 
@@ -113,14 +140,18 @@ export const useSettingsStore = create<SettingsStore>()(
       setAutoSave: (autoSave) => set({ autoSave }),
       setDefaultFrameRate: (defaultFrameRate) => set({ defaultFrameRate }),
       setPreviewQuality: (previewQuality) => set({ previewQuality }),
-      setProxyEditingEnabled: (proxyEditingEnabled) => set({ proxyEditingEnabled }),
-      setAutoClearCacheOnProjectClose: (autoClearCacheOnProjectClose) => set({ autoClearCacheOnProjectClose }),
+      setProxyEditingEnabled: (proxyEditingEnabled) =>
+        set({ proxyEditingEnabled }),
+      setAutoClearCacheOnProjectClose: (autoClearCacheOnProjectClose) =>
+        set({ autoClearCacheOnProjectClose }),
       setLayoutPreset: (layoutPreset) => set({ layoutPreset }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
-      setPropertiesPanelWidth: (propertiesPanelWidth) => set({ propertiesPanelWidth }),
+      setPropertiesPanelWidth: (propertiesPanelWidth) =>
+        set({ propertiesPanelWidth }),
       setTallPlayerWidth: (tallPlayerWidth) => set({ tallPlayerWidth }),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
-      setPropertiesPanelCollapsed: (propertiesPanelCollapsed) => set({ propertiesPanelCollapsed }),
+      setPropertiesPanelCollapsed: (propertiesPanelCollapsed) =>
+        set({ propertiesPanelCollapsed }),
       setTimelineHeight: (timelineHeight) => set({ timelineHeight }),
     }),
     {
@@ -153,7 +184,7 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-text-muted": "#666666",
     "--color-danger": "#e05252",
     "--color-video-clip": "#2d2340",
-    "--color-audio-clip": "#1a3040",
+    "--color-audio-clip": "#1e3a28",
     "--color-text-clip": "#3d3010",
     // Guides & Indicators
     "--color-guide-center": "#ff3b30",
@@ -179,8 +210,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#d6d9de",
     "--color-timeline-clip-video": "#153840",
     "--color-timeline-clip-video-border": "rgba(48, 167, 200, 0.4)",
-    "--color-timeline-clip-audio": "#153840",
-    "--color-timeline-clip-audio-border": "rgba(48, 167, 200, 0.4)",
+    "--color-timeline-clip-audio": "#1e3a28",
+    "--color-timeline-clip-audio-border": "rgba(80, 200, 120, 0.45)",
+    "--color-timeline-clip-audio-solid": "#1a7a4a",
     "--color-timeline-clip-text": "#d8edf1",
     "--color-timeline-clip-duration": "#b9e0e6",
     "--color-timeline-filmstrip-bg": "rgba(12, 39, 48, 0.4)",
@@ -253,8 +285,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#d6dce7",
     "--color-timeline-clip-video": "#1e2a50",
     "--color-timeline-clip-video-border": "rgba(91, 143, 255, 0.4)",
-    "--color-timeline-clip-audio": "#152845",
-    "--color-timeline-clip-audio-border": "rgba(91, 143, 255, 0.4)",
+    "--color-timeline-clip-audio": "#152e30",
+    "--color-timeline-clip-audio-border": "rgba(80, 200, 160, 0.45)",
+    "--color-timeline-clip-audio-solid": "#1a7a5a",
     "--color-timeline-clip-text": "#d8e0f1",
     "--color-timeline-clip-duration": "#b9c8e6",
     "--color-timeline-filmstrip-bg": "rgba(16, 21, 37, 0.4)",
@@ -326,8 +359,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#d0e8ff",
     "--color-timeline-clip-video": "#0f2a3d",
     "--color-timeline-clip-video-border": "rgba(61, 184, 217, 0.4)",
-    "--color-timeline-clip-audio": "#0c2535",
-    "--color-timeline-clip-audio-border": "rgba(61, 184, 217, 0.4)",
+    "--color-timeline-clip-audio": "#0f2a20",
+    "--color-timeline-clip-audio-border": "rgba(61, 184, 140, 0.45)",
+    "--color-timeline-clip-audio-solid": "#1a8060",
     "--color-timeline-clip-text": "#d0e8ff",
     "--color-timeline-clip-duration": "#b0d8f0",
     "--color-timeline-filmstrip-bg": "rgba(12, 26, 40, 0.4)",
@@ -399,8 +433,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#d8edd9",
     "--color-timeline-clip-video": "#1a2e1e",
     "--color-timeline-clip-video-border": "rgba(82, 200, 130, 0.4)",
-    "--color-timeline-clip-audio": "#142a1c",
-    "--color-timeline-clip-audio-border": "rgba(82, 200, 130, 0.4)",
+    "--color-timeline-clip-audio": "#2a2a12",
+    "--color-timeline-clip-audio-border": "rgba(180, 170, 60, 0.45)",
+    "--color-timeline-clip-audio-solid": "#6b7a18",
     "--color-timeline-clip-text": "#d8edd9",
     "--color-timeline-clip-duration": "#b8ddb9",
     "--color-timeline-filmstrip-bg": "rgba(17, 26, 20, 0.4)",
@@ -472,8 +507,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#e0e4e8",
     "--color-timeline-clip-video": "#2d4851",
     "--color-timeline-clip-video-border": "rgba(93, 182, 214, 0.4)",
-    "--color-timeline-clip-audio": "#253e48",
-    "--color-timeline-clip-audio-border": "rgba(93, 182, 214, 0.4)",
+    "--color-timeline-clip-audio": "#2a3a28",
+    "--color-timeline-clip-audio-border": "rgba(100, 190, 120, 0.45)",
+    "--color-timeline-clip-audio-solid": "#2a7a50",
     "--color-timeline-clip-text": "#dce8ed",
     "--color-timeline-clip-duration": "#c0d5de",
     "--color-timeline-filmstrip-bg": "rgba(32, 41, 49, 0.4)",
@@ -545,8 +581,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#ddd7d1",
     "--color-timeline-clip-video": "#3f3120",
     "--color-timeline-clip-video-border": "rgba(217, 138, 80, 0.4)",
-    "--color-timeline-clip-audio": "#332818",
-    "--color-timeline-clip-audio-border": "rgba(217, 138, 80, 0.4)",
+    "--color-timeline-clip-audio": "#1e2e28",
+    "--color-timeline-clip-audio-border": "rgba(80, 180, 140, 0.45)",
+    "--color-timeline-clip-audio-solid": "#1a6e50",
     "--color-timeline-clip-text": "#ebe4da",
     "--color-timeline-clip-duration": "#d9cbb9",
     "--color-timeline-filmstrip-bg": "rgba(35, 29, 24, 0.4)",
@@ -618,8 +655,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#d6dcd9",
     "--color-timeline-clip-video": "#2d4236",
     "--color-timeline-clip-video-border": "rgba(110, 191, 139, 0.4)",
-    "--color-timeline-clip-audio": "#24382d",
-    "--color-timeline-clip-audio-border": "rgba(110, 191, 139, 0.4)",
+    "--color-timeline-clip-audio": "#2a3820",
+    "--color-timeline-clip-audio-border": "rgba(160, 180, 80, 0.45)",
+    "--color-timeline-clip-audio-solid": "#5a7a20",
     "--color-timeline-clip-text": "#dae8dd",
     "--color-timeline-clip-duration": "#bed5c5",
     "--color-timeline-filmstrip-bg": "rgba(28, 36, 30, 0.4)",
@@ -691,8 +729,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#dcdcdd",
     "--color-timeline-clip-video": "#314048",
     "--color-timeline-clip-video-border": "rgba(107, 169, 196, 0.4)",
-    "--color-timeline-clip-audio": "#283840",
-    "--color-timeline-clip-audio-border": "rgba(107, 169, 196, 0.4)",
+    "--color-timeline-clip-audio": "#2a3830",
+    "--color-timeline-clip-audio-border": "rgba(100, 180, 130, 0.45)",
+    "--color-timeline-clip-audio-solid": "#1a7058",
     "--color-timeline-clip-text": "#dde7eb",
     "--color-timeline-clip-duration": "#c2d4db",
     "--color-timeline-filmstrip-bg": "rgba(34, 38, 42, 0.4)",
@@ -764,8 +803,9 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
     "--color-timeline-track-name": "#dbd7d8",
     "--color-timeline-clip-video": "#40303a",
     "--color-timeline-clip-video-border": "rgba(217, 112, 151, 0.4)",
-    "--color-timeline-clip-audio": "#342731",
-    "--color-timeline-clip-audio-border": "rgba(217, 112, 151, 0.4)",
+    "--color-timeline-clip-audio": "#243428",
+    "--color-timeline-clip-audio-border": "rgba(90, 190, 130, 0.45)",
+    "--color-timeline-clip-audio-solid": "#1a7848",
     "--color-timeline-clip-text": "#eedde3",
     "--color-timeline-clip-duration": "#dcc3cd",
     "--color-timeline-filmstrip-bg": "rgba(35, 28, 32, 0.4)",
@@ -800,21 +840,40 @@ const themes: Record<Exclude<Theme, "custom">, Record<string, string>> = {
 };
 
 /** Human-readable metadata for each theme (used by SettingsModal) */
-export const THEME_META: Record<Theme, { name: string; description: string }> = {
-  dark: { name: "Dark", description: "Classic dark" },
-  midnight: { name: "Midnight", description: "Deep blue tones" },
-  ocean: { name: "Ocean", description: "Cool cyan accents" },
-  forest: { name: "Forest", description: "Natural green hues" },
-  "midnight-carbon": { name: "Midnight Carbon", description: "Professional broadcast-grade cold precision" },
-  "ember-studio": { name: "Ember Studio", description: "Warm creative workspace" },
-  "forest-console": { name: "Forest Console", description: "Low eye strain terminal aesthetic" },
-  "slate-noir": { name: "Slate Noir", description: "Maximum neutrality broadcast interface" },
-  "rose-cut": { name: "Rose Cut", description: "Modern approachable aesthetic" },
-  custom: { name: "Custom", description: "Your custom theme" },
-};
+export const THEME_META: Record<Theme, { name: string; description: string }> =
+  {
+    dark: { name: "Dark", description: "Classic dark" },
+    midnight: { name: "Midnight", description: "Deep blue tones" },
+    ocean: { name: "Ocean", description: "Cool cyan accents" },
+    forest: { name: "Forest", description: "Natural green hues" },
+    "midnight-carbon": {
+      name: "Midnight Carbon",
+      description: "Professional broadcast-grade cold precision",
+    },
+    "ember-studio": {
+      name: "Ember Studio",
+      description: "Warm creative workspace",
+    },
+    "forest-console": {
+      name: "Forest Console",
+      description: "Low eye strain terminal aesthetic",
+    },
+    "slate-noir": {
+      name: "Slate Noir",
+      description: "Maximum neutrality broadcast interface",
+    },
+    "rose-cut": {
+      name: "Rose Cut",
+      description: "Modern approachable aesthetic",
+    },
+    custom: { name: "Custom", description: "Your custom theme" },
+  };
 
 /** Returns the raw theme color tokens for a given theme (for live previews) */
-export function getThemeColors(t: Theme, customColors?: Record<string, string> | null): Record<string, string> {
+export function getThemeColors(
+  t: Theme,
+  customColors?: Record<string, string> | null,
+): Record<string, string> {
   if (t === "custom" && customColors) {
     return customColors;
   }
@@ -842,12 +901,18 @@ export const FONT_META: Record<FontFamily, { name: string; stack: string }> = {
   geist: { name: "Geist", stack: fontFamilies.geist },
   outfit: { name: "Outfit", stack: fontFamilies.outfit },
   roboto: { name: "Roboto", stack: fontFamilies.roboto },
-  "space-grotesk": { name: "Space Grotesk", stack: fontFamilies["space-grotesk"] },
+  "space-grotesk": {
+    name: "Space Grotesk",
+    stack: fontFamilies["space-grotesk"],
+  },
   system: { name: "System", stack: fontFamilies.system },
   mono: { name: "Mono", stack: fontFamilies.mono },
 };
 
-export function applyTheme(theme: Theme, customColors?: Record<string, string> | null) {
+export function applyTheme(
+  theme: Theme,
+  customColors?: Record<string, string> | null,
+) {
   const root = document.documentElement;
   let themeColors: Record<string, string>;
 
@@ -890,6 +955,8 @@ export function getThemeColorKeys(): string[] {
 }
 
 /** Get a base theme to start customization from */
-export function getBaseThemeForCustomization(baseTheme: Exclude<Theme, "custom">): Record<string, string> {
+export function getBaseThemeForCustomization(
+  baseTheme: Exclude<Theme, "custom">,
+): Record<string, string> {
   return { ...themes[baseTheme] };
 }
