@@ -3,13 +3,9 @@
  * This is the foundation for CapCut-class compositing behavior.
  */
 
-import type { Clip } from "@/types";
+import type { Clip, ClipRole } from "@/types";
 
-/**
- * Semantic role of a clip in the composition.
- * Determines how the clip participates in rendering.
- */
-export type ClipRole = "primary" | "overlay" | "text" | "effect" | "background" | "audio";
+export type { ClipRole } from "@/types";
 
 /**
  * Extended clip with compositor metadata.
