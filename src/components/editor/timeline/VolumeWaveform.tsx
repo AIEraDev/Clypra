@@ -16,6 +16,8 @@ interface VolumeWaveformProps {
   fadeOut?: number;
   fadeInCurve?: AudioFadeCurve;
   fadeOutCurve?: AudioFadeCurve;
+  /** Keep the source waveform stable; the fade is rendered by the overlay. */
+  applyFadeToWaveform?: boolean;
   heightPx?: number;
   className?: string;
 }
@@ -75,6 +77,7 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
   fadeOut = 0,
   fadeInCurve = "linear",
   fadeOutCurve = "linear",
+  applyFadeToWaveform = false,
   heightPx = 16,
   className = "",
 }) => {
@@ -128,16 +131,18 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
         waveformData.length > 1
           ? (index / (waveformData.length - 1)) * Math.max(0, duration)
           : 0;
-      const envelopeVolume = getEnvelopeVolume(
-        time,
-        duration,
-        volume,
-        sortedKeyframes,
-        fadeIn,
-        fadeOut,
-        fadeInCurve,
-        fadeOutCurve,
-      );
+      const envelopeVolume = applyFadeToWaveform
+        ? getEnvelopeVolume(
+            time,
+            duration,
+            volume,
+            sortedKeyframes,
+            fadeIn,
+            fadeOut,
+            fadeInCurve,
+            fadeOutCurve,
+          )
+        : getKeyframedVolume(sortedKeyframes, time, volume);
       if (envelopeVolume <= 0.001) return;
 
       // Lift quieter source peaks into a readable visual range while the
@@ -164,6 +169,7 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
     fadeOut,
     fadeInCurve,
     fadeOutCurve,
+    applyFadeToWaveform,
     duration,
   ]);
 

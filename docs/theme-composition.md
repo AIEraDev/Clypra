@@ -20,6 +20,10 @@ The roles cover media bodies, media edges and text, filmstrip and waveform
 visuals, translucent envelope fills and smooth envelope lines, keyframes,
 tooltips, drag previews, metadata, and invalid-position borders.
 
+The waveform remains a source-amplitude visualization while fades are edited;
+fade shading is drawn as a separate overlay and does not compress waveform
+bar height.
+
 If a component needs a new clip color, add a named role to the token list and
 provide it in every `CLIP_PALETTES` entry. Do not add a literal to the
 component or to `UI_THEMES`.
