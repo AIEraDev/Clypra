@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { formatTime, formatTimecode, formatTimeWithDeciseconds } from "../timeFormatting";
+import {
+  formatTime,
+  formatTimecode,
+  formatTimeWithDeciseconds,
+  formatTimelineTimecode,
+} from "../timeFormatting";
 
 describe("timeFormatting Edge Cases & Invariants", () => {
   describe("formatTime", () => {
@@ -53,6 +58,17 @@ describe("timeFormatting Edge Cases & Invariants", () => {
           expect(res.includes("undefined")).toBe(false);
         })
       );
+    });
+  });
+
+  describe("formatTimelineTimecode", () => {
+    it("always includes hours to remove ruler ambiguity", () => {
+      expect(formatTimelineTimecode(89, 30)).toBe("00:01:29");
+      expect(formatTimelineTimecode(5340, 30)).toBe("01:29:00");
+    });
+
+    it("supports optional frame precision independently of the ruler", () => {
+      expect(formatTimelineTimecode(89.5, 30, true)).toBe("00:01:29:15");
     });
   });
 

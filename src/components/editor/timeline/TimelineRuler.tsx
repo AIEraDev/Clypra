@@ -12,7 +12,7 @@ import {
   pixelToTime,
   getTimelineCanvasDuration,
 } from "@/lib/timeline/timelineViewport";
-import { formatTimecode } from "@/lib/utils/timeFormatting";
+import { formatTimelineTimecode } from "@/lib/utils/timeFormatting";
 
 import type { TimelineMarker } from "@/types";
 
@@ -20,6 +20,7 @@ interface TimelineRulerProps {
   pixelsPerSecond: number;
   scrollLeft: number;
   sequenceDuration?: number;
+  startOffset?: number;
 }
 
 /**
@@ -73,6 +74,7 @@ function formatTime(seconds: number): string {
 interface MarkerPinProps {
   marker: TimelineMarker;
   pixelsPerSecond: number;
+  startOffset?: number;
   onSelect: (markerId: string) => void;
   onDragEnd: (markerId: string, newTime: number) => void;
   selected: boolean;
@@ -81,12 +83,13 @@ interface MarkerPinProps {
 const MarkerPin: React.FC<MarkerPinProps> = ({
   marker,
   pixelsPerSecond,
+  startOffset = 0,
   onSelect,
   onDragEnd,
   selected,
 }) => {
   const color = markerCss(marker.color);
-  const x = Math.round(marker.time * pixelsPerSecond);
+  const x = Math.round(marker.time * pixelsPerSecond) + startOffset;
 
   // Drag logic
   const dragging = useRef(false);
@@ -123,7 +126,6 @@ const MarkerPin: React.FC<MarkerPinProps> = ({
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
       };
-
 
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
@@ -245,10 +247,11 @@ const MarkerPopover: React.FC<MarkerPopoverProps> = ({
         left: adjustedX,
         width: CARD_W,
         zIndex: 50,
-        background: "var(--color-surface, #1a1a2e)",
-        border: "1px solid rgba(255,255,255,0.12)",
+        background: "var(--clypra-surface-panel)",
+        border:
+          "1px solid color-mix(in srgb, var(--clypra-text-primary) 12%, transparent)",
         borderRadius: 8,
-        boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+        boxShadow: "var(--elev-shadow)",
         padding: "10px 12px",
         display: "flex",
         flexDirection: "column",
@@ -348,6 +351,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   pixelsPerSecond,
   scrollLeft,
   sequenceDuration,
+  startOffset = 0,
 }) => {
   const clockState = usePlaybackClock();
   const frameRate = clockState.frameRate;
@@ -367,28 +371,15 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  // ── Format label (00:SS or 00:SS.f or 00:SS:FF) ───────────────────────────
-  const formatLabel = useCallback((seconds: number): string => {
-    const fps = frameRate || 30;
-    if (pixelsPerSecond >= 300) {
-      // Deep zoom: show exact frame timecode MM:SS:FF
-      return formatTimecode(seconds, fps);
-    }
-    const remainder = seconds - Math.floor(seconds);
-    if (remainder > 0.001) {
-      const frac = Math.round(remainder * 10);
-      if (frac > 0 && frac < 10) {
-        const totalSecs = Math.floor(seconds);
-        const mins = Math.floor(totalSecs / 60);
-        const secs = totalSecs % 60;
-        return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${frac}`;
-      }
-    }
-    const totalSecs = Math.round(seconds);
-    const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
-    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-  }, [pixelsPerSecond, frameRate]);
+  // ── Format label with an explicit hours field ─────────────────────────────
+  // Ruler labels stop at seconds; frame/millisecond precision belongs to
+  // playback/detail displays, not the timeline scale.
+  const formatLabel = useCallback(
+    (seconds: number): string => {
+      return formatTimelineTimecode(seconds, frameRate || 30);
+    },
+    [frameRate],
+  );
 
   // ── Memoized tick generation ─────────────────────────────────────────────
   const ticks = useMemo(() => {
@@ -400,6 +391,9 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
         : 50;
     const validScrollLeft =
       typeof scrollLeft === "number" && !isNaN(scrollLeft) ? scrollLeft : 0;
+    // Ticks begin at startOffset pixels from the ruler's left edge, so we
+    // subtract startOffset from scrollLeft to get the time-domain origin.
+    const contentScrollLeft = Math.max(0, validScrollLeft - startOffset);
     const validViewportWidth =
       typeof viewportWidth === "number" &&
       !isNaN(viewportWidth) &&
@@ -422,9 +416,9 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     const minorInterval = majorInterval / minorDivisions;
     const padPx = 60;
     const canvasDuration = getTimelineCanvasDuration(sequenceDuration ?? 0);
-    const startTime = Math.max(0, (validScrollLeft - padPx) / validPPS);
+    const startTime = Math.max(0, (contentScrollLeft - padPx) / validPPS);
     const rawEndTime =
-      (validScrollLeft + validViewportWidth + padPx) / validPPS;
+      (contentScrollLeft + validViewportWidth + padPx) / validPPS;
     const endTime = Math.min(canvasDuration, rawEndTime);
 
     const result: { time: number; isMajor: boolean }[] = [];
@@ -454,19 +448,24 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     }
 
     return result;
-  }, [pixelsPerSecond, scrollLeft, viewportWidth, sequenceDuration]);
+  }, [
+    pixelsPerSecond,
+    scrollLeft,
+    viewportWidth,
+    sequenceDuration,
+    startOffset,
+  ]);
 
   // ── Double-click ruler to add marker ────────────────────────────────────
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const clickX = e.clientX - rect.left;
+      const clickX = e.clientX - rect.left - startOffset;
       const time = Math.max(0, pixelToTime(clickX, pixelsPerSecond));
-
       addMarker(time);
     },
-    [pixelsPerSecond, addMarker],
+    [pixelsPerSecond, addMarker, startOffset],
   );
 
   // ── Close popover when clicking background ────────────────────────────────
@@ -490,7 +489,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
     >
       {/* ── Tick marks ── */}
       {ticks.map(({ time, isMajor }) => {
-        const x = timeToPixel(time, pixelsPerSecond);
+        const x = timeToPixel(time, pixelsPerSecond) + startOffset;
         return (
           <div
             key={time}
@@ -514,9 +513,11 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
               <span
                 style={{
                   position: "absolute",
-                  top: 8,
-                  left: 0,
-                  transform: "translateX(-50%)",
+                  // CapCut-style ruler labels sit beside the major tick so
+                  // the timecode never hides beneath a playhead/tick stem.
+                  top: 1,
+                  left: 6,
+                  transform: "none",
                   fontSize: 9,
                   lineHeight: 1,
                   color: "var(--color-timeline-ruler-text)",
@@ -541,6 +542,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
           key={marker.id}
           marker={marker}
           pixelsPerSecond={pixelsPerSecond}
+          startOffset={startOffset}
           selected={selectedMarkerId === marker.id}
           onSelect={(id) =>
             setSelectedMarkerId((prev) => (prev === id ? null : id))
@@ -554,7 +556,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
         <MarkerPopover
           key={selectedMarker.id}
           marker={selectedMarker}
-          x={timeToPixel(selectedMarker.time, pixelsPerSecond)}
+          x={timeToPixel(selectedMarker.time, pixelsPerSecond) + startOffset}
           onClose={() => setSelectedMarkerId(null)}
           onUpdate={(updates) => updateMarker(selectedMarker.id, updates)}
           onDelete={() => {

@@ -52,6 +52,38 @@ export function formatTimecode(seconds: number, frameRate: number): string {
 }
 
 /**
+ * Format timeline ruler labels with an explicit hours field.
+ *
+ * Ruler labels must not make `01:29` ambiguous between one hour/twenty-nine
+ * minutes and one minute/twenty-nine seconds. Frames are only shown when the
+ * ruler is sufficiently zoomed in to make them useful.
+ */
+export function formatTimelineTimecode(
+  seconds: number,
+  frameRate: number,
+  includeFrames = false,
+): string {
+  if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
+    seconds = 0;
+  }
+
+  const totalSeconds = Math.floor(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const base = [hours, minutes, secs]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
+
+  if (!includeFrames) return base;
+
+  const safeFps =
+    Number.isFinite(frameRate) && frameRate > 0 ? Math.min(1000, frameRate) : 30;
+  const frames = Math.floor((seconds - totalSeconds) * safeFps);
+  return `${base}:${String(Math.max(0, frames)).padStart(2, "0")}`;
+}
+
+/**
  * Format seconds as MM:SS.d (with deciseconds)
  * Used for less precise displays
  */
