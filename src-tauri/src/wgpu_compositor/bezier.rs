@@ -14,13 +14,48 @@ pub struct CubicBezier {
 }
 
 impl CubicBezier {
-    pub const LINEAR: Self = Self { x1: 0.0, y1: 0.0, x2: 1.0, y2: 1.0 };
-    pub const EASE: Self = Self { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1.0 };
-    pub const EASE_IN: Self = Self { x1: 0.42, y1: 0.0, x2: 1.0, y2: 1.0 };
-    pub const EASE_OUT: Self = Self { x1: 0.0, y1: 0.0, x2: 0.58, y2: 1.0 };
-    pub const EASE_IN_OUT: Self = Self { x1: 0.42, y1: 0.0, x2: 0.58, y2: 1.0 };
-    pub const EASE_IN_CUBIC: Self = Self { x1: 0.32, y1: 0.0, x2: 0.67, y2: 0.0 };
-    pub const EASE_OUT_CUBIC: Self = Self { x1: 0.33, y1: 1.0, x2: 0.68, y2: 1.0 };
+    pub const LINEAR: Self = Self {
+        x1: 0.0,
+        y1: 0.0,
+        x2: 1.0,
+        y2: 1.0,
+    };
+    pub const EASE: Self = Self {
+        x1: 0.25,
+        y1: 0.1,
+        x2: 0.25,
+        y2: 1.0,
+    };
+    pub const EASE_IN: Self = Self {
+        x1: 0.42,
+        y1: 0.0,
+        x2: 1.0,
+        y2: 1.0,
+    };
+    pub const EASE_OUT: Self = Self {
+        x1: 0.0,
+        y1: 0.0,
+        x2: 0.58,
+        y2: 1.0,
+    };
+    pub const EASE_IN_OUT: Self = Self {
+        x1: 0.42,
+        y1: 0.0,
+        x2: 0.58,
+        y2: 1.0,
+    };
+    pub const EASE_IN_CUBIC: Self = Self {
+        x1: 0.32,
+        y1: 0.0,
+        x2: 0.67,
+        y2: 0.0,
+    };
+    pub const EASE_OUT_CUBIC: Self = Self {
+        x1: 0.33,
+        y1: 1.0,
+        x2: 0.68,
+        y2: 1.0,
+    };
 
     pub fn new(x1: f64, y1: f64, x2: f64, y2: f64) -> Self {
         Self {

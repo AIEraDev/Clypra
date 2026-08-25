@@ -64,13 +64,18 @@ pub async fn generate_auto_captions(
     // 2. Extract 16kHz Mono f32 PCM via FFmpeg stdout — no intermediate file
     let child = Command::new("ffmpeg")
         .args([
-            "-i", &video_path,
-            "-vn",                 // No video
-            "-acodec", "pcm_f32le", // 32-bit float LE
-            "-ar", "16000",        // 16 kHz
-            "-ac", "1",            // Mono
-            "-f", "f32le",         // Raw output format
-            "-",                   // Pipe to stdout
+            "-i",
+            &video_path,
+            "-vn", // No video
+            "-acodec",
+            "pcm_f32le", // 32-bit float LE
+            "-ar",
+            "16000", // 16 kHz
+            "-ac",
+            "1", // Mono
+            "-f",
+            "f32le", // Raw output format
+            "-",     // Pipe to stdout
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -140,11 +145,7 @@ pub async fn generate_auto_captions(
                 None => continue,
             };
 
-            let text = seg
-                .to_str_lossy()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+            let text = seg.to_str_lossy().unwrap_or_default().trim().to_string();
 
             // Timestamps are in centiseconds — multiply by 10 to get ms
             let start_ms = seg.start_timestamp() as u64 * 10;
@@ -159,11 +160,7 @@ pub async fn generate_auto_captions(
                     None => continue,
                 };
 
-                let word = token
-                    .to_str_lossy()
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string();
+                let word = token.to_str_lossy().unwrap_or_default().trim().to_string();
 
                 if word.is_empty() {
                     continue;

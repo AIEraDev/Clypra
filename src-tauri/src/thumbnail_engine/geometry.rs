@@ -1,16 +1,16 @@
 /// Geometry utilities for thumbnail rendering.
 /// Consolidated aspect ratio and dimension calculations.
 /// Calculate fitted dimensions preserving aspect ratio within a max box.
-/// 
+///
 /// This is the single source of truth for aspect-preserving dimension fitting.
 /// Used by both thumbnail.rs and pyramid.rs to ensure consistent behavior.
-/// 
+///
 /// # Arguments
 /// * `src_w` - Source width
 /// * `src_h` - Source height
 /// * `max_w` - Maximum width constraint
 /// * `max_h` - Maximum height constraint
-/// 
+///
 /// # Returns
 /// Fitted dimensions (width, height) that fit within max_w × max_h while preserving aspect ratio
 pub fn fit_preserving_aspect(src_w: u32, src_h: u32, max_w: u32, max_h: u32) -> (u32, u32) {
@@ -40,16 +40,16 @@ fn align_dimension(d: u32) -> u32 {
 }
 
 /// Calculate aspect-preserving dimensions for a spatial tier with alignment.
-/// 
+///
 /// This variant adds dimension alignment for GPU compatibility.
 /// Used by pyramid.rs for tier-based rendering.
-/// 
+///
 /// # Arguments
 /// * `src_w` - Source width
 /// * `src_h` - Source height  
 /// * `tier_w` - Target tier width
 /// * `tier_h` - Target tier height
-/// 
+///
 /// # Returns
 /// Aligned dimensions (width, height) that fit within tier while preserving aspect ratio
 pub fn fit_preserving_aspect_aligned(

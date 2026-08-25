@@ -74,9 +74,8 @@ impl MmapFrameCache {
         for slot_idx in 0..slot_count {
             let offset = slot_idx * slot_size;
             if offset + header_size <= mmap.len() {
-                let header = bytemuck::from_bytes::<FrameEntryHeader>(
-                    &mmap[offset..offset + header_size],
-                );
+                let header =
+                    bytemuck::from_bytes::<FrameEntryHeader>(&mmap[offset..offset + header_size]);
                 if header.is_valid == 1 {
                     initial_index.insert(header.pts_us, slot_idx);
                     if header.access_counter > max_counter {
@@ -228,9 +227,8 @@ impl MmapFrameCache {
 
         for slot_idx in 0..self.slot_count {
             let offset = slot_idx * self.slot_size;
-            let header = bytemuck::from_bytes::<FrameEntryHeader>(
-                &self.mmap[offset..offset + header_size],
-            );
+            let header =
+                bytemuck::from_bytes::<FrameEntryHeader>(&self.mmap[offset..offset + header_size]);
             if header.access_counter < min_seq {
                 min_seq = header.access_counter;
                 lru_slot = slot_idx;
@@ -246,7 +244,8 @@ mod tests {
 
     #[test]
     fn test_mmap_cache_insertion_retrieval_and_lru() {
-        let temp_dir = std::env::temp_dir().join(format!("clypra_mmap_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("clypra_mmap_test_{}", std::process::id()));
         let width = 64u32;
         let height = 64u32;
         let slot_count = 3usize;
@@ -278,7 +277,7 @@ mod tests {
             .unwrap();
 
         let y_frame_3 = vec![50u8; (width * height * 2) as usize]; // 10-bit P010 (2 bytes per pixel)
-        let uv_frame_3 = vec![75u8; (width * height) as usize];     // 10-bit P010 UV ((w/2)*(h/2)*4 bytes)
+        let uv_frame_3 = vec![75u8; (width * height) as usize]; // 10-bit P010 UV ((w/2)*(h/2)*4 bytes)
         cache
             .insert_frame_with_format(3_000_000, width, height, true, &y_frame_3, &uv_frame_3)
             .unwrap();

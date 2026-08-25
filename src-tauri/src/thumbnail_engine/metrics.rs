@@ -219,11 +219,21 @@ fn flush_periodic_metrics() {
     let s2 = METRICS.l2.take_and_reset();
     let s3 = METRICS.l3.take_and_reset();
 
-    let has_any = source.operations > 0 || source.tier_cache_hits > 0 || source.evictions > 0
-        || s0.operations > 0 || s0.tier_cache_hits > 0 || s0.evictions > 0
-        || s1.operations > 0 || s1.tier_cache_hits > 0 || s1.evictions > 0
-        || s2.operations > 0 || s2.tier_cache_hits > 0 || s2.evictions > 0
-        || s3.operations > 0 || s3.tier_cache_hits > 0 || s3.evictions > 0;
+    let has_any = source.operations > 0
+        || source.tier_cache_hits > 0
+        || source.evictions > 0
+        || s0.operations > 0
+        || s0.tier_cache_hits > 0
+        || s0.evictions > 0
+        || s1.operations > 0
+        || s1.tier_cache_hits > 0
+        || s1.evictions > 0
+        || s2.operations > 0
+        || s2.tier_cache_hits > 0
+        || s2.evictions > 0
+        || s3.operations > 0
+        || s3.tier_cache_hits > 0
+        || s3.evictions > 0;
 
     if !has_any {
         return;
@@ -337,7 +347,10 @@ mod tests {
     #[test]
     fn test_metrics_registry_for_tier() {
         let registry = DecoderMetricsRegistry::default();
-        registry.for_tier(SpatialTier::L2).tier_cache_hits.fetch_add(5, Ordering::Relaxed);
+        registry
+            .for_tier(SpatialTier::L2)
+            .tier_cache_hits
+            .fetch_add(5, Ordering::Relaxed);
 
         let summary = registry.l2.snapshot();
         assert_eq!(summary.tier_cache_hits, 5);

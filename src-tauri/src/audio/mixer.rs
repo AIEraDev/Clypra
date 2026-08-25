@@ -52,14 +52,34 @@ impl Default for AudioTrackConfig {
 /// MPSC (Multi-Producer Single-Consumer) safe via crossbeam channel.
 #[derive(Debug, Clone)]
 pub enum AudioCommand {
-    SetMasterVolume { volume: f32 },
-    SetMasterMuted { muted: bool },
-    SetTrackVolume { track_id: String, volume: f32 },
-    SetTrackPan { track_id: String, pan: f32 },
-    SetTrackMuted { track_id: String, muted: bool },
-    SetTrackSolo { track_id: String, solo: bool },
-    InstallClip { clip: DecodedAudioClip },
-    RemoveClip { clip_id: String },
+    SetMasterVolume {
+        volume: f32,
+    },
+    SetMasterMuted {
+        muted: bool,
+    },
+    SetTrackVolume {
+        track_id: String,
+        volume: f32,
+    },
+    SetTrackPan {
+        track_id: String,
+        pan: f32,
+    },
+    SetTrackMuted {
+        track_id: String,
+        muted: bool,
+    },
+    SetTrackSolo {
+        track_id: String,
+        solo: bool,
+    },
+    InstallClip {
+        clip: DecodedAudioClip,
+    },
+    RemoveClip {
+        clip_id: String,
+    },
     ClearClips,
     SyncGraph {
         clips: Vec<DecodedAudioClip>,
@@ -236,7 +256,11 @@ impl AudioMixGraph {
                 }
             }
             AudioCommand::InstallClip { clip } => {
-                if let Some(existing) = self.clips.iter_mut().find(|c| c.config.id == clip.config.id) {
+                if let Some(existing) = self
+                    .clips
+                    .iter_mut()
+                    .find(|c| c.config.id == clip.config.id)
+                {
                     *existing = clip;
                 } else {
                     self.clips.push(clip);
@@ -279,7 +303,11 @@ impl AudioMixGraph {
     ) -> bool {
         output.fill(0.0);
 
-        if self.master_muted || self.clips.is_empty() || output_channels == 0 || output_sample_rate == 0 {
+        if self.master_muted
+            || self.clips.is_empty()
+            || output_channels == 0
+            || output_sample_rate == 0
+        {
             return false;
         }
 
@@ -310,9 +338,7 @@ impl AudioMixGraph {
                     }
                 }
 
-                let (track_vol, track_pan) = track
-                    .map(|t| (t.volume, t.pan))
-                    .unwrap_or((1.0, 0.0));
+                let (track_vol, track_pan) = track.map(|t| (t.volume, t.pan)).unwrap_or((1.0, 0.0));
 
                 let (pan_l, pan_r) = constant_power_pan(track_pan);
 
@@ -326,9 +352,7 @@ impl AudioMixGraph {
                     }
                 } else {
                     let sample_l = clip.sample_at(timeline_ticks, 0);
-                    let sample_r = clip
-                        .sample_at(timeline_ticks, 1)
-                        .or(sample_l); // fallback mono to stereo
+                    let sample_r = clip.sample_at(timeline_ticks, 1).or(sample_l); // fallback mono to stereo
 
                     if let (Some(l), Some(r)) = (sample_l, sample_r) {
                         let out_l = l * track_vol * pan_l * self.master_volume;
@@ -357,8 +381,17 @@ mod tests {
     use super::*;
 
     /// Cross-platform fixture comparison with explicit float tolerance.
-    fn assert_pcm_within_tolerance(actual: &[f32], expected: &[f32], max_diff: f32, max_rms_diff: f32) {
-        assert_eq!(actual.len(), expected.len(), "PCM buffers must have equal length");
+    fn assert_pcm_within_tolerance(
+        actual: &[f32],
+        expected: &[f32],
+        max_diff: f32,
+        max_rms_diff: f32,
+    ) {
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "PCM buffers must have equal length"
+        );
         let mut sum_sq = 0.0f32;
         for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
             let diff = (a - e).abs();
@@ -442,12 +475,15 @@ mod tests {
         let s2 = sender.clone();
         let s3 = sender.clone();
 
-        s1.send(AudioCommand::SetMasterVolume { volume: 0.8 }).unwrap();
+        s1.send(AudioCommand::SetMasterVolume { volume: 0.8 })
+            .unwrap();
         s2.send(AudioCommand::SetTrackVolume {
             track_id: "t1".to_string(),
             volume: 0.5,
-        }).unwrap();
-        s3.send(AudioCommand::SetMasterMuted { muted: false }).unwrap();
+        })
+        .unwrap();
+        s3.send(AudioCommand::SetMasterMuted { muted: false })
+            .unwrap();
 
         graph.drain_commands(&receiver);
 

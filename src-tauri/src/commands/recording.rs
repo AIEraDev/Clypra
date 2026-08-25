@@ -1,3 +1,4 @@
+use crate::commands::export::augmented_path;
 /**
  * Screen Recording Commands
  *
@@ -5,7 +6,6 @@
  * Currently provides lossless video trimming via the bundled FFmpeg binary.
  */
 use std::process::Command;
-use crate::commands::export::augmented_path;
 
 /// Trim a video file using FFmpeg stream copy (lossless, near-instant).
 ///
@@ -42,13 +42,19 @@ pub async fn trim_video(
     let output = Command::new("ffmpeg")
         .env("PATH", augmented_path())
         .args([
-            "-y",                          // Overwrite output without asking
-            "-ss", &format!("{:.3}", start_seconds), // Seek before -i for fast keyframe seek
-            "-i", &input_path,
-            "-t", &format!("{:.3}", duration),        // Duration, not end time
-            "-c", "copy",                  // Stream copy — no re-encode
-            "-avoid_negative_ts", "make_zero",        // Clean trim start
-            "-movflags", "+faststart",     // Web-friendly MP4 structure
+            "-y", // Overwrite output without asking
+            "-ss",
+            &format!("{:.3}", start_seconds), // Seek before -i for fast keyframe seek
+            "-i",
+            &input_path,
+            "-t",
+            &format!("{:.3}", duration), // Duration, not end time
+            "-c",
+            "copy", // Stream copy — no re-encode
+            "-avoid_negative_ts",
+            "make_zero", // Clean trim start
+            "-movflags",
+            "+faststart", // Web-friendly MP4 structure
             &output_path,
         ])
         .output()

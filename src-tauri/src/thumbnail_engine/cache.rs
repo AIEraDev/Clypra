@@ -1,8 +1,8 @@
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::path::PathBuf;
 use tokio::sync::RwLock;
 use web_time::Instant;
 
@@ -43,7 +43,11 @@ impl CachedFrame {
     }
 
     pub async fn eviction_score(&self, density: DensityLevel) -> u64 {
-        let viewport_priority = if *self.in_viewport.read().await { 10 } else { 0 };
+        let viewport_priority = if *self.in_viewport.read().await {
+            10
+        } else {
+            0
+        };
         let last_access_time = *self.last_access.read().await;
         let seconds_since_access = Instant::now().duration_since(last_access_time).as_secs();
         let recency_weight = if seconds_since_access < 5 {
@@ -123,7 +127,7 @@ impl DensityCache {
     async fn evict_if_needed(&self) {
         if self.frames.len() > self.max_size {
             let mut scored_entries: Vec<(u64, u64)> = Vec::new();
-            
+
             for entry in self.frames.iter() {
                 let time_key = *entry.key();
                 let frame = entry.value();
@@ -144,7 +148,9 @@ impl DensityCache {
 
                 if let Some((_, frame)) = self.frames.remove(&key) {
                     if let Ok(metadata) = std::fs::metadata(&frame.path) {
-                        GLOBAL_CACHE.total_size.fetch_sub(metadata.len(), Ordering::Relaxed);
+                        GLOBAL_CACHE
+                            .total_size
+                            .fetch_sub(metadata.len(), Ordering::Relaxed);
                     }
                     removed += 1;
                 }
@@ -173,10 +179,22 @@ pub struct VideoCache {
 impl VideoCache {
     pub fn new(video_id: String, video_path: String, duration: f64) -> Self {
         let levels = DashMap::new();
-        levels.insert(DensityLevel::Low, DensityCache::new(video_id.clone(), DensityLevel::Low));
-        levels.insert(DensityLevel::Medium, DensityCache::new(video_id.clone(), DensityLevel::Medium));
-        levels.insert(DensityLevel::High, DensityCache::new(video_id.clone(), DensityLevel::High));
-        levels.insert(DensityLevel::Ultra, DensityCache::new(video_id.clone(), DensityLevel::Ultra));
+        levels.insert(
+            DensityLevel::Low,
+            DensityCache::new(video_id.clone(), DensityLevel::Low),
+        );
+        levels.insert(
+            DensityLevel::Medium,
+            DensityCache::new(video_id.clone(), DensityLevel::Medium),
+        );
+        levels.insert(
+            DensityLevel::High,
+            DensityCache::new(video_id.clone(), DensityLevel::High),
+        );
+        levels.insert(
+            DensityLevel::Ultra,
+            DensityCache::new(video_id.clone(), DensityLevel::Ultra),
+        );
 
         Self {
             video_id,
@@ -192,7 +210,11 @@ impl VideoCache {
         *last = Instant::now();
     }
 
-    pub fn get_frame_path(&self, time: f64, target_density: DensityLevel) -> Option<(PathBuf, DensityLevel)> {
+    pub fn get_frame_path(
+        &self,
+        time: f64,
+        target_density: DensityLevel,
+    ) -> Option<(PathBuf, DensityLevel)> {
         self.get_frame_with_fallback(time, target_density)
     }
 
@@ -214,11 +236,7 @@ impl VideoCache {
             current = higher;
         }
 
-        let fallback_order = [
-            DensityLevel::High,
-            DensityLevel::Medium,
-            DensityLevel::Low,
-        ];
+        let fallback_order = [DensityLevel::High, DensityLevel::Medium, DensityLevel::Low];
 
         for density in fallback_order {
             if density >= target_density {
@@ -288,7 +306,11 @@ impl ThumbnailCache {
             return cached.clone();
         }
 
-        let cache = Arc::new(VideoCache::new(video_id.clone(), video_path.to_string(), duration));
+        let cache = Arc::new(VideoCache::new(
+            video_id.clone(),
+            video_path.to_string(),
+            duration,
+        ));
         self.videos.insert(video_id, cache.clone());
         self.evict_if_needed().await;
         cache
@@ -338,14 +360,16 @@ impl ThumbnailCache {
 
         eprintln!(
             "[ThumbnailCache] Evicting {} of {} frames using weighted scoring",
-            to_remove,
-            total_frames
+            to_remove, total_frames
         );
 
         if !scored_frames.is_empty() {
             let lowest_score = scored_frames.first().map(|(_, _, _, s, _)| *s).unwrap_or(0);
             let highest_score = scored_frames.last().map(|(_, _, _, s, _)| *s).unwrap_or(0);
-            let median_score = scored_frames.get(total_frames / 2).map(|(_, _, _, s, _)| *s).unwrap_or(0);
+            let median_score = scored_frames
+                .get(total_frames / 2)
+                .map(|(_, _, _, s, _)| *s)
+                .unwrap_or(0);
             eprintln!(
                 "[ThumbnailCache] Score distribution: lowest={}, median={}, highest={}",
                 lowest_score, median_score, highest_score
@@ -355,7 +379,9 @@ impl ThumbnailCache {
         let mut removed = 0;
         let mut viewport_protected = 0;
 
-        for (vid_id, density, time_key, score, file_path) in scored_frames.into_iter().take(to_remove) {
+        for (vid_id, density, time_key, score, file_path) in
+            scored_frames.into_iter().take(to_remove)
+        {
             if score >= 100 {
                 viewport_protected += 1;
                 continue;
@@ -397,7 +423,10 @@ impl ThumbnailCache {
             let density_name = density.label();
             let tier_name = resolution_tier.label();
             let time_key = (time * 1000.0).round() as u64;
-            dir.join(format!("{}_{}_{}_{}.webp", video_id, density_name, time_key, tier_name))
+            dir.join(format!(
+                "{}_{}_{}_{}.webp",
+                video_id, density_name, time_key, tier_name
+            ))
         })
     }
 

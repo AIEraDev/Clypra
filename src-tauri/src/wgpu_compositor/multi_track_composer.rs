@@ -114,35 +114,35 @@ pub struct ColorGradeUniforms {
     pub vibrance_protected_hue_b: f32,
     pub lift: f32,
     pub cross_process_amount: f32,
-    pub _padding0: [f32; 3], // align following vec4 uniforms to 16 bytes
-    pub channel_mix: [f32; 4], // RGB weights + enabled flag
-    pub duotone_dark: [f32; 4], // RGB + enabled flag
-    pub duotone_light: [f32; 4], // RGB + padding
-    pub shadow_tint: [f32; 4], // RGB + strength
+    pub _padding0: [f32; 3],      // align following vec4 uniforms to 16 bytes
+    pub channel_mix: [f32; 4],    // RGB weights + enabled flag
+    pub duotone_dark: [f32; 4],   // RGB + enabled flag
+    pub duotone_light: [f32; 4],  // RGB + padding
+    pub shadow_tint: [f32; 4],    // RGB + strength
     pub highlight_tint: [f32; 4], // RGB + strength
-    pub split_params: [f32; 4], // balance + padding
+    pub split_params: [f32; 4],   // balance + padding
     pub glow_color_strength: [f32; 4], // RGB + strength
-    pub glow_params: [f32; 4], // radius + padding
+    pub glow_params: [f32; 4],    // radius + padding
     pub flash_color_strength: [f32; 4], // RGB + strength
     pub temporal_effects: [f32; 4], // flicker, strobe frequency/time/strength
     pub light_leak_color_strength: [f32; 4], // RGB + strength
     pub light_leak_params: [f32; 4], // angle, time + padding
-    pub glitch_params: [f32; 4], // intensity, time, slice count, color shift
+    pub glitch_params: [f32; 4],  // intensity, time, slice count, color shift
     pub distortion_params: [f32; 4], // type, strength, time, frequency
-    pub fire_params: [f32; 4], // height, particle count, intensity, time
+    pub fire_params: [f32; 4],    // height, particle count, intensity, time
     pub fire_color_1: [f32; 4],
     pub fire_color_2: [f32; 4],
     pub fire_color_3: [f32; 4],
     pub particle_params: [f32; 4], // count, size, drift speed, intensity
-    pub particle_color: [f32; 4], // RGB + mode/fade flag
-    pub particle_time: [f32; 4], // time + padding
+    pub particle_color: [f32; 4],  // RGB + mode/fade flag
+    pub particle_time: [f32; 4],   // time + padding
 }
 
 /// Mask-driven body effect controls matching multi_track_blend.wgsl (32 bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, PartialEq)]
 pub struct BodyEffectUniforms {
-    pub color: [f32; 4], // RGB + padding
+    pub color: [f32; 4],  // RGB + padding
     pub params: [f32; 4], // renderer type, strength, radius/count, time
 }
 
@@ -411,7 +411,11 @@ impl MultiTrackCompositor {
         // layer without branching the bind-group layout or shader pipeline.
         let default_mask_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Compositor Default Body Mask"),
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -427,10 +431,19 @@ impl MultiTrackCompositor {
                 aspect: wgpu::TextureAspect::All,
             },
             &[255, 255, 255, 255],
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: Some(1) },
-            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
         );
-        let default_mask_view = default_mask_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let default_mask_view =
+            default_mask_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Group 0: Uniform buffer for layer transforms, color grading, and chroma key
         let uniform_bind_group_layout =
@@ -920,7 +933,8 @@ impl MultiTrackCompositor {
             self.height,
             layers,
             Some(wgpu::Color::BLACK),
-            #[cfg(target_arch = "wasm32")] is_gl,
+            #[cfg(target_arch = "wasm32")]
+            is_gl,
         )
         .await
     }
@@ -943,7 +957,8 @@ impl MultiTrackCompositor {
             height,
             layers,
             clear_color,
-            #[cfg(target_arch = "wasm32")] is_gl,
+            #[cfg(target_arch = "wasm32")]
+            is_gl,
         )
         .await
         .map(|(bytes, _, _)| bytes)
@@ -1048,7 +1063,10 @@ impl MultiTrackCompositor {
                 let _ = sender.send(result);
             });
             device.poll(wgpu::Maintain::Wait);
-            receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            receiver
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
             Ok(())
         };
 
@@ -1071,19 +1089,23 @@ impl MultiTrackCompositor {
                     let _ = sender.send(result);
                 });
                 device.poll(wgpu::Maintain::Poll);
-                receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+                receiver
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .map_err(|e| e.to_string())?;
             } else {
                 // WebGL2/ANGLE path: callback fires synchronously inside map_async.
                 // Mutex flag is Some() immediately — no async needed.
-                let flag = std::sync::Arc::new(
-                    std::sync::Mutex::new(None::<Result<(), wgpu::BufferAsyncError>>)
-                );
+                let flag = std::sync::Arc::new(std::sync::Mutex::new(
+                    None::<Result<(), wgpu::BufferAsyncError>>,
+                ));
                 let flag_cb = flag.clone();
                 buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
                     *flag_cb.lock().unwrap() = Some(result);
                 });
                 device.poll(wgpu::Maintain::Wait);
-                flag.lock().unwrap()
+                flag.lock()
+                    .unwrap()
                     .take()
                     .ok_or_else(|| "GL map_async callback was not invoked".to_string())?
                     .map_err(|e| e.to_string())?;
@@ -1218,7 +1240,8 @@ impl MultiTrackCompositor {
             from_view,
             to_view,
             uniforms,
-            #[cfg(target_arch = "wasm32")] is_gl,
+            #[cfg(target_arch = "wasm32")]
+            is_gl,
         )
         .await
         .map(|(bytes, _, _)| bytes)
@@ -1333,7 +1356,10 @@ impl MultiTrackCompositor {
                 let _ = sender.send(result);
             });
             device.poll(wgpu::Maintain::Wait);
-            receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+            receiver
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
             Ok(())
         };
 
@@ -1356,19 +1382,23 @@ impl MultiTrackCompositor {
                     let _ = sender.send(result);
                 });
                 device.poll(wgpu::Maintain::Poll);
-                receiver.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+                receiver
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .map_err(|e| e.to_string())?;
             } else {
                 // WebGL2/ANGLE path: callback fires synchronously inside map_async.
                 // Mutex flag is Some() immediately — no async needed.
-                let flag = std::sync::Arc::new(
-                    std::sync::Mutex::new(None::<Result<(), wgpu::BufferAsyncError>>)
-                );
+                let flag = std::sync::Arc::new(std::sync::Mutex::new(
+                    None::<Result<(), wgpu::BufferAsyncError>>,
+                ));
                 let flag_cb = flag.clone();
                 buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
                     *flag_cb.lock().unwrap() = Some(result);
                 });
                 device.poll(wgpu::Maintain::Wait);
-                flag.lock().unwrap()
+                flag.lock()
+                    .unwrap()
                     .take()
                     .ok_or_else(|| "GL map_async callback was not invoked".to_string())?
                     .map_err(|e| e.to_string())?;

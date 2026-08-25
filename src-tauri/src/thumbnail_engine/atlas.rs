@@ -41,11 +41,14 @@ impl AtlasMetadata {
     }
 
     pub fn get_position(&self, time: f64) -> Option<(u32, u32)> {
-        self.timestamps.iter().position(|&t| (t - time).abs() < 0.001).map(|idx| {
-            let col = (idx as u32) % ATLAS_COLS;
-            let row = (idx as u32) / ATLAS_COLS;
-            (col, row)
-        })
+        self.timestamps
+            .iter()
+            .position(|&t| (t - time).abs() < 0.001)
+            .map(|idx| {
+                let col = (idx as u32) % ATLAS_COLS;
+                let row = (idx as u32) / ATLAS_COLS;
+                (col, row)
+            })
     }
 
     pub fn add_timestamp(&mut self, time: f64) -> usize {
@@ -93,7 +96,9 @@ impl AtlasManager {
 
     pub fn get_location(&self, time: f64) -> Option<AtlasLocation> {
         let timestamp_ms = (time * 1000.0).round() as u64;
-        self.timestamp_map.get(&timestamp_ms).map(|entry| entry.clone())
+        self.timestamp_map
+            .get(&timestamp_ms)
+            .map(|entry| entry.clone())
     }
 
     pub fn allocate(&mut self, time: f64) -> AtlasLocation {
@@ -157,7 +162,12 @@ impl AtlasBuilder {
         }
     }
 
-    pub fn add_thumbnail(&mut self, rgba_data: &[u8], actual_width: u32, actual_height: u32) -> Result<(u32, u32), String> {
+    pub fn add_thumbnail(
+        &mut self,
+        rgba_data: &[u8],
+        actual_width: u32,
+        actual_height: u32,
+    ) -> Result<(u32, u32), String> {
         if self.count >= THUMBNAILS_PER_ATLAS {
             return Err("Atlas is full".to_string());
         }
@@ -166,16 +176,19 @@ impl AtlasBuilder {
         if rgba_data.len() != expected_bytes {
             return Err(format!(
                 "Buffer size mismatch: expected {} bytes for {}×{} image, got {}",
-                expected_bytes, actual_width, actual_height, rgba_data.len()
+                expected_bytes,
+                actual_width,
+                actual_height,
+                rgba_data.len()
             ));
         }
 
         let col = (self.count as u32) % ATLAS_COLS;
         let row = (self.count as u32) / ATLAS_COLS;
-        
+
         let cell_x = col * self.thumb_width;
         let cell_y = row * self.thumb_height;
-        
+
         let offset_x = cell_x + (self.thumb_width - actual_width) / 2;
         let offset_y = cell_y + (self.thumb_height - actual_height) / 2;
         let atlas_width = self.atlas.width() as usize;
@@ -188,7 +201,8 @@ impl AtlasBuilder {
             let dst_row_end = dst_row_start + src_row_bytes;
             let src_row_start = y * src_row_bytes;
             let src_row_end = src_row_start + src_row_bytes;
-            dst_raw[dst_row_start..dst_row_end].copy_from_slice(&rgba_data[src_row_start..src_row_end]);
+            dst_raw[dst_row_start..dst_row_end]
+                .copy_from_slice(&rgba_data[src_row_start..src_row_end]);
         }
 
         self.count += 1;
@@ -198,21 +212,25 @@ impl AtlasBuilder {
     pub async fn save(&self, path: &PathBuf) -> Result<(), String> {
         use image::codecs::webp::WebPEncoder;
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await
+            tokio::fs::create_dir_all(parent)
+                .await
                 .map_err(|e| format!("Failed to create atlas directory: {}", e))?;
         }
         let mut webp_data = Vec::new();
         let encoder = WebPEncoder::new_lossless(&mut webp_data);
-        encoder.encode(
-            self.atlas.as_raw(),
-            self.atlas.width(),
-            self.atlas.height(),
-            image::ExtendedColorType::Rgba8,
-        ).map_err(|e| format!("WebP encoding failed: {}", e))?;
+        encoder
+            .encode(
+                self.atlas.as_raw(),
+                self.atlas.width(),
+                self.atlas.height(),
+                image::ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("WebP encoding failed: {}", e))?;
 
         // Atomic write: write to a .tmp file then rename to avoid half-written corruptions
         let tmp_path = path.with_extension("tmp.webp");
-        tokio::fs::write(&tmp_path, &webp_data).await
+        tokio::fs::write(&tmp_path, &webp_data)
+            .await
             .map_err(|e| format!("Failed to write temporary atlas file: {}", e))?;
 
         if let Err(e) = tokio::fs::rename(&tmp_path, path).await {
@@ -220,8 +238,12 @@ impl AtlasBuilder {
             return Err(format!("Failed to commit atlas file: {}", e));
         }
 
-        eprintln!("[AtlasBuilder] Atomically saved atlas: {} ({} thumbnails, {} bytes)",
-                  path.display(), self.count, webp_data.len());
+        eprintln!(
+            "[AtlasBuilder] Atomically saved atlas: {} ({} thumbnails, {} bytes)",
+            path.display(),
+            self.count,
+            webp_data.len()
+        );
 
         Ok(())
     }
@@ -231,8 +253,7 @@ impl AtlasBuilder {
     }
 }
 
-pub static ATLAS_CACHE: Lazy<DashMap<String, Arc<RwLock<AtlasManager>>>> =
-    Lazy::new(DashMap::new);
+pub static ATLAS_CACHE: Lazy<DashMap<String, Arc<RwLock<AtlasManager>>>> = Lazy::new(DashMap::new);
 
 /// Global configurable disk cache size limit in bytes. Default: 5 GB. (0 = unlimited).
 pub static DISK_CACHE_LIMIT_BYTES: Lazy<std::sync::atomic::AtomicU64> =
@@ -257,7 +278,10 @@ pub async fn load_from_atlas_resilient(
     let atlas_data = match tokio::fs::read(&location.atlas_path).await {
         Ok(data) => {
             if data.is_empty() {
-                eprintln!("[load_from_atlas] Quarantining 0-byte truncated atlas: {:?}", location.atlas_path);
+                eprintln!(
+                    "[load_from_atlas] Quarantining 0-byte truncated atlas: {:?}",
+                    location.atlas_path
+                );
                 let _ = tokio::fs::remove_file(&location.atlas_path).await;
                 return Err("Atlas file is 0 bytes (truncated)".to_string());
             }
@@ -271,7 +295,10 @@ pub async fn load_from_atlas_resilient(
     let atlas_img = match image::load_from_memory(&atlas_data) {
         Ok(img) => img.to_rgba8(),
         Err(e) => {
-            eprintln!("[load_from_atlas] Corrupted WebP detected in {:?}. Auto-quarantining file: {}", location.atlas_path, e);
+            eprintln!(
+                "[load_from_atlas] Corrupted WebP detected in {:?}. Auto-quarantining file: {}",
+                location.atlas_path, e
+            );
             let _ = tokio::fs::remove_file(&location.atlas_path).await;
             return Err(format!("Corrupted atlas image removed: {}", e));
         }
@@ -282,8 +309,15 @@ pub async fn load_from_atlas_resilient(
 
     // Bounds check within the atlas dimensions
     if x + thumb_width > atlas_img.width() || y + thumb_height > atlas_img.height() {
-        eprintln!("[load_from_atlas] Tile location ({}, {}) with dims {}x{} exceeds atlas dims {}x{}",
-                  x, y, thumb_width, thumb_height, atlas_img.width(), atlas_img.height());
+        eprintln!(
+            "[load_from_atlas] Tile location ({}, {}) with dims {}x{} exceeds atlas dims {}x{}",
+            x,
+            y,
+            thumb_width,
+            thumb_height,
+            atlas_img.width(),
+            atlas_img.height()
+        );
         let _ = tokio::fs::remove_file(&location.atlas_path).await;
         return Err("Tile position out of atlas bounds".to_string());
     }
@@ -335,8 +369,10 @@ pub async fn prune_disk_cache_if_needed(cache_dir: &PathBuf) {
         return;
     }
 
-    eprintln!("[prune_disk_cache] Cache usage {} bytes exceeds limit {} bytes. Pruning oldest files...",
-              current_bytes, limit);
+    eprintln!(
+        "[prune_disk_cache] Cache usage {} bytes exceeds limit {} bytes. Pruning oldest files...",
+        current_bytes, limit
+    );
 
     let mut files: Vec<(PathBuf, std::time::SystemTime, u64)> = Vec::new();
     if let Ok(mut entries) = tokio::fs::read_dir(cache_dir).await {
@@ -346,7 +382,8 @@ pub async fn prune_disk_cache_if_needed(cache_dir: &PathBuf) {
                     let path = entry.path();
                     if let Some(ext) = path.extension() {
                         if ext == "webp" {
-                            let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                            let modified =
+                                meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                             files.push((path, modified, meta.len()));
                         }
                     }
@@ -408,7 +445,12 @@ pub async fn get_atlas_manager(
     resolution_tier: ResolutionTier,
     cache_dir: PathBuf,
 ) -> Arc<RwLock<AtlasManager>> {
-    let key = format!("{}:{}:{}", video_id, density.label(), resolution_tier.label());
+    let key = format!(
+        "{}:{}:{}",
+        video_id,
+        density.label(),
+        resolution_tier.label()
+    );
 
     if let Some(manager) = ATLAS_CACHE.get(&key) {
         return manager.clone();

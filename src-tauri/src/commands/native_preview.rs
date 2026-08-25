@@ -1,20 +1,20 @@
-use crate::native_core::{
-    BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime, NativeFrameService, NativeFrameServiceStats,
-    NativeSurfacePresentation, PerformanceSample, PixelFormat, PreviewMode,
-    NATIVE_CORE_CONTRACT_VERSION,
-    TransitionSnapshot,
-};
-use crate::native_audio::NativeAudioClock;
 use crate::commands::lut::LutCache;
 use crate::commands::native_surface::NativeSurfaceRuntime;
+use crate::native_audio::NativeAudioClock;
 use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
+use crate::native_core::{
+    BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
+    NativeFrameService, NativeFrameServiceStats, NativeSurfacePresentation, PerformanceSample,
+    PixelFormat, PreviewMode, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
+};
 use crate::sync_metrics::SYNC_METRICS;
 use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
-use crate::wgpu_compositor::{
-    BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms, CompositeLayer,
-    CropMargins, LayerTransform, MultiTrackCompositor, NativePreviewSession, NativeWgpuRenderer,
-};
 use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
+use crate::wgpu_compositor::{
+    BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms,
+    CompositeLayer, CropMargins, LayerTransform, MultiTrackCompositor, NativePreviewSession,
+    NativeWgpuRenderer,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -96,7 +96,10 @@ fn record_successful_readback_metrics(app: &tauri::AppHandle, request: &FrameReq
     SYNC_METRICS.record_frame_presented_with_options(
         presented_ticks,
         1_000_000i64 / i64::from(request.project.frame_rate.max(1)),
-        matches!(request.mode.as_deref(), Some("playback") | Some("playback-lookahead")),
+        matches!(
+            request.mode.as_deref(),
+            Some("playback") | Some("playback-lookahead")
+        ),
         request.mode.as_deref() != Some("playback-lookahead"),
     );
 }
@@ -137,7 +140,14 @@ fn record_native_surface_sample(
         generation: request.generation,
         mode: PreviewMode::from_request_mode(request.mode.as_deref()),
         quality: Some(format!("{:?}", request.quality)),
-        strategy: Some(if queue_hit { "SURFACE_WARM" } else { "SURFACE_COLD" }.to_string()),
+        strategy: Some(
+            if queue_hit {
+                "SURFACE_WARM"
+            } else {
+                "SURFACE_COLD"
+            }
+            .to_string(),
+        ),
         cancelled: false,
         stale,
         dropped,
@@ -185,7 +195,8 @@ impl NativePreviewFrameQueue {
     }
 
     fn observe_generation(&self, generation: u64) {
-        self.latest_generation.fetch_max(generation, Ordering::AcqRel);
+        self.latest_generation
+            .fetch_max(generation, Ordering::AcqRel);
     }
 
     fn is_generation_current(&self, generation: u64) -> bool {
@@ -355,9 +366,16 @@ fn parse_blend_mode(value: &str) -> Result<BlendMode, String> {
     }
 }
 
-fn validate_transition(transition: &TransitionSnapshot, layer_ids: &[String], raster_count: usize) -> Result<(), String> {
+fn validate_transition(
+    transition: &TransitionSnapshot,
+    layer_ids: &[String],
+    raster_count: usize,
+) -> Result<(), String> {
     if layer_ids.len() != 2 || raster_count != 0 {
-        return Err("Native transitions currently require exactly two video layers and no raster layers".to_string());
+        return Err(
+            "Native transitions currently require exactly two video layers and no raster layers"
+                .to_string(),
+        );
     }
     if transition.outgoing_layer.trim().is_empty()
         || transition.incoming_layer.trim().is_empty()
@@ -367,24 +385,56 @@ fn validate_transition(transition: &TransitionSnapshot, layer_ids: &[String], ra
         || !transition.progress.is_finite()
         || !transition.feather.is_finite()
         || !transition.intensity.is_finite()
-        || transition.fade_color.map(|color| color.iter().any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))).unwrap_or(false)
+        || transition
+            .fade_color
+            .map(|color| {
+                color
+                    .iter()
+                    .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+            })
+            .unwrap_or(false)
         || !(0.0..=1.0).contains(&transition.progress)
         || !(0.0..=1.0).contains(&transition.feather)
         || transition.intensity < 0.0
     {
-        return Err("Native transition contains invalid layer references or parameters".to_string());
+        return Err(
+            "Native transition contains invalid layer references or parameters".to_string(),
+        );
     }
     let supported = matches!(
         transition.transition_type.as_str(),
-        "cross-dissolve" | "fade-through-color" | "wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "wipe-diagonal"
-            | "wipe-clockwise" | "circle-wipe" | "diamond-wipe" | "rectangle-wipe"
-            | "slide-left" | "slide-right" | "slide-up" | "slide-down"
-            | "zoom-blur" | "zoom-in" | "zoom-out" | "blur-fade"
-            | "glitch" | "rgb-split" | "chromatic" | "film-burn" | "light-leak" | "whip-pan"
+        "cross-dissolve"
+            | "fade-through-color"
+            | "wipe-left"
+            | "wipe-right"
+            | "wipe-up"
+            | "wipe-down"
+            | "wipe-diagonal"
+            | "wipe-clockwise"
+            | "circle-wipe"
+            | "diamond-wipe"
+            | "rectangle-wipe"
+            | "slide-left"
+            | "slide-right"
+            | "slide-up"
+            | "slide-down"
+            | "zoom-blur"
+            | "zoom-in"
+            | "zoom-out"
+            | "blur-fade"
+            | "glitch"
+            | "rgb-split"
+            | "chromatic"
+            | "film-burn"
+            | "light-leak"
+            | "whip-pan"
             | "iris-wipe"
     );
     if !supported {
-        return Err(format!("Unsupported native transition type: {}", transition.transition_type));
+        return Err(format!(
+            "Unsupported native transition type: {}",
+            transition.transition_type
+        ));
     }
     Ok(())
 }
@@ -455,28 +505,45 @@ fn validate_video_project_request(request: &NativeVideoProjectFrameRequest) -> R
         parse_blend_mode(&layer.blend_mode)?;
         if let Some(effect) = &layer.body_effect {
             if effect.mask_asset_id.trim().is_empty()
-                || !matches!(effect.renderer.as_str(), "body_outline" | "body_glow" | "body_segmentation_glow" | "body_particles")
+                || !matches!(
+                    effect.renderer.as_str(),
+                    "body_outline" | "body_glow" | "body_segmentation_glow" | "body_particles"
+                )
                 || !effect.color_r.is_finite()
                 || !effect.color_g.is_finite()
                 || !effect.color_b.is_finite()
                 || !effect.strength.is_finite()
                 || !effect.radius.is_finite()
                 || !effect.time.is_finite()
-                || effect.color_r < 0.0 || effect.color_r > 1.0
-                || effect.color_g < 0.0 || effect.color_g > 1.0
-                || effect.color_b < 0.0 || effect.color_b > 1.0
-                || effect.strength < 0.0 || effect.strength > 1.0
-                || effect.radius < 0.0 || effect.time < 0.0
-                || !request.raster_layers.iter().any(|mask| mask.is_mask && mask.asset_id == effect.mask_asset_id)
+                || effect.color_r < 0.0
+                || effect.color_r > 1.0
+                || effect.color_g < 0.0
+                || effect.color_g > 1.0
+                || effect.color_b < 0.0
+                || effect.color_b > 1.0
+                || effect.strength < 0.0
+                || effect.strength > 1.0
+                || effect.radius < 0.0
+                || effect.time < 0.0
+                || !request
+                    .raster_layers
+                    .iter()
+                    .any(|mask| mask.is_mask && mask.asset_id == effect.mask_asset_id)
             {
-                return Err("Native body effect contains an invalid or missing mask asset".to_string());
+                return Err(
+                    "Native body effect contains an invalid or missing mask asset".to_string(),
+                );
             }
         }
     }
     if let Some(transition) = request.transition.as_ref() {
         validate_transition(
             transition,
-            &request.layers.iter().map(|layer| layer.layer_id.clone()).collect::<Vec<_>>(),
+            &request
+                .layers
+                .iter()
+                .map(|layer| layer.layer_id.clone())
+                .collect::<Vec<_>>(),
             request.raster_layers.len(),
         )?;
     }
@@ -884,10 +951,9 @@ fn build_transition_sources<'a>(
     request: &NativeVideoProjectFrameRequest,
     layers: &'a [CompositeLayer<'a>],
 ) -> Result<(CompositeLayer<'a>, CompositeLayer<'a>), String> {
-    let transition = request
-        .transition
-        .as_ref()
-        .ok_or_else(|| "Native transition source requested without transition metadata".to_string())?;
+    let transition = request.transition.as_ref().ok_or_else(|| {
+        "Native transition source requested without transition metadata".to_string()
+    })?;
     let outgoing_index = request
         .layers
         .iter()
@@ -904,7 +970,10 @@ fn build_transition_sources<'a>(
     let incoming = layers
         .get(incoming_index)
         .ok_or_else(|| "Native transition incoming layer texture is not present".to_string())?;
-    Ok((transition_source_layer(outgoing), transition_source_layer(incoming)))
+    Ok((
+        transition_source_layer(outgoing),
+        transition_source_layer(incoming),
+    ))
 }
 
 fn create_transition_source_texture(
@@ -916,7 +985,11 @@ fn create_transition_source_texture(
 ) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
-        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -1236,7 +1309,10 @@ async fn render_native_video_project_frame_bytes_timed(
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
-    let conversion_time_us = conversion_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+    let conversion_time_us = conversion_started
+        .elapsed()
+        .as_micros()
+        .min(u32::MAX as u128) as u32;
 
     let compositor = MultiTrackCompositor::new_with_target_format(
         &session.gpu.device,
@@ -1265,14 +1341,22 @@ async fn render_native_video_project_frame_bytes_timed(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
-            mask_view: layer.body_effect.as_ref().and_then(|effect| mask_views.get(effect.mask_asset_id.as_str()).copied()),
+            mask_view: layer
+                .body_effect
+                .as_ref()
+                .and_then(|effect| mask_views.get(effect.mask_asset_id.as_str()).copied()),
             body_effect: body_effect_from_snapshot(layer.body_effect.as_ref()),
             lut: resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref())?,
             grain_seed: ((layer.time_secs.max(0.0) * 60.0).floor() * 0.37) as f32,
         });
     }
     let raster_views = views.iter().skip(request.layers.len());
-    for (layer, view) in request.raster_layers.iter().zip(raster_views).filter(|(layer, _)| !layer.is_mask) {
+    for (layer, view) in request
+        .raster_layers
+        .iter()
+        .zip(raster_views)
+        .filter(|(layer, _)| !layer.is_mask)
+    {
         specs.push(NativeLayerSpec {
             view,
             x: layer.x,
@@ -1299,69 +1383,73 @@ async fn render_native_video_project_frame_bytes_timed(
         b: request.clear_color[2].clamp(0.0, 1.0) as f64,
         a: request.clear_color[3].clamp(0.0, 1.0) as f64,
     };
-    let (rgba, compose_time_us, readback_time_us) = if let Some(transition) = request.transition.as_ref() {
-        let (from_layer, to_layer) = build_transition_sources(&request, &layers)?;
-        let from_texture = create_transition_source_texture(
-            &session.gpu.device,
-            request.canvas_width,
-            request.canvas_height,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            "Native Transition From Texture",
-        );
-        let to_texture = create_transition_source_texture(
-            &session.gpu.device,
-            request.canvas_width,
-            request.canvas_height,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            "Native Transition To Texture",
-        );
-        let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        compositor.composite_layers(
-            &session.gpu.device,
-            &session.gpu.queue,
-            &from_view,
-            std::slice::from_ref(&from_layer),
-            Some(clear_color),
-        )?;
-        compositor.composite_layers(
-            &session.gpu.device,
-            &session.gpu.queue,
-            &to_view,
-            std::slice::from_ref(&to_layer),
-            Some(clear_color),
-        )?;
-        let (rgba, compositor_compose_us, readback_us) = compositor
-            .render_transition_to_rgba_bytes_timed(
+    let (rgba, compose_time_us, readback_time_us) =
+        if let Some(transition) = request.transition.as_ref() {
+            let (from_layer, to_layer) = build_transition_sources(&request, &layers)?;
+            let from_texture = create_transition_source_texture(
                 &session.gpu.device,
-                &session.gpu.queue,
                 request.canvas_width,
                 request.canvas_height,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                "Native Transition From Texture",
+            );
+            let to_texture = create_transition_source_texture(
+                &session.gpu.device,
+                request.canvas_width,
+                request.canvas_height,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                "Native Transition To Texture",
+            );
+            let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            compositor.composite_layers(
+                &session.gpu.device,
+                &session.gpu.queue,
                 &from_view,
-                &to_view,
-                &transition_uniforms(transition),
-            )
-            .await?;
-        (rgba, compositor_compose_us, readback_us)
-    } else {
-        compositor
-            .render_to_rgba_bytes_with_size_timed(
+                std::slice::from_ref(&from_layer),
+                Some(clear_color),
+            )?;
+            compositor.composite_layers(
                 &session.gpu.device,
                 &session.gpu.queue,
-                request.canvas_width,
-                request.canvas_height,
-                &layers,
+                &to_view,
+                std::slice::from_ref(&to_layer),
                 Some(clear_color),
-            )
-            .await?
-    };
-    Ok((rgba, NativeRenderStageTimings {
-        decode_time_us,
-        conversion_time_us,
-        compose_time_us: compose_time_us.min(u32::MAX as u64) as u32,
-        readback_time_us: readback_time_us.min(u32::MAX as u64) as u32,
-        decoder_mutex_wait_us: decode_timings.decoder_mutex_wait_us,
-    }))
+            )?;
+            let (rgba, compositor_compose_us, readback_us) = compositor
+                .render_transition_to_rgba_bytes_timed(
+                    &session.gpu.device,
+                    &session.gpu.queue,
+                    request.canvas_width,
+                    request.canvas_height,
+                    &from_view,
+                    &to_view,
+                    &transition_uniforms(transition),
+                )
+                .await?;
+            (rgba, compositor_compose_us, readback_us)
+        } else {
+            compositor
+                .render_to_rgba_bytes_with_size_timed(
+                    &session.gpu.device,
+                    &session.gpu.queue,
+                    request.canvas_width,
+                    request.canvas_height,
+                    &layers,
+                    Some(clear_color),
+                )
+                .await?
+        };
+    Ok((
+        rgba,
+        NativeRenderStageTimings {
+            decode_time_us,
+            conversion_time_us,
+            compose_time_us: compose_time_us.min(u32::MAX as u64) as u32,
+            readback_time_us: readback_time_us.min(u32::MAX as u64) as u32,
+            decoder_mutex_wait_us: decode_timings.decoder_mutex_wait_us,
+        },
+    ))
 }
 
 async fn decode_native_video_layers(
@@ -1385,9 +1473,7 @@ async fn decode_native_video_layers(
                 .decode_frame_raw_nv12_with_cancel(layer.time_secs, || {
                     cancel
                         .as_ref()
-                        .map(|(latest, generation)| {
-                            latest.load(Ordering::Acquire) > *generation
-                        })
+                        .map(|(latest, generation)| latest.load(Ordering::Acquire) > *generation)
                         .unwrap_or(false)
                 })?;
             let decoded = (
@@ -1397,9 +1483,9 @@ async fn decode_native_video_layers(
                 height,
                 merge_color_metadata(frame_color, &stream_color),
             );
-            timings.decode_time_us = timings.decode_time_us.saturating_add(
-                decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32,
-            );
+            timings.decode_time_us = timings
+                .decode_time_us
+                .saturating_add(decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32);
             decoded
         };
         crate::sync_metrics::trace_event(
@@ -1556,20 +1642,25 @@ pub async fn present_native_frame(
     }
     let generation = request.generation.unwrap_or(0);
     if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
-        if !queue.inner().clone().lock().await.is_generation_current(generation) {
+        if !queue
+            .inner()
+            .clone()
+            .lock()
+            .await
+            .is_generation_current(generation)
+        {
             return Err("Native preview frame request is stale".to_string());
         }
     }
     let legacy_request = to_video_project_request(&request)?;
     validate_video_project_request(&legacy_request)?;
     let queued_key = request.cache_key().map_err(|error| error.to_string())?;
-    let queued_frame = if let Some(queue) =
-        app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
-    {
-        queue.inner().clone().lock().await.take(&queued_key)
-    } else {
-        None
-    };
+    let queued_frame =
+        if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
+            queue.inner().clone().lock().await.take(&queued_key)
+        } else {
+            None
+        };
     let (decoded_frames, decode_timings, scheduler_wait_us, request_started_at, queue_hit) =
         match queued_frame {
             Some(frame) => (
@@ -1592,7 +1683,13 @@ pub async fn present_native_frame(
             }
         };
     if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
-        if !queue.inner().clone().lock().await.is_generation_current(generation) {
+        if !queue
+            .inner()
+            .clone()
+            .lock()
+            .await
+            .is_generation_current(generation)
+        {
             record_native_surface_sample(
                 &app,
                 &request,
@@ -1631,11 +1728,8 @@ pub async fn present_native_frame(
     let probe = surface
         .probe()
         .ok_or_else(|| "Native surface lost its readiness probe".to_string())?;
-    let (audio_position_ticks, frame_age_ticks, late_for_audio) = native_presentation_timing(
-        &app,
-        request.frame_time.ticks,
-        request.frame_time.timescale,
-    );
+    let (audio_position_ticks, frame_age_ticks, late_for_audio) =
+        native_presentation_timing(&app, request.frame_time.ticks, request.frame_time.timescale);
     if !surface.accept_presentation(presentation_sequence) {
         SYNC_METRICS.record_dropped_frame();
         drop(surface);
@@ -1720,16 +1814,12 @@ pub async fn present_native_frame(
     let canvas_width = legacy_request.canvas_width as f32;
     let canvas_height = legacy_request.canvas_height as f32;
     let conversion_started = Instant::now();
-    let mut textures = Vec::with_capacity(
-        legacy_request.layers.len() + legacy_request.raster_layers.len(),
-    );
-    let mut views = Vec::with_capacity(
-        legacy_request.layers.len() + legacy_request.raster_layers.len(),
-    );
-    for (layer, (y_plane, uv_plane, width, height, color)) in legacy_request
-        .layers
-        .iter()
-        .zip(decoded_frames.iter())
+    let mut textures =
+        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len());
+    let mut views =
+        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len());
+    for (layer, (y_plane, uv_plane, width, height, color)) in
+        legacy_request.layers.iter().zip(decoded_frames.iter())
     {
         let params = color_params(color)?;
         let texture = Arc::new(session.render_nv12_frame_to_texture(
@@ -1764,9 +1854,8 @@ pub async fn present_native_frame(
         legacy_request.canvas_height,
         target_format,
     );
-    let mut specs = Vec::with_capacity(
-        legacy_request.layers.len() + legacy_request.raster_layers.len(),
-    );
+    let mut specs =
+        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len());
     let mask_views: HashMap<&str, &wgpu::TextureView> = legacy_request
         .raster_layers
         .iter()
@@ -1786,14 +1875,22 @@ pub async fn present_native_frame(
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
             color_grade: color_grade_from_snapshot(layer.color_grade.as_ref()),
-            mask_view: layer.body_effect.as_ref().and_then(|effect| mask_views.get(effect.mask_asset_id.as_str()).copied()),
+            mask_view: layer
+                .body_effect
+                .as_ref()
+                .and_then(|effect| mask_views.get(effect.mask_asset_id.as_str()).copied()),
             body_effect: body_effect_from_snapshot(layer.body_effect.as_ref()),
             lut: resolve_native_lut(layer.color_grade.as_ref(), lut_cache.as_ref())?,
             grain_seed: ((layer.time_secs.max(0.0) * 60.0).floor() * 0.37) as f32,
         });
     }
     let raster_views = views.iter().skip(legacy_request.layers.len());
-    for (layer, view) in legacy_request.raster_layers.iter().zip(raster_views).filter(|(layer, _)| !layer.is_mask) {
+    for (layer, view) in legacy_request
+        .raster_layers
+        .iter()
+        .zip(raster_views)
+        .filter(|(layer, _)| !layer.is_mask)
+    {
         specs.push(NativeLayerSpec {
             view,
             x: layer.x,
@@ -1881,7 +1978,10 @@ pub async fn present_native_frame(
     SYNC_METRICS.record_frame_presented_with_options(
         presented_ticks,
         1_000_000i64 / i64::from(request.project.frame_rate.max(1)),
-        matches!(request.mode.as_deref(), Some("playback") | Some("playback-lookahead")),
+        matches!(
+            request.mode.as_deref(),
+            Some("playback") | Some("playback-lookahead")
+        ),
         request.mode.as_deref() != Some("playback-lookahead"),
     );
     drop(surface);
@@ -1948,7 +2048,13 @@ pub async fn render_native_frame(
     }
     let generation = request.generation.unwrap_or(0);
     if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
-        if !queue.inner().clone().lock().await.is_generation_current(generation) {
+        if !queue
+            .inner()
+            .clone()
+            .lock()
+            .await
+            .is_generation_current(generation)
+        {
             return Err("Native preview frame request is stale".to_string());
         }
     }
@@ -1999,7 +2105,13 @@ pub async fn render_native_frame(
     let (rgba, stage_timings) =
         render_native_video_project_frame_bytes_timed(app.clone(), legacy_request).await?;
     if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
-        if !queue.inner().clone().lock().await.is_generation_current(generation) {
+        if !queue
+            .inner()
+            .clone()
+            .lock()
+            .await
+            .is_generation_current(generation)
+        {
             return Err("Native preview frame request is stale".to_string());
         }
     }
@@ -2074,8 +2186,8 @@ pub async fn get_native_frame_service_stats(
 mod tests {
     use super::{
         color_params, merge_color_metadata, parse_blend_mode, project_layer_transform,
-        validate_project_request, validate_video_project_request, NativeProjectFrameRequest,
-        NativeDecodeTimings, NativePreviewFrameQueue, NativeVideoProjectFrameRequest,
+        validate_project_request, validate_video_project_request, NativeDecodeTimings,
+        NativePreviewFrameQueue, NativeProjectFrameRequest, NativeVideoProjectFrameRequest,
         QueuedNativeFrame,
     };
     use crate::thumbnail_engine::decoder::VideoColorMetadata;

@@ -211,12 +211,30 @@ impl TransitionPipeline {
 
         // Fullscreen quad spanning NDC [-1, 1]
         let quad_vertices = [
-            QuadVertex { position: [-1.0, -1.0], uv: [0.0, 1.0] },
-            QuadVertex { position: [1.0, -1.0], uv: [1.0, 1.0] },
-            QuadVertex { position: [-1.0, 1.0], uv: [0.0, 0.0] },
-            QuadVertex { position: [-1.0, 1.0], uv: [0.0, 0.0] },
-            QuadVertex { position: [1.0, -1.0], uv: [1.0, 1.0] },
-            QuadVertex { position: [1.0, 1.0], uv: [1.0, 0.0] },
+            QuadVertex {
+                position: [-1.0, -1.0],
+                uv: [0.0, 1.0],
+            },
+            QuadVertex {
+                position: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            QuadVertex {
+                position: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            QuadVertex {
+                position: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+            QuadVertex {
+                position: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            QuadVertex {
+                position: [1.0, 1.0],
+                uv: [1.0, 0.0],
+            },
         ];
 
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -318,12 +336,30 @@ mod tests {
 
     #[test]
     fn test_transition_type_parsing() {
-        assert_eq!(TransitionType::from_str_name("cross-dissolve"), TransitionType::CrossDissolve);
-        assert_eq!(TransitionType::from_str_name("wipe-left"), TransitionType::WipeLeft);
-        assert_eq!(TransitionType::from_str_name("wipe-right"), TransitionType::WipeRight);
-        assert_eq!(TransitionType::from_str_name("zoom-blur"), TransitionType::ZoomBlur);
-        assert_eq!(TransitionType::from_str_name("iris-wipe"), TransitionType::IrisWipe);
-        assert_eq!(TransitionType::from_str_name("slide-push"), TransitionType::SlidePush);
+        assert_eq!(
+            TransitionType::from_str_name("cross-dissolve"),
+            TransitionType::CrossDissolve
+        );
+        assert_eq!(
+            TransitionType::from_str_name("wipe-left"),
+            TransitionType::WipeLeft
+        );
+        assert_eq!(
+            TransitionType::from_str_name("wipe-right"),
+            TransitionType::WipeRight
+        );
+        assert_eq!(
+            TransitionType::from_str_name("zoom-blur"),
+            TransitionType::ZoomBlur
+        );
+        assert_eq!(
+            TransitionType::from_str_name("iris-wipe"),
+            TransitionType::IrisWipe
+        );
+        assert_eq!(
+            TransitionType::from_str_name("slide-push"),
+            TransitionType::SlidePush
+        );
     }
 
     #[test]

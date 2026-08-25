@@ -94,7 +94,10 @@ pub fn compute_auto_reframe_trajectory(
     while t <= duration + 1e-4 {
         // Find closest detection or interpolate
         let center_x = if let Some(d) = detections.iter().min_by(|a, b| {
-            (a.timestamp - t).abs().partial_cmp(&(b.timestamp - t).abs()).unwrap()
+            (a.timestamp - t)
+                .abs()
+                .partial_cmp(&(b.timestamp - t).abs())
+                .unwrap()
         }) {
             d.center_x
         } else {
@@ -150,7 +153,11 @@ pub async fn calculate_auto_reframe(
     options: Option<AutoReframeOptions>,
 ) -> Result<AutoReframeResult, String> {
     let opts = options.unwrap_or_default();
-    Ok(compute_auto_reframe_trajectory(&detections, duration, &opts))
+    Ok(compute_auto_reframe_trajectory(
+        &detections,
+        duration,
+        &opts,
+    ))
 }
 
 #[cfg(test)]
@@ -167,12 +174,34 @@ mod tests {
     #[test]
     fn test_subject_tracking_smoothing() {
         let detections = vec![
-            SubjectDetection { timestamp: 0.0, center_x: 0.2, center_y: 0.5, width: 0.2, height: 0.4, confidence: 0.9 },
-            SubjectDetection { timestamp: 1.0, center_x: 0.8, center_y: 0.5, width: 0.2, height: 0.4, confidence: 0.9 },
-            SubjectDetection { timestamp: 2.0, center_x: 0.5, center_y: 0.5, width: 0.2, height: 0.4, confidence: 0.9 },
+            SubjectDetection {
+                timestamp: 0.0,
+                center_x: 0.2,
+                center_y: 0.5,
+                width: 0.2,
+                height: 0.4,
+                confidence: 0.9,
+            },
+            SubjectDetection {
+                timestamp: 1.0,
+                center_x: 0.8,
+                center_y: 0.5,
+                width: 0.2,
+                height: 0.4,
+                confidence: 0.9,
+            },
+            SubjectDetection {
+                timestamp: 2.0,
+                center_x: 0.5,
+                center_y: 0.5,
+                width: 0.2,
+                height: 0.4,
+                confidence: 0.9,
+            },
         ];
 
-        let result = compute_auto_reframe_trajectory(&detections, 2.0, &AutoReframeOptions::default());
+        let result =
+            compute_auto_reframe_trajectory(&detections, 2.0, &AutoReframeOptions::default());
         assert!(!result.keyframes.is_empty());
         // Verify pan_x is bounded
         for k in &result.keyframes {

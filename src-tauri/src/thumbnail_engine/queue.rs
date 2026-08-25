@@ -1,13 +1,13 @@
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
-use std::collections::{BinaryHeap, HashSet};
 use std::cmp::Reverse;
-use std::sync::Arc;
+use std::collections::{BinaryHeap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
-use super::types::{DensityLevel, ResolutionTier, Priority};
 use super::cache::GLOBAL_CACHE;
+use super::types::{DensityLevel, Priority, ResolutionTier};
 
 /// Extraction job for the async queue
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub struct ExtractionJob {
 impl ExtractionJob {
     fn is_cancelled(&self) -> bool {
         let timestamp_key = (self.time * 1000.0).round() as u64;
-        
+
         if let Some(entry) = ACTIVE_TRACKER.active_requests.get(&self.video_id) {
             !entry.value().contains(&timestamp_key)
         } else {
@@ -143,7 +143,8 @@ impl ExtractionQueue {
                                 &batch.video_id,
                                 batch.density,
                                 batch.resolution_tier,
-                            ).await;
+                            )
+                            .await;
                             let _ = batch.result_tx.send(results);
                         }
                     });
@@ -216,7 +217,8 @@ impl ExtractionQueue {
                             &job.video_id,
                             job.density,
                             job.resolution_tier,
-                        ).await;
+                        )
+                        .await;
                         let _ = job.result_tx.send(result);
                     });
                 }
@@ -265,7 +267,10 @@ impl ExtractionQueue {
         _density: DensityLevel,
         _resolution_tier: ResolutionTier,
     ) -> Vec<Result<PathBuf, String>> {
-        vec![Err("extract_batch is deprecated - use decode_frames_streaming instead".to_string()); _times.len()]
+        vec![
+            Err("extract_batch is deprecated - use decode_frames_streaming instead".to_string());
+            _times.len()
+        ]
     }
 }
 
@@ -318,8 +323,7 @@ impl ActiveExtractionTracker {
 
             *entry.value_mut() = new_keys;
         } else {
-            self.active_requests
-                .insert(video_id.to_string(), new_keys);
+            self.active_requests.insert(video_id.to_string(), new_keys);
         }
 
         cancelled
@@ -456,7 +460,8 @@ pub async fn preload_density_level(
         width,
         height,
         dpr,
-    ).await;
+    )
+    .await;
 
     Ok(())
 }

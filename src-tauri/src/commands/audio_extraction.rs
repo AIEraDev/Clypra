@@ -44,7 +44,9 @@ pub struct AudioExtractionRequest {
     pub output_container: Option<String>,
 }
 
-fn default_mode() -> String { "auto".to_string() }
+fn default_mode() -> String {
+    "auto".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -93,42 +95,98 @@ static MEDIA_JOBS: Lazy<Arc<Mutex<HashMap<String, JobRecord>>>> =
 async fn probe_json(path: &str) -> Result<serde_json::Value, String> {
     let output = Command::new("ffprobe")
         .env("PATH", augmented_path())
-        .args(["-v", "error", "-show_streams", "-show_format", "-of", "json", path])
+        .args([
+            "-v",
+            "error",
+            "-show_streams",
+            "-show_format",
+            "-of",
+            "json",
+            path,
+        ])
         .output()
         .await
         .map_err(|e| format!("Failed to run ffprobe: {e}"))?;
     if !output.status.success() {
-        return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        return Err(format!(
+            "ffprobe failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
     serde_json::from_slice(&output.stdout).map_err(|e| format!("Invalid ffprobe response: {e}"))
 }
 
 fn parse_streams(value: &serde_json::Value) -> Vec<MediaStreamInfo> {
-    value.get("streams").and_then(|v| v.as_array()).map(|streams| streams.iter().filter_map(|stream| {
-        let index = stream.get("index")?.as_u64()? as u32;
-        let stream_type = stream.get("codec_type")?.as_str()?.to_string();
-        let codec = stream.get("codec_name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-        let parse_rate = |key: &str| stream.get(key).and_then(|v| v.as_str()).and_then(|v| v.parse::<u32>().ok());
-        let (time_base_num, time_base_den) = stream.get("time_base").and_then(|v| v.as_str()).and_then(|v| {
-            let mut parts = v.split('/');
-            Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
-        }).unwrap_or((0, 1));
-        Some(MediaStreamInfo {
-            index,
-            stream_type,
-            codec,
-            codec_long_name: stream.get("codec_long_name").and_then(|v| v.as_str()).map(str::to_string),
-            duration: stream.get("duration").and_then(|v| v.as_str()).and_then(|v| v.parse().ok()),
-            time_base_num: Some(time_base_num),
-            time_base_den: Some(time_base_den),
-            sample_rate: parse_rate("sample_rate"),
-            channels: stream.get("channels").and_then(|v| v.as_u64()).map(|v| v as u16),
-            channel_layout: stream.get("channel_layout").and_then(|v| v.as_str()).map(str::to_string),
-            bitrate: stream.get("bit_rate").and_then(|v| v.as_str()).and_then(|v| v.parse().ok()),
-            language: stream.get("tags").and_then(|v| v.get("language")).and_then(|v| v.as_str()).map(str::to_string),
-            label: stream.get("tags").and_then(|v| v.get("title")).and_then(|v| v.as_str()).map(str::to_string),
+    value
+        .get("streams")
+        .and_then(|v| v.as_array())
+        .map(|streams| {
+            streams
+                .iter()
+                .filter_map(|stream| {
+                    let index = stream.get("index")?.as_u64()? as u32;
+                    let stream_type = stream.get("codec_type")?.as_str()?.to_string();
+                    let codec = stream
+                        .get("codec_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let parse_rate = |key: &str| {
+                        stream
+                            .get(key)
+                            .and_then(|v| v.as_str())
+                            .and_then(|v| v.parse::<u32>().ok())
+                    };
+                    let (time_base_num, time_base_den) = stream
+                        .get("time_base")
+                        .and_then(|v| v.as_str())
+                        .and_then(|v| {
+                            let mut parts = v.split('/');
+                            Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+                        })
+                        .unwrap_or((0, 1));
+                    Some(MediaStreamInfo {
+                        index,
+                        stream_type,
+                        codec,
+                        codec_long_name: stream
+                            .get("codec_long_name")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        duration: stream
+                            .get("duration")
+                            .and_then(|v| v.as_str())
+                            .and_then(|v| v.parse().ok()),
+                        time_base_num: Some(time_base_num),
+                        time_base_den: Some(time_base_den),
+                        sample_rate: parse_rate("sample_rate"),
+                        channels: stream
+                            .get("channels")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u16),
+                        channel_layout: stream
+                            .get("channel_layout")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        bitrate: stream
+                            .get("bit_rate")
+                            .and_then(|v| v.as_str())
+                            .and_then(|v| v.parse().ok()),
+                        language: stream
+                            .get("tags")
+                            .and_then(|v| v.get("language"))
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        label: stream
+                            .get("tags")
+                            .and_then(|v| v.get("title"))
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
         })
-    }).collect()).unwrap_or_default()
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -136,28 +194,73 @@ pub async fn probe_media_streams(path: String) -> Result<Vec<MediaStreamInfo>, S
     Ok(parse_streams(&probe_json(&path).await?))
 }
 
-fn plan_output(stream: &MediaStreamInfo, request: &AudioExtractionRequest) -> Result<(String, String, String), String> {
-    let codec = request.output_codec.clone().unwrap_or_else(|| stream.codec.clone()).to_lowercase();
-    let requested_codec_matches = request.output_codec.as_deref().map(|requested| requested.eq_ignore_ascii_case(&stream.codec)).unwrap_or(true);
+fn plan_output(
+    stream: &MediaStreamInfo,
+    request: &AudioExtractionRequest,
+) -> Result<(String, String, String), String> {
+    let codec = request
+        .output_codec
+        .clone()
+        .unwrap_or_else(|| stream.codec.clone())
+        .to_lowercase();
+    let requested_codec_matches = request
+        .output_codec
+        .as_deref()
+        .map(|requested| requested.eq_ignore_ascii_case(&stream.codec))
+        .unwrap_or(true);
     let copy_compatible = requested_codec_matches
-        && matches!(stream.codec.to_lowercase().as_str(), "aac" | "mp3" | "opus" | "flac" | "pcm_s16le" | "pcm_s24le" | "pcm_s32le");
-    let requested_copy = request.mode.eq_ignore_ascii_case("streamCopy") || request.mode.eq_ignore_ascii_case("stream_copy");
-    let transcode = request.mode.eq_ignore_ascii_case("transcode") || (!requested_copy && !copy_compatible);
+        && matches!(
+            stream.codec.to_lowercase().as_str(),
+            "aac" | "mp3" | "opus" | "flac" | "pcm_s16le" | "pcm_s24le" | "pcm_s32le"
+        );
+    let requested_copy = request.mode.eq_ignore_ascii_case("streamCopy")
+        || request.mode.eq_ignore_ascii_case("stream_copy");
+    let transcode =
+        request.mode.eq_ignore_ascii_case("transcode") || (!requested_copy && !copy_compatible);
     if requested_copy && !copy_compatible {
         return Err(format!("Stream-copy is not supported for codec {codec}"));
     }
     let method = if transcode { "transcode" } else { "streamCopy" }.to_string();
-    let container = request.output_container.clone().unwrap_or_else(|| match codec.as_str() {
-        "aac" => "m4a", "mp3" => "mp3", "opus" => "webm", "flac" => "flac", "pcm_s16le" | "pcm_s24le" | "pcm_s32le" => "wav", _ => "m4a",
-    }.to_string());
+    let container = request.output_container.clone().unwrap_or_else(|| {
+        match codec.as_str() {
+            "aac" => "m4a",
+            "mp3" => "mp3",
+            "opus" => "webm",
+            "flac" => "flac",
+            "pcm_s16le" | "pcm_s24le" | "pcm_s32le" => "wav",
+            _ => "m4a",
+        }
+        .to_string()
+    });
     let encoder = if transcode {
-        request.output_codec.clone().unwrap_or_else(|| if codec == "opus" { "libopus".to_string() } else { "aac".to_string() })
-    } else { "copy".to_string() };
+        request.output_codec.clone().unwrap_or_else(|| {
+            if codec == "opus" {
+                "libopus".to_string()
+            } else {
+                "aac".to_string()
+            }
+        })
+    } else {
+        "copy".to_string()
+    };
     Ok((method, container, encoder))
 }
 
-fn fingerprint(request: &AudioExtractionRequest, method: &str, container: &str, encoder: &str) -> String {
-    let input = format!("{}\0{}\0{}\0{}\0{}\0{}", request.source_asset_id, request.source_stream_index, request.mode.to_lowercase(), encoder, container, method);
+fn fingerprint(
+    request: &AudioExtractionRequest,
+    method: &str,
+    container: &str,
+    encoder: &str,
+) -> String {
+    let input = format!(
+        "{}\0{}\0{}\0{}\0{}\0{}",
+        request.source_asset_id,
+        request.source_stream_index,
+        request.mode.to_lowercase(),
+        encoder,
+        container,
+        method
+    );
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     format!("{:x}", hasher.finalize())
@@ -168,17 +271,30 @@ async fn emit_update(app: &tauri::AppHandle, update: MediaJobUpdate) {
 }
 
 async fn validate_audio_file(path: &Path) -> Result<Vec<MediaStreamInfo>, String> {
-    if !path.is_file() { return Err("Extraction output is missing".to_string()); }
+    if !path.is_file() {
+        return Err("Extraction output is missing".to_string());
+    }
     let value = probe_json(path.to_string_lossy().as_ref()).await?;
     let streams = parse_streams(&value);
-    if !streams.iter().any(|stream| stream.stream_type == "audio") { return Err("Extraction output contains no audio stream".to_string()); }
+    if !streams.iter().any(|stream| stream.stream_type == "audio") {
+        return Err("Extraction output contains no audio stream".to_string());
+    }
     Ok(streams)
 }
 
-async fn run_extraction(app: tauri::AppHandle, job_id: String, request: AudioExtractionRequest, cancellation: CancellationToken) {
-    let finish = |state: &str, asset: Option<ExtractedMediaAsset>, error: Option<String>| {
-        MediaJobResult { job_id: job_id.clone(), state: state.to_string(), asset, error_summary: error }
-    };
+async fn run_extraction(
+    app: tauri::AppHandle,
+    job_id: String,
+    request: AudioExtractionRequest,
+    cancellation: CancellationToken,
+) {
+    let finish =
+        |state: &str, asset: Option<ExtractedMediaAsset>, error: Option<String>| MediaJobResult {
+            job_id: job_id.clone(),
+            state: state.to_string(),
+            asset,
+            error_summary: error,
+        };
     let result = async {
         let probe = probe_json(&request.source_path).await?;
         let stream = parse_streams(&probe).into_iter().find(|candidate| candidate.index == request.source_stream_index && candidate.stream_type == "audio")
@@ -235,18 +351,61 @@ async fn run_extraction(app: tauri::AppHandle, job_id: String, request: AudioExt
         Ok(ExtractedMediaAsset { id: asset_id, name: format!("{} Audio", Path::new(&request.source_path).file_stem().and_then(|s| s.to_str()).unwrap_or("Extracted")), path: final_path.to_string_lossy().to_string(), media_type: "audio".to_string(), duration, size: tokio::fs::metadata(&final_path).await.map(|m| m.len()).unwrap_or(0), streams, source_asset_id: request.source_asset_id, source_stream_index: request.source_stream_index, extraction_method: method, operation_fingerprint: fingerprint })
     }.await;
 
-    let (state, asset, error) = match result { Ok(asset) => ("completed", Some(asset), None), Err(error) if error == "cancelled" => ("cancelled", None, None), Err(error) => ("failed", None, Some(error)) };
+    let (state, asset, error) = match result {
+        Ok(asset) => ("completed", Some(asset), None),
+        Err(error) if error == "cancelled" => ("cancelled", None, None),
+        Err(error) => ("failed", None, Some(error)),
+    };
     let job_result = finish(state, asset.clone(), error.clone());
-    MEDIA_JOBS.lock().await.entry(job_id.clone()).and_modify(|job| job.result = Some(job_result));
-    emit_update(&app, MediaJobUpdate { job_id, operation: "audioExtraction".to_string(), state: state.to_string(), progress: if state == "completed" { Some(1.0) } else { None }, resulting_asset_id: asset.map(|a| a.id), error_summary: error }).await;
+    MEDIA_JOBS
+        .lock()
+        .await
+        .entry(job_id.clone())
+        .and_modify(|job| job.result = Some(job_result));
+    emit_update(
+        &app,
+        MediaJobUpdate {
+            job_id,
+            operation: "audioExtraction".to_string(),
+            state: state.to_string(),
+            progress: if state == "completed" {
+                Some(1.0)
+            } else {
+                None
+            },
+            resulting_asset_id: asset.map(|a| a.id),
+            error_summary: error,
+        },
+    )
+    .await;
 }
 
 #[tauri::command]
-pub async fn start_audio_extraction(app: tauri::AppHandle, request: AudioExtractionRequest) -> Result<String, String> {
+pub async fn start_audio_extraction(
+    app: tauri::AppHandle,
+    request: AudioExtractionRequest,
+) -> Result<String, String> {
     let job_id = format!("media-job-{}", uuid::Uuid::new_v4());
     let cancellation = CancellationToken::new();
-    MEDIA_JOBS.lock().await.insert(job_id.clone(), JobRecord { cancellation: cancellation.clone(), result: None });
-    emit_update(&app, MediaJobUpdate { job_id: job_id.clone(), operation: "audioExtraction".to_string(), state: "queued".to_string(), progress: Some(0.0), resulting_asset_id: None, error_summary: None }).await;
+    MEDIA_JOBS.lock().await.insert(
+        job_id.clone(),
+        JobRecord {
+            cancellation: cancellation.clone(),
+            result: None,
+        },
+    );
+    emit_update(
+        &app,
+        MediaJobUpdate {
+            job_id: job_id.clone(),
+            operation: "audioExtraction".to_string(),
+            state: "queued".to_string(),
+            progress: Some(0.0),
+            resulting_asset_id: None,
+            error_summary: None,
+        },
+    )
+    .await;
     tauri::async_runtime::spawn(run_extraction(app, job_id.clone(), request, cancellation));
     Ok(job_id)
 }
@@ -254,12 +413,18 @@ pub async fn start_audio_extraction(app: tauri::AppHandle, request: AudioExtract
 #[tauri::command]
 pub async fn cancel_media_job(job_id: String) -> Result<(), String> {
     let jobs = MEDIA_JOBS.lock().await;
-    jobs.get(&job_id).map(|job| job.cancellation.cancel()).ok_or_else(|| "Media job not found".to_string())
+    jobs.get(&job_id)
+        .map(|job| job.cancellation.cancel())
+        .ok_or_else(|| "Media job not found".to_string())
 }
 
 #[tauri::command]
 pub async fn get_media_job_result(job_id: String) -> Result<Option<MediaJobResult>, String> {
-    Ok(MEDIA_JOBS.lock().await.get(&job_id).and_then(|job| job.result.clone()))
+    Ok(MEDIA_JOBS
+        .lock()
+        .await
+        .get(&job_id)
+        .and_then(|job| job.result.clone()))
 }
 
 #[cfg(test)]
@@ -286,8 +451,18 @@ mod tests {
 
     #[test]
     fn plans_copy_containers_for_editor_codecs() {
-        let request = AudioExtractionRequest { source_asset_id: "asset".into(), source_path: "source.mp4".into(), source_stream_index: 2, mode: "auto".into(), output_codec: None, output_container: None };
-        assert_eq!(plan_output(&stream("aac"), &request).unwrap().0, "streamCopy");
+        let request = AudioExtractionRequest {
+            source_asset_id: "asset".into(),
+            source_path: "source.mp4".into(),
+            source_stream_index: 2,
+            mode: "auto".into(),
+            output_codec: None,
+            output_container: None,
+        };
+        assert_eq!(
+            plan_output(&stream("aac"), &request).unwrap().0,
+            "streamCopy"
+        );
         assert_eq!(plan_output(&stream("aac"), &request).unwrap().1, "m4a");
         assert_eq!(plan_output(&stream("mp3"), &request).unwrap().1, "mp3");
         assert_eq!(plan_output(&stream("opus"), &request).unwrap().1, "webm");
@@ -296,7 +471,14 @@ mod tests {
 
     #[test]
     fn unsupported_auto_codec_falls_back_to_transcode() {
-        let request = AudioExtractionRequest { source_asset_id: "asset".into(), source_path: "source.mp4".into(), source_stream_index: 2, mode: "auto".into(), output_codec: None, output_container: None };
+        let request = AudioExtractionRequest {
+            source_asset_id: "asset".into(),
+            source_path: "source.mp4".into(),
+            source_stream_index: 2,
+            mode: "auto".into(),
+            output_codec: None,
+            output_container: None,
+        };
         let (method, container, encoder) = plan_output(&stream("ac3"), &request).unwrap();
         assert_eq!(method, "transcode");
         assert_eq!(container, "m4a");
@@ -305,7 +487,14 @@ mod tests {
 
     #[test]
     fn fingerprint_is_deterministic_and_stream_specific() {
-        let request = AudioExtractionRequest { source_asset_id: "asset".into(), source_path: "source.mp4".into(), source_stream_index: 2, mode: "auto".into(), output_codec: None, output_container: None };
+        let request = AudioExtractionRequest {
+            source_asset_id: "asset".into(),
+            source_path: "source.mp4".into(),
+            source_stream_index: 2,
+            mode: "auto".into(),
+            output_codec: None,
+            output_container: None,
+        };
         let first = fingerprint(&request, "streamCopy", "m4a", "copy");
         let second = fingerprint(&request, "streamCopy", "m4a", "copy");
         assert_eq!(first, second);

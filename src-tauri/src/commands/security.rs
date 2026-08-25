@@ -19,12 +19,19 @@ pub fn validate_project_id(raw_id: &str) -> Result<String, String> {
 
     // Check for directory separators or parent directory references
     if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
-        return Err("Security Violation: Project ID contains illegal path traversal characters".into());
+        return Err(
+            "Security Violation: Project ID contains illegal path traversal characters".into(),
+        );
     }
 
     // Allow alphanumeric characters, hyphens, and underscores (standard UUIDs / slug IDs)
-    if !trimmed.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-        return Err("Security Violation: Project ID contains illegal non-alphanumeric characters".into());
+    if !trimmed
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(
+            "Security Violation: Project ID contains illegal non-alphanumeric characters".into(),
+        );
     }
 
     Ok(trimmed.to_string())
@@ -77,7 +84,9 @@ pub fn sanitize_shell_arg(arg: &str) -> Result<String, String> {
         || arg.contains('\n')
         || arg.contains('\r')
     {
-        return Err("Security Violation: Argument contains potential shell injection tokens".into());
+        return Err(
+            "Security Violation: Argument contains potential shell injection tokens".into(),
+        );
     }
     Ok(arg.to_string())
 }

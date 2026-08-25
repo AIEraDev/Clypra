@@ -2,8 +2,8 @@
 //!
 //! Tests are organized in a separate file for better code organization.
 
-use super::*;
 use super::decoder::VideoDecoder;
+use super::*;
 use std::path::PathBuf;
 
 #[test]
@@ -14,7 +14,12 @@ fn test_decoder_8k_portrait_pipeline() {
         return;
     }
     let mut decoder = VideoDecoder::open(path).expect("open video");
-    eprintln!("[test] Opened {}x{} rotation={}°", decoder.width(), decoder.height(), decoder.rotation());
+    eprintln!(
+        "[test] Opened {}x{} rotation={}°",
+        decoder.width(),
+        decoder.height(),
+        decoder.rotation()
+    );
 
     // Decode a frame at 1s into a 180x320 thumbnail
     let start = std::time::Instant::now();
@@ -33,42 +38,41 @@ fn test_decoder_8k_portrait_pipeline() {
 fn test_active_tracker_overlapping_timestamps() {
     // Feature: video-zoom-performance-optimization, Task 1.6
     // Verify that overlapping timestamps are not cancelled
-    
+
     let tracker = ActiveExtractionTracker::new();
     let video_id = "test_video_123";
-    
+
     // Initial request with timestamps [1.0, 2.0, 3.0, 4.0, 5.0]
     let initial_timestamps = vec![1.0, 2.0, 3.0, 4.0, 5.0];
     tracker.register_request(video_id, &initial_timestamps);
-    
+
     // New request with timestamps [3.0, 4.0, 5.0, 6.0, 7.0]
     // Overlapping: [3.0, 4.0, 5.0]
     // Should cancel: [1.0, 2.0]
     let new_timestamps = vec![3.0, 4.0, 5.0, 6.0, 7.0];
     let cancelled = tracker.cancel_stale_timestamps(video_id, &new_timestamps);
-    
+
     // Convert cancelled keys back to timestamps for verification
-    let cancelled_times: Vec<f64> = cancelled
-        .iter()
-        .map(|&key| key as f64 / 1000.0)
-        .collect();
-    
+    let cancelled_times: Vec<f64> = cancelled.iter().map(|&key| key as f64 / 1000.0).collect();
+
     // Should have cancelled exactly 2 timestamps: 1.0 and 2.0
     assert_eq!(cancelled.len(), 2);
     assert!(cancelled_times.contains(&1.0));
     assert!(cancelled_times.contains(&2.0));
-    
+
     // Overlapping timestamps should NOT be in cancelled list
     assert!(!cancelled_times.contains(&3.0));
     assert!(!cancelled_times.contains(&4.0));
     assert!(!cancelled_times.contains(&5.0));
-    
+
     // Verify the active set was updated to new timestamps
-    let active_keys = tracker.active_requests.get(video_id)
+    let active_keys = tracker
+        .active_requests
+        .get(video_id)
         .expect("Active requests should exist for video")
         .value()
         .clone();
-    
+
     assert_eq!(active_keys.len(), 5);
     assert!(active_keys.contains(&3000)); // 3.0s
     assert!(active_keys.contains(&4000)); // 4.0s
@@ -82,15 +86,15 @@ fn test_active_tracker_no_overlap() {
     // Test case where there's no overlap between old and new requests
     let tracker = ActiveExtractionTracker::new();
     let video_id = "test_video_456";
-    
+
     // Initial request
     let initial_timestamps = vec![1.0, 2.0, 3.0];
     tracker.register_request(video_id, &initial_timestamps);
-    
+
     // Completely different timestamps
     let new_timestamps = vec![10.0, 11.0, 12.0];
     let cancelled = tracker.cancel_stale_timestamps(video_id, &new_timestamps);
-    
+
     // All initial timestamps should be cancelled
     assert_eq!(cancelled.len(), 3);
 }
@@ -138,12 +142,22 @@ fn test_cache_key_serialization_all_densities() {
     let time = 10.0;
     let dpr = 1.0;
 
-    for density in [DensityLevel::Low, DensityLevel::Medium, DensityLevel::High, DensityLevel::Ultra] {
+    for density in [
+        DensityLevel::Low,
+        DensityLevel::Medium,
+        DensityLevel::High,
+        DensityLevel::Ultra,
+    ] {
         let key = CacheKey::new(video_path, time, density, dpr);
         let serialized = key.to_string();
-        let deserialized = CacheKey::from_string(&serialized).expect("Should deserialize successfully");
+        let deserialized =
+            CacheKey::from_string(&serialized).expect("Should deserialize successfully");
 
-        assert_eq!(key.density, deserialized.density, "Density mismatch for {:?}", density);
+        assert_eq!(
+            key.density, deserialized.density,
+            "Density mismatch for {:?}",
+            density
+        );
     }
 }
 
@@ -203,7 +217,11 @@ fn test_retry_backoff_timing() {
     let expected_sequence = vec![100, 400, 1600];
 
     for expected in expected_sequence {
-        assert_eq!(backoff_ms, expected, "Backoff should be {}ms at this step", expected);
+        assert_eq!(
+            backoff_ms, expected,
+            "Backoff should be {}ms at this step",
+            expected
+        );
         backoff_ms *= 4; // Base-4 exponential backoff
     }
 
@@ -230,16 +248,24 @@ fn test_fallback_chain_order() {
     // calling it without .await in a sync test drops the future before it runs)
     let key = (time * 1000.0_f64).round() as u64;
     if let Some(low_cache) = cache.levels.get(&DensityLevel::Low) {
-        low_cache.frames.insert(key, CachedFrame::new(time, test_path_low.clone()));
+        low_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_low.clone()));
     }
     if let Some(medium_cache) = cache.levels.get(&DensityLevel::Medium) {
-        medium_cache.frames.insert(key, CachedFrame::new(time, test_path_medium.clone()));
+        medium_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_medium.clone()));
     }
     if let Some(high_cache) = cache.levels.get(&DensityLevel::High) {
-        high_cache.frames.insert(key, CachedFrame::new(time, test_path_high.clone()));
+        high_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_high.clone()));
     }
     if let Some(ultra_cache) = cache.levels.get(&DensityLevel::Ultra) {
-        ultra_cache.frames.insert(key, CachedFrame::new(time, test_path_ultra.clone()));
+        ultra_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_ultra.clone()));
     }
 
     // Test 1: Request Low density - should get Low
@@ -286,10 +312,14 @@ fn test_fallback_to_higher_density() {
     // Insert directly into the DashMap (DensityCache::insert is async)
     let key = (time * 1000.0_f64).round() as u64;
     if let Some(high_cache) = cache.levels.get(&DensityLevel::High) {
-        high_cache.frames.insert(key, CachedFrame::new(time, test_path_high.clone()));
+        high_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_high.clone()));
     }
     if let Some(ultra_cache) = cache.levels.get(&DensityLevel::Ultra) {
-        ultra_cache.frames.insert(key, CachedFrame::new(time, test_path_ultra.clone()));
+        ultra_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_ultra.clone()));
     }
 
     // Request Medium density - should fallback to High (higher density)
@@ -322,10 +352,14 @@ fn test_fallback_to_lower_density() {
     // Insert directly into the DashMap (DensityCache::insert is async)
     let key = (time * 1000.0_f64).round() as u64;
     if let Some(low_cache) = cache.levels.get(&DensityLevel::Low) {
-        low_cache.frames.insert(key, CachedFrame::new(time, test_path_low.clone()));
+        low_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_low.clone()));
     }
     if let Some(medium_cache) = cache.levels.get(&DensityLevel::Medium) {
-        medium_cache.frames.insert(key, CachedFrame::new(time, test_path_medium.clone()));
+        medium_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_medium.clone()));
     }
 
     // Request Ultra density - should fallback to Medium (lower density)
@@ -357,7 +391,9 @@ fn test_fallback_order_ultra_to_low() {
     // Insert directly into the DashMap (DensityCache::insert is async)
     let key = (time * 1000.0_f64).round() as u64;
     if let Some(low_cache) = cache.levels.get(&DensityLevel::Low) {
-        low_cache.frames.insert(key, CachedFrame::new(time, test_path_low.clone()));
+        low_cache
+            .frames
+            .insert(key, CachedFrame::new(time, test_path_low.clone()));
     }
 
     // Request Ultra density - should fallback all the way to Low
@@ -406,13 +442,41 @@ fn test_eviction_sort_order_access_count_ascending_then_timestamp_oldest_first()
 
     let mut entries: Vec<Entry> = vec![
         // access_count=5, timestamp=t0 (should sort last among these)
-        ("vid".to_string(), DensityLevel::High, 5000, 5, t0, PathBuf::from("/a")),
+        (
+            "vid".to_string(),
+            DensityLevel::High,
+            5000,
+            5,
+            t0,
+            PathBuf::from("/a"),
+        ),
         // access_count=1, timestamp=t0 (should sort first — lowest access count)
-        ("vid".to_string(), DensityLevel::High, 1000, 1, t0, PathBuf::from("/b")),
+        (
+            "vid".to_string(),
+            DensityLevel::High,
+            1000,
+            1,
+            t0,
+            PathBuf::from("/b"),
+        ),
         // access_count=3, timestamp=t0 (should sort in the middle)
-        ("vid".to_string(), DensityLevel::High, 3000, 3, t0, PathBuf::from("/c")),
+        (
+            "vid".to_string(),
+            DensityLevel::High,
+            3000,
+            3,
+            t0,
+            PathBuf::from("/c"),
+        ),
         // access_count=1, timestamp=t0 (tie with /b on access_count; same timestamp)
-        ("vid".to_string(), DensityLevel::High, 2000, 1, t0, PathBuf::from("/d")),
+        (
+            "vid".to_string(),
+            DensityLevel::High,
+            2000,
+            1,
+            t0,
+            PathBuf::from("/d"),
+        ),
     ];
 
     // Apply the same sort comparator used in evict_if_needed
@@ -463,9 +527,23 @@ fn test_eviction_sort_order_timestamp_tiebreaker() {
 
     let mut entries: Vec<Entry> = vec![
         // Same access_count=2, newer timestamp — should sort AFTER the older one
-        ("vid".to_string(), DensityLevel::Medium, 2000, 2, t_new, PathBuf::from("/newer")),
+        (
+            "vid".to_string(),
+            DensityLevel::Medium,
+            2000,
+            2,
+            t_new,
+            PathBuf::from("/newer"),
+        ),
         // Same access_count=2, older timestamp — should sort BEFORE the newer one
-        ("vid".to_string(), DensityLevel::Medium, 1000, 2, t_old, PathBuf::from("/older")),
+        (
+            "vid".to_string(),
+            DensityLevel::Medium,
+            1000,
+            2,
+            t_old,
+            PathBuf::from("/older"),
+        ),
     ];
 
     entries.sort_by(|a, b| {
@@ -509,19 +587,54 @@ fn test_eviction_priority_ultra_high_before_medium_low() {
     // High-priority eviction group (Ultra and High density)
     let mut high_priority: Vec<Entry> = vec![
         // Ultra density frame — high access count (should still be evicted before Medium/Low)
-        ("vid".to_string(), DensityLevel::Ultra, 1000, 100, t0, PathBuf::from("/ultra_hot")),
+        (
+            "vid".to_string(),
+            DensityLevel::Ultra,
+            1000,
+            100,
+            t0,
+            PathBuf::from("/ultra_hot"),
+        ),
         // High density frame — low access count
-        ("vid".to_string(), DensityLevel::High, 2000, 1, t0, PathBuf::from("/high_cold")),
+        (
+            "vid".to_string(),
+            DensityLevel::High,
+            2000,
+            1,
+            t0,
+            PathBuf::from("/high_cold"),
+        ),
         // Ultra density frame — medium access count
-        ("vid".to_string(), DensityLevel::Ultra, 3000, 5, t0, PathBuf::from("/ultra_warm")),
+        (
+            "vid".to_string(),
+            DensityLevel::Ultra,
+            3000,
+            5,
+            t0,
+            PathBuf::from("/ultra_warm"),
+        ),
     ];
 
     // Low-priority eviction group (Medium and Low density)
     let mut low_priority: Vec<Entry> = vec![
         // Medium density frame — very low access count (should NOT be evicted before Ultra/High)
-        ("vid".to_string(), DensityLevel::Medium, 4000, 1, t0, PathBuf::from("/medium_cold")),
+        (
+            "vid".to_string(),
+            DensityLevel::Medium,
+            4000,
+            1,
+            t0,
+            PathBuf::from("/medium_cold"),
+        ),
         // Low density frame — zero-like access count
-        ("vid".to_string(), DensityLevel::Low, 5000, 1, t0, PathBuf::from("/low_cold")),
+        (
+            "vid".to_string(),
+            DensityLevel::Low,
+            5000,
+            1,
+            t0,
+            PathBuf::from("/low_cold"),
+        ),
     ];
 
     // Apply the same sort comparator used in evict_if_needed
@@ -612,11 +725,32 @@ fn test_eviction_priority_lru_ordering_preserved_within_tier() {
 
     let mut high_priority: Vec<Entry> = vec![
         // High density, access_count=3, newer timestamp
-        ("vid".to_string(), DensityLevel::High, 2000, 3, t1, PathBuf::from("/high_newer")),
+        (
+            "vid".to_string(),
+            DensityLevel::High,
+            2000,
+            3,
+            t1,
+            PathBuf::from("/high_newer"),
+        ),
         // Ultra density, access_count=1, older timestamp — should be evicted first within group
-        ("vid".to_string(), DensityLevel::Ultra, 1000, 1, t0, PathBuf::from("/ultra_older")),
+        (
+            "vid".to_string(),
+            DensityLevel::Ultra,
+            1000,
+            1,
+            t0,
+            PathBuf::from("/ultra_older"),
+        ),
         // High density, access_count=1, newer timestamp — same access count as ultra_older
-        ("vid".to_string(), DensityLevel::High, 3000, 1, t1, PathBuf::from("/high_newer_same_count")),
+        (
+            "vid".to_string(),
+            DensityLevel::High,
+            3000,
+            1,
+            t1,
+            PathBuf::from("/high_newer_same_count"),
+        ),
     ];
 
     let sort_fn = |a: &Entry, b: &Entry| {
@@ -798,7 +932,9 @@ fn test_decode_frames_batch_empty() {
         return;
     }
     let mut decoder = VideoDecoder::open(path).expect("open video");
-    let results = decoder.decode_frames_batch_full_res(&[]).expect("decode empty batch");
+    let results = decoder
+        .decode_frames_batch_full_res(&[])
+        .expect("decode empty batch");
     assert!(results.frames.is_empty());
 }
 
@@ -815,7 +951,9 @@ fn test_decode_4k_frames_batch_forward_gop() {
     // Test a chunk of 12 dense target timestamps within a 2-second range (single GOP scan)
     let targets: Vec<f64> = (0..12).map(|i| 1.0 + (i as f64) * 0.1).collect();
     let start = std::time::Instant::now();
-    let batch = decoder.decode_frames_batch_full_res(&targets).expect("batch decode 4k");
+    let batch = decoder
+        .decode_frames_batch_full_res(&targets)
+        .expect("batch decode 4k");
     let elapsed = start.elapsed();
 
     eprintln!(
@@ -853,7 +991,9 @@ fn test_decode_4k_sustained_deep_zoom_memory_pressure() {
 
     for &base_ts in &regions {
         let targets: Vec<f64> = (0..12).map(|i| base_ts + (i as f64) * 0.1).collect();
-        let batch = decoder.decode_frames_batch_full_res(&targets).expect("batch decode region");
+        let batch = decoder
+            .decode_frames_batch_full_res(&targets)
+            .expect("batch decode region");
         assert_eq!(batch.frames.len(), 12);
         total_decoded += batch.frames.len();
     }
@@ -867,4 +1007,3 @@ fn test_decode_4k_sustained_deep_zoom_memory_pressure() {
     );
     assert_eq!(total_decoded, 48);
 }
-

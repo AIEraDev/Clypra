@@ -35,7 +35,9 @@ pub fn create_audio_ring_buffer(
     channels: u16,
 ) -> (AudioRingBufferProducer, AudioRingBufferConsumer) {
     let channels = channels.max(1);
-    let sample_capacity = frames_capacity.saturating_mul(usize::from(channels)).max(1024);
+    let sample_capacity = frames_capacity
+        .saturating_mul(usize::from(channels))
+        .max(1024);
     let (producer, consumer) = RingBuffer::new(sample_capacity);
 
     let underrun_flag = Arc::new(AtomicBool::new(false));
@@ -100,7 +102,8 @@ impl AudioRingBufferProducer {
         }
 
         let frames = written / usize::from(self.channels);
-        self.frames_written.fetch_add(frames as u64, Ordering::Release);
+        self.frames_written
+            .fetch_add(frames as u64, Ordering::Release);
         written
     }
 
@@ -189,7 +192,8 @@ impl AudioRingBufferConsumer {
         }
 
         let frames_read = samples_to_read / channels;
-        self.frames_read.fetch_add(frames_read as u64, Ordering::Relaxed);
+        self.frames_read
+            .fetch_add(frames_read as u64, Ordering::Relaxed);
         (requested_frames, has_audio)
     }
 

@@ -204,7 +204,6 @@ impl Nv12TextureRingBuffer {
         self.write_index = (self.write_index + 1) % self.capacity;
     }
 
-
     /// Retrieves the active pre-baked BindGroup for immediate O(1) rendering.
     #[inline(always)]
     pub fn active_bind_group(&self) -> &wgpu::BindGroup {
@@ -264,12 +263,7 @@ impl Nv12TextureRingBuffer {
         self.slots.clear();
         for _ in 0..self.capacity {
             self.slots.push(Self::create_slot(
-                device,
-                layout,
-                sampler_y,
-                sampler_uv,
-                width,
-                height,
+                device, layout, sampler_y, sampler_uv, width, height,
             ));
         }
     }
@@ -448,13 +442,7 @@ mod tests {
                 let capacity = 4usize;
 
                 let mut ring = Nv12TextureRingBuffer::new(
-                    &device,
-                    &layout,
-                    &sampler,
-                    &sampler,
-                    width,
-                    height,
-                    capacity,
+                    &device, &layout, &sampler, &sampler, width, height, capacity,
                 );
 
                 assert_eq!(ring.capacity(), 4);
@@ -511,15 +499,8 @@ mod tests {
                 let layout = create_nv12_bind_group_layout(&device);
                 let sampler = create_nv12_sampler(&device);
 
-                let mut ring = Nv12TextureRingBuffer::new(
-                    &device,
-                    &layout,
-                    &sampler,
-                    &sampler,
-                    64,
-                    64,
-                    3,
-                );
+                let mut ring =
+                    Nv12TextureRingBuffer::new(&device, &layout, &sampler, &sampler, 64, 64, 3);
 
                 assert_eq!(ring.width, 64);
                 assert_eq!(ring.height, 64);
@@ -563,13 +544,7 @@ mod tests {
                 let height = 64u32;
 
                 let mut ring = Nv12TextureRingBuffer::new(
-                    &device,
-                    &layout,
-                    &sampler,
-                    &sampler,
-                    width,
-                    height,
-                    4,
+                    &device, &layout, &sampler, &sampler, width, height, 4,
                 );
 
                 let target_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -586,7 +561,8 @@ mod tests {
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 });
-                let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let target_view =
+                    target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
                 let y_frame = vec![128u8; (width * height) as usize];
                 let uv_frame = vec![128u8; (width * height / 2) as usize];
@@ -632,15 +608,8 @@ mod tests {
                 let odd_resolutions = [(854u32, 480u32), (720, 1280), (1080, 1920)];
 
                 for (w, h) in odd_resolutions {
-                    let mut ring = Nv12TextureRingBuffer::new(
-                        &device,
-                        &layout,
-                        &sampler,
-                        &sampler,
-                        w,
-                        h,
-                        2,
-                    );
+                    let mut ring =
+                        Nv12TextureRingBuffer::new(&device, &layout, &sampler, &sampler, w, h, 2);
 
                     let uv_w = (w + 1) / 2;
                     let uv_h = (h + 1) / 2;
@@ -655,4 +624,3 @@ mod tests {
         }
     }
 }
-
