@@ -43,4 +43,25 @@ describe("track property history actions", () => {
     expect(useTimelineStore.getState().tracks[0].solo).toBe(false);
     expect(useHistoryStore.getState().state.canUndo).toBe(false);
   });
+
+  it("keeps rapid visibility changes reversible one command at a time", () => {
+    toggleTrackPropertyWithHistory("audio-1", "visible");
+    toggleTrackPropertyWithHistory("audio-1", "visible");
+    toggleTrackPropertyWithHistory("audio-1", "visible");
+    expect(useTimelineStore.getState().tracks[0].visible).toBe(false);
+
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().tracks[0].visible).toBe(true);
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().tracks[0].visible).toBe(false);
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().tracks[0].visible).toBe(true);
+
+    useHistoryStore.getState().redo();
+    expect(useTimelineStore.getState().tracks[0].visible).toBe(false);
+    useHistoryStore.getState().redo();
+    expect(useTimelineStore.getState().tracks[0].visible).toBe(true);
+    useHistoryStore.getState().redo();
+    expect(useTimelineStore.getState().tracks[0].visible).toBe(false);
+  });
 });
