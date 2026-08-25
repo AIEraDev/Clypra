@@ -75,17 +75,11 @@ export const CLYPRA_THEME_SOURCE_ALIASES = {
   "--color-danger": "--clypra-theme-danger",
 } as const;
 
-/** Legacy clip variables intentionally resolve to the deterministic recipe. */
+/** Legacy clip names resolve to the active canonical clip palette. */
 export const CLYPRA_LEGACY_COLOR_ALIASES = {
   "--color-video-clip": "var(--clypra-clip-video-bg)",
   "--color-audio-clip": "var(--clypra-clip-audio-bg)",
   "--color-text-clip": "var(--clypra-clip-text-bg)",
-  // Note: --color-timeline-clip-* are NOT aliased here. applyTheme writes the
-  // canonical --clypra-clip-*-bg from the theme's --color-timeline-clip-*
-  // values before this alias pass runs, so overwriting them would undo the
-  // per-theme colour and replace it with the fixed HSL fallback in index.css.
-  "--color-timeline-text-clip-bg": "var(--clypra-clip-text-bg)",
-  "--color-timeline-clip-invalid": "var(--clypra-status-error)",
 } as const;
 
 /** shadcn compatibility names are aliases into the same semantic roles. */

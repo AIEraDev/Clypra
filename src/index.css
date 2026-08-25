@@ -69,12 +69,43 @@
   --color-clypra-clip-compound: var(--clypra-clip-compound-bg);
   --color-clypra-clip-sticker: var(--clypra-clip-sticker-bg);
   --color-clypra-clip-fg: var(--clypra-clip-fg);
+  --color-clypra-clip-muted-fg: var(--clypra-clip-muted-fg);
   --color-white: var(--clypra-text-primary);
   --color-black: var(--clypra-surface-app);
   --color-timeline-clip-video: var(--clypra-clip-video-bg);
   --color-timeline-clip-audio: var(--clypra-clip-audio-bg);
   --color-timeline-clip-image: var(--clypra-clip-image-bg);
   --color-timeline-clip-text: var(--clypra-clip-text-bg);
+  --color-timeline-clip-caption: var(--clypra-clip-caption-bg);
+  --color-timeline-clip-title: var(--clypra-clip-title-bg);
+  --color-timeline-clip-effect: var(--clypra-clip-effect-bg);
+  --color-timeline-clip-compound: var(--clypra-clip-compound-bg);
+  --color-timeline-clip-sticker: var(--clypra-clip-sticker-bg);
+  --color-timeline-clip-fg: var(--clypra-clip-fg);
+  --color-timeline-clip-muted-fg: var(--clypra-clip-muted-fg);
+  --color-timeline-clip-audio-wave: var(--clypra-clip-audio-wave);
+  --color-timeline-clip-duration: var(--clypra-clip-duration);
+  --color-timeline-filmstrip-bg: var(--clypra-clip-filmstrip-bg);
+  --color-timeline-filmstrip-empty: var(--clypra-clip-filmstrip-empty);
+  --color-timeline-filmstrip-border: var(--clypra-clip-filmstrip-border);
+  --color-clypra-clip-overlay: var(--clypra-clip-overlay);
+  --color-clypra-clip-overlay-soft: var(--clypra-clip-overlay-soft);
+  --color-clypra-clip-badge-bg: var(--clypra-clip-badge-bg);
+  --color-clypra-clip-metadata-bg: var(--clypra-clip-metadata-bg);
+  --color-clypra-clip-metadata-border: var(--clypra-clip-metadata-border);
+  --color-clypra-clip-waveform-bg: var(--clypra-clip-waveform-bg);
+  --color-clypra-clip-waveform-border: var(--clypra-clip-waveform-border);
+  --color-clypra-clip-fade-handle-bg: var(--clypra-clip-control-bg);
+  --color-clypra-clip-fade-handle-border: var(--clypra-clip-control-border);
+  --color-clypra-clip-fade-handle-shadow: var(--clypra-clip-control-shadow);
+  --color-clypra-clip-keyframe-bg: var(--clypra-clip-keyframe-bg);
+  --color-clypra-clip-keyframe-border: var(--clypra-clip-keyframe-border);
+  --color-clypra-clip-keyframe-shadow: var(--clypra-clip-keyframe-shadow);
+  --color-clypra-clip-volume-line: var(--clypra-clip-volume-line);
+  --color-clypra-clip-volume-shadow: var(--clypra-clip-volume-shadow);
+  --color-clypra-clip-tooltip-bg: var(--clypra-clip-tooltip-bg);
+  --color-clypra-clip-tooltip-border: var(--clypra-clip-tooltip-border);
+  --color-clypra-clip-tooltip-text: var(--clypra-clip-tooltip-text);
 
   /* Compatibility bridge for legacy utility names. These aliases keep older
      components inside the same semantic palette while they are migrated to
@@ -202,30 +233,8 @@ body,
   --clypra-editor-drop: var(--clypra-theme-accent);
   --clypra-accent-glow: color-mix(in srgb, var(--clypra-theme-accent) 28%, transparent);
 
-  /* Deterministic clip recipe. Each family gets a stable hue; all base
-     backgrounds share the same saturation/lightness so adjacent clips stay
-     distinguishable without turning the timeline into a rainbow. */
-  --clypra-clip-saturation: 48%;
-  --clypra-clip-lightness: 34%;
-  --clypra-clip-video-hue: 196;
-  --clypra-clip-audio-hue: 158;
-  --clypra-clip-image-hue: 266;
-  --clypra-clip-text-hue: 28;
-  --clypra-clip-effect-hue: 286;
-  --clypra-clip-compound-hue: 222;
-  --clypra-clip-sticker-hue: 42;
-  --clypra-clip-video-bg: hsl(var(--clypra-clip-video-hue) var(--clypra-clip-saturation) var(--clypra-clip-lightness));
-  --clypra-clip-audio-bg: hsl(var(--clypra-clip-audio-hue) var(--clypra-clip-saturation) var(--clypra-clip-lightness));
-  --clypra-clip-image-bg: hsl(var(--clypra-clip-image-hue) var(--clypra-clip-saturation) var(--clypra-clip-lightness));
-  --clypra-clip-text-bg: hsl(var(--clypra-clip-text-hue) var(--clypra-clip-saturation) var(--clypra-clip-lightness));
-  --clypra-clip-caption-bg: hsl(var(--clypra-clip-effect-hue) 42% 38%);
-  --clypra-clip-title-bg: hsl(var(--clypra-clip-sticker-hue) 48% 36%);
-  --clypra-clip-effect-bg: hsl(var(--clypra-clip-effect-hue) 42% 30%);
-  --clypra-clip-compound-bg: hsl(var(--clypra-clip-compound-hue) 44% 36%);
-  --clypra-clip-sticker-bg: hsl(var(--clypra-clip-sticker-hue) 48% 36%);
-  --clypra-clip-fg: hsl(190 24% 96%);
-  --clypra-clip-muted-fg: hsl(190 18% 82%);
-  --clypra-clip-audio-wave: hsl(154 46% 84%);
+  /* Clip roles are injected by applyTheme from CLIP_PALETTES. This file
+     contains only semantic pointers; it never owns a clip color value. */
 }
 body {
   margin: 0;
@@ -686,9 +695,15 @@ input[type="range"]:focus-visible {
     border-color: color-mix(in srgb, currentColor 32%, transparent);
   }
 
-  .clip-kind-video { background: var(--clypra-clip-video-bg); }
+  .clip-kind-video {
+    background: var(--clypra-clip-video-bg);
+    border-color: var(--clypra-clip-video-border);
+  }
   .clip-kind-image { background: var(--clypra-clip-image-bg); }
-  .clip-kind-audio { background: var(--clypra-clip-audio-bg); }
+  .clip-kind-audio {
+    background: var(--clypra-clip-audio-bg);
+    border-color: var(--clypra-clip-audio-border);
+  }
   .clip-kind-text { background: var(--clypra-clip-text-bg); }
   .clip-kind-caption { background: var(--clypra-clip-caption-bg); }
   .clip-kind-title { background: var(--clypra-clip-title-bg); }

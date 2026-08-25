@@ -91,7 +91,7 @@ export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
     displayName: "Video",
   },
   audio: {
-    height: 52,
+    height: 70,
     placement: "below-video",
     reuseStrategy: "per-clip",
     autoPrune: true,
@@ -187,10 +187,7 @@ export function getTrackVisualSpec(
   return {
     role: track.type,
     label: labels[track.type],
-    height:
-      track.type === "audio"
-        ? Math.round(TRACK_TYPE_CONFIG.video.height * 0.5)
-        : config.height,
+    height: config.height,
     opacity: track.type === "audio" ? 0.6 : 0.8,
     tone: track.type === "audio" ? "audio" : "auxiliary",
   };
