@@ -185,6 +185,7 @@ pub fn run() {
             clear_thumbnail_cache,
             extract_poster_frame_command,
             get_media_metadata,
+            decode_image_rgba,
             get_video_render_metadata,
             #[allow(deprecated)]
             get_video_metadata,

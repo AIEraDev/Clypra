@@ -53,6 +53,39 @@ pub async fn get_media_metadata(path: String) -> Result<MediaMetadata, String> {
     result
 }
 
+/// Decode a still image into an exact-size RGBA8 buffer for the native
+/// compositor. This is intentionally separate from the video frame decoder:
+/// image layers must preserve alpha and must not be aspect-fit into a smaller
+/// buffer than the layer contract declares.
+#[tauri::command]
+pub async fn decode_image_rgba(
+    path: String,
+    width: u32,
+    height: u32,
+) -> Result<tauri::ipc::Response, String> {
+    if width == 0 || height == 0 || width > 8192 || height > 8192 {
+        return Err("Still image decode dimensions are outside the native limit".to_string());
+    }
+
+    let rgba =
+        tauri::async_runtime::spawn_blocking(move || decode_image_rgba_bytes(&path, width, height))
+            .await
+            .map_err(|error| format!("Still image decode task failed: {}", error))??;
+    Ok(tauri::ipc::Response::new(rgba))
+}
+
+fn decode_image_rgba_bytes(path: &str, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let image = image::open(path)
+        .map_err(|error| format!("Failed to decode still image {}: {}", path, error))?
+        .to_rgba8();
+    let resized = if image.width() == width && image.height() == height {
+        image
+    } else {
+        image::imageops::resize(&image, width, height, image::imageops::FilterType::Lanczos3)
+    };
+    Ok(resized.into_raw())
+}
+
 /// Return the complete native stream contract used by deterministic preview
 /// rendering. This intentionally remains separate from the legacy UI metadata
 /// response so color and timestamp fields are not discarded.
@@ -674,4 +707,25 @@ fn compute_waveform_buckets(samples: &[f32], num_buckets: usize) -> Vec<Waveform
             WaveformBucket { peak, rms }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_image_rgba_bytes;
+
+    #[test]
+    fn native_still_image_decode_preserves_alpha_and_exact_dimensions() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/clypra.png");
+        let rgba = decode_image_rgba_bytes(
+            fixture
+                .to_str()
+                .expect("repository fixture path should be valid UTF-8"),
+            37,
+            23,
+        )
+        .expect("RGBA PNG should decode natively");
+
+        assert_eq!(rgba.len(), 37 * 23 * 4);
+        assert!(rgba.chunks_exact(4).any(|pixel| pixel[3] < 255));
+    }
 }
