@@ -142,11 +142,11 @@ const ClipInner: React.FC<ClipProps> = ({
     trackVisualRole === "a-roll"
       ? "border-accent/70"
       : trackVisualRole === "b-roll"
-        ? "border-accent/30 saturate-75"
+        ? "border-accent/30"
         : trackVisualRole === "audio"
-          ? "border-border/70 saturate-50"
+          ? "border-border/70"
           : trackVisualRole
-            ? "border-accent/25 saturate-75"
+            ? "border-accent/25"
             : "";
   // Trim handles are a selection affordance, not a hover affordance. Keep
   // both handles on the exact same visibility rule so an unselected clip has

@@ -61,10 +61,7 @@ export interface TrackTypeConfig {
 /** Visual role used by the timeline UI. This is intentionally separate from
  * TrackType because video tracks can be either the primary A-roll or a
  * secondary B-roll track. */
-export type TrackVisualRole =
-  | "a-roll"
-  | "b-roll"
-  | Exclude<TrackType, "video">;
+export type TrackVisualRole = "a-roll" | "b-roll" | Exclude<TrackType, "video">;
 
 export interface TrackVisualSpec {
   role: TrackVisualRole;
@@ -153,7 +150,8 @@ export function getTrackVisualSpec(
 ): TrackVisualSpec {
   if (track.type === "video") {
     const configuredPrimaryIsVideo = tracks.some(
-      (candidate) => candidate.id === mainVideoTrackId && candidate.type === "video",
+      (candidate) =>
+        candidate.id === mainVideoTrackId && candidate.type === "video",
     );
     const primaryVideoId = configuredPrimaryIsVideo
       ? mainVideoTrackId
@@ -166,9 +164,11 @@ export function getTrackVisualSpec(
       // Keep the main A-roll readable while keeping secondary video rows compact.
       // ClipFilmstrip derives its canvas height from this row height.
       height: isARoll
-        ? TRACK_TYPE_CONFIG.video.primaryHeight ?? TRACK_TYPE_CONFIG.video.height
-        : TRACK_TYPE_CONFIG.video.secondaryHeight ?? TRACK_TYPE_CONFIG.video.height,
-      opacity: isARoll ? 1 : 0.8,
+        ? (TRACK_TYPE_CONFIG.video.primaryHeight ??
+          TRACK_TYPE_CONFIG.video.height)
+        : (TRACK_TYPE_CONFIG.video.secondaryHeight ??
+          TRACK_TYPE_CONFIG.video.height),
+      opacity: 1,
       tone: isARoll ? "primary" : "secondary",
     };
   }
@@ -188,7 +188,7 @@ export function getTrackVisualSpec(
     role: track.type,
     label: labels[track.type],
     height: config.height,
-    opacity: track.type === "audio" ? 0.6 : 0.8,
+    opacity: 1,
     tone: track.type === "audio" ? "audio" : "auxiliary",
   };
 }
@@ -288,9 +288,13 @@ export function getMainVideoTrackIndex(
   mainVideoTrackId?: string | null,
 ): number {
   const configuredIndex = mainVideoTrackId
-    ? tracks.findIndex((track) => track.id === mainVideoTrackId && track.type === "video")
+    ? tracks.findIndex(
+        (track) => track.id === mainVideoTrackId && track.type === "video",
+      )
     : -1;
-  return configuredIndex >= 0 ? configuredIndex : tracks.findIndex((track) => track.type === "video");
+  return configuredIndex >= 0
+    ? configuredIndex
+    : tracks.findIndex((track) => track.type === "video");
 }
 
 /** Returns true when a track is below the main video row. */
@@ -327,10 +331,9 @@ export function getSafeTrackInsertionIndex(
  * found below the main video row are moved immediately above it, preserving
  * their relative order. Callers can persist the normalized result normally.
  */
-export function normalizeTrackOrderForMainVideo<T extends Pick<Track, "id" | "type">>(
-  tracks: T[],
-  mainVideoTrackId?: string | null,
-): T[] {
+export function normalizeTrackOrderForMainVideo<
+  T extends Pick<Track, "id" | "type">,
+>(tracks: T[], mainVideoTrackId?: string | null): T[] {
   const mainIndex = getMainVideoTrackIndex(tracks, mainVideoTrackId);
   if (mainIndex < 0) return tracks;
 
@@ -340,5 +343,10 @@ export function normalizeTrackOrderForMainVideo<T extends Pick<Track, "id" | "ty
   const nonAudioBelow = below.filter((track) => track.type !== "audio");
   if (nonAudioBelow.length === 0) return tracks;
 
-  return [...above, ...nonAudioBelow, mainTrack, ...below.filter((track) => track.type === "audio")];
+  return [
+    ...above,
+    ...nonAudioBelow,
+    mainTrack,
+    ...below.filter((track) => track.type === "audio"),
+  ];
 }
