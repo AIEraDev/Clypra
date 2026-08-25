@@ -124,7 +124,7 @@ export const GapIndicator: React.FC<GapIndicatorProps> = ({ gap, pixelsPerSecond
           className={`
             w-full h-full
             border border-dashed
-            ${selected ? "bg-accent/20 border-accent" : isHovered ? "bg-slate-700/40 border-slate-500" : "bg-slate-800/30 border-slate-600"}
+            ${selected ? "bg-accent/20 border-accent" : isHovered ? "bg-surface-hover/40 border-border-soft" : "bg-surface-app/30 border-border"}
           `}
           style={{
             backgroundImage:

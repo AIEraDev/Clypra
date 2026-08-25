@@ -98,7 +98,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
       />
       <span
         data-testid={`track-${track.id}-visual-role`}
-        className={`pointer-events-none inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${visualSpec.tone === "primary" ? "text-accent" : visualSpec.tone === "secondary" ? "text-accent/70" : visualSpec.tone === "audio" ? "text-text-muted" : "text-violet-300/75"}`}
+        className={`pointer-events-none inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${visualSpec.tone === "primary" ? "text-accent" : visualSpec.tone === "secondary" ? "text-accent/70" : visualSpec.tone === "audio" ? "text-text-muted" : "text-accent-soft/75"}`}
         aria-label={visualSpec.label}
         title={visualSpec.label}
       >

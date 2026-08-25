@@ -666,7 +666,11 @@ const ClipInner: React.FC<ClipProps> = ({
       return "clip-kind-effect";
     if (isSticker) return "clip-kind-sticker";
     if (isClipText) {
-      return isCaption ? "clip-kind-caption" : isTitle ? "clip-kind-title" : "clip-kind-text";
+      return isCaption
+        ? "clip-kind-caption"
+        : isTitle
+          ? "clip-kind-title"
+          : "clip-kind-text";
     }
     if (isClipAudio) return "clip-kind-audio";
     if (isClipVideo) return "clip-kind-video";
@@ -695,7 +699,7 @@ const ClipInner: React.FC<ClipProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       onContextMenu={handleContextMenu}
-      className={`absolute rounded-[1px] h-full overflow-hidden border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${active ? "ring-1 ring-inset ring-accent/70" : ""} ${isResizing ? (isRippleResize ? "ring-2 ring-status-warning" : "ring-2 ring-accent") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
+      className={`absolute rounded-[1px] h-full overflow-hidden border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
