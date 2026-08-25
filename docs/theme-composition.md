@@ -18,7 +18,7 @@ every palette must provide exactly the roles listed by
 `CLIP_PALETTE_TOKEN_KEYS`.
 
 The roles cover media bodies, media edges and text, filmstrip and waveform
-visuals, translucent envelope fills and smooth envelope lines, keyframes,
+visuals, near-opaque envelope fills and smooth envelope lines, keyframes,
 tooltips, drag previews, metadata, and invalid-position borders.
 
 The waveform remains a source-amplitude visualization while fades are edited;

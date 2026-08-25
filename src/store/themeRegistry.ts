@@ -666,7 +666,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#f7e7df",
     "--color-timeline-clip-muted-fg": "#b8d2da",
     "--color-timeline-clip-audio-wave": "#b8d2da",
-    "--color-timeline-clip-envelope-fill": "rgba(14, 39, 48, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(14, 39, 48, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(184, 210, 218, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -711,7 +711,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#dde6ff",
     "--color-timeline-clip-muted-fg": "#b9c8e6",
     "--color-timeline-clip-audio-wave": "#b9c8e6",
-    "--color-timeline-clip-envelope-fill": "rgba(16, 21, 37, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(16, 21, 37, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(185, 200, 230, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -756,7 +756,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#d0e8ff",
     "--color-timeline-clip-muted-fg": "#b0d8f0",
     "--color-timeline-clip-audio-wave": "#b0d8f0",
-    "--color-timeline-clip-envelope-fill": "rgba(12, 26, 40, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(12, 26, 40, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(176, 216, 240, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -801,7 +801,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#d8edd9",
     "--color-timeline-clip-muted-fg": "#b8ddb9",
     "--color-timeline-clip-audio-wave": "#b8ddb9",
-    "--color-timeline-clip-envelope-fill": "rgba(17, 26, 20, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(17, 26, 20, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(184, 221, 185, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -846,7 +846,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#dce8ed",
     "--color-timeline-clip-muted-fg": "#c0d5de",
     "--color-timeline-clip-audio-wave": "#c0d5de",
-    "--color-timeline-clip-envelope-fill": "rgba(32, 41, 49, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(32, 41, 49, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(192, 213, 222, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -891,7 +891,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#ebe4da",
     "--color-timeline-clip-muted-fg": "#d9cbb9",
     "--color-timeline-clip-audio-wave": "#d9cbb9",
-    "--color-timeline-clip-envelope-fill": "rgba(35, 29, 24, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(35, 29, 24, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(217, 203, 185, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -936,7 +936,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#dae8dd",
     "--color-timeline-clip-muted-fg": "#bed5c5",
     "--color-timeline-clip-audio-wave": "#bed5c5",
-    "--color-timeline-clip-envelope-fill": "rgba(28, 36, 30, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(28, 36, 30, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(190, 213, 197, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -981,7 +981,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#dde7eb",
     "--color-timeline-clip-muted-fg": "#c2d4db",
     "--color-timeline-clip-audio-wave": "#c2d4db",
-    "--color-timeline-clip-envelope-fill": "rgba(34, 38, 42, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(34, 38, 42, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(194, 212, 219, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -1026,7 +1026,7 @@ export const CLIP_PALETTES: Record<ClipPalette, ClipPaletteTokens> = {
     "--color-timeline-clip-fg": "#eedde3",
     "--color-timeline-clip-muted-fg": "#dcc3cd",
     "--color-timeline-clip-audio-wave": "#dcc3cd",
-    "--color-timeline-clip-envelope-fill": "rgba(35, 28, 32, 0.48)",
+    "--color-timeline-clip-envelope-fill": "rgba(35, 28, 32, 0.95)",
     "--color-timeline-clip-envelope-line": "rgba(220, 195, 205, 0.72)",
     "--color-timeline-filmstrip-overlay": "rgba(0, 0, 0, 0.10)",
     "--color-timeline-filmstrip-overlay-soft": "rgba(0, 0, 0, 0.08)",
@@ -1240,7 +1240,10 @@ export function applyTheme(
     ["--color-timeline-filmstrip-empty", "--clypra-clip-filmstrip-empty"],
     ["--color-timeline-filmstrip-border", "--clypra-clip-filmstrip-border"],
     ["--color-timeline-filmstrip-overlay", "--clypra-clip-filmstrip-overlay"],
-    ["--color-timeline-filmstrip-overlay-soft", "--clypra-clip-filmstrip-overlay-soft"],
+    [
+      "--color-timeline-filmstrip-overlay-soft",
+      "--clypra-clip-filmstrip-overlay-soft",
+    ],
     ["--color-timeline-clip-badge-bg", "--clypra-clip-badge-bg"],
     ["--color-timeline-clip-metadata-bg", "--clypra-clip-metadata-bg"],
     ["--color-timeline-clip-metadata-border", "--clypra-clip-metadata-border"],
@@ -1267,7 +1270,9 @@ export function applyTheme(
 
   // Remove any source-token styles left by an older runtime so there can
   // never be two live values for the same clip role.
-  CLIP_PALETTE_TOKEN_KEYS.forEach((property) => root.style.removeProperty(property));
+  CLIP_PALETTE_TOKEN_KEYS.forEach((property) =>
+    root.style.removeProperty(property),
+  );
 
   // Keep legacy names available to older consumers (read-only aliases that
   // point back to the canonical vars so they stay in sync with the theme).
@@ -1292,4 +1297,3 @@ export function applyFontFamily(fontFamily: FontFamily) {
     rootEl.style.fontFamily = fontStack;
   }
 }
-

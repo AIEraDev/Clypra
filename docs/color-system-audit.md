@@ -36,7 +36,10 @@ the corresponding `CLIP_PALETTES` blocks.
 
 `applyTheme` maps the source names in `CLIP_PALETTE_TOKEN_KEYS` to canonical
 variables such as `--clypra-clip-video-bg`, `--clypra-clip-audio-wave`,
-`--clypra-clip-envelope-line`, and `--clypra-clip-tooltip-text`.
+`--clypra-clip-envelope-fill`, `--clypra-clip-envelope-line`, and
+`--clypra-clip-tooltip-text`. Envelope fill opacity is configured per clip
+palette and should remain near-opaque so the outside-of-curve overlay clearly
+separates the fade region from the waveform.
 
 DOM code uses those variables through semantic Tailwind aliases or inline
 `var(--clypra-clip-...)` styles. Canvas code reads the same variables from
