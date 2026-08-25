@@ -67,6 +67,7 @@
   --color-clypra-clip-effect: var(--clypra-clip-effect-bg);
   --color-clypra-clip-compound: var(--clypra-clip-compound-bg);
   --color-clypra-clip-sticker: var(--clypra-clip-sticker-bg);
+  --color-clypra-clip-fg: var(--clypra-clip-fg);
 }
 html,
 body,
@@ -126,6 +127,7 @@ body,
   --clypra-editor-selection: var(--color-accent, #5ab8d4);
   --clypra-editor-snap: #67c9a1;
   --clypra-editor-drop: var(--color-accent, #5ab8d4);
+  --clypra-accent-glow: color-mix(in srgb, var(--color-accent) 28%, transparent);
 
   /* Clip families share a dark tonal range; identity comes from controlled
      hue shifts, while selection is handled globally by the editor accent. */
