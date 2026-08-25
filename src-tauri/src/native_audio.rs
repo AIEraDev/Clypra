@@ -247,6 +247,68 @@ impl NativeAudioMixer {
         self.clips.clear();
     }
 
+    /// Replace the complete graph only after every clip has been decoded and
+    /// validated. The callback therefore observes either the previous healthy
+    /// graph or this complete candidate, never an empty/partial graph.
+    pub fn replace_clips(&mut self, clips: Vec<NativePcmClip>) -> Result<(), String> {
+        if clips.len() > MAX_ACTIVE_CLIPS {
+            return Err(format!(
+                "Native audio mixer supports at most {MAX_ACTIVE_CLIPS} active clips"
+            ));
+        }
+        let total_bytes = clips
+            .iter()
+            .map(|clip| {
+                clip.samples
+                    .len()
+                    .saturating_mul(std::mem::size_of::<f32>())
+            })
+            .sum::<usize>();
+        if total_bytes > MAX_MIXER_PCM_BYTES {
+            return Err(format!(
+                "Native audio mixer exceeds the {} MiB PCM budget",
+                MAX_MIXER_PCM_BYTES / 1024 / 1024
+            ));
+        }
+        self.clips = clips;
+        Ok(())
+    }
+
+    pub fn update_clip_parameters(
+        &mut self,
+        clip_id: &str,
+        gain: f32,
+        pan: f32,
+        fade_in_ticks: i64,
+        fade_out_ticks: i64,
+        fade_in_curve: String,
+        fade_out_curve: String,
+        volume_keyframes: Vec<NativeAudioKeyframe>,
+    ) -> Result<NativeAudioClipStatus, String> {
+        let clip = self
+            .clips
+            .iter_mut()
+            .find(|clip| clip.id == clip_id)
+            .ok_or_else(|| format!("Native audio clip '{clip_id}' is not installed"))?;
+        clip.gain = if gain.is_finite() {
+            gain.clamp(0.0, 4.0)
+        } else {
+            0.0
+        };
+        clip.pan = if pan.is_finite() {
+            pan.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        clip.fade_in_ticks = fade_in_ticks.max(0);
+        clip.fade_out_ticks = fade_out_ticks.max(0);
+        clip.fade_in_curve = fade_in_curve;
+        clip.fade_out_curve = fade_out_curve;
+        clip.volume_keyframes = volume_keyframes;
+        clip.volume_keyframes.sort_by_key(|point| point.time);
+        Ok(clip.status())
+    }
+
     pub fn clip_status(&self) -> Option<NativeAudioClipStatus> {
         self.clips.first().map(NativePcmClip::status)
     }
@@ -967,6 +1029,41 @@ impl NativeAudioClock {
         }
     }
 
+    pub fn replace_clips(&mut self, clips: Vec<NativePcmClip>) -> Result<(), String> {
+        self.inner
+            .mixer
+            .write()
+            .map_err(|_| "native audio mixer lock poisoned".to_string())?
+            .replace_clips(clips)
+    }
+
+    pub fn update_clip_parameters(
+        &mut self,
+        clip_id: &str,
+        gain: f32,
+        pan: f32,
+        fade_in_ticks: i64,
+        fade_out_ticks: i64,
+        fade_in_curve: String,
+        fade_out_curve: String,
+        volume_keyframes: Vec<NativeAudioKeyframe>,
+    ) -> Result<NativeAudioClipStatus, String> {
+        self.inner
+            .mixer
+            .write()
+            .map_err(|_| "native audio mixer lock poisoned".to_string())?
+            .update_clip_parameters(
+                clip_id,
+                gain,
+                pan,
+                fade_in_ticks,
+                fade_out_ticks,
+                fade_in_curve,
+                fade_out_curve,
+                volume_keyframes,
+            )
+    }
+
     pub fn clip_status(&self) -> Option<NativeAudioClipStatus> {
         self.inner
             .mixer
@@ -1642,5 +1739,101 @@ mod tests {
         mixer.mix_into(&mut replaced, 1, 1, 0, 1.0, 1.0);
         assert_eq!(replaced, [0.6]);
         assert_eq!(mixer.clip_statuses().len(), 2);
+    }
+
+    #[test]
+    fn mixer_updates_parameters_without_replacing_pcm() {
+        let samples: Arc<[f32]> = vec![1.0].into();
+        let original_samples = samples.clone();
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "editable".to_string(),
+                sample_rate: 1,
+                channels: 1,
+                samples,
+                timeline_start_ticks: 0,
+                duration_ticks: 1_000_000,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        mixer
+            .update_clip_parameters(
+                "editable",
+                0.25,
+                0.0,
+                0,
+                0,
+                "linear".to_string(),
+                "linear".to_string(),
+                Vec::new(),
+            )
+            .unwrap();
+
+        assert!(Arc::ptr_eq(&original_samples, &mixer.clips[0].samples));
+        let mut output = [0.0_f32; 1];
+        mixer.mix_into(&mut output, 1, 1, 0, 1.0, 1.0);
+        assert_eq!(output, [0.25]);
+    }
+
+    #[test]
+    fn failed_graph_replacement_keeps_the_previous_graph() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "healthy".to_string(),
+                sample_rate: 1,
+                channels: 1,
+                samples: vec![0.75].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: 1_000_000,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let oversized = (0..=MAX_ACTIVE_CLIPS)
+            .map(|index| NativePcmClip {
+                id: format!("candidate-{index}"),
+                sample_rate: 1,
+                channels: 1,
+                samples: vec![0.1].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: 1_000_000,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .collect();
+        assert!(mixer.replace_clips(oversized).is_err());
+        assert_eq!(mixer.clip_statuses()[0].id, "healthy");
     }
 }

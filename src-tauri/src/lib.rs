@@ -240,6 +240,8 @@ pub fn run() {
             set_native_audio_output,
             seek_native_audio,
             load_native_audio_clip,
+            replace_native_audio_clips,
+            update_native_audio_clip_parameters,
             clear_native_audio_clip,
             get_native_audio_clip,
             get_native_audio_clips,
