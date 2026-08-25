@@ -567,6 +567,44 @@ export async function loadNativeAudioClip(options: {
   });
 }
 
+export async function replaceNativeAudioClips(options: Array<Parameters<typeof loadNativeAudioClip>[0]>): Promise<NativeAudioClipStatus[]> {
+  if (!isTauriRuntime()) throw new Error("replaceNativeAudioClips requires the Tauri runtime");
+  return invoke<NativeAudioClipStatus[]>("replace_native_audio_clips", {
+    clips: options.map((clip) => ({
+      path: toNativePath(clip.path),
+      clipId: clip.clipId,
+      timelineStartTicks: clip.timelineStartTicks,
+      sourceStartTicks: clip.sourceStartTicks ?? 0,
+      durationTicks: clip.durationTicks ?? 0,
+      gain: clip.gain ?? 1,
+      pan: clip.pan ?? 0,
+      fadeInTicks: clip.fadeInTicks ?? 0,
+      fadeOutTicks: clip.fadeOutTicks ?? 0,
+      fadeInCurve: clip.fadeInCurve ?? "linear",
+      fadeOutCurve: clip.fadeOutCurve ?? "linear",
+      volumeKeyframes: clip.volumeKeyframes ?? [],
+      channelMode: clip.channelMode ?? "auto",
+      downmix: clip.downmix ?? "auto",
+      channelMap: clip.channelMap ?? null,
+      preservePitch: clip.preservePitch ?? false,
+    })),
+  });
+}
+
+export async function updateNativeAudioClipParameters(options: {
+  clipId: string;
+  gain: number;
+  pan: number;
+  fadeInTicks: number;
+  fadeOutTicks: number;
+  fadeInCurve: AudioFadeCurve;
+  fadeOutCurve: AudioFadeCurve;
+  volumeKeyframes: Array<{ id: string; time: number; gain: number; easing?: "linear" | "exponential" | "bezier" }>;
+}): Promise<NativeAudioClipStatus> {
+  if (!isTauriRuntime()) throw new Error("updateNativeAudioClipParameters requires the Tauri runtime");
+  return invoke<NativeAudioClipStatus>("update_native_audio_clip_parameters", options);
+}
+
 export async function clearNativeAudioClip(): Promise<void> {
   if (!isTauriRuntime()) throw new Error("clearNativeAudioClip requires the Tauri runtime");
   await invoke("clear_native_audio_clip");

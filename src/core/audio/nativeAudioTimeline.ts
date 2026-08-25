@@ -1,9 +1,7 @@
 import type { AudioChannelMode, AudioDownmixMode, AudioFadeCurve, Clip, MediaAsset, Track } from "@/types";
 import { getActiveAudioClips, type ExportAudioClipConfig } from "@/core/timeline/audioClips";
 import {
-  clearNativeAudioClip,
-  getNativeAudioClips,
-  loadNativeAudioClip,
+  replaceNativeAudioClips,
   startNativeAudio,
 } from "@/lib/platform/tauri";
 import type { NativeAudioClipStatus } from "@/lib/platform/nativeCore";
@@ -74,9 +72,9 @@ export async function syncNativeAudioTimeline(
 ): Promise<NativeAudioTimelineSyncResult> {
   const snapshot = buildNativeAudioTimeline(clips, tracks, assets, startTime, endTime);
   await startNativeAudio();
-  await clearNativeAudioClip();
-  await Promise.all(snapshot.clips.map((clip) => loadNativeAudioClip(clip)));
-  const installed = await getNativeAudioClips();
+  // Native decodes the complete candidate before atomically replacing the
+  // current graph. This prevents clear-first gaps and stale partial installs.
+  const installed = await replaceNativeAudioClips(snapshot.clips);
   tracePlayback("native.timeline-ready", {
     clipCount: snapshot.clips.length,
     installedCount: installed.length,
