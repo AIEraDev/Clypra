@@ -132,3 +132,67 @@ cask "clypra" do
   ]
 end
 ```
+
+## 5. Session-Safe Deferred Updates
+
+Clypra uses a two-stage update lifecycle. Discovering or downloading an update
+must never interrupt an active editing session:
+
+```text
+available
+   │ user chooses Download update
+   ▼
+downloading ───────────────► downloaded
+                                  │
+                                  │ user chooses Restart and update
+                                  ▼
+                             applying
+                                  │
+                                  ├─ pause active transport
+                                  ├─ flush the current project state
+                                  ├─ verify the finalized project file
+                                  ├─ dispose the active runtime session
+                                  ├─ install the downloaded package
+                                  └─ relaunch Clypra
+```
+
+The downloaded package is held by the Tauri updater resource for the current
+process. If Clypra exits before the user applies it, the package is discarded
+and the next launch performs a safe update check again.
+
+### Save-before-update contract
+
+The update coordinator calls the project store's immediate save operation. This
+operation does not depend on the auto-save setting or on a pending debounce
+timer. It serializes the latest project, timeline, transitions, gaps, markers,
+and media assets, waits for the platform write to finish, and requires a
+verified save result.
+
+On desktop, `save_project` writes a temporary file, atomically replaces the
+project file, reads the finalized file back, and compares it with the payload.
+The update cannot proceed unless this verification succeeds. Save failures are
+reported to the user and leave the project/session open for retry.
+
+### Failure and retry behavior
+
+- Download failures keep the update available for retry and never relaunch.
+- Save failures block installation and preserve the downloaded update.
+- Installation failures keep the downloaded update available when the updater
+  resource remains valid.
+- Duplicate download/apply actions are ignored while an operation is active.
+- The startup banner and Settings use the same updater state, so they cannot
+  disagree about whether an update is downloading or ready to apply.
+
+### Release QA checklist
+
+- Discover an update while a project is open and actively playing; confirm
+  playback continues during download.
+- Download the update, continue editing, and confirm no relaunch occurs.
+- Apply it with auto-save disabled and with no pending auto-save timer; confirm
+  the latest project state is saved before installation.
+- Force a save failure; confirm installation and relaunch do not occur and the
+  project remains open.
+- Apply with no active project; confirm the update can install after explicit
+  confirmation.
+- Close the app before applying; reopen and confirm the update is checked again
+  without a false pending-download state.
