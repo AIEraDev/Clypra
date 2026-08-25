@@ -152,6 +152,7 @@ export interface ProjectPersistenceSnapshot {
   gaps: Gap[];
   markers: TimelineMarker[];
   timelineSchemaVersion: number;
+  epoch?: number;
   migrated: boolean;
   rustProject: RustProject;
 }
@@ -175,8 +176,8 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
   }
   const rust: any = {
     ...raw,
-    created_at: raw.created_at ?? raw.createdAt,
-    modified_at: raw.modified_at ?? raw.updatedAt,
+    created_at: raw.created_at ?? raw.createdAt ?? Date.now(),
+    modified_at: raw.modified_at ?? raw.updatedAt ?? raw.created_at ?? raw.createdAt ?? Date.now(),
     aspect_ratio: raw.aspect_ratio ?? raw.aspectRatio,
     canvas_width: raw.canvas_width ?? raw.canvasWidth,
     canvas_height: raw.canvas_height ?? raw.canvasHeight,
@@ -203,7 +204,7 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
   const gaps = (rust.gaps ?? []).map((gap: RustGap) => fromRustGap(gap));
   const markers = (rust.markers ?? []) as TimelineMarker[];
 
-  const ids = [...mediaAssets, ...tracks, ...clips, ...gaps, ...markers].map((item: any) => item?.id).filter(Boolean);
+  const ids = [...mediaAssets, ...tracks, ...clips, ...transitions, ...gaps, ...markers].map((item: any) => item?.id).filter(Boolean);
   if (new Set(ids).size !== ids.length) throw new Error("Project contains duplicate editable item IDs");
   const trackIds = new Set(tracks.map((track) => track.id));
   for (const clip of clips) {
