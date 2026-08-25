@@ -32,7 +32,14 @@ import { useProjectStore } from "./projectStore";
 import { clampTimelinePixelsPerSecond, clampTimelineZoom, TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "../lib/timeline/timelineZoom";
 import { getTimelineContentEnd, normalizeClipTiming } from "@/lib/timeline/timelineClip";
 import { autoSaveMiddleware, suppressAutoSave, enableAutoSave } from "./middleware/autoSaveMiddleware";
-import { TRACK_TYPE_CONFIG, shouldAutoPruneTrack, getTrackInsertionIndex, getTrackInsertionIndexGrouped } from "@/lib/timeline/trackTypeConfig";
+import {
+  TRACK_TYPE_CONFIG,
+  shouldAutoPruneTrack,
+  getTrackInsertionIndex,
+  getTrackInsertionIndexGrouped,
+  getSafeTrackInsertionIndex,
+  normalizeTrackOrderForMainVideo,
+} from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineStore {
   tracks: Track[];
@@ -42,7 +49,7 @@ interface TimelineStore {
   /**
    * First created video track - UI metadata only.
    * Used for: default drop target, visual highlighting, user expectations.
-   * NOT used for: enforcement, validation, or blocking operations.
+   * Used for: main-row identity and enforcing the visual track boundary.
    * The compositor resolves frames by time, not by track constraints.
    */
   mainVideoTrackId: string | null;
@@ -173,35 +180,41 @@ export function getInsertIndexForNewTrackSmart(
   context?: {
     newTrackPosition?: "above" | "below" | "between" | null;
     betweenTrackIds?: { aboveId: string; belowId: string };
+    mainVideoTrackId?: string | null;
   },
 ): number {
   // If no context, use legacy behavior
   if (!context || !context.newTrackPosition) {
-    return getInsertIndexForNewTrack(tracks, trackType);
+    return getSafeTrackInsertionIndex(
+      tracks,
+      trackType,
+      getInsertIndexForNewTrack(tracks, trackType),
+      context?.mainVideoTrackId,
+    );
   }
 
   const { newTrackPosition, betweenTrackIds } = context;
+  let proposedIndex = getInsertIndexForNewTrack(tracks, trackType);
 
   // Above all tracks
   if (newTrackPosition === "above") {
-    return 0;
+    proposedIndex = 0;
   }
 
   // Below all tracks
   if (newTrackPosition === "below") {
-    return tracks.length;
+    proposedIndex = tracks.length;
   }
 
   // Between specific tracks
   if (newTrackPosition === "between" && betweenTrackIds) {
     const belowIndex = tracks.findIndex((t) => t.id === betweenTrackIds.belowId);
     if (belowIndex >= 0) {
-      return belowIndex; // Insert at the position of the "below" track (pushing it down)
+      proposedIndex = belowIndex; // Insert at the position of the "below" track (pushing it down)
     }
   }
 
-  // Fallback to legacy behavior
-  return getInsertIndexForNewTrack(tracks, trackType);
+  return getSafeTrackInsertionIndex(tracks, trackType, proposedIndex, context.mainVideoTrackId);
 }
 
 export const useTimelineStore = create<TimelineStore>(
@@ -296,8 +309,9 @@ export const useTimelineStore = create<TimelineStore>(
           return normalizeClipTiming(clip, asset);
         });
 
-        //  fix: Reset mainVideoTrackId and re-derive from loaded tracks
+        // Reset mainVideoTrackId and re-derive from loaded tracks.
         const newMainVideoTrackId = finalTracks.find((t) => t.type === "video")?.id ?? null;
+        finalTracks = normalizeTrackOrderForMainVideo(finalTracks, newMainVideoTrackId);
 
         // Atomic state update - all or nothing
         set({
@@ -340,8 +354,11 @@ export const useTimelineStore = create<TimelineStore>(
         height: trackHeights[type],
       };
       set((state) => {
+        const insertIndex = getSafeTrackInsertionIndex(state.tracks, type, state.tracks.length, state.mainVideoTrackId);
+        const nextTracks = [...state.tracks];
+        nextTracks.splice(insertIndex, 0, newTrack);
         const next: Partial<TimelineStore> = {
-          tracks: [...state.tracks, newTrack],
+          tracks: nextTracks,
           mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
         };
         if (state._batchDepth > 0) {
@@ -365,7 +382,7 @@ export const useTimelineStore = create<TimelineStore>(
       };
       const id = newTrack.id;
       set((state) => {
-        const clamped = Math.max(0, Math.min(index, state.tracks.length));
+        const clamped = getSafeTrackInsertionIndex(state.tracks, type, index, state.mainVideoTrackId);
         const nextTracks = [...state.tracks];
         nextTracks.splice(clamped, 0, newTrack);
         const next: Partial<TimelineStore> = {
