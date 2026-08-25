@@ -38,6 +38,7 @@ import { useTimelineStore } from "../../store/timelineStore";
 import { PreviewPlaybackScheduler, type MediaAction, type MediaElementState } from "../playback/PreviewPlaybackScheduler";
 import { VideoTextureManager } from "../render/VideoTextureManager";
 import { ALL_TRANSITIONS } from "@clypra-studio/engine";
+import { getClipAudioProperties } from "@/types/audio";
 
 export interface PreviewSyncState {
   /** Current playback time (seconds) */
@@ -1866,11 +1867,12 @@ export class PreviewMediaPool {
     audio.volume = shouldMute ? 0 : Math.max(0, Math.min(1, combinedVolume));
     audio.playbackRate = syncState.speed;
 
+    const preservePitch = getClipAudioProperties(clip).speed.preservePitch;
     if ("preservesPitch" in audio) {
-      (audio as any).preservesPitch = true;
+      (audio as any).preservesPitch = preservePitch;
     }
     if ("webkitPreservesPitch" in audio) {
-      (audio as any).webkitPreservesPitch = true;
+      (audio as any).webkitPreservesPitch = preservePitch;
     }
 
     if (sourceTime === null) {

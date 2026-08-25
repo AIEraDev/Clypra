@@ -99,10 +99,10 @@ fn decode_with_ffmpeg_next(
         decoder.channel_layout()
     };
 
-    let target_channel_layout = if target_channels == 1 {
-        ffmpeg::channel_layout::ChannelLayout::MONO
-    } else {
-        ffmpeg::channel_layout::ChannelLayout::STEREO
+    let target_channel_layout = match target_channels {
+        1 => ffmpeg::channel_layout::ChannelLayout::MONO,
+        2 => ffmpeg::channel_layout::ChannelLayout::STEREO,
+        count => ffmpeg::channel_layout::ChannelLayout::default(i32::from(count)),
     };
 
     let mut resampler = ffmpeg::software::resampling::Context::get(

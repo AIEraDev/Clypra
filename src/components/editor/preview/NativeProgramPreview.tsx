@@ -139,9 +139,12 @@ export const NativeProgramPreview: React.FC = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(100);
 
-  // Browser audio uses Web Audio; Tauri program preview uses the native CPAL
-  // authority through the same transport hook.
-  useAudioSyncEngine({ volume, muted: isMuted, nativeMode: isTauriRuntime() });
+  // Native frame rendering and audio output are independent. Keep the native
+  // renderer in Tauri, but use the shared Web Audio timeline engine for
+  // audible preview until the CPAL path has positively produced samples. The
+  // previous native-only switch could leave every enabled track silent when a
+  // desktop output device accepted a stream but rendered no audio.
+  useAudioSyncEngine({ volume, muted: isMuted, nativeMode: false });
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [previewScaleMode, setPreviewScaleMode] = useState<"fit" | "fill">("fit");
   const [previewAspectPreset, setPreviewAspectPreset] = useState<AspectRatio>("original");
