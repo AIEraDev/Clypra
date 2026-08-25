@@ -40,6 +40,8 @@ export interface ClipAudioProperties {
   linkedClipId?: string;
   /** Timeline offset applied while the audio is temporarily unlinked. */
   linkOffsetSeconds?: number;
+  /** Source clip retained as provenance when this is extracted/detached audio. */
+  sourceClipId?: string;
   /** Static clip gain in decibels. 0 dB is unity. */
   gainDb: number;
   /** Stereo pan in the range -1 (left) to +1 (right). */
@@ -146,6 +148,7 @@ export function normalizeClipAudioProperties(fields: LegacyAudioClipFields): Cli
     linkState: supplied?.linkState ?? (fields.detachedFromClipId ? "detached" : "linked"),
     linkedClipId: supplied?.linkedClipId,
     linkOffsetSeconds: supplied?.linkOffsetSeconds,
+    sourceClipId: supplied?.sourceClipId ?? fields.detachedFromClipId,
     gainDb: supplied?.gainDb ?? linearGainToDb(legacyVolume),
     pan: clamp(supplied?.pan ?? fields.audioFX?.pan ?? 0, -1, 1),
     muted: supplied?.muted ?? legacyVolume <= 0,
@@ -173,4 +176,81 @@ export function normalizeClipAudioProperties(fields: LegacyAudioClipFields): Cli
 /** Returns the canonical model for a clip-shaped object. */
 export function getClipAudioProperties(fields: LegacyAudioClipFields): ClipAudioProperties {
   return normalizeClipAudioProperties(fields);
+}
+
+function isAudioCapableClip(fields: LegacyAudioClipFields): boolean {
+  return fields.kind === "audio" || fields.kind === "video" || fields.kind === "compound" || Boolean(fields.audioPath) || Boolean(fields.detachedFromClipId) || Boolean(fields.audio);
+}
+
+function mergeAudioProperties(
+  current: ClipAudioProperties,
+  patch: Partial<ClipAudioProperties>,
+): ClipAudioProperties {
+  return normalizeClipAudioProperties({
+    kind: "audio",
+    audio: {
+      ...current,
+      ...patch,
+      fadeIn: { ...current.fadeIn, ...patch.fadeIn },
+      fadeOut: { ...current.fadeOut, ...patch.fadeOut },
+      channelConfig: { ...current.channelConfig, ...patch.channelConfig },
+      speed: { ...current.speed, ...patch.speed },
+    },
+  });
+}
+
+/**
+ * Mirrors an audio edit into the structured model while runtime consumers still
+ * read the legacy top-level fields. Use it at every generic clip mutation
+ * boundary so timeline controls and the Audio Property panel cannot diverge.
+ */
+export function synchronizeClipAudioProperties<T extends LegacyAudioClipFields>(
+  clip: T,
+  updates: Omit<Partial<T>, "audio"> & { audio?: Partial<ClipAudioProperties> },
+): Omit<Partial<T>, "audio"> & { audio?: ClipAudioProperties } {
+  if (!isAudioCapableClip({ ...clip, ...updates })) return { ...updates, audio: undefined };
+
+  let audio = normalizeClipAudioProperties(clip);
+  if (updates.audio) audio = mergeAudioProperties(audio, updates.audio);
+
+  if (updates.volume !== undefined) {
+    audio = { ...audio, gainDb: linearGainToDb(updates.volume), muted: updates.volume <= 0 };
+  }
+  if (updates.fadeIn !== undefined) {
+    audio = { ...audio, fadeIn: { ...audio.fadeIn, duration: Math.max(0, updates.fadeIn) } };
+  }
+  if (updates.fadeOut !== undefined) {
+    audio = { ...audio, fadeOut: { ...audio.fadeOut, duration: Math.max(0, updates.fadeOut) } };
+  }
+  if (updates.fadeInCurve !== undefined) {
+    audio = { ...audio, fadeIn: { ...audio.fadeIn, curve: updates.fadeInCurve } };
+  }
+  if (updates.fadeOutCurve !== undefined) {
+    audio = { ...audio, fadeOut: { ...audio.fadeOut, curve: updates.fadeOutCurve } };
+  }
+  if (updates.volumeKeyframes !== undefined) {
+    audio = { ...audio, volumeKeyframes: [...updates.volumeKeyframes].sort((a, b) => a.time - b.time) };
+  }
+  if (updates.audioFX !== undefined) {
+    audio = {
+      ...audio,
+      effects: updates.audioFX,
+      pan: clamp(updates.audioFX?.pan ?? audio.pan, -1, 1),
+    };
+  }
+
+  const synchronized: Omit<Partial<T>, "audio"> & { audio?: ClipAudioProperties } = { ...updates, audio };
+  // A structured-only write must remain audible until every playback/export
+  // consumer has migrated to ClipAudioProperties.
+  if (updates.audio) {
+    synchronized.volume = audio.muted ? 0 : dbToLinearGain(audio.gainDb);
+    synchronized.fadeIn = audio.fadeIn.duration;
+    synchronized.fadeOut = audio.fadeOut.duration;
+    synchronized.fadeInCurve = audio.fadeIn.curve;
+    synchronized.fadeOutCurve = audio.fadeOut.curve;
+    synchronized.volumeKeyframes = audio.volumeKeyframes;
+    synchronized.audioFX = { ...(audio.effects ?? {}), pan: audio.pan };
+  }
+
+  return synchronized;
 }

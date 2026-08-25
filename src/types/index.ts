@@ -15,7 +15,7 @@ export type {
   AudioSpeedConfig,
   ClipAudioProperties,
 } from "./audio";
-export { AUDIO_MODEL_VERSION, dbToLinearGain, getClipAudioProperties, linearGainToDb, normalizeClipAudioProperties } from "./audio";
+export { AUDIO_MODEL_VERSION, dbToLinearGain, getClipAudioProperties, linearGainToDb, normalizeClipAudioProperties, synchronizeClipAudioProperties } from "./audio";
 
 /**
  * Maximum project name length.
@@ -146,6 +146,8 @@ export interface Track {
   height: number;
   /** Optional track volume multiplier (0.0 to 2.0, default 1.0) */
   volume?: number;
+  /** Solo silences all non-solo tracks without changing their mute state. */
+  solo?: boolean;
 }
 
 /** Audio/video stream metadata cached from the native media probe. */
