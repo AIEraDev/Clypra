@@ -118,7 +118,7 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
   }
 
   private projectEntryFromPayload(payload: any, path: string, backupAvailable: boolean): RecentProjectEntry {
-    const project = fromRustProject(payload);
+    const project = payload?.created_at !== undefined ? fromRustProject(payload) : payload;
     return {
       ...project,
       kind: "ready",
@@ -170,7 +170,12 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
   private saveToLocalStorage(payload: string, project: any): ProjectSaveResult {
     const previous = localStorage.getItem(`clypra_project_${project.id}`);
     const backupRotated = previous !== null;
-    if (previous !== null) localStorage.setItem(`clypra_project_${project.id}_bak`, previous);
+    if (previous !== null) {
+      localStorage.setItem(`clypra_project_${project.id}_bak`, previous);
+      if (localStorage.getItem(`clypra_project_${project.id}_bak`) !== previous) {
+        throw new Error("Backup verification failed in fallback storage");
+      }
+    }
     localStorage.setItem(`clypra_project_${project.id}`, payload);
     const receipt = this.localStorageReceipt(payload, project, backupRotated);
     const fallback = localStorage.getItem("clypra_recent_projects");
@@ -308,13 +313,25 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
         await Filesystem.writeFile({ path: `${backupPath}.tmp`, directory: Directory.Data, data: previous, encoding: Encoding.UTF8 });
         const backupCheck = await Filesystem.readFile({ path: `${backupPath}.tmp`, directory: Directory.Data, encoding: Encoding.UTF8 });
         if (backupCheck.data !== previous) throw new Error("Backup verification failed");
-        await Filesystem.rename({ from: `${backupPath}.tmp`, to: backupPath, directory: Directory.Data });
+        try {
+          await Filesystem.rename({ from: `${backupPath}.tmp`, to: backupPath, directory: Directory.Data });
+        } catch {
+          // Some mobile filesystem implementations do not replace an existing
+          // destination. The primary remains untouched if this rotation fails.
+          await Filesystem.deleteFile({ path: backupPath, directory: Directory.Data }).catch(() => undefined);
+          await Filesystem.rename({ from: `${backupPath}.tmp`, to: backupPath, directory: Directory.Data });
+        }
       }
       try {
         await Filesystem.rename({ from: tempPath, to: primaryPath, directory: Directory.Data });
       } catch (renameError) {
         await Filesystem.deleteFile({ path: primaryPath, directory: Directory.Data }).catch(() => undefined);
-        await Filesystem.rename({ from: tempPath, to: primaryPath, directory: Directory.Data });
+        try {
+          await Filesystem.rename({ from: tempPath, to: primaryPath, directory: Directory.Data });
+        } catch (replacementError) {
+          if (previous !== null) await Filesystem.writeFile({ path: primaryPath, directory: Directory.Data, data: previous, encoding: Encoding.UTF8 });
+          throw replacementError;
+        }
         if (!previous) throw renameError;
       }
       const saved = await Filesystem.readFile({ path: primaryPath, directory: Directory.Data, encoding: Encoding.UTF8 });
@@ -345,8 +362,13 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
         path: `projects/${projectId}.json`,
         directory: Directory.Data,
       });
+      await Filesystem.deleteFile({
+        path: `projects/${projectId}.json.bak`,
+        directory: Directory.Data,
+      }).catch(() => undefined);
     } catch (err) {
       localStorage.removeItem(`clypra_project_${projectId}`);
+      localStorage.removeItem(`clypra_project_${projectId}_bak`);
     }
   }
 
