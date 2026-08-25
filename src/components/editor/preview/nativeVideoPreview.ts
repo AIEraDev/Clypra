@@ -810,7 +810,7 @@ function isSupportedNativeVideoLayer(
   const isStaticSticker = layer.clipKind === "sticker" && layer.stickerFormat === "static";
   const isGifSticker = layer.clipKind === "sticker" && layer.stickerFormat === "gif";
   return (
-    (layer.mediaType === "video" || layer.mediaType === "image") &&
+    isNativeVideoGraphLayer(layer) &&
     (layer.clipKind !== "sticker" || isStaticSticker || isGifSticker) &&
     isNativeFileSource(layer.sourcePath) &&
     getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, mpgStack) !== null &&
@@ -821,6 +821,10 @@ function isSupportedNativeVideoLayer(
 
 function isNativeAnimatedStickerLayer(layer: EvaluatedMediaLayer): boolean {
   return layer.clipKind === "sticker" && layer.stickerFormat === "lottie";
+}
+
+function isNativeVideoGraphLayer(layer: EvaluatedMediaLayer): boolean {
+  return layer.mediaType === "video" || (layer.clipKind === "sticker" && layer.stickerFormat === "gif");
 }
 
 /**
@@ -877,8 +881,14 @@ export function buildNativeVideoProjectRequest(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
   const animatedStickerLayers = allMediaLayers.filter(isNativeAnimatedStickerLayer);
-  const mediaLayers = allMediaLayers.filter((layer) => !isNativeAnimatedStickerLayer(layer));
+  const mediaLayers = allMediaLayers.filter((layer) => isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer));
+  const imageLayers = allMediaLayers.filter(
+    (layer) => layer.mediaType === "image" && layer.stickerFormat !== "gif" && layer.stickerFormat !== "lottie",
+  );
   const backgroundMediaPath = getNativeBackgroundMediaPath(scene);
+  if (imageLayers.some((layer) => !rasterLayers.some((asset) =>
+    !asset.isMask && asset.assetId.startsWith(`native-image:${layer.layerId}:`),
+  ))) return null;
   if (
     mediaLayers.length === 0 &&
     textLayers.length === 0 &&
@@ -987,7 +997,10 @@ export function getNativePreviewBlockers(
   }
 
   const mediaLayers = scene.visualLayers.filter(
-    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && !isNativeAnimatedStickerLayer(layer),
+    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer),
+  );
+  const imageLayers = scene.visualLayers.filter(
+    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && layer.mediaType === "image" && layer.stickerFormat !== "gif" && layer.stickerFormat !== "lottie",
   );
   const animatedStickerLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeAnimatedStickerLayer(layer),
@@ -995,6 +1008,11 @@ export function getNativePreviewBlockers(
   for (const layer of animatedStickerLayers) {
     if (!rasterLayers.some((asset) => !asset.isMask && asset.assetId.startsWith(`native-sticker:${layer.layerId}:`))) {
       add(`Animated sticker ${layer.layerId} is waiting for its native raster frame.`);
+    }
+  }
+  for (const layer of imageLayers) {
+    if (!rasterLayers.some((asset) => !asset.isMask && asset.assetId.startsWith(`native-image:${layer.layerId}:`))) {
+      add(`Still image ${layer.layerId} is waiting for its alpha-preserving native raster frame.`);
     }
   }
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
@@ -1032,6 +1050,7 @@ export function getNativePreviewBlockers(
   }
   if (
     mediaLayers.length === 0 &&
+    imageLayers.length === 0 &&
     animatedStickerLayers.length === 0 &&
     textLayers.length === 0 &&
     visibleRasterLayers.length === 0 &&
@@ -1068,7 +1087,7 @@ export function buildNativeFrameRequest(
 
   const nativeMediaLayers = request.layers.filter((layer) => layer.layerId !== NATIVE_BACKGROUND_MEDIA_LAYER_ID);
   const videoLayers = scene.visualLayers
-    .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && !isNativeAnimatedStickerLayer(layer))
+    .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer))
     .map((layer, index) => {
       const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
       return {

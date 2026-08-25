@@ -205,18 +205,30 @@ describe("buildNativeVideoProjectRequest", () => {
     }] as any))).toBeNull();
   });
 
-  it("routes static sticker image clips through the native media layer", () => {
-    const request = buildNativeVideoProjectRequest(makeScene([makeVideoLayer({
+  it("routes static sticker image clips through an alpha-preserving native raster layer", () => {
+    const layer = makeVideoLayer({
+      layerId: "sticker-static",
+      clipId: "sticker-static",
       clipKind: "sticker",
       mediaType: "image",
       stickerFormat: "static",
       sourcePath: "/Users/test/sticker.png",
-    })]));
-
-    expect(request?.layers[0]).toMatchObject({
-      videoPath: "/Users/test/sticker.png",
-      timeSecs: 2,
     });
+    const request = buildNativeVideoProjectRequest(makeScene([layer]), [{
+      assetId: "native-image:sticker-static:source",
+      width: layer.width,
+      height: layer.height,
+      x: layer.x,
+      y: layer.y,
+      rotation: layer.rotation,
+      opacity: layer.opacity,
+      zIndex: layer.zIndex,
+      blendMode: layer.blendMode,
+      isText: false,
+    }]);
+
+    expect(request?.layers).toEqual([]);
+    expect(request?.rasterLayers?.[0].assetId).toBe("native-image:sticker-static:source");
   });
 
   it("routes animated GIF stickers through the native FFmpeg media layer", () => {
@@ -354,10 +366,43 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ filter: { id: "filter", name: "blur", intensity: 1 } }),
     ]))).toBeNull();
-    expect(buildNativeVideoProjectRequest(makeScene([
-      makeVideoLayer(),
-      { ...makeVideoLayer({ mediaId: "image-1" }), mediaType: "image", sourceTime: 0 } as never,
-    ]))).not.toBeNull();
+    const image = makeVideoLayer({ layerId: "image-1", mediaId: "image-1", mediaType: "image", sourceTime: 0 });
+    expect(buildNativeVideoProjectRequest(makeScene([makeVideoLayer(), image]))).toBeNull();
+    expect(getNativePreviewBlockers(makeScene([image]))).toContain(
+      "Still image image-1 is waiting for its alpha-preserving native raster frame.",
+    );
+  });
+
+  it("composes a still image only when its registered native raster is available", () => {
+    const image = makeVideoLayer({
+      layerId: "image-1",
+      clipId: "image-1",
+      mediaId: "image-1",
+      mediaType: "image",
+      sourcePath: "/Users/test/logo.png",
+      x: 320,
+      y: 180,
+      width: 640,
+      height: 360,
+      zIndex: 3,
+    });
+    const raster = {
+      assetId: "native-image:image-1:source",
+      width: 640,
+      height: 360,
+      x: 320,
+      y: 180,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 3,
+      blendMode: "normal" as const,
+      isText: false,
+    };
+    const request = buildNativeVideoProjectRequest(makeScene([image]), [raster]);
+
+    expect(request?.layers).toEqual([]);
+    expect(request?.rasterLayers).toEqual([raster]);
+    expect(getNativePreviewBlockers(makeScene([image]), [raster])).toEqual([]);
   });
 
   it("does not drop text or active track filters from the native scene", () => {
