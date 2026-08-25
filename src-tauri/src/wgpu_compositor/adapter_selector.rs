@@ -45,11 +45,11 @@ impl GpuContext {
                     .map(|adapter| {
                         let info = adapter.get_info();
                         let score = match info.device_type {
-                            DeviceType::DiscreteGpu  => 1000,
+                            DeviceType::DiscreteGpu => 1000,
                             DeviceType::IntegratedGpu => 200,
-                            DeviceType::VirtualGpu    => 50,
-                            DeviceType::Cpu           => 10,
-                            DeviceType::Other         => 0,
+                            DeviceType::VirtualGpu => 50,
+                            DeviceType::Cpu => 10,
+                            DeviceType::Other => 0,
                         };
                         (score, adapter)
                     })
@@ -61,7 +61,7 @@ impl GpuContext {
                 // Fallback to request_adapter if enumerate_adapters returns empty on some platforms
                 if let Some(adapter) = instance
                     .request_adapter(&wgpu::RequestAdapterOptions {
-                        power_preference:       wgpu::PowerPreference::HighPerformance,
+                        power_preference: wgpu::PowerPreference::HighPerformance,
                         compatible_surface,
                         force_fallback_adapter: false,
                     })
@@ -70,7 +70,7 @@ impl GpuContext {
                     adapter
                 } else if let Some(adapter) = instance
                     .request_adapter(&wgpu::RequestAdapterOptions {
-                        power_preference:       wgpu::PowerPreference::LowPower,
+                        power_preference: wgpu::PowerPreference::LowPower,
                         compatible_surface,
                         force_fallback_adapter: false,
                     })
@@ -79,7 +79,7 @@ impl GpuContext {
                     adapter
                 } else if let Some(adapter) = instance
                     .request_adapter(&wgpu::RequestAdapterOptions {
-                        power_preference:       wgpu::PowerPreference::None,
+                        power_preference: wgpu::PowerPreference::None,
                         compatible_surface,
                         force_fallback_adapter: true,
                     })
@@ -92,7 +92,8 @@ impl GpuContext {
                         .into_iter()
                         .next()
                         .ok_or_else(|| {
-                            "No compatible graphics adapters or software rasterizers found.".to_string()
+                            "No compatible graphics adapters or software rasterizers found."
+                                .to_string()
                         })?
                 }
             }
@@ -104,8 +105,8 @@ impl GpuContext {
         #[cfg(target_arch = "wasm32")]
         let best_adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference:       wgpu::PowerPreference::HighPerformance,
-                compatible_surface:     None,
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
                 force_fallback_adapter: false,
             })
             .await

@@ -611,17 +611,14 @@ impl VideoDecoder {
         mut ctx: ffmpeg::codec::context::Context,
     ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32), String> {
         #[cfg(target_os = "macos")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
-        ];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] =
+            &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX];
         #[cfg(target_os = "windows")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
-        ];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] =
+            &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA];
         #[cfg(target_os = "linux")]
-        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[
-            ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
-        ];
+        let hw_types: &[ffmpeg::ffi::AVHWDeviceType] =
+            &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI];
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
 
@@ -761,13 +758,16 @@ impl VideoDecoder {
         }
 
         let first_ts = self.clamp_timestamp(target_timestamps_secs[0]);
-        let first_target_pts = (first_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let first_target_pts =
+            (first_ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         self.state.update_sequential(first_target_pts);
 
         let needs_seek = self.state.current_pts < 0
             || first_target_pts < self.state.current_pts
-            || !self.state.can_decode_forward(first_target_pts, sequential_window);
+            || !self
+                .state
+                .can_decode_forward(first_target_pts, sequential_window);
 
         let seek_elapsed = if needs_seek {
             let seek_start = Instant::now();
@@ -1182,14 +1182,16 @@ impl VideoDecoder {
             let mut cpu_frame = ffmpeg::frame::Video::empty();
             unsafe {
                 // VideoToolbox/D3D11 require explicit destination pixel format
-                (*cpu_frame.as_mut_ptr()).format = ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NV12 as i32;
+                (*cpu_frame.as_mut_ptr()).format =
+                    ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_NV12 as i32;
                 let mut ret = ffmpeg::ffi::av_hwframe_transfer_data(
                     cpu_frame.as_mut_ptr(),
                     frame.as_ptr(),
                     0,
                 );
                 if ret < 0 {
-                    (*cpu_frame.as_mut_ptr()).format = ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_YUV420P as i32;
+                    (*cpu_frame.as_mut_ptr()).format =
+                        ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_YUV420P as i32;
                     ret = ffmpeg::ffi::av_hwframe_transfer_data(
                         cpu_frame.as_mut_ptr(),
                         frame.as_ptr(),

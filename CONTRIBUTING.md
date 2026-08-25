@@ -46,6 +46,29 @@ We actively welcome your pull requests:
 4. **Ensure tests pass**: `npm test && cd src-tauri && cargo test`
 5. **Submit your pull request**!
 
+### Architecture-First Delivery
+
+Every feature, fix, refactor, and performance change must solve the problem in
+the architecture that owns it. Do not add a symptom-level patch, duplicate live
+state, or silent fallback path just to make an isolated case appear to work.
+
+Before requesting review, document in the PR description:
+
+- the root cause and owning subsystem;
+- the single authoritative state and data flow;
+- every affected runtime consumer (editor, native preview, browser fallback,
+  export, and serialization where applicable);
+- focused regression tests and, for performance-sensitive work, measured
+  evidence from the target runtime.
+
+If the change includes a transition layer, list its owner, every remaining
+consumer, tracking issue or milestone, and the exact condition that permits
+deleting it. Complete the repository pull-request template; reviewers use it
+as a release gate, not as optional prose.
+
+Read the [Architecture-First Delivery ADR](docs/architecture-first-delivery-adr.md)
+before changing a cross-runtime contract or introducing a migration layer.
+
 ## Benefits for Contributors
 
 Active contributors (3+ merged PRs in the last 12 months) receive:

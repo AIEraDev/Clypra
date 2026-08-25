@@ -23,7 +23,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ surfaceRef }) =>
 
   if (!clip || !selectedClipId) {
     return (
-      <div className="w-80 bg-gray-900 text-gray-500 h-full p-4 flex items-center justify-center border-l border-gray-800 text-sm">
+      <div className="w-80 bg-surface-panel text-text-tertiary h-full p-4 flex items-center justify-center border-l border-border text-sm">
         Select a clip to inspect color & UltraKey settings.
       </div>
     );
@@ -69,14 +69,14 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ surfaceRef }) =>
   };
 
   return (
-    <div className="w-80 bg-gray-900 text-gray-200 h-full overflow-y-auto border-l border-gray-800 flex flex-col select-none">
+    <div className="w-80 bg-surface-panel text-text-primary h-full overflow-y-auto border-l border-border flex flex-col select-none">
       
       {/* ── ULTRAKEY (CHROMA KEY) SECTION ── */}
-      <div className="p-4 border-b border-gray-800">
+      <div className="p-4 border-b border-border">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-            <h3 className="font-semibold text-xs uppercase tracking-wider text-gray-300">UltraKey (Chroma Key)</h3>
+            <span className="w-2 h-2 rounded-full bg-status-success inline-block" />
+            <h3 className="font-semibold text-xs uppercase tracking-wider text-text-secondary">UltraKey (Chroma Key)</h3>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
             <input 
@@ -85,7 +85,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ surfaceRef }) =>
               onChange={(e) => updateChroma(selectedClipId, { enabled: e.target.checked })}
               className="sr-only peer"
             />
-            <div className="w-8 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600" />
+            <div className="w-8 h-4 bg-surface-raised peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-text-primary after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-status-success" />
           </label>
         </div>
 
@@ -94,10 +94,10 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ surfaceRef }) =>
           disabled={!chromaKey.enabled}
           className={`w-full py-2 px-4 rounded text-xs font-medium mb-4 flex items-center justify-center space-x-2 transition-colors border ${
             !chromaKey.enabled
-              ? 'opacity-40 cursor-not-allowed bg-gray-800 border-gray-700'
+              ? 'opacity-40 cursor-not-allowed bg-surface-input border-border'
               : isPicking 
-                ? 'bg-blue-600 border-blue-500 animate-pulse text-white shadow-lg shadow-blue-500/20' 
-                : 'bg-gray-800 hover:bg-gray-750 border-gray-700 hover:border-gray-600 text-gray-200'
+                ? 'bg-accent border-accent-soft animate-pulse text-background shadow-lg shadow-accent/20'
+                : 'bg-surface-input hover:bg-surface-hover border-border hover:border-border-soft text-text-primary'
           }`}
         >
           <span 
@@ -146,17 +146,17 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ surfaceRef }) =>
       {/* ── COLOR GRADING SECTION ── */}
       <div className="p-4">
         <div className="flex items-center space-x-2 mb-4">
-          <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
-          <h3 className="font-semibold text-xs uppercase tracking-wider text-gray-300">Lumetri Color & 3D LUT</h3>
+          <span className="w-2 h-2 rounded-full bg-status-info inline-block" />
+          <h3 className="font-semibold text-xs uppercase tracking-wider text-text-secondary">Lumetri Color & 3D LUT</h3>
         </div>
         
         <div className="mb-4">
           <button 
             onClick={handleLoadLut}
-            className="w-full bg-gray-800 hover:bg-gray-750 py-2 rounded text-xs text-left px-3 border border-gray-700 hover:border-gray-600 transition-colors flex items-center justify-between text-gray-200"
+            className="w-full bg-surface-input hover:bg-surface-hover py-2 rounded text-xs text-left px-3 border border-border hover:border-border-soft transition-colors flex items-center justify-between text-text-primary"
           >
             <span>{colorGrade.hasLut === 1 ? 'Change .cube LUT...' : 'Browse .cube LUT...'}</span>
-            <span className="text-[10px] text-gray-500">.cube</span>
+            <span className="text-[10px] text-text-tertiary">.cube</span>
           </button>
           
           {colorGrade.hasLut === 1 && (
@@ -222,9 +222,9 @@ interface SliderControlProps {
 function SliderControl({ label, value, min, max, step, onChange }: SliderControlProps) {
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-[11px] text-gray-400">
+      <div className="flex justify-between text-[11px] text-text-secondary">
         <span>{label}</span>
-        <span className="font-mono text-gray-300">{value.toFixed(2)}</span>
+        <span className="font-mono text-text-primary">{value.toFixed(2)}</span>
       </div>
       <input 
         type="range" 
@@ -233,7 +233,7 @@ function SliderControl({ label, value, min, max, step, onChange }: SliderControl
         step={step} 
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 transition-opacity hover:opacity-100 opacity-90"
+        className="w-full h-1.5 bg-surface-raised rounded-lg appearance-none cursor-pointer accent-accent transition-opacity hover:opacity-100 opacity-90"
       />
     </div>
   );

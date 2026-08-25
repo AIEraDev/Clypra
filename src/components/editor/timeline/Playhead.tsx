@@ -1,12 +1,27 @@
-import React, { useRef, useEffect, useLayoutEffect, useState, RefObject } from "react";
-import { usePlaybackClock, useTransportControls, getPlaybackClock } from "@/hooks/usePlaybackClock";
+import React, {
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  RefObject,
+} from "react";
+import {
+  usePlaybackClock,
+  useTransportControls,
+  getPlaybackClock,
+} from "@/hooks/usePlaybackClock";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { snapToFrameBoundary } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
-import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
-import { recordPlayheadPaint, recordSeekResolved } from "@/lib/playback/syncMetrics";
-
+import {
+  timelineTimeToPixel,
+  timelinePixelToTime,
+} from "@/lib/timeline/timelineViewport";
+import {
+  recordPlayheadPaint,
+  recordSeekResolved,
+} from "@/lib/playback/syncMetrics";
 
 interface PlayheadProps {
   pixelsPerSecond: number;
@@ -15,7 +30,12 @@ interface PlayheadProps {
   rulerHeight?: number;
 }
 
-export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, containerRef, rulerHeight = 5 }) => {
+export const Playhead: React.FC<PlayheadProps> = ({
+  pixelsPerSecond,
+  duration,
+  containerRef,
+  rulerHeight = 5,
+}) => {
   const clockState = usePlaybackClock();
   const { seek: transportSeek } = useTransportControls();
   const { setScrollLeft } = useTimelineStore();
@@ -26,7 +46,9 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
   const pointerIdRef = useRef<number | null>(null);
   const pointerXRef = useRef(0); // Pointer position in viewport space
   const pointerVelocityRef = useRef(0);
-  const lastPointerSampleRef = useRef<{ x: number; timeMs: number } | null>(null);
+  const lastPointerSampleRef = useRef<{ x: number; timeMs: number } | null>(
+    null,
+  );
   const dragOffsetRef = useRef(0); // Offset captured at drag start for smooth anchor
   const clearDragCursorLock = () => {
     document.body.style.userSelect = "";
@@ -36,13 +58,15 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
   const currentTime = clockState.time;
 
   // ✅ Use canonical timeToPixel helper for playhead left calculation
-  const left = Math.max(0, timeToPixel(currentTime, pixelsPerSecond));
+  const left = Math.max(
+    0,
+    timelineTimeToPixel(currentTime, pixelsPerSecond),
+  );
 
   useLayoutEffect(() => {
     recordPlayheadPaint();
     recordSeekResolved();
   }, [left, pixelsPerSecond]);
-
 
   // ✅ PERFORMANCE OPTIMIZED: Throttled state updates to reduce React render storms
   const lastScrollUpdateRef = useRef(0);
@@ -74,8 +98,14 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       const velocity = scrollVelocityRef.current;
       if (velocity !== 0) {
         const viewportWidth = container.clientWidth;
-        const maxScrollLeft = Math.max(0, container.scrollWidth - viewportWidth);
-        const newScrollLeft = Math.max(0, Math.min(container.scrollLeft + velocity, maxScrollLeft));
+        const maxScrollLeft = Math.max(
+          0,
+          container.scrollWidth - viewportWidth,
+        );
+        const newScrollLeft = Math.max(
+          0,
+          Math.min(container.scrollLeft + velocity, maxScrollLeft),
+        );
 
         // Direct DOM update (always immediate)
         container.scrollLeft = newScrollLeft;
@@ -93,7 +123,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       const playheadX = scrollX + pointerXRef.current + dragOffsetRef.current;
 
       // Convert to time and snap to frame boundary
-      const rawTime = pixelToTime(playheadX, pixelsPerSecond);
+      const rawTime = timelinePixelToTime(playheadX, pixelsPerSecond);
 
       // Get frameRate from project store directly, not clock state
       const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
@@ -101,7 +131,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       // Only snap if frames are visually distinguishable (> 3px apart)
       // Prevents "sticky" playhead at extreme zoom-out levels
       const pixelsPerFrame = pixelsPerSecond / frameRate;
-      const snappedTime = pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
+      const snappedTime =
+        pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
       const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
 
       // Throttled seek calls (reduce clock update frequency)
@@ -124,7 +155,14 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
         rafRef.current = null;
       }
     };
-  }, [isDragging, containerRef, setScrollLeft, pixelsPerSecond, duration, transportSeek]);
+  }, [
+    isDragging,
+    containerRef,
+    setScrollLeft,
+    pixelsPerSecond,
+    duration,
+    transportSeek,
+  ]);
 
   // ✅ Global pointer tracking - only updates pointer position and velocity
   useEffect(() => {
@@ -143,7 +181,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       const previous = lastPointerSampleRef.current;
       if (previous) {
         const elapsedMs = Math.max(1, now - previous.timeMs);
-        pointerVelocityRef.current = ((pointerXRef.current - previous.x) / elapsedMs) * 1000;
+        pointerVelocityRef.current =
+          ((pointerXRef.current - previous.x) / elapsedMs) * 1000;
       }
       lastPointerSampleRef.current = { x: pointerXRef.current, timeMs: now };
 
@@ -156,7 +195,10 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
       const VELOCITY_MULTIPLIER = 0.3; // Acceleration factor
 
       // Calculate velocity even when pointer is OUTSIDE viewport bounds
-      if (pointerXRef.current > viewportWidth - EDGE_THRESHOLD && scrollLeft < maxScrollLeft) {
+      if (
+        pointerXRef.current > viewportWidth - EDGE_THRESHOLD &&
+        scrollLeft < maxScrollLeft
+      ) {
         // Near or beyond right edge → scroll right
         const distance = pointerXRef.current - (viewportWidth - EDGE_THRESHOLD);
         scrollVelocityRef.current = distance * VELOCITY_MULTIPLIER;
@@ -171,11 +213,17 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     };
 
     const handlePointerUp = (e: PointerEvent) => {
-      if (pointerIdRef.current !== null && e.pointerId === pointerIdRef.current) {
+      if (
+        pointerIdRef.current !== null &&
+        e.pointerId === pointerIdRef.current
+      ) {
         // The scrub stream may have been rendered at reduced quality. Re-issue
         // the final exact target so the released playhead always settles on a
         // full-quality frame.
-        transportSeek(getPlaybackClock().time, { mode: "seek", quality: "full" });
+        transportSeek(getPlaybackClock().time, {
+          mode: "seek",
+          quality: "full",
+        });
         setIsDragging(false);
         scrollVelocityRef.current = 0;
         pointerIdRef.current = null;
@@ -203,7 +251,8 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     };
 
     const handlePointerCancel = (e: PointerEvent) => {
-      if (pointerIdRef.current !== null && e.pointerId !== pointerIdRef.current) return;
+      if (pointerIdRef.current !== null && e.pointerId !== pointerIdRef.current)
+        return;
       setIsDragging(false);
       scrollVelocityRef.current = 0;
       pointerIdRef.current = null;
@@ -268,7 +317,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
     const viewportRect = container.getBoundingClientRect();
     const pointerX = e.clientX - viewportRect.left;
     const scrollX = container.scrollLeft;
-    const currentPlayheadX = timeToPixel(currentTime, pixelsPerSecond);
+    const currentPlayheadX = timelineTimeToPixel(currentTime, pixelsPerSecond);
 
     // Store offset: where playhead is relative to where pointer thinks it should be
     dragOffsetRef.current = currentPlayheadX - (scrollX + pointerX);
@@ -278,13 +327,14 @@ export const Playhead: React.FC<PlayheadProps> = ({ pixelsPerSecond, duration, c
 
     // Seek to clicked position (with offset)
     const playheadX = scrollX + pointerX + dragOffsetRef.current;
-    const rawTime = pixelToTime(playheadX, pixelsPerSecond);
+    const rawTime = timelinePixelToTime(playheadX, pixelsPerSecond);
 
     const frameRate = useProjectStore.getState().project?.frameRate ?? 30;
 
     // Only snap if frames are visually distinguishable (> 3px apart)
     const pixelsPerFrame = pixelsPerSecond / frameRate;
-    const snappedTime = pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
+    const snappedTime =
+      pixelsPerFrame > 3 ? snapToFrameBoundary(rawTime, frameRate) : rawTime;
     const newTime = clampAndSnapProgramTime(snappedTime, duration, frameRate);
     transportSeek(newTime, { mode: "seek", quality: "full" });
 

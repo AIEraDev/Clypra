@@ -59,6 +59,7 @@ export function useVoiceoverRecorder() {
           startTime: useRecordingStore.getState().voiceoverStartTimelineTime,
           duration,
           path: audioUrl,
+          origin: "recorded",
         });
 
         timeline.addClip(newClip);

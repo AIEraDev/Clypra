@@ -148,6 +148,28 @@ describe("AudioEngine", () => {
     expect(mockSourceNode.start).toHaveBeenCalledWith(100, 4, 8);
   });
 
+  it("uses the granular browser source when preserve pitch is enabled at a non-unity speed", () => {
+    const scriptProcessor = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null };
+    mockCtx.createScriptProcessor = vi.fn().mockReturnValue(scriptProcessor);
+    mockBufferPool.set("media-1", createMockAudioBuffer(20));
+    const clip: Clip = {
+      id: "pitch-clip", kind: "audio", trackId: "track-1", mediaId: "media-1",
+      startTime: 0, duration: 10, trimIn: 0, trimOut: 10,
+      x: 0, y: 0, width: 1, height: 1, opacity: 1, rotation: 0,
+      audio: {
+        audioModelVersion: 1, origin: "standalone", linkState: "linked", gainDb: 0, pan: 0, muted: false,
+        volumeKeyframes: [], fadeIn: { duration: 0, curve: "linear" }, fadeOut: { duration: 0, curve: "linear" },
+        channelConfig: { mode: "auto", downmix: "auto" }, speed: { preservePitch: true },
+      },
+    };
+    const track: Track = { id: "track-1", name: "Audio", type: "audio", muted: false, locked: false, visible: true, height: 52 };
+
+    engine.syncPlayback([clip], [track], 0, true, 2);
+
+    expect(mockCtx.createScriptProcessor).toHaveBeenCalledWith(1024, 0, 2);
+    expect(scriptProcessor.connect).toHaveBeenCalled();
+  });
+
   it("terminates voices when timeline playhead moves outside clip boundaries", () => {
     const buffer = createMockAudioBuffer(20);
     mockBufferPool.set("media-1", buffer);

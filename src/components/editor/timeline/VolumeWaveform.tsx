@@ -1,18 +1,23 @@
 import React, { useEffect, useRef } from "react";
-import { getThemeAccentRgb } from "@/lib/utils/canvasUtils";
-import type { AudioKeyframe } from "@/types";
+import type { AudioFadeCurve, AudioKeyframe } from "@/types";
+import { evaluateAudioKeyframes, evaluateFadeCurve } from "@/core/audio/effectiveAudioState";
 import { useWaveformData } from "./useWaveformData";
 
 interface VolumeWaveformProps {
   audioPath: string;
   clipWidthPx: number;
   duration: number;
+  mediaDuration?: number;
   trimIn?: number;
   trimOut?: number;
   volume?: number;
   volumeKeyframes?: AudioKeyframe[];
   fadeIn?: number;
   fadeOut?: number;
+  fadeInCurve?: AudioFadeCurve;
+  fadeOutCurve?: AudioFadeCurve;
+  /** Keep the source waveform stable; the fade is rendered by the overlay. */
+  applyFadeToWaveform?: boolean;
   heightPx?: number;
   className?: string;
 }
@@ -21,16 +26,13 @@ const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
 function getVisibleWaveColor(): string {
-  const accent = getThemeAccentRgb();
-  const luminance =
-    (0.2126 * accent.r + 0.7152 * accent.g + 0.0722 * accent.b) / 255;
-
-  // The clip body uses the accent in several themes. Use a bright cool tint
-  // on dark accents (including the default purple) so the sticks do not
-  // disappear into the clip, and a dark navy on unusually light accents.
-  return luminance < 0.52
-    ? "rgba(213, 250, 255, 0.9)"
-    : "rgba(20, 35, 62, 0.78)";
+  if (typeof document !== "undefined") {
+    const waveColor = getComputedStyle(document.documentElement)
+      .getPropertyValue("--clypra-clip-audio-wave")
+      .trim();
+    if (waveColor) return waveColor;
+  }
+  return "transparent";
 }
 
 export function getKeyframedVolume(
@@ -38,30 +40,7 @@ export function getKeyframedVolume(
   time: number,
   defaultVolume: number,
 ): number {
-  if (keyframes.length === 0) return defaultVolume;
-
-  if (time <= keyframes[0].time) return keyframes[0].gain;
-  const last = keyframes[keyframes.length - 1];
-  if (time >= last.time) return last.gain;
-
-  for (let i = 0; i < keyframes.length - 1; i++) {
-    const from = keyframes[i];
-    const to = keyframes[i + 1];
-    if (time < from.time || time > to.time) continue;
-
-    const span = to.time - from.time;
-    const t = span > 0 ? (time - from.time) / span : 1;
-    const eased =
-      to.easing === "bezier" ? t * t * (3 - 2 * t) : t;
-    if (to.easing === "exponential") {
-      const start = Math.max(0.0001, from.gain);
-      const end = Math.max(0.0001, to.gain);
-      return start * Math.pow(end / start, t);
-    }
-    return from.gain + (to.gain - from.gain) * eased;
-  }
-
-  return defaultVolume;
+  return evaluateAudioKeyframes(keyframes, time, defaultVolume);
 }
 
 export function getEnvelopeVolume(
@@ -71,10 +50,12 @@ export function getEnvelopeVolume(
   keyframes: AudioKeyframe[],
   fadeIn: number,
   fadeOut: number,
+  fadeInCurve: AudioFadeCurve = "linear",
+  fadeOutCurve: AudioFadeCurve = "linear",
 ): number {
   let result = getKeyframedVolume(keyframes, time, volume);
-  if (fadeIn > 0) result *= clamp(time / fadeIn, 0, 1);
-  if (fadeOut > 0) result *= clamp((duration - time) / fadeOut, 0, 1);
+  if (fadeIn > 0) result *= evaluateFadeCurve(time / fadeIn, fadeInCurve);
+  if (fadeOut > 0) result *= evaluateFadeCurve((duration - time) / fadeOut, fadeOutCurve);
   return clamp(result, 0, 1);
 }
 
@@ -87,12 +68,16 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
   audioPath,
   clipWidthPx,
   duration,
+  mediaDuration,
   trimIn = 0,
   trimOut,
   volume = 1,
   volumeKeyframes = [],
   fadeIn = 0,
   fadeOut = 0,
+  fadeInCurve = "linear",
+  fadeOutCurve = "linear",
+  applyFadeToWaveform = false,
   heightPx = 16,
   className = "",
 }) => {
@@ -101,6 +86,7 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
     audioPath,
     clipWidthPx,
     duration,
+    mediaDuration,
     trimIn,
     trimOut,
   });
@@ -145,14 +131,18 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
         waveformData.length > 1
           ? (index / (waveformData.length - 1)) * Math.max(0, duration)
           : 0;
-      const envelopeVolume = getEnvelopeVolume(
-        time,
-        duration,
-        volume,
-        sortedKeyframes,
-        fadeIn,
-        fadeOut,
-      );
+      const envelopeVolume = applyFadeToWaveform
+        ? getEnvelopeVolume(
+            time,
+            duration,
+            volume,
+            sortedKeyframes,
+            fadeIn,
+            fadeOut,
+            fadeInCurve,
+            fadeOutCurve,
+          )
+        : getKeyframedVolume(sortedKeyframes, time, volume);
       if (envelopeVolume <= 0.001) return;
 
       // Lift quieter source peaks into a readable visual range while the
@@ -177,6 +167,9 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
     volumeKeyframes,
     fadeIn,
     fadeOut,
+    fadeInCurve,
+    fadeOutCurve,
+    applyFadeToWaveform,
     duration,
   ]);
 
@@ -192,7 +185,7 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
   return (
     <div className="relative flex h-full min-h-0 w-full items-center">
       {isLoading && (
-        <div className="absolute inset-0 animate-pulse bg-accent/10" />
+        <div className="absolute inset-0 animate-pulse bg-clypra-clip-waveform-bg/60" />
       )}
       <canvas
         ref={canvasRef}

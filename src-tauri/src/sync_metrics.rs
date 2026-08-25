@@ -44,7 +44,11 @@ impl DriftAccumulator {
         samples.clear();
         DriftSnapshot {
             n: count,
-            avg_micros: if count == 0 { 0.0 } else { sum as f64 / count as f64 },
+            avg_micros: if count == 0 {
+                0.0
+            } else {
+                sum as f64 / count as f64
+            },
             max_abs_micros: max_abs,
             p95_abs_micros: p95_abs,
         }
@@ -57,7 +61,11 @@ impl DriftAccumulator {
         let samples = self.samples_p95.lock();
         DriftSnapshot {
             n: count,
-            avg_micros: if count == 0 { 0.0 } else { sum as f64 / count as f64 },
+            avg_micros: if count == 0 {
+                0.0
+            } else {
+                sum as f64 / count as f64
+            },
             max_abs_micros: max_abs,
             p95_abs_micros: percentile_abs(&samples, 0.95),
         }
@@ -68,7 +76,10 @@ fn percentile_abs(samples: &[i64], percentile: f64) -> i64 {
     if samples.is_empty() {
         return 0;
     }
-    let mut absolute: Vec<i64> = samples.iter().map(|sample| sample.saturating_abs()).collect();
+    let mut absolute: Vec<i64> = samples
+        .iter()
+        .map(|sample| sample.saturating_abs())
+        .collect();
     absolute.sort_unstable();
     let index = ((absolute.len() as f64 - 1.0) * percentile.clamp(0.0, 1.0)).round() as usize;
     absolute[index.min(absolute.len() - 1)]
@@ -85,7 +96,10 @@ impl FramePacingAccumulator {
         let mut last = self.last_frame_instant.lock();
         let now = Instant::now();
         if let Some(previous) = *last {
-            let actual = now.duration_since(previous).as_micros().min(i64::MAX as u128) as i64;
+            let actual = now
+                .duration_since(previous)
+                .as_micros()
+                .min(i64::MAX as u128) as i64;
             let mut intervals = self.intervals.lock();
             intervals.push((actual, target_interval_micros.max(1)));
             if intervals.len() > MAX_PERCENTILE_SAMPLES {
@@ -115,13 +129,21 @@ fn pacing_snapshot(intervals: &[(i64, i64)]) -> FramePacingSnapshot {
     if intervals.is_empty() {
         return FramePacingSnapshot::default();
     }
-    let actual_mean = intervals.iter().map(|(actual, _)| *actual as f64).sum::<f64>() / intervals.len() as f64;
+    let actual_mean = intervals
+        .iter()
+        .map(|(actual, _)| *actual as f64)
+        .sum::<f64>()
+        / intervals.len() as f64;
     let variance = intervals
         .iter()
         .map(|(actual, _)| (*actual as f64 - actual_mean).powi(2))
         .sum::<f64>()
         / intervals.len() as f64;
-    let target = intervals.iter().map(|(_, target)| *target as f64).sum::<f64>() / intervals.len() as f64;
+    let target = intervals
+        .iter()
+        .map(|(_, target)| *target as f64)
+        .sum::<f64>()
+        / intervals.len() as f64;
     let jank_events = intervals
         .iter()
         .filter(|(actual, target)| *actual as f64 > *target as f64 * 1.5)
@@ -188,7 +210,10 @@ pub struct SyncMetricsRegistry {
 impl SyncMetricsRegistry {
     pub fn record_dropped_frame(&self) {
         let dropped_frames = self.dropped_frames.fetch_add(1, Ordering::Relaxed) + 1;
-        trace_event("frame_dropped", format_args!("dropped_frames={dropped_frames}"));
+        trace_event(
+            "frame_dropped",
+            format_args!("dropped_frames={dropped_frames}"),
+        );
     }
 
     pub fn record_seek_requested(&self, requested_ticks: i64) {
@@ -231,7 +256,8 @@ impl SyncMetricsRegistry {
         resolve_seek: bool,
     ) {
         if measure_pacing {
-            self.frame_pacing.record_frame_presented(target_interval_micros);
+            self.frame_pacing
+                .record_frame_presented(target_interval_micros);
         } else {
             // Do not bridge a paused/seek frame to the next playback frame;
             // that would turn a normal pause into seconds of fake jank.
@@ -250,7 +276,8 @@ impl SyncMetricsRegistry {
             return;
         };
         let latency_micros = requested_at.elapsed().as_micros().min(i64::MAX as u128) as i64;
-        let correct = (presented_ticks - requested_ticks).saturating_abs() <= SEEK_CORRECTNESS_TOLERANCE_MICROS;
+        let correct = (presented_ticks - requested_ticks).saturating_abs()
+            <= SEEK_CORRECTNESS_TOLERANCE_MICROS;
         let mut events = self.seek_events.lock();
         events.push_back(SeekEvent {
             requested_ticks,
@@ -293,11 +320,22 @@ impl SyncMetricsRegistry {
 
 fn seek_snapshot(events: Vec<SeekEvent>) -> SeekSnapshot {
     let n = events.len() as u64;
-    let total_latency = events.iter().map(|event| event.latency_micros as f64).sum::<f64>();
+    let total_latency = events
+        .iter()
+        .map(|event| event.latency_micros as f64)
+        .sum::<f64>();
     SeekSnapshot {
         n,
-        avg_latency_micros: if n == 0 { 0.0 } else { total_latency / n as f64 },
-        max_latency_micros: events.iter().map(|event| event.latency_micros).max().unwrap_or(0),
+        avg_latency_micros: if n == 0 {
+            0.0
+        } else {
+            total_latency / n as f64
+        },
+        max_latency_micros: events
+            .iter()
+            .map(|event| event.latency_micros)
+            .max()
+            .unwrap_or(0),
         correct: events.iter().filter(|event| event.correct).count() as u64,
         events,
     }
@@ -365,7 +403,11 @@ pub fn ensure_metrics_flush_loop() {
 
 fn flush_periodic_metrics() {
     let snapshot = SYNC_METRICS.take_and_reset();
-    if snapshot.av_drift.n == 0 && snapshot.frame_pacing.n == 0 && snapshot.dropped_frames == 0 && snapshot.seeks.n == 0 {
+    if snapshot.av_drift.n == 0
+        && snapshot.frame_pacing.n == 0
+        && snapshot.dropped_frames == 0
+        && snapshot.seeks.n == 0
+    {
         return;
     }
     let window_id = snapshot.timestamp_epoch_ms / 5_000;

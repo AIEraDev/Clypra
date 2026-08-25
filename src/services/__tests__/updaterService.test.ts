@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { isTauriDesktop, checkAppUpdate, installAndRelaunchUpdate } from "../updaterService";
+import { isTauriDesktop, checkAppUpdate, downloadUpdate, installDownloadedUpdate } from "../updaterService";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
@@ -9,12 +9,13 @@ vi.mock("@tauri-apps/plugin-updater", () => {
     version: "1.2.0",
     date: "2026-06-25",
     body: "Bug fixes and performance improvements",
-    downloadAndInstall: vi.fn((callback) => {
+    download: vi.fn((callback) => {
       callback({ event: "Started" });
       callback({ event: "Progress", data: { chunkLength: 100, contentLength: 200 } });
       callback({ event: "Finished" });
       return Promise.resolve();
     }),
+    install: vi.fn().mockResolvedValue(undefined),
   };
 
   return {
@@ -91,11 +92,11 @@ describe("Updater Service", () => {
     });
   });
 
-  describe("installAndRelaunchUpdate", () => {
-    it("should invoke download and trigger progress callbacks prior to relaunching", async () => {
+  describe("downloadUpdate", () => {
+    it("downloads without installing or relaunching", async () => {
       const mockUpdateObject = {
-        downloadAndInstall: vi.fn((callback) => {
-          callback({ event: "Started" });
+        download: vi.fn((callback) => {
+          callback({ event: "Started", data: { contentLength: 100 } });
           callback({ event: "Progress", data: { chunkLength: 50, contentLength: 100 } });
           callback({ event: "Finished" });
           return Promise.resolve();
@@ -103,10 +104,10 @@ describe("Updater Service", () => {
       };
 
       const progressCallback = vi.fn();
-      await installAndRelaunchUpdate(mockUpdateObject, progressCallback);
+      await downloadUpdate(mockUpdateObject as any, progressCallback);
 
-      expect(mockUpdateObject.downloadAndInstall).toHaveBeenCalled();
-      expect(progressCallback).toHaveBeenCalledWith({ event: "Started", downloaded: 0 });
+      expect(mockUpdateObject.download).toHaveBeenCalled();
+      expect(progressCallback).toHaveBeenCalledWith({ event: "Started", contentLength: 100, downloaded: 0 });
       expect(progressCallback).toHaveBeenCalledWith({
         event: "Progress",
         chunkLength: 50,
@@ -114,7 +115,17 @@ describe("Updater Service", () => {
         downloaded: 50,
       });
       expect(progressCallback).toHaveBeenCalledWith({ event: "Finished", downloaded: 50 });
-      expect(relaunch).toHaveBeenCalled();
+      expect(relaunch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("installDownloadedUpdate", () => {
+    it("installs only an already downloaded update and does not relaunch", async () => {
+      const install = vi.fn().mockResolvedValue(undefined);
+      await installDownloadedUpdate({ install } as any);
+
+      expect(install).toHaveBeenCalledOnce();
+      expect(relaunch).not.toHaveBeenCalled();
     });
   });
 });

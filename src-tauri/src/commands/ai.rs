@@ -95,7 +95,9 @@ pub async fn run_face_tracking(
         .collect();
 
     // Run inference
-    let raw_results = tracker.track_sequence(frames_data, cancel_token.clone()).await;
+    let raw_results = tracker
+        .track_sequence(frames_data, cancel_token.clone())
+        .await;
 
     // Deregister token
     {
@@ -117,10 +119,7 @@ pub async fn run_face_tracking(
 
 /// Cancel an ongoing face-tracking job for the given clip.
 #[tauri::command]
-pub async fn cancel_face_tracking(
-    app: tauri::AppHandle,
-    clip_id: String,
-) -> Result<(), String> {
+pub async fn cancel_face_tracking(app: tauri::AppHandle, clip_id: String) -> Result<(), String> {
     let tasks: TrackingTasks = app.state::<TrackingTasks>().inner().clone();
     let map = tasks.lock().await;
     if let Some(token) = map.get(&clip_id) {

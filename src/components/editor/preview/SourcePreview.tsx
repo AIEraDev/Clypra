@@ -25,7 +25,12 @@ import { StickerSourcePreview, type StickerSourcePreviewHandle } from "./Sticker
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("blob:");
 
-export const SourcePreview: React.FC = () => {
+interface SourcePreviewProps {
+  /** Dual-player keeps Program mounted beside Source; Program owns the default context there. */
+  claimTransportOnMount?: boolean;
+}
+
+export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMount = true }) => {
   const { sourceAsset, sourceTextPreset, sourceInPoint, sourceOutPoint, markSourceIn, markSourceOut } = useUIStore();
   const { exitSourceMode } = usePreviewMode();
   const { tracks, clips, addClip, addTrack, insertTrackAt, getTimelineEndTime } = useTimelineStore();
@@ -47,7 +52,9 @@ export const SourcePreview: React.FC = () => {
     const session = getActiveSessionOrNull();
     // Source Preview owns a separate transport/media space from Program
     // Preview. Claim the source context before binding any HTML media element.
-    session?.transportAuthority?.setActiveContext("source");
+    if (claimTransportOnMount) {
+      session?.transportAuthority?.setActiveContext("source");
+    }
 
     if (sourceAsset?.type === "text") return;
 
@@ -77,7 +84,7 @@ export const SourcePreview: React.FC = () => {
       ctx.setMediaElement(null);
       sourceCtxRef.current = null;
     };
-  }, [sourceAsset?.id, sourceAsset?.type]);
+  }, [claimTransportOnMount, sourceAsset?.id, sourceAsset?.type]);
 
   useEffect(() => {
     setSourceVideoError(false);
@@ -191,6 +198,7 @@ export const SourcePreview: React.FC = () => {
 
   const handleSeek = useCallback(
     (time: number) => {
+      getActiveSessionOrNull()?.transportAuthority?.setActiveContext("source");
       if (sourceAsset?.type === "text") {
         setCurrentTime(Math.max(0, Math.min(time, 3.0)));
         return;
@@ -213,7 +221,7 @@ export const SourcePreview: React.FC = () => {
 
   const handlePlayPause = useCallback(() => {
     const session = getActiveSessionOrNull();
-    if (session?.transportAuthority?.getActiveType() !== "source") return;
+    session?.transportAuthority?.setActiveContext("source");
 
     if (sourceAsset?.type === "text") {
       setIsPlaying((prev) => {
@@ -250,7 +258,7 @@ export const SourcePreview: React.FC = () => {
   }, [sourceAsset?.type, sourceAsset?.path, sourceAsset?.stickerFormat, currentTime, duration]);
 
   const handlePlayMarkedRegion = useCallback(() => {
-    if (getActiveSessionOrNull()?.transportAuthority?.getActiveType() !== "source") return;
+    getActiveSessionOrNull()?.transportAuthority?.setActiveContext("source");
     sourceCtxRef.current?.playMarkedRegion();
   }, []);
 

@@ -7,6 +7,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip } from "@/types";
+import { synchronizeClipAudioProperties } from "@/types/audio";
 
 /**
  * Timeline state interface (minimal - only what we need).
@@ -35,7 +36,23 @@ export class TransformClipCommand implements Command {
   apply(state: TimelineState): TimelineState {
     return {
       ...state,
-      clips: state.clips.map((clip) => (clip.id === this.clipId ? { ...clip, ...this.newTransform } : clip)),
+      clips: state.clips.map((clip) => {
+        if (clip.id !== this.clipId) return clip;
+        const synchronized = synchronizeClipAudioProperties(clip, this.newTransform);
+        const linkedSource = clip.audio?.linkState === "unlinked" && clip.audio.linkedClipId
+          ? state.clips.find((candidate) => candidate.id === clip.audio?.linkedClipId)
+          : undefined;
+        const linkOffsetSeconds = this.newTransform.startTime !== undefined && linkedSource
+          ? this.newTransform.startTime - linkedSource.startTime
+          : synchronized.audio?.linkOffsetSeconds;
+        return {
+          ...clip,
+          ...synchronized,
+          ...(synchronized.audio && linkOffsetSeconds !== undefined
+            ? { audio: { ...synchronized.audio, linkOffsetSeconds } }
+            : {}),
+        };
+      }),
       epoch: state.epoch + 1,
     };
   }

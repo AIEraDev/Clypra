@@ -1,9 +1,7 @@
-import type { Clip, MediaAsset, Track } from "@/types";
+import type { AudioChannelMode, AudioDownmixMode, AudioFadeCurve, Clip, MediaAsset, Track } from "@/types";
 import { getActiveAudioClips, type ExportAudioClipConfig } from "@/core/timeline/audioClips";
 import {
-  clearNativeAudioClip,
-  getNativeAudioClips,
-  loadNativeAudioClip,
+  replaceNativeAudioClips,
   startNativeAudio,
 } from "@/lib/platform/tauri";
 import type { NativeAudioClipStatus } from "@/lib/platform/nativeCore";
@@ -18,8 +16,17 @@ export interface NativeAudioTimelineClip {
   sourceStartTicks: number;
   durationTicks: number;
   gain: number;
+  pan: number;
   fadeInTicks: number;
   fadeOutTicks: number;
+  fadeInCurve: AudioFadeCurve;
+  fadeOutCurve: AudioFadeCurve;
+  /** Relative clip ticks, not seconds. */
+  volumeKeyframes: Array<{ id: string; time: number; gain: number; easing?: "linear" | "exponential" | "bezier" }>;
+  channelMode: AudioChannelMode;
+  downmix: AudioDownmixMode;
+  channelMap?: number[];
+  preservePitch: boolean;
 }
 
 export interface NativeAudioTimelineSnapshot {
@@ -65,9 +72,9 @@ export async function syncNativeAudioTimeline(
 ): Promise<NativeAudioTimelineSyncResult> {
   const snapshot = buildNativeAudioTimeline(clips, tracks, assets, startTime, endTime);
   await startNativeAudio();
-  await clearNativeAudioClip();
-  await Promise.all(snapshot.clips.map((clip) => loadNativeAudioClip(clip)));
-  const installed = await getNativeAudioClips();
+  // Native decodes the complete candidate before atomically replacing the
+  // current graph. This prevents clear-first gaps and stale partial installs.
+  const installed = await replaceNativeAudioClips(snapshot.clips);
   tracePlayback("native.timeline-ready", {
     clipCount: snapshot.clips.length,
     installedCount: installed.length,
@@ -101,8 +108,16 @@ function toNativeAudioTimelineClip(config: ExportAudioClipConfig): NativeAudioTi
     sourceStartTicks: secondsToTicks(config.trimIn),
     durationTicks: secondsToTicks(config.duration),
     gain: config.volume,
+    pan: config.pan,
     fadeInTicks: secondsToTicks(config.fadeIn),
     fadeOutTicks: secondsToTicks(config.fadeOut),
+    fadeInCurve: config.fadeInCurve,
+    fadeOutCurve: config.fadeOutCurve,
+    volumeKeyframes: config.volumeKeyframes.map((point) => ({ ...point, time: secondsToTicks(point.time) })),
+    channelMode: config.channelMode,
+    downmix: config.downmix,
+    channelMap: config.channelMap,
+    preservePitch: config.preservePitch,
   };
 }
 

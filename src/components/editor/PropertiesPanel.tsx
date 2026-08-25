@@ -5,6 +5,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
+import { RelinkAudioCommand, UnlinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
 import { calculateClipDimensions, type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import type { Clip, TextClip } from "@/types";
@@ -96,6 +97,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const selectedTransitionId = useUIStore((s) => s.selectedTransitionId);
   const clearSelection = useUIStore((s) => s.clearSelection);
   const clips = useTimelineStore((s) => s.clips);
+  const tracks = useTimelineStore((s) => s.tracks);
   const transitions = useTimelineStore((s) => s.transitions);
   const updateTransition = useTimelineStore((s) => s.updateTransition);
   const removeTransition = useTimelineStore((s) => s.removeTransition);
@@ -219,6 +221,19 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const handleUpdateMultiple = (fields: Record<string, any>) => {
     const { oldTransform: oldFields, newTransform: newFields } = buildClipPropertyTransform(selectedClip, fields, canvasWidth, canvasHeight);
     execute(new TransformClipCommand(selectedClipId, oldFields, newFields));
+  };
+
+  const linkedAudio = selectedClip ? UnlinkAudioCommand.findLinkedAudio(selectedClip.id, clips) : undefined;
+  const sourceVideo = selectedClip?.audio?.linkState === "unlinked"
+    ? clips.find((clip) => clip.id === selectedClip.audio?.linkedClipId)
+    : undefined;
+  const handleUnlinkAudio = () => {
+    if (!selectedClip || !selectedAsset || selectedClip.kind !== "video" || linkedAudio) return;
+    execute(new UnlinkAudioCommand(selectedClip, selectedAsset.path, tracks));
+  };
+  const handleRelinkAudio = () => {
+    if (!selectedClip || !sourceVideo) return;
+    execute(new RelinkAudioCommand(sourceVideo, selectedClip));
   };
 
   const handleApplyPreset = (preset: any) => {
@@ -348,7 +363,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         {isSticker && <StickerSettingsSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
 
         {/* Audio properties (audio clips or video clips) */}
-        {hasAudioTrack && <AudioSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
+        {hasAudioTrack && <AudioSection selectedClip={selectedClip} handleUpdate={handleUpdate} onUnlink={isVideoClip && !linkedAudio ? handleUnlinkAudio : undefined} onRelink={sourceVideo ? handleRelinkAudio : linkedAudio ? () => execute(new RelinkAudioCommand(selectedClip, linkedAudio)) : undefined} />}
 
         {/* Text Styling (text clip + text tab) */}
         {isTextClip && activePropertyTab === "text" && <TextStyleSection textClip={textClip} presets={presets} newPresetName={newPresetName} setNewPresetName={setNewPresetName} handleUpdate={handleUpdate} handleUpdateMultiple={handleUpdateMultiple} handleApplyPreset={handleApplyPreset} savePreset={savePreset} deletePreset={deletePreset} />}

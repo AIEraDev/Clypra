@@ -35,6 +35,8 @@ describe("TimelineRuler coordinate mapping", () => {
 
     const tenSecondLabel = screen.getByText("00:10");
     expect(tenSecondLabel.parentElement?.style.left).toBe("1000px");
+    expect(tenSecondLabel.style.left).toBe("6px");
+    expect(tenSecondLabel.style.transform).toBe("none");
   });
 
   it("adds markers using ruler-local content coordinates", () => {

@@ -1,11 +1,11 @@
 // src-tauri/src/commands/lut.rs
 
-use dashmap::DashMap;
-use std::sync::Arc;
-use tauri::State;
 use crate::wgpu_compositor::adapter_selector::GpuContext;
 use crate::wgpu_compositor::lut_parser::ParsedLut3D;
 use crate::wgpu_compositor::lut_texture::GpuLut3D;
+use dashmap::DashMap;
+use std::sync::Arc;
+use tauri::State;
 
 pub struct LutCache {
     pub luts: DashMap<String, Arc<GpuLut3D>>,
@@ -35,11 +35,9 @@ pub async fn load_lut_cube(
     }
 
     // 1. Parse .cube file from disk on background thread
-    let parsed = tokio::task::spawn_blocking(move || {
-        ParsedLut3D::parse_cube_file(&file_path)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let parsed = tokio::task::spawn_blocking(move || ParsedLut3D::parse_cube_file(&file_path))
+        .await
+        .map_err(|e| e.to_string())??;
 
     let title = parsed.title.clone();
     let size = parsed.size;
@@ -48,5 +46,9 @@ pub async fn load_lut_cube(
     let gpu_lut = GpuLut3D::from_parsed(&gpu_ctx.device, &gpu_ctx.queue, &parsed);
     lut_cache.luts.insert(lut_id.clone(), Arc::new(gpu_lut));
 
-    Ok(LutInfo { id: lut_id, title, size })
+    Ok(LutInfo {
+        id: lut_id,
+        title,
+        size,
+    })
 }

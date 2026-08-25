@@ -68,7 +68,11 @@ impl ParsedLut3D {
 
             match parts[0] {
                 "TITLE" => {
-                    title = trimmed.trim_start_matches("TITLE").trim().trim_matches('"').to_string();
+                    title = trimmed
+                        .trim_start_matches("TITLE")
+                        .trim()
+                        .trim_matches('"')
+                        .to_string();
                 }
                 "LUT_3D_SIZE" => {
                     if parts.len() < 2 {
@@ -112,13 +116,18 @@ impl ParsedLut3D {
             }
         }
 
-        let size = lut_size.ok_or_else(|| "Missing LUT_3D_SIZE header in .cube file".to_string())?;
+        let size =
+            lut_size.ok_or_else(|| "Missing LUT_3D_SIZE header in .cube file".to_string())?;
         let expected_count = (size * size * size) as usize;
 
         if raw_samples.len() != expected_count {
             return Err(format!(
                 "LUT data length mismatch: expected {} points ({}x{}x{}), got {}",
-                expected_count, size, size, size, raw_samples.len()
+                expected_count,
+                size,
+                size,
+                size,
+                raw_samples.len()
             ));
         }
 
@@ -150,7 +159,8 @@ impl ParsedLut3D {
 
     /// Parses an Adobe .cube file from disk
     pub fn parse_cube_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let file = File::open(path.as_ref()).map_err(|e| format!("Failed to open LUT file: {e}"))?;
+        let file =
+            File::open(path.as_ref()).map_err(|e| format!("Failed to open LUT file: {e}"))?;
         let reader = BufReader::new(file);
 
         let mut title = String::from("Custom LUT");
@@ -174,7 +184,11 @@ impl ParsedLut3D {
 
             match parts[0] {
                 "TITLE" => {
-                    title = trimmed.trim_start_matches("TITLE").trim().trim_matches('"').to_string();
+                    title = trimmed
+                        .trim_start_matches("TITLE")
+                        .trim()
+                        .trim_matches('"')
+                        .to_string();
                 }
                 "LUT_3D_SIZE" => {
                     if parts.len() < 2 {
@@ -217,13 +231,18 @@ impl ParsedLut3D {
             }
         }
 
-        let size = lut_size.ok_or_else(|| "Missing LUT_3D_SIZE header in .cube file".to_string())?;
+        let size =
+            lut_size.ok_or_else(|| "Missing LUT_3D_SIZE header in .cube file".to_string())?;
         let expected_count = (size * size * size) as usize;
 
         if raw_samples.len() != expected_count {
             return Err(format!(
                 "LUT data length mismatch: expected {} points ({}x{}x{}), got {}",
-                expected_count, size, size, size, raw_samples.len()
+                expected_count,
+                size,
+                size,
+                size,
+                raw_samples.len()
             ));
         }
 
@@ -287,7 +306,8 @@ DOMAIN_MAX 1.0 1.0 1.0
 0.0 1.0 1.0
 1.0 1.0 1.0
 "#;
-        let parsed = ParsedLut3D::parse_cube_str(cube_content).expect("Failed to parse cube string");
+        let parsed =
+            ParsedLut3D::parse_cube_str(cube_content).expect("Failed to parse cube string");
         assert_eq!(parsed.title, "Warm Golden");
         assert_eq!(parsed.size, 2);
         assert_eq!(parsed.rgba8_data.len(), 32);

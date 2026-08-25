@@ -11,6 +11,9 @@ pub const TICKS_PER_SECOND: i64 = 1_000_000;
 pub const MAX_PCM_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_MIXER_PCM_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ACTIVE_CLIPS: usize = 64;
+/// ~5.8 ms at 44.1 kHz. Applied by the native callback after a transport
+/// discontinuity so seeking/replay cannot emit a full-scale sample step.
+const TRANSPORT_RAMP_FRAMES: u32 = 256;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,8 +46,56 @@ pub struct NativeAudioClipStatus {
     pub duration_ticks: i64,
     pub timeline_start_ticks: i64,
     pub gain: f32,
+    pub pan: f32,
     pub fade_in_ticks: i64,
     pub fade_out_ticks: i64,
+    pub channel_mode: String,
+    pub downmix: String,
+    pub channel_map: Option<Vec<usize>>,
+    pub preserve_pitch: bool,
+}
+
+/// A point-in-time inspection of the sole native preview audio path.
+///
+/// This is deliberately derived from the installed native mixer and output
+/// clock rather than maintaining a second diagnostic model. It lets the UI
+/// distinguish timeline/decode silence from a callback or device-output
+/// failure without changing the production playback path.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAudioDiagnostics {
+    pub status: NativeAudioStatus,
+    pub installed_clips: Vec<NativeAudioClipStatus>,
+    pub active_clip_ids: Vec<String>,
+    /// Peak amplitude the native mixer would render in its next 20 ms window.
+    pub mixer_peak: f32,
+    /// Per-clip evidence from that same mixer window. This distinguishes a
+    /// silent decode/envelope from a clip that was never installed or active.
+    pub clip_diagnostics: Vec<NativeAudioClipDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAudioClipDiagnostic {
+    pub id: String,
+    pub active: bool,
+    pub mixer_peak: f32,
+}
+
+#[derive(Debug, Default)]
+pub struct NativeAudioMixerInspection {
+    pub active_clip_ids: Vec<String>,
+    pub mixer_peak: f32,
+    pub clip_diagnostics: Vec<NativeAudioClipDiagnostic>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAudioKeyframe {
+    /// Relative clip time in native timeline ticks.
+    pub time: i64,
+    pub gain: f32,
+    pub easing: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,8 +107,16 @@ pub struct NativePcmClip {
     pub timeline_start_ticks: i64,
     pub duration_ticks: i64,
     pub gain: f32,
+    pub pan: f32,
     pub fade_in_ticks: i64,
     pub fade_out_ticks: i64,
+    pub fade_in_curve: String,
+    pub fade_out_curve: String,
+    pub volume_keyframes: Vec<NativeAudioKeyframe>,
+    pub channel_mode: String,
+    pub downmix: String,
+    pub channel_map: Option<Vec<usize>>,
+    pub preserve_pitch: bool,
 }
 
 impl NativePcmClip {
@@ -70,8 +129,13 @@ impl NativePcmClip {
             duration_ticks: self.duration_ticks,
             timeline_start_ticks: self.timeline_start_ticks,
             gain: self.gain,
+            pan: self.pan,
             fade_in_ticks: self.fade_in_ticks,
             fade_out_ticks: self.fade_out_ticks,
+            channel_mode: self.channel_mode.clone(),
+            downmix: self.downmix.clone(),
+            channel_map: self.channel_map.clone(),
+            preserve_pitch: self.preserve_pitch,
         }
     }
 }
@@ -86,8 +150,16 @@ impl From<DecodedAudioClip> for NativePcmClip {
             timeline_start_ticks: clip.config.timeline_start_ticks,
             duration_ticks: clip.config.duration_ticks,
             gain: clip.config.gain,
+            pan: 0.0,
             fade_in_ticks: clip.config.fade_in_ticks,
             fade_out_ticks: clip.config.fade_out_ticks,
+            fade_in_curve: "linear".to_string(),
+            fade_out_curve: "linear".to_string(),
+            volume_keyframes: Vec::new(),
+            channel_mode: "auto".to_string(),
+            downmix: "auto".to_string(),
+            channel_map: None,
+            preserve_pitch: false,
         }
     }
 }
@@ -175,12 +247,135 @@ impl NativeAudioMixer {
         self.clips.clear();
     }
 
+    /// Replace the complete graph only after every clip has been decoded and
+    /// validated. The callback therefore observes either the previous healthy
+    /// graph or this complete candidate, never an empty/partial graph.
+    pub fn replace_clips(&mut self, clips: Vec<NativePcmClip>) -> Result<(), String> {
+        if clips.len() > MAX_ACTIVE_CLIPS {
+            return Err(format!(
+                "Native audio mixer supports at most {MAX_ACTIVE_CLIPS} active clips"
+            ));
+        }
+        let total_bytes = clips
+            .iter()
+            .map(|clip| {
+                clip.samples
+                    .len()
+                    .saturating_mul(std::mem::size_of::<f32>())
+            })
+            .sum::<usize>();
+        if total_bytes > MAX_MIXER_PCM_BYTES {
+            return Err(format!(
+                "Native audio mixer exceeds the {} MiB PCM budget",
+                MAX_MIXER_PCM_BYTES / 1024 / 1024
+            ));
+        }
+        self.clips = clips;
+        Ok(())
+    }
+
+    pub fn update_clip_parameters(
+        &mut self,
+        clip_id: &str,
+        gain: f32,
+        pan: f32,
+        fade_in_ticks: i64,
+        fade_out_ticks: i64,
+        fade_in_curve: String,
+        fade_out_curve: String,
+        volume_keyframes: Vec<NativeAudioKeyframe>,
+    ) -> Result<NativeAudioClipStatus, String> {
+        let clip = self
+            .clips
+            .iter_mut()
+            .find(|clip| clip.id == clip_id)
+            .ok_or_else(|| format!("Native audio clip '{clip_id}' is not installed"))?;
+        clip.gain = if gain.is_finite() {
+            gain.clamp(0.0, 4.0)
+        } else {
+            0.0
+        };
+        clip.pan = if pan.is_finite() {
+            pan.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        clip.fade_in_ticks = fade_in_ticks.max(0);
+        clip.fade_out_ticks = fade_out_ticks.max(0);
+        clip.fade_in_curve = fade_in_curve;
+        clip.fade_out_curve = fade_out_curve;
+        clip.volume_keyframes = volume_keyframes;
+        clip.volume_keyframes.sort_by_key(|point| point.time);
+        Ok(clip.status())
+    }
+
     pub fn clip_status(&self) -> Option<NativeAudioClipStatus> {
         self.clips.first().map(NativePcmClip::status)
     }
 
     pub fn clip_statuses(&self) -> Vec<NativeAudioClipStatus> {
         self.clips.iter().map(NativePcmClip::status).collect()
+    }
+
+    /// Inspect the exact sample path used by `mix_into` without touching the
+    /// real-time callback. This is called only by an explicit diagnostic IPC
+    /// request, never from the audio thread.
+    pub fn inspect(
+        &self,
+        output_channels: u16,
+        output_sample_rate: u32,
+        timeline_start_ticks: i64,
+        master_gain: f32,
+        playback_speed: f32,
+    ) -> NativeAudioMixerInspection {
+        if self.clips.is_empty() || output_channels == 0 || output_sample_rate == 0 {
+            return NativeAudioMixerInspection::default();
+        }
+
+        let output_channels = usize::from(output_channels);
+        let frames = (output_sample_rate / 50).clamp(1, 4_096) as usize;
+        let output_sample_rate = i64::from(output_sample_rate);
+        let mut inspection = NativeAudioMixerInspection {
+            clip_diagnostics: self
+                .clips
+                .iter()
+                .map(|clip| NativeAudioClipDiagnostic {
+                    id: clip.id.clone(),
+                    active: false,
+                    mixer_peak: 0.0,
+                })
+                .collect(),
+            ..Default::default()
+        };
+
+        for frame_index in 0..frames {
+            let frame_ticks = ((frame_index as f64
+                * TICKS_PER_SECOND as f64
+                * playback_speed.clamp(0.25, 4.0) as f64)
+                / output_sample_rate as f64)
+                .round() as i64;
+            let timeline_ticks = timeline_start_ticks.saturating_add(frame_ticks);
+            for channel_index in 0..output_channels {
+                let mut value = 0.0_f32;
+                for (clip_index, clip) in self.clips.iter().enumerate() {
+                    if let Some(sample) =
+                        sample_at(clip, timeline_ticks, channel_index, playback_speed)
+                    {
+                        let clip_diagnostic = &mut inspection.clip_diagnostics[clip_index];
+                        if !clip_diagnostic.active {
+                            clip_diagnostic.active = true;
+                            inspection.active_clip_ids.push(clip.id.clone());
+                        }
+                        clip_diagnostic.mixer_peak =
+                            clip_diagnostic.mixer_peak.max((sample * master_gain).abs());
+                        value += sample;
+                    }
+                }
+                inspection.mixer_peak = inspection.mixer_peak.max((value * master_gain).abs());
+            }
+        }
+
+        inspection
     }
 
     pub fn mix_into<T>(
@@ -190,6 +385,36 @@ impl NativeAudioMixer {
         output_sample_rate: u32,
         timeline_start_ticks: i64,
         master_gain: f32,
+        playback_speed: f32,
+    ) -> bool
+    where
+        T: SizedSample + FromSample<f32>,
+    {
+        self.mix_into_with_ramp(
+            output,
+            output_channels,
+            output_sample_rate,
+            timeline_start_ticks,
+            master_gain,
+            playback_speed,
+            0,
+            0,
+        )
+    }
+
+    /// Mix with a short native transport fade-in. The caller supplies the
+    /// remaining and total ramp frames from the clock's atomic transport gate;
+    /// this keeps the real-time callback allocation- and lock-free.
+    pub fn mix_into_with_ramp<T>(
+        &self,
+        output: &mut [T],
+        output_channels: u16,
+        output_sample_rate: u32,
+        timeline_start_ticks: i64,
+        master_gain: f32,
+        playback_speed: f32,
+        ramp_frames_remaining: usize,
+        ramp_total_frames: usize,
     ) -> bool
     where
         T: SizedSample + FromSample<f32>,
@@ -207,16 +432,30 @@ impl NativeAudioMixer {
         let mut has_audio = false;
 
         for (frame_index, output_frame) in output.chunks_mut(output_channels).enumerate() {
-            let frame_ticks =
-                (frame_index as i64).saturating_mul(TICKS_PER_SECOND) / output_sample_rate;
+            let transport_gain = if ramp_frames_remaining > 0 && ramp_total_frames > 0 {
+                let ramp_frame = ramp_total_frames
+                    .saturating_sub(ramp_frames_remaining)
+                    .saturating_add(frame_index + 1);
+                (ramp_frame as f32 / ramp_total_frames as f32).min(1.0)
+            } else {
+                1.0
+            };
+            let frame_ticks = ((frame_index as f64
+                * TICKS_PER_SECOND as f64
+                * playback_speed.clamp(0.25, 4.0) as f64)
+                / output_sample_rate as f64)
+                .round() as i64;
             let timeline_ticks = timeline_start_ticks.saturating_add(frame_ticks);
             for (channel_index, sample) in output_frame.iter_mut().enumerate() {
                 let value = self
                     .clips
                     .iter()
-                    .filter_map(|clip| sample_at(clip, timeline_ticks, channel_index))
+                    .filter_map(|clip| {
+                        sample_at(clip, timeline_ticks, channel_index, playback_speed)
+                    })
                     .sum::<f32>()
-                    * master_gain;
+                    * master_gain
+                    * transport_gain;
                 if value.abs() > 0.000001 {
                     has_audio = true;
                 }
@@ -227,7 +466,12 @@ impl NativeAudioMixer {
     }
 }
 
-fn sample_at(clip: &NativePcmClip, timeline_ticks: i64, output_channel: usize) -> Option<f32> {
+fn sample_at(
+    clip: &NativePcmClip,
+    timeline_ticks: i64,
+    output_channel: usize,
+    playback_speed: f32,
+) -> Option<f32> {
     if clip.sample_rate == 0 || clip.channels == 0 || clip.samples.is_empty() {
         return None;
     }
@@ -244,34 +488,149 @@ fn sample_at(clip: &NativePcmClip, timeline_ticks: i64, output_channel: usize) -
         return None;
     }
 
-    let source_position =
-        relative_ticks as f64 * clip_sample_rate as f64 / TICKS_PER_SECOND as f64;
-    let source_index = source_position.floor() as usize;
-    let source_fraction = (source_position - source_index as f64) as f32;
-    let source_frame = source_index.saturating_mul(clip_channels);
-    if source_frame >= clip.samples.len() {
-        return None;
-    }
-    let source_channel = output_channel.min(clip_channels - 1);
-    let first = clip.samples[source_frame + source_channel];
-    let next_source_frame = source_frame.saturating_add(clip_channels);
-    let second = clip
-        .samples
-        .get(next_source_frame + source_channel)
-        .copied()
-        .unwrap_or(first);
+    let source_position = relative_ticks as f64 * clip_sample_rate as f64 / TICKS_PER_SECOND as f64;
+    let interpolate_channel = |source_position: f64, source_channel: usize| {
+        let source_index = source_position.floor().max(0.0) as usize;
+        let source_fraction = (source_position - source_index as f64) as f32;
+        let source_frame = source_index.saturating_mul(clip_channels);
+        let channel = source_channel.min(clip_channels - 1);
+        let first = clip.samples.get(source_frame + channel).copied()?;
+        let second = clip
+            .samples
+            .get(source_frame.saturating_add(clip_channels) + channel)
+            .copied()
+            .unwrap_or(first);
+        Some(first + (second - first) * source_fraction)
+    };
+    let pitch_preserved_channel = |source_channel: usize| {
+        // Granular overlap-add time stretch: grain centers advance at transport
+        // speed while samples inside each grain remain at their native rate.
+        // That keeps perceived pitch stable without allocating or locking in the
+        // real-time mixer callback.
+        let speed = playback_speed.clamp(0.25, 4.0) as f64;
+        let synthesis_position = source_position / speed;
+        let grain_size = ((clip_sample_rate as f64 * 0.04).round() as i64).max(64);
+        let hop = (grain_size / 4).max(1);
+        let center = (synthesis_position / hop as f64).floor() as i64 * hop;
+        let half = grain_size as f64 / 2.0;
+        let mut mixed = 0.0;
+        let mut weight = 0.0;
+        for grain_center in [center - hop, center, center + hop, center + 2 * hop] {
+            let local = synthesis_position - grain_center as f64;
+            if local.abs() > half {
+                continue;
+            }
+            let window = 0.5 + 0.5 * (std::f64::consts::PI * local / half).cos();
+            if let Some(value) =
+                interpolate_channel(grain_center as f64 * speed + local, source_channel)
+            {
+                mixed += value as f64 * window;
+                weight += window;
+            }
+        }
+        if weight > 0.000_001 {
+            Some((mixed / weight) as f32)
+        } else {
+            None
+        }
+    };
+    let sample_channel = |source_channel: usize| {
+        if clip.preserve_pitch && (playback_speed - 1.0).abs() > 0.001 {
+            pitch_preserved_channel(source_channel)
+        } else {
+            interpolate_channel(source_position, source_channel)
+        }
+    };
+    // The decoder aligns source channels to the output device. This final matrix
+    // is therefore deterministic for stereo devices and provides a safe,
+    // explicit policy for every other output configuration too.
+    let source_sample = if clip.channel_mode == "stereo" || clip.downmix == "stereo" {
+        if output_channel >= 2 && clip.channel_map.is_none() {
+            0.0
+        } else {
+            let source_channel = clip
+                .channel_map
+                .as_ref()
+                .and_then(|map| map.get(output_channel))
+                .copied()
+                .unwrap_or_else(|| output_channel.min(clip_channels - 1));
+            sample_channel(source_channel)?
+        }
+    } else if clip.channel_mode == "mono" || clip.downmix == "mono" {
+        (0..clip_channels).filter_map(sample_channel).sum::<f32>() / clip_channels as f32
+    } else {
+        let source_channel = clip
+            .channel_map
+            .as_ref()
+            .and_then(|map| map.get(output_channel))
+            .copied()
+            .unwrap_or_else(|| output_channel.min(clip_channels - 1));
+        sample_channel(source_channel)?
+    };
     let fade_in_gain = if clip.fade_in_ticks > 0 {
-        (relative_ticks as f32 / clip.fade_in_ticks as f32).clamp(0.0, 1.0)
+        evaluate_curve(
+            relative_ticks as f32 / clip.fade_in_ticks as f32,
+            &clip.fade_in_curve,
+        )
     } else {
         1.0
     };
     let remaining_ticks = duration_ticks.saturating_sub(relative_ticks);
     let fade_out_gain = if clip.fade_out_ticks > 0 {
-        (remaining_ticks as f32 / clip.fade_out_ticks as f32).clamp(0.0, 1.0)
+        evaluate_curve(
+            remaining_ticks as f32 / clip.fade_out_ticks as f32,
+            &clip.fade_out_curve,
+        )
     } else {
         1.0
     };
-    Some((first + (second - first) * source_fraction) * clip.gain * fade_in_gain.min(fade_out_gain))
+    let automation_gain = evaluate_keyframes(&clip.volume_keyframes, relative_ticks);
+    let pan_gain = match output_channel {
+        0 => (1.0 - clip.pan).clamp(0.0, 1.0),
+        1 => (1.0 + clip.pan).clamp(0.0, 1.0),
+        _ => 1.0,
+    };
+    Some(source_sample * clip.gain * pan_gain * automation_gain * fade_in_gain.min(fade_out_gain))
+}
+
+fn evaluate_curve(progress: f32, curve: &str) -> f32 {
+    let t = progress.clamp(0.0, 1.0);
+    match curve {
+        "exponential" => t * t,
+        "logarithmic" => t.sqrt(),
+        "s-curve" => t * t * (3.0 - 2.0 * t),
+        _ => t,
+    }
+}
+
+fn evaluate_keyframes(points: &[NativeAudioKeyframe], time: i64) -> f32 {
+    if points.is_empty() {
+        return 1.0;
+    }
+    if time <= points[0].time {
+        return points[0].gain;
+    }
+    let last = points.last().expect("points is non-empty");
+    if time >= last.time {
+        return last.gain;
+    }
+    for pair in points.windows(2) {
+        let from = &pair[0];
+        let to = &pair[1];
+        if time < from.time || time > to.time {
+            continue;
+        }
+        let span = (to.time - from.time).max(1) as f32;
+        let t = ((time - from.time) as f32 / span).clamp(0.0, 1.0);
+        return match to.easing.as_deref() {
+            Some("exponential") if from.gain > 0.0001 && to.gain > 0.0001 => {
+                from.gain * (to.gain / from.gain).powf(t)
+            }
+            Some("bezier") => from.gain + (to.gain - from.gain) * t * t * (3.0 - 2.0 * t),
+            _ => from.gain + (to.gain - from.gain) * t,
+        };
+    }
+    1.0
 }
 
 struct NativeAudioClockInner {
@@ -289,6 +648,7 @@ struct NativeAudioClockInner {
     speed_milli: Arc<AtomicU32>,
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
+    transport_ramp_frames: Arc<AtomicU32>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
 }
@@ -315,6 +675,7 @@ impl NativeAudioClock {
                 speed_milli: Arc::new(AtomicU32::new(1_000)),
                 volume_milli: Arc::new(AtomicU32::new(1_000)),
                 muted: Arc::new(AtomicBool::new(false)),
+                transport_ramp_frames: Arc::new(AtomicU32::new(0)),
                 mixer: Arc::new(RwLock::new(NativeAudioMixer::default())),
                 last_error: Arc::new(Mutex::new(None)),
             },
@@ -338,6 +699,7 @@ impl NativeAudioClock {
         self.inner.non_silent_frames.store(0, Ordering::Release);
         self.inner.position_ticks.store(0, Ordering::Release);
         self.inner.playing.store(false, Ordering::Release);
+        self.inner.transport_ramp_frames.store(0, Ordering::Release);
 
         let host = cpal::default_host();
         let host_name = format!("{:?}", host.id());
@@ -364,6 +726,7 @@ impl NativeAudioClock {
         let speed_milli = self.inner.speed_milli.clone();
         let volume_milli = self.inner.volume_milli.clone();
         let muted = self.inner.muted.clone();
+        let transport_ramp_frames = self.inner.transport_ramp_frames.clone();
         let mixer = self.inner.mixer.clone();
         let last_error = self.inner.last_error.clone();
 
@@ -381,6 +744,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -397,6 +761,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -413,6 +778,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -429,6 +795,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -445,6 +812,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -461,6 +829,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -477,6 +846,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -493,6 +863,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -509,6 +880,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -525,6 +897,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -541,6 +914,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -557,6 +931,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames,
                 mixer,
                 last_error,
             ),
@@ -590,14 +965,19 @@ impl NativeAudioClock {
         self.inner.speed_milli.store(1_000, Ordering::Release);
         self.inner.volume_milli.store(1_000, Ordering::Release);
         self.inner.muted.store(false, Ordering::Release);
+        self.inner.transport_ramp_frames.store(0, Ordering::Release);
     }
 
     pub fn pause(&self) {
         self.inner.playing.store(false, Ordering::Release);
+        self.inner.transport_ramp_frames.store(0, Ordering::Release);
     }
 
     pub fn resume(&self) {
         if self.inner.stream.is_some() {
+            self.inner
+                .transport_ramp_frames
+                .store(TRANSPORT_RAMP_FRAMES, Ordering::Release);
             self.inner.playing.store(true, Ordering::Release);
         }
     }
@@ -627,6 +1007,9 @@ impl NativeAudioClock {
 
     pub fn seek(&self, position_ticks: i64) {
         self.inner
+            .transport_ramp_frames
+            .store(TRANSPORT_RAMP_FRAMES, Ordering::Release);
+        self.inner
             .position_ticks
             .store(position_ticks.max(0), Ordering::Release);
         self.inner.played_frames.store(0, Ordering::Release);
@@ -644,6 +1027,41 @@ impl NativeAudioClock {
         if let Ok(mut mixer) = self.inner.mixer.write() {
             mixer.clear();
         }
+    }
+
+    pub fn replace_clips(&mut self, clips: Vec<NativePcmClip>) -> Result<(), String> {
+        self.inner
+            .mixer
+            .write()
+            .map_err(|_| "native audio mixer lock poisoned".to_string())?
+            .replace_clips(clips)
+    }
+
+    pub fn update_clip_parameters(
+        &mut self,
+        clip_id: &str,
+        gain: f32,
+        pan: f32,
+        fade_in_ticks: i64,
+        fade_out_ticks: i64,
+        fade_in_curve: String,
+        fade_out_curve: String,
+        volume_keyframes: Vec<NativeAudioKeyframe>,
+    ) -> Result<NativeAudioClipStatus, String> {
+        self.inner
+            .mixer
+            .write()
+            .map_err(|_| "native audio mixer lock poisoned".to_string())?
+            .update_clip_parameters(
+                clip_id,
+                gain,
+                pan,
+                fade_in_ticks,
+                fade_out_ticks,
+                fade_in_curve,
+                fade_out_curve,
+                volume_keyframes,
+            )
     }
 
     pub fn clip_status(&self) -> Option<NativeAudioClipStatus> {
@@ -691,6 +1109,36 @@ impl NativeAudioClock {
             muted: self.inner.muted.load(Ordering::Acquire),
         }
     }
+
+    pub fn diagnostics(&self) -> NativeAudioDiagnostics {
+        let status = self.status();
+        let installed_clips = self.clip_statuses();
+        let inspection = match (status.channels, status.sample_rate) {
+            (Some(channels), Some(sample_rate)) => self
+                .inner
+                .mixer
+                .read()
+                .map(|mixer| {
+                    mixer.inspect(
+                        channels,
+                        sample_rate,
+                        status.audio_position_ticks.min(i64::MAX as u64) as i64,
+                        status.volume,
+                        status.speed,
+                    )
+                })
+                .unwrap_or_default(),
+            _ => NativeAudioMixerInspection::default(),
+        };
+
+        NativeAudioDiagnostics {
+            status,
+            installed_clips,
+            active_clip_ids: inspection.active_clip_ids,
+            mixer_peak: inspection.mixer_peak,
+            clip_diagnostics: inspection.clip_diagnostics,
+        }
+    }
 }
 
 /// Real-time safe audio output stream builder.
@@ -711,6 +1159,7 @@ fn build_audio_stream<T>(
     speed_milli: Arc<AtomicU32>,
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
+    transport_ramp_frames: Arc<AtomicU32>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
 ) -> Result<cpal::Stream, cpal::Error>
@@ -731,15 +1180,25 @@ where
 
             let start_ticks = position_ticks.load(Ordering::Acquire);
             let master_gain = volume_milli.load(Ordering::Acquire) as f32 / 1_000.0;
+            let playback_speed = speed_milli.load(Ordering::Acquire) as f32 / 1_000.0;
+            let frames = data.len() / usize::from(channels.max(1));
+            let ramp_remaining = transport_ramp_frames.load(Ordering::Acquire);
+            let ramp_consumed = ramp_remaining.min(frames as u32);
+            if ramp_consumed > 0 {
+                transport_ramp_frames.fetch_sub(ramp_consumed, Ordering::AcqRel);
+            }
 
             // Non-blocking try_read lock for real-time safety
             if let Ok(mixer_guard) = mixer.try_read() {
-                if mixer_guard.mix_into(
+                if mixer_guard.mix_into_with_ramp(
                     data,
                     channels,
                     sample_rate,
                     start_ticks,
                     master_gain,
+                    playback_speed,
+                    ramp_remaining as usize,
+                    TRANSPORT_RAMP_FRAMES as usize,
                 ) {
                     non_silent_frames.fetch_add(
                         (data.len() / usize::from(channels.max(1))) as u64,
@@ -753,7 +1212,6 @@ where
                 }
             }
 
-            let frames = data.len() / usize::from(channels.max(1));
             played_frames.fetch_add(frames as u64, Ordering::Relaxed);
 
             // Hardware master clock tick update
@@ -782,8 +1240,16 @@ pub async fn decode_native_audio_clip(
     source_start_ticks: i64,
     duration_ticks: i64,
     gain: f32,
+    pan: f32,
     fade_in_ticks: i64,
     fade_out_ticks: i64,
+    fade_in_curve: String,
+    fade_out_curve: String,
+    volume_keyframes: Vec<NativeAudioKeyframe>,
+    channel_mode: String,
+    downmix: String,
+    channel_map: Option<Vec<usize>>,
+    preserve_pitch: bool,
     sample_rate: u32,
     channels: u16,
 ) -> Result<NativePcmClip, String> {
@@ -799,8 +1265,34 @@ pub async fn decode_native_audio_clip(
         track_id: None,
     };
 
-    let decoded = decode_audio_clip(path, config, sample_rate, channels).await?;
-    Ok(decoded.into())
+    // Decode into the requested working layout, not blindly into the device
+    // layout. This makes explicit mono/stereo downmix deterministic before the
+    // real-time channel matrix is applied.
+    let decode_channels = if channel_mode == "mono" || downmix == "mono" {
+        1
+    } else if channel_mode == "stereo" || downmix == "stereo" {
+        2
+    } else {
+        channels
+    };
+    let decoded = decode_audio_clip(path, config, sample_rate, decode_channels).await?;
+    let mut native: NativePcmClip = decoded.into();
+    native.pan = pan.clamp(-1.0, 1.0);
+    native.fade_in_curve = fade_in_curve;
+    native.fade_out_curve = fade_out_curve;
+    native.volume_keyframes = volume_keyframes;
+    native.volume_keyframes.sort_by_key(|point| point.time);
+    native.channel_mode = match channel_mode.as_str() {
+        "mono" | "stereo" | "multichannel" => channel_mode,
+        _ => "auto".to_string(),
+    };
+    native.downmix = match downmix.as_str() {
+        "mono" | "stereo" => downmix,
+        _ => "auto".to_string(),
+    };
+    native.channel_map = channel_map.filter(|map| !map.is_empty());
+    native.preserve_pitch = preserve_pitch;
+    Ok(native)
 }
 
 #[cfg(test)]
@@ -839,15 +1331,303 @@ mod tests {
                 timeline_start_ticks: 500_000,
                 duration_ticks: 1_000_000,
                 gain: 0.5,
+                pan: 0.0,
                 fade_in_ticks: 0,
                 fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
             })
             .unwrap();
 
         let mut output = [9.0_f32; 4];
-        mixer.mix_into(&mut output, 1, 4, 500_000, 1.0);
+        mixer.mix_into(&mut output, 1, 4, 500_000, 1.0, 1.0);
 
         assert_eq!(output, [0.0, 0.5, 0.0, -0.5]);
+    }
+
+    #[test]
+    fn mixer_applies_a_short_sample_domain_ramp_after_transport_discontinuity() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "clip".to_string(),
+                sample_rate: 4,
+                channels: 1,
+                samples: vec![1.0; 4].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let mut output = [0.0_f32; 4];
+        mixer.mix_into_with_ramp(&mut output, 1, 4, 0, 1.0, 1.0, 4, 4);
+
+        assert_eq!(output, [0.25, 0.5, 0.75, 1.0]);
+    }
+
+    #[test]
+    fn mixer_inspection_uses_the_same_timeline_and_gain_path_as_rendering() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "audible".to_string(),
+                sample_rate: 10,
+                channels: 1,
+                samples: vec![0.5; 10].into(),
+                timeline_start_ticks: 1_000_000,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 0.5,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let before = mixer.inspect(1, 10, 0, 1.0, 1.0);
+        assert!(before.active_clip_ids.is_empty());
+        assert_eq!(before.mixer_peak, 0.0);
+        assert_eq!(before.clip_diagnostics[0].id, "audible");
+        assert!(!before.clip_diagnostics[0].active);
+
+        let active = mixer.inspect(1, 10, TICKS_PER_SECOND, 0.8, 1.0);
+        assert_eq!(active.active_clip_ids, vec!["audible"]);
+        assert!((active.mixer_peak - 0.2).abs() < 0.000_001);
+        assert!(active.clip_diagnostics[0].active);
+        assert!((active.clip_diagnostics[0].mixer_peak - 0.2).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn clock_diagnostics_are_derived_from_its_installed_native_mixer() {
+        let mut clock = NativeAudioClock::new();
+        clock.inner.sample_rate = Some(10);
+        clock.inner.channels = Some(1);
+        clock
+            .install_clip(NativePcmClip {
+                id: "clip".to_string(),
+                sample_rate: 10,
+                channels: 1,
+                samples: vec![0.25; 10].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let diagnostics = clock.diagnostics();
+        assert_eq!(diagnostics.installed_clips.len(), 1);
+        assert_eq!(diagnostics.active_clip_ids, vec!["clip"]);
+        assert!((diagnostics.mixer_peak - 0.25).abs() < 0.000_001);
+        assert_eq!(diagnostics.clip_diagnostics.len(), 1);
+        assert!(diagnostics.clip_diagnostics[0].active);
+        assert!((diagnostics.clip_diagnostics[0].mixer_peak - 0.25).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn mixer_applies_fade_in_and_fade_out_to_rendered_samples() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "clip".to_string(),
+                sample_rate: 1,
+                channels: 1,
+                samples: vec![1.0; 4].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: 4 * TICKS_PER_SECOND,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 2 * TICKS_PER_SECOND,
+                fade_out_ticks: 2 * TICKS_PER_SECOND,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let mut output = [0.0_f32; 4];
+        mixer.mix_into(&mut output, 1, 1, 0, 1.0, 1.0);
+
+        assert_eq!(output, [0.0, 0.5, 1.0, 0.5]);
+    }
+
+    #[test]
+    fn mixer_applies_keyframe_automation_with_the_same_relative_ticks_as_the_timeline() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "automation".to_string(),
+                sample_rate: 1,
+                channels: 1,
+                samples: vec![1.0; 4].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: 4 * TICKS_PER_SECOND,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: vec![
+                    NativeAudioKeyframe {
+                        time: 0,
+                        gain: 0.25,
+                        easing: Some("linear".to_string()),
+                    },
+                    NativeAudioKeyframe {
+                        time: 2 * TICKS_PER_SECOND,
+                        gain: 1.0,
+                        easing: Some("linear".to_string()),
+                    },
+                    NativeAudioKeyframe {
+                        time: 4 * TICKS_PER_SECOND,
+                        gain: 0.5,
+                        easing: Some("exponential".to_string()),
+                    },
+                ],
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let mut output = [0.0_f32; 4];
+        mixer.mix_into(&mut output, 1, 1, 0, 1.0, 1.0);
+
+        assert_eq!(output[0], 0.25);
+        assert_eq!(output[1], 0.625);
+        assert!((output[3] - 0.707_106_77).abs() < 0.0001);
+    }
+
+    #[test]
+    fn mixer_applies_clip_pan_without_changing_center_gain() {
+        let clip = NativePcmClip {
+            id: "pan".to_string(),
+            sample_rate: 1,
+            channels: 2,
+            samples: vec![1.0, 1.0].into(),
+            timeline_start_ticks: 0,
+            duration_ticks: TICKS_PER_SECOND,
+            gain: 1.0,
+            pan: 1.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            fade_in_curve: "linear".to_string(),
+            fade_out_curve: "linear".to_string(),
+            volume_keyframes: Vec::new(),
+            channel_mode: "auto".to_string(),
+            downmix: "auto".to_string(),
+            channel_map: None,
+            preserve_pitch: false,
+        };
+        let mut mixer = NativeAudioMixer::default();
+        mixer.install_clip(clip).unwrap();
+        let mut output = [0.0_f32; 2];
+        mixer.mix_into(&mut output, 2, 1, 0, 1.0, 1.0);
+        assert_eq!(output, [0.0, 1.0]);
+    }
+
+    #[test]
+    fn mixer_applies_explicit_downmix_and_channel_map() {
+        let base = NativePcmClip {
+            id: "routing".to_string(),
+            sample_rate: 1,
+            channels: 2,
+            samples: vec![1.0, 0.0].into(),
+            timeline_start_ticks: 0,
+            duration_ticks: TICKS_PER_SECOND,
+            gain: 1.0,
+            pan: 0.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            fade_in_curve: "linear".to_string(),
+            fade_out_curve: "linear".to_string(),
+            volume_keyframes: Vec::new(),
+            channel_mode: "auto".to_string(),
+            downmix: "mono".to_string(),
+            channel_map: None,
+            preserve_pitch: false,
+        };
+        let mut mixer = NativeAudioMixer::default();
+        mixer.install_clip(base.clone()).unwrap();
+        let mut mono = [0.0_f32; 2];
+        mixer.mix_into(&mut mono, 2, 1, 0, 1.0, 1.0);
+        assert_eq!(mono, [0.5, 0.5]);
+
+        let mut swapped = base;
+        swapped.id = "swapped".to_string();
+        swapped.downmix = "auto".to_string();
+        swapped.channel_map = Some(vec![1, 0]);
+        mixer.clear();
+        mixer.install_clip(swapped).unwrap();
+        let mut output = [0.0_f32; 2];
+        mixer.mix_into(&mut output, 2, 1, 0, 1.0, 1.0);
+        assert_eq!(output, [0.0, 1.0]);
+    }
+
+    #[test]
+    fn mixer_pitch_preservation_keeps_a_constant_signal_audible_at_transport_speed() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "pitch".to_string(),
+                sample_rate: 100,
+                channels: 1,
+                samples: vec![0.75; 100].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: true,
+            })
+            .unwrap();
+        let mut output = [0.0_f32; 20];
+        mixer.mix_into(&mut output, 1, 100, 0, 1.0, 2.0);
+        assert!(output.iter().all(|sample| (*sample - 0.75).abs() < 0.001));
     }
 
     #[test]
@@ -862,15 +1642,23 @@ mod tests {
                 timeline_start_ticks: 1_000_000,
                 duration_ticks: 1_000_000,
                 gain: 1.0,
+                pan: 0.0,
                 fade_in_ticks: 0,
                 fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
             })
             .unwrap();
 
         let mut before = [9.0_f32; 1];
-        mixer.mix_into(&mut before, 1, 1, 0, 1.0);
+        mixer.mix_into(&mut before, 1, 1, 0, 1.0, 1.0);
         let mut after = [9.0_f32; 1];
-        mixer.mix_into(&mut after, 1, 1, 2_000_000, 1.0);
+        mixer.mix_into(&mut after, 1, 1, 2_000_000, 1.0, 1.0);
 
         assert_eq!(before, [0.0]);
         assert_eq!(after, [0.0]);
@@ -888,8 +1676,16 @@ mod tests {
                 timeline_start_ticks: 0,
                 duration_ticks: 1_000_000,
                 gain: 1.0,
+                pan: 0.0,
                 fade_in_ticks: 0,
                 fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
             })
             .unwrap();
         mixer
@@ -901,13 +1697,21 @@ mod tests {
                 timeline_start_ticks: 0,
                 duration_ticks: 1_000_000,
                 gain: 1.0,
+                pan: 0.0,
                 fade_in_ticks: 0,
                 fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
             })
             .unwrap();
 
         let mut output = [0.0_f32; 1];
-        mixer.mix_into(&mut output, 1, 1, 0, 1.0);
+        mixer.mix_into(&mut output, 1, 1, 0, 1.0, 1.0);
         assert_eq!(output, [0.75]);
 
         mixer
@@ -919,13 +1723,117 @@ mod tests {
                 timeline_start_ticks: 0,
                 duration_ticks: 1_000_000,
                 gain: 1.0,
+                pan: 0.0,
                 fade_in_ticks: 0,
                 fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
             })
             .unwrap();
         let mut replaced = [0.0_f32; 1];
-        mixer.mix_into(&mut replaced, 1, 1, 0, 1.0);
+        mixer.mix_into(&mut replaced, 1, 1, 0, 1.0, 1.0);
         assert_eq!(replaced, [0.6]);
         assert_eq!(mixer.clip_statuses().len(), 2);
+    }
+
+    #[test]
+    fn mixer_updates_parameters_without_replacing_pcm() {
+        let samples: Arc<[f32]> = vec![1.0].into();
+        let original_samples = samples.clone();
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "editable".to_string(),
+                sample_rate: 1,
+                channels: 1,
+                samples,
+                timeline_start_ticks: 0,
+                duration_ticks: 1_000_000,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        mixer
+            .update_clip_parameters(
+                "editable",
+                0.25,
+                0.0,
+                0,
+                0,
+                "linear".to_string(),
+                "linear".to_string(),
+                Vec::new(),
+            )
+            .unwrap();
+
+        assert!(Arc::ptr_eq(&original_samples, &mixer.clips[0].samples));
+        let mut output = [0.0_f32; 1];
+        mixer.mix_into(&mut output, 1, 1, 0, 1.0, 1.0);
+        assert_eq!(output, [0.25]);
+    }
+
+    #[test]
+    fn failed_graph_replacement_keeps_the_previous_graph() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "healthy".to_string(),
+                sample_rate: 1,
+                channels: 1,
+                samples: vec![0.75].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: 1_000_000,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let oversized = (0..=MAX_ACTIVE_CLIPS)
+            .map(|index| NativePcmClip {
+                id: format!("candidate-{index}"),
+                sample_rate: 1,
+                channels: 1,
+                samples: vec![0.1].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: 1_000_000,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .collect();
+        assert!(mixer.replace_clips(oversized).is_err());
+        assert_eq!(mixer.clip_statuses()[0].id, "healthy");
     }
 }

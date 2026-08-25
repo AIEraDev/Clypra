@@ -1,4 +1,21 @@
+import type { AudioFadeCurve, AudioFXConfig, AudioKeyframe, ClipAudioProperties } from "./audio";
+
 export type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5" | "21:9" | "4:3";
+
+export type {
+  AudioChannelConfig,
+  AudioChannelMode,
+  AudioClipOrigin,
+  AudioDownmixMode,
+  AudioFadeCurve,
+  AudioFadeSettings,
+  AudioFXConfig,
+  AudioKeyframe,
+  AudioLinkState,
+  AudioSpeedConfig,
+  ClipAudioProperties,
+} from "./audio";
+export { AUDIO_MODEL_VERSION, dbToLinearGain, getClipAudioProperties, linearGainToDb, normalizeClipAudioProperties, synchronizeClipAudioProperties } from "./audio";
 
 /**
  * Maximum project name length.
@@ -113,6 +130,8 @@ export interface Project {
   thumbnail?: string;
   /** Timeline schema version for forward-compatible project migrations. */
   timelineSchemaVersion?: number;
+  /** Version of the first-class audio clip model. */
+  audioModelVersion?: number;
 }
 
 export type TrackType = "video" | "audio" | "text" | "sticker" | "filter" | "video-effect" | "body-effect" | "animated-overlay";
@@ -127,6 +146,8 @@ export interface Track {
   height: number;
   /** Optional track volume multiplier (0.0 to 2.0, default 1.0) */
   volume?: number;
+  /** Solo silences all non-solo tracks without changing their mute state. */
+  solo?: boolean;
 }
 
 /** Audio/video stream metadata cached from the native media probe. */
@@ -214,37 +235,6 @@ export type { SmartOverlayClip, SmartOverlayType, SmartOverlayContentUnion, Smar
 
 
 
-/** Audio automation keyframe point */
-export interface AudioKeyframe {
-  id: string;
-  time: number; // relative time within clip duration (0 to duration)
-  gain: number; // volume multiplier 0.0 to 2.0
-  easing?: "linear" | "exponential" | "bezier";
-}
-
-/** Easing curve types for audio fade transitions */
-export type AudioFadeCurve = "linear" | "exponential" | "logarithmic" | "s-curve";
-
-/** Audio FX processing configuration for clip */
-export interface AudioFXConfig {
-  eq?: {
-    low: number;  // Bass gain (-12dB to +12dB)
-    mid: number;  // Mid gain (-12dB to +12dB)
-    high: number; // Treble gain (-12dB to +12dB)
-  };
-  noiseSuppression?: number; // 0.0 to 1.0 noise reduction
-  compressor?: {
-    threshold: number; // -60 to 0 dB
-    ratio: number;     // 1 to 20
-  };
-  pan?: number; // Stereo panning: -1.0 (Left) to +1.0 (Right)
-  ducking?: {
-    enabled: boolean;
-    duckingAmount: number; // -30dB to -3dB
-    threshold: number;
-  };
-}
-
 export interface Clip {
   id: string;
   name?: string;
@@ -281,6 +271,8 @@ export interface Clip {
   volumeKeyframes?: AudioKeyframe[];
   /** Audio FX processing configuration (EQ, Noise, Compressor, Pan) */
   audioFX?: AudioFXConfig;
+  /** Canonical first-class audio model. Legacy fields above remain during migration. */
+  audio?: ClipAudioProperties;
   kind?: ClipKind; // Optional for backward compatibility
   /** Video overlays (actual video files like smoke, fire, light leaks) */
   overlays?: ClipOverlay[];

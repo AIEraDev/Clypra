@@ -67,8 +67,13 @@ impl OverlayDocument {
         if let Ok(artifact) = serde_json::from_str::<PublishedOverlayArtifact>(json_str) {
             return Ok(artifact.document);
         }
-        
+
         // Fallback to standalone OverlayDocument JSON
-        serde_json::from_str(json_str).map_err(|e| format!("Failed to parse OverlayDocument JSON or PublishedOverlayArtifact: {}", e))
+        serde_json::from_str(json_str).map_err(|e| {
+            format!(
+                "Failed to parse OverlayDocument JSON or PublishedOverlayArtifact: {}",
+                e
+            )
+        })
     }
 }

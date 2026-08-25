@@ -3,6 +3,7 @@ import {
   AudioLines,
   Eye,
   EyeOff,
+  Headphones,
   Layers,
   Lock,
   Minimize2,
@@ -50,10 +51,28 @@ const TRACK_ROLE_ICONS: Record<TrackVisualRole, typeof Video> = {
  * Designed to live inside a CSS Grid as a `sticky left-0` cell so it
  * stays pinned while the clip area scrolls horizontally.
  */
-export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visualSpecProp }) => {
-  const { tracks, clips, gaps, mainVideoTrackId, toggleTrackLock, toggleTrackMute, toggleTrackVisibility } = useTimelineStore();
+export const TrackLabel: React.FC<TrackLabelProps> = ({
+  track,
+  visualSpec: visualSpecProp,
+}) => {
+  const {
+    tracks,
+    clips,
+    gaps,
+    mainVideoTrackId,
+    toggleTrackLock,
+    toggleTrackMute,
+    toggleTrackSolo,
+    toggleTrackVisibility,
+  } = useTimelineStore();
   const { selectedTrackId, selectTrack } = useUIStore();
-  const visualSpec = visualSpecProp ?? getTrackVisualSpec(track, tracks.length > 0 ? tracks : [track], mainVideoTrackId);
+  const visualSpec =
+    visualSpecProp ??
+    getTrackVisualSpec(
+      track,
+      tracks.length > 0 ? tracks : [track],
+      mainVideoTrackId,
+    );
 
   const isEmpty = !clips.some((c) => c.trackId === track.id);
   const hasGaps = gaps.some((g) => g.trackId === track.id && !g.protected);
@@ -62,7 +81,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visua
 
   return (
     <div
-      className={`group relative flex items-center gap-2 px-2 transition-colors bg-surface-raised ${visualSpec.tone === "primary" ? "border-l-2 border-accent/70" : visualSpec.tone === "secondary" ? "border-l border-accent/30" : visualSpec.tone === "audio" ? "border-l border-white/15" : "border-l border-violet-400/25"} ${isSelected ? "bg-timeline-track-selected ring-1 ring-inset ring-timeline-track-active" : "hover:bg-timeline-track-hover"} ${isEmpty ? "opacity-70" : ""} ${track.locked ? "bg-timeline-track-active/60" : ""}`}
+      className={`group relative flex items-center gap-2 px-2 transition-colors bg-surface-raised ${isSelected ? "bg-timeline-track-selected ring-1 ring-inset ring-timeline-track-active" : "hover:bg-timeline-track-hover"} ${isEmpty ? "opacity-70" : ""} ${track.locked ? "bg-timeline-track-active/60" : ""}`}
       style={{
         height: `${visualSpec.height}px`,
         position: "sticky",
@@ -71,14 +90,15 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visua
         width: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
         minWidth: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px`,
         flexShrink: 0,
-        borderRight: "1px solid var(--color-timeline-track-border)",
       }}
       onClick={() => selectTrack(track.id)}
     >
-      <div className={`absolute left-0 top-0 h-full w-[2px] ${isSelected ? "bg-timeline-track-label" : "bg-transparent"}`} />
+      <div
+        className={`absolute left-0 top-0 h-full w-0.5 ${isSelected ? "bg-timeline-track-label" : "bg-transparent"}`}
+      />
       <span
         data-testid={`track-${track.id}-visual-role`}
-        className={`pointer-events-none inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${visualSpec.tone === "primary" ? "text-accent" : visualSpec.tone === "secondary" ? "text-accent/70" : visualSpec.tone === "audio" ? "text-text-muted" : "text-violet-300/75"}`}
+        className={`pointer-events-none inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${visualSpec.tone === "primary" ? "text-accent" : visualSpec.tone === "secondary" ? "text-accent/70" : visualSpec.tone === "audio" ? "text-text-muted" : "text-accent-soft/75"}`}
         aria-label={visualSpec.label}
         title={visualSpec.label}
       >
@@ -93,7 +113,11 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visua
         aria-label={track.locked ? "Unlock track" : "Lock track"}
         title={track.locked ? "Unlock track" : "Lock track"}
       >
-        {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+        {track.locked ? (
+          <Lock className="w-3 h-3" />
+        ) : (
+          <Unlock className="w-3 h-3" />
+        )}
       </button>
 
       <button
@@ -105,10 +129,35 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visua
         aria-label={track.visible ? "Hide track" : "Show track"}
         title={track.visible ? "Hide track" : "Show track"}
       >
-        {track.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        {track.visible ? (
+          <Eye className="w-3 h-3" />
+        ) : (
+          <EyeOff className="w-3 h-3" />
+        )}
       </button>
 
       {/* Only show mute button for tracks that produce audio */}
+      {(track.type === "video" || track.type === "audio") && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleTrackSolo(track.id);
+          }}
+          disabled={track.locked}
+          className={`p-1 rounded transition-colors ${track.locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-timeline-button-hover"} ${track.solo ? "bg-accent/20 text-accent" : "text-timeline-button-icon"}`}
+          aria-label={track.solo ? "Unsolo track" : "Solo track"}
+          title={
+            track.locked
+              ? "Unlock track to solo or unsolo"
+              : track.solo
+                ? "Unsolo track"
+                : "Solo track"
+          }
+        >
+          <Headphones className="w-3 h-3" />
+        </button>
+      )}
+
       {(track.type === "video" || track.type === "audio") && (
         <button
           onClick={(e) => {
@@ -118,9 +167,19 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visua
           disabled={track.locked}
           className={`p-1 rounded transition-colors ${track.locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-timeline-button-hover"} ${track.muted ? "bg-timeline-button-hover text-timeline-track-name" : "text-timeline-button-icon"}`}
           aria-label={track.muted ? "Unmute track" : "Mute track"}
-          title={track.locked ? "Unlock track to mute or unmute" : track.muted ? "Unmute track" : "Mute track"}
+          title={
+            track.locked
+              ? "Unlock track to mute or unmute"
+              : track.muted
+                ? "Unmute track"
+                : "Mute track"
+          }
         >
-          {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+          {track.muted ? (
+            <VolumeX className="w-3 h-3" />
+          ) : (
+            <Volume2 className="w-3 h-3" />
+          )}
         </button>
       )}
 

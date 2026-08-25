@@ -42,8 +42,22 @@ export interface NativeAudioClipStatus {
   durationTicks: number;
   timelineStartTicks: number;
   gain: number;
+  pan: number;
   fadeInTicks: number;
   fadeOutTicks: number;
+  channelMode: string;
+  downmix: string;
+  channelMap: number[] | null;
+  preservePitch: boolean;
+}
+
+/** Derived evidence from the live native audio clock and mixer. */
+export interface NativeAudioDiagnostics {
+  status: NativeAudioStatus;
+  installedClips: NativeAudioClipStatus[];
+  activeClipIds: string[];
+  mixerPeak: number;
+  clipDiagnostics: Array<{ id: string; active: boolean; mixerPeak: number }>;
 }
 
 export interface NativeGpuRuntimeStatus {

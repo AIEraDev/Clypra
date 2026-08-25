@@ -81,6 +81,19 @@ The focused Rust test passed, including the scoped waveform assertion. TypeScrip
 
 ## Follow-up scope
 
+## Timeline envelope interaction boundary
+
+The audio envelope editor is mounted inside the clip's waveform lane, not on
+the clip root. For video clips, that lane is the fixed bottom audio strip
+below the filmstrip and metadata row. For audio clips, it is the full audio
+waveform container below metadata. The fade handles, volume rubber band,
+keyframes, and live controls are therefore clipped by the waveform container
+and cannot cover filmstrip frames or clip metadata.
+
+The editor root uses `inset-0` and `overflow-hidden`; any future envelope
+control must remain a descendant of the waveform wrapper and must not be
+reintroduced as a clip-level overlay.
+
 1. Consider a source-keyed/coarse waveform cache to avoid repeated full-file browser fallback decodes and repeated bounded native decodes.
 2. Align evaluator audio-layer path resolution with `audioClips.ts` so explicit `audioPath` is authoritative for audio-kind clips.
 3. Add an interactive desktop smoke test to CI or the QA checklist for the seven audible/native scenarios.

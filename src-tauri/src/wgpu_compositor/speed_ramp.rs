@@ -89,8 +89,16 @@ mod tests {
     #[test]
     fn test_constant_speed_mapping() {
         let profile = SpeedRampProfile::new(vec![
-            SpeedKeyframe { time: 0.0, speed: 2.0, curve: None },
-            SpeedKeyframe { time: 10.0, speed: 2.0, curve: None },
+            SpeedKeyframe {
+                time: 0.0,
+                speed: 2.0,
+                curve: None,
+            },
+            SpeedKeyframe {
+                time: 10.0,
+                speed: 2.0,
+                curve: None,
+            },
         ]);
 
         assert_eq!(profile.get_speed_at(5.0), 2.0);
@@ -101,8 +109,16 @@ mod tests {
     #[test]
     fn test_speed_ramp_transition() {
         let profile = SpeedRampProfile::new(vec![
-            SpeedKeyframe { time: 0.0, speed: 1.0, curve: Some(CubicBezier::EASE_IN_OUT) },
-            SpeedKeyframe { time: 2.0, speed: 4.0, curve: None },
+            SpeedKeyframe {
+                time: 0.0,
+                speed: 1.0,
+                curve: Some(CubicBezier::EASE_IN_OUT),
+            },
+            SpeedKeyframe {
+                time: 2.0,
+                speed: 4.0,
+                curve: None,
+            },
         ]);
 
         let mid_speed = profile.get_speed_at(1.0);

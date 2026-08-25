@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useProjectStore } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { AspectRatio, MediaAsset, Project } from "@/types";
+import type { RecentProjectEntry } from "@/core/platform/platform";
 import { getProjectThumbnail, formatEditorTimecode } from "@/lib/media/projectThumbnail";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { useUIStore } from "@/store/uiStore";
@@ -15,7 +16,7 @@ import { useRecordingStore } from "@/store/recordingStore";
 
 interface LaunchScreenProps {
   onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
-  onProjectOpen: (project: Project) => void;
+  onProjectOpen: (project: RecentProjectEntry) => void;
 }
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
@@ -40,14 +41,14 @@ const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
 // Map aspect ratio to a soft accent hue for card hover glow
 const aspectRatioGlow: Record<string, string> = {
-  "16:9": "rgba(108, 99, 255, 0.18)",
-  "9:16": "rgba(236, 72, 153, 0.18)",
-  "1:1":  "rgba(20, 184, 166, 0.18)",
-  "4:3":  "rgba(245, 158, 11, 0.18)",
+  "16:9": "color-mix(in srgb, var(--clypra-interaction-focus) 18%, transparent)",
+  "9:16": "color-mix(in srgb, var(--clypra-clip-caption-bg) 18%, transparent)",
+  "1:1": "color-mix(in srgb, var(--clypra-status-success) 18%, transparent)",
+  "4:3": "color-mix(in srgb, var(--clypra-status-warning) 18%, transparent)",
 };
 
 const getAspectRatioGlow = (ratio: string) =>
-  aspectRatioGlow[ratio] ?? "rgba(108, 99, 255, 0.14)";
+  aspectRatioGlow[ratio] ?? "color-mix(in srgb, var(--clypra-interaction-focus) 14%, transparent)";
 
 export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onProjectOpen }) => {
   const { recentProjects, setRecentProjects, deleteProject, renameProject } = useProjectStore();
@@ -416,14 +417,14 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
       <div
         className="absolute inset-0 pointer-events-none ls-glow-primary"
         style={{
-          background: "radial-gradient(ellipse 80% 45% at 50% -5%, var(--color-accent, #6c63ff) 0%, transparent 60%)",
+          background: "radial-gradient(ellipse 80% 45% at 50% -5%, var(--clypra-interaction-focus) 0%, transparent 60%)",
         }}
       />
       {/* Warm secondary glow */}
       <div
         className="absolute inset-0 pointer-events-none ls-glow-warm"
         style={{
-          background: "radial-gradient(ellipse 55% 30% at 80% 10%, #a855f7 0%, transparent 60%)",
+          background: "radial-gradient(ellipse 55% 30% at 80% 10%, var(--clypra-clip-effect-bg) 0%, transparent 60%)",
         }}
       />
 
@@ -432,7 +433,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
         {/* Bottom scroll fade overlay */}
         <div
           className="pointer-events-none fixed bottom-0 left-0 right-0 h-16 z-20"
-          style={{ background: "linear-gradient(to top, var(--color-bg, #0f0f0f) 0%, transparent 100%)" }}
+          style={{ background: "linear-gradient(to top, var(--clypra-surface-app) 0%, transparent 100%)" }}
         />
         {/* Header / Brand */}
         <header className="flex items-center justify-between mb-10">
@@ -440,7 +441,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             <div className="w-10 h-10 flex items-center justify-center relative">
               <div className="absolute inset-0 bg-accent/25 blur-2xl rounded-full"></div>
               <div className="absolute inset-0 bg-accent/10 blur-md rounded-full"></div>
-              <img src="/clypra.svg" alt="Clypra Logo" className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_10px_rgba(108,99,255,0.6)]" />
+              <img src="/clypra.svg" alt="Clypra Logo" className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_10px_var(--clypra-interaction-focus)]" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-text-primary tracking-tight leading-tight">Clypra</h1>
@@ -460,16 +461,16 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           <div
             className="relative rounded-2xl overflow-hidden p-8 md:p-10 flex flex-col items-center text-center"
             style={{
-              background: "linear-gradient(135deg, var(--color-surface, #1a1a1a) 0%, var(--color-bg, #0f0f0f) 100%)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 24px rgba(0,0,0,0.18)",
+              background: "linear-gradient(135deg, var(--clypra-surface-panel) 0%, var(--clypra-surface-app) 100%)",
+              border: "1px solid color-mix(in srgb, var(--clypra-text-primary) 6%, transparent)",
+              boxShadow: "var(--elev-shadow)",
             }}
           >
             {/* Primary accent glow */}
             <div
               className="absolute top-0 left-1/2 -translate-x-1/2 w-[340px] h-[130px] rounded-full pointer-events-none"
               style={{
-                background: "var(--color-accent, #6c63ff)",
+                background: "var(--clypra-interaction-focus)",
                 opacity: 0.10,
                 filter: "blur(70px)",
               }}
@@ -478,7 +479,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             <div
               className="absolute top-0 right-[15%] w-[200px] h-[90px] rounded-full pointer-events-none"
               style={{
-                background: "#a855f7",
+                background: "var(--clypra-clip-effect-bg)",
                 opacity: 0.06,
                 filter: "blur(55px)",
               }}
@@ -604,7 +605,31 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {recentProjects.map((project) => {
+              {recentProjects.map((entry) => {
+                if (entry.kind === "unreadable") {
+                  return (
+                    <div key={entry.id} className="relative rounded-xl border border-danger/30 bg-surface overflow-hidden">
+                      <div className="h-[170px] bg-danger/5 flex flex-col items-center justify-center p-5 text-center">
+                        <FolderOpen className="w-8 h-8 text-danger/70 mb-3" />
+                        <p className="text-xs font-semibold text-text-primary">Project needs recovery</p>
+                        <p className="text-[11px] text-text-muted mt-2 line-clamp-3">{entry.error}</p>
+                        {entry.backupAvailable && (
+                          <button
+                            className="mt-4 px-3 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold hover:bg-accent/90"
+                            onClick={() => onProjectOpen(entry)}
+                          >
+                            Open recovered copy
+                          </button>
+                        )}
+                      </div>
+                      <div className="px-3.5 py-3.5">
+                        <h4 className="text-sm font-semibold text-text-primary truncate">{entry.name || entry.id}</h4>
+                        <p className="text-xs text-danger/80 mt-1">Original file was not opened or changed.</p>
+                      </div>
+                    </div>
+                  );
+                }
+                const project = entry;
                 const thumbnail = getProjectThumbnail(project);
                 const cardGlow = getAspectRatioGlow(project.aspectRatio);
                 return (
@@ -633,12 +658,12 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                         <>
                           <img src={thumbnail} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-2xl transition-transform duration-500 group-hover:scale-125" draggable={false} />
                           <div className="absolute inset-2 flex items-center justify-center overflow-hidden rounded-lg bg-black/40 backdrop-blur-xs border border-white/6 shadow-inner">
-                            <img src={thumbnail} alt="" className="max-h-full max-w-full object-contain opacity-98 shadow-[0_12px_28px_rgba(0,0,0,0.45)] transition-all duration-300 group-hover:scale-[1.03]" draggable={false} />
+                            <img src={thumbnail} alt="" className="max-h-full max-w-full object-contain opacity-98 shadow-lg transition-all duration-300 group-hover:scale-[1.03]" draggable={false} />
                           </div>
                         </>
                       ) : (
                         <div className="absolute inset-0 bg-gradient-to-br from-surface-raised/80 via-bg to-surface/90 flex flex-col items-center justify-center p-4">
-                          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:12px_12px]" />
+                          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(var(--clypra-text-primary)_1px,transparent_1px)] [background-size:12px_12px]" />
                           <div className="w-11 h-11 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent font-bold text-sm tracking-wider shadow-lg group-hover:scale-110 transition-transform duration-300">
                             {getProjectInitials(project.name)}
                           </div>
@@ -774,7 +799,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
           <div
             className="w-full max-w-[520px] max-h-[88vh] rounded-2xl p-5 shadow-2xl flex flex-col gap-3.5 text-slate-100 border border-white/10 overflow-y-auto"
             style={{
-              background: "linear-gradient(160deg, rgba(18,18,28,0.97) 0%, rgba(12,12,20,0.99) 100%)",
+              background: "linear-gradient(160deg, var(--clypra-surface-floating) 0%, var(--clypra-surface-app) 100%)",
             }}
           >
             {/* Header */}
@@ -795,10 +820,10 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             </div>
 
             {/* Live Preview */}
-            <div className="relative h-36 rounded-xl bg-[#0a0a12] border border-white/8 overflow-hidden flex-shrink-0">
+            <div className="relative h-36 rounded-xl bg-surface-app border border-text-primary/10 overflow-hidden flex-shrink-0">
               {/* Screen preview (fills the background) */}
               {recordOptions.screen && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#07070c] border border-white/5">
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-app border border-text-primary/5">
                   <div className="flex flex-col items-center justify-center text-slate-500 gap-2">
                     <span className="text-4xl">🖥️</span>
                     <span className="text-xs font-semibold text-slate-400">Screen Capture Enabled</span>
@@ -899,7 +924,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                 <select
                   value={recordOptions.screenType}
                   onChange={(e) => setRecordOptions({ ...recordOptions, screenType: e.target.value as any })}
-                  className="w-full bg-[#0d0d15] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-accent/40 cursor-pointer"
+                  className="w-full bg-surface-app border border-text-primary/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer"
                 >
                   <option value="any">Standard System Picker (Let me choose)</option>
                   <option value="entire">Prefer Entire Display</option>
@@ -913,7 +938,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
               <div className="grid grid-cols-2 gap-2.5 p-3 rounded-xl bg-white/4 border border-white/8 text-slate-300">
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Resolution</span>
-                  <div className="grid grid-cols-3 gap-1 bg-[#0d0d15] p-1 rounded-lg border border-white/10">
+                  <div className="grid grid-cols-3 gap-1 bg-surface-app p-1 rounded-lg border border-text-primary/10">
                     {(["720p", "1080p", "4k"] as const).map((res) => (
                       <button
                         key={res}
@@ -933,7 +958,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
 
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Frame Rate</span>
-                  <div className="grid grid-cols-2 gap-1 bg-[#0d0d15] p-1 rounded-lg border border-white/10">
+                  <div className="grid grid-cols-2 gap-1 bg-surface-app p-1 rounded-lg border border-text-primary/10">
                     {([30, 60] as const).map((fps) => (
                       <button
                         key={fps}
@@ -966,7 +991,7 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                     <select
                       value={selectedAudioDeviceId}
                       onChange={(e) => setSelectedAudioDeviceId(e.target.value)}
-                      className="w-full bg-[#0d0d15] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent/40 cursor-pointer"
+                      className="w-full bg-surface-app border border-text-primary/10 rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer"
                     >
                       {audioDevices.map((d) => (
                         <option key={d.deviceId} value={d.deviceId}>
@@ -978,13 +1003,13 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
                     {/* Live Meter */}
                     <div className="flex items-center gap-3">
                       <span className="text-[11px] text-slate-400 font-medium">Input level:</span>
-                      <div className="flex-1 h-2 rounded-full bg-[#07070a] overflow-hidden flex items-center p-0.5 border border-white/5">
+                      <div className="flex-1 h-2 rounded-full bg-surface-app overflow-hidden flex items-center p-0.5 border border-text-primary/5">
                         <div
                           ref={micLevelRef}
                           className="h-full rounded-full transition-all duration-75"
                           style={{
                             width: "0%",
-                            background: "linear-gradient(90deg, #10b981 0%, #10b981 70%, #f59e0b 85%, #ef4444 100%)",
+                            background: "linear-gradient(90deg, var(--clypra-status-success) 0%, var(--clypra-status-success) 70%, var(--clypra-status-warning) 85%, var(--clypra-status-error) 100%)",
                           }}
                         />
                       </div>

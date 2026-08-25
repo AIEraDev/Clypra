@@ -9,6 +9,8 @@ interface UseWaveformDataProps {
   audioPath: string;
   clipWidthPx: number;
   duration: number;
+  /** Full source-media duration. Enables one cached peak table per source asset. */
+  mediaDuration?: number;
   trimIn?: number;
   trimOut?: number;
 }
@@ -20,6 +22,8 @@ interface UseWaveformDataResult {
 }
 
 const WAVEFORM_CACHE_MAX = 50;
+/** Versioned source-scoped peak cache. Viewport density/trim is sampled from it. */
+const WAVEFORM_SOURCE_BUCKETS = 2048;
 const waveformCache = new Map<string, WaveformBucket[]>();
 
 function waveformCacheSet(key: string, value: WaveformBucket[]): void {
@@ -48,10 +52,32 @@ function quantizeWaveformSampleCount(rawWidthPx: number): number {
   return 2048;
 }
 
+function sampleWaveformRange(
+  source: WaveformBucket[],
+  startFraction: number,
+  endFraction: number,
+  bucketCount: number,
+): WaveformBucket[] {
+  if (!source.length) return [];
+  const start = Math.max(0, Math.min(source.length, Math.floor(startFraction * source.length)));
+  const end = Math.max(start + 1, Math.min(source.length, Math.ceil(endFraction * source.length)));
+  const range = source.slice(start, end);
+  return Array.from({ length: bucketCount }, (_, index) => {
+    const from = Math.floor((index * range.length) / bucketCount);
+    const to = Math.max(from + 1, Math.floor(((index + 1) * range.length) / bucketCount));
+    const group = range.slice(from, to);
+    return group.reduce<WaveformBucket>((result, bucket) => ({
+      peak: Math.max(result.peak, bucket.peak),
+      rms: Math.max(result.rms, bucket.rms),
+    }), { peak: 0, rms: 0 });
+  });
+}
+
 export function useWaveformData({
   audioPath,
   clipWidthPx,
   duration,
+  mediaDuration,
   trimIn = 0,
   trimOut,
 }: UseWaveformDataProps): UseWaveformDataResult {
@@ -63,7 +89,7 @@ export function useWaveformData({
     typeof clipWidthPx === "number" && !isNaN(clipWidthPx) ? clipWidthPx : 300;
   const sampleCount = quantizeWaveformSampleCount(validClipWidth);
   const sourceStart = Math.max(0, Number.isFinite(trimIn) ? trimIn : 0);
-  const sourceDuration = Math.max(
+  const visibleSourceDuration = Math.max(
     0,
     Math.min(
       duration,
@@ -76,7 +102,8 @@ export function useWaveformData({
     : platform.convertFileSrc(audioPath);
 
   useEffect(() => {
-    const cacheKey = `${resolvedPath}:${sourceStart.toFixed(3)}:${sourceDuration.toFixed(3)}:${sampleCount}`;
+    const sourceCacheKey = `waveform-v1:${resolvedPath}:${mediaDuration ?? "unknown"}:source:${WAVEFORM_SOURCE_BUCKETS}`;
+    const cacheKey = `${sourceCacheKey}:${sourceStart.toFixed(3)}:${visibleSourceDuration.toFixed(3)}:${sampleCount}`;
     const cached = waveformCacheGet(cacheKey);
     if (cached) {
       setWaveformData(cached);
@@ -93,15 +120,30 @@ export function useWaveformData({
         setHasError(false);
 
         try {
-          const buckets = await invoke<WaveformBucket[]>(
-            "extract_waveform_data",
-            {
+          const canUseSourceCache = Number.isFinite(mediaDuration) && mediaDuration! > 0;
+          let buckets: WaveformBucket[] = [];
+          if (canUseSourceCache) {
+            let sourceBuckets = waveformCacheGet(sourceCacheKey);
+            if (!sourceBuckets) {
+              sourceBuckets = await invoke<WaveformBucket[]>("extract_waveform_data", {
+                path: normalizePathForTauriInvoke(audioPath),
+                numBuckets: WAVEFORM_SOURCE_BUCKETS,
+                startTime: 0,
+                duration: mediaDuration,
+              });
+              if (sourceBuckets?.length) waveformCacheSet(sourceCacheKey, sourceBuckets);
+            }
+            buckets = sourceBuckets?.length
+              ? sampleWaveformRange(sourceBuckets, sourceStart / mediaDuration!, (sourceStart + visibleSourceDuration) / mediaDuration!, sampleCount)
+              : [];
+          } else {
+            buckets = await invoke<WaveformBucket[]>("extract_waveform_data", {
               path: normalizePathForTauriInvoke(audioPath),
               numBuckets: sampleCount,
               startTime: sourceStart,
-              duration: sourceDuration || duration,
-            },
-          );
+              duration: visibleSourceDuration || duration,
+            });
+          }
 
           if (!isCancelled && buckets && buckets.length > 0) {
             waveformCacheSet(cacheKey, buckets);
@@ -130,7 +172,7 @@ export function useWaveformData({
           const startSample = Math.max(0, Math.floor(sourceStart * sampleRate));
           const endSample = Math.min(
             channelData.length,
-            Math.floor((sourceStart + sourceDuration) * sampleRate),
+            Math.floor((sourceStart + visibleSourceDuration) * sampleRate),
           );
           const visibleChannelData = channelData.subarray(
             startSample,
@@ -195,7 +237,7 @@ export function useWaveformData({
     return () => {
       isCancelled = true;
     };
-  }, [resolvedPath, sampleCount, sourceStart, sourceDuration, duration, audioPath]);
+  }, [resolvedPath, sampleCount, sourceStart, visibleSourceDuration, mediaDuration, duration, audioPath]);
 
   return { waveformData, isLoading, hasError };
 }

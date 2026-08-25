@@ -21,7 +21,7 @@ export const LayoutPresetMenu: React.FC = () => {
   const presets: PresetOption[] = [
     {
       id: "default",
-      title: "Default (Classic)",
+      title: "Default",
       description: "Balanced 3-column top row with full-width timeline",
       renderIcon: () => (
         <svg
@@ -68,7 +68,7 @@ export const LayoutPresetMenu: React.FC = () => {
     },
     {
       id: "tall-player-right",
-      title: "Right Player (CapCut)",
+      title: "Right Player",
       description: "Tall full-height player on right, media & timeline on left",
       renderIcon: () => (
         <svg
@@ -211,7 +211,7 @@ export const LayoutPresetMenu: React.FC = () => {
     },
     {
       id: "dual-player",
-      title: "Dual Player (Assembly)",
+      title: "Dual Player",
       description: "Side-by-side Source & Program monitors for footage review",
       renderIcon: () => (
         <svg
@@ -300,7 +300,7 @@ export const LayoutPresetMenu: React.FC = () => {
     },
     {
       id: "vertical-shorts",
-      title: "Vertical / Shorts (9:16)",
+      title: "Vertical / Shorts",
       description: "Optimized for TikTok, Reels, and YouTube Shorts",
       renderIcon: () => (
         <svg

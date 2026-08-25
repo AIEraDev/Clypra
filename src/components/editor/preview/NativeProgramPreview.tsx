@@ -139,8 +139,9 @@ export const NativeProgramPreview: React.FC = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(100);
 
-  // Browser audio uses Web Audio; Tauri program preview uses the native CPAL
-  // authority through the same transport hook.
+  // Tauri Program Preview has one native A/V authority. Browser Web Audio is
+  // retained only for browser preview; native failures must surface through
+  // the native diagnostics rather than silently switching playback engines.
   useAudioSyncEngine({ volume, muted: isMuted, nativeMode: isTauriRuntime() });
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [previewScaleMode, setPreviewScaleMode] = useState<"fit" | "fill">("fit");

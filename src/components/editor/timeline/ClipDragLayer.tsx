@@ -26,10 +26,10 @@ export const ClipDragLayer: React.FC = () => {
 
   // Determine background color based on media asset type
   const getBackgroundColor = () => {
-    if (!mediaAsset) return "var(--color-video-clip)";
-    if (mediaAsset.type === "audio") return "var(--color-audio-clip)";
-    if (mediaAsset.type === "video") return "var(--color-video-clip)";
-    return "var(--color-text-clip)"; // image
+    if (!mediaAsset) return "var(--clypra-clip-video-bg)";
+    if (mediaAsset.type === "audio") return "var(--clypra-clip-audio-bg)";
+    if (mediaAsset.type === "video") return "var(--clypra-clip-video-bg)";
+    return "var(--clypra-clip-image-bg)";
   };
 
   return (
@@ -43,7 +43,7 @@ export const ClipDragLayer: React.FC = () => {
         pointerEvents: "none",
         zIndex: 9999,
         transform: "rotate(2deg)",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+        boxShadow: "var(--clypra-clip-drag-shadow)",
         borderRadius: "4px",
         overflow: "hidden",
         opacity: 0.95,
@@ -54,17 +54,17 @@ export const ClipDragLayer: React.FC = () => {
         className="relative w-full h-full"
         style={{
           backgroundColor: getBackgroundColor(),
-          border: "1px solid rgba(255,255,255,0.1)",
+          border: "1px solid var(--clypra-clip-drag-border)",
         }}
       >
         {/* Thumbnail if available */}
         {mediaAsset?.posterFrame && mediaAsset.type === "video" && <img src={mediaAsset.posterFrame} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" style={{ pointerEvents: "none" }} />}
 
         {/* Clip name */}
-        <div className="absolute top-1 left-2 text-xs text-white/90 font-medium truncate max-w-[calc(100%-16px)]">{mediaAsset?.name || "Clip"}</div>
+        <div className="absolute top-1 left-2 text-xs text-clypra-clip-fg font-medium truncate max-w-[calc(100%-16px)]">{mediaAsset?.name || "Clip"}</div>
 
         {/* Duration */}
-        <div className="absolute bottom-1 right-2 text-xs text-white/70">{draggingClip.duration.toFixed(1)}s</div>
+        <div className="absolute bottom-1 right-2 text-xs text-clypra-clip-muted-fg">{draggingClip.duration.toFixed(1)}s</div>
       </div>
     </div>
   );

@@ -189,12 +189,10 @@ pub async fn download_model(
 
     // SHA-256 integrity check
     if let Some(expected) = model.expected_sha256() {
-        verify_sha256(&dest, expected)
-            .await
-            .inspect_err(|_e| {
-                // Delete the corrupt file so the next download is a clean retry
-                let _ = std::fs::remove_file(&dest);
-            })?;
+        verify_sha256(&dest, expected).await.inspect_err(|_e| {
+            // Delete the corrupt file so the next download is a clean retry
+            let _ = std::fs::remove_file(&dest);
+        })?;
     }
 
     Ok(dest)

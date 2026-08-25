@@ -146,7 +146,7 @@ pub fn canonical_timestamp(time_secs: f64) -> u64 {
 pub struct AtlasCacheKey {
     pub video_hash: String,
     pub tier: SpatialTier,
-    pub sampling_strategy: String,  // e.g., "tile_width:80" or "density:medium"
+    pub sampling_strategy: String, // e.g., "tile_width:80" or "density:medium"
     pub effect_graph_version: u32,
 }
 
@@ -425,8 +425,7 @@ impl BackendTierCache {
     pub fn insert(&self, key: TierCacheKey, frame: Arc<TierRgbaFrame>) {
         let new_bytes = frame.byte_size;
         if let Some(old) = self.entries.insert(key.clone(), frame) {
-            self.total_bytes
-                .fetch_sub(old.byte_size, Ordering::Relaxed);
+            self.total_bytes.fetch_sub(old.byte_size, Ordering::Relaxed);
         }
         self.total_bytes.fetch_add(new_bytes, Ordering::Relaxed);
         self.evict_if_needed();
@@ -607,7 +606,7 @@ pub fn downsample_pyramid(
 }
 
 /// Calculate aspect-preserving dimensions for a spatial tier.
-/// 
+///
 /// Wrapper around shared geometry utility with tier-specific logic.
 /// DEPRECATED: Use geometry::fit_preserving_aspect_aligned directly.
 /// Kept for backward compatibility with existing call sites.

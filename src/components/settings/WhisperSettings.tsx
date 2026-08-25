@@ -190,22 +190,22 @@ function LanguageSelector() {
 
   return (
     <div className="space-y-2">
-      <label className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677)">
+      <label className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-text-tertiary)">
         Transcription Language
       </label>
 
       <div className="relative">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full flex items-center justify-between px-3 py-2 bg-(--clypra-surface,#1E1E26) border focus:border-(--clypra-violet,#7C6FFF) rounded-lg text-sm text-text-primary hover:border-(--clypra-violet,#7C6FFF) transition-colors"
+          className="w-full flex items-center justify-between px-3 py-2 bg-(--clypra-surface-panel) border focus:border-(--clypra-interaction-focus) rounded-lg text-sm text-text-primary hover:border-(--clypra-interaction-focus) transition-colors"
         >
           <span className="flex items-center gap-2">
             {selectedLanguage?.code === "auto" && (
-              <Sparkles className="w-4 h-4 text-(--clypra-violet,#7C6FFF)" />
+              <Sparkles className="w-4 h-4 text-(--clypra-interaction-focus)" />
             )}
             {selectedLanguage?.name || "Select language"}
           </span>
-          <Search className="w-4 h-4 text-(--clypra-muted,#666677)" />
+          <Search className="w-4 h-4 text-(--clypra-text-tertiary)" />
         </button>
 
         {isOpen && (
@@ -214,14 +214,14 @@ function LanguageSelector() {
               className="fixed inset-0 z-40"
               onClick={() => setIsOpen(false)}
             />
-            <div className="absolute top-full left-0 right-0 mt-1 bg-(--clypra-surface,#1E1E26) border focus:border-(--clypra-violet,#7C6FFF) rounded-lg shadow-lg z-50 overflow-hidden">
-              <div className="p-2 border-b focus:border-(--clypra-violet,#7C6FFF)">
+            <div className="absolute top-full left-0 right-0 mt-1 bg-(--clypra-surface-panel) border focus:border-(--clypra-interaction-focus) rounded-lg shadow-lg z-50 overflow-hidden">
+              <div className="p-2 border-b focus:border-(--clypra-interaction-focus)">
                 <input
                   type="text"
                   placeholder="Search languages..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-(--clypra-ink,#0E0E12) border focus:border-(--clypra-violet,#7C6FFF) rounded text-sm placeholder:text-(--clypra-muted,#666677) focus:outline-none"
+                  className="w-full px-3 py-1.5 bg-(--clypra-surface-app) border focus:border-(--clypra-interaction-focus) rounded text-sm placeholder:text-(--clypra-text-tertiary) focus:outline-none"
                   autoFocus
                 />
               </div>
@@ -234,7 +234,7 @@ function LanguageSelector() {
                       setIsOpen(false);
                       setSearchQuery("");
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${lang.code === captionSettings.language ? "bg-(--clypra-violet,#7C6FFF)/15 text-(--clypra-violet,#7C6FFF)" : "text-text-primary hover:bg-(--clypra-surface,#1E1E26)"}`}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${lang.code === captionSettings.language ? "bg-(--clypra-interaction-focus)/15 text-(--clypra-interaction-focus)" : "text-text-primary hover:bg-(--clypra-surface-panel)"}`}
                   >
                     <span className="flex items-center gap-2">
                       {lang.code === "auto" && (
@@ -253,7 +253,7 @@ function LanguageSelector() {
         )}
       </div>
 
-      <p className="text-[11px] text-(--clypra-muted,#666677) leading-relaxed">
+      <p className="text-[11px] text-(--clypra-text-tertiary) leading-relaxed">
         Auto-detect works well for most content. Set a language explicitly to
         improve accuracy for accented speech or mixed-language content.
       </p>
@@ -417,7 +417,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
   return (
     <div
-      className={`bg-(--clypra-surface,#1E1E26) border rounded-xl p-4 transition-all ${isActive ? "border-(--clypra-violet,#7C6FFF) shadow-lg shadow-(--clypra-violet,#7C6FFF)/20" : "focus:border-(--clypra-violet,#7C6FFF) hover:focus:border-(--clypra-violet,#7C6FFF)"}`}
+      className={`bg-(--clypra-surface-panel) border rounded-xl p-4 transition-all ${isActive ? "border-(--clypra-interaction-focus) shadow-lg shadow-(--clypra-interaction-focus)/20" : "focus:border-(--clypra-interaction-focus) hover:focus:border-(--clypra-interaction-focus)"}`}
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
@@ -426,7 +426,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
               {model.size}
             </h4>
             {model.recommended && (
-              <span className="px-2 py-0.5 text-[10px] font-medium bg-(--clypra-violet,#7C6FFF)/15 text-(--clypra-violet,#7C6FFF) rounded-full">
+              <span className="px-2 py-0.5 text-[10px] font-medium bg-(--clypra-interaction-focus)/15 text-(--clypra-interaction-focus) rounded-full">
                 Recommended
               </span>
             )}
@@ -436,18 +436,18 @@ function ModelCard({ model }: { model: ModelInfo }) {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3 text-[11px] font-mono text-(--clypra-muted,#666677)">
+          <div className="flex items-center gap-3 text-[11px] font-mono text-(--clypra-text-tertiary)">
             <span>{model.params} params</span>
             <span>•</span>
             <span>{model.vram}</span>
           </div>
         </div>
-        <div className="px-2 py-1 text-[10px] font-mono bg-(--clypra-violet,#7C6FFF)/10 text-(--clypra-violet,#7C6FFF) rounded">
+        <div className="px-2 py-1 text-[10px] font-mono bg-(--clypra-interaction-focus)/10 text-(--clypra-interaction-focus) rounded">
           {model.speed}
         </div>
       </div>
 
-      <p className="text-[13px] text-(--clypra-muted,#666677) mb-3">
+      <p className="text-[13px] text-(--clypra-text-tertiary) mb-3">
         {model.quality}
       </p>
 
@@ -456,7 +456,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
         <button
           onClick={handleDownload}
           disabled={isDownloading}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--clypra-violet,#7C6FFF) text-(--clypra-violet,#7C6FFF) rounded-lg text-sm font-medium hover:bg-(--clypra-violet,#7C6FFF)/10 transition-colors disabled:opacity-50 cursor-pointer"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--clypra-interaction-focus) text-(--clypra-interaction-focus) rounded-lg text-sm font-medium hover:bg-(--clypra-interaction-focus)/10 transition-colors disabled:opacity-50 cursor-pointer"
         >
           <Download className="w-4 h-4" />
           Download
@@ -465,13 +465,13 @@ function ModelCard({ model }: { model: ModelInfo }) {
 
       {modelState.status === "downloading" && (
         <div className="space-y-2">
-          <div className="w-full bg-(--clypra-ink,#0E0E12) rounded-full h-2 overflow-hidden">
+          <div className="w-full bg-(--clypra-surface-app) rounded-full h-2 overflow-hidden">
             <div
-              className="h-full bg-(--clypra-violet,#7C6FFF) transition-all duration-300"
+              className="h-full bg-(--clypra-interaction-focus) transition-all duration-300"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-          <div className="flex items-center justify-between text-[11px] font-mono text-(--clypra-muted,#666677)">
+          <div className="flex items-center justify-between text-[11px] font-mono text-(--clypra-text-tertiary)">
             <span>
               {formatBytes(modelState.progressBytes)} /{" "}
               {formatBytes(modelState.totalBytes)}
@@ -492,14 +492,14 @@ function ModelCard({ model }: { model: ModelInfo }) {
         <div className="flex items-center gap-2">
           <button
             onClick={handleSetActive}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-(--clypra-violet,#7C6FFF) text-white rounded-lg text-sm font-medium hover:bg-(--clypra-deep-violet,#5B4EE8) transition-colors"
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-(--clypra-interaction-focus) text-white rounded-lg text-sm font-medium hover:bg-(--clypra-interaction-active) transition-colors"
           >
             <Check className="w-4 h-4" />
             Use this model
           </button>
           <button
             onClick={handleDelete}
-            className="px-3 py-2 border focus:border-(--clypra-violet,#7C6FFF) text-(--clypra-muted,#666677) rounded-lg hover:border-red-500/50 hover:text-red-400 transition-colors"
+            className="px-3 py-2 border focus:border-(--clypra-interaction-focus) text-(--clypra-text-tertiary) rounded-lg hover:border-status-error/50 hover:text-status-error transition-colors"
             title="Delete model"
           >
             <Trash2 className="w-4 h-4" />
@@ -513,7 +513,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
           <span className="flex-1">Model active</span>
           <button
             onClick={handleDelete}
-            className="text-(--clypra-muted,#666677) hover:text-red-400 transition-colors"
+            className="text-(--clypra-text-tertiary) hover:text-status-error transition-colors"
             title="Delete model"
           >
             <Trash2 className="w-4 h-4" />
@@ -531,7 +531,7 @@ function ModelCard({ model }: { model: ModelInfo }) {
           </div>
           <button
             onClick={handleRetry}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--clypra-violet,#7C6FFF) text-(--clypra-violet,#7C6FFF) rounded-lg text-sm font-medium hover:bg-(--clypra-violet,#7C6FFF)/10 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-(--clypra-interaction-focus) text-(--clypra-interaction-focus) rounded-lg text-sm font-medium hover:bg-(--clypra-interaction-focus)/10 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
             Retry
@@ -573,11 +573,11 @@ function ActiveModelIndicator() {
   }
 
   return (
-    <div className="flex items-center gap-3 p-4 bg-(--clypra-surface,#1E1E26) border focus:border-(--clypra-violet,#7C6FFF) rounded-lg">
+    <div className="flex items-center gap-3 p-4 bg-(--clypra-surface-panel) border focus:border-(--clypra-interaction-focus) rounded-lg">
       <Check className="w-5 h-5 text-green-400" />
       <div className="flex-1">
         <p className="text-[13px] text-text-primary">
-          <span className="text-(--clypra-muted,#666677)">Active model: </span>
+          <span className="text-(--clypra-text-tertiary)">Active model: </span>
           <span className="font-medium">{activeModel}</span>
         </p>
       </div>
@@ -589,10 +589,10 @@ export const WhisperSettings: React.FC = () => {
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677) mb-2">
+        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-text-tertiary) mb-2">
           Auto-Captions Configuration
         </h3>
-        <p className="text-[11px] text-(--clypra-muted,#666677)">
+        <p className="text-[11px] text-(--clypra-text-tertiary)">
           Configure Whisper speech recognition for automatic caption generation.
         </p>
       </div>
@@ -602,7 +602,7 @@ export const WhisperSettings: React.FC = () => {
 
       {/* Model Download Manager */}
       <div className="space-y-3">
-        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-muted,#666677)">
+        <h3 className="text-[13px] font-semibold uppercase tracking-wider text-(--clypra-text-tertiary)">
           Whisper Models
         </h3>
         <div className="grid grid-cols-1 gap-3">
@@ -616,11 +616,11 @@ export const WhisperSettings: React.FC = () => {
       <ActiveModelIndicator />
 
       {/* Info Note */}
-      <div className="flex items-start gap-3 p-4 bg-(--clypra-violet,#7C6FFF)/10 border border-(--clypra-violet,#7C6FFF)/30 rounded-lg">
-        <Sparkles className="w-5 h-5 text-(--clypra-violet,#7C6FFF) shrink-0 mt-0.5" />
+      <div className="flex items-start gap-3 p-4 bg-(--clypra-interaction-focus)/10 border border-(--clypra-interaction-focus)/30 rounded-lg">
+        <Sparkles className="w-5 h-5 text-(--clypra-interaction-focus) shrink-0 mt-0.5" />
         <div className="text-[11px] text-text-primary/90">
           <p className="font-semibold mb-1">Local-First Privacy</p>
-          <p className="text-(--clypra-muted,#666677)">
+          <p className="text-(--clypra-text-tertiary)">
             All models run locally on your device. Your audio never leaves your
             computer, ensuring complete privacy and offline functionality.
           </p>

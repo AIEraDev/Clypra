@@ -8,17 +8,22 @@ import { Clip } from "./Clip";
 import { GapIndicator } from "./GapIndicator";
 import { TransitionIndicator } from "./TransitionIndicator";
 import { handleDropOnTrack } from "@/lib/timeline/timelineUtils";
-import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
-import { getTimelineLaneClientX } from "@/lib/timeline/timelineViewport";
+import {
+  timeToPixel,
+  pixelToTime,
+  getTimelineLaneContentX,
+} from "@/lib/timeline/timelineViewport";
 import { calculateDepartureClosurePositions } from "@/lib/timeline/clipPositions";
 import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
 import { resolveClipDuration } from "@/lib/timeline/timelineClip";
 import { useProjectStore } from "@/store/projectStore";
-import { getTrackVisualSpec, type TrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
+import {
+  getTrackVisualSpec,
+  type TrackVisualSpec,
+} from "@/lib/timeline/trackTypeConfig";
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { getActiveProgramBridgeClips } from "@/lib/timeline/programTimelineBridge";
 import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
-
 
 interface TrackProps {
   track: TrackType;
@@ -26,10 +31,24 @@ interface TrackProps {
   pixelsPerSecond: number;
   clips: any[];
   onClipDragStart?: (clipId: string, startX: number, startY: number) => void;
-  onClipDragMove?: (clipId: string, deltaX: number, deltaY: number, clientX: number, clientY: number) => void;
+  onClipDragMove?: (
+    clipId: string,
+    deltaX: number,
+    deltaY: number,
+    clientX: number,
+    clientY: number,
+  ) => void;
   onClipDragEnd?: (clipId: string) => void;
-  onClipContextMenu?: (e: React.MouseEvent, clipId: string, trackId: string) => void;
-  onTrackContextMenu?: (e: React.MouseEvent, trackId: string, time: number) => void;
+  onClipContextMenu?: (
+    e: React.MouseEvent,
+    clipId: string,
+    trackId: string,
+  ) => void;
+  onTrackContextMenu?: (
+    e: React.MouseEvent,
+    trackId: string,
+    time: number,
+  ) => void;
   dragState?: {
     draggingClipId: string | null;
     draggedClipIds?: string[];
@@ -43,7 +62,18 @@ interface TrackProps {
   };
 }
 
-const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, pixelsPerSecond, clips, onClipDragStart, onClipDragMove, onClipDragEnd, onClipContextMenu, onTrackContextMenu, dragState }) => {
+const TrackInner: React.FC<TrackProps> = ({
+  track,
+  visualSpec: visualSpecProp,
+  pixelsPerSecond,
+  clips,
+  onClipDragStart,
+  onClipDragMove,
+  onClipDragEnd,
+  onClipContextMenu,
+  onTrackContextMenu,
+  dragState,
+}) => {
   const selectedClipIds = useUIStore((state) => state.selectedClipIds);
   const selectedGapId = useUIStore((state) => state.selectedGapId);
   const selectedTrackId = useUIStore((state) => state.selectedTrackId);
@@ -60,8 +90,19 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
   const frameRate = useProjectStore((state) => state.project?.frameRate ?? 30);
   const playbackTime = usePlaybackClock().time;
   const { getMediaAsset } = useTimeline();
-  const [mediaDropPreview, setMediaDropPreview] = useState<{ startTime: number; duration: number; splitClipId: string | null; shiftedClipIds: string[] } | null>(null);
-  const visualSpec = visualSpecProp ?? getTrackVisualSpec(track, allTracks.length > 0 ? allTracks : [track], mainVideoTrackId);
+  const [mediaDropPreview, setMediaDropPreview] = useState<{
+    startTime: number;
+    duration: number;
+    splitClipId: string | null;
+    shiftedClipIds: string[];
+  } | null>(null);
+  const visualSpec =
+    visualSpecProp ??
+    getTrackVisualSpec(
+      track,
+      allTracks.length > 0 ? allTracks : [track],
+      mainVideoTrackId,
+    );
 
   // Drop handler for media assets from MediaTab
   const [{ isOver, canDrop }, drop] = useDrop(
@@ -73,9 +114,23 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
         const container = document.getElementById("timeline-tracks-container");
         if (!offset || !container) return;
         const rect = container.getBoundingClientRect();
-        const requestedTime = pixelToTime(getTimelineLaneClientX(offset.x, rect.left, allClips.length > 0) + scrollLeft, pixelsPerSecond);
+        const requestedTime = pixelToTime(
+          getTimelineLaneContentX(
+            offset.x,
+            rect.left,
+            scrollLeft,
+            allClips.length > 0,
+          ),
+          pixelsPerSecond,
+        );
 
-        const decision = resolveInsertEdit({ track, asset: item.asset, clips: allClips, requestedTime, frameRate });
+        const decision = resolveInsertEdit({
+          track,
+          asset: item.asset,
+          clips: allClips,
+          requestedTime,
+          frameRate,
+        });
         setMediaDropPreview(
           decision.accepted
             ? {
@@ -111,24 +166,44 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
 
   const activeClipIds = useMemo(() => {
     if (previewMode !== "program") return new Set<string>();
-    return new Set(getActiveProgramBridgeClips(allClips, playbackTime).map((clip) => clip.id));
+    return new Set(
+      getActiveProgramBridgeClips(allClips, playbackTime).map(
+        (clip) => clip.id,
+      ),
+    );
   }, [allClips, playbackTime, previewMode]);
 
   // Chronological order
-  const sortedTrackClips = useMemo(() => [...trackClips].sort((a, b) => a.startTime - b.startTime), [trackClips]);
+  const sortedTrackClips = useMemo(
+    () => [...trackClips].sort((a, b) => a.startTime - b.startTime),
+    [trackClips],
+  );
 
   // Get gaps for this track
-  const trackGaps = useMemo(() => gaps.filter((g) => g.trackId === track.id), [gaps, track.id]);
+  const trackGaps = useMemo(
+    () => gaps.filter((g) => g.trackId === track.id),
+    [gaps, track.id],
+  );
 
   // Get transitions for this track
-  const trackTransitions = useMemo(() => transitions.filter((t) => t.placement.trackId === track.id), [transitions, track.id]);
+  const trackTransitions = useMemo(
+    () => transitions.filter((t) => t.placement.trackId === track.id),
+    [transitions, track.id],
+  );
 
   // Calculate display info from placement preview (single source of truth)
   const displayInfo = useMemo(() => {
     if ((!dragState || !dragState.draggedClipIds) && mediaDropPreview) {
       const shifted = new Set(mediaDropPreview.shiftedClipIds);
       return {
-        displayPositions: new Map(sortedTrackClips.map((clip) => [clip.id, shifted.has(clip.id) ? clip.startTime + mediaDropPreview.duration : clip.startTime])),
+        displayPositions: new Map(
+          sortedTrackClips.map((clip) => [
+            clip.id,
+            shifted.has(clip.id)
+              ? clip.startTime + mediaDropPreview.duration
+              : clip.startTime,
+          ]),
+        ),
         gapIndicator: {
           startTime: mediaDropPreview.startTime,
           duration: mediaDropPreview.duration,
@@ -140,7 +215,9 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
       return { displayPositions: null, gapIndicator: null };
     }
 
-    const isDraggedFromThisTrack = dragState.draggedClipIds.some((clipId) => sortedTrackClips.some((c) => c.id === clipId));
+    const isDraggedFromThisTrack = dragState.draggedClipIds.some((clipId) =>
+      sortedTrackClips.some((c) => c.id === clipId),
+    );
 
     const isTargetTrack = dragState.targetTrackId === track.id;
 
@@ -180,12 +257,16 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
         case "position":
           // Gap indicator follows cursor (uses offsetX for live position)
           const firstDraggedClipId = dragState.draggedClipIds[0];
-          const placement = firstDraggedClipId ? dragState.originalPlacements[firstDraggedClipId] : null;
+          const placement = firstDraggedClipId
+            ? dragState.originalPlacements[firstDraggedClipId]
+            : null;
           if (placement) {
-            const clipLeftOriginal = timeToPixel(placement.startTime, pixelsPerSecond);
+            const clipLeftOriginal = timeToPixel(
+              placement.startTime,
+              pixelsPerSecond,
+            );
             const clipLeftLive = clipLeftOriginal + (dragState.offsetX || 0);
             const liveStartTime = pixelToTime(clipLeftLive, pixelsPerSecond);
-
 
             return {
               displayPositions: null,
@@ -209,7 +290,13 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
     }
 
     return { displayPositions: null, gapIndicator: null };
-  }, [dragState, track.id, sortedTrackClips, pixelsPerSecond, mediaDropPreview]);
+  }, [
+    dragState,
+    track.id,
+    sortedTrackClips,
+    pixelsPerSecond,
+    mediaDropPreview,
+  ]);
 
   const { displayPositions, gapIndicator } = displayInfo;
 
@@ -222,7 +309,15 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
     const container = document.getElementById("timeline-tracks-container");
     if (!container) return;
     const rect = container.getBoundingClientRect();
-    const clickedTime = pixelToTime(getTimelineLaneClientX(e.clientX, rect.left, allClips.length > 0) + scrollLeft, pixelsPerSecond);
+    const clickedTime = pixelToTime(
+      getTimelineLaneContentX(
+        e.clientX,
+        rect.left,
+        scrollLeft,
+        allClips.length > 0,
+      ),
+      pixelsPerSecond,
+    );
     onTrackContextMenu?.(e, track.id, Math.max(0, clickedTime));
   };
 
@@ -233,7 +328,7 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
       }}
       data-track-id={track.id}
       onContextMenu={handleTrackContextMenu}
-      className={`relative transition-colors mb-0 bg-surface-raised/40 ${visualSpec.tone === "primary" ? "border-l-2 border-accent/70" : visualSpec.tone === "secondary" ? "border-l border-accent/30" : visualSpec.tone === "audio" ? "border-l border-white/15" : "border-l border-violet-400/25"} ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-accent/10" : ""} ${track.locked ? "bg-slate-900/45" : ""}`}
+      className={`relative transition-colors mb-0 bg-surface-raised/40 ${selectedTrackId === track.id ? "bg-timeline-track-active" : ""} ${isOver && canDrop ? "bg-editor-drop/10" : ""} ${track.locked ? "bg-surface-app/45" : ""}`}
       style={{ height: `${visualSpec.height}px` }}
     >
       {/* Clips layer */}
@@ -250,13 +345,23 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
           const isShifted = displayStartTime !== clip.startTime;
 
           // Override clip's startTime for display if shifted
-          let displayClip = isShifted ? { ...clip, startTime: displayStartTime } : clip;
+          let displayClip = isShifted
+            ? { ...clip, startTime: displayStartTime }
+            : clip;
           const activeMediaPreview = mediaDropPreview;
-          if (activeMediaPreview && activeMediaPreview.splitClipId === clip.id) {
+          if (
+            activeMediaPreview &&
+            activeMediaPreview.splitClipId === clip.id
+          ) {
             displayClip = {
               ...displayClip,
-              duration: Math.max(0, activeMediaPreview.startTime - clip.startTime),
-              trimOut: clip.trimIn + Math.max(0, activeMediaPreview.startTime - clip.startTime),
+              duration: Math.max(
+                0,
+                activeMediaPreview.startTime - clip.startTime,
+              ),
+              trimOut:
+                clip.trimIn +
+                Math.max(0, activeMediaPreview.startTime - clip.startTime),
             };
           }
 
@@ -275,7 +380,9 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
               onDragStart={onClipDragStart}
               onDragMove={onClipDragMove}
               onDragEnd={onClipDragEnd}
-              onContextMenu={(e, clipId) => onClipContextMenu?.(e, clipId, track.id)}
+              onContextMenu={(e, clipId) =>
+                onClipContextMenu?.(e, clipId, track.id)
+              }
               isBeingShifted={isShifted}
               dragState={
                 isDragging
@@ -293,10 +400,18 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
 
       {mediaDropPreview?.splitClipId &&
         (() => {
-          const splitClip = sortedTrackClips.find((clip) => clip.id === mediaDropPreview!.splitClipId);
+          const splitClip = sortedTrackClips.find(
+            (clip) => clip.id === mediaDropPreview!.splitClipId,
+          );
           if (!splitClip) return null;
-          const previewLeftPx = timeToPixel(mediaDropPreview.startTime + mediaDropPreview.duration, pixelsPerSecond);
-          const previewRightPx = timeToPixel(splitClip.startTime + splitClip.duration, pixelsPerSecond);
+          const previewLeftPx = timeToPixel(
+            mediaDropPreview.startTime + mediaDropPreview.duration,
+            pixelsPerSecond,
+          );
+          const previewRightPx = timeToPixel(
+            splitClip.startTime + splitClip.duration,
+            pixelsPerSecond,
+          );
           const widthPx = Math.max(1, previewRightPx - previewLeftPx);
           return (
             <div
@@ -317,36 +432,65 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
           const fromClip = allClips.find((c) => c.id === t.fromItemId);
           const toClip = allClips.find((c) => c.id === t.toItemId);
 
-          return <TransitionIndicator key={t.id} transition={t} pixelsPerSecond={pixelsPerSecond} fromClip={fromClip} toClip={toClip} />;
+          return (
+            <TransitionIndicator
+              key={t.id}
+              transition={t}
+              pixelsPerSecond={pixelsPerSecond}
+              fromClip={fromClip}
+              toClip={toClip}
+            />
+          );
         })}
 
       {/* Gaps layer - render permanent gaps */}
-      {track.visible && !(dragState && (dragState.targetTrackId === track.id || dragState.draggedClipIds?.some((id) => sortedTrackClips.some((c) => c.id === id)))) && trackGaps.map((gap) => <GapIndicator key={gap.id} gap={gap} pixelsPerSecond={pixelsPerSecond} selected={selectedGapId === gap.id} locked={track.locked} />)}
+      {track.visible &&
+        !(
+          dragState &&
+          (dragState.targetTrackId === track.id ||
+            dragState.draggedClipIds?.some((id) =>
+              sortedTrackClips.some((c) => c.id === id),
+            ))
+        ) &&
+        trackGaps.map((gap) => (
+          <GapIndicator
+            key={gap.id}
+            gap={gap}
+            pixelsPerSecond={pixelsPerSecond}
+            selected={selectedGapId === gap.id}
+            locked={track.locked}
+          />
+        ))}
 
       {/* Gap indicator (blue dashed background) - temporary drag preview */}
-      {gapIndicator && (() => {
-        const gapLeft = timeToPixel(gapIndicator.startTime, pixelsPerSecond);
-        const gapRight = timeToPixel(gapIndicator.startTime + gapIndicator.duration, pixelsPerSecond);
-        const gapWidth = gapRight - gapLeft;
-        return (
-          <div
-            className="absolute top-0 pointer-events-none z-5"
-            style={{
-              left: `${gapLeft}px`,
-              width: `${gapWidth}px`,
-              height: "100%",
-              background: "rgba(96, 165, 250, 0.25)",
-              border: "2px dashed rgba(96, 165, 250, 0.6)",
-              borderRadius: "4px",
-            }}
-          />
-        );
-      })()}
-
+      {gapIndicator &&
+        (() => {
+          const gapLeft = timeToPixel(gapIndicator.startTime, pixelsPerSecond);
+          const gapRight = timeToPixel(
+            gapIndicator.startTime + gapIndicator.duration,
+            pixelsPerSecond,
+          );
+          const gapWidth = gapRight - gapLeft;
+          return (
+            <div
+              className="absolute top-0 pointer-events-none z-5"
+              style={{
+                left: `${gapLeft}px`,
+                width: `${gapWidth}px`,
+                height: "100%",
+                background:
+                  "color-mix(in srgb, var(--clypra-editor-drop) 25%, transparent)",
+                border:
+                  "2px dashed color-mix(in srgb, var(--clypra-editor-drop) 60%, transparent)",
+                borderRadius: "4px",
+              }}
+            />
+          );
+        })()}
 
       {track.locked && (
-        <div className="pointer-events-none absolute inset-0 z-40 bg-[repeating-linear-gradient(135deg,rgba(148,163,184,0.08)_0px,rgba(148,163,184,0.08)_8px,rgba(15,23,42,0.08)_8px,rgba(15,23,42,0.08)_16px)]">
-          <div className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-slate-900/70 px-2 py-1 text-[10px] font-medium text-slate-200">
+        <div className="track-locked-overlay pointer-events-none absolute inset-0 z-40">
+          <div className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-surface-app/70 px-2 py-1 text-[10px] font-medium text-text-secondary">
             <Lock className="h-3 w-3" />
             <span>Locked</span>
           </div>
@@ -359,7 +503,12 @@ const TrackInner: React.FC<TrackProps> = ({ track, visualSpec: visualSpecProp, p
 // Custom comparison function to prevent unnecessary re-renders
 const arePropsEqual = (prevProps: TrackProps, nextProps: TrackProps) => {
   // Check track properties
-  if (prevProps.track.id !== nextProps.track.id || prevProps.track.locked !== nextProps.track.locked || prevProps.track.visible !== nextProps.track.visible || prevProps.track.height !== nextProps.track.height) {
+  if (
+    prevProps.track.id !== nextProps.track.id ||
+    prevProps.track.locked !== nextProps.track.locked ||
+    prevProps.track.visible !== nextProps.track.visible ||
+    prevProps.track.height !== nextProps.track.height
+  ) {
     return false;
   }
 
@@ -404,7 +553,13 @@ const arePropsEqual = (prevProps: TrackProps, nextProps: TrackProps) => {
   // Check dragState
   const prevDrag = prevProps.dragState;
   const nextDrag = nextProps.dragState;
-  if (prevDrag?.draggingClipId !== nextDrag?.draggingClipId || prevDrag?.offsetX !== nextDrag?.offsetX || prevDrag?.offsetY !== nextDrag?.offsetY || prevDrag?.isInvalidPosition !== nextDrag?.isInvalidPosition || prevDrag?.targetTrackId !== nextDrag?.targetTrackId) {
+  if (
+    prevDrag?.draggingClipId !== nextDrag?.draggingClipId ||
+    prevDrag?.offsetX !== nextDrag?.offsetX ||
+    prevDrag?.offsetY !== nextDrag?.offsetY ||
+    prevDrag?.isInvalidPosition !== nextDrag?.isInvalidPosition ||
+    prevDrag?.targetTrackId !== nextDrag?.targetTrackId
+  ) {
     return false;
   }
 

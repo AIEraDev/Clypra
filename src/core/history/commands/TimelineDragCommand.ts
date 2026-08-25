@@ -3,7 +3,7 @@ import type { Gap } from "@/types/gap";
 import { generateCommandId } from "../Command";
 import type { Command } from "../Command";
 import { generateId, getCounter } from "@/lib/utils/id";
-import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
+import { TRACK_TYPE_CONFIG, getSafeTrackInsertionIndex } from "@/lib/timeline/trackTypeConfig";
 import { detectGaps, mergeAdjacentGaps } from "@/lib/timeline/gapEngine";
 import { calculateDepartureClosurePositions, type OriginalClipPlacement } from "@/lib/timeline/clipPositions";
 import { findSnap } from "@/lib/timeline/snapTargets";
@@ -150,7 +150,12 @@ export function buildTimelineDragResult(input: BuildTimelineDragResultInput): Ti
 
   if (drag.willCreateNewTrack && drag.newTrackPosition && input.trackType) {
     const newTrack = makeTrack(input.trackType);
-    const insertIndex = Math.max(0, Math.min(input.newTrackInsertIndex ?? afterTracks.length, afterTracks.length));
+    const insertIndex = getSafeTrackInsertionIndex(
+      afterTracks,
+      input.trackType,
+      input.newTrackInsertIndex ?? afterTracks.length,
+      state.mainVideoTrackId,
+    );
     afterTracks.splice(insertIndex, 0, newTrack);
     targetTrackId = newTrack.id;
     createdTrackId = newTrack.id;

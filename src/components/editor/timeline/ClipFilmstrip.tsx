@@ -74,6 +74,14 @@ function resolveMediaSrc(path: string): string {
   return platform.convertFileSrc(path);
 }
 
+function getRuntimeClipColor(variable: string): string {
+  if (typeof document === "undefined") return "transparent";
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue(variable).trim() ||
+    "transparent"
+  );
+}
+
 export interface ClipFilmstripProps {
   clip: Clip;
   mediaAsset: MediaAsset;
@@ -461,6 +469,12 @@ export function ClipFilmstrip({
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
+      const tileSeparator = getRuntimeClipColor(
+        "--clypra-clip-filmstrip-overlay",
+      );
+      const overallOverlay = getRuntimeClipColor(
+        "--clypra-clip-filmstrip-overlay-soft",
+      );
 
       // Professional NLE: tile count derived from temporal width
       // Match CapCut's compact design with narrow tiles
@@ -492,13 +506,13 @@ export function ClipFilmstrip({
 
         // Soft tile separator for visual rhythm
         if (i > 0) {
-          ctx.fillStyle = "rgba(0, 0, 0, 0.10)";
+          ctx.fillStyle = tileSeparator;
           ctx.fillRect(x, 0, 1, h);
         }
       }
 
       // Subtle overall darkening so clip text / overlays remain readable
-      ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+      ctx.fillStyle = overallOverlay;
       ctx.fillRect(0, 0, w, h);
     };
 

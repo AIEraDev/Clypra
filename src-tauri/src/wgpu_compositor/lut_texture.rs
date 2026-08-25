@@ -11,11 +11,7 @@ pub struct GpuLut3D {
 
 impl GpuLut3D {
     /// Uploads a parsed 3D LUT directly into a wgpu 3D Texture
-    pub fn from_parsed(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        lut: &ParsedLut3D,
-    ) -> Self {
+    pub fn from_parsed(device: &wgpu::Device, queue: &wgpu::Queue, lut: &ParsedLut3D) -> Self {
         let size = lut.size;
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -44,8 +40,8 @@ impl GpuLut3D {
             &lut.rgba8_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(size * 4),      // Row pitch in bytes (R dimension)
-                rows_per_image: Some(size),          // Slice pitch in rows (G dimension)
+                bytes_per_row: Some(size * 4), // Row pitch in bytes (R dimension)
+                rows_per_image: Some(size),    // Slice pitch in rows (G dimension)
             },
             wgpu::Extent3d {
                 width: size,

@@ -169,7 +169,7 @@ describe("Clip Component", () => {
       renderClip(clip, undefined, { selected: true });
 
       const clipElement = screen.getByTestId("clip-clip-1");
-      expect(clipElement.className).toContain("border-white");
+      expect(clipElement.className).toContain("border-accent-soft");
       expect(clipElement.className).toContain("border");
     });
 

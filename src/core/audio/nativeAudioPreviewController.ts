@@ -2,6 +2,7 @@ import type { Clip, MediaAsset, Track } from "@/types";
 import { PlaybackClock, type PlaybackClockState } from "@/core/playback/PlaybackClock";
 import {
   configureNativePlayback,
+  getNativeAudioDiagnostics,
   getNativeAudioStatus,
   nativePauseFromAudio,
   nativePlayFromAudio,
@@ -12,9 +13,14 @@ import {
   setNativeAudioOutput,
   setNativeAudioSpeed,
   stopNativeAudio,
+  updateNativeAudioClipParameters,
 } from "@/lib/platform/tauri";
 import { isTauriRuntime } from "@/lib/platform/tauri";
-import { syncNativeAudioTimeline } from "./nativeAudioTimeline";
+import {
+  buildNativeAudioTimeline,
+  syncNativeAudioTimeline,
+  type NativeAudioTimelineSnapshot,
+} from "./nativeAudioTimeline";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 
 export interface NativeAudioPreviewSource {
@@ -50,10 +56,15 @@ export class NativeAudioPreviewController {
   private commandRevision = 0;
   private lastPollTraceAt = 0;
   private lastAudioStatusTraceAt = 0;
+  private audibilityCheckHandle: ReturnType<typeof setTimeout> | null = null;
   /** Latest transport-state intent. Older queued play/pause commands are stale. */
   private transportIntentRevision = 0;
   /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
   private seekIntentRevision = 0;
+  /** Timeline edits collapse to the newest candidate instead of queuing rebuilds. */
+  private pendingSource: NativeAudioPreviewSource | null = null;
+  private sourceUpdateScheduled = false;
+  private installedSnapshot: NativeAudioTimelineSnapshot | null = null;
 
   constructor(options: NativeAudioPreviewControllerOptions) {
     this.clock = options.clock;
@@ -77,22 +88,57 @@ export class NativeAudioPreviewController {
   updateSource(source: NativeAudioPreviewSource): void {
     this.source = source;
     if (!this.active || this.disposed) return;
+    this.pendingSource = source;
+    if (this.sourceUpdateScheduled) return;
+    this.sourceUpdateScheduled = true;
     this.enqueue(async () => {
-      await syncNativeAudioTimeline(
-        this.source.clips,
-        this.source.tracks,
-        this.source.assets,
-        0,
-        this.source.duration,
-      );
-      await configureNativePlayback({
-        contractVersion: 1,
-        projectRevision: this.source.projectRevision,
-        frameRate: Math.max(1, Math.round(this.source.frameRate)),
-        durationFrames: Math.max(1, Math.ceil(this.source.duration * this.source.frameRate)),
-        audioTrackCount: Math.max(0, Math.round(this.source.audioTrackCount)),
-      });
-    });
+      try {
+        while (this.pendingSource && !this.disposed) {
+          const nextSource = this.pendingSource;
+          this.pendingSource = null;
+          const nextSnapshot = buildNativeAudioTimeline(
+            nextSource.clips,
+            nextSource.tracks,
+            nextSource.assets,
+            0,
+            nextSource.duration,
+          );
+
+          if (!this.installedSnapshot || !hasSameClipLayout(this.installedSnapshot, nextSnapshot)) {
+            const timeline = await syncNativeAudioTimeline(
+              nextSource.clips,
+              nextSource.tracks,
+              nextSource.assets,
+              0,
+              nextSource.duration,
+            );
+            this.installedSnapshot = timeline.snapshot;
+          } else if (!hasSameClipParameters(this.installedSnapshot, nextSnapshot)) {
+            await Promise.all(nextSnapshot.clips.map((clip) => updateNativeAudioClipParameters({
+              clipId: clip.clipId,
+              gain: clip.gain,
+              pan: clip.pan,
+              fadeInTicks: clip.fadeInTicks,
+              fadeOutTicks: clip.fadeOutTicks,
+              fadeInCurve: clip.fadeInCurve,
+              fadeOutCurve: clip.fadeOutCurve,
+              volumeKeyframes: clip.volumeKeyframes,
+            })));
+            this.installedSnapshot = nextSnapshot;
+          }
+
+          await configureNativePlayback({
+            contractVersion: 1,
+            projectRevision: nextSource.projectRevision,
+            frameRate: Math.max(1, Math.round(nextSource.frameRate)),
+            durationFrames: Math.max(1, Math.ceil(nextSource.duration * nextSource.frameRate)),
+            audioTrackCount: Math.max(0, Math.round(nextSource.audioTrackCount)),
+          });
+        }
+      } finally {
+        this.sourceUpdateScheduled = false;
+      }
+    }, "sync-native-audio");
   }
 
   async initialize(): Promise<boolean> {
@@ -109,6 +155,7 @@ export class NativeAudioPreviewController {
         0,
         this.source.duration,
       );
+      this.installedSnapshot = timeline.snapshot;
       if (this.disposed) return false;
       await configureNativePlayback({
         contractVersion: 1,
@@ -149,6 +196,7 @@ export class NativeAudioPreviewController {
         const nativeState = await nativePlayFromAudio();
         this.adoptNativePosition(nativeState.audioPositionTicks);
         await this.traceNativeAudioStatus("play");
+        this.scheduleAudibilityCheck();
       } else {
         await pauseNativeAudio();
       }
@@ -169,6 +217,8 @@ export class NativeAudioPreviewController {
     this.unsubscribe = null;
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
+    if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
+    this.audibilityCheckHandle = null;
     this.clock.clearNativeClockPosition();
     this.clock.setNativeClockAuthority(false);
     const pendingCommands = this.commandQueue;
@@ -248,9 +298,12 @@ export class NativeAudioPreviewController {
           clockTimeBeforeAdopt: this.clock.time,
         });
         this.adoptNativePosition(nativeState.audioPositionTicks);
+        this.scheduleAudibilityCheck();
       }, "seek-then-play");
     } else if (state.state !== "playing" && previous?.state === "playing") {
       this.restartPolling(false);
+      if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
+      this.audibilityCheckHandle = null;
       this.enqueue(async () => {
         if (this.transportIntentRevision !== transportIntentRevision || this.clock.state === "playing") {
           tracePlayback("PAUSE_SKIPPED_STALE", { state: this.clock.state });
@@ -371,6 +424,64 @@ export class NativeAudioPreviewController {
     }
   }
 
+  /**
+   * Capture a small, derived diagnostic sample after the native callback has
+   * had time to run. The result names the owning boundary of silence while the
+   * native engine remains the only production playback path.
+   */
+  private scheduleAudibilityCheck(): void {
+    if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
+    this.audibilityCheckHandle = setTimeout(() => {
+      this.audibilityCheckHandle = null;
+      void this.traceNativeAudibility();
+    }, 750);
+  }
+
+  private async traceNativeAudibility(): Promise<void> {
+    if (this.disposed || !this.active || this.clock.state !== "playing") return;
+    try {
+      const diagnostics = await getNativeAudioDiagnostics();
+      const { status } = diagnostics;
+      const boundary =
+        diagnostics.installedClips.length === 0
+          ? "clip-discovery-or-install"
+          : diagnostics.activeClipIds.length === 0
+            ? "timeline-activation-or-source-range"
+            : diagnostics.mixerPeak <= 0.000001
+              ? "decode-or-mixer-gain-envelope"
+              : status.callbackCount === 0
+                ? "device-callback"
+                : status.nonSilentFrames === 0
+                  ? "callback-mixer-handoff"
+                  : "device-output-or-system-routing";
+      const evidence = {
+        boundary,
+        installedClipCount: diagnostics.installedClips.length,
+        activeClipIds: diagnostics.activeClipIds,
+        mixerPeak: diagnostics.mixerPeak,
+        clips: diagnostics.clipDiagnostics,
+        running: status.running,
+        playing: status.playing,
+        callbackCount: status.callbackCount,
+        renderedFrames: status.renderedFrames,
+        nonSilentFrames: status.nonSilentFrames,
+        deviceName: status.deviceName,
+        muted: status.muted,
+        volume: status.volume,
+        lastError: status.lastError,
+      };
+      // Native silence evidence must be visible even when optional playback
+      // debug filtering is off. This runs once per Play and never in the
+      // audio callback, so it cannot affect real-time performance.
+      console.info("[native-audio] audibility", evidence);
+      tracePlayback("native.audio-audibility", evidence);
+    } catch (error) {
+      tracePlayback("native.audio-audibility-error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private enqueue(operation: () => Promise<void>, label = "unknown"): void {
     const commandRevision = ++this.commandRevision;
     tracePlayback("native.command-queued", {
@@ -410,4 +521,39 @@ export class NativeAudioPreviewController {
 
 function secondsToTicks(seconds: number): number {
   return Math.max(0, Math.round(seconds * 1_000_000));
+}
+
+function hasSameClipLayout(
+  previous: NativeAudioTimelineSnapshot,
+  next: NativeAudioTimelineSnapshot,
+): boolean {
+  if (previous.clips.length !== next.clips.length) return false;
+  return previous.clips.every((clip, index) => {
+    const candidate = next.clips[index];
+    return clip.clipId === candidate.clipId
+      && clip.path === candidate.path
+      && clip.timelineStartTicks === candidate.timelineStartTicks
+      && clip.sourceStartTicks === candidate.sourceStartTicks
+      && clip.durationTicks === candidate.durationTicks
+      && clip.channelMode === candidate.channelMode
+      && clip.downmix === candidate.downmix
+      && JSON.stringify(clip.channelMap ?? null) === JSON.stringify(candidate.channelMap ?? null)
+      && clip.preservePitch === candidate.preservePitch;
+  });
+}
+
+function hasSameClipParameters(
+  previous: NativeAudioTimelineSnapshot,
+  next: NativeAudioTimelineSnapshot,
+): boolean {
+  return previous.clips.every((clip, index) => {
+    const candidate = next.clips[index];
+    return clip.gain === candidate.gain
+      && clip.pan === candidate.pan
+      && clip.fadeInTicks === candidate.fadeInTicks
+      && clip.fadeOutTicks === candidate.fadeOutTicks
+      && clip.fadeInCurve === candidate.fadeInCurve
+      && clip.fadeOutCurve === candidate.fadeOutCurve
+      && JSON.stringify(clip.volumeKeyframes) === JSON.stringify(candidate.volumeKeyframes);
+  });
 }

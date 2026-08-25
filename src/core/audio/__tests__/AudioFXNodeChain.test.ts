@@ -86,8 +86,9 @@ describe("AudioFXNodeChain", () => {
   it("constructs full DSP graph (EQ -> Panner -> Gain)", () => {
     const chain = new AudioFXNodeChain(mockCtx);
 
-    expect(chain.inputNode).toBe(mockEqLow);
+    expect(chain.inputNode).toBe(mockGainNode);
     expect(chain.outputNode).toBe(mockCompressorNode);
+    expect(mockGainNode.connect).toHaveBeenCalledWith(mockEqLow);
     expect(mockEqLow.connect).toHaveBeenCalledWith(mockEqMid);
     expect(mockEqMid.connect).toHaveBeenCalledWith(mockEqHigh);
     expect(mockEqHigh.connect).toHaveBeenCalledWith(mockPannerNode);
@@ -187,8 +188,7 @@ describe("AudioFXNodeChain", () => {
     expect(mockGainNode.gain.linearRampToValueAtTime).toHaveBeenCalledWith(1.0, 12.0);
 
     // Fade out: starts at 10.0 + (10 - 2) = 18.0s, ends at 10.0 + 10 = 20.0s
-    expect(mockGainNode.gain.setValueAtTime).toHaveBeenCalledWith(1.0, 18.0);
-    expect(mockGainNode.gain.exponentialRampToValueAtTime).toHaveBeenCalledWith(0.0001, 20.0);
+    expect(mockGainNode.gain.setValueCurveAtTime).toHaveBeenCalledWith(expect.any(Float32Array), 18.0, 2.0);
   });
 
   it("releases and disconnects all DSP nodes with a micro-fade", async () => {

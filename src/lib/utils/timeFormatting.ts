@@ -52,6 +52,42 @@ export function formatTimecode(seconds: number, frameRate: number): string {
 }
 
 /**
+ * Format timeline ruler labels with a conditional hours field.
+ *
+ * Timelines shorter than one hour use the compact `MM:SS` form. Once an hour
+ * is reached, the label becomes `HH:MM:SS` so the hour is explicit. Frames are
+ * only included for callers that explicitly request them.
+ */
+export function formatTimelineTimecode(
+  seconds: number,
+  frameRate: number,
+  includeFrames = false,
+): string {
+  if (!Number.isFinite(seconds) || seconds < 0 || isNaN(seconds)) {
+    seconds = 0;
+  }
+
+  const totalSeconds = Math.floor(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const base = hours > 0
+    ? [hours, minutes, secs]
+        .map((value) => String(value).padStart(2, "0"))
+        .join(":")
+    : [minutes, secs]
+        .map((value) => String(value).padStart(2, "0"))
+        .join(":");
+
+  if (!includeFrames) return base;
+
+  const safeFps =
+    Number.isFinite(frameRate) && frameRate > 0 ? Math.min(1000, frameRate) : 30;
+  const frames = Math.floor((seconds - totalSeconds) * safeFps);
+  return `${base}:${String(Math.max(0, frames)).padStart(2, "0")}`;
+}
+
+/**
  * Format seconds as MM:SS.d (with deciseconds)
  * Used for less precise displays
  */

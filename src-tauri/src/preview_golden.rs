@@ -69,7 +69,8 @@ pub fn write_rgba8_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Res
     let expected_len = width
         .checked_mul(height)
         .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| "Golden PNG dimensions overflow".to_string())? as usize;
+        .ok_or_else(|| "Golden PNG dimensions overflow".to_string())?
+        as usize;
     if rgba.len() != expected_len {
         return Err(format!(
             "Golden PNG frame length mismatch: actual={} expected={}",

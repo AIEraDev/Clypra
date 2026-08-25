@@ -5,7 +5,6 @@ import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import type { Clip } from "@/types";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 
-
 interface AudioEnvelopeEditorProps {
   clip: Clip;
   clipWidthPx: number;
@@ -24,9 +23,18 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const volumeLaneRef = useRef<HTMLDivElement>(null);
   const dragTargetRef = useRef<HTMLElement | null>(null);
   const dragValueRef = useRef<number | null>(null);
+  const fadeDragRef = useRef<{
+    type: "fadeIn" | "fadeOut";
+    initialFade: number;
+    pointerId: number;
+  } | null>(null);
+  const fadeDragTargetRef = useRef<HTMLElement | null>(null);
+  const fadeValueRef = useRef<number | null>(null);
 
   const [isHovered, setIsHovered] = useState(false);
-  const [activeDrag, setActiveDrag] = useState<"volume" | null>(null);
+  const [activeDrag, setActiveDrag] = useState<
+    "volume" | "fadeIn" | "fadeOut" | null
+  >(null);
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(
     null,
@@ -42,25 +50,34 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const fadeIn = clip.fadeIn ?? 0;
   const fadeOut = clip.fadeOut ?? 0;
 
-  // Pixel positions for the envelope shape — use timeToPixel so these match the
-  // same rounded pixel grid as clip boundaries and the playhead.
-  const fadeInPx = Math.max(0, Math.min(clipWidthPx, timeToPixel(fadeIn, pixelsPerSecond)));
-  const fadeOutPx = Math.max(
-    0,
-    Math.min(clipWidthPx, timeToPixel(fadeOut, pixelsPerSecond)),
-  );
-
-
-  // Volume envelope SVG (normalised 0–100 viewBox)
   const displayVolume =
     activeDrag === "volume" && dragValue !== null ? dragValue : volume;
-  const volumeYPercent = 90 - displayVolume * 80;
-  const envelopePoints = `
-    0,100
-    ${clipWidthPx > 0 ? (fadeInPx / clipWidthPx) * 100 : 0},${volumeYPercent}
-    ${clipWidthPx > 0 ? ((clipWidthPx - fadeOutPx) / clipWidthPx) * 100 : 100},${volumeYPercent}
-    100,100
-  `;
+  // Keep the resting (100%) guide in the center of the clip body, matching
+  // the familiar CapCut-style rubber band instead of confining it to a tiny
+  // footer lane. Lowering volume moves it down; raising it moves it up.
+  const volumeYPercent = 80 - displayVolume * 30;
+  const displayFadeIn =
+    activeDrag === "fadeIn" && dragValue !== null ? dragValue : fadeIn;
+  const displayFadeOut =
+    activeDrag === "fadeOut" && dragValue !== null ? dragValue : fadeOut;
+  const displayFadeInPx = Math.max(
+    0,
+    Math.min(clipWidthPx, timeToPixel(displayFadeIn, pixelsPerSecond)),
+  );
+  const displayFadeOutPx = Math.max(
+    0,
+    Math.min(clipWidthPx, timeToPixel(displayFadeOut, pixelsPerSecond)),
+  );
+  const fadeInPercent =
+    clipWidthPx > 0 ? (displayFadeInPx / clipWidthPx) * 100 : 0;
+  const fadeOutPercent =
+    clipWidthPx > 0
+      ? ((clipWidthPx - displayFadeOutPx) / clipWidthPx) * 100
+      : 100;
+  // The marker stays fully inside the waveform lane. The short vertical
+  // segment below extends its handle to the metadata divider without letting
+  // the knob overlap that row.
+  const fadeMarkerYPercent = 6;
 
   // ── Volume drag ───────────────────────────────────────────────────────────
 
@@ -89,7 +106,81 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
+  const handleFadeDragStart = (
+    e: React.PointerEvent<HTMLElement>,
+    type: "fadeIn" | "fadeOut",
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const initialFade = type === "fadeIn" ? fadeIn : fadeOut;
+    fadeDragRef.current = { type, initialFade, pointerId: e.pointerId };
+    fadeDragTargetRef.current = e.currentTarget;
+    fadeValueRef.current = initialFade;
+    setActiveDrag(type);
+    setDragValue(initialFade);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const updateFadeFromPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = fadeDragRef.current;
+    const lane = volumeLaneRef.current;
+    if (!drag || !lane) return false;
+
+    const rect = lane.getBoundingClientRect();
+    // Clamp pointer to the clip width in pixels so dragging past the clip edge
+    // never produces a fade longer than the clip duration.
+    const localX = Math.max(0, Math.min(clipWidthPx, e.clientX - rect.left));
+    const rawFade =
+      drag.type === "fadeIn"
+        ? pixelToTime(localX, pixelsPerSecond)
+        : pixelToTime(Math.max(0, clipWidthPx - localX), pixelsPerSecond);
+    // Read the opposite fade from the clip's current stored value (not the drag
+    // ref, which tracks the handle being dragged) so the two fades cannot
+    // overlap or together exceed the clip duration.
+    const MAX_FADE_SECONDS = 5;
+    const oppositeFade = drag.type === "fadeIn" ? fadeOut : fadeIn;
+    const maxAllowed = Math.min(
+      MAX_FADE_SECONDS,
+      Math.max(0, clip.duration - oppositeFade),
+    );
+    const nextFade = Math.max(0, Math.min(maxAllowed, rawFade));
+    const field = drag.type;
+
+    updateClip(clip.id, { [field]: nextFade });
+    fadeValueRef.current = nextFade;
+    setDragValue(nextFade);
+    return true;
+  };
+
+  const finishFadeDrag = (pointerId?: number) => {
+    const drag = fadeDragRef.current;
+    if (!drag) return;
+
+    const finalFade = fadeValueRef.current ?? drag.initialFade;
+    const field = drag.type;
+    const target = fadeDragTargetRef.current;
+    fadeDragRef.current = null;
+    fadeDragTargetRef.current = null;
+    fadeValueRef.current = null;
+    setActiveDrag(null);
+    setDragValue(null);
+    if (pointerId !== undefined && target?.hasPointerCapture(pointerId)) {
+      target.releasePointerCapture(pointerId);
+    }
+
+    if (finalFade !== drag.initialFade) {
+      execute(
+        new TransformClipCommand(
+          clip.id,
+          { [field]: drag.initialFade },
+          { [field]: finalFade },
+        ),
+      );
+    }
+  };
+
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (updateFadeFromPointer(e)) return;
     // The ref is authoritative during a pointer gesture. React state is only
     // presentation state and may lag during a captured mouse event.
     if (!dragStartRef.current) return;
@@ -141,6 +232,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
+    if (fadeDragRef.current) {
+      finishFadeDrag(e.pointerId);
+      return;
+    }
     finishVolumeDrag(e.pointerId);
   };
 
@@ -153,7 +248,6 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 
   // ── Keyframes ─────────────────────────────────────────────────────────────
 
-  const addAudioKeyframe = useTimelineStore((s) => s.addAudioKeyframe);
   const removeAudioKeyframe = useTimelineStore((s) => s.removeAudioKeyframe);
   const keyframes = clip.volumeKeyframes || [];
 
@@ -169,23 +263,6 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     };
   }
 
-  const handleLineDoubleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const lane = volumeLaneRef.current;
-    if (!lane) return;
-    const rect = lane.getBoundingClientRect();
-    const relTime = Math.max(
-      0,
-      Math.min(clip.duration, pixelToTime(e.clientX - rect.left, pixelsPerSecond)),
-    );
-
-    const gain = Math.max(
-      0,
-      Math.min(2.0, (1 - (e.clientY - rect.top) / rect.height) * 1.25),
-    );
-    addAudioKeyframe(clip.id, relTime, gain);
-  };
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -197,26 +274,105 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onLostPointerCapture={handlePointerUp}
-      className="absolute inset-0 z-20 pointer-events-none select-none overflow-hidden"
+      className="absolute inset-0 z-40 pointer-events-none select-none overflow-hidden"
     >
-      {/* Third row: audio waveform and volume management */}
-      <div
-        ref={volumeLaneRef}
-        className="absolute inset-x-0 bottom-0 h-4 pointer-events-none"
-      >
-        {/* Volume envelope shape */}
+      {/* CapCut-style waveform-lane envelope overlay. */}
+      <div ref={volumeLaneRef} className="absolute inset-0 pointer-events-none">
+        {/* Fade shading and curved envelope guides. */}
         <svg
-          className="absolute inset-0 z-10 h-full w-full opacity-40 transition-opacity hover:opacity-60 pointer-events-auto cursor-pointer"
+          className="absolute inset-0 z-[45] h-full w-full pointer-events-none"
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
-          onDoubleClick={handleLineDoubleClick}
         >
-          <polygon
-            points={envelopePoints}
-            fill="rgba(16, 185, 129, 0.12)"
-            stroke="none"
-          />
+          {displayFadeInPx > 0 && (
+            <>
+              <path
+                d={`M 0 0 L ${fadeInPercent} 0 L ${fadeInPercent} ${fadeMarkerYPercent} C ${fadeInPercent * 0.55} 12 ${fadeInPercent * 0.18} 72 0 100 Z`}
+                fill="var(--clypra-clip-envelope-fill)"
+              />
+              <path
+                d={`M 0 100 C ${fadeInPercent * 0.18} 72 ${fadeInPercent * 0.55} 12 ${fadeInPercent} ${fadeMarkerYPercent}`}
+                fill="none"
+                stroke="var(--clypra-clip-envelope-line)"
+                strokeWidth="0.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
+          )}
+          {displayFadeOutPx > 0 && (
+            <>
+              <path
+                d={`M ${fadeOutPercent} 0 L 100 0 L 100 100 C ${fadeOutPercent + (100 - fadeOutPercent) * 0.82} 72 ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 12 ${fadeOutPercent} ${fadeMarkerYPercent} Z`}
+                fill="var(--clypra-clip-envelope-fill)"
+              />
+              <path
+                d={`M ${fadeOutPercent} ${fadeMarkerYPercent} C ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 12 ${fadeOutPercent + (100 - fadeOutPercent) * 0.82} 72 100 100`}
+                fill="none"
+                stroke="var(--clypra-clip-envelope-line)"
+                strokeWidth="0.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
+          )}
         </svg>
+
+        {/* Full-height invisible fade handles: the entire envelope remains
+            easy to grab while the marker stays visually attached only to the
+            curve endpoint. */}
+        <button
+          type="button"
+          aria-label="Fade in handle"
+          data-testid="audio-fade-in-handle"
+          className={`absolute top-0 z-50 h-full w-4 -translate-x-1/2 rounded-none border-0 bg-transparent p-0 pointer-events-auto ${activeDrag === "fadeIn" ? "cursor-grabbing" : "cursor-grab"}`}
+          style={{
+            left: `${displayFadeInPx}px`,
+            top: 0,
+            height: "100%",
+            touchAction: "none",
+          }}
+          onPointerDown={(event) => handleFadeDragStart(event, "fadeIn")}
+          title={`Fade in: ${displayFadeIn.toFixed(2)}s — drag right to set`}
+        >
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
+            style={{
+              top: `${fadeMarkerYPercent}%`,
+              backgroundColor: "var(--clypra-clip-control-bg)",
+              borderColor: "var(--clypra-clip-control-border)",
+              boxShadow: "var(--clypra-clip-control-shadow)",
+            }}
+          />
+        </button>
+        <button
+          type="button"
+          aria-label="Fade out handle"
+          data-testid="audio-fade-out-handle"
+          className={`absolute top-0 z-50 h-full w-4 -translate-x-1/2 rounded-none border-0 bg-transparent p-0 pointer-events-auto ${activeDrag === "fadeOut" ? "cursor-grabbing" : "cursor-grab"}`}
+          style={{
+            left: `${clipWidthPx - displayFadeOutPx}px`,
+            top: 0,
+            height: "100%",
+            touchAction: "none",
+          }}
+          onPointerDown={(event) => handleFadeDragStart(event, "fadeOut")}
+          title={`Fade out: ${displayFadeOut.toFixed(2)}s — drag left to set`}
+        >
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
+            style={{
+              top: `${fadeMarkerYPercent}%`,
+              backgroundColor: "var(--clypra-clip-control-bg)",
+              borderColor: "var(--clypra-clip-control-border)",
+              boxShadow: "var(--clypra-clip-control-shadow)",
+            }}
+          />
+        </button>
 
         {/* Volume keyframe diamonds */}
         {keyframes.map((kf) => {
@@ -225,15 +381,18 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
             Math.min(clipWidthPx, timeToPixel(kf.time, pixelsPerSecond)),
           );
 
-          const kfYPercent = 90 - (kf.gain / 1.25) * 80;
+          const kfYPercent = 80 - Math.min(1, kf.gain) * 30;
           return (
             <div
               key={kf.id}
-              className="absolute z-30 h-2.5 w-2.5 rotate-45 cursor-grab border border-white bg-emerald-300 pointer-events-auto shadow-md transition-transform hover:scale-125"
+              className="absolute z-30 h-2.5 w-2.5 rotate-45 cursor-grab border pointer-events-auto transition-transform hover:scale-125"
               style={{
                 left: `${kfX}px`,
                 top: `${kfYPercent}%`,
                 transform: "translate(-50%, -50%) rotate(45deg)",
+                backgroundColor: "var(--clypra-clip-keyframe-bg)",
+                borderColor: "var(--clypra-clip-keyframe-border)",
+                boxShadow: "var(--clypra-clip-keyframe-shadow)",
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -245,14 +404,14 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           );
         })}
 
-        {/* Full-width volume guide and drag target */}
+        {/* Full-width, vertically draggable volume rubber band. */}
         <div
           role="slider"
           aria-label="Clip volume"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(displayVolume * 100)}
-          className={`absolute left-1 right-1 z-40 h-4 -translate-y-1/2 cursor-ns-resize cursor-row-resize pointer-events-auto transition-opacity ${
+          className={`absolute left-1 right-1 z-30 h-4 -translate-y-1/2 cursor-ns-resize pointer-events-auto transition-opacity ${
             isHovered || activeDrag === "volume" ? "opacity-100" : "opacity-70"
           }`}
           style={{ top: `${volumeYPercent}%`, touchAction: "none" }}
@@ -260,10 +419,12 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           onDoubleClick={handleVolumeDoubleClick}
           title={`Volume: ${Math.round(displayVolume * 100)}% — drag up/down; double-click to reset`}
         >
-          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 rounded-full bg-black/45" />
           <div
-            className="absolute left-0 top-1/2 h-px -translate-y-1/2 rounded-full bg-emerald-300 shadow-[0_0_4px_rgba(52,211,153,0.75)]"
-            style={{ width: `${displayVolume * 100}%` }}
+            className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 rounded-full"
+            style={{
+              backgroundColor: "var(--clypra-clip-volume-line)",
+              boxShadow: "var(--clypra-clip-volume-shadow)",
+            }}
           />
         </div>
       </div>
@@ -271,8 +432,15 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       {/* Live volume tooltip during drag */}
       {activeDrag === "volume" && dragValue !== null && dragPoint !== null && (
         <div
-          className="absolute z-60 flex -translate-x-1/2 -translate-y-full -mt-1 items-center justify-center rounded border border-emerald-200/70 bg-slate-900/90 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 shadow pointer-events-none whitespace-nowrap"
-          style={{ left: dragPoint.x, top: dragPoint.y }}
+          className="absolute z-60 flex -translate-x-1/2 -translate-y-full -mt-1 items-center justify-center rounded border px-1.5 py-0.5 text-[9px] font-bold pointer-events-none whitespace-nowrap"
+          style={{
+            left: dragPoint.x,
+            top: dragPoint.y,
+            backgroundColor: "var(--clypra-clip-tooltip-bg)",
+            borderColor: "var(--clypra-clip-tooltip-border)",
+            color: "var(--clypra-clip-tooltip-text)",
+            boxShadow: "var(--clypra-clip-control-shadow)",
+          }}
         >
           Vol {Math.round(dragValue * 100)}%
         </div>

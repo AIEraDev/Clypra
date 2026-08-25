@@ -16,6 +16,7 @@
 
 import type { Project, MediaAsset, TransitionTimelineItem } from "@/types";
 import type { Track, Clip } from "@/types";
+import type { Gap } from "@/types/gap";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -32,12 +33,16 @@ export interface RecoverySnapshot {
   clips: Clip[];
   /** Transitions */
   transitions: TransitionTimelineItem[];
+  /** Timeline gaps and global markers are editable project data too. */
+  gaps?: Gap[];
+  markers?: import("@/types").TimelineMarker[];
+  timelineSchemaVersion?: number;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const DB_NAME = "clypra_recovery";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "snapshots";
 const SNAPSHOT_KEY = "activeProject";
 

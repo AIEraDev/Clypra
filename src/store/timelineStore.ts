@@ -23,6 +23,7 @@
 
 import { create } from "zustand";
 import type { Track, TrackType, Clip, TextClip, TransitionTimelineItem, TransitionType, TimelineMarker } from "@/types";
+import { synchronizeClipAudioProperties } from "@/types/audio";
 import type { Gap } from "@/types/gap";
 import { generateId, getCounter } from "@/lib/utils/id";
 import { detectGaps, createGap, insertGapWithRipple, removeGapWithRipple, resizeGap, packTrack, mergeAdjacentGaps, validateGap } from "@/lib/timeline/gapEngine";
@@ -32,7 +33,14 @@ import { useProjectStore } from "./projectStore";
 import { clampTimelinePixelsPerSecond, clampTimelineZoom, TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "../lib/timeline/timelineZoom";
 import { getTimelineContentEnd, normalizeClipTiming } from "@/lib/timeline/timelineClip";
 import { autoSaveMiddleware, suppressAutoSave, enableAutoSave } from "./middleware/autoSaveMiddleware";
-import { TRACK_TYPE_CONFIG, shouldAutoPruneTrack, getTrackInsertionIndex, getTrackInsertionIndexGrouped } from "@/lib/timeline/trackTypeConfig";
+import {
+  TRACK_TYPE_CONFIG,
+  shouldAutoPruneTrack,
+  getTrackInsertionIndex,
+  getTrackInsertionIndexGrouped,
+  getSafeTrackInsertionIndex,
+  normalizeTrackOrderForMainVideo,
+} from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineStore {
   tracks: Track[];
@@ -42,7 +50,7 @@ interface TimelineStore {
   /**
    * First created video track - UI metadata only.
    * Used for: default drop target, visual highlighting, user expectations.
-   * NOT used for: enforcement, validation, or blocking operations.
+   * Used for: main-row identity and enforcing the visual track boundary.
    * The compositor resolves frames by time, not by track constraints.
    */
   mainVideoTrackId: string | null;
@@ -51,6 +59,8 @@ interface TimelineStore {
    * Used for cache invalidation in render engine and evaluation.
    */
   epoch: number;
+  /** Changes once per project hydration so the view can apply its initial overview. */
+  projectLoadRevision: number;
   zoomLevel: number;
   scrollLeft: number;
   viewportWidth: number;
@@ -77,6 +87,7 @@ interface TimelineStore {
   removeTrack: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
   toggleTrackMute: (trackId: string) => void;
+  toggleTrackSolo: (trackId: string) => void;
   toggleTrackVisibility: (trackId: string) => void;
   addClip: (clip: Clip) => void;
   removeClip: (clipId: string) => void;
@@ -173,35 +184,41 @@ export function getInsertIndexForNewTrackSmart(
   context?: {
     newTrackPosition?: "above" | "below" | "between" | null;
     betweenTrackIds?: { aboveId: string; belowId: string };
+    mainVideoTrackId?: string | null;
   },
 ): number {
   // If no context, use legacy behavior
   if (!context || !context.newTrackPosition) {
-    return getInsertIndexForNewTrack(tracks, trackType);
+    return getSafeTrackInsertionIndex(
+      tracks,
+      trackType,
+      getInsertIndexForNewTrack(tracks, trackType),
+      context?.mainVideoTrackId,
+    );
   }
 
   const { newTrackPosition, betweenTrackIds } = context;
+  let proposedIndex = getInsertIndexForNewTrack(tracks, trackType);
 
   // Above all tracks
   if (newTrackPosition === "above") {
-    return 0;
+    proposedIndex = 0;
   }
 
   // Below all tracks
   if (newTrackPosition === "below") {
-    return tracks.length;
+    proposedIndex = tracks.length;
   }
 
   // Between specific tracks
   if (newTrackPosition === "between" && betweenTrackIds) {
     const belowIndex = tracks.findIndex((t) => t.id === betweenTrackIds.belowId);
     if (belowIndex >= 0) {
-      return belowIndex; // Insert at the position of the "below" track (pushing it down)
+      proposedIndex = belowIndex; // Insert at the position of the "below" track (pushing it down)
     }
   }
 
-  // Fallback to legacy behavior
-  return getInsertIndexForNewTrack(tracks, trackType);
+  return getSafeTrackInsertionIndex(tracks, trackType, proposedIndex, context.mainVideoTrackId);
 }
 
 export const useTimelineStore = create<TimelineStore>(
@@ -213,6 +230,7 @@ export const useTimelineStore = create<TimelineStore>(
     markers: [],
     mainVideoTrackId: null,
     epoch: 0,
+    projectLoadRevision: 0,
     zoomLevel: TIMELINE_ZOOM_DEFAULT,
     scrollLeft: 0,
     viewportWidth: 1200,
@@ -296,8 +314,9 @@ export const useTimelineStore = create<TimelineStore>(
           return normalizeClipTiming(clip, asset);
         });
 
-        //  fix: Reset mainVideoTrackId and re-derive from loaded tracks
+        // Reset mainVideoTrackId and re-derive from loaded tracks.
         const newMainVideoTrackId = finalTracks.find((t) => t.type === "video")?.id ?? null;
+        finalTracks = normalizeTrackOrderForMainVideo(finalTracks, newMainVideoTrackId);
 
         // Atomic state update - all or nothing
         set({
@@ -309,6 +328,7 @@ export const useTimelineStore = create<TimelineStore>(
           scrollLeft: 0,
           zoomLevel: TIMELINE_ZOOM_DEFAULT,
           pixelsPerSecond: TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM,
+          projectLoadRevision: get().projectLoadRevision + 1,
           epoch: 0, // Reset epoch on project load
           mainVideoTrackId: newMainVideoTrackId,
           snapGuides: [],
@@ -340,8 +360,11 @@ export const useTimelineStore = create<TimelineStore>(
         height: trackHeights[type],
       };
       set((state) => {
+        const insertIndex = getSafeTrackInsertionIndex(state.tracks, type, state.tracks.length, state.mainVideoTrackId);
+        const nextTracks = [...state.tracks];
+        nextTracks.splice(insertIndex, 0, newTrack);
         const next: Partial<TimelineStore> = {
-          tracks: [...state.tracks, newTrack],
+          tracks: nextTracks,
           mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
         };
         if (state._batchDepth > 0) {
@@ -365,7 +388,7 @@ export const useTimelineStore = create<TimelineStore>(
       };
       const id = newTrack.id;
       set((state) => {
-        const clamped = Math.max(0, Math.min(index, state.tracks.length));
+        const clamped = getSafeTrackInsertionIndex(state.tracks, type, index, state.mainVideoTrackId);
         const nextTracks = [...state.tracks];
         nextTracks.splice(clamped, 0, newTrack);
         const next: Partial<TimelineStore> = {
@@ -428,6 +451,20 @@ export const useTimelineStore = create<TimelineStore>(
         } else {
           next.epoch = state.epoch + 1;
         }
+        return next;
+      });
+    },
+
+    toggleTrackSolo: (trackId) => {
+      if (get().tracks.find((track) => track.id === trackId)?.locked) return;
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          tracks: state.tracks.map((track) => (
+            track.id === trackId ? { ...track, solo: !track.solo } : track
+          )),
+        };
+        if (state._batchDepth > 0) next._pendingEpochIncrement = true;
+        else next.epoch = state.epoch + 1;
         return next;
       });
     },
@@ -778,7 +815,20 @@ export const useTimelineStore = create<TimelineStore>(
               }
             }
 
-            return { ...c, ...updates };
+            const synchronized = synchronizeClipAudioProperties(c, updates);
+            const linkedSource = c.audio?.linkState === "unlinked" && c.audio.linkedClipId
+              ? state.clips.find((clip) => clip.id === c.audio?.linkedClipId)
+              : undefined;
+            const linkOffsetSeconds = updates.startTime !== undefined && linkedSource
+              ? updates.startTime - linkedSource.startTime
+              : synchronized.audio?.linkOffsetSeconds;
+            return {
+              ...c,
+              ...synchronized,
+              ...(synchronized.audio && linkOffsetSeconds !== undefined
+                ? { audio: { ...synchronized.audio, linkOffsetSeconds } }
+                : {}),
+            };
           }),
         };
         // Skip epoch increment during transform preview (high-frequency updates)
@@ -1517,7 +1567,11 @@ export const useTimelineStore = create<TimelineStore>(
         }
         keyframes.sort((a, b) => a.time - b.time);
 
-        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const updatedClips = state.clips.map((c) => (
+          c.id === clipId
+            ? { ...c, ...synchronizeClipAudioProperties(c, { volumeKeyframes: keyframes }) }
+            : c
+        ));
         const next: Partial<TimelineStore> = { clips: updatedClips };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -1535,7 +1589,11 @@ export const useTimelineStore = create<TimelineStore>(
         if (!clip || !clip.volumeKeyframes) return state;
 
         const keyframes = clip.volumeKeyframes.filter((kf) => kf.id !== keyframeId);
-        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const updatedClips = state.clips.map((c) => (
+          c.id === clipId
+            ? { ...c, ...synchronizeClipAudioProperties(c, { volumeKeyframes: keyframes }) }
+            : c
+        ));
         const next: Partial<TimelineStore> = { clips: updatedClips };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -1562,7 +1620,11 @@ export const useTimelineStore = create<TimelineStore>(
           })
           .sort((a, b) => a.time - b.time);
 
-        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const updatedClips = state.clips.map((c) => (
+          c.id === clipId
+            ? { ...c, ...synchronizeClipAudioProperties(c, { volumeKeyframes: keyframes }) }
+            : c
+        ));
         const next: Partial<TimelineStore> = { clips: updatedClips };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -1581,7 +1643,11 @@ export const useTimelineStore = create<TimelineStore>(
         const currentFX = clip.audioFX || {};
         const newFX = { ...currentFX, ...fxUpdates };
 
-        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, audioFX: newFX } : c));
+        const updatedClips = state.clips.map((c) => (
+          c.id === clipId
+            ? { ...c, ...synchronizeClipAudioProperties(c, { audioFX: newFX }) }
+            : c
+        ));
         const next: Partial<TimelineStore> = { clips: updatedClips };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;

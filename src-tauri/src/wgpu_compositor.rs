@@ -35,8 +35,8 @@ pub use chroma_key::ChromaKeyUniforms;
 
 pub mod multi_track_composer;
 pub use multi_track_composer::{
-    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerBlendMode, LayerTransform,
-    LayerUniforms, MultiTrackCompositor,
+    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerBlendMode,
+    LayerTransform, LayerUniforms, MultiTrackCompositor,
 };
 
 pub mod transition_pipeline;
@@ -319,9 +319,8 @@ impl NativePreviewSession {
             }
         }
 
-        let rgba = rgba.ok_or_else(|| {
-            format!("Native RGBA raster asset is not registered: {asset_id}")
-        })?;
+        let rgba =
+            rgba.ok_or_else(|| format!("Native RGBA raster asset is not registered: {asset_id}"))?;
         let texture = self.create_rgba_layer_texture(width, height, rgba)?;
         if !asset_id.trim().is_empty() {
             self.rgba_layers

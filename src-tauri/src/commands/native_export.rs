@@ -136,7 +136,6 @@ fn test_encoder_available(encoder: &str) -> bool {
     }
 }
 
-
 pub fn detect_best_encoder(codec: &str) -> SelectedEncoder {
     #[cfg(target_os = "macos")]
     {
@@ -163,19 +162,31 @@ pub fn detect_best_encoder(codec: &str) -> SelectedEncoder {
         let is_hevc = codec == "h265" || codec == "hevc";
         if test_encoder_available("h264_nvenc") {
             SelectedEncoder {
-                codec_name: if is_hevc { "hevc_nvenc".into() } else { "h264_nvenc".into() },
+                codec_name: if is_hevc {
+                    "hevc_nvenc".into()
+                } else {
+                    "h264_nvenc".into()
+                },
                 hw_type: HwAccelType::Nvenc,
                 hwaccel_flag: Some("cuda".into()),
             }
         } else if test_encoder_available("h264_qsv") {
             SelectedEncoder {
-                codec_name: if is_hevc { "hevc_qsv".into() } else { "h264_qsv".into() },
+                codec_name: if is_hevc {
+                    "hevc_qsv".into()
+                } else {
+                    "h264_qsv".into()
+                },
                 hw_type: HwAccelType::Qsv,
                 hwaccel_flag: Some("qsv".into()),
             }
         } else if test_encoder_available("h264_amf") {
             SelectedEncoder {
-                codec_name: if is_hevc { "hevc_amf".into() } else { "h264_amf".into() },
+                codec_name: if is_hevc {
+                    "hevc_amf".into()
+                } else {
+                    "h264_amf".into()
+                },
                 hw_type: HwAccelType::Amf,
                 hwaccel_flag: Some("d3d11va".into()),
             }
@@ -198,7 +209,11 @@ pub fn detect_best_encoder(codec: &str) -> SelectedEncoder {
         if let Some(node) = valid_vaapi_node {
             if test_encoder_available(if is_hevc { "hevc_vaapi" } else { "h264_vaapi" }) {
                 return SelectedEncoder {
-                    codec_name: if is_hevc { "hevc_vaapi".into() } else { "h264_vaapi".into() },
+                    codec_name: if is_hevc {
+                        "hevc_vaapi".into()
+                    } else {
+                        "h264_vaapi".into()
+                    },
                     hw_type: HwAccelType::Vaapi,
                     hwaccel_flag: Some(node.to_string()),
                 };
@@ -207,7 +222,11 @@ pub fn detect_best_encoder(codec: &str) -> SelectedEncoder {
 
         if test_encoder_available("h264_nvenc") {
             SelectedEncoder {
-                codec_name: if is_hevc { "hevc_nvenc".into() } else { "h264_nvenc".into() },
+                codec_name: if is_hevc {
+                    "hevc_nvenc".into()
+                } else {
+                    "h264_nvenc".into()
+                },
                 hw_type: HwAccelType::Nvenc,
                 hwaccel_flag: Some("cuda".into()),
             }
@@ -258,7 +277,12 @@ fn build_segment_args(
 
     if let Some(ref hwaccel) = encoder.hwaccel_flag {
         if encoder.hw_type == HwAccelType::Vaapi {
-            args.extend(["-hwaccel".into(), "vaapi".into(), "-vaapi_device".into(), hwaccel.clone()]);
+            args.extend([
+                "-hwaccel".into(),
+                "vaapi".into(),
+                "-vaapi_device".into(),
+                hwaccel.clone(),
+            ]);
         } else {
             args.extend(["-hwaccel".into(), hwaccel.clone()]);
         }

@@ -67,9 +67,7 @@ impl NativeSurfaceRuntime {
             Err(wgpu::SurfaceError::OutOfMemory) => {
                 Err("Native surface ran out of memory".to_string())
             }
-            Err(wgpu::SurfaceError::Other) => {
-                Err("Native surface acquisition failed".to_string())
-            }
+            Err(wgpu::SurfaceError::Other) => Err("Native surface acquisition failed".to_string()),
         }
     }
 

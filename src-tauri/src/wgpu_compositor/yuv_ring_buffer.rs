@@ -103,7 +103,10 @@ impl YuvTextureRingBuffer {
     ) -> YuvFrameSlot {
         let (y_format, uv_format) = match format {
             YuvPixelFormat::Nv12 => (wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm),
-            YuvPixelFormat::P010 => (wgpu::TextureFormat::R16Unorm, wgpu::TextureFormat::Rg16Unorm),
+            YuvPixelFormat::P010 => (
+                wgpu::TextureFormat::R16Unorm,
+                wgpu::TextureFormat::Rg16Unorm,
+            ),
         };
 
         let y_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -263,7 +266,6 @@ impl YuvTextureRingBuffer {
         self.write_index = (self.write_index + 1) % self.capacity;
     }
 
-
     /// Retrieves the active pre-baked BindGroup for immediate rendering.
     #[inline(always)]
     pub fn active_bind_group(&self) -> &wgpu::BindGroup {
@@ -320,13 +322,7 @@ impl YuvTextureRingBuffer {
         self.slots.clear();
         for _ in 0..self.capacity {
             self.slots.push(Self::create_slot(
-                device,
-                layout,
-                sampler_y,
-                sampler_uv,
-                width,
-                height,
-                format,
+                device, layout, sampler_y, sampler_uv, width, height, format,
             ));
         }
     }
@@ -566,7 +562,8 @@ mod tests {
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 });
-                let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let target_view =
+                    target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
                 let y_nv12 = vec![128u8; (width * height) as usize];
                 let uv_nv12 = vec![128u8; (width * height / 2) as usize];

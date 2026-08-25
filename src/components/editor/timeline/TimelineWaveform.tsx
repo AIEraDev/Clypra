@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
-import { drawProfessionalWaveform, getThemeAccentRgb } from "@/lib/utils/canvasUtils";
+import { drawProfessionalWaveform } from "@/lib/utils/canvasUtils";
 import { useWaveformData } from "./useWaveformData";
 
 interface TimelineWaveformProps {
@@ -37,6 +37,16 @@ function subscribeToThemeChanges(listener: ThemeListener): () => void {
   };
 }
 
+function getVisibleWaveColor(): string {
+  if (typeof document !== "undefined") {
+    const waveColor = getComputedStyle(document.documentElement)
+      .getPropertyValue("--clypra-clip-audio-wave")
+      .trim();
+    if (waveColor) return waveColor;
+  }
+  return "transparent";
+}
+
 export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, clipWidthPx, duration, trimIn = 0, trimOut, heightPx = 40, className = "" }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [themeRevision, setThemeRevision] = useState(0);
@@ -71,21 +81,19 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, c
     canvas.height = logicalH * dpr;
     ctx.scale(dpr, dpr);
 
-    // Read theme accent color
-    const accentRgb = getThemeAccentRgb();
-    const color = `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.95)`;
+    const color = getVisibleWaveColor();
 
     // Use professional dense bar renderer with logical dimensions
     drawProfessionalWaveform(canvas, waveformData, color, logicalW, logicalH);
   }, [waveformData, themeRevision, validClipWidth, heightPx]);
 
   if (hasError) {
-    return <div className={`w-full h-full rounded-[2px] border border-border/30 bg-surface-raised/30 ${className}`} title="Waveform unavailable" />;
+    return <div className={`w-full h-full rounded-[2px] border border-clypra-clip-waveform-border/40 bg-clypra-clip-waveform-bg/60 ${className}`} title="Waveform unavailable" />;
   }
 
   return (
     <div className="relative flex h-full min-h-0 w-full items-center">
-      {isLoading && <div className={`absolute inset-0 rounded-[2px] bg-accent/10 animate-pulse border border-accent/20 ${className}`} />}
+      {isLoading && <div className={`absolute inset-0 rounded-[2px] bg-clypra-clip-waveform-bg/60 animate-pulse border border-clypra-clip-waveform-border/40 ${className}`} />}
       <canvas
         ref={canvasRef}
         className={`w-full h-full block ${className}`}

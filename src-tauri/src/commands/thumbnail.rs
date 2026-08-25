@@ -3,17 +3,17 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use tauri::Manager;
+use tokio::sync::broadcast;
 
 use crate::thumbnail_engine::decoder::{get_decoder, release_decoder};
-use crate::thumbnail_engine::pyramid::RawRgbaFrame;
 use crate::thumbnail_engine::geometry::fit_preserving_aspect;
+use crate::thumbnail_engine::pyramid::RawRgbaFrame;
 use crate::thumbnail_engine::{
-    clear_video_thumbnail_cache, downsample_pyramid, get_cache_stats,
-    init_thumbnail_engine, tier_inflight_key, ArtifactSource, DensityLevel, FrameContentHash,
-    RenderArtifact, SpatialTier, ThumbnailTile, TierCacheKey, FRAME_CACHE, IN_FLIGHT_TIER,
-    TIER_CACHE, ResolutionTier, GLOBAL_CACHE,
+    clear_video_thumbnail_cache, downsample_pyramid, get_cache_stats, init_thumbnail_engine,
+    tier_inflight_key, ArtifactSource, DensityLevel, FrameContentHash, RenderArtifact,
+    ResolutionTier, SpatialTier, ThumbnailTile, TierCacheKey, FRAME_CACHE, GLOBAL_CACHE,
+    IN_FLIGHT_TIER, TIER_CACHE,
 };
 
 /// In-flight extraction deduplication for fast scrubbing.
@@ -101,8 +101,8 @@ pub async fn extract_poster_frame_command(
     duration: f64,
     dpr: f64,
 ) -> Result<String, String> {
-    use image::codecs::webp::WebPEncoder;
     use crate::thumbnail_engine::decoder::get_decoder;
+    use image::codecs::webp::WebPEncoder;
 
     let total_start = std::time::Instant::now();
     let filename = std::path::Path::new(&video_path)
@@ -293,7 +293,6 @@ pub async fn decode_frame_gpu(
     result.map(tauri::ipc::Response::new)
 }
 
-
 /// Decode a frame for desktop export and return raw RGBA as a binary IPC
 /// response. Unlike `decode_frame_gpu`, this avoids serializing millions of
 /// bytes as a JSON number array on every frame.
@@ -416,7 +415,13 @@ pub async fn decode_frames_streaming(
             // IMMEDIATE PATH: Decode and stream RGBA to frontend (no compression!)
             for &time in chunk {
                 // Deduplicate extraction across concurrent requests
-                let key = format!("{}:{}:{}x{}", video_id, (time * 1000.0).round() as u64, width, height);
+                let key = format!(
+                    "{}:{}:{}x{}",
+                    video_id,
+                    (time * 1000.0).round() as u64,
+                    width,
+                    height
+                );
                 let (tx, is_new) = IN_FLIGHT_EXTRACTIONS.get_or_create(key.clone());
 
                 let rgba_bytes = if !is_new {
@@ -644,7 +649,6 @@ pub async fn get_render_artifact(
         }
     };
 
-
     let tier_frames = {
         let raw = raw_arc.clone();
         tokio::task::spawn_blocking(move || downsample_pyramid(&raw, &missing_tiers))
@@ -746,7 +750,8 @@ pub async fn get_render_artifacts_batch(
             };
             let density = DensityLevel::Medium;
 
-            let atlas_manager = get_atlas_manager(&video_id, density, resolution_tier, cache_dir.clone()).await;
+            let atlas_manager =
+                get_atlas_manager(&video_id, density, resolution_tier, cache_dir.clone()).await;
 
             let manager = atlas_manager.read().await;
             if let Some(location) = manager.get_location(timestamp_secs) {
@@ -974,7 +979,8 @@ pub async fn get_render_artifacts_batch(
 
 /// Retrieve a snapshot of the current cumulative decode/convert/downsample metrics.
 #[tauri::command]
-pub fn get_decode_metrics_snapshot() -> Result<crate::thumbnail_engine::metrics::FullDecodeMetricsSnapshot, String> {
+pub fn get_decode_metrics_snapshot(
+) -> Result<crate::thumbnail_engine::metrics::FullDecodeMetricsSnapshot, String> {
     Ok(crate::thumbnail_engine::metrics::get_metrics_snapshot())
 }
 
@@ -984,7 +990,8 @@ async fn load_from_atlas(
     thumb_width: u32,
     thumb_height: u32,
 ) -> Result<Vec<u8>, String> {
-    crate::thumbnail_engine::atlas::load_from_atlas_resilient(location, thumb_width, thumb_height).await
+    crate::thumbnail_engine::atlas::load_from_atlas_resilient(location, thumb_width, thumb_height)
+        .await
 }
 
 /// Retrieve comprehensive statistics on the filmstrip & thumbnail disk cache.
@@ -1003,19 +1010,22 @@ pub async fn get_disk_cache_stats() -> Result<serde_json::Value, String> {
 
     let cache_dir = match GLOBAL_CACHE.cache_dir().await {
         Some(dir) => dir,
-        None => return Ok(serde_json::json!({
-            "total_bytes": 0,
-            "atlas_count": 0,
-            "cache_dir": "",
-            "limit_bytes": limit_bytes,
-            "atlas_hits": atlas_hits,
-            "tier_cache_hits": tier_cache_hits,
-            "decodes": decodes,
-            "hit_rate_pct": hit_rate_pct,
-        })),
+        None => {
+            return Ok(serde_json::json!({
+                "total_bytes": 0,
+                "atlas_count": 0,
+                "cache_dir": "",
+                "limit_bytes": limit_bytes,
+                "atlas_hits": atlas_hits,
+                "tier_cache_hits": tier_cache_hits,
+                "decodes": decodes,
+                "hit_rate_pct": hit_rate_pct,
+            }))
+        }
     };
 
-    let (total_bytes, atlas_count) = crate::thumbnail_engine::atlas::get_disk_cache_stats_from_dir(&cache_dir).await;
+    let (total_bytes, atlas_count) =
+        crate::thumbnail_engine::atlas::get_disk_cache_stats_from_dir(&cache_dir).await;
 
     Ok(serde_json::json!({
         "total_bytes": total_bytes,
@@ -1045,7 +1055,10 @@ pub async fn clear_disk_cache() -> Result<usize, String> {
     (*TIER_CACHE).clear();
     GLOBAL_CACHE.clear().await;
 
-    eprintln!("[clear_disk_cache] Cleared {} atlas files and reset in-memory caches.", count);
+    eprintln!(
+        "[clear_disk_cache] Cleared {} atlas files and reset in-memory caches.",
+        count
+    );
     Ok(count)
 }
 
@@ -1102,9 +1115,7 @@ pub async fn prewarm_decoders(video_paths: Vec<String>) -> Result<usize, String>
 
         for path in chunk {
             let path = path.clone();
-            let handle = tokio::spawn(async move {
-                get_decoder(&path).await.is_ok()
-            });
+            let handle = tokio::spawn(async move { get_decoder(&path).await.is_ok() });
             handles.push(handle);
         }
 
@@ -1140,7 +1151,10 @@ pub async fn stream_timeline_frames_binary(
                 decoder_guard.decode_frame(ts, width, height)
             };
             if let Ok(bytes) = rgba_res {
-                if on_frame.send(tauri::ipc::InvokeResponseBody::Raw(bytes)).is_err() {
+                if on_frame
+                    .send(tauri::ipc::InvokeResponseBody::Raw(bytes))
+                    .is_err()
+                {
                     break;
                 }
             }

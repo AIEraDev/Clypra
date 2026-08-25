@@ -3,8 +3,14 @@ import { useUIStore } from "@/store/uiStore";
 import { SourcePreview } from "./SourcePreview";
 import { ProgramPreview } from "./ProgramPreview";
 
-const PreviewPanelComponent: React.FC = () => {
-  const previewMode = useUIStore((s) => s.previewMode);
+interface PreviewPanelProps {
+  /** Override the monitor role for layouts that render both monitors together. */
+  mode?: "program" | "source";
+}
+
+const PreviewPanelComponent: React.FC<PreviewPanelProps> = ({ mode }) => {
+  const selectedPreviewMode = useUIStore((s) => s.previewMode);
+  const previewMode = mode ?? selectedPreviewMode;
 
   // Mount exactly one playback space at a time. Source media and program
   // preview therefore cannot share DOM media elements or render lifecycles.

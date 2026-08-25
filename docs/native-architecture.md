@@ -6,6 +6,11 @@ and the [Native Performance Contract](performance-contract.md). These documents
 are the durable guardrails for path separation, stale-frame handling, telemetry,
 and release validation.
 
+All native changes also follow the project-wide
+[Architecture-First Delivery ADR](architecture-first-delivery-adr.md): a native
+authority failure must be diagnosed at its owning boundary, never hidden by a
+silent browser fallback.
+
 Status: migration branch `codex/native-architecture-migration`.
 
 ## Authority
@@ -33,11 +38,44 @@ export presentation path.
 ## Playback policy
 
 The native audio sample clock is the final playback authority. Until native
-audio output is available, the existing runtime may act as a migration adapter,
-but it must not define frame addressing or color conversion. Video frames more
-than 20 ms behind audio are dropped; audio is never delayed for late video.
-The target A/V drift is +/-16 ms, with 100 ms minimum audio buffering and 200
-ms maximum video lookahead. Play at the terminal frame restarts at frame zero.
+audio output is available, desktop playback remains visibly unavailable rather
+than silently transferring authority to browser audio. Browser preview is a
+separate browser-runtime implementation, never a desktop fallback. Video
+frames more than 20 ms behind audio are dropped; audio is never delayed for
+late video. The target A/V drift is +/-16 ms, with 100 ms minimum audio
+buffering and 200 ms maximum video lookahead. Play at the terminal frame
+restarts at frame zero.
+
+When native audio is silent, `get_native_audio_diagnostics` reports evidence
+derived from the same clock and mixer that render production audio: installed
+clips, timeline-active clip IDs, a next-window mixer peak, callback/rendered/
+non-silent frame counts, and output-device status. This identifies the owning
+boundary—clip discovery/install, timeline activation, decode/envelope/mixing,
+callback handoff, or device routing—without creating a second playback graph.
+
+### Export audio routing
+
+The native cut-only export path is eligible only for video-only timeline
+composition. It can preserve audio embedded in the source video files, but its
+native plan does not carry independent timeline audio clips. If an active
+audio-kind clip, audio asset, or explicit `audioPath` is present, native
+eligibility is rejected and the compositor export path is used. That path calls
+`getActiveAudioClips()` and passes the complete standalone audio mix to FFmpeg,
+including timeline position, trims, volume, fades, and automation.
+
+### Derived audio media
+
+Audio extraction is not an automatic fallback for video-backed clips. If it is
+adopted for a measured native performance need, it is a first-class derived
+media feature: the project records the source asset, source stream, extraction
+recipe/version, and deterministic cache key; the derived asset has an explicit
+lifecycle; timeline clips reference that asset; and native preview, browser
+preview, serialization, and export consume the same resolved media reference.
+An extraction cache must be reusable across clips and invalidated by its source
+or recipe, never created as a one-off `audioPath` substitution. The default
+materialization policy is lazy: derive only after a measured need requests it,
+then reuse the deterministic disk-cached result. Importing a video must not
+eagerly create audio media that the project may never use.
 
 ## Migration gates
 

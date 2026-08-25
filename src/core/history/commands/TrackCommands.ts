@@ -7,6 +7,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Track, Clip } from "@/types";
+import { getSafeTrackInsertionIndex } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks: Track[];
@@ -37,7 +38,10 @@ export class AddTrackCommand implements Command {
     const tracks = [...state.tracks];
 
     if (this.index !== undefined) {
-      const clamped = Math.max(0, Math.min(this.index, tracks.length));
+      const clamped = getSafeTrackInsertionIndex(tracks, this.track.type, this.index, state.mainVideoTrackId);
+      tracks.splice(clamped, 0, this.track);
+    } else if (this.track.type !== "audio" && state.mainVideoTrackId) {
+      const clamped = getSafeTrackInsertionIndex(tracks, this.track.type, tracks.length, state.mainVideoTrackId);
       tracks.splice(clamped, 0, this.track);
     } else {
       tracks.push(this.track);

@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { PlatformInterface, VideoMetadata, SelectedFile } from "../platform";
+import { PlatformInterface, VideoMetadata, SelectedFile, ProjectSaveResult, RecentProjectEntry } from "../platform";
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("https://");
 
@@ -64,12 +64,15 @@ export class TauriPlatformAdapter implements PlatformInterface {
     return files;
   }
 
-  async getRecentProjects(): Promise<any[]> {
+  async getRecentProjects(): Promise<RecentProjectEntry[]> {
     const { invoke } = await import("@tauri-apps/api/core");
     const { fromRustProject } = await import("@/types/serialization");
-    const jsonList: string[] = await invoke("get_recent_projects");
-    return jsonList.map((j) => {
-      const rustProject = JSON.parse(j);
+    const entries: any[] = await invoke("get_recent_projects");
+    return entries.map((entry) => {
+      if (entry.kind === "unreadable" || !entry.project) {
+        return entry as RecentProjectEntry;
+      }
+      const rustProject = entry.project;
       const project = fromRustProject(rustProject);
       if (project.mediaAssets) {
         project.mediaAssets = project.mediaAssets.map((asset) => ({
@@ -79,7 +82,13 @@ export class TauriPlatformAdapter implements PlatformInterface {
           path: asset.path && asset.type === "image" && !isExternalOrDataUrl(asset.path) ? this.convertFileSrc(asset.path) : asset.path,
         }));
       }
-      return project;
+      return {
+        ...project,
+        kind: "ready" as const,
+        path: entry.path,
+        backupPath: entry.backupPath,
+        backupAvailable: !!entry.backupAvailable,
+      };
     });
   }
 
@@ -88,11 +97,11 @@ export class TauriPlatformAdapter implements PlatformInterface {
     return invoke("load_project", { path });
   }
 
-  async saveProject(payload: string): Promise<void> {
+  async saveProject(payload: string): Promise<ProjectSaveResult> {
     const { invoke } = await import("@tauri-apps/api/core");
     // CRITICAL FIX: Rust command expects project_data parameter, not projectId/payload
     // See: src-tauri/src/commands/project.rs:22
-    await invoke("save_project", {
+    return invoke<ProjectSaveResult>("save_project", {
       projectData: payload,
     });
   }

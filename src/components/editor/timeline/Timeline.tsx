@@ -1,4 +1,10 @@
-import React, { useRef, useEffect, useCallback, useMemo, useState } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import { Film, ArrowLeft } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
@@ -22,16 +28,19 @@ import {
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
 import {
   TIMELINE_TRACK_LABEL_WIDTH_PX,
+  TIMELINE_CLIP_START_OFFSET_PX,
   getTimelineLabelColumnWidth,
   getTimelineLaneWidth,
   getTimelineMaxScrollLeft,
-  timeToPixel,
+  getTimelineLaneContentX,
   pixelToTime,
+  timelinePixelToTime,
+  timelineTimeToPixel,
   getTimelineLaneClientX,
 } from "@/lib/timeline/timelineViewport";
 import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
-
+import { TIMELINE_ZOOM_MIN } from "@/lib/timeline/timelineZoom";
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -50,6 +59,8 @@ export const Timeline: React.FC = () => {
   const mainVideoTrackId = useTimelineStore((s) => s.mainVideoTrackId);
   const clips = useTimelineStore((s) => s.clips);
   const pixelsPerSecond = useTimelineStore((s) => s.pixelsPerSecond);
+  const projectLoadRevision = useTimelineStore((s) => s.projectLoadRevision);
+  const viewportWidth = useTimelineStore((s) => s.viewportWidth);
   const scrollLeft = useTimelineStore((s) => s.scrollLeft);
   const setScrollLeft = useTimelineStore((s) => s.setScrollLeft);
   const setViewportWidth = useTimelineStore((s) => s.setViewportWidth);
@@ -63,6 +74,7 @@ export const Timeline: React.FC = () => {
   const { isPlaying, duration } = usePlaybackStatus();
   const { seek: transportSeek } = useTransportControls();
   const containerRef = useRef<HTMLDivElement>(null);
+  const initialFitRevisionRef = useRef<number | null>(null);
   const wasPlayingRef = useRef(false);
   const runtime = useRenderRuntime();
   const isProgramPreviewActive = previewMode === "program";
@@ -110,15 +122,17 @@ export const Timeline: React.FC = () => {
   const handleTimelineContextMenu = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && target.closest('[data-timeline-interactive="true"]')) return;
+      if (target && target.closest('[data-timeline-interactive="true"]'))
+        return;
       if (target && target.closest("[data-clip-id]")) return;
       if (target && target.closest("[data-gap-id]")) return;
       e.preventDefault();
       const container = containerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      const clickedTime = pixelToTime(
-        getTimelineLaneClientX(e.clientX, rect.left, hasClips) + scrollLeft,
+      const clickedTime = timelinePixelToTime(
+        getTimelineLaneClientX(e.clientX, rect.left, hasClips) +
+          scrollLeft,
         pixelsPerSecond,
       );
       setClipContextMenu(null);
@@ -156,6 +170,24 @@ export const Timeline: React.FC = () => {
       return () => ro.disconnect();
     }
   }, [hasClips, setViewportWidth]);
+
+  // A project carries edit data, not a saved viewport preference. Reset the
+  // newly hydrated timeline to the canonical minimum zoom once after its DOM
+  // width is available. Manual zooming is unaffected because this only reacts
+  // to the hydration revision.
+  useEffect(() => {
+    if (projectLoadRevision === 0) return;
+    if (initialFitRevisionRef.current === projectLoadRevision) return;
+
+    const frame = requestAnimationFrame(() => {
+      const timeline = useTimelineStore.getState();
+      timeline.setZoom(TIMELINE_ZOOM_MIN);
+      if (containerRef.current) containerRef.current.scrollLeft = 0;
+      timeline.setScrollLeft(0);
+      initialFitRevisionRef.current = projectLoadRevision;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [projectLoadRevision, viewportWidth]);
 
   // Attach scroll/pointer listeners to the timeline scroll container
   useEffect(() => {
@@ -207,8 +239,14 @@ export const Timeline: React.FC = () => {
         nextScrollTop += clipRect.bottom - bottomEdge;
       }
 
-      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
-      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const maxScrollLeft = Math.max(
+        0,
+        container.scrollWidth - container.clientWidth,
+      );
+      const maxScrollTop = Math.max(
+        0,
+        container.scrollHeight - container.clientHeight,
+      );
       nextScrollLeft = Math.max(0, Math.min(nextScrollLeft, maxScrollLeft));
       nextScrollTop = Math.max(0, Math.min(nextScrollTop, maxScrollTop));
 
@@ -227,7 +265,9 @@ export const Timeline: React.FC = () => {
     const clipId = selectedClipIds[0];
     if (!clipId) return;
 
-    const frame = window.requestAnimationFrame(() => revealSelectedClip(clipId));
+    const frame = window.requestAnimationFrame(() =>
+      revealSelectedClip(clipId),
+    );
     return () => window.cancelAnimationFrame(frame);
   }, [clips, selectedClipIds, revealSelectedClip]);
 
@@ -245,10 +285,10 @@ export const Timeline: React.FC = () => {
     }
   }, [duration, transportSeek]);
 
-  // ✅ PERFORMANCE OPTIMIZED: RAF-based auto-scroll with throttled state updates
+  // RAF-based auto-scroll with throttled state updates
   const autoScrollRafRef = useRef<number | null>(null);
   const lastScrollStateUpdateRef = useRef(0);
-  // Audit 6.2 fix: keep pixelsPerSecond in a ref so the RAF tick reads live zoom
+  // keep pixelsPerSecond in a ref so the RAF tick reads live zoom
   // without restarting the loop. Previously pixelsPerSecond was in the effect deps,
   // which cancelled the RAF on every zoom step and created a ~16ms auto-scroll gap.
   const pixelsPerSecondRef = useRef(pixelsPerSecond);
@@ -265,10 +305,13 @@ export const Timeline: React.FC = () => {
 
       const pps = pixelsPerSecondRef.current;
       const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
-      const effectiveViewportWidth = Math.max(0, container.clientWidth - labelColumnWidth);
+      const effectiveViewportWidth = Math.max(
+        0,
+        container.clientWidth - labelColumnWidth,
+      );
       if (effectiveViewportWidth <= 0) return;
 
-      const playheadX = time * pps;
+      const playheadX = timelineTimeToPixel(time, pps);
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
       const maxScrollLeft = getTimelineMaxScrollLeft(
@@ -307,7 +350,7 @@ export const Timeline: React.FC = () => {
   }, [isPlaying, keepProgramTimeVisible, previewMode]);
 
   // Auto-scroll during playback: viewport tracking
-  // SMOOTH-2 fix: read clock inside RAF tick — effect only re-runs on isPlaying/pps/duration change
+  // read clock inside RAF tick — effect only re-runs on isPlaying/pps/duration change
   useEffect(() => {
     const container = containerRef.current;
 
@@ -325,14 +368,14 @@ export const Timeline: React.FC = () => {
     const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
     const effectiveViewportWidth = container.clientWidth - labelColumnWidth;
 
-    // Bug 1 fix: On play-start transition, if playhead is outside viewport, snap to it
+    // On play-start transition, if playhead is outside viewport, snap to it
     const justStartedPlaying = !wasPlayingRef.current && isPlaying;
     wasPlayingRef.current = isPlaying;
 
     if (justStartedPlaying) {
-      // Audit 6.2 fix: read from ref so snap uses current zoom at play-start
+      // read from ref so snap uses current zoom at play-start
       const pps = pixelsPerSecondRef.current;
-      const playheadX = Math.round(getPlaybackClock().time * pps);
+      const playheadX = timelineTimeToPixel(getPlaybackClock().time, pps);
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
       const canvasDuration = getTimelineCanvasDuration(duration);
@@ -358,11 +401,11 @@ export const Timeline: React.FC = () => {
 
       const now = performance.now();
       // SMOOTH-2: Read live clock inside tick instead of closing over stale currentTime
-      // Audit 6.2 fix: read pixelsPerSecondRef.current so zoom changes are picked up
+      // Read pixelsPerSecondRef.current so zoom changes are picked up
       // immediately without restarting the RAF loop (which caused a ~16ms scroll gap).
       const pps = pixelsPerSecondRef.current;
       const liveTime = getPlaybackClock().time;
-      const playheadX = Math.round(liveTime * pps);
+      const playheadX = timelineTimeToPixel(liveTime, pps);
       const canvasDuration = getTimelineCanvasDuration(duration);
       const maxScrollLeft = getTimelineMaxScrollLeft(
         container.clientWidth,
@@ -496,7 +539,10 @@ export const Timeline: React.FC = () => {
         const trackId = selectedTrackId || tracks[0]?.id;
         if (!trackId) return;
 
-        const gapAtPlayhead = GapManager.getGapAtPosition(trackId, getPlaybackClock().time);
+        const gapAtPlayhead = GapManager.getGapAtPosition(
+          trackId,
+          getPlaybackClock().time,
+        );
 
         if (gapAtPlayhead && !gapAtPlayhead.protected) {
           GapManager.removeGap(gapAtPlayhead.id);
@@ -526,7 +572,9 @@ export const Timeline: React.FC = () => {
   // canonical ruler range so the ruler/zoom never inherit source duration.
   const contentEnd = hasClips ? duration : 0;
   const canvasDuration = getTimelineCanvasDuration(contentEnd);
-  const contentWidth = Math.round(canvasDuration * pixelsPerSecond);
+  const contentWidth =
+    Math.round(canvasDuration * pixelsPerSecond) +
+    TIMELINE_CLIP_START_OFFSET_PX;
 
   const seekFromPointer = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -545,9 +593,12 @@ export const Timeline: React.FC = () => {
       if (!container) return;
 
       const rect = container.getBoundingClientRect();
-      const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
-      const x =
-        event.clientX - rect.left - labelColumnWidth + container.scrollLeft;
+      const x = getTimelineLaneContentX(
+        event.clientX,
+        rect.left,
+        container.scrollLeft,
+        hasClips,
+      );
       const time = Math.max(0, Math.min(pixelToTime(x, pixelsPerSecond), duration));
 
       const frameRate = getPlaybackClock().frameRate;
@@ -616,7 +667,7 @@ export const Timeline: React.FC = () => {
           onClick={seekFromPointer}
           onContextMenu={handleTimelineContextMenu}
           id="timeline-tracks-container"
-          className={`h-full overflow-auto scrollbar-thin relative transition-colors ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}
+          className={`h-full overflow-auto scrollbar-thin relative transition-colors ${isDraggingOver ? "bg-editor-drop/10 ring-2 ring-editor-drop/50 ring-inset" : ""}`}
           style={{
             display: "grid",
             gridTemplateColumns: hasClips
@@ -665,12 +716,14 @@ export const Timeline: React.FC = () => {
                 height: "24px",
                 width: `${contentWidth}px`,
                 borderBottom: "1px solid var(--color-timeline-track-border)",
+                borderLeft: "1px solid var(--clypra-border-default)",
               }}
             >
               <TimelineRuler
                 pixelsPerSecond={pixelsPerSecond}
                 scrollLeft={scrollLeft}
                 sequenceDuration={contentEnd}
+                startOffset={TIMELINE_CLIP_START_OFFSET_PX}
               />
             </div>
           )}
@@ -680,7 +733,7 @@ export const Timeline: React.FC = () => {
             <div className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className="relative flex h-full items-center px-8 py-8 md:px-16">
                 <div
-                  className={`flex h-32 w-full items-center gap-5 rounded-xl border border-dashed px-10 transition-colors ${isDraggingMedia ? "border-accent/70 bg-accent/10" : "border-white/15 bg-white/[0.015]"}`}
+                  className={`flex h-32 w-full items-center gap-5 rounded-xl border border-dashed px-10 transition-colors ${isDraggingMedia ? "border-editor-drop/70 bg-editor-drop/10" : "border-border/70 bg-surface-raised/20"}`}
                 >
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted">
                     <Film className="h-7 w-7" strokeWidth={1.5} />
@@ -701,7 +754,7 @@ export const Timeline: React.FC = () => {
                   display: "grid",
                   gridTemplateColumns: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px 1fr`,
                   alignContent: "center",
-                  rowGap: 0,
+                  rowGap: 4,
                 }}
               >
                 {dragState?.willCreateNewTrack &&
@@ -719,19 +772,23 @@ export const Timeline: React.FC = () => {
                   )}
 
                 {tracks.map((track) => {
-                  const visualSpec = getTrackVisualSpec(track, tracks, mainVideoTrackId);
+                  const visualSpec = getTrackVisualSpec(
+                    track,
+                    tracks,
+                    mainVideoTrackId,
+                  );
                   const visualTrack =
                     track.height === visualSpec.height
                       ? track
                       : { ...track, height: visualSpec.height };
 
-                  // FIX: Filter clips per track to avoid passing entire clips array
+                  // Filter clips per track to avoid passing entire clips array
                   // This prevents tracks from re-rendering when clips on OTHER tracks change
                   const trackClips = clips.filter(
                     (c) => c.trackId === track.id,
                   );
 
-                  // FIX: Memoize dragState prop to prevent inline object creation
+                  // Memoize dragState prop to prevent inline object creation
                   // Inline object literals break React.memo even when values are unchanged
                   const trackDragState = dragState
                     ? {
@@ -758,6 +815,9 @@ export const Timeline: React.FC = () => {
                         style={{
                           width: `${contentWidth}px`,
                           height: `${visualTrack.height}px`,
+                          paddingLeft: `${TIMELINE_CLIP_START_OFFSET_PX}px`,
+                          background: "var(--clypra-surface-workspace)",
+                          borderLeft: "1px solid var(--clypra-border-default)",
                         }}
                       >
                         <Track
@@ -848,7 +908,7 @@ export const Timeline: React.FC = () => {
 
               {snapGuides.map((guide, index) => {
                 const guideLeft =
-                  timeToPixel(guide.time, pixelsPerSecond) +
+                  timelineTimeToPixel(guide.time, pixelsPerSecond) +
                   getTimelineLabelColumnWidth(hasClips);
                 const guideColor =
                   guide.type === "playhead"
@@ -892,7 +952,10 @@ export const Timeline: React.FC = () => {
           onClose={() => setEmptySpaceContextMenu(null)}
         />
       )}
-      <RenameClipDialog clipId={renameClipId} onClose={() => setRenameClipId(null)} />
+      <RenameClipDialog
+        clipId={renameClipId}
+        onClose={() => setRenameClipId(null)}
+      />
       <AudioStreamPicker />
       <MediaJobIndicator />
     </div>

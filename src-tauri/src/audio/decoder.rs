@@ -56,16 +56,47 @@ fn decode_audio_clip_sync(
 ) -> Result<DecodedAudioClip, String> {
     // Attempt FFmpeg in-process decode first
     match decode_with_ffmpeg_next(path, &config, target_sample_rate, target_channels) {
-        Ok(clip) => Ok(clip),
-        Err(err) => {
-            log::warn!(
-                "[audio::decoder] ffmpeg-next decode failed for {:?}: {}. Falling back to CLI decoder.",
+        Ok(clip) if !is_materially_truncated(&clip, &config) => Ok(clip),
+        Ok(clip) => {
+            // A successful decode with far fewer samples than the requested
+            // timeline range is not a usable result. Installing it lets the
+            // mixer report an "active" clip that has no PCM after its short
+            // buffer ends—the exact failure observed with the 31.8s MP3 that
+            // decoded to 0.8s. Use the established FFmpeg CLI decoder as an
+            // explicit decoder-backend recovery, not as a playback fallback.
+            eprintln!(
+                "[native-audio] in-process decoder returned a truncated clip for {:?}: requested={}us decoded={}us; retrying with FFmpeg CLI",
                 path,
-                err
+                config.duration_ticks,
+                decoded_duration_ticks(&clip),
+            );
+            decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels)
+        }
+        Err(err) => {
+            eprintln!(
+                "[native-audio] in-process decoder failed for {:?}: {}. Retrying with FFmpeg CLI.",
+                path, err
             );
             decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels)
         }
     }
+}
+
+/// The in-process decoder must produce nearly all of a requested clip range.
+/// A small tolerance covers encoder delay, packet boundaries, and a clip that
+/// genuinely reaches the end of its source. Anything larger is a decode
+/// failure, not silence that the mixer should be asked to conceal.
+fn is_materially_truncated(clip: &DecodedAudioClip, requested: &AudioClipConfig) -> bool {
+    if requested.duration_ticks <= 0 {
+        return false;
+    }
+    let tolerance_ticks = (requested.duration_ticks / 50).max(250_000);
+    decoded_duration_ticks(clip) < requested.duration_ticks.saturating_sub(tolerance_ticks)
+}
+
+fn decoded_duration_ticks(clip: &DecodedAudioClip) -> i64 {
+    (clip.samples.len() as i64 / i64::from(clip.channels.max(1))).saturating_mul(TICKS_PER_SECOND)
+        / i64::from(clip.sample_rate.max(1))
 }
 
 /// In-process decoding via ffmpeg-next.
@@ -99,10 +130,10 @@ fn decode_with_ffmpeg_next(
         decoder.channel_layout()
     };
 
-    let target_channel_layout = if target_channels == 1 {
-        ffmpeg::channel_layout::ChannelLayout::MONO
-    } else {
-        ffmpeg::channel_layout::ChannelLayout::STEREO
+    let target_channel_layout = match target_channels {
+        1 => ffmpeg::channel_layout::ChannelLayout::MONO,
+        2 => ffmpeg::channel_layout::ChannelLayout::STEREO,
+        count => ffmpeg::channel_layout::ChannelLayout::default(i32::from(count)),
     };
 
     let mut resampler = ffmpeg::software::resampling::Context::get(
@@ -220,11 +251,10 @@ fn decode_with_ffmpeg_next(
         return Err("Audio stream decoded to 0 samples".to_string());
     }
 
+    let mut final_config = config.clone();
     let actual_duration_ticks = (all_samples.len() as i64 / i64::from(target_channels))
         .saturating_mul(TICKS_PER_SECOND)
         / i64::from(target_sample_rate);
-
-    let mut final_config = config.clone();
     if final_config.duration_ticks <= 0 || final_config.duration_ticks > actual_duration_ticks {
         final_config.duration_ticks = actual_duration_ticks;
     }
@@ -384,11 +414,10 @@ fn decode_with_ffmpeg_cli(
         return Err("CLI decoder returned 0 samples".to_string());
     }
 
+    let mut final_config = config.clone();
     let actual_duration_ticks = (samples.len() as i64 / i64::from(target_channels))
         .saturating_mul(TICKS_PER_SECOND)
         / i64::from(target_sample_rate);
-
-    let mut final_config = config.clone();
     if final_config.duration_ticks <= 0 || final_config.duration_ticks > actual_duration_ticks {
         final_config.duration_ticks = actual_duration_ticks;
     }
@@ -420,5 +449,53 @@ mod tests {
             samples_to_skip_before_source_start(55_000_000, 55_000_000, 1_024, 48_000),
             0
         );
+    }
+
+    #[test]
+    fn materially_short_in_process_decode_is_rejected_before_mixer_install() {
+        let config = AudioClipConfig {
+            id: "mp3".to_string(),
+            path: "fixture.mp3".to_string(),
+            timeline_start_ticks: 0,
+            source_start_ticks: 0,
+            duration_ticks: 31_833_333,
+            gain: 1.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            track_id: None,
+        };
+        let truncated = DecodedAudioClip {
+            config: config.clone(),
+            sample_rate: 44_100,
+            channels: 2,
+            // 0.813 seconds of PCM returned for a requested 31.833 seconds.
+            samples: vec![0.0; 71_712].into(),
+        };
+
+        assert!(is_materially_truncated(&truncated, &config));
+    }
+
+    #[test]
+    fn normal_encoder_delay_does_not_trigger_decoder_recovery() {
+        let config = AudioClipConfig {
+            id: "clip".to_string(),
+            path: "fixture.mp3".to_string(),
+            timeline_start_ticks: 0,
+            source_start_ticks: 0,
+            duration_ticks: 10_000_000,
+            gain: 1.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            track_id: None,
+        };
+        let complete = DecodedAudioClip {
+            config: config.clone(),
+            sample_rate: 48_000,
+            channels: 2,
+            // 9.95 seconds remains inside the two-percent tolerance.
+            samples: vec![0.0; 48_000 * 2 * 9 + 45_600 * 2].into(),
+        };
+
+        assert!(!is_materially_truncated(&complete, &config));
     }
 }

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::types::{DensityLevel, ExtractionError, Priority};
 use super::queue::request_thumbnail;
+use super::types::{DensityLevel, ExtractionError, Priority};
 
 /// Extract a single frame, returning a typed ExtractionError on failure.
 ///
@@ -76,48 +76,46 @@ pub async fn extract_with_retry(
 
         match extract_frame(video_path, time, density, width, height).await {
             Ok(path) => return Ok(path),
-            Err(e) => {
-                match e {
-                    ExtractionError::CodecError(_) => {
-                        eprintln!("[Extract] Codec error (no retry): {}", e);
-                        return Err(e);
-                    }
-                    ExtractionError::Timeout => {
-                        if let Some(lower) = density.lower() {
-                            eprintln!(
-                                "[Extract] Timeout at density {:?}, retrying with lower density {:?}",
-                                density, lower
-                            );
-                            return Box::pin(extract_with_retry(
-                                video_path, time, lower, width, height,
-                            ))
-                            .await;
-                        }
-                        eprintln!("[Extract] Timeout at lowest density, giving up");
-                        return Err(e);
-                    }
-                    ExtractionError::ProcessSpawn(_) => {
-                        if attempts >= max_attempts {
-                            eprintln!(
-                                "[Extract] Max retries ({}) exceeded for process spawn error: {}",
-                                max_attempts, e
-                            );
-                            return Err(e);
-                        }
-
-                        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
-                        eprintln!(
-                            "[Extract] Retry {} after {}ms (process spawn error)",
-                            attempts, backoff_ms
-                        );
-                        backoff_ms *= 4;
-                    }
-                    _ => {
-                        eprintln!("[Extract] Non-retriable error: {}", e);
-                        return Err(e);
-                    }
+            Err(e) => match e {
+                ExtractionError::CodecError(_) => {
+                    eprintln!("[Extract] Codec error (no retry): {}", e);
+                    return Err(e);
                 }
-            }
+                ExtractionError::Timeout => {
+                    if let Some(lower) = density.lower() {
+                        eprintln!(
+                            "[Extract] Timeout at density {:?}, retrying with lower density {:?}",
+                            density, lower
+                        );
+                        return Box::pin(extract_with_retry(
+                            video_path, time, lower, width, height,
+                        ))
+                        .await;
+                    }
+                    eprintln!("[Extract] Timeout at lowest density, giving up");
+                    return Err(e);
+                }
+                ExtractionError::ProcessSpawn(_) => {
+                    if attempts >= max_attempts {
+                        eprintln!(
+                            "[Extract] Max retries ({}) exceeded for process spawn error: {}",
+                            max_attempts, e
+                        );
+                        return Err(e);
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                    eprintln!(
+                        "[Extract] Retry {} after {}ms (process spawn error)",
+                        attempts, backoff_ms
+                    );
+                    backoff_ms *= 4;
+                }
+                _ => {
+                    eprintln!("[Extract] Non-retriable error: {}", e);
+                    return Err(e);
+                }
+            },
         }
     }
 }

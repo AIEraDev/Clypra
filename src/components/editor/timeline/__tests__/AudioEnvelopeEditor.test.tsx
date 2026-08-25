@@ -21,7 +21,7 @@ vi.mock("@/store/historyStore", () => ({
   useHistoryStore: () => ({ execute: mocks.execute }),
 }));
 
-const createClip = (volume = 1): Clip =>
+const createClip = (volume = 1, fades: Partial<Pick<Clip, "fadeIn" | "fadeOut">> = {}): Clip =>
   ({
     id: "clip-1",
     trackId: "track-1",
@@ -37,6 +37,7 @@ const createClip = (volume = 1): Clip =>
     opacity: 1,
     rotation: 0,
     volume,
+    ...fades,
   }) as Clip;
 
 const setRect = (element: HTMLElement, rect: { width: number; height: number }) => {
@@ -113,7 +114,7 @@ describe("AudioEnvelopeEditor volume interaction", () => {
   it("moves the visible guide with volume and follows the pointer with its tooltip", () => {
     const slider = prepareSlider();
 
-    expect(slider.style.top).toBe("10%");
+    expect(slider.style.top).toBe("50%");
 
     fireEvent.pointerDown(slider, { pointerId: 1, clientX: 100, clientY: 2 });
     const tooltip = () => screen.getByText("Vol 100%");
@@ -121,7 +122,7 @@ describe("AudioEnvelopeEditor volume interaction", () => {
 
     fireEvent.pointerMove(slider, { pointerId: 1, clientX: 320, clientY: 40 });
 
-    expect(slider.style.top).toBe("90%");
+    expect(slider.style.top).toBe("80%");
     expect(screen.getByText("Vol 0%")).toHaveStyle({ left: "320px", top: "40px" });
   });
 
@@ -190,5 +191,78 @@ describe("AudioEnvelopeEditor volume interaction", () => {
 
     expect(mocks.execute).toHaveBeenCalledTimes(1);
     expect(mocks.execute.mock.calls[0][0]).toBeInstanceOf(TransformClipCommand);
+  });
+
+  it("keeps full-height fade handles at their clip positions", () => {
+    render(
+      <AudioEnvelopeEditor
+        clip={createClip(1, { fadeIn: 2, fadeOut: 1.5 })}
+        clipWidthPx={400}
+        pixelsPerSecond={40}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "80px", top: "0px", height: "100%" });
+    expect(screen.getByRole("button", { name: "Fade out handle" })).toHaveStyle({ left: "340px", top: "0px", height: "100%" });
+
+    const fadePaths = Array.from(document.querySelectorAll("svg path"));
+    expect(fadePaths.some((path) => path.getAttribute("d")?.includes(" C "))).toBe(true);
+    expect(fadePaths.some((path) => path.getAttribute("fill") === "var(--clypra-clip-envelope-fill)")).toBe(true);
+
+    cleanup();
+    render(<AudioEnvelopeEditor clip={createClip()} clipWidthPx={400} pixelsPerSecond={40} />);
+    expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "0px", top: "0px", height: "100%" });
+    expect(screen.getByRole("button", { name: "Fade out handle" })).toHaveStyle({ left: "400px", top: "0px", height: "100%" });
+    expect(screen.getByTestId("audio-fade-in-handle").querySelector("span")).toHaveStyle({ top: "6%" });
+    expect(screen.getByTestId("audio-fade-out-handle").querySelector("span")).toHaveStyle({ top: "6%" });
+  });
+
+  it("drags a fade-in handle horizontally and records one undoable edit", () => {
+    render(
+      <AudioEnvelopeEditor
+        clip={createClip()}
+        clipWidthPx={400}
+        pixelsPerSecond={40}
+      />,
+    );
+    const handle = screen.getByRole("button", { name: "Fade in handle" });
+    const lane = handle.parentElement;
+    if (!lane) throw new Error("Fade handle lane was not rendered");
+    setRect(lane, { width: 400, height: 80 });
+    Object.defineProperty(handle, "setPointerCapture", { configurable: true, value: vi.fn() });
+    Object.defineProperty(handle, "releasePointerCapture", { configurable: true, value: vi.fn() });
+    Object.defineProperty(handle, "hasPointerCapture", { configurable: true, value: vi.fn(() => true) });
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 20 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 120, clientY: 20 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 120, clientY: 20 });
+
+    expect(mocks.updateClip).toHaveBeenCalledWith("clip-1", { fadeIn: 3 });
+    const command = mocks.execute.mock.calls[0][0] as any;
+    expect(command).toBeInstanceOf(TransformClipCommand);
+    expect(command.newTransform.fadeIn).toBe(3);
+  });
+
+  it("drags a fade-out handle inward without allowing the two fades to overlap", () => {
+    render(
+      <AudioEnvelopeEditor
+        clip={createClip(1, { fadeIn: 7 })}
+        clipWidthPx={400}
+        pixelsPerSecond={40}
+      />,
+    );
+    const handle = screen.getByRole("button", { name: "Fade out handle" });
+    const lane = handle.parentElement;
+    if (!lane) throw new Error("Fade handle lane was not rendered");
+    setRect(lane, { width: 400, height: 80 });
+    Object.defineProperty(handle, "setPointerCapture", { configurable: true, value: vi.fn() });
+    Object.defineProperty(handle, "releasePointerCapture", { configurable: true, value: vi.fn() });
+    Object.defineProperty(handle, "hasPointerCapture", { configurable: true, value: vi.fn(() => true) });
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 400, clientY: 20 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0, clientY: 20 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 0, clientY: 20 });
+
+    expect(mocks.updateClip).toHaveBeenCalledWith("clip-1", { fadeOut: 3 });
   });
 });

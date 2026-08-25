@@ -14,7 +14,7 @@
 
 use ndarray::Array4;
 use ort::ep::CPU;
-use ort::session::{Session, builder::SessionBuilder};
+use ort::session::{builder::SessionBuilder, Session};
 use ort::value::TensorRef;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -102,14 +102,8 @@ impl MediaPipeFaceTracker {
                     return Err("Inference cancelled".to_string());
                 }
 
-                let bbox = run_single_frame(
-                    &mut session_guard,
-                    pixel_data,
-                    w,
-                    h,
-                    &score_name,
-                    &box_name,
-                )?;
+                let bbox =
+                    run_single_frame(&mut session_guard, pixel_data, w, h, &score_name, &box_name)?;
                 results.push((pts_ms, bbox));
             }
 

@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { PreviewPanel } from "../PreviewPanel";
+import { PreviewMonitorWorkspace } from "../PreviewMonitorWorkspace";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useUIStore } from "@/store/uiStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -86,6 +88,7 @@ describe("PreviewPanel timeline rendering", () => {
       scrollLeft: 0,
       pixelsPerSecond: 100,
     });
+    useUIStore.setState({ previewMode: "program", sourceAsset: null, sourceTextPreset: null });
 
     // Mock playback clock
     const clock = getPlaybackClock();
@@ -126,5 +129,34 @@ describe("PreviewPanel timeline rendering", () => {
     // Viewport should be sized based on project aspect ratio
     expect(parseFloat(viewport.style.width)).toBeGreaterThan(0);
     expect(parseFloat(viewport.style.height)).toBeGreaterThan(0);
+  });
+
+  it("keeps a forced Program monitor in dual-player layout when Source mode is selected", () => {
+    useUIStore.setState({ previewMode: "source" });
+
+    render(<PreviewPanel mode="program" />);
+
+    expect(screen.getByTestId("program-preview-canvas")).toBeInTheDocument();
+  });
+
+  it("keeps Source and Program in separate monitor spaces when source media is active", () => {
+    useUIStore.setState({
+      previewMode: "source",
+      sourceAsset: {
+        id: "source-1",
+        name: "Source",
+        type: "video",
+        path: "/source.mp4",
+        duration: 10,
+        size: 1,
+      },
+    });
+
+    render(<PreviewMonitorWorkspace orientation="row" />);
+
+    expect(screen.getByTestId("program-preview-canvas")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
+    expect(document.querySelector('[data-preview-monitor="source"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-preview-monitor="program"]')).toBeInTheDocument();
   });
 });

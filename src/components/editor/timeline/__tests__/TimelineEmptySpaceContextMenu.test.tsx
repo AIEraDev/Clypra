@@ -119,7 +119,8 @@ describe("TimelineEmptySpaceContextMenu component", () => {
     fireEvent.click(addVideoBtn);
 
     expect(useTimelineStore.getState().tracks.length).toBe(3);
-    expect(useTimelineStore.getState().tracks[2].type).toBe("video");
+    expect(useTimelineStore.getState().tracks[0].type).toBe("video");
+    expect(useTimelineStore.getState().tracks[1].id).toBe("track-1");
     expect(onClose).toHaveBeenCalled();
   });
 

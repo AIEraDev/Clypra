@@ -1,10 +1,12 @@
 use crate::native_audio::{
-    decode_native_audio_clip, NativeAudioClipStatus, NativeAudioClock, NativeAudioStatus,
+    decode_native_audio_clip, NativeAudioClipStatus, NativeAudioClock, NativeAudioDiagnostics,
+    NativeAudioKeyframe, NativeAudioStatus, NativePcmClip,
 };
+use crate::sync_metrics::SYNC_METRICS;
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
-use crate::sync_metrics::SYNC_METRICS;
 
 fn audio_clock(app: &AppHandle) -> Result<Arc<Mutex<NativeAudioClock>>, String> {
     app.try_state::<Arc<Mutex<NativeAudioClock>>>()
@@ -41,6 +43,36 @@ pub fn get_native_audio_status(app: AppHandle) -> Result<NativeAudioStatus, Stri
         .map(|clock| clock.status())
 }
 
+/// Reports derived evidence from the live native audio authority. This is a
+/// diagnostic endpoint only; it never swaps to or feeds a fallback renderer.
+#[tauri::command]
+pub fn get_native_audio_diagnostics(app: AppHandle) -> Result<NativeAudioDiagnostics, String> {
+    let clock = audio_clock(&app)?;
+    let diagnostics = clock
+        .lock()
+        .map_err(|_| "Native audio clock lock is poisoned".to_string())
+        .map(|clock| clock.diagnostics())?;
+    // This command is requested once after a user-initiated Play, not from the
+    // real-time callback. Use stderr so `tauri dev` captures the evidence even
+    // in builds that have not installed a `log` facade subscriber.
+    eprintln!(
+        "[native-audio] diagnostics installed={} active={:?} mixer_peak={:.6} callbacks={} rendered={} non_silent={} device={:?} clips={:?}",
+        diagnostics.installed_clips.len(),
+        diagnostics.active_clip_ids,
+        diagnostics.mixer_peak,
+        diagnostics.status.callback_count,
+        diagnostics.status.rendered_frames,
+        diagnostics.status.non_silent_frames,
+        diagnostics.status.device_name,
+        diagnostics
+            .clip_diagnostics
+            .iter()
+            .map(|clip| (&clip.id, clip.active, clip.mixer_peak))
+            .collect::<Vec<_>>(),
+    );
+    Ok(diagnostics)
+}
+
 #[tauri::command]
 pub fn pause_native_audio(app: AppHandle) -> Result<(), String> {
     let clock = audio_clock(&app)?;
@@ -72,11 +104,7 @@ pub fn set_native_audio_speed(app: AppHandle, speed: f32) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub fn set_native_audio_output(
-    app: AppHandle,
-    volume: f32,
-    muted: bool,
-) -> Result<(), String> {
+pub fn set_native_audio_output(app: AppHandle, volume: f32, muted: bool) -> Result<(), String> {
     let clock = audio_clock(&app)?;
     clock
         .lock()
@@ -105,8 +133,16 @@ pub async fn load_native_audio_clip(
     source_start_ticks: i64,
     duration_ticks: i64,
     gain: f32,
+    pan: f32,
     fade_in_ticks: i64,
     fade_out_ticks: i64,
+    fade_in_curve: String,
+    fade_out_curve: String,
+    volume_keyframes: Vec<crate::native_audio::NativeAudioKeyframe>,
+    channel_mode: String,
+    downmix: String,
+    channel_map: Option<Vec<usize>>,
+    preserve_pitch: bool,
 ) -> Result<NativeAudioClipStatus, String> {
     let clock = audio_clock(&app)?;
     let (sample_rate, channels) = {
@@ -131,8 +167,16 @@ pub async fn load_native_audio_clip(
         source_start_ticks,
         duration_ticks,
         gain,
+        pan,
         fade_in_ticks,
         fade_out_ticks,
+        fade_in_curve,
+        fade_out_curve,
+        volume_keyframes,
+        channel_mode,
+        downmix,
+        channel_map,
+        preserve_pitch,
         sample_rate,
         channels,
     )
@@ -143,6 +187,114 @@ pub async fn load_native_audio_clip(
         .map_err(|_| "Native audio clock lock is poisoned".to_string())?
         .install_clip(clip)?;
     Ok(status)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAudioClipRequest {
+    pub path: String,
+    pub clip_id: String,
+    pub timeline_start_ticks: i64,
+    pub source_start_ticks: i64,
+    pub duration_ticks: i64,
+    pub gain: f32,
+    pub pan: f32,
+    pub fade_in_ticks: i64,
+    pub fade_out_ticks: i64,
+    pub fade_in_curve: String,
+    pub fade_out_curve: String,
+    pub volume_keyframes: Vec<NativeAudioKeyframe>,
+    pub channel_mode: String,
+    pub downmix: String,
+    pub channel_map: Option<Vec<usize>>,
+    pub preserve_pitch: bool,
+}
+
+/// Decode a complete candidate graph before replacing the live native graph.
+/// A decode failure leaves the previous graph untouched.
+#[tauri::command]
+pub async fn replace_native_audio_clips(
+    app: AppHandle,
+    clips: Vec<NativeAudioClipRequest>,
+) -> Result<Vec<NativeAudioClipStatus>, String> {
+    let clock = audio_clock(&app)?;
+    let (sample_rate, channels) = {
+        let mut clock_guard = clock
+            .lock()
+            .map_err(|_| "Native audio clock lock is poisoned".to_string())?;
+        let status = clock_guard.start()?;
+        (
+            status
+                .sample_rate
+                .ok_or_else(|| "Native audio output did not report a sample rate".to_string())?,
+            status
+                .channels
+                .ok_or_else(|| "Native audio output did not report channel count".to_string())?,
+        )
+    };
+
+    let mut decoded: Vec<NativePcmClip> = Vec::with_capacity(clips.len());
+    for request in clips {
+        decoded.push(
+            decode_native_audio_clip(
+                &PathBuf::from(request.path),
+                request.clip_id,
+                request.timeline_start_ticks,
+                request.source_start_ticks,
+                request.duration_ticks,
+                request.gain,
+                request.pan,
+                request.fade_in_ticks,
+                request.fade_out_ticks,
+                request.fade_in_curve,
+                request.fade_out_curve,
+                request.volume_keyframes,
+                request.channel_mode,
+                request.downmix,
+                request.channel_map,
+                request.preserve_pitch,
+                sample_rate,
+                channels,
+            )
+            .await?,
+        );
+    }
+
+    let statuses = decoded.iter().map(NativePcmClip::status).collect();
+    clock
+        .lock()
+        .map_err(|_| "Native audio clock lock is poisoned".to_string())?
+        .replace_clips(decoded)?;
+    Ok(statuses)
+}
+
+#[tauri::command]
+pub fn update_native_audio_clip_parameters(
+    app: AppHandle,
+    clip_id: String,
+    gain: f32,
+    pan: f32,
+    fade_in_ticks: i64,
+    fade_out_ticks: i64,
+    fade_in_curve: String,
+    fade_out_curve: String,
+    volume_keyframes: Vec<NativeAudioKeyframe>,
+) -> Result<NativeAudioClipStatus, String> {
+    let clock = audio_clock(&app)?;
+    let result = clock
+        .lock()
+        .map_err(|_| "Native audio clock lock is poisoned".to_string())?
+        .update_clip_parameters(
+            &clip_id,
+            gain,
+            pan,
+            fade_in_ticks,
+            fade_out_ticks,
+            fade_in_curve,
+            fade_out_curve,
+            volume_keyframes,
+        );
+    result
 }
 
 #[tauri::command]

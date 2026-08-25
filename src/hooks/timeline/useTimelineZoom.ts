@@ -1,7 +1,11 @@
 import { useEffect, RefObject } from "react";
 import { useTimelineStore } from "@/store/timelineStore";
-import { TIMELINE_MAX_PPS, TIMELINE_MIN_PPS } from "@/lib/timeline/timelineZoom";
 import {
+  TIMELINE_MAX_PPS,
+  TIMELINE_MIN_PPS,
+} from "@/lib/timeline/timelineZoom";
+import {
+  TIMELINE_CLIP_START_OFFSET_PX,
   getAnchoredZoomScrollLeft,
   getTimelineLaneClientX,
   getTimelineViewportEndForDuration,
@@ -11,7 +15,10 @@ import { TimelineZoomSpring, type ZoomAnchor } from "./useTimelineZoomSpring";
 const WHEEL_ZOOM_SENSITIVITY = 0.006;
 const WHEEL_ZOOM_SPEED_MULTIPLIER = 2.5;
 
-function normalizeWheelDeltaY(e: WheelEvent, viewportClientHeight: number): number {
+function normalizeWheelDeltaY(
+  e: WheelEvent,
+  viewportClientHeight: number,
+): number {
   switch (e.deltaMode) {
     case WheelEvent.DOM_DELTA_LINE:
       return e.deltaY * 16;
@@ -22,7 +29,10 @@ function normalizeWheelDeltaY(e: WheelEvent, viewportClientHeight: number): numb
   }
 }
 
-export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>, enabled = true) {
+export function useTimelineZoom(
+  containerRef: RefObject<HTMLDivElement | null>,
+  enabled = true,
+) {
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !enabled) return;
@@ -46,7 +56,10 @@ export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>, 
       // stack from wherever the animation currently is, not the last committed store value.
       // DAMPING: Clamp the per-frame exponential factor to [-0.22, 0.22] (max ~20% scale change per frame)
       // to keep physical mouse wheel clicks buttery-smooth while preserving continuous trackpad precision.
-      const exponent = Math.max(-0.22, Math.min(0.22, -dy * WHEEL_ZOOM_SENSITIVITY));
+      const exponent = Math.max(
+        -0.22,
+        Math.min(0.22, -dy * WHEEL_ZOOM_SENSITIVITY),
+      );
       const basePps = spring.getCurrentPps();
       const targetPps = Math.max(
         TIMELINE_MIN_PPS,
@@ -57,11 +70,21 @@ export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>, 
       const rect = container.getBoundingClientRect();
       const state = useTimelineStore.getState();
       const hasClips = state.clips.length > 0;
-      const localTimelineX = getTimelineLaneClientX(pendingClientX, rect.left, hasClips);
+      const localTimelineX = getTimelineLaneClientX(
+        pendingClientX,
+        rect.left,
+        hasClips,
+      );
 
-      const viewportEndSeconds = getTimelineViewportEndForDuration(state.getTimelineEndTime());
+      const viewportEndSeconds = getTimelineViewportEndForDuration(
+        state.getTimelineEndTime(),
+      );
       // Anchor: the time-point under the cursor stays visually fixed during animation.
-      let anchorTime = (container.scrollLeft + localTimelineX) / basePps;
+      let anchorTime =
+        (container.scrollLeft +
+          localTimelineX -
+          TIMELINE_CLIP_START_OFFSET_PX) /
+        basePps;
       anchorTime = Math.max(0, Math.min(anchorTime, viewportEndSeconds));
 
       const anchor: ZoomAnchor = {
@@ -117,15 +140,28 @@ export function useTimelineZoom(containerRef: RefObject<HTMLDivElement | null>, 
       if (initialDist === 0) return;
 
       const scale = currentDist / initialDist;
-      const nextPps = Math.max(TIMELINE_MIN_PPS, Math.min(TIMELINE_MAX_PPS, initialPps * scale));
+      const nextPps = Math.max(
+        TIMELINE_MIN_PPS,
+        Math.min(TIMELINE_MAX_PPS, initialPps * scale),
+      );
 
       const rect = container.getBoundingClientRect();
       const state = useTimelineStore.getState();
       const hasClips = state.clips.length > 0;
-      const localTimelineX = getTimelineLaneClientX(initialMidpointX, rect.left, hasClips);
+      const localTimelineX = getTimelineLaneClientX(
+        initialMidpointX,
+        rect.left,
+        hasClips,
+      );
 
-      const viewportEndSeconds = getTimelineViewportEndForDuration(state.getTimelineEndTime());
-      let anchorTime = (container.scrollLeft + localTimelineX) / state.pixelsPerSecond;
+      const viewportEndSeconds = getTimelineViewportEndForDuration(
+        state.getTimelineEndTime(),
+      );
+      let anchorTime =
+        (container.scrollLeft +
+          localTimelineX -
+          TIMELINE_CLIP_START_OFFSET_PX) /
+        state.pixelsPerSecond;
       anchorTime = Math.max(0, Math.min(anchorTime, viewportEndSeconds));
 
       pinchAnchor = {

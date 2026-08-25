@@ -4,6 +4,8 @@ import { useProjectStore } from "../projectStore";
 import { useTimelineStore } from "../timelineStore";
 import type { Project, TextClip, Track } from "@/types";
 
+const defaultHydrateFromProject = useTimelineStore.getState().hydrateFromProject;
+
 vi.mock("@/core/runtime/ProjectSession", () => ({
   disposeActiveSession: vi.fn(),
   createProjectSession: vi.fn(),
@@ -61,6 +63,7 @@ describe("projectStore", () => {
       toastVariant: "success",
     });
     useTimelineStore.getState().hydrateFromProject({ tracks: [], clips: [] });
+    useTimelineStore.setState({ hydrateFromProject: defaultHydrateFromProject });
     useEffectsStore.setState({
       index: {},
       indexLoading: false,

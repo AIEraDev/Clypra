@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
     use super::super::security::*;
+    use proptest::prelude::*;
 
     #[test]
     fn test_validate_project_id_valid() {
@@ -12,7 +12,11 @@ mod tests {
             "clip_99_render",
         ];
         for id in valid_ids {
-            assert!(validate_project_id(id).is_ok(), "Expected valid project ID: {}", id);
+            assert!(
+                validate_project_id(id).is_ok(),
+                "Expected valid project ID: {}",
+                id
+            );
         }
     }
 
@@ -30,7 +34,11 @@ mod tests {
             "project$evil",
         ];
         for id in invalid_ids {
-            assert!(validate_project_id(id).is_err(), "Expected invalid project ID: {}", id);
+            assert!(
+                validate_project_id(id).is_err(),
+                "Expected invalid project ID: {}",
+                id
+            );
         }
     }
 
@@ -76,11 +84,7 @@ mod tests {
 
     #[test]
     fn test_rejects_control_characters() {
-        let malicious_paths = vec![
-            "export\nvideo.mp4",
-            "media\r/file.mov",
-            "track\tname.wav",
-        ];
+        let malicious_paths = vec!["export\nvideo.mp4", "media\r/file.mov", "track\tname.wav"];
 
         for path in malicious_paths {
             assert!(
