@@ -41,6 +41,8 @@ export type TrackReuseStrategy =
 export interface TrackTypeConfig {
   /** Timeline row height in pixels. */
   height: number;
+  /** Optional height for the primary visual row of this type. */
+  primaryHeight?: number;
   /** Where a newly created track of this type is inserted. */
   placement: TrackPlacement;
   /** Controls how ensureTrackForType() finds or creates a track. */
@@ -79,6 +81,7 @@ export interface TrackVisualSpec {
 export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
   video: {
     height: 80,
+    primaryHeight: 112,
     placement: "top",
     reuseStrategy: "primary",
     autoPrune: true,
@@ -157,9 +160,11 @@ export function getTrackVisualSpec(
     return {
       role: isARoll ? "a-roll" : "b-roll",
       label: isARoll ? "A-Roll (Main)" : "B-Roll",
-      // Keep all video rows aligned. A/B-roll hierarchy is communicated by
-      // tone and opacity, not by changing the geometry of the video lanes.
-      height: TRACK_TYPE_CONFIG.video.height,
+      // Give the primary A-roll more visual weight while keeping B-roll rows
+      // compact. ClipFilmstrip derives its canvas height from this row height.
+      height: isARoll
+        ? TRACK_TYPE_CONFIG.video.primaryHeight ?? TRACK_TYPE_CONFIG.video.height
+        : TRACK_TYPE_CONFIG.video.height,
       opacity: isARoll ? 1 : 0.8,
       tone: isARoll ? "primary" : "secondary",
     };
