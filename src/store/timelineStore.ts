@@ -23,6 +23,7 @@
 
 import { create } from "zustand";
 import type { Track, TrackType, Clip, TextClip, TransitionTimelineItem, TransitionType, TimelineMarker } from "@/types";
+import { synchronizeClipAudioProperties } from "@/types/audio";
 import type { Gap } from "@/types/gap";
 import { generateId, getCounter } from "@/lib/utils/id";
 import { detectGaps, createGap, insertGapWithRipple, removeGapWithRipple, resizeGap, packTrack, mergeAdjacentGaps, validateGap } from "@/lib/timeline/gapEngine";
@@ -84,6 +85,7 @@ interface TimelineStore {
   removeTrack: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
   toggleTrackMute: (trackId: string) => void;
+  toggleTrackSolo: (trackId: string) => void;
   toggleTrackVisibility: (trackId: string) => void;
   addClip: (clip: Clip) => void;
   removeClip: (clipId: string) => void;
@@ -449,6 +451,20 @@ export const useTimelineStore = create<TimelineStore>(
       });
     },
 
+    toggleTrackSolo: (trackId) => {
+      if (get().tracks.find((track) => track.id === trackId)?.locked) return;
+      set((state) => {
+        const next: Partial<TimelineStore> = {
+          tracks: state.tracks.map((track) => (
+            track.id === trackId ? { ...track, solo: !track.solo } : track
+          )),
+        };
+        if (state._batchDepth > 0) next._pendingEpochIncrement = true;
+        else next.epoch = state.epoch + 1;
+        return next;
+      });
+    },
+
     toggleTrackVisibility: (trackId) => {
       set((state) => {
         const next: Partial<TimelineStore> = {
@@ -795,7 +811,20 @@ export const useTimelineStore = create<TimelineStore>(
               }
             }
 
-            return { ...c, ...updates };
+            const synchronized = synchronizeClipAudioProperties(c, updates);
+            const linkedSource = c.audio?.linkState === "unlinked" && c.audio.linkedClipId
+              ? state.clips.find((clip) => clip.id === c.audio?.linkedClipId)
+              : undefined;
+            const linkOffsetSeconds = updates.startTime !== undefined && linkedSource
+              ? updates.startTime - linkedSource.startTime
+              : synchronized.audio?.linkOffsetSeconds;
+            return {
+              ...c,
+              ...synchronized,
+              ...(synchronized.audio && linkOffsetSeconds !== undefined
+                ? { audio: { ...synchronized.audio, linkOffsetSeconds } }
+                : {}),
+            };
           }),
         };
         // Skip epoch increment during transform preview (high-frequency updates)
@@ -1534,7 +1563,11 @@ export const useTimelineStore = create<TimelineStore>(
         }
         keyframes.sort((a, b) => a.time - b.time);
 
-        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const updatedClips = state.clips.map((c) => (
+          c.id === clipId
+            ? { ...c, ...synchronizeClipAudioProperties(c, { volumeKeyframes: keyframes }) }
+            : c
+        ));
         const next: Partial<TimelineStore> = { clips: updatedClips };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -1552,7 +1585,11 @@ export const useTimelineStore = create<TimelineStore>(
         if (!clip || !clip.volumeKeyframes) return state;
 
         const keyframes = clip.volumeKeyframes.filter((kf) => kf.id !== keyframeId);
-        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const updatedClips = state.clips.map((c) => (
+          c.id === clipId
+            ? { ...c, ...synchronizeClipAudioProperties(c, { volumeKeyframes: keyframes }) }
+            : c
+        ));
         const next: Partial<TimelineStore> = { clips: updatedClips };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -1579,7 +1616,11 @@ export const useTimelineStore = create<TimelineStore>(
           })
           .sort((a, b) => a.time - b.time);
 
-        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, volumeKeyframes: keyframes } : c));
+        const updatedClips = state.clips.map((c) => (
+          c.id === clipId
+            ? { ...c, ...synchronizeClipAudioProperties(c, { volumeKeyframes: keyframes }) }
+            : c
+        ));
         const next: Partial<TimelineStore> = { clips: updatedClips };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -1598,7 +1639,11 @@ export const useTimelineStore = create<TimelineStore>(
         const currentFX = clip.audioFX || {};
         const newFX = { ...currentFX, ...fxUpdates };
 
-        const updatedClips = state.clips.map((c) => (c.id === clipId ? { ...c, audioFX: newFX } : c));
+        const updatedClips = state.clips.map((c) => (
+          c.id === clipId
+            ? { ...c, ...synchronizeClipAudioProperties(c, { audioFX: newFX }) }
+            : c
+        ));
         const next: Partial<TimelineStore> = { clips: updatedClips };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;

@@ -7,6 +7,7 @@
 import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip } from "@/types";
+import { synchronizeClipAudioProperties } from "@/types/audio";
 
 interface TimelineState {
   clips: Clip[];
@@ -32,7 +33,23 @@ export class UpdateClipCommand implements Command {
   apply(state: TimelineState): TimelineState {
     return {
       ...state,
-      clips: state.clips.map((c) => (c.id === this.clipId ? { ...c, ...this.newProperties } : c)),
+      clips: state.clips.map((clip) => {
+        if (clip.id !== this.clipId) return clip;
+        const synchronized = synchronizeClipAudioProperties(clip, this.newProperties);
+        const linkedSource = clip.audio?.linkState === "unlinked" && clip.audio.linkedClipId
+          ? state.clips.find((candidate) => candidate.id === clip.audio?.linkedClipId)
+          : undefined;
+        const linkOffsetSeconds = this.newProperties.startTime !== undefined && linkedSource
+          ? this.newProperties.startTime - linkedSource.startTime
+          : synchronized.audio?.linkOffsetSeconds;
+        return {
+          ...clip,
+          ...synchronized,
+          ...(synchronized.audio && linkOffsetSeconds !== undefined
+            ? { audio: { ...synchronized.audio, linkOffsetSeconds } }
+            : {}),
+        };
+      }),
       epoch: state.epoch + 1, // ✅ Epoch increment inside command
     };
   }
