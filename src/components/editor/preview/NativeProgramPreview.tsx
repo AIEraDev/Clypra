@@ -956,6 +956,7 @@ export const NativeProgramPreview: React.FC = () => {
         (reference) =>
           reference.isText ||
           reference.assetId.startsWith("native-background:") ||
+          reference.assetId.startsWith("native-image:") ||
           reference.assetId.startsWith("native-sticker:") ||
           reference.assetId.startsWith("native-smart-overlay:"),
       );
