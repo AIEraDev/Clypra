@@ -2,6 +2,9 @@
 
 For the investigation history, path-specific failure modes, and safe-change
 checklist, read [Program Preview Performance Runbook](program-preview-performance-runbook.md).
+The [Architecture-First Delivery ADR](architecture-first-delivery-adr.md)
+requires that performance changes preserve one authoritative runtime path and
+be measured in that runtime.
 
 ## Baseline
 
@@ -86,6 +89,11 @@ Every benchmark report must include:
 - Cold/warm state, cache state, quality tier, and output dimensions.
 - P50/P95 seek latency and P50/P95 frame time.
 - Dropped frames, buffering time, and A/V drift for playback.
+
+Native audio changes additionally record the selected output device, sample
+rate/channels, installed and timeline-active clip counts, callback/rendered/
+non-silent frame counts, and a mixer-peak diagnostic from a representative
+audible interval. A browser result cannot substitute for this evidence.
 
 ## Non-regression rules
 
