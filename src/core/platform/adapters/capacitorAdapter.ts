@@ -1,4 +1,5 @@
-import { PlatformInterface, VideoMetadata, SelectedFile, ProjectSaveResult } from "../platform";
+import { PlatformInterface, VideoMetadata, SelectedFile, ProjectSaveResult, RecentProjectEntry } from "../platform";
+import { fromRustProject } from "@/types/serialization";
 
 export class CapacitorPlatformAdapter implements PlatformInterface {
   type = "capacitor" as const;
@@ -116,9 +117,78 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
     return { Filesystem, Directory, Encoding };
   }
 
-  async getRecentProjects(): Promise<any[]> {
+  private projectEntryFromPayload(payload: any, path: string, backupAvailable: boolean): RecentProjectEntry {
+    const project = fromRustProject(payload);
+    return {
+      ...project,
+      kind: "ready",
+      path,
+      backupPath: `${path}.bak`,
+      backupAvailable,
+    };
+  }
+
+  private localStorageEntries(): RecentProjectEntry[] {
+    const raw = localStorage.getItem("clypra_recent_projects");
+    if (!raw) return [];
+    let projects: any[];
     try {
-      const { Filesystem, Directory, Encoding } = await this.getFilesystem();
+      projects = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    return projects.flatMap((payload) => {
+      try {
+        if (!payload?.id) throw new Error("Project is missing an id");
+        return [this.projectEntryFromPayload(payload, `projects/${payload.id}.json`, !!localStorage.getItem(`clypra_project_${payload.id}_bak`))];
+      } catch (error) {
+        return [{
+          kind: "unreadable" as const,
+          id: String(payload?.id ?? "unknown"),
+          name: payload?.name,
+          path: `projects/${payload?.id ?? "unknown"}.json`,
+          backupPath: `projects/${payload?.id ?? "unknown"}.json.bak`,
+          backupAvailable: false,
+          error: error instanceof Error ? error.message : String(error),
+        }];
+      }
+    });
+  }
+
+  private localStorageReceipt(payload: string, project: any, backupRotated: boolean): ProjectSaveResult {
+    const stored = localStorage.getItem(`clypra_project_${project.id}`);
+    if (stored !== payload) throw new Error("Project verification failed in fallback storage");
+    return {
+      projectId: project.id,
+      bytesWritten: new TextEncoder().encode(payload).byteLength,
+      modifiedAt: project.modified_at ?? project.updatedAt ?? Date.now(),
+      verified: true,
+      verification: { primaryReadback: true, backupRotated },
+    };
+  }
+
+  private saveToLocalStorage(payload: string, project: any): ProjectSaveResult {
+    const previous = localStorage.getItem(`clypra_project_${project.id}`);
+    const backupRotated = previous !== null;
+    if (previous !== null) localStorage.setItem(`clypra_project_${project.id}_bak`, previous);
+    localStorage.setItem(`clypra_project_${project.id}`, payload);
+    const receipt = this.localStorageReceipt(payload, project, backupRotated);
+    const fallback = localStorage.getItem("clypra_recent_projects");
+    const recentProjects = fallback ? JSON.parse(fallback) : [];
+    localStorage.setItem("clypra_recent_projects", JSON.stringify([project, ...recentProjects.filter((p: any) => p.id !== project.id)]));
+    return receipt;
+  }
+
+  async getRecentProjects(): Promise<RecentProjectEntry[]> {
+    let filesystem;
+    try {
+      filesystem = await this.getFilesystem();
+    } catch {
+      return this.localStorageEntries();
+    }
+    const { Filesystem, Directory, Encoding } = filesystem;
+
+    try {
 
       // Ensure projects directory exists
       try {
@@ -136,36 +206,60 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
         directory: Directory.Data,
       });
 
-      const projects: any[] = [];
+      const projects: RecentProjectEntry[] = [];
       for (const file of filesResult.files) {
-        if (file.name.endsWith(".json")) {
+        if (file.name.endsWith(".json") && !file.name.endsWith(".json.bak") && !file.name.endsWith(".json.tmp")) {
+          const path = `projects/${file.name}`;
+          const backupPath = `${path}.bak`;
+          let backupAvailable = false;
+          try {
+            await Filesystem.stat({ path: backupPath, directory: Directory.Data });
+            backupAvailable = true;
+          } catch {
+            backupAvailable = false;
+          }
           try {
             const readResult = await Filesystem.readFile({
-              path: `projects/${file.name}`,
+              path,
               directory: Directory.Data,
               encoding: Encoding.UTF8,
             });
             if (typeof readResult.data === "string") {
-              projects.push(JSON.parse(readResult.data));
+              const payload = JSON.parse(readResult.data);
+              projects.push(this.projectEntryFromPayload(payload, path, backupAvailable));
             }
           } catch (e) {
-            console.error("Failed to read project file:", file.name, e);
+            projects.push({
+              kind: "unreadable",
+              id: file.name.replace(/\.json$/, ""),
+              path,
+              backupPath,
+              backupAvailable,
+              error: e instanceof Error ? e.message : String(e),
+            });
           }
         }
       }
 
-      // Sort by updatedAt descending
-      return projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      return projects.sort((a, b) => (b.kind === "ready" ? b.updatedAt : 0) - (a.kind === "ready" ? a.updatedAt : 0));
     } catch (err) {
-      console.warn("Failed to read projects from Capacitor Filesystem, falling back to localStorage", err);
-      const fallback = localStorage.getItem("clypra_recent_projects");
-      return fallback ? JSON.parse(fallback) : [];
+      throw new Error(`Failed to enumerate project storage: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   async loadProject(path: string): Promise<string> {
+    let filesystem;
     try {
-      const { Filesystem, Directory, Encoding } = await this.getFilesystem();
+      filesystem = await this.getFilesystem();
+    } catch {
+      const pathParts = path.replace(/\\/g, "/").split("/");
+      const projectId = pathParts.pop()?.replace(".json", "") || "";
+      const project = localStorage.getItem(`clypra_project_${projectId}`);
+      if (project) return project;
+      throw new Error(`Project storage backend unavailable and no fallback exists for ${projectId}`);
+    }
+    try {
+      const { Filesystem, Directory, Encoding } = filesystem;
       const readResult = await Filesystem.readFile({
         path, // Expecting full path like 'projects/id.json' or absolute URL
         directory: path.startsWith("projects/") ? Directory.Data : undefined,
@@ -176,64 +270,71 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
       }
       return readResult.data;
     } catch (err) {
-      // LocalStorage fallback with platform-aware path parsing
-      const pathParts = path.replace(/\\/g, "/").split("/");
-      const projectId = pathParts.pop()?.replace(".json", "") || "";
-      const project = localStorage.getItem(`clypra_project_${projectId}`);
-      if (project) return project;
       throw err;
     }
   }
 
   async saveProject(payload: string): Promise<ProjectSaveResult> {
     const project = JSON.parse(payload);
+    if (!project?.id) throw new Error("Project payload is missing an id");
+    let filesystem;
     try {
-      const { Filesystem, Directory, Encoding } = await this.getFilesystem();
+      filesystem = await this.getFilesystem();
+    } catch {
+      return this.saveToLocalStorage(payload, project);
+    }
 
-      // Save project payload
-      await Filesystem.writeFile({
-        path: `projects/${project.id}.json`,
-        directory: Directory.Data,
-        data: payload,
-        encoding: Encoding.UTF8,
-      });
-
-      // Update recent projects list in localStorage
-      const fallback = localStorage.getItem("clypra_recent_projects");
-      const recentProjects = fallback ? JSON.parse(fallback) : [];
-      const updatedList = recentProjects.filter((p: any) => p.id !== project.id);
-      updatedList.unshift(project);
-      localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
-
-      const saved = await this.loadProject(`projects/${project.id}.json`);
-      if (saved !== payload) {
-        throw new Error("Project verification failed after saving to device storage");
+    try {
+      const { Filesystem, Directory, Encoding } = filesystem;
+      await Filesystem.mkdir({ path: "projects", directory: Directory.Data, recursive: true }).catch(() => undefined);
+      const primaryPath = `projects/${project.id}.json`;
+      const tempPath = `${primaryPath}.tmp`;
+      const backupPath = `${primaryPath}.bak`;
+      let previous: string | null = null;
+      try {
+        const existing = await Filesystem.readFile({ path: primaryPath, directory: Directory.Data, encoding: Encoding.UTF8 });
+        if (typeof existing.data === "string") {
+          JSON.parse(existing.data);
+          previous = existing.data;
+        }
+      } catch {
+        previous = null;
       }
-
-      return {
+      await Filesystem.writeFile({ path: tempPath, directory: Directory.Data, data: payload, encoding: Encoding.UTF8 });
+      const staged = await Filesystem.readFile({ path: tempPath, directory: Directory.Data, encoding: Encoding.UTF8 });
+      if (staged.data !== payload) throw new Error("Temporary project verification failed");
+      JSON.parse(staged.data as string);
+      if (previous !== null) {
+        await Filesystem.writeFile({ path: `${backupPath}.tmp`, directory: Directory.Data, data: previous, encoding: Encoding.UTF8 });
+        const backupCheck = await Filesystem.readFile({ path: `${backupPath}.tmp`, directory: Directory.Data, encoding: Encoding.UTF8 });
+        if (backupCheck.data !== previous) throw new Error("Backup verification failed");
+        await Filesystem.rename({ from: `${backupPath}.tmp`, to: backupPath, directory: Directory.Data });
+      }
+      try {
+        await Filesystem.rename({ from: tempPath, to: primaryPath, directory: Directory.Data });
+      } catch (renameError) {
+        await Filesystem.deleteFile({ path: primaryPath, directory: Directory.Data }).catch(() => undefined);
+        await Filesystem.rename({ from: tempPath, to: primaryPath, directory: Directory.Data });
+        if (!previous) throw renameError;
+      }
+      const saved = await Filesystem.readFile({ path: primaryPath, directory: Directory.Data, encoding: Encoding.UTF8 });
+      if (saved.data !== payload) {
+        if (previous !== null) await Filesystem.writeFile({ path: primaryPath, directory: Directory.Data, data: previous, encoding: Encoding.UTF8 });
+        throw new Error("Project verification failed after replacement");
+      }
+      const receipt: ProjectSaveResult = {
         projectId: project.id,
         bytesWritten: new TextEncoder().encode(payload).byteLength,
+        modifiedAt: project.modified_at ?? project.updatedAt ?? Date.now(),
         verified: true,
+        verification: { primaryReadback: true, backupRotated: previous !== null },
       };
+      const fallback = localStorage.getItem("clypra_recent_projects");
+      const recentProjects = fallback ? JSON.parse(fallback) : [];
+      localStorage.setItem("clypra_recent_projects", JSON.stringify([project, ...recentProjects.filter((p: any) => p.id !== project.id)]));
+      return receipt;
     } catch (err) {
-      console.warn("Capacitor Filesystem save failed, saving to localStorage:", err);
-      localStorage.setItem(`clypra_project_${project.id}`, payload);
-
-      const fallback = localStorage.getItem("clypra_recent_projects");
-      const recentProjects = fallback ? JSON.parse(fallback) : [];
-      const updatedList = recentProjects.filter((p: any) => p.id !== project.id);
-      updatedList.unshift(project);
-      localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
-
-      if (localStorage.getItem(`clypra_project_${project.id}`) !== payload) {
-        throw new Error("Project verification failed after fallback save");
-      }
-
-      return {
-        projectId: project.id,
-        bytesWritten: new TextEncoder().encode(payload).byteLength,
-        verified: true,
-      };
+      throw new Error(`Failed to persist project: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

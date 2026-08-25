@@ -1,3 +1,5 @@
+import type { Project } from "@/types";
+
 export type PlatformType = "tauri" | "capacitor";
 
 export interface VideoMetadata {
@@ -17,8 +19,32 @@ export interface SelectedFile {
 export interface ProjectSaveResult {
   projectId: string;
   bytesWritten: number;
+  modifiedAt: number;
   verified: boolean;
+  verification: {
+    primaryReadback: boolean;
+    backupRotated: boolean;
+  };
 }
+
+/** A recent project entry is either safe to open or explicitly unreadable. */
+export type RecentProjectEntry =
+  | (Project & {
+      kind: "ready";
+      path: string;
+      backupPath: string;
+      backupAvailable: boolean;
+    })
+  | {
+      kind: "unreadable";
+      id: string;
+      name?: string;
+      path: string;
+      backupPath: string;
+      backupAvailable: boolean;
+      error: string;
+      modifiedAt?: number;
+    };
 
 export interface PlatformInterface {
   type: PlatformType;
@@ -38,7 +64,7 @@ export interface PlatformInterface {
   openFileDialog(options: { multiple?: boolean; directory?: boolean; filters?: { name: string; extensions: string[] }[] }): Promise<SelectedFile[] | null>;
 
   // Project Storage
-  getRecentProjects(): Promise<any[]>;
+  getRecentProjects(): Promise<RecentProjectEntry[]>;
   loadProject(path: string): Promise<string>;
   saveProject(payload: string): Promise<ProjectSaveResult>;
   deleteProject(projectId: string): Promise<void>;
