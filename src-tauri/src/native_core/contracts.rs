@@ -1017,6 +1017,45 @@ mod tests {
     }
 
     #[test]
+    fn request_validation_enforces_video_and_raster_layer_caps() {
+        let mut video_at_limit = request();
+        let video_layer = video_at_limit.project.video_layers[0].clone();
+        video_at_limit.project.video_layers = vec![video_layer; 256];
+        assert!(video_at_limit.validate().is_ok());
+        video_at_limit.project.video_layers.push(video_at_limit.project.video_layers[0].clone());
+        assert!(video_at_limit
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("at most 256 video layers"));
+
+        let mut raster_at_limit = request();
+        let raster_layer = RasterLayerSnapshot {
+            asset_id: "native-raster".to_string(),
+            rgba: None,
+            width: 64,
+            height: 32,
+            x: 0.0,
+            y: 0.0,
+            rotation: 0.0,
+            opacity: 1.0,
+            z_index: 1,
+            blend_mode: "normal".to_string(),
+            color_grade: None,
+            is_mask: false,
+            is_text: false,
+        };
+        raster_at_limit.project.raster_layers = vec![raster_layer; 64];
+        assert!(raster_at_limit.validate().is_ok());
+        raster_at_limit.project.raster_layers.push(raster_at_limit.project.raster_layers[0].clone());
+        assert!(raster_at_limit
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("at most 64 raster layers"));
+    }
+
+    #[test]
     fn raster_transition_accepts_two_native_source_layers() {
         let mut value = request();
         value.project.video_layers.clear();

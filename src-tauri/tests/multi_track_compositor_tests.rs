@@ -425,23 +425,25 @@ async fn test_affine_transform_pip_placement() {
 }
 
 // -----------------------------------------------------------------------------
-// Test 6: 16-Layer High Track Density Stress & Stride Alignment
+// Test 6: 24-Layer High Track Density Stress & Stride Alignment
 // -----------------------------------------------------------------------------
 #[tokio::test]
 #[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
-async fn test_16_track_density_stress() {
+async fn test_24_track_density_stress() {
     let ctx = HeadlessGpuContext::new().await;
     let width = 1920;
     let height = 1080;
 
     let compositor = MultiTrackCompositor::new(&ctx.device, &ctx.queue, width, height);
 
-    // Create 16 distinct layers
+    // Exercise the product acceptance target (20+ simultaneous tracks) at
+    // full HD. Keep the test GPU-only: this validates the real WGPU renderer,
+    // not a CPU approximation.
     let mut textures = Vec::new();
     let mut layers = Vec::new();
 
-    for i in 0..16 {
-        let (_tex, view) = ctx.create_solid_texture(width, height, [i as u8 * 16, 100, 200, 255]);
+    for i in 0..24 {
+        let (_tex, view) = ctx.create_solid_texture(width, height, [i as u8 * 10, 100, 200, 255]);
         textures.push((_tex, view));
     }
 
@@ -450,7 +452,7 @@ async fn test_16_track_density_stress() {
             texture_view: view,
             lut: None,
             z_index: i as i32,
-            opacity: 1.0 / 16.0, // Cumulative blend
+            opacity: 1.0 / 24.0, // Cumulative blend
             blend_mode: BlendMode::Additive,
             transform: LayerTransform::default(),
             crop: CropMargins::default(),
@@ -465,10 +467,10 @@ async fn test_16_track_density_stress() {
     let output_bytes = compositor
         .render_to_rgba_bytes(&ctx.device, &ctx.queue, &layers)
         .await
-        .expect("16-track composite failed");
+        .expect("24-track composite failed");
 
     let elapsed = start.elapsed();
-    println!("\n🚀 Composited 16 simultaneous 1080p video tracks in {:.2?}", elapsed);
+    println!("\n🚀 Composited 24 simultaneous 1080p video tracks in {:.2?}", elapsed);
 
     assert_eq!(output_bytes.len(), (width * height * 4) as usize);
 }
