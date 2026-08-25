@@ -28,21 +28,22 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-bg: #0b0e12;
-  --color-surface: #12171d;
-  --color-surface-raised: #1a2028;
-  --color-surface-panel: #0f141a;
-  --color-surface-floating: #1c2530;
-  --color-border: #27313b;
-  --color-border-soft: #35414e;
-  --color-accent: #5ab8d4;
-  --color-accent-soft: #86cde0;
-  --color-text-primary: #edf2f4;
-  --color-text-muted: #788991;
-  --color-danger: #e26061;
-  --color-video-clip: #173745;
-  --color-audio-clip: #16382f;
-  --color-text-clip: #5b3b2e;
+  /* Runtime palette values are injected once by applyTheme(). */
+  --color-bg: var(--clypra-theme-bg);
+  --color-surface: var(--clypra-theme-surface);
+  --color-surface-raised: var(--clypra-theme-surface-raised);
+  --color-surface-panel: var(--clypra-theme-surface-panel);
+  --color-surface-floating: var(--clypra-theme-surface-floating);
+  --color-border: var(--clypra-theme-border);
+  --color-border-soft: var(--clypra-theme-border-soft);
+  --color-accent: var(--clypra-theme-accent);
+  --color-accent-soft: var(--clypra-theme-accent-soft);
+  --color-text-primary: var(--clypra-theme-text-primary);
+  --color-text-muted: var(--clypra-theme-text-muted);
+  --color-danger: var(--clypra-theme-danger);
+  --color-video-clip: var(--clypra-clip-video-bg);
+  --color-audio-clip: var(--clypra-clip-audio-bg);
+  --color-text-clip: var(--clypra-clip-text-bg);
   --color-app: var(--clypra-surface-app);
   --color-workspace: var(--clypra-surface-workspace);
   --color-surface-hover: var(--clypra-surface-hover);
@@ -68,6 +69,78 @@
   --color-clypra-clip-compound: var(--clypra-clip-compound-bg);
   --color-clypra-clip-sticker: var(--clypra-clip-sticker-bg);
   --color-clypra-clip-fg: var(--clypra-clip-fg);
+  --color-white: var(--clypra-text-primary);
+  --color-black: var(--clypra-surface-app);
+  --color-timeline-clip-video: var(--clypra-clip-video-bg);
+  --color-timeline-clip-audio: var(--clypra-clip-audio-bg);
+  --color-timeline-clip-image: var(--clypra-clip-image-bg);
+  --color-timeline-clip-text: var(--clypra-clip-text-bg);
+
+  /* Compatibility bridge for legacy utility names. These aliases keep older
+     components inside the same semantic palette while they are migrated to
+     role names; no component receives a second raw color family. */
+  --color-gray-300: var(--clypra-text-secondary);
+  --color-gray-400: var(--clypra-text-tertiary);
+  --color-gray-500: var(--color-text-muted);
+  --color-gray-600: var(--clypra-border-strong);
+  --color-gray-700: var(--clypra-surface-raised);
+  --color-gray-750: var(--clypra-surface-raised);
+  --color-gray-800: var(--clypra-surface-input);
+  --color-gray-900: var(--clypra-surface-panel);
+  --color-gray-950: var(--clypra-surface-app);
+  --color-slate-300: var(--clypra-text-secondary);
+  --color-slate-400: var(--clypra-text-tertiary);
+  --color-slate-500: var(--color-text-muted);
+  --color-slate-600: var(--clypra-border-strong);
+  --color-slate-700: var(--clypra-surface-raised);
+  --color-slate-800: var(--clypra-surface-input);
+  --color-slate-900: var(--clypra-surface-panel);
+  --color-slate-950: var(--clypra-surface-app);
+  --color-zinc-400: var(--clypra-text-tertiary);
+  --color-zinc-500: var(--color-text-muted);
+  --color-zinc-600: var(--clypra-border-strong);
+  --color-zinc-700: var(--clypra-surface-raised);
+  --color-zinc-800: var(--clypra-surface-input);
+  --color-zinc-900: var(--clypra-surface-panel);
+  --color-blue-200: color-mix(in srgb, var(--clypra-status-info) 65%, #fff 35%);
+  --color-blue-300: color-mix(in srgb, var(--clypra-status-info) 78%, #fff 22%);
+  --color-blue-400: color-mix(in srgb, var(--clypra-status-info) 88%, #fff 12%);
+  --color-blue-500: var(--clypra-status-info);
+  --color-blue-600: var(--clypra-status-info);
+  --color-blue-700: color-mix(in srgb, var(--clypra-status-info) 78%, #000 22%);
+  --color-cyan-200: color-mix(in srgb, var(--color-accent) 65%, #fff 35%);
+  --color-cyan-300: color-mix(in srgb, var(--color-accent) 78%, #fff 22%);
+  --color-cyan-400: var(--color-accent-soft);
+  --color-cyan-500: var(--color-accent);
+  --color-cyan-600: var(--color-accent);
+  --color-emerald-400: color-mix(in srgb, var(--clypra-status-success) 88%, #fff 12%);
+  --color-emerald-500: var(--clypra-status-success);
+  --color-emerald-600: var(--clypra-status-success);
+  --color-green-400: color-mix(in srgb, var(--clypra-status-success) 88%, #fff 12%);
+  --color-green-500: var(--clypra-status-success);
+  --color-green-600: var(--clypra-status-success);
+  --color-red-400: color-mix(in srgb, var(--clypra-status-error) 88%, #fff 12%);
+  --color-red-500: var(--clypra-status-error);
+  --color-red-600: var(--clypra-status-error);
+  --color-red-700: color-mix(in srgb, var(--clypra-status-error) 78%, #000 22%);
+  --color-amber-400: color-mix(in srgb, var(--clypra-status-warning) 88%, #fff 12%);
+  --color-amber-500: var(--clypra-status-warning);
+  --color-amber-600: var(--clypra-status-warning);
+  --color-yellow-400: color-mix(in srgb, var(--clypra-status-warning) 88%, #fff 12%);
+  --color-yellow-500: var(--clypra-status-warning);
+  --color-yellow-600: var(--clypra-status-warning);
+  --color-orange-400: color-mix(in srgb, var(--clypra-status-warning) 88%, #fff 12%);
+  --color-orange-500: var(--clypra-status-warning);
+  --color-orange-600: var(--clypra-status-warning);
+  --color-violet-300: var(--color-accent-soft);
+  --color-violet-400: var(--color-accent-soft);
+  --color-violet-500: var(--clypra-clip-effect-bg);
+  --color-violet-600: var(--clypra-clip-effect-bg);
+  --color-purple-400: var(--color-accent-soft);
+  --color-purple-500: var(--clypra-clip-effect-bg);
+  --color-purple-600: var(--clypra-clip-effect-bg);
+  --color-pink-400: var(--color-accent-soft);
+  --color-pink-500: var(--clypra-clip-caption-bg);
 }
 html,
 body,
@@ -100,48 +173,59 @@ body,
 
   /* Clypra semantic color layer. Theme presets feed the legacy source
      variables above; components consume these relationships instead. */
-  --clypra-surface-app: var(--color-bg, #0b0e12);
-  --clypra-surface-workspace: var(--color-surface-panel, #0f141a);
-  --clypra-surface-panel: var(--color-surface, #12171d);
-  --clypra-surface-elevated: var(--color-surface-raised, #1a2028);
-  --clypra-surface-floating: var(--color-surface-floating, #1c2530);
-  --clypra-surface-input: color-mix(in srgb, var(--clypra-surface-elevated) 78%, #000 22%);
-  --clypra-surface-hover: color-mix(in srgb, var(--clypra-surface-elevated) 78%, #fff 22%);
-  --clypra-surface-active: color-mix(in srgb, var(--clypra-surface-elevated) 68%, var(--color-accent) 32%);
-  --clypra-text-primary: var(--color-text-primary, #edf2f4);
+  --clypra-surface-app: var(--clypra-theme-bg);
+  --clypra-surface-workspace: var(--clypra-theme-surface-panel);
+  --clypra-surface-panel: var(--clypra-theme-surface);
+  --clypra-surface-elevated: var(--clypra-theme-surface-raised);
+  --clypra-surface-floating: var(--clypra-theme-surface-floating);
+  --clypra-surface-input: color-mix(in srgb, var(--clypra-surface-elevated) 78%, black 22%);
+  --clypra-surface-hover: color-mix(in srgb, var(--clypra-surface-elevated) 78%, white 22%);
+  --clypra-surface-active: color-mix(in srgb, var(--clypra-surface-elevated) 68%, var(--clypra-theme-accent) 32%);
+  --clypra-text-primary: var(--clypra-theme-text-primary);
   --clypra-text-secondary: color-mix(in srgb, var(--clypra-text-primary) 72%, var(--clypra-surface-app) 28%);
   --clypra-text-tertiary: color-mix(in srgb, var(--clypra-text-primary) 54%, var(--clypra-surface-app) 46%);
   --clypra-text-disabled: color-mix(in srgb, var(--clypra-text-primary) 36%, var(--clypra-surface-app) 64%);
   --clypra-interaction-hover: color-mix(in srgb, var(--clypra-surface-elevated) 74%, #fff 26%);
   --clypra-interaction-active: color-mix(in srgb, var(--color-accent) 24%, var(--clypra-surface-elevated) 76%);
   --clypra-interaction-selected: color-mix(in srgb, var(--color-accent) 20%, var(--clypra-surface-elevated) 80%);
-  --clypra-interaction-focus: var(--color-accent, #5ab8d4);
-  --clypra-border-subtle: color-mix(in srgb, var(--color-border) 64%, transparent);
-  --clypra-border-default: var(--color-border, #27313b);
-  --clypra-border-strong: var(--color-border-soft, #35414e);
+  --clypra-interaction-focus: var(--clypra-theme-accent);
+  --clypra-border-subtle: color-mix(in srgb, var(--clypra-theme-border) 64%, transparent);
+  --clypra-border-default: var(--clypra-theme-border);
+  --clypra-border-strong: var(--clypra-theme-border-soft);
   --clypra-status-success: #4fbd8a;
   --clypra-status-warning: #d6a85b;
-  --clypra-status-error: var(--color-danger, #e26061);
+  --clypra-status-error: var(--clypra-theme-danger);
   --clypra-status-info: #6ea8d8;
   --clypra-editor-playhead: #f1b66a;
-  --clypra-editor-selection: var(--color-accent, #5ab8d4);
+  --clypra-editor-selection: var(--clypra-theme-accent);
   --clypra-editor-snap: #67c9a1;
-  --clypra-editor-drop: var(--color-accent, #5ab8d4);
-  --clypra-accent-glow: color-mix(in srgb, var(--color-accent) 28%, transparent);
+  --clypra-editor-drop: var(--clypra-theme-accent);
+  --clypra-accent-glow: color-mix(in srgb, var(--clypra-theme-accent) 28%, transparent);
 
-  /* Clip families share a dark tonal range; identity comes from controlled
-     hue shifts, while selection is handled globally by the editor accent. */
-  --clypra-clip-video-bg: var(--color-timeline-clip-video, var(--color-video-clip, #173745));
-  --clypra-clip-audio-bg: var(--color-timeline-clip-audio, var(--color-audio-clip, #16382f));
-  --clypra-clip-image-bg: color-mix(in srgb, var(--clypra-clip-video-bg) 68%, #705f9c 32%);
-  --clypra-clip-text-bg: var(--color-timeline-text-clip-bg, #5b3b2e);
-  --clypra-clip-caption-bg: color-mix(in srgb, var(--color-accent) 42%, #3e315c 58%);
-  --clypra-clip-title-bg: color-mix(in srgb, var(--clypra-status-warning) 42%, #4b3329 58%);
-  --clypra-clip-effect-bg: color-mix(in srgb, var(--color-accent) 20%, var(--clypra-surface-elevated) 80%);
-  --clypra-clip-compound-bg: color-mix(in srgb, var(--color-accent) 40%, var(--clypra-surface-elevated) 60%);
-  --clypra-clip-sticker-bg: color-mix(in srgb, var(--clypra-status-warning) 42%, #4d3523 58%);
-  --clypra-clip-fg: #f3f7f8;
-  --clypra-clip-muted-fg: color-mix(in srgb, var(--clypra-clip-fg) 72%, transparent);
+  /* Deterministic clip recipe. Each family gets a stable hue; all base
+     backgrounds share the same saturation/lightness so adjacent clips stay
+     distinguishable without turning the timeline into a rainbow. */
+  --clypra-clip-saturation: 48%;
+  --clypra-clip-lightness: 34%;
+  --clypra-clip-video-hue: 196;
+  --clypra-clip-audio-hue: 158;
+  --clypra-clip-image-hue: 266;
+  --clypra-clip-text-hue: 28;
+  --clypra-clip-effect-hue: 286;
+  --clypra-clip-compound-hue: 222;
+  --clypra-clip-sticker-hue: 42;
+  --clypra-clip-video-bg: hsl(var(--clypra-clip-video-hue) var(--clypra-clip-saturation) var(--clypra-clip-lightness));
+  --clypra-clip-audio-bg: hsl(var(--clypra-clip-audio-hue) var(--clypra-clip-saturation) var(--clypra-clip-lightness));
+  --clypra-clip-image-bg: hsl(var(--clypra-clip-image-hue) var(--clypra-clip-saturation) var(--clypra-clip-lightness));
+  --clypra-clip-text-bg: hsl(var(--clypra-clip-text-hue) var(--clypra-clip-saturation) var(--clypra-clip-lightness));
+  --clypra-clip-caption-bg: hsl(var(--clypra-clip-effect-hue) 42% 38%);
+  --clypra-clip-title-bg: hsl(var(--clypra-clip-sticker-hue) 48% 36%);
+  --clypra-clip-effect-bg: hsl(var(--clypra-clip-effect-hue) 42% 30%);
+  --clypra-clip-compound-bg: hsl(var(--clypra-clip-compound-hue) 44% 36%);
+  --clypra-clip-sticker-bg: hsl(var(--clypra-clip-sticker-hue) 48% 36%);
+  --clypra-clip-fg: hsl(190 24% 96%);
+  --clypra-clip-muted-fg: hsl(190 18% 82%);
+  --clypra-clip-audio-wave: hsl(154 46% 84%);
 }
 body {
   margin: 0;

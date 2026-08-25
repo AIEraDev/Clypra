@@ -157,7 +157,7 @@ export function SuccessToast({ message, variant = "success", onDismiss, autoHide
             className={`h-full ${cfg.barClass}`}
             style={{
               width: `${progress}%`,
-              boxShadow: "0 0 6px var(--color-accent, #6c63ff)",
+              boxShadow: "0 0 6px var(--clypra-interaction-focus)",
               transition: "width 100ms linear",
             }}
           />

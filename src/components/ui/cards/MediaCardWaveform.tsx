@@ -129,7 +129,9 @@ export const MediaCardWaveform: React.FC<MediaCardWaveformProps> = ({ audioPath,
 
     // Read theme accent color
     const accentRgb = getThemeAccentRgb();
-    const color = `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.85)`;
+    const color = accentRgb
+      ? `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.85)`
+      : "transparent";
 
     // Use professional dense bar renderer with logical dimensions
     drawProfessionalWaveform(canvas, waveformData, color, rect.width, rect.height);

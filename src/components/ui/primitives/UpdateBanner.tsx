@@ -67,13 +67,13 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
           gap: "12px",
           padding: "12px 16px",
           borderRadius: "20px",
-          border: "1px solid rgba(255,255,255,0.12)",
+          border: "1px solid color-mix(in srgb, var(--clypra-text-primary) 12%, transparent)",
           background:
-            "linear-gradient(135deg, rgba(24,24,36,0.96) 0%, rgba(18,18,28,0.98) 100%)",
+            "linear-gradient(135deg, var(--clypra-surface-floating) 0%, var(--clypra-surface-panel) 100%)",
           backdropFilter: "blur(24px)",
           WebkitBackdropFilter: "blur(24px)",
           boxShadow:
-            "0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.06)",
+            "var(--elev-shadow)",
           minWidth: "320px",
           maxWidth: "480px",
           position: "relative",
@@ -87,7 +87,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
             position: "absolute",
             inset: 0,
             background:
-              "radial-gradient(ellipse at 0% 50%, rgba(96,165,250,0.07) 0%, transparent 70%)",
+              "radial-gradient(ellipse at 0% 50%, color-mix(in srgb, var(--clypra-interaction-focus) 7%, transparent) 0%, transparent 70%)",
             pointerEvents: "none",
           }}
         />
@@ -103,7 +103,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
               height: "2px",
               width: `${downloadProgress}%`,
               background:
-                "linear-gradient(90deg, var(--color-accent, #60a5fa), #a78bfa)",
+                "linear-gradient(90deg, var(--clypra-interaction-focus), var(--clypra-clip-effect-bg))",
               transition: "width 0.3s ease",
               borderRadius: "0 2px 0 0",
             }}
@@ -118,8 +118,8 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
             height: "36px",
             borderRadius: "12px",
             background:
-              "linear-gradient(135deg, rgba(96,165,250,0.15) 0%, rgba(167,139,250,0.15) 100%)",
-            border: "1px solid rgba(96,165,250,0.2)",
+              "linear-gradient(135deg, color-mix(in srgb, var(--clypra-interaction-focus) 15%, transparent) 0%, color-mix(in srgb, var(--clypra-clip-effect-bg) 15%, transparent) 100%)",
+            border: "1px solid color-mix(in srgb, var(--clypra-interaction-focus) 20%, transparent)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -128,11 +128,11 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
         >
           {isDownloading || isApplying ? (
             <Download
-              style={{ width: "16px", height: "16px", color: "#60a5fa" }}
+              style={{ width: "16px", height: "16px", color: "var(--clypra-interaction-focus)" }}
             />
           ) : (
             <Sparkles
-              style={{ width: "16px", height: "16px", color: "#60a5fa" }}
+              style={{ width: "16px", height: "16px", color: "var(--clypra-interaction-focus)" }}
             />
           )}
         </div>
@@ -144,7 +144,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
               margin: 0,
               fontSize: "12px",
               fontWeight: 600,
-              color: "var(--color-text-primary, #f1f5f9)",
+              color: "var(--clypra-text-primary)",
               lineHeight: 1.3,
             }}
           >
@@ -160,7 +160,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
             style={{
               margin: "2px 0 0",
               fontSize: "11px",
-              color: "var(--color-text-muted, #94a3b8)",
+              color: "var(--clypra-text-secondary)",
               lineHeight: 1.3,
             }}
           >
@@ -178,7 +178,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
               style={{
                 margin: "3px 0 0",
                 fontSize: "10px",
-                color: "#f87171",
+                color: "var(--clypra-status-error)",
               }}
             >
               {error}
@@ -205,9 +205,9 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
                 cursor: "pointer",
                 border: "none",
                 background:
-                  "linear-gradient(135deg, var(--color-accent, #60a5fa) 0%, #a78bfa 100%)",
-                color: "#fff",
-                boxShadow: "0 2px 12px rgba(96,165,250,0.3)",
+                  "linear-gradient(135deg, var(--clypra-interaction-focus) 0%, var(--clypra-clip-effect-bg) 100%)",
+                color: "var(--clypra-surface-app)",
+                boxShadow: "0 2px 12px color-mix(in srgb, var(--clypra-interaction-focus) 30%, transparent)",
                 transition: "filter 0.15s ease, transform 0.1s ease",
                 whiteSpace: "nowrap",
               }}
@@ -246,8 +246,8 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
                   fontWeight: 600,
                   cursor: "pointer",
                   border: "none",
-                  background: "linear-gradient(135deg, var(--color-accent, #60a5fa) 0%, #a78bfa 100%)",
-                  color: "#fff",
+                  background: "linear-gradient(135deg, var(--clypra-interaction-focus) 0%, var(--clypra-clip-effect-bg) 100%)",
+                  color: "var(--clypra-surface-app)",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -267,9 +267,9 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
                   fontSize: "11px",
                   fontWeight: 600,
                   cursor: "pointer",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "var(--color-text-muted, #94a3b8)",
+                  border: "1px solid color-mix(in srgb, var(--clypra-text-primary) 8%, transparent)",
+                  background: "color-mix(in srgb, var(--clypra-text-primary) 4%, transparent)",
+                  color: "var(--clypra-text-secondary)",
                 }}
               >
                 Later
@@ -289,21 +289,21 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
                 borderRadius: "10px",
                 fontSize: "11px",
                 cursor: "pointer",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(255,255,255,0.04)",
-                color: "var(--color-text-muted, #94a3b8)",
+                border: "1px solid color-mix(in srgb, var(--clypra-text-primary) 8%, transparent)",
+                background: "color-mix(in srgb, var(--clypra-text-primary) 4%, transparent)",
+                color: "var(--clypra-text-secondary)",
                 transition: "background 0.15s ease, color 0.15s ease",
                 padding: 0,
               }}
               onMouseEnter={(e) => {
                 const btn = e.currentTarget as HTMLButtonElement;
-                btn.style.background = "rgba(255,255,255,0.08)";
-                btn.style.color = "var(--color-text-primary, #f1f5f9)";
+                btn.style.background = "color-mix(in srgb, var(--clypra-text-primary) 8%, transparent)";
+                btn.style.color = "var(--clypra-text-primary)";
               }}
               onMouseLeave={(e) => {
                 const btn = e.currentTarget as HTMLButtonElement;
-                btn.style.background = "rgba(255,255,255,0.04)";
-                btn.style.color = "var(--color-text-muted, #94a3b8)";
+                btn.style.background = "color-mix(in srgb, var(--clypra-text-primary) 4%, transparent)";
+                btn.style.color = "var(--clypra-text-secondary)";
               }}
             >
               <X style={{ width: "13px", height: "13px" }} />
@@ -320,8 +320,8 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
               width: "18px",
               height: "18px",
               borderRadius: "50%",
-              border: "2px solid rgba(96,165,250,0.2)",
-              borderTopColor: "#60a5fa",
+              border: "2px solid color-mix(in srgb, var(--clypra-interaction-focus) 20%, transparent)",
+              borderTopColor: "var(--clypra-interaction-focus)",
               animation: "spin 0.8s linear infinite",
             }}
           />

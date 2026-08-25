@@ -38,11 +38,23 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } | nul
     : null;
 }
 
-/** Read theme accent color from CSS custom property and convert to RGB */
-export function getThemeAccentRgb(): { r: number; g: number; b: number } {
-  const root = getComputedStyle(document.documentElement);
-  const accent = root.getPropertyValue("--color-accent").trim() || "#22d3ee";
-  return hexToRgb(accent) || { r: 34, g: 211, b: 238 };
+/** Read a resolved theme color from CSS and convert it to RGB for canvas APIs. */
+export function getThemeAccentRgb(): { r: number; g: number; b: number } | null {
+  if (typeof document === "undefined") return null;
+
+  const probe = document.createElement("span");
+  probe.style.color = "var(--clypra-interaction-focus)";
+  probe.style.display = "none";
+  document.body?.appendChild(probe);
+  const resolved = getComputedStyle(probe).color;
+  probe.remove();
+
+  const rgb = resolved.match(
+    /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i,
+  );
+  return rgb
+    ? { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) }
+    : hexToRgb(resolved);
 }
 
 /**

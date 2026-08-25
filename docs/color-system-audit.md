@@ -1,44 +1,77 @@
-# Clypra color-system audit
+# Clypra color system
 
-The editor now uses a semantic color layer in `src/index.css`. Theme presets
-continue to provide the existing `--color-*` values through
-`src/store/settingsStore.ts`; semantic tokens reference those values so a
-preset can change hue without reintroducing component-local palettes.
+This is the contract for every color rendered by the application UI. The
+system has one runtime palette source and one semantic vocabulary. Components
+must consume semantic roles; they must not introduce a local hex, RGB, HSL,
+Tailwind rainbow, or fallback color.
 
-## Audit summary
+## Sources of truth
 
-| Current source | Observed usage | Semantic destination |
+| Layer | Location | Responsibility |
 | --- | --- | --- |
-| `--color-bg`, `--color-surface-panel` | App shell, workspace, preview chrome | `surface.app`, `surface.workspace` |
-| `--color-surface`, `--color-surface-raised`, `--color-surface-floating` | Panels, cards, inputs, menus, dialogs | `surface.panel`, `surface.elevated`, `surface.floating`, `surface.input` |
-| `--color-border`, `--color-border-soft` | Panel separators, controls, timeline dividers | `border.subtle`, `border.default`, `border.strong` |
-| `--color-text-primary`, `--color-text-muted` | Headings, labels, metadata, disabled UI | `text.primary`, `text.secondary`, `text.tertiary`, `text.disabled` |
-| `--color-accent` and shadcn `--primary`/`--ring` | Actions, focus, selected tabs, playhead-adjacent UI | `interaction.focus`, `interaction.selected`, `editor.selection` |
-| `--color-danger`, raw red/green/amber classes | Errors, warnings, success indicators | `status.error`, `status.warning`, `status.success`, `status.info` |
-| `--color-timeline-*` | Timeline ruler, tracks, filmstrips, waveform containers | `editor.timeline.*` |
-| Raw clip violet/orange/indigo/amber values in `Clip.tsx` | Clip type identity | `clip.video`, `clip.audio`, `clip.image`, `clip.text`, `clip.effect`, `clip.compound`, `clip.sticker` |
-| Preview shader gradients and marker color choices | Media/content authoring and user-selected markers | Intentional content colors; not application chrome |
+| Theme palette input | `src/store/settingsStore.ts` | Stores the complete preset/custom palette selected by the user. |
+| Runtime palette bridge | `src/constants/colors.ts` + `applyTheme()` | Maps persisted `--color-*` names to canonical `--clypra-theme-*` variables. Legacy names are aliases, never independent values. |
+| Semantic roles and recipes | `src/index.css` | Defines surfaces, text, borders, status, editor indicators, and deterministic clip recipes. |
+| TypeScript consumers | `src/constants/colors.ts` | Exposes `CLYPRA_COLOR_TOKENS` for canvas, DOM style, and non-utility code. |
 
-## Decisions
+`--clypra-theme-*` is the only palette value read by semantic CSS. The older
+`--color-*` variables remain for compatibility with existing utilities and
+theme-editor persistence, but `applyTheme()` writes them as `var(...)` aliases.
+This prevents two values from representing the same role.
 
-- The default workspace palette is graphite with a low-saturation cool-cyan
-  accent: `#0b0e12`, `#12171d`, `#1a2028`, `#27313b`, `#5ab8d4`.
-- Clip colors stay dark and moderately saturated. Hue identifies media type;
-  selection is always expressed by the shared accent outline and inner ring.
-- Timeline and preview chrome inherit application surfaces. Media pixels and
-  creative background shaders remain independent of the UI accent.
-- Focus uses the same accent everywhere. Warning uses a muted amber, success
-  a restrained green, and errors retain a clear red for recognition.
-- Existing alternate themes remain supported by aliasing semantic tokens to
-  their preset values. This avoids duplicating component-specific light/dark
-  definitions.
+## Semantic vocabulary
 
-## Remaining intentional exceptions
+- `surface.*`: app, workspace, panel, elevated, floating, and input surfaces.
+- `text.*`: primary, secondary, tertiary, and disabled text.
+- `border.*`: subtle, default, and strong separators.
+- `interaction.*`: hover, active, selected, and focus states.
+- `status.*`: success, warning, error, and info feedback.
+- `editor.*`: playhead, selection, snap, and drop indicators.
+- `clip.*`: stable media-family backgrounds, foreground, and audio waveform.
 
-Canvas background shader palettes, color wheels, marker swatches, and imported
-media colors are content or authoring controls. They should not be collapsed
-into the application chrome palette.
+Use the equivalent utility (`bg-surface-panel`, `text-text-secondary`,
+`border-border`, `text-status-error`, etc.) or import
+`CLYPRA_COLOR_TOKENS` when a CSS color value is required.
 
-Further cleanup candidates are raw utility colors in older launch/settings
-surfaces and native/canvas drawing code. They are lower-risk follow-up work;
-the shared semantic layer now gives those surfaces a stable target token.
+## Deterministic clip rule
+
+Clip identity is generated from a shared recipe in `src/index.css`:
+
+```text
+clip background = HSL(family hue, shared saturation, shared lightness)
+```
+
+Video, audio, image, text, effect, compound, and sticker families have stable
+hues. Audio uses the green-teal family and a separate bright waveform token,
+so the clip body and waveform remain visible against every timeline surface.
+Selection is not encoded by inventing another clip color: it uses the shared
+focus border and inner ring.
+
+## What is prohibited
+
+- Hex/RGB/HSL/OKLCH literals in UI components, JSX styles, or utility classes.
+- `text-white`, `bg-black`, or arbitrary palette utilities used as UI roles.
+- A second semantic palette in a component, feature, or theme preset.
+- Per-theme overrides that replace deterministic clip backgrounds.
+- CSS-variable fallbacks that contain a second color value, such as
+  `var(--accent, #...)`.
+
+When a color is genuinely user-authored content—text-template fill/stroke,
+canvas background stops, imported media pixels, color-wheel output, or shader
+parameters—it must remain data, not UI chrome. It should be defined in the
+feature's canonical content-palette module and never be reused as an app
+surface or status color.
+
+## Review checklist
+
+1. Search the changed file for `#`, `rgb(`, `hsl(`, `oklch(`, and arbitrary
+   Tailwind color utilities.
+2. Replace UI literals with a semantic role or a `CLYPRA_COLOR_TOKENS` value.
+3. Verify selected, hover, disabled, error, and focus states still use shared
+   interaction/status tokens.
+4. For timeline clips, verify the body, label, waveform, and selection outline
+   are all readable on the active theme.
+5. Run `npm run typecheck`, `npm run build`, and the relevant Vitest suite.
+
+The graphite/cool-cyan dark palette is the default preset. Alternate themes
+change the palette input, not the component vocabulary or clip algorithm.

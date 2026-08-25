@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import {
+  CLYPRA_LEGACY_COLOR_ALIASES,
+  CLYPRA_SHADCN_COLOR_ALIASES,
+  CLYPRA_THEME_SOURCE_ALIASES,
+} from "@/constants/colors";
 
 export type Theme =
   | "dark"
@@ -925,6 +930,29 @@ export function applyTheme(
   }
 
   Object.entries(themeColors).forEach(([property, value]) => {
+    const sourceProperty =
+      CLYPRA_THEME_SOURCE_ALIASES[
+        property as keyof typeof CLYPRA_THEME_SOURCE_ALIASES
+      ];
+
+    if (sourceProperty) {
+      root.style.setProperty(sourceProperty, value);
+      // Preserve the old public variable name as an alias. It is never a
+      // second palette value and keeps older call sites compatible.
+      root.style.setProperty(property, `var(${sourceProperty})`);
+      return;
+    }
+
+    root.style.setProperty(property, value);
+  });
+
+  // Keep legacy timeline names available to older consumers, but make the
+  // rendered clip families deterministic. Theme presets must not be able to
+  // collapse audio into the timeline surface by supplying a near-black hue.
+  Object.entries(CLYPRA_LEGACY_COLOR_ALIASES).forEach(([property, value]) => {
+    root.style.setProperty(property, value);
+  });
+  Object.entries(CLYPRA_SHADCN_COLOR_ALIASES).forEach(([property, value]) => {
     root.style.setProperty(property, value);
   });
 }
