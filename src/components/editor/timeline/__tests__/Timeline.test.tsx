@@ -414,8 +414,9 @@ describe("Timeline click behavior", () => {
 
     expect(overlayProps.visualSpec).toMatchObject({ role: "b-roll", height: 80 });
     expect(overlayProps.track.height).toBe(80);
-    expect(mainProps.visualSpec).toMatchObject({ role: "a-roll", height: 80 });
-    expect(mainProps.track.height).toBe(80);
+    expect(mainProps.visualSpec).toMatchObject({ role: "a-roll", height: 112 });
+    expect(mainProps.track.height).toBe(112);
+    expect(mainProps.visualSpec.height).toBeGreaterThan(overlayProps.visualSpec.height);
   });
 });
 
