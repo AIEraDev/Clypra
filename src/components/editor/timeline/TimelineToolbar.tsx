@@ -225,7 +225,7 @@ const TimelineToolbarComponent: React.FC = () => {
         <div className="ml-auto flex items-center gap-2">
           {/* Proxy Mode indicator badge */}
           {proxyEditingEnabled && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[10px] font-semibold shrink-0">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-status-warning/15 border border-status-warning/30 text-status-warning text-[10px] font-semibold shrink-0">
               <Zap className="w-3 h-3" />
               Proxy Mode
             </span>
@@ -287,7 +287,7 @@ const TimelineToolbarComponent: React.FC = () => {
                 {TIER_SEGMENTS.map(({ tier, left, width }) => (
                   <div key={tier} aria-hidden className={`absolute top-0 h-full ${TIER_BAND_CLASS[tier]}`} style={{ left: `${left}%`, width: `${width}%` }} />
                 ))}
-                <div className="relative h-full rounded-full bg-accent shadow-[0_0_16px_rgba(108,99,255,0.28)]" style={{ width: `${zoomProgress}%` }} />
+                <div className="relative h-full rounded-full bg-accent shadow-[0_0_16px_var(--clypra-accent-glow)]" style={{ width: `${zoomProgress}%` }} />
               </div>
               <div data-testid="timeline-zoom-thumb" className="absolute top-1/2 h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 rounded-full border-3 border-accent bg-surface" style={{ left: `${zoomThumbLeftPx}px` }} />
             </div>

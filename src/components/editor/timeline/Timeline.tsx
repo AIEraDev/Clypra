@@ -259,10 +259,10 @@ export const Timeline: React.FC = () => {
     }
   }, [duration, transportSeek]);
 
-  // ✅ PERFORMANCE OPTIMIZED: RAF-based auto-scroll with throttled state updates
+  // RAF-based auto-scroll with throttled state updates
   const autoScrollRafRef = useRef<number | null>(null);
   const lastScrollStateUpdateRef = useRef(0);
-  // Audit 6.2 fix: keep pixelsPerSecond in a ref so the RAF tick reads live zoom
+  // keep pixelsPerSecond in a ref so the RAF tick reads live zoom
   // without restarting the loop. Previously pixelsPerSecond was in the effect deps,
   // which cancelled the RAF on every zoom step and created a ~16ms auto-scroll gap.
   const pixelsPerSecondRef = useRef(pixelsPerSecond);
@@ -324,7 +324,7 @@ export const Timeline: React.FC = () => {
   }, [isPlaying, keepProgramTimeVisible, previewMode]);
 
   // Auto-scroll during playback: viewport tracking
-  // SMOOTH-2 fix: read clock inside RAF tick — effect only re-runs on isPlaying/pps/duration change
+  // read clock inside RAF tick — effect only re-runs on isPlaying/pps/duration change
   useEffect(() => {
     const container = containerRef.current;
 
@@ -342,12 +342,12 @@ export const Timeline: React.FC = () => {
     const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
     const effectiveViewportWidth = container.clientWidth - labelColumnWidth;
 
-    // Bug 1 fix: On play-start transition, if playhead is outside viewport, snap to it
+    // On play-start transition, if playhead is outside viewport, snap to it
     const justStartedPlaying = !wasPlayingRef.current && isPlaying;
     wasPlayingRef.current = isPlaying;
 
     if (justStartedPlaying) {
-      // Audit 6.2 fix: read from ref so snap uses current zoom at play-start
+      // read from ref so snap uses current zoom at play-start
       const pps = pixelsPerSecondRef.current;
       const playheadX = Math.round(getPlaybackClock().time * pps);
       const leftEdge = container.scrollLeft;
@@ -375,7 +375,7 @@ export const Timeline: React.FC = () => {
 
       const now = performance.now();
       // SMOOTH-2: Read live clock inside tick instead of closing over stale currentTime
-      // Audit 6.2 fix: read pixelsPerSecondRef.current so zoom changes are picked up
+      // Read pixelsPerSecondRef.current so zoom changes are picked up
       // immediately without restarting the RAF loop (which caused a ~16ms scroll gap).
       const pps = pixelsPerSecondRef.current;
       const liveTime = getPlaybackClock().time;
@@ -639,7 +639,7 @@ export const Timeline: React.FC = () => {
           onClick={seekFromPointer}
           onContextMenu={handleTimelineContextMenu}
           id="timeline-tracks-container"
-          className={`h-full overflow-auto scrollbar-thin relative transition-colors ${isDraggingOver ? "bg-cyan-500/10 ring-2 ring-cyan-500/50 ring-inset" : ""}`}
+          className={`h-full overflow-auto scrollbar-thin relative transition-colors ${isDraggingOver ? "bg-editor-drop/10 ring-2 ring-editor-drop/50 ring-inset" : ""}`}
           style={{
             display: "grid",
             gridTemplateColumns: hasClips
@@ -703,7 +703,7 @@ export const Timeline: React.FC = () => {
             <div className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className="relative flex h-full items-center px-8 py-8 md:px-16">
                 <div
-                  className={`flex h-32 w-full items-center gap-5 rounded-xl border border-dashed px-10 transition-colors ${isDraggingMedia ? "border-accent/70 bg-accent/10" : "border-white/15 bg-white/[0.015]"}`}
+                  className={`flex h-32 w-full items-center gap-5 rounded-xl border border-dashed px-10 transition-colors ${isDraggingMedia ? "border-editor-drop/70 bg-editor-drop/10" : "border-border/70 bg-surface-raised/20"}`}
                 >
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center text-text-muted">
                     <Film className="h-7 w-7" strokeWidth={1.5} />
@@ -752,13 +752,13 @@ export const Timeline: React.FC = () => {
                       ? track
                       : { ...track, height: visualSpec.height };
 
-                  // FIX: Filter clips per track to avoid passing entire clips array
+                  // Filter clips per track to avoid passing entire clips array
                   // This prevents tracks from re-rendering when clips on OTHER tracks change
                   const trackClips = clips.filter(
                     (c) => c.trackId === track.id,
                   );
 
-                  // FIX: Memoize dragState prop to prevent inline object creation
+                  // Memoize dragState prop to prevent inline object creation
                   // Inline object literals break React.memo even when values are unchanged
                   const trackDragState = dragState
                     ? {
