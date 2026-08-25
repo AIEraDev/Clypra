@@ -68,10 +68,19 @@ fn backup_current_primary(primary: &Path, backup: &Path) -> Result<bool, String>
     }
     let current = fs::read_to_string(primary)
         .map_err(|e| format!("Failed to read current project before backup: {}", e))?;
-    let _: Project = serde_json::from_str(&current)
-        .map_err(|e| format!("Current project is not valid and cannot be backed up: {}", e))?;
+    let _: Project = serde_json::from_str(&current).map_err(|e| {
+        format!(
+            "Current project is not valid and cannot be backed up: {}",
+            e
+        )
+    })?;
     let backup_tmp = backup.with_extension("bak.tmp");
     flush_file(&backup_tmp, &current)?;
+    #[cfg(windows)]
+    if backup.exists() {
+        fs::remove_file(backup)
+            .map_err(|e| format!("Failed to rotate previous project backup: {}", e))?;
+    }
     fs::rename(&backup_tmp, backup)
         .map_err(|e| format!("Failed to rotate verified project backup: {}", e))?;
     Ok(true)
@@ -81,8 +90,12 @@ fn restore_backup(primary: &Path, backup: &Path) -> Result<(), String> {
     if !backup.exists() {
         return Ok(());
     }
-    fs::copy(backup, primary)
-        .map_err(|e| format!("Save failed and previous project could not be restored: {}", e))?;
+    fs::copy(backup, primary).map_err(|e| {
+        format!(
+            "Save failed and previous project could not be restored: {}",
+            e
+        )
+    })?;
     Ok(())
 }
 
@@ -93,6 +106,9 @@ fn replace_primary(temp: &Path, primary: &Path, backup: &Path) -> Result<(), Str
     #[cfg(windows)]
     {
         if primary.exists() {
+            // The verified current primary has already been copied to backup;
+            // Windows rename cannot replace an existing destination.
+            let _ = fs::remove_file(backup);
             fs::rename(primary, backup)
                 .map_err(|e| format!("Failed to stage current project for replacement: {}", e))?;
         }
@@ -135,8 +151,8 @@ pub fn save_project(
     project_data: String,
 ) -> Result<ProjectSaveResult, String> {
     let projects_dir = get_projects_dir(&app)?;
-    let project: Project = serde_json::from_str(&project_data)
-        .map_err(|e| format!("Invalid project JSON: {}", e))?;
+    let project: Project =
+        serde_json::from_str(&project_data).map_err(|e| format!("Invalid project JSON: {}", e))?;
     let safe_id = super::security::validate_project_id(&project.id)?;
     let primary = projects_dir.join(format!("{}.json", safe_id));
     let backup = projects_dir.join(format!("{}.json.bak", safe_id));
@@ -159,10 +175,20 @@ pub fn save_project(
         return Err(error);
     }
 
-    let final_data = fs::read_to_string(&primary)
-        .map_err(|e| format!("Failed to verify finalized project file: {}", e))?;
-    let _: Project = serde_json::from_str(&final_data)
-        .map_err(|e| format!("Final project validation failed: {}", e))?;
+    let final_data = match fs::read_to_string(&primary) {
+        Ok(data) => data,
+        Err(error) => {
+            let _ = restore_backup(&primary, &backup);
+            return Err(format!(
+                "Failed to verify finalized project file: {}",
+                error
+            ));
+        }
+    };
+    if let Err(error) = serde_json::from_str::<Project>(&final_data) {
+        let _ = restore_backup(&primary, &backup);
+        return Err(format!("Final project validation failed: {}", error));
+    }
     if final_data != project_data {
         let _ = restore_backup(&primary, &backup);
         return Err("Project verification failed: finalized file differs from payload".into());
@@ -194,7 +220,9 @@ pub fn get_recent_projects(app: tauri::AppHandle) -> Result<Vec<RecentProjectEnt
     let projects_dir = get_projects_dir(&app)?;
     let mut projects = Vec::new();
 
-    for entry in fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects: {}", e))? {
+    for entry in
+        fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects: {}", e))?
+    {
         let entry = match entry {
             Ok(entry) => entry,
             Err(_) => continue,
@@ -260,14 +288,17 @@ pub fn rename_project(
         return Err("Project name cannot be empty".to_string());
     }
     if trimmed.graphemes(true).count() > MAX_PROJECT_NAME_LENGTH {
-        return Err(format!("Project name exceeds {} characters", MAX_PROJECT_NAME_LENGTH));
+        return Err(format!(
+            "Project name exceeds {} characters",
+            MAX_PROJECT_NAME_LENGTH
+        ));
     }
     let projects_dir = get_projects_dir(&app)?;
     let primary = projects_dir.join(format!("{}.json", safe_id));
-    let content = fs::read_to_string(&primary)
-        .map_err(|e| format!("Failed to read project: {}", e))?;
-    let mut project: Project = serde_json::from_str(&content)
-        .map_err(|e| format!("Invalid project JSON: {}", e))?;
+    let content =
+        fs::read_to_string(&primary).map_err(|e| format!("Failed to read project: {}", e))?;
+    let mut project: Project =
+        serde_json::from_str(&content).map_err(|e| format!("Invalid project JSON: {}", e))?;
     project.name = trimmed.to_string();
     project.modified_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -286,7 +317,9 @@ pub fn delete_project(app: tauri::AppHandle, project_id: String) -> Result<(), S
     if !primary.exists() {
         return Err(format!("Project file not found: {}", safe_id));
     }
-    fs::remove_file(&primary).map_err(|e| format!("Failed to delete project: {}", e))
+    fs::remove_file(&primary).map_err(|e| format!("Failed to delete project: {}", e))?;
+    let _ = fs::remove_file(projects_dir.join(format!("{}.json.bak", safe_id)));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -326,9 +359,16 @@ mod tests {
         let dir = test_dir("backup");
         let primary = dir.join("p.json");
         let backup = dir.join("p.json.bak");
-        fs::write(&primary, "{\"id\":\"p\",\"name\":\"old\",\"created_at\":1,\"modified_at\":1}").unwrap();
+        fs::write(
+            &primary,
+            "{\"id\":\"p\",\"name\":\"old\",\"created_at\":1,\"modified_at\":1}",
+        )
+        .unwrap();
         assert!(backup_current_primary(&primary, &backup).unwrap());
-        assert_eq!(fs::read_to_string(&backup).unwrap(), fs::read_to_string(&primary).unwrap());
+        assert_eq!(
+            fs::read_to_string(&backup).unwrap(),
+            fs::read_to_string(&primary).unwrap()
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 
