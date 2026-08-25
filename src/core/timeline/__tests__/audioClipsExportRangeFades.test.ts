@@ -98,6 +98,29 @@ describe("audioClips — getActiveAudioClips range export fades", () => {
     expect(audioConfigs[0].fadeIn + audioConfigs[0].fadeOut).toBeLessThanOrEqual(4);
   });
 
+  it("rebases volume automation and structured curve settings for export", () => {
+    const clip: Clip = {
+      id: "automation", trackId: "track-1", mediaId: "asset-1", kind: "audio",
+      startTime: 0, duration: 6, trimIn: 0, trimOut: 6,
+      x: 0, y: 0, width: 0, height: 0, opacity: 1, rotation: 0,
+      audio: {
+        audioModelVersion: 1, origin: "standalone", linkState: "linked", gainDb: 0, pan: 0.25, muted: false,
+        volumeKeyframes: [{ id: "a", time: 0, gain: 0.5 }, { id: "b", time: 4, gain: 1 }],
+        fadeIn: { duration: 1, curve: "s-curve" }, fadeOut: { duration: 0, curve: "linear" },
+        channelConfig: { mode: "stereo", downmix: "stereo", channelMap: [1, 0] }, speed: { preservePitch: true },
+      },
+    };
+
+    const [config] = getActiveAudioClips([clip], [mockTrack], [mockAsset], 1, 5);
+    expect(config.fadeInCurve).toBe("s-curve");
+    expect(config.pan).toBe(0.25);
+    expect(config.channelMode).toBe("stereo");
+    expect(config.downmix).toBe("stereo");
+    expect(config.channelMap).toEqual([1, 0]);
+    expect(config.preservePitch).toBe(true);
+    expect(config.volumeKeyframes.map((point) => [point.time, point.gain])).toEqual([[0, 0.625], [3, 1], [4, 1]]);
+  });
+
   it("expands compound children so grouped video audio reaches export mixing", () => {
     const videoTrack: Track = { ...mockTrack, id: "video-track", type: "video", name: "Video" };
     const videoAsset: MediaAsset = {

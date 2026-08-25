@@ -4,6 +4,7 @@ import {
   dbToLinearGain,
   linearGainToDb,
   normalizeClipAudioProperties,
+  synchronizeClipAudioProperties,
 } from "../audio";
 import { fromRustClip, toRustClip } from "../serialization";
 import type { Clip } from "../index";
@@ -117,5 +118,40 @@ describe("ClipAudioProperties", () => {
     expect(dbToLinearGain(linearGainToDb(0.5))).toBeCloseTo(0.5);
     expect(linearGainToDb(0)).toBe(-96);
     expect(Number.isFinite(linearGainToDb(0))).toBe(true);
+  });
+
+  it("keeps a legacy edit and the structured model in lockstep", () => {
+    const updates = synchronizeClipAudioProperties(
+      {
+        ...baseClip,
+        volume: 1,
+        fadeIn: 0,
+        audio: normalizeClipAudioProperties({ kind: "audio", volume: 1, fadeIn: 0 }),
+      },
+      { volume: 0.5, fadeIn: 0.75, fadeInCurve: "s-curve" },
+    );
+
+    expect(updates).toMatchObject({ volume: 0.5, fadeIn: 0.75, fadeInCurve: "s-curve" });
+    expect(updates.audio).toMatchObject({
+      gainDb: linearGainToDb(0.5),
+      muted: false,
+      fadeIn: { duration: 0.75, curve: "s-curve" },
+    });
+  });
+
+  it("migrates an old detached clip without losing its source relationship", () => {
+    const restored = fromRustClip({
+      ...baseClip,
+      kind: "audio",
+      audioPath: "/media/source.mp4",
+      detachedFromClipId: "source-video",
+    });
+
+    expect(restored.detachedFromClipId).toBe("source-video");
+    expect(restored.audio).toMatchObject({
+      origin: "detached",
+      linkState: "detached",
+      sourceClipId: "source-video",
+    });
   });
 });

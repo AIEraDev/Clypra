@@ -1,29 +1,51 @@
 import React, { useCallback } from "react";
-import { Volume2, VolumeX, AudioLines } from "lucide-react";
-import type { Clip } from "@/types";
+import { Volume2, VolumeX, AudioLines, Plus, Trash2 } from "lucide-react";
+import type { AudioChannelMode, AudioDownmixMode, Clip } from "@/types";
+import { dbToLinearGain, getClipAudioProperties } from "@/types/audio";
 import { PropertySlider } from "./primitives/PropertySlider";
 import { PropertySection } from "./primitives/PropertySection";
 
 interface AudioSectionProps {
   selectedClip: Clip;
   handleUpdate: (key: string, value: any) => void;
+  onUnlink?: () => void;
+  onRelink?: () => void;
 }
 
 export const AudioSection: React.FC<AudioSectionProps> = ({
   selectedClip,
   handleUpdate,
+  onUnlink,
+  onRelink,
 }) => {
-  const volume = selectedClip.volume ?? 1.0;
+  const audio = getClipAudioProperties(selectedClip);
+  const volume = audio.muted ? 0 : dbToLinearGain(audio.gainDb);
+  const effects = audio.effects ?? selectedClip.audioFX ?? {};
   const volumePercent = Math.round(Math.max(0, Math.min(1, volume)) * 100);
-  const isMuted = volume === 0;
+  const isMuted = audio.muted;
   const maxFadeSeconds = Math.max(0, Math.min(5, selectedClip.duration));
   const clampFade = useCallback(
     (value: number) =>
       Math.max(0, Math.min(maxFadeSeconds, Number.isFinite(value) ? value : 0)),
     [maxFadeSeconds],
   );
-  const fadeIn = clampFade((selectedClip as any).fadeIn ?? 0);
-  const fadeOut = clampFade((selectedClip as any).fadeOut ?? 0);
+  const fadeIn = clampFade(audio.fadeIn.duration);
+  const fadeOut = clampFade(audio.fadeOut.duration);
+  const keyframes = audio.volumeKeyframes;
+  const channelMapText = audio.channelConfig.channelMap?.join(", ") ?? "";
+
+  const updateKeyframes = useCallback(
+    (next: typeof keyframes) => handleUpdate("volumeKeyframes", [...next].sort((a, b) => a.time - b.time)),
+    [handleUpdate],
+  );
+
+  const addKeyframe = useCallback(() => {
+    const time = Math.round((selectedClip.duration / 2) * 100) / 100;
+    const gain = keyframes.length > 0
+      ? keyframes[keyframes.length - 1].gain
+      : 1;
+    updateKeyframes([...keyframes, { id: `audio-kf-${Date.now()}`, time, gain, easing: "linear" }]);
+  }, [keyframes, selectedClip.duration, updateKeyframes]);
 
   const handleVolumeChange = useCallback(
     (newVolume: number) => {
@@ -179,7 +201,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
                 In Curve
               </span>
               <select
-                value={(selectedClip as any).fadeInCurve || "linear"}
+                value={audio.fadeIn.curve}
                 onChange={(e) => handleUpdate("fadeInCurve", e.target.value)}
                 className="w-full bg-surface-raised border border-white/10 rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent"
               >
@@ -194,7 +216,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
                 Out Curve
               </span>
               <select
-                value={(selectedClip as any).fadeOutCurve || "linear"}
+                value={audio.fadeOut.curve}
                 onChange={(e) => handleUpdate("fadeOutCurve", e.target.value)}
                 className="w-full bg-surface-raised border border-white/10 rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent"
               >
@@ -208,6 +230,143 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
         </div>
       </PropertySection>
 
+      {(onUnlink || onRelink) && (
+        <PropertySection title="Audio Link" icon={<AudioLines className="w-3.5 h-3.5" />}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-text-muted">
+              {audio.linkState === "unlinked" ? "Temporarily unlinked — move audio for a J/L cut." : "Linked audio follows its video clip."}
+            </span>
+            {audio.linkState === "unlinked" ? (
+              <button onClick={onRelink} className="rounded bg-accent/15 px-2 py-1 text-[10px] font-medium text-accent hover:bg-accent/25">Relink</button>
+            ) : (
+              <button onClick={onUnlink} className="rounded bg-surface-raised px-2 py-1 text-[10px] font-medium text-text-primary hover:bg-white/10">Unlink</button>
+            )}
+          </div>
+        </PropertySection>
+      )}
+
+      <PropertySection
+        title="Volume Automation"
+        icon={<AudioLines className="w-3.5 h-3.5" />}
+        defaultCollapsed
+      >
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-[10px] text-text-muted">
+            <span>{keyframes.length ? `${keyframes.length} keyframe${keyframes.length === 1 ? "" : "s"}` : "No keyframes"}</span>
+            <button
+              onClick={addKeyframe}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-accent hover:bg-accent/10"
+              title="Add a volume keyframe at the clip midpoint"
+            >
+              <Plus className="h-3 w-3" /> Add
+            </button>
+          </div>
+          {keyframes.map((keyframe) => (
+            <div key={keyframe.id} className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
+              <label className="text-[9px] text-text-muted">
+                Time
+                <input
+                  aria-label={`Keyframe ${keyframe.id} time`}
+                  type="number"
+                  min={0}
+                  max={selectedClip.duration}
+                  step={0.01}
+                  value={keyframe.time}
+                  onChange={(event) => updateKeyframes(keyframes.map((point) => point.id === keyframe.id ? { ...point, time: Math.max(0, Math.min(selectedClip.duration, Number(event.target.value) || 0)) } : point))}
+                  className="mt-0.5 w-full bg-surface-raised border border-white/10 rounded px-1 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent"
+                />
+              </label>
+              <label className="text-[9px] text-text-muted">
+                Level
+                <input
+                  aria-label={`Keyframe ${keyframe.id} level`}
+                  type="number"
+                  min={0}
+                  max={300}
+                  step={1}
+                  value={Math.round(keyframe.gain * 100)}
+                  onChange={(event) => updateKeyframes(keyframes.map((point) => point.id === keyframe.id ? { ...point, gain: Math.max(0, Math.min(3, (Number(event.target.value) || 0) / 100)) } : point))}
+                  className="mt-0.5 w-full bg-surface-raised border border-white/10 rounded px-1 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent"
+                />
+              </label>
+              <button
+                onClick={() => updateKeyframes(keyframes.filter((point) => point.id !== keyframe.id))}
+                className="mt-3 rounded p-1 text-text-muted hover:bg-red-500/10 hover:text-red-400"
+                aria-label={`Remove keyframe ${keyframe.id}`}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </PropertySection>
+
+      <PropertySection
+        title="Channel & Speed"
+        icon={<AudioLines className="w-3.5 h-3.5" />}
+        defaultCollapsed
+      >
+        <div className="space-y-2.5">
+          <label className="block text-[10px] text-text-muted">
+            Channel mode
+            <select
+              aria-label="Channel mode"
+              value={audio.channelConfig.mode}
+              onChange={(event) => handleUpdate("audio", {
+                channelConfig: { ...audio.channelConfig, mode: event.target.value as AudioChannelMode },
+              })}
+              className="mt-1 w-full bg-surface-raised border border-white/10 rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent"
+            >
+              <option value="auto">Auto (source layout)</option>
+              <option value="mono">Mono</option>
+              <option value="stereo">Stereo</option>
+              <option value="multichannel">Multichannel</option>
+            </select>
+          </label>
+          <label className="block text-[10px] text-text-muted">
+            Downmix
+            <select
+              aria-label="Channel downmix"
+              value={audio.channelConfig.downmix}
+              onChange={(event) => handleUpdate("audio", {
+                channelConfig: { ...audio.channelConfig, downmix: event.target.value as AudioDownmixMode },
+              })}
+              className="mt-1 w-full bg-surface-raised border border-white/10 rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent"
+            >
+              <option value="auto">Auto</option>
+              <option value="mono">Mono (dual mono output)</option>
+              <option value="stereo">Stereo</option>
+            </select>
+          </label>
+          <label className="block text-[10px] text-text-muted">
+            Channel map
+            <input
+              aria-label="Channel map"
+              value={channelMapText}
+              placeholder="e.g. 1, 0 to swap L/R"
+              onChange={(event) => {
+                const values = event.target.value.trim() === ""
+                  ? undefined
+                  : event.target.value.split(",").map((part) => Number(part.trim())).filter((value) => Number.isInteger(value) && value >= 0);
+                handleUpdate("audio", { channelConfig: { ...audio.channelConfig, channelMap: values } });
+              }}
+              className="mt-1 w-full bg-surface-raised border border-white/10 rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent"
+            />
+            <span className="mt-0.5 block text-[9px] text-text-muted">Source channel for each output channel. “1, 0” swaps stereo.</span>
+          </label>
+          <label className="flex items-center justify-between gap-3 border-t border-white/5 pt-2 text-[10px] text-text-secondary">
+            <span><span className="block font-medium text-text-primary">Preserve pitch</span><span className="text-[9px] text-text-muted">When the playback speed changes</span></span>
+            <input
+              aria-label="Preserve pitch"
+              type="checkbox"
+              checked={audio.speed.preservePitch}
+              onChange={(event) => handleUpdate("audio", { speed: { preservePitch: event.target.checked } })}
+              className="h-3.5 w-3.5 accent-accent"
+            />
+          </label>
+        </div>
+      </PropertySection>
+
       {/* Audio FX Section (EQ, Pan, Noise Gate) */}
       <PropertySection
         title="Audio FX & Equalizer"
@@ -218,18 +377,14 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
           {/* Stereo Pan */}
           <PropertySlider
             label="Stereo Pan"
-            value={
-              selectedClip.audioFX?.pan
-                ? Math.round(selectedClip.audioFX.pan * 100)
-                : 0
-            }
+            value={Math.round(audio.pan * 100)}
             min={-100}
             max={100}
             step={5}
             suffix="%"
             onChange={(v) =>
               handleUpdate("audioFX", {
-                ...(selectedClip.audioFX || {}),
+                ...effects,
                 pan: v / 100,
               })
             }
@@ -242,16 +397,16 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             </span>
             <PropertySlider
               label="Bass (100Hz)"
-              value={selectedClip.audioFX?.eq?.low ?? 0}
+              value={effects.eq?.low ?? 0}
               min={-12}
               max={12}
               step={1}
               suffix="dB"
               onChange={(v) =>
                 handleUpdate("audioFX", {
-                  ...(selectedClip.audioFX || {}),
+                  ...effects,
                   eq: {
-                    ...(selectedClip.audioFX?.eq || {
+                    ...(effects.eq || {
                       low: 0,
                       mid: 0,
                       high: 0,
@@ -263,16 +418,16 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             />
             <PropertySlider
               label="Mid (1kHz)"
-              value={selectedClip.audioFX?.eq?.mid ?? 0}
+              value={effects.eq?.mid ?? 0}
               min={-12}
               max={12}
               step={1}
               suffix="dB"
               onChange={(v) =>
                 handleUpdate("audioFX", {
-                  ...(selectedClip.audioFX || {}),
+                  ...effects,
                   eq: {
-                    ...(selectedClip.audioFX?.eq || {
+                    ...(effects.eq || {
                       low: 0,
                       mid: 0,
                       high: 0,
@@ -284,16 +439,16 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             />
             <PropertySlider
               label="Treble (8kHz)"
-              value={selectedClip.audioFX?.eq?.high ?? 0}
+              value={effects.eq?.high ?? 0}
               min={-12}
               max={12}
               step={1}
               suffix="dB"
               onChange={(v) =>
                 handleUpdate("audioFX", {
-                  ...(selectedClip.audioFX || {}),
+                  ...effects,
                   eq: {
-                    ...(selectedClip.audioFX?.eq || {
+                    ...(effects.eq || {
                       low: 0,
                       mid: 0,
                       high: 0,
@@ -310,7 +465,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
             <PropertySlider
               label="Noise Reduction"
               value={Math.round(
-                (selectedClip.audioFX?.noiseSuppression ?? 0) * 100,
+                (effects.noiseSuppression ?? 0) * 100,
               )}
               min={0}
               max={100}
@@ -318,7 +473,7 @@ export const AudioSection: React.FC<AudioSectionProps> = ({
               suffix="%"
               onChange={(v) =>
                 handleUpdate("audioFX", {
-                  ...(selectedClip.audioFX || {}),
+                  ...effects,
                   noiseSuppression: v / 100,
                 })
               }
