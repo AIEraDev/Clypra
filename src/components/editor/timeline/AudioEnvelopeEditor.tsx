@@ -74,6 +74,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     clipWidthPx > 0
       ? ((clipWidthPx - displayFadeOutPx) / clipWidthPx) * 100
       : 100;
+  // The marker stays fully inside the waveform lane. The short vertical
+  // segment below extends its handle to the metadata divider without letting
+  // the knob overlap that row.
+  const fadeMarkerYPercent = 6;
 
   // ── Volume drag ───────────────────────────────────────────────────────────
 
@@ -283,11 +287,17 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           {displayFadeInPx > 0 && (
             <>
               <path
-                d={`M 0 100 Q ${fadeInPercent * 0.55} 35 ${fadeInPercent} 24 L ${fadeInPercent} 100 Z`}
+                d={`M 0 100 Q ${fadeInPercent * 0.55} 35 ${fadeInPercent} ${fadeMarkerYPercent} L ${fadeInPercent} 100 Z`}
                 fill="var(--clypra-clip-envelope-fill)"
               />
               <path
-                d={`M 0 100 Q ${fadeInPercent * 0.55} 35 ${fadeInPercent} 24`}
+                d={`M 0 100 Q ${fadeInPercent * 0.55} 35 ${fadeInPercent} ${fadeMarkerYPercent}`}
+                fill="none"
+                stroke="var(--clypra-clip-envelope-line)"
+                strokeWidth="0.7"
+              />
+              <path
+                d={`M ${fadeInPercent} 0 L ${fadeInPercent} ${fadeMarkerYPercent}`}
                 fill="none"
                 stroke="var(--clypra-clip-envelope-line)"
                 strokeWidth="0.7"
@@ -297,11 +307,17 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           {displayFadeOutPx > 0 && (
             <>
               <path
-                d={`M ${fadeOutPercent} 24 Q ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 35 100 100 L ${fadeOutPercent} 100 Z`}
+                d={`M ${fadeOutPercent} ${fadeMarkerYPercent} Q ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 35 100 100 L ${fadeOutPercent} 100 Z`}
                 fill="var(--clypra-clip-envelope-fill)"
               />
               <path
-                d={`M ${fadeOutPercent} 24 Q ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 35 100 100`}
+                d={`M ${fadeOutPercent} ${fadeMarkerYPercent} Q ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 35 100 100`}
+                fill="none"
+                stroke="var(--clypra-clip-envelope-line)"
+                strokeWidth="0.7"
+              />
+              <path
+                d={`M ${fadeOutPercent} 0 L ${fadeOutPercent} ${fadeMarkerYPercent}`}
                 fill="none"
                 stroke="var(--clypra-clip-envelope-line)"
                 strokeWidth="0.7"
@@ -310,39 +326,74 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           )}
         </svg>
 
-        {/* CapCut-style endpoint knobs: drag either edge inward to create a fade. */}
+        {/* Full-height fade handles: the rail is always easy to grab anywhere
+            in the audio envelope while the marker shows the curve endpoint. */}
         <button
           type="button"
           aria-label="Fade in handle"
           data-testid="audio-fade-in-handle"
-          className={`absolute z-50 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 pointer-events-auto ${activeDrag === "fadeIn" ? "cursor-grabbing" : "cursor-grab"}`}
+          className={`absolute top-0 z-50 h-full w-4 -translate-x-1/2 rounded-none border-0 bg-transparent p-0 pointer-events-auto ${activeDrag === "fadeIn" ? "cursor-grabbing" : "cursor-grab"}`}
           style={{
             left: `${displayFadeInPx}px`,
-            top: "24%",
+            top: 0,
+            height: "100%",
             touchAction: "none",
-            backgroundColor: "var(--clypra-clip-control-bg)",
-            borderColor: "var(--clypra-clip-control-border)",
-            boxShadow: "var(--clypra-clip-control-shadow)",
           }}
           onPointerDown={(event) => handleFadeDragStart(event, "fadeIn")}
           title={`Fade in: ${displayFadeIn.toFixed(2)}s — drag right to set`}
-        />
+        >
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2"
+            style={{
+              backgroundColor: "var(--clypra-clip-envelope-line)",
+              opacity: 0.82,
+            }}
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
+            style={{
+              top: `${fadeMarkerYPercent}%`,
+              backgroundColor: "var(--clypra-clip-control-bg)",
+              borderColor: "var(--clypra-clip-control-border)",
+              boxShadow: "var(--clypra-clip-control-shadow)",
+            }}
+          />
+        </button>
         <button
           type="button"
           aria-label="Fade out handle"
           data-testid="audio-fade-out-handle"
-          className={`absolute z-50 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 pointer-events-auto ${activeDrag === "fadeOut" ? "cursor-grabbing" : "cursor-grab"}`}
+          className={`absolute top-0 z-50 h-full w-4 -translate-x-1/2 rounded-none border-0 bg-transparent p-0 pointer-events-auto ${activeDrag === "fadeOut" ? "cursor-grabbing" : "cursor-grab"}`}
           style={{
             left: `${clipWidthPx - displayFadeOutPx}px`,
-            top: "24%",
+            top: 0,
+            height: "100%",
             touchAction: "none",
-            backgroundColor: "var(--clypra-clip-control-bg)",
-            borderColor: "var(--clypra-clip-control-border)",
-            boxShadow: "var(--clypra-clip-control-shadow)",
           }}
           onPointerDown={(event) => handleFadeDragStart(event, "fadeOut")}
           title={`Fade out: ${displayFadeOut.toFixed(2)}s — drag left to set`}
-        />
+        >
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2"
+            style={{
+              backgroundColor: "var(--clypra-clip-envelope-line)",
+              opacity: 0.82,
+            }}
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
+            style={{
+              top: `${fadeMarkerYPercent}%`,
+              backgroundColor: "var(--clypra-clip-control-bg)",
+              borderColor: "var(--clypra-clip-control-border)",
+              boxShadow: "var(--clypra-clip-control-shadow)",
+            }}
+          />
+        </button>
 
         {/* Volume keyframe diamonds */}
         {keyframes.map((kf) => {

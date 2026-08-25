@@ -193,7 +193,7 @@ describe("AudioEnvelopeEditor volume interaction", () => {
     expect(mocks.execute.mock.calls[0][0]).toBeInstanceOf(TransformClipCommand);
   });
 
-  it("keeps white fade knobs at clip edges until a fade is dragged in", () => {
+  it("keeps full-height fade handles at their clip positions", () => {
     render(
       <AudioEnvelopeEditor
         clip={createClip(1, { fadeIn: 2, fadeOut: 1.5 })}
@@ -202,13 +202,15 @@ describe("AudioEnvelopeEditor volume interaction", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "80px" });
-    expect(screen.getByRole("button", { name: "Fade out handle" })).toHaveStyle({ left: "340px" });
+    expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "80px", top: "0px", height: "100%" });
+    expect(screen.getByRole("button", { name: "Fade out handle" })).toHaveStyle({ left: "340px", top: "0px", height: "100%" });
 
     cleanup();
     render(<AudioEnvelopeEditor clip={createClip()} clipWidthPx={400} pixelsPerSecond={40} />);
-    expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "0px" });
-    expect(screen.getByRole("button", { name: "Fade out handle" })).toHaveStyle({ left: "400px" });
+    expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "0px", top: "0px", height: "100%" });
+    expect(screen.getByRole("button", { name: "Fade out handle" })).toHaveStyle({ left: "400px", top: "0px", height: "100%" });
+    expect(screen.getByTestId("audio-fade-in-handle").querySelector("span + span")).toHaveStyle({ top: "6%" });
+    expect(screen.getByTestId("audio-fade-out-handle").querySelector("span + span")).toHaveStyle({ top: "6%" });
   });
 
   it("drags a fade-in handle horizontally and records one undoable edit", () => {
