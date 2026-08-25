@@ -16,8 +16,13 @@ export function expandCompoundClips(clips: Clip[]): Clip[] {
       return [{ ...clip, startTime: absoluteStart }];
     }
 
+    // The compound parent is only a timeline handle. Children retain their
+    // persisted track identity so visual stacking, audio routing, export, and
+    // ungroup all see the same multi-track timeline they represented before
+    // grouping. Legacy same-track compounds already have matching child and
+    // parent track IDs, so this is backward compatible.
     return clip.compoundChildren!.flatMap((child) =>
-      expand({ ...child, trackId: clip.trackId }, absoluteStart + child.startTime),
+      expand(child, absoluteStart + child.startTime),
     );
   };
 

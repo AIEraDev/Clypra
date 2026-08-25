@@ -234,6 +234,43 @@ describe("Project Serialization Layer", () => {
     expect(roundTrippedClip.fontFamily).toBe("Inter");
   });
 
+  it("preserves cross-track compound child topology through project serialization", () => {
+    const child = (id: string, trackId: string, startTime: number): Clip => ({
+      id,
+      kind: trackId === "audio" ? "audio" : "video",
+      trackId,
+      mediaId: `${id}-asset`,
+      startTime,
+      duration: 2,
+      trimIn: 0,
+      trimOut: 2,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+    });
+    const compound: Clip = {
+      ...child("compound", "video", 10),
+      kind: "compound",
+      mediaId: "compound-compound",
+      duration: 4,
+      trimOut: 4,
+      compoundChildren: [
+        child("picture", "video", 0),
+        child("music", "audio", 1),
+      ],
+    };
+
+    const restored = fromRustClip(toRustClip(compound));
+
+    expect(restored.compoundChildren?.map((clip) => [clip.id, clip.trackId, clip.startTime])).toEqual([
+      ["picture", "video", 0],
+      ["music", "audio", 1],
+    ]);
+  });
+
   it("applies fallback default values during deserialization when fields are missing from Rust", () => {
     const incompleteRustProject = {
       id: "project-1",

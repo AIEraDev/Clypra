@@ -20,10 +20,9 @@ export function validateGroupSelection(clipIds: string[], clips: Clip[], tracks:
   if (uniqueIds.length < 2) return { valid: false, reason: "Select at least two clips to group" };
   const selected = uniqueIds.map((id) => clips.find((clip) => clip.id === id)).filter(Boolean) as Clip[];
   if (selected.length !== uniqueIds.length) return { valid: false, reason: "One or more selected clips no longer exist" };
-  const trackIds = new Set(selected.map((clip) => clip.trackId));
-  if (trackIds.size !== 1) return { valid: false, reason: "Compound clips must be on the same track" };
-  const track = tracks.find((candidate) => candidate.id === selected[0].trackId);
-  if (!track || track.locked) return { valid: false, reason: "The selected track is locked" };
+  const selectedTracks = selected.map((clip) => tracks.find((candidate) => candidate.id === clip.trackId));
+  if (selectedTracks.some((track) => !track)) return { valid: false, reason: "One or more selected clips belong to a missing track" };
+  if (selectedTracks.some((track) => track!.locked)) return { valid: false, reason: "One or more selected tracks are locked" };
   if (selected.some((clip) => hasTransitionReference(clip.id, transitions))) return { valid: false, reason: "Remove transitions from selected clips before grouping" };
   return { valid: true };
 }
@@ -41,7 +40,14 @@ export class GroupClipsCommand implements Command {
   constructor(clipIds: string[], clips: Clip[], tracks: Track[], preview?: string, transitions: TransitionTimelineItem[] = [], parentId?: string) {
     const validation = validateGroupSelection(clipIds, clips, tracks, transitions);
     if (!validation.valid) throw new Error(validation.reason);
-    this.originalClips = [...new Set(clipIds)].map((id) => clips.find((clip) => clip.id === id)!).sort((a, b) => a.startTime - b.startTime);
+    const trackIndex = new Map(tracks.map((track, index) => [track.id, index]));
+    this.originalClips = [...new Set(clipIds)]
+      .map((id) => clips.find((clip) => clip.id === id)!)
+      .sort((a, b) =>
+        a.startTime - b.startTime ||
+        (trackIndex.get(a.trackId) ?? Number.MAX_SAFE_INTEGER) - (trackIndex.get(b.trackId) ?? Number.MAX_SAFE_INTEGER) ||
+        a.id.localeCompare(b.id),
+      );
     const trackId = this.originalClips[0].trackId;
     const startTime = Math.min(...this.originalClips.map((clip) => clip.startTime));
     const endTime = Math.max(...this.originalClips.map((clip) => clip.startTime + clip.duration));
@@ -81,8 +87,9 @@ export class GroupClipsCommand implements Command {
     const insertIndex = Math.max(0, Math.min(this.originalIndex, remaining.length));
     remaining.splice(insertIndex, 0, this.parent);
     const groupEnd = this.parent.startTime + this.parent.duration;
+    const groupedTrackIds = new Set(this.originalClips.map((clip) => clip.trackId));
     const gaps = state.gaps?.filter((gap) => {
-      if (gap.trackId !== this.parent.trackId) return true;
+      if (!groupedTrackIds.has(gap.trackId)) return true;
       const gapEnd = gap.startTime + gap.duration;
       return !(gap.startTime >= this.parent.startTime - 0.001 && gapEnd <= groupEnd + 0.001);
     });
@@ -115,7 +122,10 @@ export class UngroupClipsCommand implements Command {
   apply(state: TimelineState): TimelineState {
     const parentIndex = state.clips.findIndex((clip) => clip.id === this.parent.id);
     if (parentIndex < 0 || this.parent.kind !== "compound") return state;
-    const children = this.originalChildren.map((child) => ({ ...child, startTime: this.parent.startTime + child.startTime, trackId: this.parent.trackId }));
+    const children = this.originalChildren.map((child) => ({
+      ...child,
+      startTime: this.parent.startTime + child.startTime,
+    }));
     const clips = [...state.clips.filter((clip) => clip.id !== this.parent.id)];
     clips.splice(Math.min(parentIndex, clips.length), 0, ...children);
     const gaps = this.restoredGaps?.map((gap) => ({

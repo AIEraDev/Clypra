@@ -39,11 +39,32 @@ describe("CompoundClipCommands", () => {
     expect(regrouped.clips[0].id).toBe(parentId);
   });
 
-  it("rejects cross-track, locked, and transition-linked selections", () => {
+  it("groups cross-track clips while preserving each child's track through expansion and ungroup", () => {
     const otherTrack = { ...track, id: "track-other" };
     const a = makeClip("a", 0, 1);
     const b = { ...makeClip("b", 1, 1), trackId: otherTrack.id };
-    expect(validateGroupSelection([a.id, b.id], [a, b], [track, otherTrack])).toMatchObject({ valid: false });
+    expect(validateGroupSelection([a.id, b.id], [a, b], [track, otherTrack])).toEqual({ valid: true });
+    const command = new GroupClipsCommand([a.id, b.id], [a, b], [track, otherTrack]);
+    const grouped = command.apply({ tracks: [track, otherTrack], clips: [a, b], epoch: 0 });
+    const parent = grouped.clips[0];
+
+    expect(parent.trackId).toBe(track.id);
+    expect(parent.compoundChildren?.map((child) => [child.id, child.trackId, child.startTime])).toEqual([
+      ["a", track.id, 0],
+      ["b", otherTrack.id, 1],
+    ]);
+    expect(expandCompoundClips([parent]).map((clip) => [clip.id, clip.trackId, clip.startTime])).toEqual([
+      ["a", track.id, 0],
+      ["b", otherTrack.id, 1],
+    ]);
+    expect(command.invert().apply(grouped).clips.map((clip) => [clip.id, clip.trackId, clip.startTime])).toEqual([
+      ["a", track.id, 0],
+      ["b", otherTrack.id, 1],
+    ]);
+  });
+
+  it("rejects locked and transition-linked selections", () => {
+    const a = makeClip("a", 0, 1);
     expect(validateGroupSelection([a.id, a.id], [a], [track]).valid).toBe(false);
     expect(validateGroupSelection([a.id, "b"], [a, makeClip("b", 1, 1)], [{ ...track, locked: true }]).valid).toBe(false);
     expect(validateGroupSelection([a.id, "b"], [a, makeClip("b", 1, 1)], [track], [{ id: "t", fromItemId: a.id, toItemId: "b" } as any]).valid).toBe(false);
