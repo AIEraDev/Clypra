@@ -5,7 +5,6 @@ import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import type { Clip } from "@/types";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 
-
 interface AudioEnvelopeEditorProps {
   clip: Clip;
   clipWidthPx: number;
@@ -33,7 +32,9 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const fadeValueRef = useRef<number | null>(null);
 
   const [isHovered, setIsHovered] = useState(false);
-  const [activeDrag, setActiveDrag] = useState<"volume" | "fadeIn" | "fadeOut" | null>(null);
+  const [activeDrag, setActiveDrag] = useState<
+    "volume" | "fadeIn" | "fadeOut" | null
+  >(null);
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(
     null,
@@ -55,12 +56,24 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   // the familiar CapCut-style rubber band instead of confining it to a tiny
   // footer lane. Lowering volume moves it down; raising it moves it up.
   const volumeYPercent = 80 - displayVolume * 30;
-  const displayFadeIn = activeDrag === "fadeIn" && dragValue !== null ? dragValue : fadeIn;
-  const displayFadeOut = activeDrag === "fadeOut" && dragValue !== null ? dragValue : fadeOut;
-  const displayFadeInPx = Math.max(0, Math.min(clipWidthPx, timeToPixel(displayFadeIn, pixelsPerSecond)));
-  const displayFadeOutPx = Math.max(0, Math.min(clipWidthPx, timeToPixel(displayFadeOut, pixelsPerSecond)));
-  const fadeInPercent = clipWidthPx > 0 ? (displayFadeInPx / clipWidthPx) * 100 : 0;
-  const fadeOutPercent = clipWidthPx > 0 ? ((clipWidthPx - displayFadeOutPx) / clipWidthPx) * 100 : 100;
+  const displayFadeIn =
+    activeDrag === "fadeIn" && dragValue !== null ? dragValue : fadeIn;
+  const displayFadeOut =
+    activeDrag === "fadeOut" && dragValue !== null ? dragValue : fadeOut;
+  const displayFadeInPx = Math.max(
+    0,
+    Math.min(clipWidthPx, timeToPixel(displayFadeIn, pixelsPerSecond)),
+  );
+  const displayFadeOutPx = Math.max(
+    0,
+    Math.min(clipWidthPx, timeToPixel(displayFadeOut, pixelsPerSecond)),
+  );
+  const fadeInPercent =
+    clipWidthPx > 0 ? (displayFadeInPx / clipWidthPx) * 100 : 0;
+  const fadeOutPercent =
+    clipWidthPx > 0
+      ? ((clipWidthPx - displayFadeOutPx) / clipWidthPx) * 100
+      : 100;
 
   // ── Volume drag ───────────────────────────────────────────────────────────
 
@@ -110,12 +123,23 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     if (!drag || !lane) return false;
 
     const rect = lane.getBoundingClientRect();
-    const localX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    const rawFade = drag.type === "fadeIn"
-      ? pixelToTime(localX, pixelsPerSecond)
-      : pixelToTime(Math.max(0, rect.width - localX), pixelsPerSecond);
+    // Clamp pointer to the clip width in pixels so dragging past the clip edge
+    // never produces a fade longer than the clip duration.
+    const localX = Math.max(0, Math.min(clipWidthPx, e.clientX - rect.left));
+    const rawFade =
+      drag.type === "fadeIn"
+        ? pixelToTime(localX, pixelsPerSecond)
+        : pixelToTime(Math.max(0, clipWidthPx - localX), pixelsPerSecond);
+    // Read the opposite fade from the clip's current stored value (not the drag
+    // ref, which tracks the handle being dragged) so the two fades cannot
+    // overlap or together exceed the clip duration.
+    const MAX_FADE_SECONDS = 5;
     const oppositeFade = drag.type === "fadeIn" ? fadeOut : fadeIn;
-    const nextFade = Math.max(0, Math.min(Math.max(0, clip.duration - oppositeFade), rawFade));
+    const maxAllowed = Math.min(
+      MAX_FADE_SECONDS,
+      Math.max(0, clip.duration - oppositeFade),
+    );
+    const nextFade = Math.max(0, Math.min(maxAllowed, rawFade));
     const field = drag.type;
 
     updateClip(clip.id, { [field]: nextFade });
@@ -246,13 +270,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onLostPointerCapture={handlePointerUp}
-      className="absolute inset-0 z-40 pointer-events-none select-none overflow-hidden"
+      className="absolute inset-x-0 bottom-0 top-5 z-40 pointer-events-none select-none overflow-hidden"
     >
       {/* CapCut-style full-clip audio overlay. */}
-      <div
-        ref={volumeLaneRef}
-        className="absolute inset-0 pointer-events-none"
-      >
+      <div ref={volumeLaneRef} className="absolute inset-0 pointer-events-none">
         {/* Fade shading and curved envelope guides. */}
         <svg
           className="absolute inset-0 z-10 h-full w-full pointer-events-none"
@@ -294,8 +315,12 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           type="button"
           aria-label="Fade in handle"
           data-testid="audio-fade-in-handle"
-          className="absolute z-50 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-900 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.75)] cursor-ew-resize pointer-events-auto"
-          style={{ left: `${displayFadeInPx}px`, top: "24%", touchAction: "none" }}
+          className={`absolute z-50 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-900 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.75)] pointer-events-auto ${activeDrag === "fadeIn" ? "cursor-grabbing" : "cursor-grab"}`}
+          style={{
+            left: `${displayFadeInPx}px`,
+            top: "24%",
+            touchAction: "none",
+          }}
           onPointerDown={(event) => handleFadeDragStart(event, "fadeIn")}
           title={`Fade in: ${displayFadeIn.toFixed(2)}s — drag right to set`}
         />
@@ -303,8 +328,12 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           type="button"
           aria-label="Fade out handle"
           data-testid="audio-fade-out-handle"
-          className="absolute z-50 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-900 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.75)] cursor-ew-resize pointer-events-auto"
-          style={{ left: `${clipWidthPx - displayFadeOutPx}px`, top: "24%", touchAction: "none" }}
+          className={`absolute z-50 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-900 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.75)] pointer-events-auto ${activeDrag === "fadeOut" ? "cursor-grabbing" : "cursor-grab"}`}
+          style={{
+            left: `${clipWidthPx - displayFadeOutPx}px`,
+            top: "24%",
+            touchAction: "none",
+          }}
           onPointerDown={(event) => handleFadeDragStart(event, "fadeOut")}
           title={`Fade out: ${displayFadeOut.toFixed(2)}s — drag left to set`}
         />

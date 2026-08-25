@@ -1,4 +1,10 @@
-import React, { useRef, useEffect, useCallback, useMemo, useState } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import { Film, ArrowLeft } from "lucide-react";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
@@ -31,7 +37,6 @@ import {
 } from "@/lib/timeline/timelineViewport";
 import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
-
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -110,7 +115,8 @@ export const Timeline: React.FC = () => {
   const handleTimelineContextMenu = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && target.closest('[data-timeline-interactive="true"]')) return;
+      if (target && target.closest('[data-timeline-interactive="true"]'))
+        return;
       if (target && target.closest("[data-clip-id]")) return;
       if (target && target.closest("[data-gap-id]")) return;
       e.preventDefault();
@@ -207,8 +213,14 @@ export const Timeline: React.FC = () => {
         nextScrollTop += clipRect.bottom - bottomEdge;
       }
 
-      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
-      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const maxScrollLeft = Math.max(
+        0,
+        container.scrollWidth - container.clientWidth,
+      );
+      const maxScrollTop = Math.max(
+        0,
+        container.scrollHeight - container.clientHeight,
+      );
       nextScrollLeft = Math.max(0, Math.min(nextScrollLeft, maxScrollLeft));
       nextScrollTop = Math.max(0, Math.min(nextScrollTop, maxScrollTop));
 
@@ -227,7 +239,9 @@ export const Timeline: React.FC = () => {
     const clipId = selectedClipIds[0];
     if (!clipId) return;
 
-    const frame = window.requestAnimationFrame(() => revealSelectedClip(clipId));
+    const frame = window.requestAnimationFrame(() =>
+      revealSelectedClip(clipId),
+    );
     return () => window.cancelAnimationFrame(frame);
   }, [clips, selectedClipIds, revealSelectedClip]);
 
@@ -265,7 +279,10 @@ export const Timeline: React.FC = () => {
 
       const pps = pixelsPerSecondRef.current;
       const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
-      const effectiveViewportWidth = Math.max(0, container.clientWidth - labelColumnWidth);
+      const effectiveViewportWidth = Math.max(
+        0,
+        container.clientWidth - labelColumnWidth,
+      );
       if (effectiveViewportWidth <= 0) return;
 
       const playheadX = time * pps;
@@ -496,7 +513,10 @@ export const Timeline: React.FC = () => {
         const trackId = selectedTrackId || tracks[0]?.id;
         if (!trackId) return;
 
-        const gapAtPlayhead = GapManager.getGapAtPosition(trackId, getPlaybackClock().time);
+        const gapAtPlayhead = GapManager.getGapAtPosition(
+          trackId,
+          getPlaybackClock().time,
+        );
 
         if (gapAtPlayhead && !gapAtPlayhead.protected) {
           GapManager.removeGap(gapAtPlayhead.id);
@@ -548,7 +568,10 @@ export const Timeline: React.FC = () => {
       const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
       const x =
         event.clientX - rect.left - labelColumnWidth + container.scrollLeft;
-      const time = Math.max(0, Math.min(pixelToTime(x, pixelsPerSecond), duration));
+      const time = Math.max(
+        0,
+        Math.min(pixelToTime(x, pixelsPerSecond), duration),
+      );
 
       const frameRate = getPlaybackClock().frameRate;
       transportSeek(clampAndSnapProgramTime(time, duration, frameRate));
@@ -701,7 +724,7 @@ export const Timeline: React.FC = () => {
                   display: "grid",
                   gridTemplateColumns: `${TIMELINE_TRACK_LABEL_WIDTH_PX}px 1fr`,
                   alignContent: "center",
-                  rowGap: 0,
+                  rowGap: 4,
                 }}
               >
                 {dragState?.willCreateNewTrack &&
@@ -719,7 +742,11 @@ export const Timeline: React.FC = () => {
                   )}
 
                 {tracks.map((track) => {
-                  const visualSpec = getTrackVisualSpec(track, tracks, mainVideoTrackId);
+                  const visualSpec = getTrackVisualSpec(
+                    track,
+                    tracks,
+                    mainVideoTrackId,
+                  );
                   const visualTrack =
                     track.height === visualSpec.height
                       ? track
@@ -892,7 +919,10 @@ export const Timeline: React.FC = () => {
           onClose={() => setEmptySpaceContextMenu(null)}
         />
       )}
-      <RenameClipDialog clipId={renameClipId} onClose={() => setRenameClipId(null)} />
+      <RenameClipDialog
+        clipId={renameClipId}
+        onClose={() => setRenameClipId(null)}
+      />
       <AudioStreamPicker />
       <MediaJobIndicator />
     </div>

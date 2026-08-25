@@ -302,7 +302,9 @@ const ClipInner: React.FC<ClipProps> = ({
       trimIn: clip.trimIn,
       trimOut: clip.trimOut,
       isRipple,
-      beforeClips: timelineBeforeResize.clips.map((candidate) => ({ ...candidate })),
+      beforeClips: timelineBeforeResize.clips.map((candidate) => ({
+        ...candidate,
+      })),
       beforeGaps: timelineBeforeResize.gaps.map((gap) => ({
         ...gap,
         metadata: gap.metadata ? { ...gap.metadata } : gap.metadata,
@@ -564,14 +566,16 @@ const ClipInner: React.FC<ClipProps> = ({
         JSON.stringify(initialResizeStart.beforeClips) !==
         JSON.stringify(afterResize.clips);
       if (clipsChanged) {
-        useHistoryStore.getState().execute(
-          new TimelineTrimCommand(
-            initialResizeStart.beforeClips,
-            afterResize.clips,
-            initialResizeStart.beforeGaps,
-            afterResize.gaps,
-          ),
-        );
+        useHistoryStore
+          .getState()
+          .execute(
+            new TimelineTrimCommand(
+              initialResizeStart.beforeClips,
+              afterResize.clips,
+              initialResizeStart.beforeGaps,
+              afterResize.gaps,
+            ),
+          );
       }
     };
 
@@ -687,7 +691,7 @@ const ClipInner: React.FC<ClipProps> = ({
     if (isSticker) return { backgroundColor: "#d97706" }; // Amber/yellow tone matching user screenshot
     if (isClipText) return {}; // Text clips use className colors
     if (isClipAudio)
-      return { backgroundColor: "var(--color-timeline-clip-audio)" };
+      return { backgroundColor: "var(--color-timeline-clip-audio-solid)" };
     if (isClipVideo) return { backgroundColor: "var(--color-accent)" };
     if (isClipImage)
       return { backgroundColor: "var(--color-timeline-clip-video)" };
@@ -708,7 +712,7 @@ const ClipInner: React.FC<ClipProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       onContextMenu={handleContextMenu}
-      className={`absolute rounded-sm h-full overflow-hidden border ${trackToneClass} ${selected ? "border-white" : "border-transparent"} ${active ? "ring-1 ring-inset ring-accent/70" : ""} ${isResizing ? (isRippleResize ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
+      className={`absolute rounded-[1px] h-full overflow-hidden border ${trackToneClass} ${selected ? "border-white" : "border-transparent"} ${active ? "ring-1 ring-inset ring-accent/70" : ""} ${isResizing ? (isRippleResize ? "ring-2 ring-yellow-500" : "ring-2 ring-cyan-500") : ""} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
