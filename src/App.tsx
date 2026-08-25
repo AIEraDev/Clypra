@@ -337,6 +337,7 @@ const App = () => {
         transitions: normalized.transitions,
         gaps: normalized.gaps,
         markers: normalized.markers,
+        mainVideoTrackId: normalized.mainVideoTrackId,
       });
 
       if (isRecoveryCopy) {
