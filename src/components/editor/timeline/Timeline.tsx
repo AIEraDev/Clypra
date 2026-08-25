@@ -28,11 +28,14 @@ import {
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
 import {
   TIMELINE_TRACK_LABEL_WIDTH_PX,
+  TIMELINE_CLIP_START_OFFSET_PX,
   getTimelineLabelColumnWidth,
   getTimelineLaneWidth,
   getTimelineMaxScrollLeft,
-  timeToPixel,
+  getTimelineLaneContentX,
   pixelToTime,
+  timelinePixelToTime,
+  timelineTimeToPixel,
   getTimelineLaneClientX,
 } from "@/lib/timeline/timelineViewport";
 import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
@@ -123,8 +126,9 @@ export const Timeline: React.FC = () => {
       const container = containerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      const clickedTime = pixelToTime(
-        getTimelineLaneClientX(e.clientX, rect.left, hasClips) + scrollLeft,
+      const clickedTime = timelinePixelToTime(
+        getTimelineLaneClientX(e.clientX, rect.left, hasClips) +
+          scrollLeft,
         pixelsPerSecond,
       );
       setClipContextMenu(null);
@@ -285,7 +289,7 @@ export const Timeline: React.FC = () => {
       );
       if (effectiveViewportWidth <= 0) return;
 
-      const playheadX = time * pps;
+      const playheadX = timelineTimeToPixel(time, pps);
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
       const maxScrollLeft = getTimelineMaxScrollLeft(
@@ -349,7 +353,7 @@ export const Timeline: React.FC = () => {
     if (justStartedPlaying) {
       // read from ref so snap uses current zoom at play-start
       const pps = pixelsPerSecondRef.current;
-      const playheadX = Math.round(getPlaybackClock().time * pps);
+      const playheadX = timelineTimeToPixel(getPlaybackClock().time, pps);
       const leftEdge = container.scrollLeft;
       const rightEdge = leftEdge + effectiveViewportWidth;
       const canvasDuration = getTimelineCanvasDuration(duration);
@@ -379,7 +383,7 @@ export const Timeline: React.FC = () => {
       // immediately without restarting the RAF loop (which caused a ~16ms scroll gap).
       const pps = pixelsPerSecondRef.current;
       const liveTime = getPlaybackClock().time;
-      const playheadX = Math.round(liveTime * pps);
+      const playheadX = timelineTimeToPixel(liveTime, pps);
       const canvasDuration = getTimelineCanvasDuration(duration);
       const maxScrollLeft = getTimelineMaxScrollLeft(
         container.clientWidth,
@@ -546,7 +550,9 @@ export const Timeline: React.FC = () => {
   // canonical ruler range so the ruler/zoom never inherit source duration.
   const contentEnd = hasClips ? duration : 0;
   const canvasDuration = getTimelineCanvasDuration(contentEnd);
-  const contentWidth = Math.round(canvasDuration * pixelsPerSecond);
+  const contentWidth =
+    Math.round(canvasDuration * pixelsPerSecond) +
+    TIMELINE_CLIP_START_OFFSET_PX;
 
   const seekFromPointer = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -565,13 +571,13 @@ export const Timeline: React.FC = () => {
       if (!container) return;
 
       const rect = container.getBoundingClientRect();
-      const labelColumnWidth = getTimelineLabelColumnWidth(hasClips);
-      const x =
-        event.clientX - rect.left - labelColumnWidth + container.scrollLeft;
-      const time = Math.max(
-        0,
-        Math.min(pixelToTime(x, pixelsPerSecond), duration),
+      const x = getTimelineLaneContentX(
+        event.clientX,
+        rect.left,
+        container.scrollLeft,
+        hasClips,
       );
+      const time = Math.max(0, Math.min(pixelToTime(x, pixelsPerSecond), duration));
 
       const frameRate = getPlaybackClock().frameRate;
       transportSeek(clampAndSnapProgramTime(time, duration, frameRate));
@@ -688,12 +694,14 @@ export const Timeline: React.FC = () => {
                 height: "24px",
                 width: `${contentWidth}px`,
                 borderBottom: "1px solid var(--color-timeline-track-border)",
+                borderLeft: "1px solid var(--clypra-border-default)",
               }}
             >
               <TimelineRuler
                 pixelsPerSecond={pixelsPerSecond}
                 scrollLeft={scrollLeft}
                 sequenceDuration={contentEnd}
+                startOffset={TIMELINE_CLIP_START_OFFSET_PX}
               />
             </div>
           )}
@@ -785,6 +793,9 @@ export const Timeline: React.FC = () => {
                         style={{
                           width: `${contentWidth}px`,
                           height: `${visualTrack.height}px`,
+                          paddingLeft: `${TIMELINE_CLIP_START_OFFSET_PX}px`,
+                          background: "var(--clypra-surface-workspace)",
+                          borderLeft: "1px solid var(--clypra-border-default)",
                         }}
                       >
                         <Track
@@ -875,7 +886,7 @@ export const Timeline: React.FC = () => {
 
               {snapGuides.map((guide, index) => {
                 const guideLeft =
-                  timeToPixel(guide.time, pixelsPerSecond) +
+                  timelineTimeToPixel(guide.time, pixelsPerSecond) +
                   getTimelineLabelColumnWidth(hasClips);
                 const guideColor =
                   guide.type === "playhead"

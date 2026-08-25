@@ -26,10 +26,10 @@ export const ClipDragLayer: React.FC = () => {
 
   // Determine background color based on media asset type
   const getBackgroundColor = () => {
-    if (!mediaAsset) return "var(--color-video-clip)";
-    if (mediaAsset.type === "audio") return "var(--color-audio-clip)";
-    if (mediaAsset.type === "video") return "var(--color-video-clip)";
-    return "var(--color-text-clip)"; // image
+    if (!mediaAsset) return "var(--clypra-clip-video-bg)";
+    if (mediaAsset.type === "audio") return "var(--clypra-clip-audio-bg)";
+    if (mediaAsset.type === "video") return "var(--clypra-clip-video-bg)";
+    return "var(--clypra-clip-image-bg)";
   };
 
   return (

@@ -8,8 +8,11 @@ import { Clip } from "./Clip";
 import { GapIndicator } from "./GapIndicator";
 import { TransitionIndicator } from "./TransitionIndicator";
 import { handleDropOnTrack } from "@/lib/timeline/timelineUtils";
-import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
-import { getTimelineLaneClientX } from "@/lib/timeline/timelineViewport";
+import {
+  timeToPixel,
+  pixelToTime,
+  getTimelineLaneContentX,
+} from "@/lib/timeline/timelineViewport";
 import { calculateDepartureClosurePositions } from "@/lib/timeline/clipPositions";
 import { resolveInsertEdit } from "@/lib/timeline/insertEdit";
 import { resolveClipDuration } from "@/lib/timeline/timelineClip";
@@ -112,8 +115,12 @@ const TrackInner: React.FC<TrackProps> = ({
         if (!offset || !container) return;
         const rect = container.getBoundingClientRect();
         const requestedTime = pixelToTime(
-          getTimelineLaneClientX(offset.x, rect.left, allClips.length > 0) +
+          getTimelineLaneContentX(
+            offset.x,
+            rect.left,
             scrollLeft,
+            allClips.length > 0,
+          ),
           pixelsPerSecond,
         );
 
@@ -303,8 +310,12 @@ const TrackInner: React.FC<TrackProps> = ({
     if (!container) return;
     const rect = container.getBoundingClientRect();
     const clickedTime = pixelToTime(
-      getTimelineLaneClientX(e.clientX, rect.left, allClips.length > 0) +
+      getTimelineLaneContentX(
+        e.clientX,
+        rect.left,
         scrollLeft,
+        allClips.length > 0,
+      ),
       pixelsPerSecond,
     );
     onTrackContextMenu?.(e, track.id, Math.max(0, clickedTime));

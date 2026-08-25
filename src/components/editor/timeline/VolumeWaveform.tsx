@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from "react";
-import { getThemeAccentRgb } from "@/lib/utils/canvasUtils";
 import type { AudioFadeCurve, AudioKeyframe } from "@/types";
 import { evaluateAudioKeyframes, evaluateFadeCurve } from "@/core/audio/effectiveAudioState";
 import { useWaveformData } from "./useWaveformData";
@@ -25,16 +24,13 @@ const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
 function getVisibleWaveColor(): string {
-  const accent = getThemeAccentRgb();
-  const luminance =
-    (0.2126 * accent.r + 0.7152 * accent.g + 0.0722 * accent.b) / 255;
-
-  // The clip body uses the accent in several themes. Use a bright cool tint
-  // on dark accents (including the default purple) so the sticks do not
-  // disappear into the clip, and a dark navy on unusually light accents.
-  return luminance < 0.52
-    ? "rgba(213, 250, 255, 0.9)"
-    : "rgba(20, 35, 62, 0.78)";
+  if (typeof document !== "undefined") {
+    const waveColor = getComputedStyle(document.documentElement)
+      .getPropertyValue("--clypra-clip-audio-wave")
+      .trim();
+    if (waveColor) return waveColor;
+  }
+  return "transparent";
 }
 
 export function getKeyframedVolume(

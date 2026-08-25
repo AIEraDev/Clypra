@@ -73,7 +73,9 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({ audioPath, c
 
     // Read theme accent color
     const accentRgb = getThemeAccentRgb();
-    const color = `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.95)`;
+    const color = accentRgb
+      ? `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.95)`
+      : "transparent";
 
     // Use professional dense bar renderer with logical dimensions
     drawProfessionalWaveform(canvas, waveformData, color, logicalW, logicalH);

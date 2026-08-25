@@ -672,9 +672,9 @@ const ClipInner: React.FC<ClipProps> = ({
           ? "clip-kind-title"
           : "clip-kind-text";
     }
-    if (isClipAudio) return "clip-kind-audio";
-    if (isClipVideo) return "clip-kind-video";
-    if (isClipImage) return "clip-kind-image";
+    if (isClipAudio) return "clip-kind-audio bg-timeline-clip-audio";
+    if (isClipVideo) return "clip-kind-video bg-timeline-clip-video";
+    if (isClipImage) return "clip-kind-image bg-timeline-clip-image";
     return "";
   };
 
