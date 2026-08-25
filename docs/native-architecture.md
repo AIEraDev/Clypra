@@ -53,6 +53,16 @@ non-silent frame counts, and output-device status. This identifies the owning
 boundary—clip discovery/install, timeline activation, decode/envelope/mixing,
 callback handoff, or device routing—without creating a second playback graph.
 
+### Export audio routing
+
+The native cut-only export path is eligible only for video-only timeline
+composition. It can preserve audio embedded in the source video files, but its
+native plan does not carry independent timeline audio clips. If an active
+audio-kind clip, audio asset, or explicit `audioPath` is present, native
+eligibility is rejected and the compositor export path is used. That path calls
+`getActiveAudioClips()` and passes the complete standalone audio mix to FFmpeg,
+including timeline position, trims, volume, fades, and automation.
+
 ### Derived audio media
 
 Audio extraction is not an automatic fallback for video-backed clips. If it is
