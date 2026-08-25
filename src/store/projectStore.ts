@@ -27,7 +27,7 @@ import { create } from "zustand";
 import { platform } from "@/core/platform";
 import type { Project, MediaAsset, TransitionTimelineItem, TimelineMarker } from "@/types";
 import type { Gap } from "@/types/gap";
-import { MAX_PROJECT_NAME_LENGTH } from "@/types";
+import { AUDIO_MODEL_VERSION, MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toRustProject, type ProjectPersistenceSnapshot } from "@/types/serialization";
 import { generateId } from "@/lib/utils/id";
 import { convertRawConfigToDefinition } from "@/features/text-effects/lib/definitionConversion";
@@ -309,6 +309,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       frameRate,
       duration: 0,
       timelineSchemaVersion: 1,
+      audioModelVersion: AUDIO_MODEL_VERSION,
     };
 
     set({ project, mediaAssets: [] });

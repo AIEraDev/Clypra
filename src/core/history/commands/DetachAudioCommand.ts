@@ -3,6 +3,7 @@ import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import { generateId } from "@/lib/utils/id";
 import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
+import { getClipAudioProperties } from "@/types/audio";
 
 interface TimelineState {
   tracks: Track[];
@@ -48,6 +49,14 @@ export class DetachAudioCommand implements Command {
           height: TRACK_TYPE_CONFIG.audio.height,
         };
 
+    const detachedAudio = getClipAudioProperties({
+      ...this.sourceClip,
+      kind: "audio",
+      audioPath: sourcePath,
+      detachedFromClipId: this.sourceClip.id,
+      audio: this.sourceClip.audio,
+    });
+
     this.audioClip = {
       ...this.sourceClip,
       id: generateId("clip"),
@@ -56,6 +65,11 @@ export class DetachAudioCommand implements Command {
       kind: "audio",
       audioPath: sourcePath,
       detachedFromClipId: this.sourceClip.id,
+      audio: {
+        ...detachedAudio,
+        origin: "detached",
+        linkState: "detached",
+      },
       // Audio clips do not participate in the visual compositor.
       x: 0,
       y: 0,

@@ -3,6 +3,7 @@ import type { Clip, MediaAsset } from "../../types";
 import { generateId } from "../utils/id";
 import { DEFAULT_PLACEMENT_POLICY } from "./placementPolicy";
 import type { ClipConform } from "@clypra-studio/engine";
+import { normalizeClipAudioProperties } from "@/types/audio";
 
 export const resolveClipDuration = (asset: MediaAsset): number => {
   if (asset.type === "image") return DEFAULT_STILL_DURATION_SECONDS;
@@ -224,6 +225,9 @@ export const createClipFromAsset = ({ asset, trackId, startTime, width, height, 
       ...(isSticker && { stickerImagePath: asset.path }),
     }),
     ...(audioPath && asset.type === "audio" && { audioPath }), // Include audioPath for audio clips
+    ...((asset.type === "audio" || asset.type === "video") && {
+      audio: normalizeClipAudioProperties({ kind, audioPath, volume: 1 }),
+    }),
   } as any;
 };
 
@@ -237,6 +241,7 @@ export function createAudioClip(params: {
   startTime: number;
   duration: number;
   volume?: number;
+  origin?: "standalone" | "recorded" | "compound";
 }): Clip {
   const finalAudioPath = params.audioPath || params.path;
   return {
@@ -245,12 +250,18 @@ export function createAudioClip(params: {
     name: params.name || "Audio Track",
     trackId: params.trackId,
     mediaId: params.mediaId || "voiceover-audio",
-    audioPath: params.audioPath,
+    audioPath: finalAudioPath,
     startTime: params.startTime,
     duration: params.duration,
     trimIn: 0,
     trimOut: params.duration,
     volume: params.volume ?? 1,
+    audio: normalizeClipAudioProperties({
+      kind: "audio",
+      audioPath: finalAudioPath,
+      volume: params.volume ?? 1,
+      audio: params.origin ? { origin: params.origin } : undefined,
+    }),
     x: 0,
     y: 0,
     width: 0,
