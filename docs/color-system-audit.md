@@ -6,8 +6,8 @@ This is the review contract for the color system.
 
 | Source | Owns |
 | --- | --- |
-| `UI_THEMES` in `src/store/settingsStore.ts` | Application chrome and editor structure |
-| `CLIP_PALETTES` in `src/store/settingsStore.ts` | Every clip-specific color value |
+| `UI_THEMES` in `src/store/themeRegistry.ts` | Application chrome and editor structure |
+| `CLIP_PALETTES` in `src/store/themeRegistry.ts` | Every clip-specific color value |
 | `applyTheme()` | The single UI + clip composition and canonical variable write |
 | `src/index.css` | Semantic variable pointers and structural clip rules, never clip literals |
 | `CLYPRA_COLOR_TOKENS` in `src/constants/colors.ts` | Typed runtime `var(--clypra-*)` references |

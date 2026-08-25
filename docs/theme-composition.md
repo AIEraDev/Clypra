@@ -12,9 +12,10 @@ colors into the UI theme.
 
 ## Single clip source of truth
 
-`src/store/settingsStore.ts` is the only place where clip color values are
-defined. `CLIP_PALETTES` is typed with `ClipPaletteTokens`, and every palette
-must provide exactly the roles listed by `CLIP_PALETTE_TOKEN_KEYS`.
+`src/store/themeRegistry.ts` is the only place where theme and clip color
+values are defined. `CLIP_PALETTES` is typed with `ClipPaletteTokens`, and
+every palette must provide exactly the roles listed by
+`CLIP_PALETTE_TOKEN_KEYS`.
 
 The roles cover media bodies, media edges and text, filmstrip and waveform
 visuals, translucent envelope fills and smooth envelope lines, keyframes,
@@ -31,6 +32,22 @@ component or to `UI_THEMES`.
 The old `--color-video-clip`, `--color-audio-clip`, and
 `--color-text-clip` names are compatibility aliases only. They contain no
 palette values and are never entries in `CLIP_PALETTES`.
+
+## Settings store organization
+
+The settings modules have deliberately narrow responsibilities:
+
+- `src/store/settingsTypes.ts` contains persisted state types and value
+  unions. It has no runtime behavior.
+- `src/store/themeRegistry.ts` contains UI themes, clip palettes, font
+  metadata, validators, and the CSS variable composition functions.
+- `src/store/settingsStore.ts` contains the Zustand state, actions,
+  persistence, migration, and rehydration. It re-exports the registry so
+  existing imports remain stable.
+
+New settings state belongs in `settingsStore.ts` and `settingsTypes.ts`; new
+theme or clip roles belong in `themeRegistry.ts`. Do not put palette values or
+CSS application logic back into the state store.
 
 ## Runtime flow
 
@@ -50,8 +67,8 @@ theme into both `uiTheme` and `clipPalette` when no separate palette exists.
 
 ## Adding a palette
 
-1. Add its id to `ClipPalette`, `CLIP_PALETTE_IDS`, and
-   `DEFAULT_CLIP_PALETTE_BY_THEME` when appropriate.
+1. Add its id to `ClipPalette`, `CLIP_PALETTE_IDS`, and `UI_THEME_IDS` when it
+   is also a UI theme.
 2. Add one fully typed value block to `CLIP_PALETTES`.
 3. Add metadata to `CLIP_PALETTE_META`.
 
