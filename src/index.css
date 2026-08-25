@@ -28,21 +28,45 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-bg: #0f0f0f;
-  --color-surface: #1a1a1a;
-  --color-surface-raised: #242424;
-  --color-surface-panel: #161616;
-  --color-surface-floating: #20242a;
-  --color-border: #2e2e2e;
-  --color-border-soft: #343b45;
-  --color-accent: #6c63ff;
-  --color-accent-soft: #8b84ff;
-  --color-text-primary: #f0f0f0;
-  --color-text-muted: #666666;
-  --color-danger: #e05252;
-  --color-video-clip: #2d2340;
-  --color-audio-clip: #1a3040;
-  --color-text-clip: #3d3010;
+  --color-bg: #0b0e12;
+  --color-surface: #12171d;
+  --color-surface-raised: #1a2028;
+  --color-surface-panel: #0f141a;
+  --color-surface-floating: #1c2530;
+  --color-border: #27313b;
+  --color-border-soft: #35414e;
+  --color-accent: #5ab8d4;
+  --color-accent-soft: #86cde0;
+  --color-text-primary: #edf2f4;
+  --color-text-muted: #788991;
+  --color-danger: #e26061;
+  --color-video-clip: #173745;
+  --color-audio-clip: #16382f;
+  --color-text-clip: #5b3b2e;
+  --color-app: var(--clypra-surface-app);
+  --color-workspace: var(--clypra-surface-workspace);
+  --color-surface-hover: var(--clypra-surface-hover);
+  --color-surface-active: var(--clypra-surface-active);
+  --color-surface-input: var(--clypra-surface-input);
+  --color-text-secondary: var(--clypra-text-secondary);
+  --color-text-tertiary: var(--clypra-text-tertiary);
+  --color-text-disabled: var(--clypra-text-disabled);
+  --color-focus: var(--clypra-interaction-focus);
+  --color-status-success: var(--clypra-status-success);
+  --color-status-warning: var(--clypra-status-warning);
+  --color-status-error: var(--clypra-status-error);
+  --color-status-info: var(--clypra-status-info);
+  --color-editor-playhead: var(--clypra-editor-playhead);
+  --color-editor-selection: var(--clypra-editor-selection);
+  --color-editor-snap: var(--clypra-editor-snap);
+  --color-editor-drop: var(--clypra-editor-drop);
+  --color-clypra-clip-video: var(--clypra-clip-video-bg);
+  --color-clypra-clip-audio: var(--clypra-clip-audio-bg);
+  --color-clypra-clip-image: var(--clypra-clip-image-bg);
+  --color-clypra-clip-text: var(--clypra-clip-text-bg);
+  --color-clypra-clip-effect: var(--clypra-clip-effect-bg);
+  --color-clypra-clip-compound: var(--clypra-clip-compound-bg);
+  --color-clypra-clip-sticker: var(--clypra-clip-sticker-bg);
 }
 html,
 body,
@@ -72,6 +96,50 @@ body,
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
   --safe-area-right: env(safe-area-inset-right, 0px);
+
+  /* Clypra semantic color layer. Theme presets feed the legacy source
+     variables above; components consume these relationships instead. */
+  --clypra-surface-app: var(--color-bg, #0b0e12);
+  --clypra-surface-workspace: var(--color-surface-panel, #0f141a);
+  --clypra-surface-panel: var(--color-surface, #12171d);
+  --clypra-surface-elevated: var(--color-surface-raised, #1a2028);
+  --clypra-surface-floating: var(--color-surface-floating, #1c2530);
+  --clypra-surface-input: color-mix(in srgb, var(--clypra-surface-elevated) 78%, #000 22%);
+  --clypra-surface-hover: color-mix(in srgb, var(--clypra-surface-elevated) 78%, #fff 22%);
+  --clypra-surface-active: color-mix(in srgb, var(--clypra-surface-elevated) 68%, var(--color-accent) 32%);
+  --clypra-text-primary: var(--color-text-primary, #edf2f4);
+  --clypra-text-secondary: color-mix(in srgb, var(--clypra-text-primary) 72%, var(--clypra-surface-app) 28%);
+  --clypra-text-tertiary: color-mix(in srgb, var(--clypra-text-primary) 54%, var(--clypra-surface-app) 46%);
+  --clypra-text-disabled: color-mix(in srgb, var(--clypra-text-primary) 36%, var(--clypra-surface-app) 64%);
+  --clypra-interaction-hover: color-mix(in srgb, var(--clypra-surface-elevated) 74%, #fff 26%);
+  --clypra-interaction-active: color-mix(in srgb, var(--color-accent) 24%, var(--clypra-surface-elevated) 76%);
+  --clypra-interaction-selected: color-mix(in srgb, var(--color-accent) 20%, var(--clypra-surface-elevated) 80%);
+  --clypra-interaction-focus: var(--color-accent, #5ab8d4);
+  --clypra-border-subtle: color-mix(in srgb, var(--color-border) 64%, transparent);
+  --clypra-border-default: var(--color-border, #27313b);
+  --clypra-border-strong: var(--color-border-soft, #35414e);
+  --clypra-status-success: #4fbd8a;
+  --clypra-status-warning: #d6a85b;
+  --clypra-status-error: var(--color-danger, #e26061);
+  --clypra-status-info: #6ea8d8;
+  --clypra-editor-playhead: #f1b66a;
+  --clypra-editor-selection: var(--color-accent, #5ab8d4);
+  --clypra-editor-snap: #67c9a1;
+  --clypra-editor-drop: var(--color-accent, #5ab8d4);
+
+  /* Clip families share a dark tonal range; identity comes from controlled
+     hue shifts, while selection is handled globally by the editor accent. */
+  --clypra-clip-video-bg: var(--color-timeline-clip-video, var(--color-video-clip, #173745));
+  --clypra-clip-audio-bg: var(--color-timeline-clip-audio, var(--color-audio-clip, #16382f));
+  --clypra-clip-image-bg: color-mix(in srgb, var(--clypra-clip-video-bg) 68%, #705f9c 32%);
+  --clypra-clip-text-bg: var(--color-timeline-text-clip-bg, #5b3b2e);
+  --clypra-clip-caption-bg: color-mix(in srgb, var(--color-accent) 42%, #3e315c 58%);
+  --clypra-clip-title-bg: color-mix(in srgb, var(--clypra-status-warning) 42%, #4b3329 58%);
+  --clypra-clip-effect-bg: color-mix(in srgb, var(--color-accent) 20%, var(--clypra-surface-elevated) 80%);
+  --clypra-clip-compound-bg: color-mix(in srgb, var(--color-accent) 40%, var(--clypra-surface-elevated) 60%);
+  --clypra-clip-sticker-bg: color-mix(in srgb, var(--clypra-status-warning) 42%, #4d3523 58%);
+  --clypra-clip-fg: #f3f7f8;
+  --clypra-clip-muted-fg: color-mix(in srgb, var(--clypra-clip-fg) 72%, transparent);
 }
 body {
   margin: 0;
@@ -99,7 +167,7 @@ textarea,
 
 /* Accessibility: Visible focus indicators */
 *:focus-visible {
-  outline: 2px solid #6c63ff;
+  outline: 2px solid var(--clypra-interaction-focus);
   outline-offset: 2px;
 }
 
@@ -107,14 +175,14 @@ textarea,
 button:focus-visible,
 [role="button"]:focus-visible,
 [role="slider"]:focus-visible {
-  outline: 2px solid #6c63ff;
+  outline: 2px solid var(--clypra-interaction-focus);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(108, 99, 255, 0.2);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--clypra-interaction-focus) 22%, transparent);
 }
 
 /* Focus for range inputs */
 input[type="range"]:focus-visible {
-  outline: 2px solid #6c63ff;
+  outline: 2px solid var(--clypra-interaction-focus);
   outline-offset: 2px;
 }
 
@@ -134,7 +202,7 @@ input[type="range"]:focus-visible {
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #2e2e2e #0f0f0f;
+    scrollbar-color: var(--clypra-border-strong) var(--clypra-surface-app);
   }
 
   .scrollbar-thin::-webkit-scrollbar {
@@ -143,16 +211,16 @@ input[type="range"]:focus-visible {
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
-    background: #0f0f0f;
+    background: var(--clypra-surface-app);
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: #2e2e2e;
+    background: var(--clypra-border-default);
     border-radius: 4px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: #3a3a3a;
+    background: var(--clypra-border-strong);
   }
 
   .checkerboard {
@@ -172,7 +240,7 @@ input[type="range"]:focus-visible {
 
   .waveform-bar {
     display: inline-block;
-    background: rgba(108, 99, 255, 0.3);
+    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
     border-radius: 1px;
     margin: 0 1px;
   }
@@ -415,104 +483,94 @@ input[type="range"]:focus-visible {
 }
 
 :root {
-  --background: #0f0f0f;
-  --foreground: #f0f0f0;
-  --card: #1a1a1a;
-  --card-foreground: #f0f0f0;
-  --popover: #1a1a1a;
-  --popover-foreground: #f0f0f0;
-  --primary: #6c63ff;
-  --primary-foreground: #ffffff;
-  --secondary: #242424;
-  --secondary-foreground: #f0f0f0;
-  --muted: #242424;
-  --muted-foreground: #666666;
-  --accent: #6c63ff;
-  --accent-foreground: #ffffff;
-  --destructive: #e05252;
-  --destructive-foreground: #ffffff;
-  --border: #2e2e2e;
-  --input: #2e2e2e;
-  --ring: #6c63ff;
-  --chart-1: #6c63ff;
-  --chart-2: #8b84ff;
-  --chart-3: #a9a4ff;
-  --chart-4: #c7c4ff;
-  --chart-5: #e5e3ff;
+  --background: var(--clypra-surface-app);
+  --foreground: var(--clypra-text-primary);
+  --card: var(--clypra-surface-panel);
+  --card-foreground: var(--clypra-text-primary);
+  --popover: var(--clypra-surface-floating);
+  --popover-foreground: var(--clypra-text-primary);
+  --primary: var(--color-accent);
+  --primary-foreground: var(--clypra-surface-app);
+  --secondary: var(--clypra-surface-elevated);
+  --secondary-foreground: var(--clypra-text-primary);
+  --muted: var(--clypra-surface-elevated);
+  --muted-foreground: var(--clypra-text-secondary);
+  --accent: var(--color-accent);
+  --accent-foreground: var(--clypra-surface-app);
+  --destructive: var(--clypra-status-error);
+  --destructive-foreground: var(--clypra-text-primary);
+  --border: var(--clypra-border-default);
+  --input: var(--clypra-surface-input);
+  --ring: var(--clypra-interaction-focus);
+  --chart-1: var(--color-accent);
+  --chart-2: var(--clypra-status-info);
+  --chart-3: var(--clypra-status-success);
+  --chart-4: var(--clypra-status-warning);
+  --chart-5: var(--clypra-status-error);
   --radius: 0.5rem;
-  --sidebar: #1a1a1a;
-  --sidebar-foreground: #f0f0f0;
-  --sidebar-primary: #6c63ff;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #242424;
-  --sidebar-accent-foreground: #f0f0f0;
-  --sidebar-border: #2e2e2e;
-  --sidebar-ring: #6c63ff;
+  --sidebar: var(--clypra-surface-panel);
+  --sidebar-foreground: var(--clypra-text-primary);
+  --sidebar-primary: var(--color-accent);
+  --sidebar-primary-foreground: var(--clypra-surface-app);
+  --sidebar-accent: var(--clypra-surface-elevated);
+  --sidebar-accent-foreground: var(--clypra-text-primary);
+  --sidebar-border: var(--clypra-border-default);
+  --sidebar-ring: var(--clypra-interaction-focus);
   --layout-gap: 0.5rem;
   --layout-radius: 0.35rem;
   --elev-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
 }
 
 .dark {
-  --background: #0f0f0f;
-  --foreground: #f0f0f0;
-  --card: #1a1a1a;
-  --card-foreground: #f0f0f0;
-  --popover: #1a1a1a;
-  --popover-foreground: #f0f0f0;
-  --primary: #6c63ff;
-  --primary-foreground: #ffffff;
-  --secondary: #242424;
-  --secondary-foreground: #f0f0f0;
-  --muted: #242424;
-  --muted-foreground: #666666;
-  --accent: #6c63ff;
-  --accent-foreground: #ffffff;
-  --destructive: #e05252;
-  --destructive-foreground: #ffffff;
-  --border: #2e2e2e;
-  --input: #2e2e2e;
-  --ring: #6c63ff;
-  --chart-1: #6c63ff;
-  --chart-2: #8b84ff;
-  --chart-3: #a9a4ff;
-  --chart-4: #c7c4ff;
-  --chart-5: #e5e3ff;
-  --sidebar: #1a1a1a;
-  --sidebar-foreground: #f0f0f0;
-  --sidebar-primary: #6c63ff;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #242424;
-  --sidebar-accent-foreground: #f0f0f0;
-  --sidebar-border: #2e2e2e;
-  --sidebar-ring: #6c63ff;
+  --background: var(--clypra-surface-app);
+  --foreground: var(--clypra-text-primary);
+  --card: var(--clypra-surface-panel);
+  --card-foreground: var(--clypra-text-primary);
+  --popover: var(--clypra-surface-floating);
+  --popover-foreground: var(--clypra-text-primary);
+  --primary: var(--color-accent);
+  --primary-foreground: var(--clypra-surface-app);
+  --secondary: var(--clypra-surface-elevated);
+  --secondary-foreground: var(--clypra-text-primary);
+  --muted: var(--clypra-surface-elevated);
+  --muted-foreground: var(--clypra-text-secondary);
+  --accent: var(--color-accent);
+  --accent-foreground: var(--clypra-surface-app);
+  --destructive: var(--clypra-status-error);
+  --destructive-foreground: var(--clypra-text-primary);
+  --border: var(--clypra-border-default);
+  --input: var(--clypra-surface-input);
+  --ring: var(--clypra-interaction-focus);
+  --chart-1: var(--color-accent);
+  --chart-2: var(--clypra-status-info);
+  --chart-3: var(--clypra-status-success);
+  --chart-4: var(--clypra-status-warning);
+  --chart-5: var(--clypra-status-error);
+  --sidebar: var(--clypra-surface-panel);
+  --sidebar-foreground: var(--clypra-text-primary);
+  --sidebar-primary: var(--color-accent);
+  --sidebar-primary-foreground: var(--clypra-surface-app);
+  --sidebar-accent: var(--clypra-surface-elevated);
+  --sidebar-accent-foreground: var(--clypra-text-primary);
+  --sidebar-border: var(--clypra-border-default);
+  --sidebar-ring: var(--clypra-interaction-focus);
 }
 
 @layer components {
   .app-shell {
-    background:
-      radial-gradient(
-        100% 120% at 50% 0%,
-        rgba(79, 184, 255, 0.08) 0%,
-        transparent 45%
-      ),
-      linear-gradient(180deg, #0f1115 0%, #0e1013 100%);
+    background: var(--clypra-surface-app);
   }
 
   .panel-shell {
-    background: linear-gradient(180deg, #1a1f25 0%, #171b20 100%);
-    border: 1px solid #2e3540;
+    background: var(--clypra-surface-panel);
+    border: 1px solid var(--clypra-border-default);
     border-radius: var(--layout-radius);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
 
   .panel-head {
-    border-bottom: 1px solid #2d3440;
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.015) 0%,
-      rgba(255, 255, 255, 0) 100%
-    );
+    border-bottom: 1px solid var(--clypra-border-default);
+    background: color-mix(in srgb, var(--clypra-surface-panel) 92%, #fff 8%);
   }
 
   .elev-soft {
@@ -523,8 +581,51 @@ input[type="range"]:focus-visible {
     letter-spacing: 0.02em;
     font-size: 12px;
     font-weight: 600;
-    color: #9aa6b4;
+    color: var(--clypra-text-secondary);
     text-transform: uppercase;
+  }
+
+  /* Semantic clip families. The base hue identifies media type; selection,
+     focus and drag states remain shared editor interactions. */
+  .clip-kind-video,
+  .clip-kind-image,
+  .clip-kind-audio,
+  .clip-kind-text,
+  .clip-kind-caption,
+  .clip-kind-title,
+  .clip-kind-effect,
+  .clip-kind-compound,
+  .clip-kind-sticker {
+    color: var(--clypra-clip-fg);
+    border-color: color-mix(in srgb, currentColor 32%, transparent);
+  }
+
+  .clip-kind-video { background: var(--clypra-clip-video-bg); }
+  .clip-kind-image { background: var(--clypra-clip-image-bg); }
+  .clip-kind-audio { background: var(--clypra-clip-audio-bg); }
+  .clip-kind-text { background: var(--clypra-clip-text-bg); }
+  .clip-kind-caption { background: var(--clypra-clip-caption-bg); }
+  .clip-kind-title { background: var(--clypra-clip-title-bg); }
+  .clip-kind-effect { background: var(--clypra-clip-effect-bg); }
+  .clip-kind-compound { background: var(--clypra-clip-compound-bg); }
+  .clip-kind-sticker { background: var(--clypra-clip-sticker-bg); }
+
+  [data-clip-selected="true"] {
+    border-color: var(--clypra-interaction-focus) !important;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--clypra-interaction-focus) 60%, transparent);
+  }
+
+  [data-clip-disabled="true"] {
+    filter: saturate(0.25);
+    opacity: 0.56;
+  }
+
+  .track-locked-overlay {
+    background: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--clypra-text-tertiary) 8%, transparent) 0 8px,
+      color-mix(in srgb, var(--clypra-surface-app) 16%, transparent) 8px 16px
+    );
   }
 }
 
