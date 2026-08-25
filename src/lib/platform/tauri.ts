@@ -183,6 +183,22 @@ export async function renderNativePreviewFrame(
   return invoke<ArrayBuffer>("render_native_preview_frame", args);
 }
 
+/** Decode one native still-image frame as alpha-preserving RGBA8 pixels. */
+export async function decodeNativeRgbaFrame(
+  sourcePath: string,
+  width: number,
+  height: number,
+): Promise<ArrayBuffer> {
+  if (!isTauriRuntime()) {
+    throw new Error("decodeNativeRgbaFrame requires the Tauri runtime");
+  }
+  return invoke<ArrayBuffer>("decode_image_rgba", {
+    path: toNativePath(sourcePath),
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+  });
+}
+
 export interface NativeProjectSolidLayer {
   color: [number, number, number, number];
   x: number;
