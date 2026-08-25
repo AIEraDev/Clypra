@@ -1,4 +1,4 @@
-import { PlatformInterface, VideoMetadata, SelectedFile } from "../platform";
+import { PlatformInterface, VideoMetadata, SelectedFile, ProjectSaveResult } from "../platform";
 
 export class CapacitorPlatformAdapter implements PlatformInterface {
   type = "capacitor" as const;
@@ -185,9 +185,9 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
     }
   }
 
-  async saveProject(payload: string): Promise<void> {
+  async saveProject(payload: string): Promise<ProjectSaveResult> {
+    const project = JSON.parse(payload);
     try {
-      const project = JSON.parse(payload);
       const { Filesystem, Directory, Encoding } = await this.getFilesystem();
 
       // Save project payload
@@ -204,9 +204,19 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
       const updatedList = recentProjects.filter((p: any) => p.id !== project.id);
       updatedList.unshift(project);
       localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
+
+      const saved = await this.loadProject(`projects/${project.id}.json`);
+      if (saved !== payload) {
+        throw new Error("Project verification failed after saving to device storage");
+      }
+
+      return {
+        projectId: project.id,
+        bytesWritten: new TextEncoder().encode(payload).byteLength,
+        verified: true,
+      };
     } catch (err) {
       console.warn("Capacitor Filesystem save failed, saving to localStorage:", err);
-      const project = JSON.parse(payload);
       localStorage.setItem(`clypra_project_${project.id}`, payload);
 
       const fallback = localStorage.getItem("clypra_recent_projects");
@@ -214,6 +224,16 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
       const updatedList = recentProjects.filter((p: any) => p.id !== project.id);
       updatedList.unshift(project);
       localStorage.setItem("clypra_recent_projects", JSON.stringify(updatedList));
+
+      if (localStorage.getItem(`clypra_project_${project.id}`) !== payload) {
+        throw new Error("Project verification failed after fallback save");
+      }
+
+      return {
+        projectId: project.id,
+        bytesWritten: new TextEncoder().encode(payload).byteLength,
+        verified: true,
+      };
     }
   }
 

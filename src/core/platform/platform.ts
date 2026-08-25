@@ -14,6 +14,12 @@ export interface SelectedFile {
   size: number;
 }
 
+export interface ProjectSaveResult {
+  projectId: string;
+  bytesWritten: number;
+  verified: boolean;
+}
+
 export interface PlatformInterface {
   type: PlatformType;
   isTauri(): boolean;
@@ -34,7 +40,7 @@ export interface PlatformInterface {
   // Project Storage
   getRecentProjects(): Promise<any[]>;
   loadProject(path: string): Promise<string>;
-  saveProject(payload: string): Promise<void>;
+  saveProject(payload: string): Promise<ProjectSaveResult>;
   deleteProject(projectId: string): Promise<void>;
   renameProject(projectId: string, newName: string): Promise<void>;
 

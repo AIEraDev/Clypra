@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { PlatformInterface, VideoMetadata, SelectedFile } from "../platform";
+import { PlatformInterface, VideoMetadata, SelectedFile, ProjectSaveResult } from "../platform";
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://") || value.startsWith("https://");
 
@@ -88,11 +88,11 @@ export class TauriPlatformAdapter implements PlatformInterface {
     return invoke("load_project", { path });
   }
 
-  async saveProject(payload: string): Promise<void> {
+  async saveProject(payload: string): Promise<ProjectSaveResult> {
     const { invoke } = await import("@tauri-apps/api/core");
     // CRITICAL FIX: Rust command expects project_data parameter, not projectId/payload
     // See: src-tauri/src/commands/project.rs:22
-    await invoke("save_project", {
+    return invoke<ProjectSaveResult>("save_project", {
       projectData: payload,
     });
   }
