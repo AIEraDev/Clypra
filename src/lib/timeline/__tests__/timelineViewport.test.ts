@@ -1,14 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { getFitSequencePixelsPerSecond, getScrollLeftToRevealTime } from "../timelineViewport";
+import {
+  getFitSequencePixelsPerSecond,
+  getScrollLeftToRevealTime,
+  getTimelineLaneContentX,
+  timelinePixelToTime,
+  timelineTimeToPixel,
+} from "../timelineViewport";
 
 describe("timeline viewport editing helpers", () => {
+  it("keeps the timeline origin inside the deliberate label gap", () => {
+    expect(timelineTimeToPixel(0, 100)).toBe(20);
+    expect(timelinePixelToTime(20, 100)).toBe(0);
+    expect(getTimelineLaneContentX(180, 0, 0, true)).toBe(0);
+  });
+
   it("fits the full sequence into the lane after subtracting labels", () => {
-    expect(getFitSequencePixelsPerSecond(1160, 100, true)).toBe(10);
-    expect(getFitSequencePixelsPerSecond(1160, 10_000, true)).toBe(0.1);
+    expect(getFitSequencePixelsPerSecond(1160, 100, true)).toBe(9.8);
+    expect(getFitSequencePixelsPerSecond(1160, 10_000, true)).toBe(0.098);
   });
 
   it("clamps extremely long sequence fit to the supported overview floor", () => {
-    expect(getFitSequencePixelsPerSecond(1160, 10_000_000, true)).toBe(0.0001);
+    expect(getFitSequencePixelsPerSecond(1160, 10_000_000, true)).toBeCloseTo(0.0001, 8);
   });
 
   it("keeps visible edit points still and reveals offscreen edit points", () => {
@@ -32,6 +44,6 @@ describe("timeline viewport editing helpers", () => {
         viewportEndSeconds: 100,
         hasClips: true,
       }),
-    ).toBe(4150);
+    ).toBe(4170);
   });
 });

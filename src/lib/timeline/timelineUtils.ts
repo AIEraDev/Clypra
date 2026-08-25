@@ -15,7 +15,7 @@ import { autoAdaptSequenceForFirstVisualClip } from "./sequenceAutoAspect";
 import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime } from "./placementPolicy";
 import { generateId } from "@/lib/utils/id";
 import { resolveInsertEdit } from "./insertEdit";
-import { getTimelineLaneClientX, pixelToTime } from "./timelineViewport";
+import { getTimelineLaneContentX, pixelToTime } from "./timelineViewport";
 import { TRACK_TYPE_CONFIG, getSafeTrackInsertionIndex, isTrackBelowMainVideo } from "./trackTypeConfig";
 
 // Density configurations mapping zoom levels to extraction densities. Each configuration defines the time interval between thumbnails and the zoom range.
@@ -90,7 +90,19 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
   // The empty state has no ruler or track lane, so dropping the first asset
   // must have one deterministic result regardless of where inside the
   // invitation surface the pointer is released.
-  const dropTime = isEmptyTimeline ? 0 : offset && containerRect ? pixelToTime(offset.x - containerRect.left + scrollLeft, pixelsPerSecond) : 0;
+  const dropTime = isEmptyTimeline
+    ? 0
+    : offset && containerRect
+      ? pixelToTime(
+          getTimelineLaneContentX(
+            offset.x,
+            containerRect.left,
+            scrollLeft,
+            true,
+          ),
+          pixelsPerSecond,
+        )
+      : 0;
 
   const startTime = resolveClipStartTime({ intent: "drop", timelineEndTime: 0, dropTime });
 
@@ -157,7 +169,7 @@ export function handleDropOnTrack(item: DragItem, monitor: any, trackId: string)
   const offset = monitor.getClientOffset();
   const containerRect = document.getElementById("timeline-tracks-container")?.getBoundingClientRect();
 
-  const dropTime = offset && containerRect ? pixelToTime(getTimelineLaneClientX(offset.x, containerRect.left, timelineState.clips.length > 0) + scrollLeft, pixelsPerSecond) : 0;
+  const dropTime = offset && containerRect ? pixelToTime(getTimelineLaneContentX(offset.x, containerRect.left, scrollLeft, timelineState.clips.length > 0), pixelsPerSecond) : 0;
 
   const startTime = resolveClipStartTime({ intent: "drop", timelineEndTime: 0, dropTime });
 
