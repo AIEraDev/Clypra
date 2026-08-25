@@ -12,23 +12,26 @@ interface UpdateBannerProps {
  * dismiss or install without interrupting their workflow.
  */
 export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
-  const { status, updateInfo, downloadProgress, error, dismiss, installUpdate } =
+  const { status, updateInfo, downloadProgress, error, deferred, dismiss, later, downloadUpdate, applyUpdate } =
     updater;
 
   const [visible, setVisible] = useState(false);
 
   // Animate in when an update is available
   useEffect(() => {
-    if (status === "available") {
+    if ((status === "available" || status === "downloaded") && !deferred) {
       // Small delay for a smoother entrance
       const t = setTimeout(() => setVisible(true), 200);
       return () => clearTimeout(t);
-    } else if (status === "dismissed") {
+    } else if (status === "dismissed" || deferred) {
       setVisible(false);
     }
-  }, [status]);
+  }, [status, deferred]);
 
   const isDownloading = status === "downloading";
+  const isDownloaded = status === "downloaded";
+  const isApplying = status === "applying";
+  const canDownload = status === "available" || (status === "error" && !!updateInfo);
 
   // Don't render anything unless relevant
   if (
@@ -36,7 +39,8 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
     status === "checking" ||
     status === "up-to-date" ||
     status === "dismissed" ||
-    status === "error"
+    (status === "error" && !updateInfo) ||
+    (isDownloaded && deferred)
   ) {
     return null;
   }
@@ -122,7 +126,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
             position: "relative",
           }}
         >
-          {isDownloading ? (
+          {isDownloading || isApplying ? (
             <Download
               style={{ width: "16px", height: "16px", color: "#60a5fa" }}
             />
@@ -146,6 +150,10 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
           >
             {isDownloading
               ? `Downloading update… ${downloadProgress}%`
+              : isDownloaded
+                ? `Clypra ${updateInfo?.version} is ready to apply`
+                : isApplying
+                  ? "Preparing Clypra for restart…"
               : `Clypra ${updateInfo?.version} is available`}
           </p>
           <p
@@ -157,8 +165,12 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
             }}
           >
             {isDownloading
-              ? "The app will restart when complete"
-              : "A new version has been released on GitHub"}
+              ? "You can keep working while it downloads"
+              : isDownloaded
+                ? "Your project will be saved before the update is applied"
+                : isApplying
+                  ? "Saving your project and closing the active session"
+                  : "A new version has been released on GitHub"}
           </p>
           {/* Error fallback */}
           {error && (
@@ -175,12 +187,13 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
         </div>
 
         {/* Actions */}
-        {!isDownloading && (
+        {!isDownloading && !isApplying && (
           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+            {canDownload && (
             <button
-              id="update-banner-install-btn"
-              onClick={installUpdate}
-              title="Download and install update"
+              id="update-banner-download-btn"
+              onClick={downloadUpdate}
+              title="Download update without interrupting your session"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -213,13 +226,59 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ updater }) => {
                 ((e.currentTarget as HTMLButtonElement).style.transform = "")
               }
             >
-              Update
+              {isDownloaded ? "Restart and update" : "Download update"}
               <ArrowRight style={{ width: "12px", height: "12px" }} />
             </button>
+            )}
+
+            {isDownloaded && (
+              <button
+                id="update-banner-apply-btn"
+                onClick={applyUpdate}
+                title="Save the project and restart with the update"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  padding: "6px 14px",
+                  borderRadius: "12px",
+                  fontSize: "11.5px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  border: "none",
+                  background: "linear-gradient(135deg, var(--color-accent, #60a5fa) 0%, #a78bfa 100%)",
+                  color: "#fff",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Restart and update
+                <ArrowRight style={{ width: "12px", height: "12px" }} />
+              </button>
+            )}
+
+            {isDownloaded && (
+              <button
+                id="update-banner-later-btn"
+                onClick={later}
+                title="Keep working and apply the update later"
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: "12px",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "var(--color-text-muted, #94a3b8)",
+                }}
+              >
+                Later
+              </button>
+            )}
 
             <button
               id="update-banner-dismiss-btn"
-              onClick={dismiss}
+              onClick={isDownloaded ? later : dismiss}
               title="Dismiss update notification"
               style={{
                 display: "flex",
