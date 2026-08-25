@@ -297,6 +297,22 @@ describe("Z-Order and Track Compositing", () => {
       expect(scene.visualLayers[1].clipId).toBe("high");
     });
 
+    it("preserves persisted same-track zIndex independent of clip array order", () => {
+      const tracks = [createTrack("t0")];
+      const assets = [createImageAsset("i1", "1.png"), createImageAsset("i2", "2.png")];
+
+      // Project serialization does not guarantee the array arrives in render order.
+      // The explicit z-index, not insertion order, must determine the stack.
+      const clips = [
+        { ...createImageClip("high", "t0", "i2"), role: "overlay", zIndex: 10 } as Clip,
+        { ...createImageClip("low", "t0", "i1"), role: "overlay", zIndex: 5 } as Clip,
+      ];
+
+      const scene = evaluateScene(5, clips, tracks, assets, project);
+
+      expect(scene.visualLayers.map((layer) => layer.clipId)).toEqual(["low", "high"]);
+    });
+
     it("filters audio-only clips from visual layers", () => {
       const tracks = [createTrack("t0", "video"), createTrack("t1", "audio")];
       // Audio assets need explicit audio type to be filtered from visual layers
