@@ -18,6 +18,7 @@ export { InsertGapCommand, RemoveGapCommand, ResizeGapCommand, ToggleGapProtecti
 export { AddTransitionCommand, DeleteTransitionCommand } from "./TransitionCommands";
 export { InsertEditCommand } from "./InsertEditCommand";
 export { DetachAudioCommand } from "./DetachAudioCommand";
+export { UnlinkAudioCommand, RelinkAudioCommand } from "./UnlinkAudioCommand";
 export { GroupClipsCommand, UngroupClipsCommand, validateGroupSelection } from "./CompoundClipCommands";
 export { DuplicateClipsCommand } from "./DuplicateClipCommand";
 export { SwapClipsCommand } from "./SwapClipsCommand";
