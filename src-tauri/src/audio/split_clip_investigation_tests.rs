@@ -22,7 +22,9 @@ async fn split_clip_matrix_preserves_source_segments_and_scopes_waveforms() {
     let fixture = match create_fixture() {
         Ok(f) => f,
         Err(_) => {
-            eprintln!("[split_clip_investigation] Skipping: ffmpeg not available in this environment");
+            eprintln!(
+                "[split_clip_investigation] Skipping: ffmpeg not available in this environment"
+            );
             return;
         }
     };
@@ -136,8 +138,16 @@ async fn decode_one(
         source_start * TICKS_PER_SECOND,
         SEGMENT_SECONDS * TICKS_PER_SECOND,
         1.0,
+        0.0,
         0,
         0,
+        "linear".to_string(),
+        "linear".to_string(),
+        Vec::new(),
+        "auto".to_string(),
+        "auto".to_string(),
+        None,
+        false,
         SAMPLE_RATE,
         1,
     )
@@ -202,6 +212,7 @@ fn assert_tone_at(clips: &[NativePcmClip], timeline_seconds: i64, expected_segme
         1,
         SAMPLE_RATE,
         timeline_seconds * TICKS_PER_SECOND,
+        1.0,
         1.0,
     ));
     let observed = tone_energy_slice(&output, SAMPLE_RATE, TONE_FREQUENCIES[expected_segment]);

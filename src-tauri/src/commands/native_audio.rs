@@ -1,10 +1,10 @@
 use crate::native_audio::{
     decode_native_audio_clip, NativeAudioClipStatus, NativeAudioClock, NativeAudioStatus,
 };
+use crate::sync_metrics::SYNC_METRICS;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
-use crate::sync_metrics::SYNC_METRICS;
 
 fn audio_clock(app: &AppHandle) -> Result<Arc<Mutex<NativeAudioClock>>, String> {
     app.try_state::<Arc<Mutex<NativeAudioClock>>>()
@@ -72,11 +72,7 @@ pub fn set_native_audio_speed(app: AppHandle, speed: f32) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub fn set_native_audio_output(
-    app: AppHandle,
-    volume: f32,
-    muted: bool,
-) -> Result<(), String> {
+pub fn set_native_audio_output(app: AppHandle, volume: f32, muted: bool) -> Result<(), String> {
     let clock = audio_clock(&app)?;
     clock
         .lock()
@@ -105,8 +101,16 @@ pub async fn load_native_audio_clip(
     source_start_ticks: i64,
     duration_ticks: i64,
     gain: f32,
+    pan: f32,
     fade_in_ticks: i64,
     fade_out_ticks: i64,
+    fade_in_curve: String,
+    fade_out_curve: String,
+    volume_keyframes: Vec<crate::native_audio::NativeAudioKeyframe>,
+    channel_mode: String,
+    downmix: String,
+    channel_map: Option<Vec<usize>>,
+    preserve_pitch: bool,
 ) -> Result<NativeAudioClipStatus, String> {
     let clock = audio_clock(&app)?;
     let (sample_rate, channels) = {
@@ -131,8 +135,16 @@ pub async fn load_native_audio_clip(
         source_start_ticks,
         duration_ticks,
         gain,
+        pan,
         fade_in_ticks,
         fade_out_ticks,
+        fade_in_curve,
+        fade_out_curve,
+        volume_keyframes,
+        channel_mode,
+        downmix,
+        channel_map,
+        preserve_pitch,
         sample_rate,
         channels,
     )
