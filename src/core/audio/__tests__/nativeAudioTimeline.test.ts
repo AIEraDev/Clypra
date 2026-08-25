@@ -77,4 +77,22 @@ describe("native audio timeline contract", () => {
     expect(getActiveAudioClips([edited], [track], [asset], 0, 5)[0].fadeIn).toBe(1.25);
     expect(buildNativeAudioTimeline([edited], [track], [asset], 0, 5).clips[0].fadeInTicks).toBe(1_250_000);
   });
+
+  it("carries clip mute into the native/export shared audio contract", () => {
+    const track: Track = {
+      id: "audio-track", name: "Audio", type: "audio", muted: false, locked: false, visible: true, height: 52,
+    };
+    const asset: MediaAsset = {
+      id: "asset", name: "voice.wav", path: "/media/voice.wav", type: "audio", duration: 5, size: 1,
+    };
+    const clip: Clip = {
+      id: "clip", kind: "audio", trackId: track.id, mediaId: asset.id,
+      startTime: 0, duration: 5, trimIn: 0, trimOut: 5,
+      x: 0, y: 0, width: 0, height: 0, opacity: 1, rotation: 0,
+      audio: normalizeClipAudioProperties({ kind: "audio", audio: { muted: true } }),
+    };
+
+    expect(getActiveAudioClips([clip], [track], [asset], 0, 5)[0].volume).toBe(0);
+    expect(buildNativeAudioTimeline([clip], [track], [asset], 0, 5).clips[0].gain).toBe(0);
+  });
 });

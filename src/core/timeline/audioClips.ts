@@ -131,7 +131,13 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
 
       const staticState = evaluateEffectiveAudioState(clip, track, clip.startTime, { tracks });
       const effective = evaluateEffectiveAudioState(clip, track, overlapStart, { tracks });
-      const volume = Math.max(0, Math.min(3.0, staticState.staticGain));
+      // `staticGain` intentionally excludes time-varying fades/keyframes, but
+      // it also excludes the mute decision. Native preview and export must
+      // receive the canonical effective mute result or a muted clip remains
+      // audible outside the browser engine.
+      const volume = staticState.muted
+        ? 0
+        : Math.max(0, Math.min(3.0, staticState.staticGain));
       const volumeKeyframes = buildAudioAutomationSlice(audio.volumeKeyframes, overlapStart - clipStart, relativeDuration);
 
       return {
