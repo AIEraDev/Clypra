@@ -16,7 +16,7 @@ import { DEFAULT_PLACEMENT_POLICY, resolveClipStartTime } from "./placementPolic
 import { generateId } from "@/lib/utils/id";
 import { resolveInsertEdit } from "./insertEdit";
 import { getTimelineLaneClientX, pixelToTime } from "./timelineViewport";
-import { TRACK_TYPE_CONFIG } from "./trackTypeConfig";
+import { TRACK_TYPE_CONFIG, getSafeTrackInsertionIndex, isTrackBelowMainVideo } from "./trackTypeConfig";
 
 // Density configurations mapping zoom levels to extraction densities. Each configuration defines the time interval between thumbnails and the zoom range.
 export const DENSITY_CONFIGS: DensityConfig[] = [
@@ -109,8 +109,11 @@ export function handleCreateTrackAndDrop(item: DragItem, monitor: any, insertInd
     height: TRACK_TYPE_CONFIG[trackType].height,
   };
 
-  // Use command to add track (enables undo/redo)
-  execute(new AddTrackCommand(newTrack, insertIndex));
+  // Keep all non-audio rows above the main video row, even when a drop zone
+  // supplied a position below it. AddTrackCommand repeats this guard for
+  // history replay and undo/redo.
+  const safeInsertIndex = getSafeTrackInsertionIndex(tracks, trackType, insertIndex, useTimelineStore.getState().mainVideoTrackId);
+  execute(new AddTrackCommand(newTrack, safeInsertIndex));
 
   if (item.type === "MEDIA_ASSET") {
     const projectState = useProjectStore.getState();
@@ -159,6 +162,13 @@ export function handleDropOnTrack(item: DragItem, monitor: any, trackId: string)
   const startTime = resolveClipStartTime({ intent: "drop", timelineEndTime: 0, dropTime });
 
   if (item.type === "MEDIA_ASSET") {
+    const track = timelineState.tracks.find((candidate) => candidate.id === trackId);
+    if (!track) return;
+    if (item.asset.type !== "audio" && isTrackBelowMainVideo(timelineState.tracks, trackId, timelineState.mainVideoTrackId)) {
+      useProjectStore.getState().showToast("Visual clips must stay above the main video track", "error");
+      return;
+    }
+
     const projectState = useProjectStore.getState();
     if (DEFAULT_PLACEMENT_POLICY.autoAdaptSequenceForFirstVisualClip) {
       autoAdaptSequenceForFirstVisualClip({
@@ -182,8 +192,6 @@ export function handleDropOnTrack(item: DragItem, monitor: any, trackId: string)
       height: canvasHeight,
     });
 
-    const track = timelineState.tracks.find((candidate) => candidate.id === trackId);
-    if (!track) return;
     const decision = resolveInsertEdit({
       track,
       asset: item.asset,

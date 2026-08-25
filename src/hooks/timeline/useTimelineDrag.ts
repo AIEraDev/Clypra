@@ -15,6 +15,7 @@ import { buildPlacementPreview, createPreviewKey, type PlacementPreview } from "
 import { TIMELINE_TRACK_LABEL_WIDTH_PX } from "@/lib/timeline/timelineViewport";
 import { useHistoryStore } from "@/store/historyStore";
 import { buildTimelineDragCommand } from "@/core/history/commands/TimelineDragCommand";
+import { isTrackBelowMainVideo } from "@/lib/timeline/trackTypeConfig";
 
 const DRAG_RENDER_EPSILON_PX = 0.25;
 const EDGE_HIT_WIDTH_PX = 8; // Screen-space edge detection (stable at any zoom)
@@ -377,7 +378,7 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
     const pointerXContent = clientX - cr.left + container.scrollLeft;
     const contentDeltaPx = pointerXContent - ds.pointerXContentStart;
 
-    const { clips: liveClips, tracks: liveTracks, pixelsPerSecond: livePps } = useTimelineStore.getState();
+    const { clips: liveClips, tracks: liveTracks, mainVideoTrackId, pixelsPerSecond: livePps } = useTimelineStore.getState();
     const clip = clipMapRef.current.get(clipId) ?? liveClips.find((c) => c.id === clipId);
     if (!clip) return;
 
@@ -464,7 +465,19 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
       }
     }
 
-    const isInvalidPosition = targetTrack?.locked || isTrackTypeMismatch || false;
+    const mediaAssets = useProjectStore.getState().mediaAssets;
+    const hasNonAudioClip = ds.draggedClipIds.some((draggedId) => {
+      const draggedClip = clipMapRef.current.get(draggedId) ?? liveClips.find((item) => item.id === draggedId);
+      if (!draggedClip) return false;
+      const asset = mediaAssets.find((candidate) => candidate.id === draggedClip.mediaId);
+      return draggedClip.kind !== "audio" && asset?.type !== "audio";
+    });
+    const isForbiddenBelowMain = Boolean(
+      targetTrack &&
+        hasNonAudioClip &&
+        isTrackBelowMainVideo(liveTracks, targetTrack.id, mainVideoTrackId),
+    );
+    const isInvalidPosition = targetTrack?.locked || isTrackTypeMismatch || isForbiddenBelowMain || false;
     if (isInvalidPosition) {
       const next: DragState = {
         ...ds,
@@ -696,6 +709,7 @@ export function useTimelineDrag(containerRef: RefObject<HTMLDivElement | null>) 
         const insertIndex = getInsertIndexForNewTrackSmart(store.tracks, trackType, {
           newTrackPosition: dragSnapshot.newTrackPosition,
           betweenTrackIds: dragSnapshot.betweenTrackIds,
+          mainVideoTrackId: store.mainVideoTrackId,
         });
         const command = buildTimelineDragCommand({
           state: store,
