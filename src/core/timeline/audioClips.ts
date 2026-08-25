@@ -8,9 +8,11 @@
  * Now centralized for reusability and testability.
  */
 
-import type { Clip, Track, MediaAsset } from "@/types";
+import type { AudioChannelMode, AudioDownmixMode, AudioFadeCurve, AudioKeyframe, Clip, Track, MediaAsset } from "@/types";
 import { toNativePath } from "@/lib/platform/pathConversion";
 import { expandCompoundClips } from "./compoundClips";
+import { buildAudioAutomationSlice, evaluateEffectiveAudioState, isTrackAudible } from "@/core/audio/effectiveAudioState";
+import { getClipAudioProperties } from "@/types/audio";
 
 export interface ExportAudioClipConfig {
   /** Stable timeline clip identity used by native mixer replacement. */
@@ -36,6 +38,18 @@ export interface ExportAudioClipConfig {
 
   /** Fade-out duration in seconds */
   fadeOut: number;
+  fadeInCurve: AudioFadeCurve;
+  fadeOutCurve: AudioFadeCurve;
+  pan: number;
+  eqLow?: number;
+  eqMid?: number;
+  eqHigh?: number;
+  noiseSuppression?: number;
+  volumeKeyframes: AudioKeyframe[];
+  channelMode: AudioChannelMode;
+  downmix: AudioDownmixMode;
+  channelMap?: number[];
+  preservePitch: boolean;
 }
 
 /**
@@ -60,12 +74,11 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
   clips = expandCompoundClips(clips);
   // Build map of track IDs to track objects (for muted status and track volume)
   const trackMap = new Map(tracks.map((t) => [t.id, t]));
-  const activeTracks = new Set(tracks.filter((t) => !t.muted).map((t) => t.id));
 
   return clips
     .filter((clip) => {
       // Skip clips on muted tracks
-      if (!activeTracks.has(clip.trackId)) return false;
+      if (!isTrackAudible(trackMap.get(clip.trackId), tracks)) return false;
 
       // Find asset
       const asset = assets.find((a) => a.id === clip.mediaId);
@@ -84,6 +97,7 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       const directAudioPath = (clip as any).audioPath as string | undefined;
       const rawPath = directAudioPath || asset?.path || "";
       const track = trackMap.get(clip.trackId);
+      const audio = getClipAudioProperties(clip);
 
       // Calculate overlap with export time range
       const clipStart = clip.startTime;
@@ -99,8 +113,8 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
       const relativeTrimIn = (clip.trimIn || 0) + (overlapStart - clipStart);
 
       // Calculate effective slice fade-in and fade-out relative to export overlap range
-      const rawFadeIn = Math.max(0, (clip as any).fadeIn ?? 0);
-      const rawFadeOut = Math.max(0, (clip as any).fadeOut ?? 0);
+      const rawFadeIn = audio.fadeIn.duration;
+      const rawFadeOut = audio.fadeOut.duration;
 
       const originalFadeInEnd = clipStart + rawFadeIn;
       let fadeIn = Math.max(0, Math.min(relativeDuration, originalFadeInEnd - overlapStart));
@@ -115,10 +129,10 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
         fadeOut *= scale;
       }
 
-      // Calculate combined effective volume (clip.volume * track.volume), allowing boost up to 300% (3.0)
-      const clipVolume = clip.volume ?? 1.0;
-      const trackVolume = track?.volume ?? 1.0;
-      const volume = Math.max(0, Math.min(3.0, clipVolume * trackVolume));
+      const staticState = evaluateEffectiveAudioState(clip, track, clip.startTime, { tracks });
+      const effective = evaluateEffectiveAudioState(clip, track, overlapStart, { tracks });
+      const volume = Math.max(0, Math.min(3.0, staticState.staticGain));
+      const volumeKeyframes = buildAudioAutomationSlice(audio.volumeKeyframes, overlapStart - clipStart, relativeDuration);
 
       return {
         clipId: clip.id,
@@ -130,6 +144,18 @@ export function getActiveAudioClips(clips: Clip[], tracks: Track[], assets: Medi
         volume,
         fadeIn,
         fadeOut,
+        fadeInCurve: audio.fadeIn.curve,
+        fadeOutCurve: audio.fadeOut.curve,
+        pan: effective.pan,
+        eqLow: audio.effects?.eq?.low,
+        eqMid: audio.effects?.eq?.mid,
+        eqHigh: audio.effects?.eq?.high,
+        noiseSuppression: audio.effects?.noiseSuppression,
+        volumeKeyframes,
+        channelMode: audio.channelConfig.mode,
+        downmix: audio.channelConfig.downmix,
+        channelMap: audio.channelConfig.channelMap,
+        preservePitch: audio.speed.preservePitch,
       };
     });
 }

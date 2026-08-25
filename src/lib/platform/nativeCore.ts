@@ -42,8 +42,13 @@ export interface NativeAudioClipStatus {
   durationTicks: number;
   timelineStartTicks: number;
   gain: number;
+  pan: number;
   fadeInTicks: number;
   fadeOutTicks: number;
+  channelMode: string;
+  downmix: string;
+  channelMap: number[] | null;
+  preservePitch: boolean;
 }
 
 export interface NativeGpuRuntimeStatus {

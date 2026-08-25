@@ -28,6 +28,26 @@ export interface ExportAudioClip {
 
   /** Fade-out duration in seconds */
   fadeOut?: number;
+  fadeInCurve?: "linear" | "exponential" | "logarithmic" | "s-curve";
+  fadeOutCurve?: "linear" | "exponential" | "logarithmic" | "s-curve";
+  pan?: number;
+  eqLow?: number;
+  eqMid?: number;
+  eqHigh?: number;
+  noiseSuppression?: number;
+  /** Automation points local to the exported portion of the clip. */
+  volumeKeyframes?: ExportAudioKeyframe[];
+  /** Explicit source-channel handling shared with preview. */
+  channelMode?: "auto" | "mono" | "stereo" | "multichannel";
+  downmix?: "auto" | "mono" | "stereo";
+  /** Source channel index for each output channel (e.g. [1, 0] swaps stereo). */
+  channelMap?: number[];
+}
+
+export interface ExportAudioKeyframe {
+  time: number;
+  gain: number;
+  easing?: "linear" | "exponential" | "bezier";
 }
 
 /**

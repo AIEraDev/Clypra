@@ -1,4 +1,4 @@
-import type { Clip, MediaAsset, Track } from "@/types";
+import type { AudioChannelMode, AudioDownmixMode, AudioFadeCurve, Clip, MediaAsset, Track } from "@/types";
 import { getActiveAudioClips, type ExportAudioClipConfig } from "@/core/timeline/audioClips";
 import {
   clearNativeAudioClip,
@@ -18,8 +18,17 @@ export interface NativeAudioTimelineClip {
   sourceStartTicks: number;
   durationTicks: number;
   gain: number;
+  pan: number;
   fadeInTicks: number;
   fadeOutTicks: number;
+  fadeInCurve: AudioFadeCurve;
+  fadeOutCurve: AudioFadeCurve;
+  /** Relative clip ticks, not seconds. */
+  volumeKeyframes: Array<{ id: string; time: number; gain: number; easing?: "linear" | "exponential" | "bezier" }>;
+  channelMode: AudioChannelMode;
+  downmix: AudioDownmixMode;
+  channelMap?: number[];
+  preservePitch: boolean;
 }
 
 export interface NativeAudioTimelineSnapshot {
@@ -101,8 +110,16 @@ function toNativeAudioTimelineClip(config: ExportAudioClipConfig): NativeAudioTi
     sourceStartTicks: secondsToTicks(config.trimIn),
     durationTicks: secondsToTicks(config.duration),
     gain: config.volume,
+    pan: config.pan,
     fadeInTicks: secondsToTicks(config.fadeIn),
     fadeOutTicks: secondsToTicks(config.fadeOut),
+    fadeInCurve: config.fadeInCurve,
+    fadeOutCurve: config.fadeOutCurve,
+    volumeKeyframes: config.volumeKeyframes.map((point) => ({ ...point, time: secondsToTicks(point.time) })),
+    channelMode: config.channelMode,
+    downmix: config.downmix,
+    channelMap: config.channelMap,
+    preservePitch: config.preservePitch,
   };
 }
 

@@ -1,7 +1,7 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { DensityLevel, ThumbnailTile } from "../../types";
+import type { AudioFadeCurve, DensityLevel, ThumbnailTile } from "../../types";
 import { toNativePath } from "./pathConversion";
 import type {
   NativeFrameRequest,
@@ -528,8 +528,17 @@ export async function loadNativeAudioClip(options: {
   sourceStartTicks?: number;
   durationTicks?: number;
   gain?: number;
+  pan?: number;
   fadeInTicks?: number;
   fadeOutTicks?: number;
+  fadeInCurve?: AudioFadeCurve;
+  fadeOutCurve?: AudioFadeCurve;
+  /** Relative clip ticks, matching the native audio contract. */
+  volumeKeyframes?: Array<{ id: string; time: number; gain: number; easing?: "linear" | "exponential" | "bezier" }>;
+  channelMode?: "auto" | "mono" | "stereo" | "multichannel";
+  downmix?: "auto" | "mono" | "stereo";
+  channelMap?: number[];
+  preservePitch?: boolean;
 }): Promise<NativeAudioClipStatus> {
   if (!isTauriRuntime()) throw new Error("loadNativeAudioClip requires the Tauri runtime");
   return invoke<NativeAudioClipStatus>("load_native_audio_clip", {
@@ -539,8 +548,16 @@ export async function loadNativeAudioClip(options: {
     sourceStartTicks: options.sourceStartTicks ?? 0,
     durationTicks: options.durationTicks ?? 0,
     gain: options.gain ?? 1,
+    pan: options.pan ?? 0,
     fadeInTicks: options.fadeInTicks ?? 0,
     fadeOutTicks: options.fadeOutTicks ?? 0,
+    fadeInCurve: options.fadeInCurve ?? "linear",
+    fadeOutCurve: options.fadeOutCurve ?? "linear",
+    volumeKeyframes: options.volumeKeyframes ?? [],
+    channelMode: options.channelMode ?? "auto",
+    downmix: options.downmix ?? "auto",
+    channelMap: options.channelMap ?? null,
+    preservePitch: options.preservePitch ?? false,
   });
 }
 
