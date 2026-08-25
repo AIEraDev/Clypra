@@ -412,10 +412,10 @@ describe("Timeline click behavior", () => {
     const overlayProps = trackPropsSpy.mock.calls.map((call) => call[0]).find((props) => props.track.id === "track-overlay");
     const mainProps = trackPropsSpy.mock.calls.map((call) => call[0]).find((props) => props.track.id === "track-main");
 
-    expect(overlayProps.visualSpec).toMatchObject({ role: "b-roll", height: 80 });
-    expect(overlayProps.track.height).toBe(80);
-    expect(mainProps.visualSpec).toMatchObject({ role: "a-roll", height: 112 });
-    expect(mainProps.track.height).toBe(112);
+    expect(overlayProps.visualSpec).toMatchObject({ role: "b-roll", height: 60 });
+    expect(overlayProps.track.height).toBe(60);
+    expect(mainProps.visualSpec).toMatchObject({ role: "a-roll", height: 80 });
+    expect(mainProps.track.height).toBe(80);
     expect(mainProps.visualSpec.height).toBeGreaterThan(overlayProps.visualSpec.height);
   });
 });
@@ -459,7 +459,7 @@ describe("Timeline drag interactions", () => {
     });
   };
 
-  it("drags clip to different track", () => {
+  it("rejects moving a non-audio clip below the main video track", () => {
     const { container } = render(<Timeline />);
     setupRects(container);
     const firstTrackProps = trackPropsSpy.mock.calls[0][0];
@@ -475,7 +475,7 @@ describe("Timeline drag interactions", () => {
     });
 
     const c1 = useTimelineStore.getState().clips.find((c) => c.id === "c1");
-    expect(c1?.trackId).toBe("track-2");
+    expect(c1?.trackId).toBe("track-1");
   });
 
   it("drags clip within same track", () => {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   getTrackVisualSpec,
+  getSafeTrackInsertionIndex,
+  normalizeTrackOrderForMainVideo,
   type TrackVisualRole,
 } from "../trackTypeConfig";
 import type { Track, TrackType } from "@/types";
@@ -17,15 +19,27 @@ describe("track visual roles", () => {
     expect(getTrackVisualSpec(tracks[0], tracks, "main")).toMatchObject({
       role: "b-roll",
       label: "B-Roll",
-      height: 80,
+      height: 60,
       opacity: 0.8,
     });
     expect(getTrackVisualSpec(tracks[1], tracks, "main")).toMatchObject({
       role: "a-roll",
       label: "A-Roll (Main)",
-      height: 112,
+      height: 80,
       opacity: 1,
     });
+  });
+
+  it("keeps non-audio rows above main while allowing audio below", () => {
+    const tracks = [track("main", "video"), track("audio", "audio"), track("old-overlay", "video")];
+
+    expect(getSafeTrackInsertionIndex(tracks, "video", tracks.length, "main")).toBe(0);
+    expect(getSafeTrackInsertionIndex(tracks, "audio", tracks.length, "main")).toBe(3);
+    expect(normalizeTrackOrderForMainVideo(tracks, "main").map((item) => item.id)).toEqual([
+      "old-overlay",
+      "main",
+      "audio",
+    ]);
   });
 
   it("falls back to the first video track when mainVideoTrackId is absent", () => {
