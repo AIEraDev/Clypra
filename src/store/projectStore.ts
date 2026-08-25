@@ -40,6 +40,7 @@ import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { toast } from "@/lib/toast";
 import { suppressAutoSave, enableAutoSave } from "./middleware/autoSaveMiddleware";
+import type { ProjectSaveResult } from "@/core/platform/platform";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
 interface ProjectStore {
@@ -73,6 +74,8 @@ interface ProjectStore {
   renameProject: (projectId: string, newName: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   closeProject: () => Promise<void> | void;
+  /** Persist the current project immediately and verify the storage result. */
+  saveCurrentProject: () => Promise<ProjectSaveResult | null>;
   scheduleAutoSave: () => void;
 }
 
@@ -116,6 +119,61 @@ const getAspectRatioDimensions = (ratio: string): { width: number; height: numbe
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTO_SAVE_DELAY = 500; // ms
+let saveInProgress: Promise<ProjectSaveResult> | null = null;
+
+type ProjectPersistenceSnapshot = {
+  project: Project;
+  mediaAssets: MediaAsset[];
+  tracks: any[];
+  clips: any[];
+  transitions: TransitionTimelineItem[];
+  gaps: Gap[];
+  markers: TimelineMarker[];
+  epoch: number;
+  rustProject: ReturnType<typeof toRustProject>;
+};
+
+async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapshot | null> {
+  const { project, mediaAssets } = useProjectStore.getState();
+  if (!project) return null;
+
+  const { useTimelineStore } = await import("./timelineStore");
+  const { tracks, clips, transitions, gaps, markers, epoch } = useTimelineStore.getState();
+
+  return {
+    project,
+    mediaAssets,
+    tracks,
+    clips,
+    transitions,
+    gaps,
+    markers,
+    epoch,
+    rustProject: toRustProject(project, { tracks, clips, transitions, gaps, markers, mediaAssets }),
+  };
+}
+
+async function persistProjectPayload(payload: string): Promise<ProjectSaveResult> {
+  // Serialize saves so a close/update flush cannot race an already-running
+  // debounced save and leave the disk file behind the in-memory state.
+  if (saveInProgress) {
+    await saveInProgress.catch(() => undefined);
+  }
+
+  const request = platform.saveProject(payload);
+  saveInProgress = request;
+  try {
+    return await request;
+  } finally {
+    if (saveInProgress === request) {
+      saveInProgress = null;
+    }
+  }
+}
+
+async function persistCurrentProjectSnapshot(snapshot: ProjectPersistenceSnapshot): Promise<ProjectSaveResult> {
+  return persistProjectPayload(JSON.stringify(snapshot.rustProject));
+}
 
 // Wire up ResourceTracker's active project ID resolver after the module is fully evaluated.
 // queueMicrotask ensures this runs after all static imports are resolved (avoids TDZ issues).
@@ -593,27 +651,20 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   closeProject: async () => {
     currentLoadId++; // Cancel any active load
 
-    // Ensure any pending auto-save completes before closing
+    // Cancel the debounce, then always flush the latest in-memory state. This
+    // is intentionally independent of the auto-save preference and timer.
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
-      autoSaveTimer = null; // ✅ FIX-002: Clear timer reference to prevent stale timer from firing
-      const state = get();
-      const { project, mediaAssets } = state;
+      autoSaveTimer = null;
+    }
 
-      if (project) {
-        try {
-          const { useTimelineStore } = await import("./timelineStore");
-          const { tracks, clips, transitions, gaps, markers } = useTimelineStore.getState();
-
-          // Convert camelCase to snake_case using centralized serialization
-          const rustProject = toRustProject(project, { tracks, clips, transitions, gaps, markers, mediaAssets });
-
-          await platform.saveProject(JSON.stringify(rustProject));
-
-          get().showToast("Project saved");
-        } catch (error) {
-          get().showToast("Failed to save before closing", "error");
-        }
+    if (get().project) {
+      try {
+        await get().saveCurrentProject();
+        get().showToast("Project saved");
+      } catch (error) {
+        get().showToast("Failed to save before closing", "error");
+        throw error;
       }
     }
 
@@ -662,6 +713,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     } catch {}
   },
 
+  saveCurrentProject: async () => {
+    // Capture only after any earlier save has completed so this explicit
+    // flush reflects the latest in-memory state, not an older queued payload.
+    if (saveInProgress) {
+      await saveInProgress.catch(() => undefined);
+    }
+    const snapshot = await captureCurrentProjectSnapshot();
+    if (!snapshot) return null;
+    return persistCurrentProjectSnapshot(snapshot);
+  },
+
   scheduleAutoSave: () => {
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
@@ -676,7 +738,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
     autoSaveTimer = setTimeout(async () => {
       const state = get();
-      const { project, mediaAssets } = state;
+      const { project } = state;
 
       if (!project) return;
 
@@ -686,22 +748,26 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       }
 
       try {
-        // Import timeline store to get tracks and clips
-        const { useTimelineStore } = await import("./timelineStore");
-        const { tracks, clips, transitions, gaps, markers, epoch } = useTimelineStore.getState();
+        const snapshot = await captureCurrentProjectSnapshot();
+        if (!snapshot || snapshot.project.id !== scheduledProjectId) return;
 
-        // Convert camelCase to snake_case using centralized serialization
-        const rustProject = toRustProject(project, { tracks, clips, transitions, gaps, markers, mediaAssets });
-
-        await platform.saveProject(JSON.stringify(rustProject));
+        await persistCurrentProjectSnapshot(snapshot);
         get().showToast("Project saved");
 
         // ── Canonical Project Thumbnail Generation ───────────────────────
         try {
           const { projectThumbnailService } = await import("@/core/thumbnails/ProjectThumbnailService");
           projectThumbnailService.requestThumbnailUpdate(
-            project,
-            { tracks, clips, transitions, gaps, markers, mediaAssets, epoch },
+            snapshot.project,
+            {
+              tracks: snapshot.tracks,
+              clips: snapshot.clips,
+              transitions: snapshot.transitions,
+              gaps: snapshot.gaps,
+              markers: snapshot.markers,
+              mediaAssets: snapshot.mediaAssets,
+              epoch: snapshot.epoch,
+            },
             { isAutoSave: true },
           );
         } catch (_thumbError) {
@@ -712,16 +778,15 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // Persist a recovery snapshot so the user can restore their work if
         // the application crashes or the browser refreshes unexpectedly.
         try {
-          const { tracks, clips, transitions, gaps } = useTimelineStore.getState();
-          lifecycleMonitor.record("AUTO_SAVE_SNAPSHOT_SAVED", { projectId: project.id });
+          lifecycleMonitor.record("AUTO_SAVE_SNAPSHOT_SAVED", { projectId: snapshot.project.id });
           // Fire-and-forget — we never want snapshot writes to block the UI
           saveSnapshot({
             savedAt: new Date().toISOString(),
-            project,
-            mediaAssets,
-            tracks,
-            clips,
-            transitions,
+            project: snapshot.project,
+            mediaAssets: snapshot.mediaAssets,
+            tracks: snapshot.tracks,
+            clips: snapshot.clips,
+            transitions: snapshot.transitions,
           }).catch(() => {});
         } catch (_snapshotError) {
           // Ignore — snapshot failures are non-fatal
