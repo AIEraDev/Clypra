@@ -10,6 +10,8 @@ import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
 import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
 import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
+import type { SmartOverlayClip } from "@/types/smartOverlay";
 
 export interface ExportFrameOptions {
   /** Timeline time to export */
@@ -82,31 +84,49 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
   if (width !== scene.metadata.canvasWidth || height !== scene.metadata.canvasHeight) {
     throw new Error("[ExportFrame] Native export requires project-sized output dimensions");
   }
-  const nativeRequest = buildNativeVideoProjectRequest(scene);
-  if (!nativeRequest) {
-    throw new Error("[ExportFrame] Frame is outside the native compositor contract");
-  }
-  let rgba: ArrayBuffer;
+  const nativeRasterBridge = new NativeRasterBridge();
   try {
-    rgba = await renderNativeVideoProjectFrame(nativeRequest);
-  } catch (error) {
-    throw new Error(`[ExportFrame] Native frame export failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("[ExportFrame] Failed to create native export canvas");
-  const image = context.createImageData(width, height);
-  image.data.set(new Uint8ClampedArray(rgba));
-  context.putImageData(image, 0, 0);
-  return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error("[ExportFrame] Failed to encode native frame")),
-      format === "jpeg" ? "image/jpeg" : "image/png",
-      quality,
+    const frameKey = Math.round(time * (project?.frameRate || 30));
+    const rasterLayers = await nativeRasterBridge.rasterize(scene, { frameKey });
+    const activeSmartOverlays = clips.filter(
+      (clip): clip is SmartOverlayClip =>
+        clip.kind === "smart-overlay" && time >= clip.startTime && time < clip.startTime + clip.duration,
     );
-  });
+    const smartOverlayRasters = await nativeRasterBridge.rasterizeSmartOverlays(
+      activeSmartOverlays,
+      time,
+      scene.metadata.canvasWidth,
+      scene.metadata.canvasHeight,
+      { frameKey },
+    );
+    const nativeRequest = buildNativeVideoProjectRequest(scene, [...rasterLayers, ...smartOverlayRasters]);
+    if (!nativeRequest) {
+      throw new Error("[ExportFrame] Frame is outside the native compositor contract");
+    }
+    let rgba: ArrayBuffer;
+    try {
+      rgba = await renderNativeVideoProjectFrame(nativeRequest);
+    } catch (error) {
+      throw new Error(`[ExportFrame] Native frame export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("[ExportFrame] Failed to create native export canvas");
+    const image = context.createImageData(width, height);
+    image.data.set(new Uint8ClampedArray(rgba));
+    context.putImageData(image, 0, 0);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error("[ExportFrame] Failed to encode native frame")),
+        format === "jpeg" ? "image/jpeg" : "image/png",
+        quality,
+      );
+    });
+  } finally {
+    nativeRasterBridge.dispose();
+  }
 }
 
 /**

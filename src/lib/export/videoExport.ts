@@ -18,6 +18,8 @@ import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from ".
 import type { ExportAudioClip, ExportProgress } from "../../types/export";
 import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
 import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
+import type { SmartOverlayClip } from "@/types/smartOverlay";
 
 /**
  * Video export progress - Re-exported from types/export
@@ -243,6 +245,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   }
 
   let inFlightWritePromise: Promise<void> | null = null;
+  const nativeRasterBridge = new NativeRasterBridge();
 
   // EX-3 fix: Removed AudioContext/OscillatorNode keepalive. The pattern was intended
   // to prevent Chromium background-tab throttling of setTimeout, but Tauri's WebView is
@@ -271,8 +274,21 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       // Evaluate scene for this frame using the canonical evaluator
       const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
       let frameBytes: Uint8Array;
+      const frameKey = startFrameIndex + i;
+      const rasterLayers = await nativeRasterBridge.rasterize(scene, { frameKey });
+      const activeSmartOverlays = clips.filter(
+        (clip): clip is SmartOverlayClip =>
+          clip.kind === "smart-overlay" && time >= clip.startTime && time < clip.startTime + clip.duration,
+      );
+      const smartOverlayRasters = await nativeRasterBridge.rasterizeSmartOverlays(
+        activeSmartOverlays,
+        time,
+        scene.metadata.canvasWidth,
+        scene.metadata.canvasHeight,
+        { frameKey },
+      );
       const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
-        ? buildNativeVideoProjectRequest(scene)
+        ? buildNativeVideoProjectRequest(scene, [...rasterLayers, ...smartOverlayRasters])
         : null;
       if (nativeRequest) {
         try {
@@ -335,6 +351,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       throw error;
     }
   } finally {
+    nativeRasterBridge.dispose();
     // Release global image bitmaps and evaluated frames to free up memory
     try {
       getResourceCache().clear();

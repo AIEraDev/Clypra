@@ -26,7 +26,6 @@ import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
 import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
 import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
-import { drawCanvasBackground } from "@/core/render/canvasBackground";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import { getPlaybackMetricsSnapshot, tracePlayback } from "@/core/playback/playbackTrace";
@@ -50,7 +49,6 @@ import {
 } from "@/lib/platform/tauri";
 import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
 
-import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
 import { useCaptionStore } from "@/store/captionStore";
@@ -68,12 +66,7 @@ import {
   isRenderableNativePreviewFrame,
 } from "./nativeVideoPreview";
 import { NativePreviewFrameScheduler, type NativePreviewRequestSource } from "./nativePreviewScheduler";
-import {
-  buildNativeTextRasterKey,
-  rasterizeTextLayerForNative,
-  type NativeTextRasterAsset,
-} from "./nativeTextPreview";
-import { NativeAnimatedStickerRenderer, type NativeAnimatedStickerRaster } from "./nativeStickerPreview";
+import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
 import {
   NATIVE_PREVIEW_ONLY,
   type NativeFrameRequest,
@@ -658,77 +651,12 @@ export const NativeProgramPreview: React.FC = () => {
     let latestSeekIntent: SeekIntent | null = seekController?.getCurrent() ?? null;
     let visibleRequestGeneration = seekController?.getGeneration() ?? 0;
     let transportRevision = 0;
-    const nativeTextRasterCache = new Map<string, Promise<NativeTextRasterAsset>>();
-    const registeredNativeTextAssets = new Set<string>();
-    const nativeTextAssetsById = new Map<string, NativeTextRasterAsset>();
+    const nativeRasterBridge = new NativeRasterBridge();
     const nativeBodyMaskInFlight = new Map<string, Promise<NativeRasterLayerSnapshot | null>>();
     const nativeBodyMaskAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
     const registeredNativeBodyMaskAssets = new Set<string>();
-    const nativeSmartOverlayAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
-    const nativeAnimatedStickerRenderer = new NativeAnimatedStickerRenderer();
-    const nativeAnimatedStickerAssetsById = new Map<string, NativeAnimatedStickerRaster>();
-    const registeredNativeAnimatedStickerAssets = new Set<string>();
-    const nativeBackgroundAssetsById = new Map<string, NativeRasterLayerSnapshot & { rgba: number[] }>();
-    const registeredNativeBackgroundAssets = new Set<string>();
     const nativeFrontendPerfSpans = new Map<string, NativePerfSpan>();
-    const maxNativeTextRasterCacheEntries = 96;
     const maxNativeBodyMaskCacheEntries = 90;
-    const maxNativeSmartOverlayCacheEntries = 48;
-    const maxNativeAnimatedStickerCacheEntries = 90;
-    const maxNativeBackgroundCacheEntries = 90;
-
-    const ensureNativeTextAssetRegistered = async (
-      asset: NativeTextRasterAsset,
-      force = false,
-    ): Promise<void> => {
-      nativeTextAssetsById.delete(asset.assetId);
-      nativeTextAssetsById.set(asset.assetId, asset);
-      while (nativeTextAssetsById.size > maxNativeTextRasterCacheEntries) {
-        const oldestId = nativeTextAssetsById.keys().next().value as string | undefined;
-        if (!oldestId) break;
-        nativeTextAssetsById.delete(oldestId);
-        registeredNativeTextAssets.delete(oldestId);
-      }
-
-      if (!force && registeredNativeTextAssets.has(asset.assetId)) return;
-      await registerNativeRasterAsset(asset);
-      registeredNativeTextAssets.add(asset.assetId);
-    };
-
-    const rasterizeNativeTextLayers = async (scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> => {
-      const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-      if (!isTauriRuntime() || textLayers.length === 0) return [];
-
-      try {
-        const assets = await Promise.all(textLayers.map((layer) => {
-          const key = buildNativeTextRasterKey(layer);
-          const cached = nativeTextRasterCache.get(key);
-          if (cached) {
-            nativeTextRasterCache.delete(key);
-            nativeTextRasterCache.set(key, cached);
-            return cached;
-          }
-
-          const raster = rasterizeTextLayerForNative(layer);
-          nativeTextRasterCache.set(key, raster);
-          while (nativeTextRasterCache.size > maxNativeTextRasterCacheEntries) {
-            const oldestKey = nativeTextRasterCache.keys().next().value as string | undefined;
-            if (!oldestKey) break;
-            nativeTextRasterCache.delete(oldestKey);
-          }
-          void raster.catch(() => {
-            if (nativeTextRasterCache.get(key) === raster) nativeTextRasterCache.delete(key);
-          });
-          return raster;
-        }));
-
-        await Promise.all(assets.map((asset) => ensureNativeTextAssetRegistered(asset)));
-
-        return assets.map(({ rgba: _rgba, ...asset }) => asset);
-      } catch {
-        return [];
-      }
-    };
 
     const ensureNativeBodyMaskAssetRegistered = async (
       asset: NativeRasterLayerSnapshot & { rgba: number[] },
@@ -837,183 +765,21 @@ export const NativeProgramPreview: React.FC = () => {
       return assets;
     };
 
-    const ensureNativeAnimatedStickerAssetRegistered = async (
-      asset: NativeAnimatedStickerRaster,
-      force = false,
-    ): Promise<void> => {
-      nativeAnimatedStickerAssetsById.set(asset.assetId, asset);
-      while (nativeAnimatedStickerAssetsById.size > maxNativeAnimatedStickerCacheEntries) {
-        const oldestId = nativeAnimatedStickerAssetsById.keys().next().value as string | undefined;
-        if (!oldestId) break;
-        nativeAnimatedStickerAssetsById.delete(oldestId);
-        registeredNativeAnimatedStickerAssets.delete(oldestId);
-      }
-      if (!force && registeredNativeAnimatedStickerAssets.has(asset.assetId)) return;
-      await registerNativeRasterAsset(asset);
-      registeredNativeAnimatedStickerAssets.add(asset.assetId);
-    };
-
-    const rasterizeNativeAnimatedStickers = async (scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> => {
-      if (!isTauriRuntime()) return [];
-      const layers = scene.visualLayers.filter(
-        (layer): layer is import("@/core/evaluation/types").EvaluatedMediaLayer =>
-          layer.layerType === "media" && layer.clipKind === "sticker" && layer.stickerFormat === "lottie",
-      );
-      const assets: NativeRasterLayerSnapshot[] = [];
-      for (const layer of layers) {
-        try {
-          const raster = await nativeAnimatedStickerRenderer.render(layer);
-          if (!raster) continue;
-          const cached = nativeAnimatedStickerAssetsById.get(raster.assetId);
-          if (!cached) await ensureNativeAnimatedStickerAssetRegistered(raster);
-          assets.push({ ...raster, rgba: undefined });
-        } catch {
-          // ignore
-        }
-      }
-      return assets;
-    };
-
-    const ensureNativeBackgroundAssetRegistered = async (
-      asset: NativeRasterLayerSnapshot & { rgba: number[] },
-      force = false,
-    ): Promise<void> => {
-      nativeBackgroundAssetsById.set(asset.assetId, asset);
-      while (nativeBackgroundAssetsById.size > maxNativeBackgroundCacheEntries) {
-        const oldestId = nativeBackgroundAssetsById.keys().next().value as string | undefined;
-        if (!oldestId) break;
-        nativeBackgroundAssetsById.delete(oldestId);
-        registeredNativeBackgroundAssets.delete(oldestId);
-      }
-      if (!force && registeredNativeBackgroundAssets.has(asset.assetId)) return;
-      await registerNativeRasterAsset(asset);
-      registeredNativeBackgroundAssets.add(asset.assetId);
-    };
-
-    const rasterizeNativeBackground = async (
-      scene: EvaluatedScene,
-      frameIndex: number,
-    ): Promise<NativeRasterLayerSnapshot[]> => {
-      if (!isTauriRuntime() || typeof document === "undefined") return [];
-      const background = scene.metadata.canvasBackground;
-      if (
-        !background ||
-        background.isTransparent ||
-        background.type === "solid" ||
-        (background.type !== "gradient" && background.type !== "shader")
-      ) return [];
-
-      const width = Math.max(1, Math.round(scene.metadata.canvasWidth || renderStateRef.current.canvasWidth));
-      const height = Math.max(1, Math.round(scene.metadata.canvasHeight || renderStateRef.current.canvasHeight));
-      // Audit 3.2 fix: use a stable sorted-key serializer instead of JSON.stringify.
-      // Plain JSON.stringify does not guarantee property order across different creation
-      // paths (spread, deserialization, etc.), causing false cache misses for identical
-      // gradient/shader configs.
-      const stableBackgroundKey = JSON.stringify(background, Object.keys(background as object).sort());
-      const assetId = `native-background:${frameIndex}:${stableBackgroundKey}`;
-      const cached = nativeBackgroundAssetsById.get(assetId);
-      if (cached) return [{ ...cached, rgba: undefined }];
-
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d");
-      if (!context) return [];
-      drawCanvasBackground(context, background, width, height, scene.metadata.time);
-      const asset: NativeRasterLayerSnapshot & { rgba: number[] } = {
-        assetId,
-        rgba: Array.from(context.getImageData(0, 0, width, height).data),
-        width,
-        height,
-        x: 0,
-        y: 0,
-        rotation: 0,
-        opacity: 1,
-        zIndex: -1_000_000,
-        blendMode: "normal",
-        isText: false,
-      };
-      await ensureNativeBackgroundAssetRegistered(asset);
-      return [{ ...asset, rgba: undefined }];
-    };
-
     const reRegisterTextAssetsForRequest = async (request: NativeFrameRequest): Promise<boolean> => {
       const references = request.project.rasterLayers ?? [];
       if (references.length === 0) return false;
-      const textAssets = references
-        .map((reference) => nativeTextAssetsById.get(reference.assetId))
-        .filter((asset): asset is NativeTextRasterAsset => Boolean(asset));
+      const bridgeReferences = references.filter(
+        (reference) => reference.isText || reference.assetId.startsWith("native-background:") || reference.assetId.startsWith("native-sticker:") || reference.assetId.startsWith("native-smart-overlay:"),
+      );
       const maskAssets = references
         .map((reference) => nativeBodyMaskAssetsById.get(reference.assetId))
         .filter((asset): asset is NativeRasterLayerSnapshot & { rgba: number[] } => Boolean(asset));
-      const stickerAssets = references
-        .map((reference) => nativeAnimatedStickerAssetsById.get(reference.assetId))
-        .filter((asset): asset is NativeAnimatedStickerRaster => Boolean(asset));
-      const backgroundAssets = references
-        .map((reference) => nativeBackgroundAssetsById.get(reference.assetId))
-        .filter((asset): asset is NativeRasterLayerSnapshot & { rgba: number[] } => Boolean(asset));
-      if (textAssets.length + maskAssets.length + stickerAssets.length + backgroundAssets.length !== references.length) return false;
-      await Promise.all([
-        ...textAssets.map((asset) => ensureNativeTextAssetRegistered(asset, true)),
+      if (bridgeReferences.length + maskAssets.length !== references.length) return false;
+      const [bridgeReregistered] = await Promise.all([
+        nativeRasterBridge.reregister(bridgeReferences),
         ...maskAssets.map((asset) => ensureNativeBodyMaskAssetRegistered(asset, true)),
-        ...stickerAssets.map((asset) => ensureNativeAnimatedStickerAssetRegistered(asset, true)),
-        ...backgroundAssets.map((asset) => ensureNativeBackgroundAssetRegistered(asset, true)),
       ]);
-      return true;
-    };
-
-    const rasterizeNativeSmartOverlays = async (
-      smartClips: SmartOverlayClip[],
-      currentTime: number,
-      width: number,
-      height: number,
-      frameIndex: number,
-    ): Promise<NativeRasterLayerSnapshot[]> => {
-      if (!isTauriRuntime() || smartClips.length === 0 || typeof document === "undefined") return [];
-
-      const rasterWidth = Math.max(1, Math.round(width));
-      const rasterHeight = Math.max(1, Math.round(height));
-      const assetId = `native-smart-overlay:${frameIndex}:${smartClips.map((clip) => clip.id).join(",")}`;
-      const cached = nativeSmartOverlayAssetsById.get(assetId);
-      if (cached) {
-        return [{ ...cached, rgba: undefined }];
-      }
-
-      const canvas = document.createElement("canvas");
-      canvas.width = rasterWidth;
-      canvas.height = rasterHeight;
-      const context = canvas.getContext("2d");
-      if (!context) return [];
-      context.clearRect(0, 0, rasterWidth, rasterHeight);
-      for (const smartClip of smartClips) {
-        const renderer = new SmartOverlayRenderer(smartClip);
-        renderer.draw(context, currentTime - smartClip.startTime, rasterWidth, rasterHeight);
-      }
-
-      const rgba = Array.from(context.getImageData(0, 0, rasterWidth, rasterHeight).data);
-      if (!rgba.some((value, index) => index % 4 === 3 && value > 0)) return [];
-
-      const asset: NativeRasterLayerSnapshot & { rgba: number[] } = {
-        assetId,
-        rgba,
-        width: rasterWidth,
-        height: rasterHeight,
-        x: 0,
-        y: 0,
-        rotation: 0,
-        opacity: 1,
-        zIndex: 1_000_000,
-        blendMode: "normal",
-        isText: false,
-      };
-      await registerNativeRasterAsset(asset);
-      nativeSmartOverlayAssetsById.set(assetId, asset);
-      while (nativeSmartOverlayAssetsById.size > maxNativeSmartOverlayCacheEntries) {
-        const oldestId = nativeSmartOverlayAssetsById.keys().next().value as string | undefined;
-        if (!oldestId) break;
-        nativeSmartOverlayAssetsById.delete(oldestId);
-      }
-      return [{ ...asset, rgba: undefined }];
+      return bridgeReregistered;
     };
 
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
@@ -1146,13 +912,11 @@ export const NativeProgramPreview: React.FC = () => {
       if (!mightNeedRender) return;
 
       const scene = evaluateTimelineSceneCached(frameStartTime, state.clips, state.tracks, state.mediaAssets, state.project, state.epoch, state.transitions, state.sceneVersions);
-      const nativeBackground = await rasterizeNativeBackground(scene, frameIndex);
-      const nativeTextRasters = await rasterizeNativeTextLayers(scene);
+      const nativeBridgeRasters = await nativeRasterBridge.rasterize(scene, { frameKey: frameIndex });
       const nativeBodyMasks = await rasterizeNativeBodyMasks(
         scene,
         session?.getPreviewVideoElements() ?? new Map(),
       );
-      const nativeAnimatedStickers = await rasterizeNativeAnimatedStickers(scene);
       const nativeActiveSmartClips = state.clips.filter(
         (clip): clip is SmartOverlayClip =>
           clip.kind === "smart-overlay" &&
@@ -1161,18 +925,16 @@ export const NativeProgramPreview: React.FC = () => {
           // (startTime <= evalTime < clipEnd). Was <= which rendered overlays one extra frame.
           frameStartTime < clip.startTime + clip.duration,
       );
-      const nativeSmartOverlays = await rasterizeNativeSmartOverlays(
+      const nativeSmartOverlays = await nativeRasterBridge.rasterizeSmartOverlays(
         nativeActiveSmartClips,
         frameStartTime,
         state.canvasWidth,
         state.canvasHeight,
-        frameIndex,
+        { frameKey: frameIndex },
       );
       const nativeRasterLayers = [
-        ...nativeBackground,
-        ...nativeTextRasters,
+        ...nativeBridgeRasters,
         ...nativeBodyMasks,
-        ...nativeAnimatedStickers,
         ...nativeSmartOverlays,
       ];
       const nativeRequest = buildNativeFrameRequest(
@@ -1206,9 +968,7 @@ export const NativeProgramPreview: React.FC = () => {
               state.transitions,
               state.sceneVersions,
             );
-            const lookAheadBackground = await rasterizeNativeBackground(lookAheadScene, lookAheadFrame);
-            const lookAheadTextRasters = await rasterizeNativeTextLayers(lookAheadScene);
-            const lookAheadAnimatedStickers = await rasterizeNativeAnimatedStickers(lookAheadScene);
+            const lookAheadBridgeRasters = await nativeRasterBridge.rasterize(lookAheadScene, { frameKey: lookAheadFrame });
             const lookAheadSmartClips = state.clips.filter(
               (clip): clip is SmartOverlayClip =>
                 clip.kind === "smart-overlay" &&
@@ -1218,12 +978,12 @@ export const NativeProgramPreview: React.FC = () => {
                 // 1015 was already corrected; the look-ahead path had the same bug.
                 lookAheadTime < clip.startTime + clip.duration,
             );
-            const lookAheadSmartOverlays = await rasterizeNativeSmartOverlays(
+            const lookAheadSmartOverlays = await nativeRasterBridge.rasterizeSmartOverlays(
               lookAheadSmartClips,
               lookAheadTime,
               state.canvasWidth,
               state.canvasHeight,
-              lookAheadFrame,
+              { frameKey: lookAheadFrame },
             );
             nativePlaybackRequest = buildNativeFrameRequest(
               lookAheadScene,
@@ -1232,7 +992,7 @@ export const NativeProgramPreview: React.FC = () => {
               frameRate,
               state.canvasWidth,
               state.canvasHeight,
-              [...lookAheadBackground, ...lookAheadTextRasters, ...lookAheadAnimatedStickers, ...lookAheadSmartOverlays],
+              [...lookAheadBridgeRasters, ...lookAheadSmartOverlays],
               requestIntent
                 ? { ...requestIntent, mode: "playback-lookahead" as const }
                 : { mode: "playback-lookahead" as const, quality: "full" as const },
@@ -1678,7 +1438,7 @@ export const NativeProgramPreview: React.FC = () => {
       unsubscribeClock();
       unsubscribeSeekIntent?.();
       nativePreviewScheduler.dispose();
-      nativeAnimatedStickerRenderer.dispose();
+      nativeRasterBridge.dispose();
       if (rafId !== null) cancelAnimationFrame(rafId);
       frameScheduled = false;
     };

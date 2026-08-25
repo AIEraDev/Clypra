@@ -10,6 +10,8 @@ import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
 import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
 import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
+import type { SmartOverlayClip } from "@/types/smartOverlay";
 
 /**
  * Image sequence export options.
@@ -175,6 +177,7 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
   if (!isTauriRuntime()) {
     throw new Error("[ExportSequence] Native image-sequence export requires the desktop runtime");
   }
+  const nativeRasterBridge = new NativeRasterBridge();
 
   try {
     for (let i = 0; i < frameTimes.length; i++) {
@@ -186,8 +189,21 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
       try {
         const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
         let blob: Blob;
+        const frameKey = startFrameIndex + i;
+        const rasterLayers = await nativeRasterBridge.rasterize(scene, { frameKey });
+        const activeSmartOverlays = clips.filter(
+          (clip): clip is SmartOverlayClip =>
+            clip.kind === "smart-overlay" && time >= clip.startTime && time < clip.startTime + clip.duration,
+        );
+        const smartOverlayRasters = await nativeRasterBridge.rasterizeSmartOverlays(
+          activeSmartOverlays,
+          time,
+          scene.metadata.canvasWidth,
+          scene.metadata.canvasHeight,
+          { frameKey },
+        );
         const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
-          ? buildNativeVideoProjectRequest(scene)
+          ? buildNativeVideoProjectRequest(scene, [...rasterLayers, ...smartOverlayRasters])
           : null;
         if (nativeRequest) {
           try {
@@ -219,6 +235,7 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
       throw error;
     }
   } finally {
+    nativeRasterBridge.dispose();
   }
 
   const totalTimeMs = Date.now() - startTimeMs;
