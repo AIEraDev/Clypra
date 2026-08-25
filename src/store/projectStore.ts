@@ -28,7 +28,7 @@ import { platform } from "@/core/platform";
 import type { Project, MediaAsset, TransitionTimelineItem, TimelineMarker } from "@/types";
 import type { Gap } from "@/types/gap";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
-import { toRustProject } from "@/types/serialization";
+import { toRustProject, type ProjectPersistenceSnapshot } from "@/types/serialization";
 import { generateId } from "@/lib/utils/id";
 import { convertRawConfigToDefinition } from "@/features/text-effects/lib/definitionConversion";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
@@ -121,18 +121,6 @@ let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTO_SAVE_DELAY = 500; // ms
 let saveInProgress: Promise<ProjectSaveResult> | null = null;
 
-type ProjectPersistenceSnapshot = {
-  project: Project;
-  mediaAssets: MediaAsset[];
-  tracks: any[];
-  clips: any[];
-  transitions: TransitionTimelineItem[];
-  gaps: Gap[];
-  markers: TimelineMarker[];
-  epoch: number;
-  rustProject: ReturnType<typeof toRustProject>;
-};
-
 async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapshot | null> {
   const { project, mediaAssets } = useProjectStore.getState();
   if (!project) return null;
@@ -149,6 +137,8 @@ async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapsh
     gaps,
     markers,
     epoch,
+    timelineSchemaVersion: project.timelineSchemaVersion ?? 1,
+    migrated: false,
     rustProject: toRustProject(project, { tracks, clips, transitions, gaps, markers, mediaAssets }),
   };
 }
