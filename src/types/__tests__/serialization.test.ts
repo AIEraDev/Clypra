@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Project, Track, Clip, MediaAsset, TextClip } from "../index";
-import { toRustProject, fromRustProject, fromRustTrack, fromRustClip, toRustTrack, toRustClip, toRustMediaAsset, fromRustMediaAsset } from "../serialization";
+import { toRustProject, fromRustProject, fromRustTrack, fromRustClip, toRustTrack, toRustClip, toRustMediaAsset, fromRustMediaAsset, validateAndMigrateProjectPayload } from "../serialization";
 
 describe("Project Serialization Layer", () => {
   it("converts a frontend Project to a RustProject with correct snake_case mapping", () => {
@@ -251,5 +251,34 @@ describe("Project Serialization Layer", () => {
     expect(project.frameRate).toBe(30);
     expect(project.duration).toBe(0);
     expect(project.timelineSchemaVersion).toBe(1);
+  });
+
+  it("validates a complete persistence payload before hydration", () => {
+    const snapshot = validateAndMigrateProjectPayload({
+      id: "project-complete",
+      name: "Complete",
+      created_at: 1000,
+      modified_at: 2000,
+      timeline_schema_version: 1,
+      tracks: [{ id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: true, height: 68 }],
+      clips: [{ id: "clip-1", kind: "video", trackId: "track-1", mediaId: "media-1", startTime: 0, duration: 2, trimIn: 0, trimOut: 2, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 }],
+      gaps: [{ id: "gap-1", track_id: "track-1", start_time: 2, duration: 1, type: "manual", source: "user-insert", protected: false }],
+      markers: [{ id: "marker-1", time: 1, name: "Marker", color: "#fff" }],
+      media_assets: [{ id: "media-1", name: "clip.mp4", path: "/clip.mp4", type: "video", duration: 2, size: 1 }],
+    });
+
+    expect(snapshot.project.id).toBe("project-complete");
+    expect(snapshot.tracks).toHaveLength(1);
+    expect(snapshot.clips).toHaveLength(1);
+    expect(snapshot.gaps[0].id).toBe("gap-1");
+    expect(snapshot.markers[0].id).toBe("marker-1");
+    expect(snapshot.rustProject.timeline_schema_version).toBe(1);
+  });
+
+  it("rejects malformed payloads instead of producing an empty project", () => {
+    expect(() => validateAndMigrateProjectPayload("{not-json"))
+      .toThrow(/malformed/i);
+    expect(() => validateAndMigrateProjectPayload({ id: "p", name: "Broken", created_at: 1, modified_at: 2, clips: "not-an-array" }))
+      .toThrow(/must be an array/i);
   });
 });
