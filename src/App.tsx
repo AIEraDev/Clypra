@@ -5,7 +5,9 @@ import { TooltipProvider } from "@/components/ui/Tooltip";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
 import type { Project, AspectRatio } from "@/types";
-import { fromRustProject, fromRustTrack, fromRustClip, fromRustGap, type RustProject } from "@/types/serialization";
+import { validateAndMigrateProjectPayload } from "@/types/serialization";
+import type { RecentProjectEntry } from "@/core/platform/platform";
+import { generateId } from "@/lib/utils/id";
 import { platform } from "@/core/platform";
 import { SettingsModal } from "./components/ui/SettingsModal";
 import { ClosingProjectModal } from "./components/ui/ClosingProjectModal";
@@ -317,52 +319,38 @@ const App = () => {
     }
   };
 
-  const handleOpenProject = async (proj: Project) => {
+  const handleOpenProject = async (entry: RecentProjectEntry) => {
     try {
       useUIStore.getState().exitSourceMode();
 
-      const appData = await platform.appDataDir();
-      const projectPath = await platform.joinPaths(appData, "projects", `${proj.id}.json`);
-
-      const projectJson = await platform.loadProject(projectPath);
-      const rustProject: RustProject = JSON.parse(projectJson);
-
-      const project = fromRustProject(rustProject);
-
-      const mediaAssetsPayload = project.mediaAssets ?? [];
-      const tracksPayload = rustProject.tracks?.map(fromRustTrack) ?? [];
-      const clipsPayload = rustProject.clips?.map(fromRustClip) ?? [];
-      const transitionsPayload = rustProject.transitions ?? [];
-      const gapsPayload = rustProject.gaps?.map(fromRustGap) ?? [];
-      const markersPayload = rustProject.markers ?? [];
-
-      // Resolve kind for legacy projects
-      const assetMap = new Map(mediaAssetsPayload.map((a) => [a.id, a]));
-      for (const clip of clipsPayload) {
-        if (!clip.kind) {
-          if ("text" in clip || clip.id.startsWith("text-clip-")) {
-            clip.kind = "text";
-          } else if (clip.mediaId.startsWith("sticker-")) {
-            clip.kind = "sticker";
-          } else if (clip.id.startsWith("filter-clip-")) {
-            clip.kind = "filter";
-          } else {
-            const asset = assetMap.get(clip.mediaId);
-            if (asset) {
-              clip.kind = asset.type; // "video" | "audio" | "image"
-            }
-          }
-        }
-      }
+      const projectJson = await platform.loadProject(entry.kind === "unreadable" ? entry.backupPath : entry.path);
+      const normalized = validateAndMigrateProjectPayload(projectJson);
+      const isRecoveryCopy = entry.kind === "unreadable";
+      const project = isRecoveryCopy
+        ? { ...normalized.project, id: generateId("project"), name: `${entry.name || normalized.project.name} (Recovered)`, createdAt: Date.now(), updatedAt: Date.now() }
+        : normalized.project;
 
       await loadProject(project, {
-        mediaAssets: mediaAssetsPayload,
-        tracks: tracksPayload,
-        clips: clipsPayload,
-        transitions: transitionsPayload,
-        gaps: gapsPayload,
-        markers: markersPayload,
+        mediaAssets: normalized.mediaAssets,
+        tracks: normalized.tracks,
+        clips: normalized.clips,
+        transitions: normalized.transitions,
+        gaps: normalized.gaps,
+        markers: normalized.markers,
       });
+
+      if (isRecoveryCopy) {
+        const receipt = await useProjectStore.getState().saveCurrentProject();
+        if (!receipt?.verified) throw new Error("Recovered project could not be verified after saving");
+        useProjectStore.getState().showToast("Recovered copy opened and saved safely", "success");
+      } else if (normalized.migrated) {
+        try {
+          const receipt = await useProjectStore.getState().saveCurrentProject();
+          if (!receipt?.verified) throw new Error("Migration save was not verified");
+        } catch (migrationError) {
+          useProjectStore.getState().showToast(`Project opened, but migration could not be saved: ${migrationError instanceof Error ? migrationError.message : String(migrationError)}`, "warning", 7000);
+        }
+      }
 
       setTimeout(async () => {
         const { useTimelineStore } = await import("./store/timelineStore");
@@ -401,7 +389,7 @@ const App = () => {
       }, 200);
     } catch (error) {
       console.error("[OpenProject] Failed to open project:", error);
-      useProjectStore.getState().showToast("Failed to open project", "error");
+      useProjectStore.getState().showToast(error instanceof Error ? error.message : "Failed to open project", "error", 7000);
     }
   };
 
@@ -414,10 +402,10 @@ const App = () => {
     setIsRestoring(true);
     try {
       // BUG-008 fix: useTimelineStore import removed — loadProject() handles hydration.
-      const { tracks, clips, transitions, mediaAssets, project } = pendingRecovery;
+      const { tracks, clips, transitions, gaps, markers, mediaAssets, project } = pendingRecovery;
 
       // Hydrate project store (sets active project)
-      await loadProject(project, { tracks, clips, transitions, mediaAssets });
+      await loadProject(project, { tracks, clips, transitions, gaps: gaps ?? [], markers: markers ?? [], mediaAssets });
 
       // BUG-008 fix: Removed redundant hydrateFromProject() call.
       // loadProject() already hydrates the timeline with proper normalization.
