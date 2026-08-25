@@ -213,8 +213,8 @@ describe("AudioEnvelopeEditor volume interaction", () => {
     render(<AudioEnvelopeEditor clip={createClip()} clipWidthPx={400} pixelsPerSecond={40} />);
     expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "0px", top: "0px", height: "100%" });
     expect(screen.getByRole("button", { name: "Fade out handle" })).toHaveStyle({ left: "400px", top: "0px", height: "100%" });
-    expect(screen.getByTestId("audio-fade-in-handle").querySelector("span + span")).toHaveStyle({ top: "6%" });
-    expect(screen.getByTestId("audio-fade-out-handle").querySelector("span + span")).toHaveStyle({ top: "6%" });
+    expect(screen.getByTestId("audio-fade-in-handle").querySelector("span")).toHaveStyle({ top: "6%" });
+    expect(screen.getByTestId("audio-fade-out-handle").querySelector("span")).toHaveStyle({ top: "6%" });
   });
 
   it("drags a fade-in handle horizontally and records one undoable edit", () => {

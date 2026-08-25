@@ -287,7 +287,7 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           {displayFadeInPx > 0 && (
             <>
               <path
-                d={`M 0 100 C ${fadeInPercent * 0.18} 72 ${fadeInPercent * 0.55} 12 ${fadeInPercent} ${fadeMarkerYPercent} L ${fadeInPercent} 100 Z`}
+                d={`M 0 0 L ${fadeInPercent} 0 L ${fadeInPercent} ${fadeMarkerYPercent} C ${fadeInPercent * 0.55} 12 ${fadeInPercent * 0.18} 72 0 100 Z`}
                 fill="var(--clypra-clip-envelope-fill)"
               />
               <path
@@ -299,20 +299,12 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
                 strokeLinejoin="round"
                 vectorEffect="non-scaling-stroke"
               />
-              <path
-                d={`M ${fadeInPercent} 0 L ${fadeInPercent} ${fadeMarkerYPercent}`}
-                fill="none"
-                stroke="var(--clypra-clip-envelope-line)"
-                strokeWidth="0.9"
-                strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
-              />
             </>
           )}
           {displayFadeOutPx > 0 && (
             <>
               <path
-                d={`M ${fadeOutPercent} ${fadeMarkerYPercent} C ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 12 ${fadeOutPercent + (100 - fadeOutPercent) * 0.82} 72 100 100 L ${fadeOutPercent} 100 Z`}
+                d={`M ${fadeOutPercent} 0 L 100 0 L 100 100 C ${fadeOutPercent + (100 - fadeOutPercent) * 0.82} 72 ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 12 ${fadeOutPercent} ${fadeMarkerYPercent} Z`}
                 fill="var(--clypra-clip-envelope-fill)"
               />
               <path
@@ -324,20 +316,13 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
                 strokeLinejoin="round"
                 vectorEffect="non-scaling-stroke"
               />
-              <path
-                d={`M ${fadeOutPercent} 0 L ${fadeOutPercent} ${fadeMarkerYPercent}`}
-                fill="none"
-                stroke="var(--clypra-clip-envelope-line)"
-                strokeWidth="0.9"
-                strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
-              />
             </>
           )}
         </svg>
 
-        {/* Full-height fade handles: the rail is always easy to grab anywhere
-            in the audio envelope while the marker shows the curve endpoint. */}
+        {/* Full-height invisible fade handles: the entire envelope remains
+            easy to grab while the marker stays visually attached only to the
+            curve endpoint. */}
         <button
           type="button"
           aria-label="Fade in handle"
@@ -352,14 +337,6 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           onPointerDown={(event) => handleFadeDragStart(event, "fadeIn")}
           title={`Fade in: ${displayFadeIn.toFixed(2)}s — drag right to set`}
         >
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2"
-            style={{
-              backgroundColor: "var(--clypra-clip-envelope-line)",
-              opacity: 0.82,
-            }}
-          />
           <span
             aria-hidden="true"
             className="pointer-events-none absolute left-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
@@ -385,14 +362,6 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           onPointerDown={(event) => handleFadeDragStart(event, "fadeOut")}
           title={`Fade out: ${displayFadeOut.toFixed(2)}s — drag left to set`}
         >
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2"
-            style={{
-              backgroundColor: "var(--clypra-clip-envelope-line)",
-              opacity: 0.82,
-            }}
-          />
           <span
             aria-hidden="true"
             className="pointer-events-none absolute left-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
