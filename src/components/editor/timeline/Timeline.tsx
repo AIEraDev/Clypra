@@ -176,7 +176,7 @@ export const Timeline: React.FC = () => {
   // width is available. Manual zooming is unaffected because this only reacts
   // to the hydration revision.
   useEffect(() => {
-    if (projectLoadRevision === 0 || !hasTimelineContent) return;
+    if (projectLoadRevision === 0) return;
     if (initialFitRevisionRef.current === projectLoadRevision) return;
 
     const frame = requestAnimationFrame(() => {
@@ -187,7 +187,7 @@ export const Timeline: React.FC = () => {
       initialFitRevisionRef.current = projectLoadRevision;
     });
     return () => cancelAnimationFrame(frame);
-  }, [hasTimelineContent, projectLoadRevision, viewportWidth]);
+  }, [projectLoadRevision, viewportWidth]);
 
   // Attach scroll/pointer listeners to the timeline scroll container
   useEffect(() => {
