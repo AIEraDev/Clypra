@@ -13,7 +13,7 @@ import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/type
 import { drawCanvasBackground } from "@/core/render/canvasBackground";
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
-import { isTauriRuntime, registerNativeRasterAsset } from "@/lib/platform/tauri";
+import { decodeNativeRgbaFrame, isTauriRuntime, registerNativeRasterAsset } from "@/lib/platform/tauri";
 import type { NativeRasterLayerSnapshot } from "@/lib/platform/nativeCore";
 import {
   buildNativeTextRasterKey,
@@ -63,6 +63,7 @@ function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
  */
 export class NativeRasterBridge {
   private readonly textCache = new Map<string, Promise<NativeTextRasterAsset>>();
+  private readonly imageCache = new Map<string, Promise<number[]>>();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
   private readonly registeredAssetIds = new Set<string>();
   private readonly animatedStickerRenderer = new NativeAnimatedStickerRenderer();
@@ -70,12 +71,13 @@ export class NativeRasterBridge {
   async rasterize(scene: EvaluatedScene, options: NativeRasterBridgeOptions): Promise<NativeRasterLayerSnapshot[]> {
     if (!isTauriRuntime()) return [];
 
-    const [text, background, animatedStickers] = await Promise.all([
+    const [text, background, animatedStickers, images] = await Promise.all([
       this.rasterizeText(scene),
       this.rasterizeBackground(scene, options.frameKey),
       this.rasterizeAnimatedStickers(scene),
+      this.rasterizeImages(scene),
     ]);
-    return [...background, ...text, ...animatedStickers];
+    return [...background, ...text, ...animatedStickers, ...images];
   }
 
   /**
@@ -143,6 +145,7 @@ export class NativeRasterBridge {
 
   dispose(): void {
     this.textCache.clear();
+    this.imageCache.clear();
     this.assetsById.clear();
     this.registeredAssetIds.clear();
     this.animatedStickerRenderer.dispose();
@@ -177,6 +180,57 @@ export class NativeRasterBridge {
     const resolved = assets.filter((asset): asset is NativeAnimatedStickerRaster => asset !== null);
     await Promise.all(resolved.map((asset) => this.register(asset)));
     return resolved.map(snapshot);
+  }
+
+  /**
+   * Still images are native RGBA assets, not YUV video layers. Keeping this
+   * distinction at the raster bridge preserves PNG/WebP alpha while allowing
+   * the native compositor to own the final transform and blend operation.
+   */
+  private async rasterizeImages(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
+    const layers = scene.visualLayers.filter(
+      (layer): layer is EvaluatedMediaLayer =>
+        layer.layerType === "media" &&
+        layer.mediaType === "image" &&
+        layer.stickerFormat !== "gif" &&
+        layer.stickerFormat !== "lottie",
+    );
+    const assets = await Promise.all(layers.map((layer) => {
+      const width = Math.max(1, Math.round(layer.width));
+      const height = Math.max(1, Math.round(layer.height));
+      const pixelKey = stableSerialize({ sourcePath: layer.sourcePath, width, height });
+      const assetId = `native-image:${layer.layerId}:${stableSerialize({ sourcePath: layer.sourcePath, width, height })}`;
+      let pixels = this.imageCache.get(pixelKey);
+      if (!pixels) {
+        pixels = decodeNativeRgbaFrame(layer.sourcePath, width, height).then((buffer) => {
+          const rgba = Array.from(new Uint8Array(buffer));
+          if (rgba.length !== width * height * 4) {
+            throw new Error(`Native image decoder returned ${rgba.length} bytes; expected ${width * height * 4}`);
+          }
+          return rgba;
+        });
+        this.imageCache.set(pixelKey, pixels);
+        void pixels.catch(() => {
+          if (this.imageCache.get(pixelKey) === pixels) this.imageCache.delete(pixelKey);
+        });
+      }
+      return pixels.then((rgba) => ({
+        assetId,
+        rgba,
+        width,
+        height,
+        x: layer.x,
+        y: layer.y,
+        rotation: layer.rotation,
+        opacity: layer.opacity,
+        zIndex: layer.zIndex,
+        blendMode: layer.blendMode,
+        isText: false,
+      }));
+    }));
+
+    await Promise.all(assets.map((asset) => this.register(asset)));
+    return assets.map(snapshot);
   }
 
   private async rasterizeBackground(scene: EvaluatedScene, frameKey: number): Promise<NativeRasterLayerSnapshot[]> {
