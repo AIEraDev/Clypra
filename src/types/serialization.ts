@@ -15,7 +15,8 @@
  * - Easy to maintain when schema changes
  */
 
-import type { Project, MediaAsset, Track, Clip, AspectRatio, TransitionTimelineItem, TimelineMarker, CanvasBackgroundConfig, MediaStreamInfo, DerivedMediaProvenance } from "./index";
+import { AUDIO_MODEL_VERSION, normalizeClipAudioProperties } from "./audio";
+import type { Project, MediaAsset, Track, Clip, AspectRatio, TransitionTimelineItem, TimelineMarker, CanvasBackgroundConfig, MediaStreamInfo, DerivedMediaProvenance, ClipAudioProperties } from "./index";
 import type { Gap } from "./gap";
 
 // ============================================================================
@@ -48,6 +49,7 @@ export interface RustProject {
   markers?: TimelineMarker[];
   thumbnail?: string | null;
   timeline_schema_version?: number | null;
+  audio_model_version?: number | null;
 }
 
 /**
@@ -115,6 +117,7 @@ export interface RustClip {
   fitMode?: "contain" | "cover" | "fill" | "stretch" | "original";
   conform?: import("@clypra-studio/engine").ClipConform;
   volume?: number;
+  audio?: Partial<ClipAudioProperties>;
   fade_in?: number;
   fade_out?: number;
   kind?: string;
@@ -185,6 +188,7 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
     media_assets: raw.media_assets ?? raw.mediaAssets,
     canvas_background: raw.canvas_background ?? raw.canvasBackground,
     timeline_schema_version: raw.timeline_schema_version ?? raw.timelineSchemaVersion,
+    audio_model_version: raw.audio_model_version ?? raw.audioModelVersion,
   };
   if (typeof rust.id !== "string" || !rust.id.trim()) throw new Error("Project payload is missing a valid id");
   if (typeof rust.name !== "string" || !rust.name.trim()) throw new Error("Project payload is missing a valid name");
@@ -265,6 +269,7 @@ export function fromRustProject(rust: RustProject): Project {
     markers: rust.markers ?? undefined,
     thumbnail: rust.thumbnail ?? undefined,
     timelineSchemaVersion: rust.timeline_schema_version ?? 1,
+    audioModelVersion: rust.audio_model_version ?? AUDIO_MODEL_VERSION,
   };
 }
 
@@ -387,7 +392,12 @@ export function fromRustClip(rust: RustClip): Clip {
 
   // Preserve all additional properties (e.g., TextClip properties)
   // This ensures text, fontFamily, fontSize, color, etc. are restored
-  const clip = { ...baseClip, ...rust } as any;
+  const hasAudioModel = kind !== "text" && kind !== "filter" && kind !== "video-effect" && kind !== "body-effect" && kind !== "animated-overlay" && kind !== "smart-overlay";
+  const clip = {
+    ...baseClip,
+    ...rust,
+    ...(hasAudioModel ? { audio: normalizeClipAudioProperties({ ...rust, kind }) } : {}),
+  } as any;
   if (rust.style_definition) {
     clip.styleDefinition = rust.style_definition;
     delete clip.style_definition;
@@ -465,6 +475,7 @@ export function toRustProject(
     markers: options?.markers ?? [],
     thumbnail: frontend.thumbnail,
     timeline_schema_version: frontend.timelineSchemaVersion ?? 1,
+    audio_model_version: frontend.audioModelVersion ?? AUDIO_MODEL_VERSION,
   };
 }
 
