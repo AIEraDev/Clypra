@@ -13,9 +13,14 @@ import {
   setNativeAudioOutput,
   setNativeAudioSpeed,
   stopNativeAudio,
+  updateNativeAudioClipParameters,
 } from "@/lib/platform/tauri";
 import { isTauriRuntime } from "@/lib/platform/tauri";
-import { syncNativeAudioTimeline } from "./nativeAudioTimeline";
+import {
+  buildNativeAudioTimeline,
+  syncNativeAudioTimeline,
+  type NativeAudioTimelineSnapshot,
+} from "./nativeAudioTimeline";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 
 export interface NativeAudioPreviewSource {
@@ -56,6 +61,10 @@ export class NativeAudioPreviewController {
   private transportIntentRevision = 0;
   /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
   private seekIntentRevision = 0;
+  /** Timeline edits collapse to the newest candidate instead of queuing rebuilds. */
+  private pendingSource: NativeAudioPreviewSource | null = null;
+  private sourceUpdateScheduled = false;
+  private installedSnapshot: NativeAudioTimelineSnapshot | null = null;
 
   constructor(options: NativeAudioPreviewControllerOptions) {
     this.clock = options.clock;
@@ -79,22 +88,57 @@ export class NativeAudioPreviewController {
   updateSource(source: NativeAudioPreviewSource): void {
     this.source = source;
     if (!this.active || this.disposed) return;
+    this.pendingSource = source;
+    if (this.sourceUpdateScheduled) return;
+    this.sourceUpdateScheduled = true;
     this.enqueue(async () => {
-      await syncNativeAudioTimeline(
-        this.source.clips,
-        this.source.tracks,
-        this.source.assets,
-        0,
-        this.source.duration,
-      );
-      await configureNativePlayback({
-        contractVersion: 1,
-        projectRevision: this.source.projectRevision,
-        frameRate: Math.max(1, Math.round(this.source.frameRate)),
-        durationFrames: Math.max(1, Math.ceil(this.source.duration * this.source.frameRate)),
-        audioTrackCount: Math.max(0, Math.round(this.source.audioTrackCount)),
-      });
-    });
+      try {
+        while (this.pendingSource && !this.disposed) {
+          const nextSource = this.pendingSource;
+          this.pendingSource = null;
+          const nextSnapshot = buildNativeAudioTimeline(
+            nextSource.clips,
+            nextSource.tracks,
+            nextSource.assets,
+            0,
+            nextSource.duration,
+          );
+
+          if (!this.installedSnapshot || !hasSameClipLayout(this.installedSnapshot, nextSnapshot)) {
+            const timeline = await syncNativeAudioTimeline(
+              nextSource.clips,
+              nextSource.tracks,
+              nextSource.assets,
+              0,
+              nextSource.duration,
+            );
+            this.installedSnapshot = timeline.snapshot;
+          } else if (!hasSameClipParameters(this.installedSnapshot, nextSnapshot)) {
+            await Promise.all(nextSnapshot.clips.map((clip) => updateNativeAudioClipParameters({
+              clipId: clip.clipId,
+              gain: clip.gain,
+              pan: clip.pan,
+              fadeInTicks: clip.fadeInTicks,
+              fadeOutTicks: clip.fadeOutTicks,
+              fadeInCurve: clip.fadeInCurve,
+              fadeOutCurve: clip.fadeOutCurve,
+              volumeKeyframes: clip.volumeKeyframes,
+            })));
+            this.installedSnapshot = nextSnapshot;
+          }
+
+          await configureNativePlayback({
+            contractVersion: 1,
+            projectRevision: nextSource.projectRevision,
+            frameRate: Math.max(1, Math.round(nextSource.frameRate)),
+            durationFrames: Math.max(1, Math.ceil(nextSource.duration * nextSource.frameRate)),
+            audioTrackCount: Math.max(0, Math.round(nextSource.audioTrackCount)),
+          });
+        }
+      } finally {
+        this.sourceUpdateScheduled = false;
+      }
+    }, "sync-native-audio");
   }
 
   async initialize(): Promise<boolean> {
@@ -111,6 +155,7 @@ export class NativeAudioPreviewController {
         0,
         this.source.duration,
       );
+      this.installedSnapshot = timeline.snapshot;
       if (this.disposed) return false;
       await configureNativePlayback({
         contractVersion: 1,
@@ -476,4 +521,39 @@ export class NativeAudioPreviewController {
 
 function secondsToTicks(seconds: number): number {
   return Math.max(0, Math.round(seconds * 1_000_000));
+}
+
+function hasSameClipLayout(
+  previous: NativeAudioTimelineSnapshot,
+  next: NativeAudioTimelineSnapshot,
+): boolean {
+  if (previous.clips.length !== next.clips.length) return false;
+  return previous.clips.every((clip, index) => {
+    const candidate = next.clips[index];
+    return clip.clipId === candidate.clipId
+      && clip.path === candidate.path
+      && clip.timelineStartTicks === candidate.timelineStartTicks
+      && clip.sourceStartTicks === candidate.sourceStartTicks
+      && clip.durationTicks === candidate.durationTicks
+      && clip.channelMode === candidate.channelMode
+      && clip.downmix === candidate.downmix
+      && JSON.stringify(clip.channelMap ?? null) === JSON.stringify(candidate.channelMap ?? null)
+      && clip.preservePitch === candidate.preservePitch;
+  });
+}
+
+function hasSameClipParameters(
+  previous: NativeAudioTimelineSnapshot,
+  next: NativeAudioTimelineSnapshot,
+): boolean {
+  return previous.clips.every((clip, index) => {
+    const candidate = next.clips[index];
+    return clip.gain === candidate.gain
+      && clip.pan === candidate.pan
+      && clip.fadeInTicks === candidate.fadeInTicks
+      && clip.fadeOutTicks === candidate.fadeOutTicks
+      && clip.fadeInCurve === candidate.fadeInCurve
+      && clip.fadeOutCurve === candidate.fadeOutCurve
+      && JSON.stringify(clip.volumeKeyframes) === JSON.stringify(candidate.volumeKeyframes);
+  });
 }
