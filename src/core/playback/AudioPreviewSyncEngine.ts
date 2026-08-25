@@ -12,6 +12,7 @@
  */
 
 import type { Clip, Track, MediaAsset, TransitionTimelineItem } from "@/types";
+import { evaluateEffectiveAudioState } from "@/core/audio/effectiveAudioState";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 
 export interface AudioSyncState {
@@ -86,7 +87,6 @@ export class AudioPreviewSyncEngine {
       if (!clip) continue;
 
       const track = tracks.find((t) => t.id === clip.trackId);
-      const isTrackMuted = track?.muted ?? false;
       const isTrackLocked = track?.locked ?? false;
 
       // Calculate source time for this clip
@@ -102,15 +102,18 @@ export class AudioPreviewSyncEngine {
 
       const el = managed.element;
 
-      // Combine volumes
-      const clipVolume = clip.volume ?? 1.0;
-      const trackVolume = track?.volume ?? 1.0;
-      const combinedVolume = (syncState.volume / 100) * clipVolume * trackVolume;
-      const shouldMute = syncState.muted || syncState.volume === 0 || isTrackMuted || clipVolume === 0 || trackVolume === 0;
+      const effective = evaluateEffectiveAudioState(clip, track, syncState.time, {
+        tracks,
+        masterVolume: syncState.volume / 100,
+        masterMuted: syncState.muted,
+      });
+      const shouldMute = effective.muted;
 
       el.muted = shouldMute;
-      el.volume = shouldMute ? 0 : Math.max(0, Math.min(1, combinedVolume));
+      el.volume = shouldMute ? 0 : Math.max(0, Math.min(1, effective.gain));
       el.playbackRate = syncState.speed;
+      if ("preservesPitch" in el) (el as HTMLMediaElement & { preservesPitch?: boolean }).preservesPitch = effective.preservePitch;
+      if ("webkitPreservesPitch" in el) (el as HTMLMediaElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = effective.preservePitch;
 
       // Calculate drift
       const currentDrift = Math.abs(el.currentTime - sourceTime);
@@ -134,4 +137,3 @@ export class AudioPreviewSyncEngine {
     return { masterHardwareTime: primaryAudioHardwareTime };
   }
 }
-

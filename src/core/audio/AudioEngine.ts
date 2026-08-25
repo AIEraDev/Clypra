@@ -15,10 +15,11 @@
 import type { Clip, Track } from "@/types";
 import { AudioBufferPool } from "./AudioBufferPool";
 import { AudioFXNodeChain } from "./AudioFXNodeChain";
+import { evaluateEffectiveAudioState } from "./effectiveAudioState";
 
 export interface ActiveVoice {
   clipId: string;
-  sourceNode: AudioBufferSourceNode;
+  sourceNode: AudioNode & { stop?: () => void };
   fxChain: AudioFXNodeChain;
   scheduledAtAudioTime: number;
   timelineStartSec: number;
@@ -113,17 +114,21 @@ export class AudioEngine {
 
     for (const clip of clips) {
       const track = trackMap.get(clip.trackId);
-      const isTrackMuted = track?.muted ?? false;
+      const effective = evaluateEffectiveAudioState(clip, track, timelineTime, {
+        tracks,
+        masterVolume: this._masterVolume,
+        masterMuted: this._isMuted,
+      });
       const isTrackLocked = track?.locked ?? false;
 
       const clipEnd = clip.startTime + clip.duration;
       const isWithinWindow = timelineTime >= clip.startTime && timelineTime < clipEnd;
 
-      if (isWithinWindow && !isTrackMuted && !isTrackLocked) {
+      if (isWithinWindow && !effective.muted && !isTrackLocked) {
         activeClipIds.add(clip.id);
 
         if (!this.activeVoices.has(clip.id)) {
-          this.spawnVoice(clip, track, timelineTime);
+          this.spawnVoice(clip, track, tracks, timelineTime);
         }
       }
     }
@@ -139,7 +144,7 @@ export class AudioEngine {
   /**
    * Spawns a sample-accurate voice for a timeline clip.
    */
-  private spawnVoice(clip: Clip, track: Track | undefined, timelineTime: number): void {
+  private spawnVoice(clip: Clip, track: Track | undefined, tracks: Track[], timelineTime: number): void {
     const audioKey = clip.mediaId || clip.audioPath || clip.id;
     const buffer = this.bufferPool.get(audioKey);
 
@@ -164,33 +169,48 @@ export class AudioEngine {
       return;
     }
 
-    // Web Audio single-use source node
-    const sourceNode = this.ctx.createBufferSource();
-    sourceNode.buffer = buffer;
-    sourceNode.playbackRate.value = this._playbackSpeed;
+    const effective = evaluateEffectiveAudioState(clip, track, timelineTime, { tracks });
+    const scheduleAudioTime = this.ctx.currentTime;
+    const pitchPreservingSource = effective.preservePitch && Math.abs(this._playbackSpeed - 1) > 0.001
+      ? this.createPitchPreservingSource(buffer, bufferOffset, remainingTimelineDuration, this._playbackSpeed, clip.id)
+      : null;
+
+    // AudioBufferSourceNode is ideal for normal playback. At speed changes,
+    // use an allocation-free granular renderer because Web Audio has no
+    // `preservesPitch` equivalent on AudioBufferSourceNode.
+    const sourceNode: ActiveVoice["sourceNode"] = pitchPreservingSource ?? this.ctx.createBufferSource();
+    if (!pitchPreservingSource) {
+      const bufferSource = sourceNode as AudioBufferSourceNode;
+      bufferSource.buffer = buffer;
+      bufferSource.playbackRate.value = this._playbackSpeed;
+    }
 
     // Per-voice DSP FX Chain
     const fxChain = new AudioFXNodeChain(this.ctx);
     sourceNode.connect(fxChain.inputNode);
     fxChain.outputNode.connect(this.masterGain);
 
-    const scheduleAudioTime = this.ctx.currentTime;
-
     // Apply clip EQ, Pan, Volume keyframe automation, and 3ms anti-click attack micro-fade
     fxChain.applyClipConfig(
       clip,
       track?.volume ?? 1.0,
       track?.muted ?? false,
-      this._masterVolume,
+      1,
       this._isMuted,
       timelineTime,
       scheduleAudioTime,
       this._playbackSpeed,
+      track,
+      tracks,
     );
 
-    // Precision hardware start
-    const playDuration = remainingTimelineDuration / this._playbackSpeed;
-    sourceNode.start(scheduleAudioTime, bufferOffset, playDuration);
+    // Precision hardware start for the native Web Audio source. A
+    // ScriptProcessor source begins when connected and tracks its own frame
+    // cursor in `createPitchPreservingSource`.
+    if (!pitchPreservingSource) {
+      const playDuration = remainingTimelineDuration / this._playbackSpeed;
+      (sourceNode as AudioBufferSourceNode).start(scheduleAudioTime, bufferOffset, playDuration);
+    }
 
     const voice: ActiveVoice = {
       clipId: clip.id,
@@ -203,13 +223,87 @@ export class AudioEngine {
 
     this.activeVoices.set(clip.id, voice);
 
-    sourceNode.onended = () => {
+    if (!pitchPreservingSource) (sourceNode as AudioBufferSourceNode).onended = () => {
       // Check if this ended node is still the current active voice
       const current = this.activeVoices.get(clip.id);
       if (current && current.sourceNode === sourceNode) {
         this.killVoice(clip.id, current, false);
       }
     };
+  }
+
+  /**
+   * Browser fallback for `preservePitch`: granular overlap-add synthesis.
+   * It advances the source at transport speed but preserves the short-window
+   * waveform period, keeping pitch stable without a second media-element
+   * playback authority.
+   */
+  private createPitchPreservingSource(
+    buffer: AudioBuffer,
+    offsetSeconds: number,
+    timelineDurationSeconds: number,
+    speed: number,
+    clipId: string,
+  ): ScriptProcessorNode | null {
+    const createScriptProcessor = (this.ctx as AudioContext & {
+      createScriptProcessor?: (bufferSize?: number, numberOfInputChannels?: number, numberOfOutputChannels?: number) => ScriptProcessorNode;
+    }).createScriptProcessor;
+    if (!createScriptProcessor) return null;
+
+    const channels = Math.max(1, Math.min(2, buffer.numberOfChannels));
+    const processor = createScriptProcessor.call(this.ctx, 1024, 0, channels);
+    const sampleRate = buffer.sampleRate;
+    const safeSpeed = Math.max(0.25, Math.min(4, speed));
+    const initialFrame = Math.max(0, Math.floor(offsetSeconds * sampleRate));
+    const maxFrames = Math.max(0, Math.ceil((timelineDurationSeconds / safeSpeed) * sampleRate));
+    const grainSize = Math.max(64, Math.round(sampleRate * 0.04));
+    const hop = Math.max(1, Math.floor(grainSize / 4));
+    const halfGrain = grainSize / 2;
+    let renderedFrames = 0;
+    let completed = false;
+
+    const finish = () => {
+      if (completed) return;
+      completed = true;
+      processor.onaudioprocess = null;
+      const current = this.activeVoices.get(clipId);
+      if (current?.sourceNode === processor) this.killVoice(clipId, current, false);
+    };
+
+    processor.onaudioprocess = (event) => {
+      const output = event.outputBuffer;
+      const frameCount = output.length;
+      for (let channel = 0; channel < output.numberOfChannels; channel += 1) {
+        const outputData = output.getChannelData(channel);
+        const sourceData = buffer.getChannelData(Math.min(channel, buffer.numberOfChannels - 1));
+        for (let frame = 0; frame < frameCount; frame += 1) {
+          const synthesisFrame = renderedFrames + frame;
+          if (synthesisFrame >= maxFrames) {
+            outputData[frame] = 0;
+            continue;
+          }
+          const center = Math.floor(synthesisFrame / hop) * hop;
+          let sum = 0;
+          let weight = 0;
+          for (const grainCenter of [center - hop, center, center + hop, center + 2 * hop]) {
+            const local = synthesisFrame - grainCenter;
+            if (Math.abs(local) > halfGrain) continue;
+            const sourcePosition = initialFrame + grainCenter * safeSpeed + local;
+            const sourceIndex = Math.max(0, Math.floor(sourcePosition));
+            if (sourceIndex >= sourceData.length) continue;
+            const next = sourceData[Math.min(sourceData.length - 1, sourceIndex + 1)];
+            const fractional = sourcePosition - sourceIndex;
+            const window = 0.5 + 0.5 * Math.cos(Math.PI * local / halfGrain);
+            sum += (sourceData[sourceIndex] + (next - sourceData[sourceIndex]) * fractional) * window;
+            weight += window;
+          }
+          outputData[frame] = weight > 0.000001 ? sum / weight : 0;
+        }
+      }
+      renderedFrames += frameCount;
+      if (renderedFrames >= maxFrames) finish();
+    };
+    return processor;
   }
 
   /**
@@ -221,7 +315,7 @@ export class AudioEngine {
     if (fadeOut) {
       voice.fxChain.releaseAndDisconnect(0.003).then(() => {
         try {
-          voice.sourceNode.stop();
+          voice.sourceNode.stop?.();
           voice.sourceNode.disconnect();
         } catch {
           // Guard against already stopped nodes
@@ -229,7 +323,7 @@ export class AudioEngine {
       });
     } else {
       try {
-        voice.sourceNode.stop();
+        voice.sourceNode.stop?.();
         voice.sourceNode.disconnect();
         voice.fxChain.releaseAndDisconnect(0);
       } catch {
@@ -271,7 +365,10 @@ export class AudioEngine {
     gainNode.connect(this.masterGain);
 
     const now = this.ctx.currentTime;
-    const targetVolume = (clip.volume ?? 1.0) * (track?.volume ?? 1.0) * this._masterVolume;
+    const targetVolume = evaluateEffectiveAudioState(clip, track, clip.startTime + sourceTime, {
+      masterVolume: 1,
+      masterMuted: this._isMuted,
+    }).gain;
 
     // Anti-click attack and decay envelope for transient burst
     gainNode.gain.setValueAtTime(0.0001, now);

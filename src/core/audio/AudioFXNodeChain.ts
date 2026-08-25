@@ -6,7 +6,8 @@
  * and anti-click fade-in/fade-out curves.
  */
 
-import type { AudioFXConfig, AudioFadeCurve, AudioKeyframe, Clip } from "@/types";
+import type { AudioFadeCurve, AudioKeyframe, Clip, Track } from "@/types";
+import { evaluateAudioKeyframes, evaluateEffectiveAudioState, evaluateFadeCurve } from "./effectiveAudioState";
 
 export class AudioFXNodeChain {
   public readonly inputNode: AudioNode;
@@ -19,9 +20,12 @@ export class AudioFXNodeChain {
   private pannerNode: StereoPannerNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
   private gainNode: GainNode;
+  private routingInput: GainNode;
+  private channelRoutingNodes: AudioNode[] = [];
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx;
+    this.routingInput = ctx.createGain();
 
     // 1. 3-Band Parametric EQ
     this.eqLow = ctx.createBiquadFilter();
@@ -57,8 +61,9 @@ export class AudioFXNodeChain {
     if (this.compressorNode.release) this.compressorNode.release.value = 0.25;
 
     // Connect chain:
-    // eqLow → eqMid → eqHigh → [panner] → gainNode → compressorNode (output)
-    this.inputNode = this.eqLow;
+    // input → channel router → EQ → [panner] → gain → compressor (output)
+    this.inputNode = this.routingInput;
+    this.routingInput.connect(this.eqLow);
     this.eqLow.connect(this.eqMid);
     this.eqMid.connect(this.eqHigh);
 
@@ -85,14 +90,27 @@ export class AudioFXNodeChain {
     timelinePlayheadSecs: number = 0,
     scheduleAudioStartTime: number = 0,
     playbackSpeed: number = 1.0,
+    track?: Track,
+    tracks?: Track[],
   ): void {
     const now = scheduleAudioStartTime || this.ctx.currentTime;
-    const clipVolume = clip.volume ?? 1.0;
-    const isMuted = masterMuted || trackMuted || clipVolume <= 0 || trackVolume <= 0 || masterVolume <= 0;
     const timeIntoClip = Math.max(0, timelinePlayheadSecs - clip.startTime);
+    const effective = evaluateEffectiveAudioState(clip, track ?? {
+      id: clip.trackId,
+      type: "audio",
+      name: "Audio",
+      muted: trackMuted,
+      locked: false,
+      visible: true,
+      height: 0,
+      volume: trackVolume,
+    }, timelinePlayheadSecs, { tracks, masterVolume, masterMuted });
+    const isMuted = effective.muted;
+
+    this.configureChannelRouting(effective.channelConfig);
 
     // 1. Configure EQ
-    const fx = clip.audioFX;
+    const fx = effective.effects;
     if (fx?.eq) {
       this.eqLow.gain.setValueAtTime(fx.eq.low ?? 0, now);
       this.eqMid.gain.setValueAtTime(fx.eq.mid ?? 0, now);
@@ -105,8 +123,7 @@ export class AudioFXNodeChain {
 
     // 2. Configure Panner
     if (this.pannerNode) {
-      const pan = fx?.pan ?? 0;
-      this.pannerNode.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), now);
+      this.pannerNode.pan.setValueAtTime(effective.pan, now);
     }
 
     // 3. Configure Compressor (AU-3 fix: always-connected, configure or reset to passthrough)
@@ -125,16 +142,16 @@ export class AudioFXNodeChain {
     // 4. Configure Volume & Automation Envelopes
     this.gainNode.gain.cancelScheduledValues(now);
 
-    const hasKeyframes = Array.isArray(clip.volumeKeyframes) && clip.volumeKeyframes.length > 0;
+    const hasKeyframes = effective.keyframes.length > 0;
     const sortedKeyframes = hasKeyframes
-      ? [...clip.volumeKeyframes!].sort((a, b) => a.time - b.time)
+      ? [...effective.keyframes].sort((a, b) => a.time - b.time)
       : [];
 
-    const effectiveClipMultiplier = clipVolume * trackVolume * masterVolume;
+    const effectiveClipMultiplier = effective.staticGain;
     // AU-4 fix: pass presorted=true so evaluateKeyframes skips its internal O(n log n) sort —
     // sortedKeyframes is already ordered above.
     const startKeyframeGain = hasKeyframes
-      ? evaluateKeyframes(sortedKeyframes, timeIntoClip, 1.0, true)
+      ? evaluateAudioKeyframes(sortedKeyframes, timeIntoClip, 1.0, true)
       : 1.0;
 
     const startTargetVolume = isMuted
@@ -188,14 +205,14 @@ export class AudioFXNodeChain {
     }
 
     // 6. Fade In Envelope (if configured and starting inside fade-in window)
-    const fadeInDuration = clip.fadeIn ?? 0;
+    const fadeInDuration = effective.fadeIn.duration;
     if (fadeInDuration > 0 && timeIntoClip < fadeInDuration && !isMuted) {
       const remainingFadeIn = (fadeInDuration - timeIntoClip) / Math.max(0.01, playbackSpeed);
-      this.applyFadeCurve(now, now + remainingFadeIn, 0.0001, startTargetVolume, clip.fadeInCurve ?? "linear");
+      this.applyFadeCurve(now, now + remainingFadeIn, 0.0001, startTargetVolume, effective.fadeIn.curve);
     }
 
     // 7. Fade Out Envelope (if configured)
-    const fadeOutDuration = clip.fadeOut ?? 0;
+    const fadeOutDuration = effective.fadeOut.duration;
     const clipDuration = clip.duration;
     if (fadeOutDuration > 0 && !isMuted) {
       const fadeOutStartTimeOffset = clipDuration - fadeOutDuration;
@@ -204,10 +221,50 @@ export class AudioFXNodeChain {
         const fadeOutAudioTime = now + timeUntilFadeOut;
         const fadeOutAudioEnd = now + (clipDuration - timeIntoClip) / Math.max(0.01, playbackSpeed);
         const endVolBeforeFade = hasKeyframes
-          ? Math.max(0.0001, Math.min(2.0, evaluateKeyframes(sortedKeyframes, fadeOutStartTimeOffset, 1.0, true) * effectiveClipMultiplier))
+          ? Math.max(0.0001, Math.min(2.0, evaluateAudioKeyframes(sortedKeyframes, fadeOutStartTimeOffset, 1.0, true) * effectiveClipMultiplier))
           : startTargetVolume;
-        this.applyFadeCurve(fadeOutAudioTime, fadeOutAudioEnd, endVolBeforeFade, 0.0001, clip.fadeOutCurve ?? "linear");
+        this.applyFadeCurve(fadeOutAudioTime, fadeOutAudioEnd, endVolBeforeFade, 0.0001, effective.fadeOut.curve);
       }
+    }
+  }
+
+  /**
+   * Apply the clip channel policy before all effects. Standard Web Audio
+   * speaker interpretation handles auto/mono/stereo layouts; an explicit map
+   * uses a splitter/merger matrix so L/R swaps and custom source selection are
+   * not merely persisted metadata in browser preview.
+   */
+  private configureChannelRouting(channelConfig: ReturnType<typeof evaluateEffectiveAudioState>["channelConfig"]): void {
+    try {
+      this.routingInput.disconnect();
+      this.channelRoutingNodes.forEach((node) => node.disconnect());
+      this.channelRoutingNodes = [];
+
+      const map = channelConfig.channelMap?.filter((channel) => Number.isInteger(channel) && channel >= 0);
+      if (map?.length && typeof this.ctx.createChannelSplitter === "function" && typeof this.ctx.createChannelMerger === "function") {
+        const inputChannels = Math.max(2, ...map.map((channel) => channel + 1));
+        const outputChannels = Math.max(2, map.length);
+        const splitter = this.ctx.createChannelSplitter(inputChannels);
+        const merger = this.ctx.createChannelMerger(outputChannels);
+        this.routingInput.connect(splitter);
+        map.forEach((sourceChannel, outputChannel) => splitter.connect(merger, sourceChannel, outputChannel));
+        merger.connect(this.eqLow);
+        this.eqLow.channelCountMode = "explicit";
+        this.eqLow.channelCount = outputChannels;
+        this.eqLow.channelInterpretation = "speakers";
+        this.channelRoutingNodes = [splitter, merger];
+      } else {
+        this.routingInput.connect(this.eqLow);
+        const mono = channelConfig.mode === "mono" || channelConfig.downmix === "mono";
+        const stereo = channelConfig.mode === "stereo" || channelConfig.downmix === "stereo";
+        this.eqLow.channelCountMode = mono || stereo ? "explicit" : "max";
+        this.eqLow.channelCount = mono ? 1 : stereo ? 2 : 2;
+        this.eqLow.channelInterpretation = "speakers";
+      }
+    } catch {
+      // Audio routing is an enhancement for browser runtimes. Keep the base
+      // chain connected on partial Web Audio implementations used in previews.
+      this.routingInput.connect(this.eqLow);
     }
   }
 
@@ -225,22 +282,17 @@ export class AudioFXNodeChain {
 
     switch (curve) {
       case "exponential":
-      case "logarithmic": {
-        const safeStart = Math.max(0.0001, startValue);
-        const safeEnd = Math.max(0.0001, endValue);
-        this.gainNode.gain.setValueAtTime(safeStart, startTime);
-        this.gainNode.gain.exponentialRampToValueAtTime(safeEnd, endTime);
-        break;
-      }
+      case "logarithmic":
       case "s-curve": {
-        // S-curve approximation using 5 interpolation points
-        const points = 5;
+        // Match the canonical curve evaluator used by native preview and the
+        // waveform. A value curve also avoids Web Audio's logarithmic-ramp
+        // semantics changing the intended editor curve.
+        const points = 17;
         const curveValues = new Float32Array(points);
         for (let i = 0; i < points; i++) {
           const t = i / (points - 1);
-          // Smoothstep formula: 3t^2 - 2t^3
-          const smooth = t * t * (3 - 2 * t);
-          curveValues[i] = startValue + (endValue - startValue) * smooth;
+          const shaped = evaluateFadeCurve(t, curve);
+          curveValues[i] = startValue + (endValue - startValue) * shaped;
         }
         this.gainNode.gain.setValueCurveAtTime(curveValues, startTime, endTime - startTime);
         break;
@@ -266,6 +318,8 @@ export class AudioFXNodeChain {
       setTimeout(() => {
         try {
           this.eqLow.disconnect();
+          this.routingInput.disconnect();
+          this.channelRoutingNodes.forEach((node) => node.disconnect());
           this.eqMid.disconnect();
           this.eqHigh.disconnect();
           if (this.pannerNode) this.pannerNode.disconnect();
@@ -293,45 +347,5 @@ export function evaluateKeyframes(
   defaultGain: number = 1.0,
   presorted: boolean = false,
 ): number {
-  if (!keyframes || keyframes.length === 0) return defaultGain;
-
-  // AU-4 fix: skip sort+copy when caller guarantees order (e.g. applyClipConfig).
-  const sorted = presorted ? keyframes : [...keyframes].sort((a, b) => a.time - b.time);
-
-  if (time <= sorted[0].time) {
-    return sorted[0].gain;
-  }
-  if (time >= sorted[sorted.length - 1].time) {
-    return sorted[sorted.length - 1].gain;
-  }
-
-  // Find surrounding keyframes
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const kfA = sorted[i];
-    const kfB = sorted[i + 1];
-    if (time >= kfA.time && time <= kfB.time) {
-      const duration = kfB.time - kfA.time;
-      if (duration <= 0.0001) return kfB.gain;
-      const t = (time - kfA.time) / duration;
-
-      const easing = kfB.easing || "linear";
-      switch (easing) {
-        case "exponential": {
-          const startG = Math.max(0.0001, kfA.gain);
-          const endG = Math.max(0.0001, kfB.gain);
-          return startG * Math.pow(endG / startG, t);
-        }
-        case "bezier": {
-          const smooth = t * t * (3 - 2 * t);
-          return kfA.gain + (kfB.gain - kfA.gain) * smooth;
-        }
-        case "linear":
-        default:
-          return kfA.gain + (kfB.gain - kfA.gain) * t;
-      }
-    }
-  }
-
-  return defaultGain;
+  return evaluateAudioKeyframes(keyframes, time, defaultGain, presorted);
 }
-
