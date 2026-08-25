@@ -11,6 +11,9 @@ pub const TICKS_PER_SECOND: i64 = 1_000_000;
 pub const MAX_PCM_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_MIXER_PCM_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_ACTIVE_CLIPS: usize = 64;
+/// ~5.8 ms at 44.1 kHz. Applied by the native callback after a transport
+/// discontinuity so seeking/replay cannot emit a full-scale sample step.
+const TRANSPORT_RAMP_FRAMES: u32 = 256;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -325,6 +328,35 @@ impl NativeAudioMixer {
     where
         T: SizedSample + FromSample<f32>,
     {
+        self.mix_into_with_ramp(
+            output,
+            output_channels,
+            output_sample_rate,
+            timeline_start_ticks,
+            master_gain,
+            playback_speed,
+            0,
+            0,
+        )
+    }
+
+    /// Mix with a short native transport fade-in. The caller supplies the
+    /// remaining and total ramp frames from the clock's atomic transport gate;
+    /// this keeps the real-time callback allocation- and lock-free.
+    pub fn mix_into_with_ramp<T>(
+        &self,
+        output: &mut [T],
+        output_channels: u16,
+        output_sample_rate: u32,
+        timeline_start_ticks: i64,
+        master_gain: f32,
+        playback_speed: f32,
+        ramp_frames_remaining: usize,
+        ramp_total_frames: usize,
+    ) -> bool
+    where
+        T: SizedSample + FromSample<f32>,
+    {
         for sample in output.iter_mut() {
             *sample = T::EQUILIBRIUM;
         }
@@ -338,6 +370,14 @@ impl NativeAudioMixer {
         let mut has_audio = false;
 
         for (frame_index, output_frame) in output.chunks_mut(output_channels).enumerate() {
+            let transport_gain = if ramp_frames_remaining > 0 && ramp_total_frames > 0 {
+                let ramp_frame = ramp_total_frames
+                    .saturating_sub(ramp_frames_remaining)
+                    .saturating_add(frame_index + 1);
+                (ramp_frame as f32 / ramp_total_frames as f32).min(1.0)
+            } else {
+                1.0
+            };
             let frame_ticks = ((frame_index as f64
                 * TICKS_PER_SECOND as f64
                 * playback_speed.clamp(0.25, 4.0) as f64)
@@ -352,7 +392,8 @@ impl NativeAudioMixer {
                         sample_at(clip, timeline_ticks, channel_index, playback_speed)
                     })
                     .sum::<f32>()
-                    * master_gain;
+                    * master_gain
+                    * transport_gain;
                 if value.abs() > 0.000001 {
                     has_audio = true;
                 }
@@ -545,6 +586,7 @@ struct NativeAudioClockInner {
     speed_milli: Arc<AtomicU32>,
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
+    transport_ramp_frames: Arc<AtomicU32>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
 }
@@ -571,6 +613,7 @@ impl NativeAudioClock {
                 speed_milli: Arc::new(AtomicU32::new(1_000)),
                 volume_milli: Arc::new(AtomicU32::new(1_000)),
                 muted: Arc::new(AtomicBool::new(false)),
+                transport_ramp_frames: Arc::new(AtomicU32::new(0)),
                 mixer: Arc::new(RwLock::new(NativeAudioMixer::default())),
                 last_error: Arc::new(Mutex::new(None)),
             },
@@ -594,6 +637,7 @@ impl NativeAudioClock {
         self.inner.non_silent_frames.store(0, Ordering::Release);
         self.inner.position_ticks.store(0, Ordering::Release);
         self.inner.playing.store(false, Ordering::Release);
+        self.inner.transport_ramp_frames.store(0, Ordering::Release);
 
         let host = cpal::default_host();
         let host_name = format!("{:?}", host.id());
@@ -620,6 +664,7 @@ impl NativeAudioClock {
         let speed_milli = self.inner.speed_milli.clone();
         let volume_milli = self.inner.volume_milli.clone();
         let muted = self.inner.muted.clone();
+        let transport_ramp_frames = self.inner.transport_ramp_frames.clone();
         let mixer = self.inner.mixer.clone();
         let last_error = self.inner.last_error.clone();
 
@@ -637,6 +682,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -653,6 +699,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -669,6 +716,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -685,6 +733,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -701,6 +750,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -717,6 +767,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -733,6 +784,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -749,6 +801,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -765,6 +818,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -781,6 +835,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -797,6 +852,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames.clone(),
                 mixer,
                 last_error,
             ),
@@ -813,6 +869,7 @@ impl NativeAudioClock {
                 speed_milli,
                 volume_milli,
                 muted,
+                transport_ramp_frames,
                 mixer,
                 last_error,
             ),
@@ -846,14 +903,19 @@ impl NativeAudioClock {
         self.inner.speed_milli.store(1_000, Ordering::Release);
         self.inner.volume_milli.store(1_000, Ordering::Release);
         self.inner.muted.store(false, Ordering::Release);
+        self.inner.transport_ramp_frames.store(0, Ordering::Release);
     }
 
     pub fn pause(&self) {
         self.inner.playing.store(false, Ordering::Release);
+        self.inner.transport_ramp_frames.store(0, Ordering::Release);
     }
 
     pub fn resume(&self) {
         if self.inner.stream.is_some() {
+            self.inner
+                .transport_ramp_frames
+                .store(TRANSPORT_RAMP_FRAMES, Ordering::Release);
             self.inner.playing.store(true, Ordering::Release);
         }
     }
@@ -882,6 +944,9 @@ impl NativeAudioClock {
     }
 
     pub fn seek(&self, position_ticks: i64) {
+        self.inner
+            .transport_ramp_frames
+            .store(TRANSPORT_RAMP_FRAMES, Ordering::Release);
         self.inner
             .position_ticks
             .store(position_ticks.max(0), Ordering::Release);
@@ -997,6 +1062,7 @@ fn build_audio_stream<T>(
     speed_milli: Arc<AtomicU32>,
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
+    transport_ramp_frames: Arc<AtomicU32>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
 ) -> Result<cpal::Stream, cpal::Error>
@@ -1018,16 +1084,24 @@ where
             let start_ticks = position_ticks.load(Ordering::Acquire);
             let master_gain = volume_milli.load(Ordering::Acquire) as f32 / 1_000.0;
             let playback_speed = speed_milli.load(Ordering::Acquire) as f32 / 1_000.0;
+            let frames = data.len() / usize::from(channels.max(1));
+            let ramp_remaining = transport_ramp_frames.load(Ordering::Acquire);
+            let ramp_consumed = ramp_remaining.min(frames as u32);
+            if ramp_consumed > 0 {
+                transport_ramp_frames.fetch_sub(ramp_consumed, Ordering::AcqRel);
+            }
 
             // Non-blocking try_read lock for real-time safety
             if let Ok(mixer_guard) = mixer.try_read() {
-                if mixer_guard.mix_into(
+                if mixer_guard.mix_into_with_ramp(
                     data,
                     channels,
                     sample_rate,
                     start_ticks,
                     master_gain,
                     playback_speed,
+                    ramp_remaining as usize,
+                    TRANSPORT_RAMP_FRAMES as usize,
                 ) {
                     non_silent_frames.fetch_add(
                         (data.len() / usize::from(channels.max(1))) as u64,
@@ -1041,7 +1115,6 @@ where
                 }
             }
 
-            let frames = data.len() / usize::from(channels.max(1));
             played_frames.fetch_add(frames as u64, Ordering::Relaxed);
 
             // Hardware master clock tick update
@@ -1178,6 +1251,37 @@ mod tests {
         mixer.mix_into(&mut output, 1, 4, 500_000, 1.0, 1.0);
 
         assert_eq!(output, [0.0, 0.5, 0.0, -0.5]);
+    }
+
+    #[test]
+    fn mixer_applies_a_short_sample_domain_ramp_after_transport_discontinuity() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "clip".to_string(),
+                sample_rate: 4,
+                channels: 1,
+                samples: vec![1.0; 4].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let mut output = [0.0_f32; 4];
+        mixer.mix_into_with_ramp(&mut output, 1, 4, 0, 1.0, 1.0, 4, 4);
+
+        assert_eq!(output, [0.25, 0.5, 0.75, 1.0]);
     }
 
     #[test]
