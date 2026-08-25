@@ -52,6 +52,40 @@ pub struct NativeAudioClipStatus {
     pub preserve_pitch: bool,
 }
 
+/// A point-in-time inspection of the sole native preview audio path.
+///
+/// This is deliberately derived from the installed native mixer and output
+/// clock rather than maintaining a second diagnostic model. It lets the UI
+/// distinguish timeline/decode silence from a callback or device-output
+/// failure without changing the production playback path.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAudioDiagnostics {
+    pub status: NativeAudioStatus,
+    pub installed_clips: Vec<NativeAudioClipStatus>,
+    pub active_clip_ids: Vec<String>,
+    /// Peak amplitude the native mixer would render in its next 20 ms window.
+    pub mixer_peak: f32,
+    /// Per-clip evidence from that same mixer window. This distinguishes a
+    /// silent decode/envelope from a clip that was never installed or active.
+    pub clip_diagnostics: Vec<NativeAudioClipDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAudioClipDiagnostic {
+    pub id: String,
+    pub active: bool,
+    pub mixer_peak: f32,
+}
+
+#[derive(Debug, Default)]
+pub struct NativeAudioMixerInspection {
+    pub active_clip_ids: Vec<String>,
+    pub mixer_peak: f32,
+    pub clip_diagnostics: Vec<NativeAudioClipDiagnostic>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeAudioKeyframe {
@@ -216,6 +250,67 @@ impl NativeAudioMixer {
 
     pub fn clip_statuses(&self) -> Vec<NativeAudioClipStatus> {
         self.clips.iter().map(NativePcmClip::status).collect()
+    }
+
+    /// Inspect the exact sample path used by `mix_into` without touching the
+    /// real-time callback. This is called only by an explicit diagnostic IPC
+    /// request, never from the audio thread.
+    pub fn inspect(
+        &self,
+        output_channels: u16,
+        output_sample_rate: u32,
+        timeline_start_ticks: i64,
+        master_gain: f32,
+        playback_speed: f32,
+    ) -> NativeAudioMixerInspection {
+        if self.clips.is_empty() || output_channels == 0 || output_sample_rate == 0 {
+            return NativeAudioMixerInspection::default();
+        }
+
+        let output_channels = usize::from(output_channels);
+        let frames = (output_sample_rate / 50).clamp(1, 4_096) as usize;
+        let output_sample_rate = i64::from(output_sample_rate);
+        let mut inspection = NativeAudioMixerInspection {
+            clip_diagnostics: self
+                .clips
+                .iter()
+                .map(|clip| NativeAudioClipDiagnostic {
+                    id: clip.id.clone(),
+                    active: false,
+                    mixer_peak: 0.0,
+                })
+                .collect(),
+            ..Default::default()
+        };
+
+        for frame_index in 0..frames {
+            let frame_ticks = ((frame_index as f64
+                * TICKS_PER_SECOND as f64
+                * playback_speed.clamp(0.25, 4.0) as f64)
+                / output_sample_rate as f64)
+                .round() as i64;
+            let timeline_ticks = timeline_start_ticks.saturating_add(frame_ticks);
+            for channel_index in 0..output_channels {
+                let mut value = 0.0_f32;
+                for (clip_index, clip) in self.clips.iter().enumerate() {
+                    if let Some(sample) =
+                        sample_at(clip, timeline_ticks, channel_index, playback_speed)
+                    {
+                        let clip_diagnostic = &mut inspection.clip_diagnostics[clip_index];
+                        if !clip_diagnostic.active {
+                            clip_diagnostic.active = true;
+                            inspection.active_clip_ids.push(clip.id.clone());
+                        }
+                        clip_diagnostic.mixer_peak =
+                            clip_diagnostic.mixer_peak.max((sample * master_gain).abs());
+                        value += sample;
+                    }
+                }
+                inspection.mixer_peak = inspection.mixer_peak.max((value * master_gain).abs());
+            }
+        }
+
+        inspection
     }
 
     pub fn mix_into<T>(
@@ -852,6 +947,36 @@ impl NativeAudioClock {
             muted: self.inner.muted.load(Ordering::Acquire),
         }
     }
+
+    pub fn diagnostics(&self) -> NativeAudioDiagnostics {
+        let status = self.status();
+        let installed_clips = self.clip_statuses();
+        let inspection = match (status.channels, status.sample_rate) {
+            (Some(channels), Some(sample_rate)) => self
+                .inner
+                .mixer
+                .read()
+                .map(|mixer| {
+                    mixer.inspect(
+                        channels,
+                        sample_rate,
+                        status.audio_position_ticks.min(i64::MAX as u64) as i64,
+                        status.volume,
+                        status.speed,
+                    )
+                })
+                .unwrap_or_default(),
+            _ => NativeAudioMixerInspection::default(),
+        };
+
+        NativeAudioDiagnostics {
+            status,
+            installed_clips,
+            active_clip_ids: inspection.active_clip_ids,
+            mixer_peak: inspection.mixer_peak,
+            clip_diagnostics: inspection.clip_diagnostics,
+        }
+    }
 }
 
 /// Real-time safe audio output stream builder.
@@ -1053,6 +1178,80 @@ mod tests {
         mixer.mix_into(&mut output, 1, 4, 500_000, 1.0, 1.0);
 
         assert_eq!(output, [0.0, 0.5, 0.0, -0.5]);
+    }
+
+    #[test]
+    fn mixer_inspection_uses_the_same_timeline_and_gain_path_as_rendering() {
+        let mut mixer = NativeAudioMixer::default();
+        mixer
+            .install_clip(NativePcmClip {
+                id: "audible".to_string(),
+                sample_rate: 10,
+                channels: 1,
+                samples: vec![0.5; 10].into(),
+                timeline_start_ticks: 1_000_000,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 0.5,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let before = mixer.inspect(1, 10, 0, 1.0, 1.0);
+        assert!(before.active_clip_ids.is_empty());
+        assert_eq!(before.mixer_peak, 0.0);
+        assert_eq!(before.clip_diagnostics[0].id, "audible");
+        assert!(!before.clip_diagnostics[0].active);
+
+        let active = mixer.inspect(1, 10, TICKS_PER_SECOND, 0.8, 1.0);
+        assert_eq!(active.active_clip_ids, vec!["audible"]);
+        assert!((active.mixer_peak - 0.2).abs() < 0.000_001);
+        assert!(active.clip_diagnostics[0].active);
+        assert!((active.clip_diagnostics[0].mixer_peak - 0.2).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn clock_diagnostics_are_derived_from_its_installed_native_mixer() {
+        let mut clock = NativeAudioClock::new();
+        clock.inner.sample_rate = Some(10);
+        clock.inner.channels = Some(1);
+        clock
+            .install_clip(NativePcmClip {
+                id: "clip".to_string(),
+                sample_rate: 10,
+                channels: 1,
+                samples: vec![0.25; 10].into(),
+                timeline_start_ticks: 0,
+                duration_ticks: TICKS_PER_SECOND,
+                gain: 1.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            })
+            .unwrap();
+
+        let diagnostics = clock.diagnostics();
+        assert_eq!(diagnostics.installed_clips.len(), 1);
+        assert_eq!(diagnostics.active_clip_ids, vec!["clip"]);
+        assert!((diagnostics.mixer_peak - 0.25).abs() < 0.000_001);
+        assert_eq!(diagnostics.clip_diagnostics.len(), 1);
+        assert!(diagnostics.clip_diagnostics[0].active);
+        assert!((diagnostics.clip_diagnostics[0].mixer_peak - 0.25).abs() < 0.000_001);
     }
 
     #[test]

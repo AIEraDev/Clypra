@@ -6,6 +6,7 @@ import { toNativePath } from "./pathConversion";
 import type {
   NativeFrameRequest,
   NativeFrameServiceStats,
+  NativeAudioDiagnostics,
   NativeAudioStatus,
   NativeAudioClipStatus,
   NativeGpuRuntimeStatus,
@@ -494,6 +495,11 @@ export async function stopNativeAudio(): Promise<void> {
 export async function getNativeAudioStatus(): Promise<NativeAudioStatus> {
   if (!isTauriRuntime()) throw new Error("getNativeAudioStatus requires the Tauri runtime");
   return invoke<NativeAudioStatus>("get_native_audio_status");
+}
+
+export async function getNativeAudioDiagnostics(): Promise<NativeAudioDiagnostics> {
+  if (!isTauriRuntime()) throw new Error("getNativeAudioDiagnostics requires the Tauri runtime");
+  return invoke<NativeAudioDiagnostics>("get_native_audio_diagnostics");
 }
 
 export async function pauseNativeAudio(): Promise<void> {

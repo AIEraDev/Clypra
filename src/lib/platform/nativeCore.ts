@@ -51,6 +51,15 @@ export interface NativeAudioClipStatus {
   preservePitch: boolean;
 }
 
+/** Derived evidence from the live native audio clock and mixer. */
+export interface NativeAudioDiagnostics {
+  status: NativeAudioStatus;
+  installedClips: NativeAudioClipStatus[];
+  activeClipIds: string[];
+  mixerPeak: number;
+  clipDiagnostics: Array<{ id: string; active: boolean; mixerPeak: number }>;
+}
+
 export interface NativeGpuRuntimeStatus {
   contractVersion: number;
   state: NativeGpuRuntimeState;

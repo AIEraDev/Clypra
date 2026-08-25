@@ -1,5 +1,6 @@
 use crate::native_audio::{
-    decode_native_audio_clip, NativeAudioClipStatus, NativeAudioClock, NativeAudioStatus,
+    decode_native_audio_clip, NativeAudioClipStatus, NativeAudioClock, NativeAudioDiagnostics,
+    NativeAudioStatus,
 };
 use crate::sync_metrics::SYNC_METRICS;
 use std::path::PathBuf;
@@ -39,6 +40,36 @@ pub fn get_native_audio_status(app: AppHandle) -> Result<NativeAudioStatus, Stri
         .lock()
         .map_err(|_| "Native audio clock lock is poisoned".to_string())
         .map(|clock| clock.status())
+}
+
+/// Reports derived evidence from the live native audio authority. This is a
+/// diagnostic endpoint only; it never swaps to or feeds a fallback renderer.
+#[tauri::command]
+pub fn get_native_audio_diagnostics(app: AppHandle) -> Result<NativeAudioDiagnostics, String> {
+    let clock = audio_clock(&app)?;
+    let diagnostics = clock
+        .lock()
+        .map_err(|_| "Native audio clock lock is poisoned".to_string())
+        .map(|clock| clock.diagnostics())?;
+    // This command is requested once after a user-initiated Play, not from the
+    // real-time callback. Use stderr so `tauri dev` captures the evidence even
+    // in builds that have not installed a `log` facade subscriber.
+    eprintln!(
+        "[native-audio] diagnostics installed={} active={:?} mixer_peak={:.6} callbacks={} rendered={} non_silent={} device={:?} clips={:?}",
+        diagnostics.installed_clips.len(),
+        diagnostics.active_clip_ids,
+        diagnostics.mixer_peak,
+        diagnostics.status.callback_count,
+        diagnostics.status.rendered_frames,
+        diagnostics.status.non_silent_frames,
+        diagnostics.status.device_name,
+        diagnostics
+            .clip_diagnostics
+            .iter()
+            .map(|clip| (&clip.id, clip.active, clip.mixer_peak))
+            .collect::<Vec<_>>(),
+    );
+    Ok(diagnostics)
 }
 
 #[tauri::command]

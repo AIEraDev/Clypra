@@ -233,6 +233,7 @@ pub fn run() {
             start_native_audio,
             stop_native_audio,
             get_native_audio_status,
+            get_native_audio_diagnostics,
             pause_native_audio,
             resume_native_audio,
             set_native_audio_speed,

@@ -100,7 +100,15 @@ class PlaybackMetricsCollector {
       event.includes("seek") ||
       event.includes("stale") ||
       event.includes("drop") ||
-      event.includes("error")
+      event.includes("error") ||
+      // These are low-frequency, boundary-level native audio evidence. They
+      // must remain visible when audio debugging is enabled; otherwise a
+      // silent device/mixer failure is recorded but cannot be diagnosed from
+      // the desktop runtime that produced it.
+      event.includes("timeline-ready") ||
+      event.includes("audio-ready") ||
+      event.includes("audio-status") ||
+      event.includes("audio-audibility")
     );
   }
 
