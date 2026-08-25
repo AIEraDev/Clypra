@@ -9,7 +9,6 @@ import {
 import type { Clip as ClipType, MediaAsset } from "@/types";
 import type { TrackVisualRole } from "@/lib/timeline/trackTypeConfig";
 import { ClipFilmstrip } from "./ClipFilmstrip";
-import { TimelineWaveform } from "./TimelineWaveform";
 import { VolumeWaveform } from "./VolumeWaveform";
 import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -887,12 +886,16 @@ const ClipInner: React.FC<ClipProps> = ({
             </div>
           ) : mediaAsset?.type === "audio" || (clip as any).audioPath ? (
             <div className="flex min-h-0 w-full flex-1 items-center px-0.5">
-              <TimelineWaveform
+              <VolumeWaveform
                 audioPath={(clip as any).audioPath || mediaAsset?.path || ""}
                 clipWidthPx={width}
                 duration={clip.duration}
                 trimIn={clip.trimIn}
                 trimOut={clip.trimOut}
+                volume={clip.volume}
+                volumeKeyframes={clip.volumeKeyframes}
+                fadeIn={clip.fadeIn}
+                fadeOut={clip.fadeOut}
                 heightPx={40}
                 className="rounded-xs"
               />
