@@ -9,7 +9,8 @@ import { CacheSettings } from "@/components/settings/CacheSettings";
 import { WhisperSettings } from "@/components/settings/WhisperSettings";
 import { KeyboardShortcutsSettings } from "@/components/settings/KeyboardShortcutsSettings";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
-import { checkAppUpdate, installAndRelaunchUpdate, isTauriDesktop } from "@/services/updaterService";
+import { isTauriDesktop } from "@/services/updaterService";
+import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { useI18n } from "@/i18n/I18nProvider";
 import { getVersion } from "@tauri-apps/api/app";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
@@ -628,11 +629,16 @@ const openExternalUrl = async (url: string) => {
 // ─── About Tab ───────────────────────────────────────────────────────────
 function AboutTab() {
   const [appVersion, setAppVersion] = useState<string>("...");
-  const [updateStatus, setUpdateStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "downloading" | "error">("idle");
-  const [updateError, setUpdateError] = useState<string | null>(null);
-  const [updateInfo, setUpdateInfo] = useState<{ version: string; body?: string } | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<number>(0);
-  const [updateObject, setUpdateObject] = useState<any>(null);
+  const {
+    status: updateStatus,
+    updateInfo,
+    downloadProgress,
+    error: updateError,
+    downloadUpdate,
+    applyUpdate,
+    later,
+    recheckUpdate,
+  } = useAutoUpdater();
 
   const isDesktop = isTauriDesktop();
 
@@ -647,42 +653,7 @@ function AboutTab() {
   }, [isDesktop]);
 
   const handleCheckUpdate = async () => {
-    setUpdateStatus("checking");
-    setUpdateError(null);
-    const result = await checkAppUpdate();
-    if (result.error) {
-      setUpdateStatus("error");
-      setUpdateError(result.error);
-      toast.error(result.error);
-    } else if (result.hasUpdate) {
-      setUpdateStatus("available");
-      setUpdateInfo({ version: result.version!, body: result.body });
-      setUpdateObject(result.updateObject);
-      toast.info(`Clypra v${result.version} is available!`);
-    } else {
-      setUpdateStatus("up-to-date");
-      toast.success("Clypra is up to date");
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    if (!updateObject) return;
-    setUpdateStatus("downloading");
-    setDownloadProgress(0);
-    toast.info("Downloading update...");
-    try {
-      await installAndRelaunchUpdate(updateObject, (progress) => {
-        if (progress.event === "Progress" && progress.contentLength) {
-          const pct = Math.round((progress.downloaded / progress.contentLength) * 100);
-          setDownloadProgress(pct);
-        }
-      });
-    } catch (err: any) {
-      setUpdateStatus("error");
-      const msg = err?.message || "Failed to install update";
-      setUpdateError(msg);
-      toast.error(msg);
-    }
+    await recheckUpdate();
   };
 
   return (
@@ -706,7 +677,7 @@ function AboutTab() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
             </span>
-          ) : updateStatus === "available" ? (
+          ) : updateStatus === "available" || updateStatus === "downloaded" ? (
             <span className="flex h-2 w-2 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
@@ -765,9 +736,10 @@ function AboutTab() {
                     </div>
                   )}
 
-                  <button onClick={handleInstallUpdate} className="w-full py-2 bg-linear-to-r from-accent to-violet-500 hover:from-accent-hover hover:to-violet-600 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-[0_0_15px_rgba(96,165,250,0.2)] hover:shadow-[0_0_20px_rgba(96,165,250,0.4)] transition-all duration-200 active:scale-[0.98]">
-                    Download & Install Update
+                  <button onClick={() => void downloadUpdate()} className="w-full py-2 bg-linear-to-r from-accent to-violet-500 hover:from-accent-hover hover:to-violet-600 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-[0_0_15px_rgba(96,165,250,0.2)] hover:shadow-[0_0_20px_rgba(96,165,250,0.4)] transition-all duration-200 active:scale-[0.98]">
+                    Download update
                   </button>
+                  <p className="text-[9px] text-text-muted">You can keep editing while the update downloads.</p>
                 </div>
               )}
 
@@ -780,7 +752,29 @@ function AboutTab() {
                   <div className="w-full bg-white/5 border border-white/5 h-2 rounded-full overflow-hidden p-px">
                     <div className="bg-linear-to-r from-accent to-violet-500 h-full rounded-full transition-all duration-300" style={{ width: `${downloadProgress}%` }}></div>
                   </div>
-                  <p className="text-[9px] text-text-muted">The application will automatically restart once complete.</p>
+                  <p className="text-[9px] text-text-muted">The app will not restart until you choose to apply the update.</p>
+                </div>
+              )}
+
+              {updateStatus === "downloaded" && updateInfo && (
+                <div className="flex flex-col items-center gap-3 w-full py-1">
+                  <p className="text-xs text-text-primary font-semibold">Update downloaded</p>
+                  <p className="text-[10px] text-text-muted text-center">Clypra will save your project, close the active session, and restart only when you choose to apply it.</p>
+                  <div className="flex gap-2 w-full">
+                    <button onClick={() => void applyUpdate()} className="flex-1 py-2 bg-linear-to-r from-accent to-violet-500 hover:from-accent-hover hover:to-violet-600 text-white rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-[0.98]">
+                      Restart and update
+                    </button>
+                    <button onClick={later} className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-text-muted rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200">
+                      Later
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {updateStatus === "applying" && (
+                <div className="flex flex-col items-center gap-3 py-2">
+                  <div className="w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin"></div>
+                  <p className="text-xs text-text-muted">Saving project and preparing restart...</p>
                 </div>
               )}
 
@@ -789,11 +783,11 @@ function AboutTab() {
                   <div className="w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
                     <span className="text-red-400 text-sm font-bold">!</span>
                   </div>
-                  <p className="text-xs text-red-400 font-medium">Update Check Failed</p>
+                  <p className="text-xs text-red-400 font-medium">Update needs attention</p>
                   <p className="text-[10px] text-text-muted max-w-65 leading-normal line-clamp-2">{updateError || "An unknown error occurred."}</p>
-                  <button onClick={handleCheckUpdate} className="mt-1 flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-text-primary rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-95">
+                  <button onClick={() => void (updateInfo ? downloadUpdate() : handleCheckUpdate())} className="mt-1 flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-text-primary rounded-xl text-xs font-semibold cursor-pointer transition-all duration-200 active:scale-95">
                     <RefreshCw className="w-3 h-3" />
-                    Try Again
+                    {updateInfo ? "Retry download" : "Try Again"}
                   </button>
                 </div>
               )}
