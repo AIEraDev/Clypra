@@ -45,22 +45,26 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
   const isCinemaPreview = layoutPreset === "cinema-preview";
   const isInspectorFocus = layoutPreset === "inspector-focus";
   const defaultTimelineH = isTimelineFocus
-    ? (typeof window !== "undefined" ? Math.round(window.innerHeight * 0.58) : 520)
+    ? typeof window !== "undefined"
+      ? Math.round(window.innerHeight * 0.58)
+      : 520
     : 400;
-  const initialSidebarWidth = isTimelineFocus || isDualPlayer
-    ? 260
-    : isCinemaPreview
-      ? 220
-      : isInspectorFocus
-        ? 240
-        : sidebarWidth;
-  const initialPropertiesPanelWidth = isTimelineFocus || isDualPlayer
-    ? 260
-    : isCinemaPreview
-      ? 220
-      : isInspectorFocus
-        ? Math.max(propertiesPanelWidth, 460)
-        : propertiesPanelWidth;
+  const initialSidebarWidth =
+    isTimelineFocus || isDualPlayer
+      ? 260
+      : isCinemaPreview
+        ? 220
+        : isInspectorFocus
+          ? 240
+          : sidebarWidth;
+  const initialPropertiesPanelWidth =
+    isTimelineFocus || isDualPlayer
+      ? 260
+      : isCinemaPreview
+        ? 220
+        : isInspectorFocus
+          ? Math.max(propertiesPanelWidth, 460)
+          : propertiesPanelWidth;
 
   // Timeline vertical height resizer
   const {
@@ -73,7 +77,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
     defaultSize: defaultTimelineH,
     snapPoints: [defaultTimelineH],
     min: 160,
-    max: () => window.innerHeight * (isTimelineFocus ? 0.80 : 0.65),
+    max: () => window.innerHeight * (isTimelineFocus ? 0.8 : 0.65),
     direction: "vertical",
     onCommit: setTimelineHeight,
   });

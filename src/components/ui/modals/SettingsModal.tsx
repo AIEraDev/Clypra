@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Check, Palette, SlidersHorizontal, Info, Paintbrush, RotateCcw, Copy, Download, Upload, HardDrive, Captions, RefreshCw, Keyboard } from "lucide-react";
 import { platform } from "@/core/platform";
 import { Modal } from "../primitives/Modal";
-import { useSettingsStore, Theme, FontFamily, THEME_META, FONT_META, getThemeColors, getBaseThemeForCustomization, getThemeColorKeys } from "@/store/settingsStore";
+import { useSettingsStore, Theme, UiTheme, ClipPalette, CLIP_PALETTE_IDS, FontFamily, THEME_META, CLIP_PALETTE_META, FONT_META, getThemeColors, getClipPaletteColors, getBaseThemeForCustomization, getThemeColorKeys } from "@/store/settingsStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { CacheSettings } from "@/components/settings/CacheSettings";
@@ -33,8 +33,8 @@ const TABS: { id: Tab; label: string; icon: React.FC<{ className?: string }> }[]
 ];
 
 // ─── Enhanced theme preview with timeline ────────────────────────────────
-function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: Theme; selected: boolean; onSelect: () => void; customColors?: Record<string, string> | null }) {
-  const colors = getThemeColors(themeId, customColors);
+function ThemeSwatch({ themeId, selected, onSelect, customColors, clipPalette = "dark" }: { themeId: Theme; selected: boolean; onSelect: () => void; customColors?: Record<string, string> | null; clipPalette?: ClipPalette }) {
+  const colors = getThemeColors(themeId, customColors, clipPalette);
   const meta = THEME_META[themeId];
   const bg = colors["--color-bg"];
   const surface = colors["--color-surface"];
@@ -48,8 +48,8 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: T
   const timelineBg = colors["--color-timeline-bg"] || colors["--color-surface"];
   const timelineTrackBg = colors["--color-timeline-track-bg"] || colors["--color-bg"];
   const timelineTrackBorder = colors["--color-timeline-track-border"] || border;
-  const timelineClipVideo = colors["--color-timeline-clip-video"] || accent;
-  const timelineClipAudio = colors["--color-timeline-clip-audio"] || colors["--color-surface-raised"];
+  const timelineClipVideo = colors["--color-timeline-clip-video"];
+  const timelineClipAudio = colors["--color-timeline-clip-audio"];
   const timelineRulerBg = colors["--color-timeline-ruler-bg"] || surface;
 
   return (
@@ -127,6 +127,29 @@ function ThemeSwatch({ themeId, selected, onSelect, customColors }: { themeId: T
           </div>
         )}
       </div>
+    </button>
+  );
+}
+
+function ClipPaletteSwatch({ palette, selected, onSelect }: { palette: ClipPalette; selected: boolean; onSelect: () => void }) {
+  const colors = getClipPaletteColors(palette);
+  const meta = CLIP_PALETTE_META[palette];
+  const video = colors["--color-timeline-clip-video"];
+  const audio = colors["--color-timeline-clip-audio"];
+  const text = colors["--color-timeline-clip-text"];
+
+  return (
+    <button onClick={onSelect} className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left border transition-all ${selected ? "border-accent bg-accent/8" : "border-white/6 hover:border-white/12"}`}>
+      <div className="flex gap-0.5 shrink-0" aria-hidden="true">
+        <span className="w-3 h-5 rounded-sm" style={{ background: video }} />
+        <span className="w-3 h-5 rounded-sm" style={{ background: audio }} />
+        <span className="w-3 h-5 rounded-sm" style={{ background: text }} />
+      </div>
+      <span className="min-w-0">
+        <span className="block text-[11px] font-semibold text-text-primary">{meta.name}</span>
+        <span className="block text-[9px] text-text-muted truncate">{meta.description}</span>
+      </span>
+      {selected && <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-auto" />}
     </button>
   );
 }
@@ -335,10 +358,11 @@ function CustomThemeEditor() {
 
 // ─── Appearance Tab ──────────────────────────────────────────────────────
 function AppearanceTab() {
-  const { theme, fontFamily, customTheme, setTheme, setFontFamily } = useSettingsStore();
+  const { theme, uiTheme, clipPalette, fontFamily, customTheme, setTheme, setUiTheme, setClipPalette, setFontFamily } = useSettingsStore();
   const { language, setLanguage } = useI18n();
   const [showCustomEditor, setShowCustomEditor] = useState(false);
-  const themeKeys: Theme[] = ["dark", "midnight", "ocean", "forest", "midnight-carbon", "ember-studio", "forest-console", "slate-noir", "rose-cut"];
+  const themeKeys: UiTheme[] = ["dark", "midnight", "ocean", "forest", "midnight-carbon", "ember-studio", "forest-console", "slate-noir", "rose-cut"];
+  const clipPaletteKeys: ClipPalette[] = CLIP_PALETTE_IDS;
   const fontKeys: FontFamily[] = ["inter", "montserrat", "geist", "outfit", "roboto", "space-grotesk", "system", "mono"];
 
   return (
@@ -369,11 +393,23 @@ function AppearanceTab() {
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {themeKeys.map((t) => (
-              <ThemeSwatch key={t} themeId={t} selected={theme === t} onSelect={() => setTheme(t)} />
+              <ThemeSwatch key={t} themeId={t} clipPalette={clipPalette} selected={theme !== "custom" && uiTheme === t} onSelect={() => setUiTheme(t)} />
             ))}
-            {customTheme && <ThemeSwatch key="custom" themeId="custom" selected={theme === "custom"} onSelect={() => setTheme("custom")} customColors={customTheme} />}
+            {customTheme && <ThemeSwatch key="custom" themeId="custom" clipPalette={clipPalette} selected={theme === "custom"} onSelect={() => setTheme("custom")} customColors={customTheme} />}
           </div>
         )}
+      </section>
+
+      <section>
+        <div className="mb-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Clip palette</h3>
+          <p className="text-[10px] text-text-muted mt-1">Choose clip colours independently from the interface theme.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {clipPaletteKeys.map((palette) => (
+            <ClipPaletteSwatch key={palette} palette={palette} selected={clipPalette === palette} onSelect={() => setClipPalette(palette)} />
+          ))}
+        </div>
       </section>
 
       {/* Font Family */}
