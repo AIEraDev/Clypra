@@ -33,7 +33,7 @@ describe("TimelineRuler coordinate mapping", () => {
   it("positions tick labels in content coordinates without subtracting scroll twice", () => {
     render(<TimelineRuler pixelsPerSecond={100} scrollLeft={100} sequenceDuration={20} />);
 
-    const tenSecondLabel = screen.getByText("00:00:10");
+    const tenSecondLabel = screen.getByText("00:10");
     expect(tenSecondLabel.parentElement?.style.left).toBe("1000px");
     expect(tenSecondLabel.style.left).toBe("6px");
     expect(tenSecondLabel.style.transform).toBe("none");
