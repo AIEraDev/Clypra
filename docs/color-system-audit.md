@@ -1,77 +1,54 @@
-# Clypra color system
+# Clypra color system audit
 
-This is the contract for every color rendered by the application UI. The
-system has one runtime palette source and one semantic vocabulary. Components
-must consume semantic roles; they must not introduce a local hex, RGB, HSL,
-Tailwind rainbow, or fallback color.
+This is the review contract for the color system.
 
 ## Sources of truth
 
-| Layer | Location | Responsibility |
-| --- | --- | --- |
-| Theme palette input | `src/store/settingsStore.ts` | Stores the complete preset/custom palette selected by the user. |
-| Runtime palette bridge | `src/constants/colors.ts` + `applyTheme()` | Maps persisted `--color-*` names to canonical `--clypra-theme-*` variables. Legacy names are aliases, never independent values. |
-| Semantic roles and recipes | `src/index.css` | Defines surfaces, text, borders, status, editor indicators, and deterministic clip recipes. |
-| TypeScript consumers | `src/constants/colors.ts` | Exposes `CLYPRA_COLOR_TOKENS` for canvas, DOM style, and non-utility code. |
+| Source | Owns |
+| --- | --- |
+| `UI_THEMES` in `src/store/settingsStore.ts` | Application chrome and editor structure |
+| `CLIP_PALETTES` in `src/store/settingsStore.ts` | Every clip-specific color value |
+| `applyTheme()` | The single UI + clip composition and canonical variable write |
+| `src/index.css` | Semantic variable pointers and structural clip rules, never clip literals |
+| `CLYPRA_COLOR_TOKENS` in `src/constants/colors.ts` | Typed runtime `var(--clypra-*)` references |
 
-`--clypra-theme-*` is the only palette value read by semantic CSS. The older
-`--color-*` variables remain for compatibility with existing utilities and
-theme-editor persistence, but `applyTheme()` writes them as `var(...)` aliases.
-This prevents two values from representing the same role.
+The `--color-*` names are compatibility names. They point at canonical
+`--clypra-*` variables and are not another palette.
 
-## Semantic vocabulary
+## Clip rule
 
-- `surface.*`: app, workspace, panel, elevated, floating, and input surfaces.
-- `text.*`: primary, secondary, tertiary, and disabled text.
-- `border.*`: subtle, default, and strong separators.
-- `interaction.*`: hover, active, selected, and focus states.
-- `status.*`: success, warning, error, and info feedback.
-- `editor.*`: playhead, selection, snap, and drop indicators.
-- `clip.*`: stable media-family backgrounds, foreground, and audio waveform.
+All clip-local color must come from a role in `CLIP_PALETTES`. This includes
+the obvious clip body colors and the less obvious filmstrip overlays,
+waveform/envelope controls, keyframes, tooltips, drag previews, metadata, and
+invalid-position border.
 
-Use the equivalent utility (`bg-surface-panel`, `text-text-secondary`,
-`border-border`, `text-status-error`, etc.) or import
-`CLYPRA_COLOR_TOKENS` when a CSS color value is required.
+Clip components must not add:
 
-## Deterministic clip rule
+- hex, RGB, HSL, or arbitrary color literals;
+- `text-white`, `bg-black`, `border-white`, or generic rainbow utilities;
+- a component-level fallback color;
+- a second clip palette in CSS, React, or canvas code.
 
-Clip identity is generated from a shared recipe in `src/index.css`:
+The only permitted color literals for clip UI are the explicit values inside
+the corresponding `CLIP_PALETTES` blocks.
 
-```text
-clip background = HSL(family hue, shared saturation, shared lightness)
-```
+## Canonical runtime roles
 
-Video, audio, image, text, effect, compound, and sticker families have stable
-hues. Audio uses the green-teal family and a separate bright waveform token,
-so the clip body and waveform remain visible against every timeline surface.
-Selection is not encoded by inventing another clip color: it uses the shared
-focus border and inner ring.
+`applyTheme` maps the source names in `CLIP_PALETTE_TOKEN_KEYS` to canonical
+variables such as `--clypra-clip-video-bg`, `--clypra-clip-audio-wave`,
+`--clypra-clip-envelope-line`, and `--clypra-clip-tooltip-text`.
 
-## What is prohibited
-
-- Hex/RGB/HSL/OKLCH literals in UI components, JSX styles, or utility classes.
-- `text-white`, `bg-black`, or arbitrary palette utilities used as UI roles.
-- A second semantic palette in a component, feature, or theme preset.
-- Per-theme overrides that replace deterministic clip backgrounds.
-- CSS-variable fallbacks that contain a second color value, such as
-  `var(--accent, #...)`.
-
-When a color is genuinely user-authored content—text-template fill/stroke,
-canvas background stops, imported media pixels, color-wheel output, or shader
-parameters—it must remain data, not UI chrome. It should be defined in the
-feature's canonical content-palette module and never be reused as an app
-surface or status color.
+DOM code uses those variables through semantic Tailwind aliases or inline
+`var(--clypra-clip-...)` styles. Canvas code reads the same variables from
+`getComputedStyle(document.documentElement)`. This keeps canvas and DOM clips
+on the same active palette.
 
 ## Review checklist
 
-1. Search the changed file for `#`, `rgb(`, `hsl(`, `oklch(`, and arbitrary
-   Tailwind color utilities.
-2. Replace UI literals with a semantic role or a `CLYPRA_COLOR_TOKENS` value.
-3. Verify selected, hover, disabled, error, and focus states still use shared
-   interaction/status tokens.
-4. For timeline clips, verify the body, label, waveform, and selection outline
-   are all readable on the active theme.
-5. Run `npm run typecheck`, `npm run build`, and the relevant Vitest suite.
-
-The graphite/cool-cyan dark palette is the default preset. Alternate themes
-change the palette input, not the component vocabulary or clip algorithm.
+1. Search changed clip files for `#`, `rgb(`, `hsl(`, `color-mix`, and generic
+   color utilities.
+2. If the color belongs to a clip, add a named role to
+   `CLIP_PALETTE_TOKEN_KEYS` and every `CLIP_PALETTES` entry.
+3. Wire the role once in `applyTheme` and consume its canonical variable.
+4. Confirm no clip token was added to `UI_THEMES`.
+5. Run typecheck and the focused theme-composition tests.
