@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate documentation links
+        run: npm run docs:check
+
       - name: Run tests
         run: npx vitest run
 

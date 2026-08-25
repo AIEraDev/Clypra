@@ -24,6 +24,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "docs:check": "node scripts/check-doc-links.mjs",
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build",
@@ -32,7 +33,7 @@
     "test": "npm run typecheck && vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "check": "npm run typecheck && npm run test",
+    "check": "npm run docs:check && npm run typecheck && npm run test",
     "mobile:sync": "npm run build && npx cap sync",
     "mobile:live": "CAPACITOR_LIVE_RELOAD=true npx cap sync"
   },
