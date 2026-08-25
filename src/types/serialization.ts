@@ -41,6 +41,7 @@ export interface RustProject {
   frame_rate?: number | null; // Optional in Rust
   duration?: number | null; // Optional in Rust
   media_assets?: RustMediaAsset[];
+  main_video_track_id?: string | null;
   canvas_background?: CanvasBackgroundConfig | null;
   tracks?: RustTrack[];
   clips?: RustClip[];
@@ -158,6 +159,7 @@ export interface ProjectPersistenceSnapshot {
   epoch?: number;
   migrated: boolean;
   rustProject: RustProject;
+  mainVideoTrackId?: string | null;
 }
 
 /**
@@ -189,6 +191,7 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
     canvas_background: raw.canvas_background ?? raw.canvasBackground,
     timeline_schema_version: raw.timeline_schema_version ?? raw.timelineSchemaVersion,
     audio_model_version: raw.audio_model_version ?? raw.audioModelVersion,
+    main_video_track_id: raw.main_video_track_id ?? raw.mainVideoTrackId,
   };
   if (typeof rust.id !== "string" || !rust.id.trim()) throw new Error("Project payload is missing a valid id");
   if (typeof rust.name !== "string" || !rust.name.trim()) throw new Error("Project payload is missing a valid name");
@@ -222,6 +225,7 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
     transitions,
     gaps,
     markers,
+    mainVideoTrackId: rust.main_video_track_id ?? null,
     updateModifiedTime: false,
   });
   const migrated = JSON.stringify(normalizedRust) !== JSON.stringify(raw);
@@ -236,6 +240,7 @@ export function validateAndMigrateProjectPayload(input: unknown): ProjectPersist
     timelineSchemaVersion: project.timelineSchemaVersion ?? 1,
     migrated,
     rustProject: normalizedRust,
+    mainVideoTrackId: rust.main_video_track_id ?? null,
   };
 }
 
@@ -451,6 +456,7 @@ export function toRustProject(
     transitions?: TransitionTimelineItem[];
     gaps?: Gap[];
     markers?: TimelineMarker[];
+    mainVideoTrackId?: string | null;
     /** Update modification timestamp to current time (default: true, set false for round-trip serialization) */
     updateModifiedTime?: boolean;
   },
@@ -476,6 +482,9 @@ export function toRustProject(
     thumbnail: frontend.thumbnail,
     timeline_schema_version: frontend.timelineSchemaVersion ?? 1,
     audio_model_version: frontend.audioModelVersion ?? AUDIO_MODEL_VERSION,
+    ...(options?.mainVideoTrackId !== undefined
+      ? { main_video_track_id: options.mainVideoTrackId }
+      : {}),
   };
 }
 

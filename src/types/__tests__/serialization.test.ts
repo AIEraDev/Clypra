@@ -297,6 +297,7 @@ describe("Project Serialization Layer", () => {
       created_at: 1000,
       modified_at: 2000,
       timeline_schema_version: 1,
+      main_video_track_id: "track-1",
       tracks: [{ id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: true, height: 68 }],
       clips: [{ id: "clip-1", kind: "video", trackId: "track-1", mediaId: "media-1", startTime: 0, duration: 2, trimIn: 0, trimOut: 2, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 }],
       gaps: [{ id: "gap-1", track_id: "track-1", start_time: 2, duration: 1, type: "manual", source: "user-insert", protected: false }],
@@ -310,6 +311,7 @@ describe("Project Serialization Layer", () => {
     expect(snapshot.gaps[0].id).toBe("gap-1");
     expect(snapshot.markers[0].id).toBe("marker-1");
     expect(snapshot.rustProject.timeline_schema_version).toBe(1);
+    expect(snapshot.mainVideoTrackId).toBe("track-1");
   });
 
   it("rejects malformed payloads instead of producing an empty project", () => {
