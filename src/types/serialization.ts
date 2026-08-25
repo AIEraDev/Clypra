@@ -143,6 +143,97 @@ export interface RustGap {
   };
 }
 
+export interface ProjectPersistenceSnapshot {
+  project: Project;
+  mediaAssets: MediaAsset[];
+  tracks: Track[];
+  clips: Clip[];
+  transitions: TransitionTimelineItem[];
+  gaps: Gap[];
+  markers: TimelineMarker[];
+  timelineSchemaVersion: number;
+  migrated: boolean;
+  rustProject: RustProject;
+}
+
+/**
+ * Parse, migrate, and validate a project before it can touch active state.
+ * Existing clip-kind/conform/text-effect migrations remain centralized in the
+ * Rust-to-frontend converters; this function makes the load boundary atomic.
+ */
+export function validateAndMigrateProjectPayload(input: unknown): ProjectPersistenceSnapshot {
+  let raw: any = input;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch (error) {
+      throw new Error(`Project JSON is malformed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Project payload must be a JSON object");
+  }
+  const rust: any = {
+    ...raw,
+    created_at: raw.created_at ?? raw.createdAt,
+    modified_at: raw.modified_at ?? raw.updatedAt,
+    aspect_ratio: raw.aspect_ratio ?? raw.aspectRatio,
+    canvas_width: raw.canvas_width ?? raw.canvasWidth,
+    canvas_height: raw.canvas_height ?? raw.canvasHeight,
+    frame_rate: raw.frame_rate ?? raw.frameRate,
+    media_assets: raw.media_assets ?? raw.mediaAssets,
+    canvas_background: raw.canvas_background ?? raw.canvasBackground,
+    timeline_schema_version: raw.timeline_schema_version ?? raw.timelineSchemaVersion,
+  };
+  if (typeof rust.id !== "string" || !rust.id.trim()) throw new Error("Project payload is missing a valid id");
+  if (typeof rust.name !== "string" || !rust.name.trim()) throw new Error("Project payload is missing a valid name");
+  if (!Number.isFinite(rust.created_at) || !Number.isFinite(rust.modified_at)) throw new Error("Project timestamps are invalid");
+
+  const arrays = ["tracks", "clips", "transitions", "gaps", "markers", "media_assets"] as const;
+  for (const key of arrays) {
+    const value = rust[key];
+    if (value !== undefined && !Array.isArray(value)) throw new Error(`Project field ${key} must be an array`);
+  }
+
+  const project = fromRustProject(rust as RustProject);
+  const mediaAssets = (rust.media_assets ?? []).map((asset: RustMediaAsset) => fromRustMediaAsset(asset));
+  const tracks = ((rust.tracks ?? []) as RustTrack[]).map((track) => fromRustTrack(track));
+  const clips = (rust.clips ?? []).map((clip: RustClip) => fromRustClip(clip));
+  const transitions = (rust.transitions ?? []) as TransitionTimelineItem[];
+  const gaps = (rust.gaps ?? []).map((gap: RustGap) => fromRustGap(gap));
+  const markers = (rust.markers ?? []) as TimelineMarker[];
+
+  const ids = [...mediaAssets, ...tracks, ...clips, ...gaps, ...markers].map((item: any) => item?.id).filter(Boolean);
+  if (new Set(ids).size !== ids.length) throw new Error("Project contains duplicate editable item IDs");
+  const trackIds = new Set(tracks.map((track) => track.id));
+  for (const clip of clips) {
+    if (!trackIds.has(clip.trackId)) throw new Error(`Clip ${clip.id} refers to a missing track`);
+  }
+
+  const normalizedRust = toRustProject(project, {
+    mediaAssets,
+    tracks,
+    clips,
+    transitions,
+    gaps,
+    markers,
+    updateModifiedTime: false,
+  });
+  const migrated = JSON.stringify(normalizedRust) !== JSON.stringify(raw);
+  return {
+    project,
+    mediaAssets,
+    tracks,
+    clips,
+    transitions,
+    gaps,
+    markers,
+    timelineSchemaVersion: project.timelineSchemaVersion ?? 1,
+    migrated,
+    rustProject: normalizedRust,
+  };
+}
+
 // ============================================================================
 // RUST → FRONTEND CONVERTERS
 // ============================================================================
