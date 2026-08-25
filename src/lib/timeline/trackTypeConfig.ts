@@ -43,6 +43,8 @@ export interface TrackTypeConfig {
   height: number;
   /** Optional height for the primary visual row of this type. */
   primaryHeight?: number;
+  /** Optional height for secondary visual rows of this type. */
+  secondaryHeight?: number;
   /** Where a newly created track of this type is inserted. */
   placement: TrackPlacement;
   /** Controls how ensureTrackForType() finds or creates a track. */
@@ -81,7 +83,8 @@ export interface TrackVisualSpec {
 export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
   video: {
     height: 80,
-    primaryHeight: 112,
+    primaryHeight: 80,
+    secondaryHeight: 60,
     placement: "top",
     reuseStrategy: "primary",
     autoPrune: true,
@@ -160,11 +163,11 @@ export function getTrackVisualSpec(
     return {
       role: isARoll ? "a-roll" : "b-roll",
       label: isARoll ? "A-Roll (Main)" : "B-Roll",
-      // Give the primary A-roll more visual weight while keeping B-roll rows
-      // compact. ClipFilmstrip derives its canvas height from this row height.
+      // Keep the main A-roll readable while keeping secondary video rows compact.
+      // ClipFilmstrip derives its canvas height from this row height.
       height: isARoll
         ? TRACK_TYPE_CONFIG.video.primaryHeight ?? TRACK_TYPE_CONFIG.video.height
-        : TRACK_TYPE_CONFIG.video.height,
+        : TRACK_TYPE_CONFIG.video.secondaryHeight ?? TRACK_TYPE_CONFIG.video.height,
       opacity: isARoll ? 1 : 0.8,
       tone: isARoll ? "primary" : "secondary",
     };
@@ -277,4 +280,68 @@ export function getTrackInsertionIndexGrouped(
   }
 
   return getTrackInsertionIndex(tracks, trackType);
+}
+
+/**
+ * Returns the authoritative main-video index, with a compatibility fallback
+ * for projects that do not yet have mainVideoTrackId metadata.
+ */
+export function getMainVideoTrackIndex(
+  tracks: Array<Pick<Track, "id" | "type">>,
+  mainVideoTrackId?: string | null,
+): number {
+  const configuredIndex = mainVideoTrackId
+    ? tracks.findIndex((track) => track.id === mainVideoTrackId && track.type === "video")
+    : -1;
+  return configuredIndex >= 0 ? configuredIndex : tracks.findIndex((track) => track.type === "video");
+}
+
+/** Returns true when a track is below the main video row. */
+export function isTrackBelowMainVideo(
+  tracks: Array<Pick<Track, "id" | "type">>,
+  trackId: string,
+  mainVideoTrackId?: string | null,
+): boolean {
+  const mainIndex = getMainVideoTrackIndex(tracks, mainVideoTrackId);
+  const trackIndex = tracks.findIndex((track) => track.id === trackId);
+  return mainIndex >= 0 && trackIndex > mainIndex;
+}
+
+/**
+ * Clamp a proposed insertion so only pure-audio tracks can be placed below
+ * the main video track. This is the final ordering guard used by drop and
+ * history paths, so UI hit-testing cannot bypass it.
+ */
+export function getSafeTrackInsertionIndex(
+  tracks: Array<Pick<Track, "id" | "type">>,
+  trackType: TrackType,
+  proposedIndex: number,
+  mainVideoTrackId?: string | null,
+): number {
+  const clamped = Math.max(0, Math.min(proposedIndex, tracks.length));
+  if (trackType === "audio") return clamped;
+
+  const mainIndex = getMainVideoTrackIndex(tracks, mainVideoTrackId);
+  return mainIndex >= 0 ? Math.min(clamped, mainIndex) : clamped;
+}
+
+/**
+ * Repairs legacy ordering in memory without moving audio rows. Non-audio rows
+ * found below the main video row are moved immediately above it, preserving
+ * their relative order. Callers can persist the normalized result normally.
+ */
+export function normalizeTrackOrderForMainVideo<T extends Pick<Track, "id" | "type">>(
+  tracks: T[],
+  mainVideoTrackId?: string | null,
+): T[] {
+  const mainIndex = getMainVideoTrackIndex(tracks, mainVideoTrackId);
+  if (mainIndex < 0) return tracks;
+
+  const mainTrack = tracks[mainIndex];
+  const above = tracks.slice(0, mainIndex);
+  const below = tracks.slice(mainIndex + 1);
+  const nonAudioBelow = below.filter((track) => track.type !== "audio");
+  if (nonAudioBelow.length === 0) return tracks;
+
+  return [...above, ...nonAudioBelow, mainTrack, ...below.filter((track) => track.type === "audio")];
 }
