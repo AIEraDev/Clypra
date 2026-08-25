@@ -23,7 +23,7 @@ describe("track visual roles", () => {
     expect(getTrackVisualSpec(tracks[1], tracks, "main")).toMatchObject({
       role: "a-roll",
       label: "A-Roll (Main)",
-      height: 80,
+      height: 112,
       opacity: 1,
     });
   });
