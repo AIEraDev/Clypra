@@ -77,6 +77,11 @@ describe("timeline item compatibility adapters", () => {
 
     // Text tracks still get text role
     expect(toCompositorClip({ ...clip, trackId: "txt" }, tracks).role).toBe("text");
+
+    expect(toCompositorClip({ ...clip, zIndex: 9, evaluationPriority: 3 }, tracks)).toMatchObject({
+      zIndex: 9,
+      evaluationPriority: 3,
+    });
   });
 
   it("resolves source time through the shared resolver", () => {

@@ -2,11 +2,11 @@
  * Z-Order and Track Compositing Tests
  *
  * Validates that clips are rendered in the correct visual stacking order
- * based on role, trackIndex, and zIndex properties.
+ * based on structural bands, trackIndex, and zIndex properties.
  *
  * KEY PRINCIPLES:
- * 1. Role sorting is PRIMARY: background(0) < primary(1) < overlay(2) < text(3) < effect(4)
- * 2. Within same role: higher trackIndex draws FIRST (bottom), lower trackIndex draws LAST (top)
+ * 1. Only background/effect roles are structural; primary/overlay/text follow track order.
+ * 2. Higher trackIndex draws FIRST (bottom), lower trackIndex draws LAST (top)
  * 3. The rasterizer draws visualLayers[0] first, then [1], etc. Last drawn = on top visually
  */
 
@@ -126,8 +126,8 @@ describe("Z-Order and Track Compositing", () => {
     size: 500000,
   });
 
-  describe("Role-Based Sorting (Primary Concern)", () => {
-    it("sorts clips by role: primary before overlay before text", () => {
+  describe("Timeline-Owned Visual Stacking", () => {
+    it("uses track order across primary, overlay, and text roles", () => {
       const tracks = [createTrack("t0"), createTrack("t1"), createTrack("t2", "text")];
       const assets = [createVideoAsset("v1", "video1.mp4"), createImageAsset("i1", "overlay.png")];
 
@@ -137,18 +137,18 @@ describe("Z-Order and Track Compositing", () => {
 
       expect(scene.visualLayers).toHaveLength(3);
 
-      // Role order: primary(1) < overlay(2) < text(3)
-      expect(scene.visualLayers[0].clipId).toBe("primary");
-      expect(scene.visualLayers[0].role).toBe("primary");
+      // The lowest editor track draws first, irrespective of visual role.
+      expect(scene.visualLayers[0].clipId).toBe("text");
+      expect(scene.visualLayers[0].role).toBe("text");
 
       expect(scene.visualLayers[1].clipId).toBe("overlay");
       expect(scene.visualLayers[1].role).toBe("overlay");
 
-      expect(scene.visualLayers[2].clipId).toBe("text");
-      expect(scene.visualLayers[2].role).toBe("text");
+      expect(scene.visualLayers[2].clipId).toBe("primary");
+      expect(scene.visualLayers[2].role).toBe("primary");
     });
 
-    it("places overlay role above primary role regardless of track position", () => {
+    it("allows a top overlay track to sit above a lower primary track", () => {
       const tracks = [createTrack("t0"), createTrack("t1")];
       const assets = [createVideoAsset("v1", "main.mp4"), createImageAsset("img", "watermark.png")];
 
@@ -161,7 +161,7 @@ describe("Z-Order and Track Compositing", () => {
 
       expect(scene.visualLayers).toHaveLength(2);
 
-      // Primary draws first (background)
+      // The lower primary track draws first.
       expect(scene.visualLayers[0].clipId).toBe("main");
       expect(scene.visualLayers[0].role).toBe("primary");
 
@@ -171,8 +171,8 @@ describe("Z-Order and Track Compositing", () => {
     });
   });
 
-  describe("Track Order Within Same Role", () => {
-    it("within same role, higher trackIndex draws first (bottom), lower draws last (top)", () => {
+  describe("Track Order", () => {
+    it("higher trackIndex draws first (bottom), lower draws last (top)", () => {
       const tracks = [createTrack("t0"), createTrack("t1"), createTrack("t2")];
       const assets = [createImageAsset("i1", "1.png"), createImageAsset("i2", "2.png"), createImageAsset("i3", "3.png")];
 
@@ -186,13 +186,13 @@ describe("Z-Order and Track Compositing", () => {
 
       expect(scene.visualLayers).toHaveLength(3);
 
-      // All same role (overlay), sorted by trackIndex descending
+      // Sorted by trackIndex descending.
       expect(scene.visualLayers[0].clipId).toBe("bottom"); // trackIdx=2, draws FIRST
       expect(scene.visualLayers[1].clipId).toBe("middle"); // trackIdx=1
       expect(scene.visualLayers[2].clipId).toBe("top"); // trackIdx=0, draws LAST = ON TOP visually
     });
 
-    it("image on top track appears above video on bottom track (same role)", () => {
+    it("image on top track appears above video on bottom track", () => {
       const tracks = [createTrack("t0"), createTrack("t1")];
       const assets = [createVideoAsset("video", "background.mp4"), createImageAsset("img", "logo.png")];
 
@@ -205,7 +205,7 @@ describe("Z-Order and Track Compositing", () => {
 
       expect(scene.visualLayers).toHaveLength(2);
 
-      // Both overlay role, sorted by trackIndex
+      // Sorted by trackIndex.
       expect(scene.visualLayers[0].clipId).toBe("video"); // trackIdx=1, draws first (background)
       expect(scene.visualLayers[1].clipId).toBe("overlay"); // trackIdx=0, draws last (on top)
     });
@@ -229,17 +229,14 @@ describe("Z-Order and Track Compositing", () => {
 
       expect(scene.visualLayers).toHaveLength(5);
 
-      // Role order: primary(1) < overlay(2) < text(3)
-      // Within primary: higher trackIndex first
-      expect(scene.visualLayers[0].clipId).toBe("lower"); // primary, trackIdx=3
-      expect(scene.visualLayers[1].clipId).toBe("middle"); // primary, trackIdx=2
-
-      // Within overlay: higher trackIndex first
-      expect(scene.visualLayers[2].clipId).toBe("upper"); // overlay, trackIdx=1
-      expect(scene.visualLayers[3].clipId).toBe("top"); // overlay, trackIdx=0
-
-      // Text role highest
-      expect(scene.visualLayers[4].clipId).toBe("text"); // text role
+      // Visual roles do not override the editor's track stack.
+      expect(scene.visualLayers.map((layer) => layer.clipId)).toEqual([
+        "text", // trackIdx=4, draws first
+        "lower", // trackIdx=3
+        "middle", // trackIdx=2
+        "upper", // trackIdx=1
+        "top", // trackIdx=0, draws last/on top
+      ]);
     });
   });
 
