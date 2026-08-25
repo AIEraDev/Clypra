@@ -59,7 +59,7 @@ interface TimelineStore {
    * Used for cache invalidation in render engine and evaluation.
    */
   epoch: number;
-  /** Changes once per project hydration so the view can apply its initial fit. */
+  /** Changes once per project hydration so the view can apply its initial overview. */
   projectLoadRevision: number;
   zoomLevel: number;
   scrollLeft: number;

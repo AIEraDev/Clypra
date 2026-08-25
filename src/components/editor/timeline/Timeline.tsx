@@ -25,7 +25,6 @@ import {
   useTimelineTauriDrop,
   useTimelineZoom,
 } from "@/hooks";
-import { useAnchoredTimelineZoom } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
 import {
   TIMELINE_TRACK_LABEL_WIDTH_PX,
@@ -41,6 +40,7 @@ import {
 } from "@/lib/timeline/timelineViewport";
 import { getTrackVisualSpec } from "@/lib/timeline/trackTypeConfig";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
+import { TIMELINE_ZOOM_MIN } from "@/lib/timeline/timelineZoom";
 
 import { TimelineToolbar } from "./TimelineToolbar";
 import { TimelineRuler } from "./TimelineRuler";
@@ -147,7 +147,6 @@ export const Timeline: React.FC = () => {
 
   // Consume extracted hooks
   useTimelineZoom(containerRef, hasTimelineContent);
-  const { fitSequence } = useAnchoredTimelineZoom();
   const { isDraggingOver, isDraggingMedia } =
     useTimelineTauriDrop(containerRef);
   const {
@@ -172,20 +171,23 @@ export const Timeline: React.FC = () => {
     }
   }, [hasClips, setViewportWidth]);
 
-  // A project carries edit data, not a saved viewport preference. Fit the
-  // newly hydrated sequence once after its DOM width is available so every
-  // opened project starts in the full-sequence overview. Manual zooming is
-  // unaffected because this only reacts to the hydration revision.
+  // A project carries edit data, not a saved viewport preference. Reset the
+  // newly hydrated timeline to the canonical minimum zoom once after its DOM
+  // width is available. Manual zooming is unaffected because this only reacts
+  // to the hydration revision.
   useEffect(() => {
     if (projectLoadRevision === 0 || !hasTimelineContent) return;
     if (initialFitRevisionRef.current === projectLoadRevision) return;
 
     const frame = requestAnimationFrame(() => {
-      fitSequence();
+      const timeline = useTimelineStore.getState();
+      timeline.setZoom(TIMELINE_ZOOM_MIN);
+      if (containerRef.current) containerRef.current.scrollLeft = 0;
+      timeline.setScrollLeft(0);
       initialFitRevisionRef.current = projectLoadRevision;
     });
     return () => cancelAnimationFrame(frame);
-  }, [fitSequence, hasTimelineContent, projectLoadRevision, viewportWidth]);
+  }, [hasTimelineContent, projectLoadRevision, viewportWidth]);
 
   // Attach scroll/pointer listeners to the timeline scroll container
   useEffect(() => {
