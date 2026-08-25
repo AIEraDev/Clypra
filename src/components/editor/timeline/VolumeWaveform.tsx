@@ -1,18 +1,22 @@
 import React, { useEffect, useRef } from "react";
 import { getThemeAccentRgb } from "@/lib/utils/canvasUtils";
-import type { AudioKeyframe } from "@/types";
+import type { AudioFadeCurve, AudioKeyframe } from "@/types";
+import { evaluateAudioKeyframes, evaluateFadeCurve } from "@/core/audio/effectiveAudioState";
 import { useWaveformData } from "./useWaveformData";
 
 interface VolumeWaveformProps {
   audioPath: string;
   clipWidthPx: number;
   duration: number;
+  mediaDuration?: number;
   trimIn?: number;
   trimOut?: number;
   volume?: number;
   volumeKeyframes?: AudioKeyframe[];
   fadeIn?: number;
   fadeOut?: number;
+  fadeInCurve?: AudioFadeCurve;
+  fadeOutCurve?: AudioFadeCurve;
   heightPx?: number;
   className?: string;
 }
@@ -38,30 +42,7 @@ export function getKeyframedVolume(
   time: number,
   defaultVolume: number,
 ): number {
-  if (keyframes.length === 0) return defaultVolume;
-
-  if (time <= keyframes[0].time) return keyframes[0].gain;
-  const last = keyframes[keyframes.length - 1];
-  if (time >= last.time) return last.gain;
-
-  for (let i = 0; i < keyframes.length - 1; i++) {
-    const from = keyframes[i];
-    const to = keyframes[i + 1];
-    if (time < from.time || time > to.time) continue;
-
-    const span = to.time - from.time;
-    const t = span > 0 ? (time - from.time) / span : 1;
-    const eased =
-      to.easing === "bezier" ? t * t * (3 - 2 * t) : t;
-    if (to.easing === "exponential") {
-      const start = Math.max(0.0001, from.gain);
-      const end = Math.max(0.0001, to.gain);
-      return start * Math.pow(end / start, t);
-    }
-    return from.gain + (to.gain - from.gain) * eased;
-  }
-
-  return defaultVolume;
+  return evaluateAudioKeyframes(keyframes, time, defaultVolume);
 }
 
 export function getEnvelopeVolume(
@@ -71,10 +52,12 @@ export function getEnvelopeVolume(
   keyframes: AudioKeyframe[],
   fadeIn: number,
   fadeOut: number,
+  fadeInCurve: AudioFadeCurve = "linear",
+  fadeOutCurve: AudioFadeCurve = "linear",
 ): number {
   let result = getKeyframedVolume(keyframes, time, volume);
-  if (fadeIn > 0) result *= clamp(time / fadeIn, 0, 1);
-  if (fadeOut > 0) result *= clamp((duration - time) / fadeOut, 0, 1);
+  if (fadeIn > 0) result *= evaluateFadeCurve(time / fadeIn, fadeInCurve);
+  if (fadeOut > 0) result *= evaluateFadeCurve((duration - time) / fadeOut, fadeOutCurve);
   return clamp(result, 0, 1);
 }
 
@@ -87,12 +70,15 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
   audioPath,
   clipWidthPx,
   duration,
+  mediaDuration,
   trimIn = 0,
   trimOut,
   volume = 1,
   volumeKeyframes = [],
   fadeIn = 0,
   fadeOut = 0,
+  fadeInCurve = "linear",
+  fadeOutCurve = "linear",
   heightPx = 16,
   className = "",
 }) => {
@@ -101,6 +87,7 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
     audioPath,
     clipWidthPx,
     duration,
+    mediaDuration,
     trimIn,
     trimOut,
   });
@@ -152,6 +139,8 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
         sortedKeyframes,
         fadeIn,
         fadeOut,
+        fadeInCurve,
+        fadeOutCurve,
       );
       if (envelopeVolume <= 0.001) return;
 
@@ -177,6 +166,8 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
     volumeKeyframes,
     fadeIn,
     fadeOut,
+    fadeInCurve,
+    fadeOutCurve,
     duration,
   ]);
 

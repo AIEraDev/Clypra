@@ -3,6 +3,7 @@ import {
   AudioLines,
   Eye,
   EyeOff,
+  Headphones,
   Layers,
   Lock,
   Minimize2,
@@ -51,7 +52,7 @@ const TRACK_ROLE_ICONS: Record<TrackVisualRole, typeof Video> = {
  * stays pinned while the clip area scrolls horizontally.
  */
 export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visualSpecProp }) => {
-  const { tracks, clips, gaps, mainVideoTrackId, toggleTrackLock, toggleTrackMute, toggleTrackVisibility } = useTimelineStore();
+  const { tracks, clips, gaps, mainVideoTrackId, toggleTrackLock, toggleTrackMute, toggleTrackSolo, toggleTrackVisibility } = useTimelineStore();
   const { selectedTrackId, selectTrack } = useUIStore();
   const visualSpec = visualSpecProp ?? getTrackVisualSpec(track, tracks.length > 0 ? tracks : [track], mainVideoTrackId);
 
@@ -109,6 +110,21 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track, visualSpec: visua
       </button>
 
       {/* Only show mute button for tracks that produce audio */}
+      {(track.type === "video" || track.type === "audio") && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleTrackSolo(track.id);
+          }}
+          disabled={track.locked}
+          className={`p-1 rounded transition-colors ${track.locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-timeline-button-hover"} ${track.solo ? "bg-accent/20 text-accent" : "text-timeline-button-icon"}`}
+          aria-label={track.solo ? "Unsolo track" : "Solo track"}
+          title={track.locked ? "Unlock track to solo or unsolo" : track.solo ? "Unsolo track" : "Solo track"}
+        >
+          <Headphones className="w-3 h-3" />
+        </button>
+      )}
+
       {(track.type === "video" || track.type === "audio") && (
         <button
           onClick={(e) => {
