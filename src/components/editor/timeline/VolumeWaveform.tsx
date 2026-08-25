@@ -179,7 +179,7 @@ export const VolumeWaveform: React.FC<VolumeWaveformProps> = ({
   return (
     <div className="relative flex h-full min-h-0 w-full items-center">
       {isLoading && (
-        <div className="absolute inset-0 animate-pulse bg-accent/10" />
+        <div className="absolute inset-0 animate-pulse bg-clypra-clip-waveform-bg/60" />
       )}
       <canvas
         ref={canvasRef}

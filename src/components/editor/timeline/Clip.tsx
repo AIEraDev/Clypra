@@ -715,7 +715,7 @@ const ClipInner: React.FC<ClipProps> = ({
           ? `translateY(${dragState?.offsetY ?? 0}px)`
           : "none",
         border: isInvalidPosition
-          ? "2px solid var(--color-timeline-clip-invalid)"
+          ? "2px solid var(--clypra-clip-invalid)"
           : undefined,
         ...getClipBackgroundStyle(),
       }}
@@ -724,7 +724,7 @@ const ClipInner: React.FC<ClipProps> = ({
       <div
         data-testid={`clip-${clip.id}-resize-left`}
         data-clip-resize-handle="true"
-        className={`group/resize absolute left-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "left" ? (isRippleResize ? "bg-status-warning/35" : "bg-accent/35") : "bg-transparent"}`}
+        className={`group/resize absolute left-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect/35" : "bg-clypra-clip-fg/35") : "bg-transparent"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
@@ -737,7 +737,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-0.5 rounded-r bg-clypra-clip-fg/90 transition-all group-hover/resize:w-0.75 group-hover/resize:bg-clypra-clip-fg ${isResizing === "left" ? (isRippleResize ? "bg-status-warning" : "bg-accent-soft") : ""}`}
+          className={`pointer-events-none absolute inset-y-0 left-0 h-full w-0.5 rounded-r bg-clypra-clip-fg/90 transition-all group-hover/resize:w-0.75 group-hover/resize:bg-clypra-clip-fg ${isResizing === "left" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
         />
       </div>
 
@@ -752,14 +752,14 @@ const ClipInner: React.FC<ClipProps> = ({
               draggable={false}
             />
           ) : (
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-black/20">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-clypra-clip-overlay">
               <Layers className="h-4 w-4" />
             </div>
           )}
           <div className="min-w-0 truncate text-[11px] font-semibold">
             {clip.name || "Compound Clip"}
           </div>
-          <div className="shrink-0 rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+          <div className="shrink-0 rounded bg-clypra-clip-overlay px-1.5 py-0.5 text-[10px]">
             {clip.compoundChildren?.length ?? 0}
           </div>
         </div>
@@ -767,18 +767,18 @@ const ClipInner: React.FC<ClipProps> = ({
         <div className="relative flex h-full w-full items-center px-3">
           {/* Icon badge for text role differentiation */}
           {(isCaption || isTitle) && (
-            <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-black/30 px-1.5 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm">
+            <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold text-clypra-clip-fg backdrop-blur-sm">
               {isCaption ? "CC" : "T"}
             </div>
           )}
-          <div className="text-[12px] text-white/95 font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">
+          <div className="text-[12px] text-clypra-clip-fg font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">
             {(clip as any).text || "Default text"}
           </div>
         </div>
       ) : isClipFilter ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5 text-white" />
+            <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
           </div>
           <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
             {clip.name || "Filter"}
@@ -787,7 +787,7 @@ const ClipInner: React.FC<ClipProps> = ({
       ) : isClipVideoEffect ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5 text-white" />
+            <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
           </div>
           <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
             {clip.name || "Video Effect"}
@@ -796,7 +796,7 @@ const ClipInner: React.FC<ClipProps> = ({
       ) : isClipBodyEffect ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5 text-white" />
+            <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
           </div>
           <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
             {clip.name || "Body Effect"}
@@ -805,7 +805,7 @@ const ClipInner: React.FC<ClipProps> = ({
       ) : isClipAnimatedOverlay ? (
         <div className="relative flex h-full w-full items-center px-2 select-none pointer-events-none gap-2">
           <div className="w-5 h-5 rounded bg-clypra-clip-effect/80 border border-clypra-clip-fg/15 flex items-center justify-center backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5 text-white" />
+            <Sparkles className="w-3.5 h-3.5 text-clypra-clip-fg" />
           </div>
           <span className="text-[10px] font-bold text-clypra-clip-fg/90 truncate">
             {clip.name || "Overlay"}
@@ -832,11 +832,11 @@ const ClipInner: React.FC<ClipProps> = ({
       ) : (
         <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
           {/* CapCut-style hierarchy: metadata, visual strip, then audio strip. */}
-          <div className="flex h-5 shrink-0 items-center gap-3 border-b border-black/20 bg-black/15 px-1.5">
-            <div className="min-w-0 truncate text-[10px] font-semibold tracking-[0.01em] text-timeline-clip-text">
+          <div className="flex h-4 shrink-0 items-center gap-2 border-b border-clypra-clip-metadata-border bg-clypra-clip-metadata-bg px-1.5">
+            <div className="min-w-0 truncate text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text">
               {mediaAsset?.name || "Clip"}
             </div>
-            <div className="shrink-0 text-[10px] font-medium text-timeline-clip-duration">
+            <div className="shrink-0 text-[9px] font-medium text-timeline-clip-duration">
               {formatDuration(clip.duration)}
             </div>
           </div>
@@ -844,7 +844,7 @@ const ClipInner: React.FC<ClipProps> = ({
           mediaAsset &&
           (mediaAsset.type === "video" || mediaAsset.type === "image") ? (
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 overflow-hidden bg-black/10">
+              <div className="min-h-0 flex-1 overflow-hidden bg-clypra-clip-overlay-soft">
                 <ClipFilmstrip
                   className="h-full w-full"
                   clip={clip}
@@ -857,7 +857,7 @@ const ClipInner: React.FC<ClipProps> = ({
               {mediaAsset.type === "video" && mediaAsset.path && (
                 <div
                   data-testid="clip-audio-waveform"
-                  className="h-4 shrink-0 border-t border-black/20 bg-black/20 px-0.5"
+                  className="relative h-4 shrink-0 border-t border-clypra-clip-waveform-border bg-clypra-clip-waveform-bg px-0.5"
                 >
                   <VolumeWaveform
                     audioPath={(clip as any).audioPath || mediaAsset.path}
@@ -875,11 +875,16 @@ const ClipInner: React.FC<ClipProps> = ({
                     heightPx={16}
                     className="opacity-75"
                   />
+                  <AudioEnvelopeEditor
+                    clip={clip}
+                    clipWidthPx={width}
+                    pixelsPerSecond={pixelsPerSecond}
+                  />
                 </div>
               )}
             </div>
           ) : mediaAsset?.type === "audio" || (clip as any).audioPath ? (
-            <div className="flex min-h-0 w-full flex-1 items-center px-0.5">
+            <div className="relative flex min-h-0 w-full flex-1 items-center overflow-hidden px-0.5">
               <VolumeWaveform
                 audioPath={(clip as any).audioPath || mediaAsset?.path || ""}
                 clipWidthPx={width}
@@ -896,6 +901,11 @@ const ClipInner: React.FC<ClipProps> = ({
                 heightPx={40}
                 className="rounded-xs"
               />
+              <AudioEnvelopeEditor
+                clip={clip}
+                clipWidthPx={width}
+                pixelsPerSecond={pixelsPerSecond}
+              />
             </div>
           ) : mediaAsset?.posterFrame ? (
             <img
@@ -910,20 +920,11 @@ const ClipInner: React.FC<ClipProps> = ({
         </div>
       )}
 
-      {/* Audio Envelope Editor - overlay for clips with audio */}
-      {(isClipAudio || isClipVideo) && (
-        <AudioEnvelopeEditor
-          clip={clip}
-          clipWidthPx={width}
-          pixelsPerSecond={pixelsPerSecond}
-        />
-      )}
-
       {/* Right trim handle */}
       <div
         data-testid={`clip-${clip.id}-resize-right`}
         data-clip-resize-handle="true"
-        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "right" ? (isRippleResize ? "bg-status-warning/35" : "bg-accent/35") : "bg-transparent"}`}
+        className={`group/resize absolute right-0 top-0 z-30 h-full w-3 cursor-col-resize transition-colors ${resizeHandleVisibility} ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect/35" : "bg-clypra-clip-fg/35") : "bg-transparent"}`}
         style={{ touchAction: "none", cursor: "col-resize" }}
         onPointerDown={(e) => {
           e.stopPropagation(); // Prevent drag when clicking resize handle
@@ -937,7 +938,7 @@ const ClipInner: React.FC<ClipProps> = ({
         }
       >
         <div
-          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-0.5 rounded-l bg-clypra-clip-fg/90 transition-all group-hover/resize:w-0.75 group-hover/resize:bg-clypra-clip-fg ${isResizing === "right" ? (isRippleResize ? "bg-status-warning" : "bg-accent-soft") : ""}`}
+          className={`pointer-events-none absolute inset-y-0 right-0 h-full w-0.5 rounded-l bg-clypra-clip-fg/90 transition-all group-hover/resize:w-0.75 group-hover/resize:bg-clypra-clip-fg ${isResizing === "right" ? (isRippleResize ? "bg-clypra-clip-effect" : "bg-clypra-clip-fg") : ""}`}
         />
       </div>
     </div>
