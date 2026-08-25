@@ -52,11 +52,11 @@ export function formatTimecode(seconds: number, frameRate: number): string {
 }
 
 /**
- * Format timeline ruler labels with an explicit hours field.
+ * Format timeline ruler labels with a conditional hours field.
  *
- * Ruler labels must not make `01:29` ambiguous between one hour/twenty-nine
- * minutes and one minute/twenty-nine seconds. Frames are only shown when the
- * ruler is sufficiently zoomed in to make them useful.
+ * Timelines shorter than one hour use the compact `MM:SS` form. Once an hour
+ * is reached, the label becomes `HH:MM:SS` so the hour is explicit. Frames are
+ * only included for callers that explicitly request them.
  */
 export function formatTimelineTimecode(
   seconds: number,
@@ -71,9 +71,13 @@ export function formatTimelineTimecode(
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const secs = totalSeconds % 60;
-  const base = [hours, minutes, secs]
-    .map((value) => String(value).padStart(2, "0"))
-    .join(":");
+  const base = hours > 0
+    ? [hours, minutes, secs]
+        .map((value) => String(value).padStart(2, "0"))
+        .join(":")
+    : [minutes, secs]
+        .map((value) => String(value).padStart(2, "0"))
+        .join(":");
 
   if (!includeFrames) return base;
 

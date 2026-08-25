@@ -62,13 +62,16 @@ describe("timeFormatting Edge Cases & Invariants", () => {
   });
 
   describe("formatTimelineTimecode", () => {
-    it("always includes hours to remove ruler ambiguity", () => {
-      expect(formatTimelineTimecode(89, 30)).toBe("00:01:29");
+    it("only includes hours once the timeline reaches one hour", () => {
+      expect(formatTimelineTimecode(63, 30)).toBe("01:03");
+      expect(formatTimelineTimecode(89, 30)).toBe("01:29");
+      expect(formatTimelineTimecode(3599, 30)).toBe("59:59");
       expect(formatTimelineTimecode(5340, 30)).toBe("01:29:00");
     });
 
     it("supports optional frame precision independently of the ruler", () => {
-      expect(formatTimelineTimecode(89.5, 30, true)).toBe("00:01:29:15");
+      expect(formatTimelineTimecode(89.5, 30, true)).toBe("01:29:15");
+      expect(formatTimelineTimecode(3600.5, 30, true)).toBe("01:00:00:15");
     });
   });
 
