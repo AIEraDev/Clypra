@@ -172,6 +172,36 @@ fn color_metadata(
     }
 }
 
+/// The native preview shader consumes NV12, not packed RGB. FFmpeg can report
+/// `matrix=rgb` for still-image streams even after swscale has converted the
+/// decoded frame into NV12. Carrying that source metadata past the conversion
+/// boundary makes the compositor reject an otherwise valid image frame.
+///
+/// Normalize the metadata to the explicit SDR contract used by the converted
+/// NV12 payload. This is deliberately done at the decoder boundary so preview,
+/// playback, and export receive the same payload/metadata pair.
+fn normalize_converted_nv12_color(mut color: VideoColorMetadata) -> VideoColorMetadata {
+    if color.matrix == "rgb" {
+        color.matrix = "bt709".to_string();
+        color.matrix_code = ffmpeg::ffi::AVColorSpace::AVCOL_SPC_BT709 as u32;
+
+        if color.transfer == "unspecified" {
+            color.transfer = "srgb".to_string();
+            color.transfer_code =
+                ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_IEC61966_2_1 as u32;
+        }
+        if color.primaries == "unspecified" {
+            color.primaries = "bt709".to_string();
+            color.primaries_code = ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT709 as u32;
+        }
+        if color.range == "unspecified" {
+            color.range = "full".to_string();
+            color.range_code = ffmpeg::ffi::AVColorRange::AVCOL_RANGE_JPEG as u32;
+        }
+    }
+    color
+}
+
 fn pixel_format_name(frame: &ffmpeg::frame::Video) -> String {
     frame
         .format()
@@ -1437,7 +1467,13 @@ impl VideoDecoder {
         let cpu_frame = self.to_cpu_frame(best_frame)?;
         let frame_color = self.frame_metadata(&cpu_frame).color;
         if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
-            Ok((nv12.0, nv12.1, nv12.2, nv12.3, frame_color))
+            Ok((
+                nv12.0,
+                nv12.1,
+                nv12.2,
+                nv12.3,
+                normalize_converted_nv12_color(frame_color),
+            ))
         } else {
             use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
             let mut scaler = Context::get(
@@ -1456,7 +1492,15 @@ impl VideoDecoder {
                 .run(&cpu_frame, &mut out)
                 .map_err(|e| e.to_string())?;
             self.extract_nv12_planes(&out)
-                .map(|nv12| (nv12.0, nv12.1, nv12.2, nv12.3, frame_color))
+                .map(|nv12| {
+                    (
+                        nv12.0,
+                        nv12.1,
+                        nv12.2,
+                        nv12.3,
+                        normalize_converted_nv12_color(frame_color),
+                    )
+                })
                 .ok_or_else(|| "Failed to extract converted NV12 planes".to_string())
         }
     }
@@ -1960,7 +2004,34 @@ mod display_dimensions_tests {
 
 #[cfg(test)]
 mod still_image_tests {
-    use super::VideoDecoder;
+    use super::{normalize_converted_nv12_color, VideoColorMetadata, VideoDecoder};
+
+    #[test]
+    fn rgb_still_image_metadata_becomes_native_sdr_nv12_metadata() {
+        let rgb = VideoColorMetadata {
+            matrix: "rgb".to_string(),
+            ..VideoColorMetadata::default()
+        };
+
+        let normalized = normalize_converted_nv12_color(rgb);
+
+        assert_eq!(normalized.matrix, "bt709");
+        assert_eq!(normalized.transfer, "srgb");
+        assert_eq!(normalized.primaries, "bt709");
+        assert_eq!(normalized.range, "full");
+    }
+
+    #[test]
+    fn already_supported_yuv_metadata_is_preserved() {
+        let yuv = VideoColorMetadata {
+            matrix: "bt601_625".to_string(),
+            transfer: "bt709".to_string(),
+            range: "limited".to_string(),
+            ..VideoColorMetadata::default()
+        };
+
+        assert_eq!(normalize_converted_nv12_color(yuv.clone()), yuv);
+    }
 
     #[test]
     fn durationless_png_decodes_at_zero_timestamp() {
