@@ -56,6 +56,14 @@ const assets: MediaAsset[] = [
     height: 1080,
     size: 1,
   },
+  {
+    id: "audio",
+    name: "voiceover.mp3",
+    path: "/media/voiceover.mp3",
+    type: "audio",
+    duration: 9,
+    size: 1,
+  },
 ];
 
 function clip(overrides: Partial<Clip>): Clip {
@@ -190,6 +198,52 @@ describe("analyzeNativeTimelineExport", () => {
     expect(result).toEqual({
       eligible: false,
       reasons: ["Clip clip uses compositor-only visual settings"],
+    });
+  });
+
+  it("routes standalone timeline audio to the audio-mix export path", () => {
+    const result = analyzeNativeTimelineExport({
+      clips: [
+        clip({ id: "video-clip" }),
+        {
+          ...clip({
+            id: "audio-clip",
+            kind: "audio",
+            trackId: "audio-track",
+            mediaId: "audio",
+          }),
+        },
+      ],
+      tracks: [
+        ...tracks,
+        {
+          id: "audio-track",
+          type: "audio",
+          name: "Audio",
+          muted: false,
+          locked: false,
+          visible: true,
+          height: 70,
+        },
+      ],
+      transitions: [],
+      assets,
+      project,
+      startTime: 0,
+      endTime: 3,
+      outputPath: "/output/movie.mp4",
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      codec: "h264",
+      preset: "fast",
+      crf: 23,
+      pixelFormat: "yuv420p",
+    });
+
+    expect(result).toEqual({
+      eligible: false,
+      reasons: ["Standalone timeline audio requires the audio-mix export path"],
     });
   });
 

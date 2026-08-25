@@ -122,6 +122,24 @@ export function analyzeNativeTimelineExport(
   const activeVideoAssetClips = activeClips.filter((clip) =>
     videoAssetIds.has(clip.mediaId),
   );
+  const standaloneAudioClips = activeClips.filter((clip) => {
+    const asset = input.assets.find((candidate) => candidate.id === clip.mediaId);
+    const directAudioPath = (clip as Clip & { audioPath?: string }).audioPath;
+    return (
+      clip.kind === "audio" ||
+      asset?.type === "audio" ||
+      Boolean(directAudioPath)
+    );
+  });
+
+  // The native cut-only path can mux audio embedded in each video source, but
+  // its plan does not carry independent timeline audio clips. Route those
+  // projects through exportVideo so getActiveAudioClips() can build the full
+  // FFmpeg mix instead of silently dropping standalone audio.
+  if (standaloneAudioClips.length > 0) {
+    reasons.push("Standalone timeline audio requires the audio-mix export path");
+  }
+
   const videoClips = activeVideoAssetClips.filter(
     (clip) => clip.trackId === primaryTrackId,
   );
