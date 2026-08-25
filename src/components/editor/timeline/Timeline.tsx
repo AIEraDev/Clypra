@@ -25,6 +25,7 @@ import {
   useTimelineTauriDrop,
   useTimelineZoom,
 } from "@/hooks";
+import { useAnchoredTimelineZoom } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
 import {
   TIMELINE_TRACK_LABEL_WIDTH_PX,
@@ -58,6 +59,8 @@ export const Timeline: React.FC = () => {
   const mainVideoTrackId = useTimelineStore((s) => s.mainVideoTrackId);
   const clips = useTimelineStore((s) => s.clips);
   const pixelsPerSecond = useTimelineStore((s) => s.pixelsPerSecond);
+  const projectLoadRevision = useTimelineStore((s) => s.projectLoadRevision);
+  const viewportWidth = useTimelineStore((s) => s.viewportWidth);
   const scrollLeft = useTimelineStore((s) => s.scrollLeft);
   const setScrollLeft = useTimelineStore((s) => s.setScrollLeft);
   const setViewportWidth = useTimelineStore((s) => s.setViewportWidth);
@@ -71,6 +74,7 @@ export const Timeline: React.FC = () => {
   const { isPlaying, duration } = usePlaybackStatus();
   const { seek: transportSeek } = useTransportControls();
   const containerRef = useRef<HTMLDivElement>(null);
+  const initialFitRevisionRef = useRef<number | null>(null);
   const wasPlayingRef = useRef(false);
   const runtime = useRenderRuntime();
   const isProgramPreviewActive = previewMode === "program";
@@ -143,6 +147,7 @@ export const Timeline: React.FC = () => {
 
   // Consume extracted hooks
   useTimelineZoom(containerRef, hasTimelineContent);
+  const { fitSequence } = useAnchoredTimelineZoom();
   const { isDraggingOver, isDraggingMedia } =
     useTimelineTauriDrop(containerRef);
   const {
@@ -166,6 +171,21 @@ export const Timeline: React.FC = () => {
       return () => ro.disconnect();
     }
   }, [hasClips, setViewportWidth]);
+
+  // A project carries edit data, not a saved viewport preference. Fit the
+  // newly hydrated sequence once after its DOM width is available so every
+  // opened project starts in the full-sequence overview. Manual zooming is
+  // unaffected because this only reacts to the hydration revision.
+  useEffect(() => {
+    if (projectLoadRevision === 0 || !hasTimelineContent) return;
+    if (initialFitRevisionRef.current === projectLoadRevision) return;
+
+    const frame = requestAnimationFrame(() => {
+      fitSequence();
+      initialFitRevisionRef.current = projectLoadRevision;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [fitSequence, hasTimelineContent, projectLoadRevision, viewportWidth]);
 
   // Attach scroll/pointer listeners to the timeline scroll container
   useEffect(() => {

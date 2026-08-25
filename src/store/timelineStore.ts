@@ -59,6 +59,8 @@ interface TimelineStore {
    * Used for cache invalidation in render engine and evaluation.
    */
   epoch: number;
+  /** Changes once per project hydration so the view can apply its initial fit. */
+  projectLoadRevision: number;
   zoomLevel: number;
   scrollLeft: number;
   viewportWidth: number;
@@ -228,6 +230,7 @@ export const useTimelineStore = create<TimelineStore>(
     markers: [],
     mainVideoTrackId: null,
     epoch: 0,
+    projectLoadRevision: 0,
     zoomLevel: TIMELINE_ZOOM_DEFAULT,
     scrollLeft: 0,
     viewportWidth: 1200,
@@ -325,6 +328,7 @@ export const useTimelineStore = create<TimelineStore>(
           scrollLeft: 0,
           zoomLevel: TIMELINE_ZOOM_DEFAULT,
           pixelsPerSecond: TIMELINE_ZOOM_DEFAULT * TIMELINE_PPS_PER_ZOOM,
+          projectLoadRevision: get().projectLoadRevision + 1,
           epoch: 0, // Reset epoch on project load
           mainVideoTrackId: newMainVideoTrackId,
           snapGuides: [],
