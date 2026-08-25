@@ -14,6 +14,7 @@ import { toast } from "@/lib/toast";
 import { formatSplitMessage } from "@/lib/timeline/clipName";
 
 import { clipboardService } from "@/core/clipboard/clipboardService";
+import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActions";
 
 export const useKeyboardShortcuts = () => {
   const { pause, seek, setActiveContext, togglePlayback } = useTransportControls();
@@ -307,10 +308,9 @@ export const useKeyboardShortcuts = () => {
           return;
         }
 
-        const store = useTimelineStore.getState();
-        store.toggleTrackLock(selectedTrackId);
+        toggleTrackPropertyWithHistory(selectedTrackId, "locked");
 
-        const track = store.tracks.find((t) => t.id === selectedTrackId);
+        const track = useTimelineStore.getState().tracks.find((t) => t.id === selectedTrackId);
         toast.info(track?.locked ? "Track locked" : "Track unlocked");
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "v") {
         e.preventDefault();
@@ -323,10 +323,9 @@ export const useKeyboardShortcuts = () => {
           return;
         }
 
-        const store = useTimelineStore.getState();
-        store.toggleTrackVisibility(selectedTrackId);
+        toggleTrackPropertyWithHistory(selectedTrackId, "visible");
 
-        const track = store.tracks.find((t) => t.id === selectedTrackId);
+        const track = useTimelineStore.getState().tracks.find((t) => t.id === selectedTrackId);
         toast.info(track?.visible ? "Track visible" : "Track hidden");
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "m") {
         e.preventDefault();
@@ -345,7 +344,7 @@ export const useKeyboardShortcuts = () => {
           toast.info("Unlock the track before changing mute");
           return;
         }
-        store.toggleTrackMute(selectedTrackId);
+        toggleTrackPropertyWithHistory(selectedTrackId, "muted");
 
         const track = useTimelineStore.getState().tracks.find((t) => t.id === selectedTrackId);
         toast.info(track?.muted ? "Track muted" : "Track unmuted");
