@@ -88,7 +88,7 @@ export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
     displayName: "Video",
   },
   audio: {
-    height: 70,
+    height: 60,
     placement: "below-video",
     reuseStrategy: "per-clip",
     autoPrune: true,
