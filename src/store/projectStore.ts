@@ -40,13 +40,13 @@ import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { toast } from "@/lib/toast";
 import { suppressAutoSave, enableAutoSave } from "./middleware/autoSaveMiddleware";
-import type { ProjectSaveResult } from "@/core/platform/platform";
+import type { ProjectSaveResult, RecentProjectEntry } from "@/core/platform/platform";
 // import { TIMELINE_PPS_PER_ZOOM, TIMELINE_ZOOM_DEFAULT } from "@/lib/timelineZoom";
 
 interface ProjectStore {
   project: Project | null;
   mediaAssets: MediaAsset[];
-  recentProjects: Project[];
+  recentProjects: RecentProjectEntry[];
   toastMessage: string | null;
   toastVariant: "success" | "error" | "warning";
   setToastMessage: (message: string | null, variant?: "success" | "error" | "warning") => void;
@@ -70,7 +70,7 @@ interface ProjectStore {
   removeMediaAsset: (assetId: string) => void;
   updateProject: (updates: Partial<Project>) => void;
   setProjectThumbnail: (thumbnail: string) => void;
-  setRecentProjects: (projects: Project[]) => void;
+  setRecentProjects: (projects: RecentProjectEntry[]) => void;
   renameProject: (projectId: string, newName: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   closeProject: () => Promise<void> | void;
@@ -393,6 +393,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         autoSaveTimer = null;
       }
       suppressAutoSave();
+      const previousProject = get().project;
+      const previousMediaAssets = get().mediaAssets;
+      const { useTimelineStore } = await import("./timelineStore");
+      const previousTimeline = {
+        tracks: useTimelineStore.getState().tracks,
+        clips: useTimelineStore.getState().clips,
+        transitions: useTimelineStore.getState().transitions,
+        gaps: useTimelineStore.getState().gaps,
+        markers: useTimelineStore.getState().markers,
+      };
       try {
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 1: Dispose Previous Runtime & Reset State
@@ -470,31 +480,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 3: Hydrate Timeline State
         // ═══════════════════════════════════════════════════════════════════════════════
-        try {
-          const { useTimelineStore } = await import("./timelineStore");
-          const normalizedClips = normalizeLoadedTextEffectClipBounds(payload?.clips ?? [], project);
-          useTimelineStore.getState().hydrateFromProject({
-            tracks: payload?.tracks ?? [],
-            clips: normalizedClips,
-            transitions: payload?.transitions ?? [],
-            gaps: payload?.gaps ?? [],
-            markers: payload?.markers ?? [],
-            cleanEmptyTracks: true,
-          });
-        } catch (err) {
-          // On error, reset timeline to empty state
-          import("./timelineStore").then(({ useTimelineStore }) => useTimelineStore.getState().hydrateFromProject({ tracks: [], clips: [], transitions: [], gaps: [] })).catch(() => {});
-        }
+        const normalizedClips = normalizeLoadedTextEffectClipBounds(payload?.clips ?? [], project);
+        useTimelineStore.getState().hydrateFromProject({
+          tracks: payload?.tracks ?? [],
+          clips: normalizedClips,
+          transitions: payload?.transitions ?? [],
+          gaps: payload?.gaps ?? [],
+          markers: payload?.markers ?? [],
+          cleanEmptyTracks: true,
+        });
 
         if (currentLoadId !== loadId) return;
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 4: Initialize New Runtime Session
         // ═══════════════════════════════════════════════════════════════════════════════
-        try {
-          const { createProjectSession } = await import("@/core/runtime/ProjectSession");
-          await createProjectSession(project.id);
-        } catch (err) {}
+        const { createProjectSession } = await import("@/core/runtime/ProjectSession");
+        await createProjectSession(project.id);
 
         if (currentLoadId !== loadId) return;
 
@@ -520,6 +522,21 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         } catch (err) {
           // Prewarming failed silently - graceful degradation
         }
+      } catch (error) {
+        // A failed hydration/session transition must not leave an empty or
+        // half-loaded project visible. Rebuild the previous active state.
+        try {
+          const { disposeActiveSession, createProjectSession } = await import("@/core/runtime/ProjectSession");
+          await disposeActiveSession();
+          const { resetAllProjectState } = await import("@/core/runtime/ProjectStateReset");
+          await resetAllProjectState();
+          set({ project: previousProject, mediaAssets: previousMediaAssets });
+          useTimelineStore.getState().hydrateFromProject({ ...previousTimeline, cleanEmptyTracks: false });
+          if (previousProject) await createProjectSession(previousProject.id);
+        } catch (rollbackError) {
+          console.error("[projectStore] Failed to restore previous project after load failure", rollbackError);
+        }
+        throw error;
       } finally {
         enableAutoSave();
         // ✅ FIX-005: Clear load mutex after completion
@@ -590,7 +607,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       if (!state.project || state.project.thumbnail === thumbnail) return state;
       const updatedProject = { ...state.project, thumbnail };
       const updatedRecent = state.recentProjects.map((p) =>
-        p.id === updatedProject.id ? { ...p, thumbnail } : p,
+        p.kind === "ready" && p.id === updatedProject.id ? { ...p, thumbnail } : p,
       );
       return {
         project: updatedProject,
@@ -610,7 +627,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
       // Update in recent projects list
       set((state) => ({
-        recentProjects: state.recentProjects.map((p) => (p.id === projectId ? { ...p, name: sanitizedName } : p)),
+        recentProjects: state.recentProjects.map((p) => (p.kind === "ready" && p.id === projectId ? { ...p, name: sanitizedName } : p)),
       }));
 
       // If this project is currently open, update it too
@@ -787,6 +804,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             tracks: snapshot.tracks,
             clips: snapshot.clips,
             transitions: snapshot.transitions,
+            gaps: snapshot.gaps,
+            markers: snapshot.markers,
+            timelineSchemaVersion: snapshot.project.timelineSchemaVersion ?? 1,
           }).catch(() => {});
         } catch (_snapshotError) {
           // Ignore — snapshot failures are non-fatal
