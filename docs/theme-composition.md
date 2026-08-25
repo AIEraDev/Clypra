@@ -17,8 +17,8 @@ defined. `CLIP_PALETTES` is typed with `ClipPaletteTokens`, and every palette
 must provide exactly the roles listed by `CLIP_PALETTE_TOKEN_KEYS`.
 
 The roles cover media bodies, media edges and text, filmstrip and waveform
-visuals, envelope controls, keyframes, tooltips, drag previews, metadata, and
-invalid-position borders.
+visuals, translucent envelope fills and smooth envelope lines, keyframes,
+tooltips, drag previews, metadata, and invalid-position borders.
 
 If a component needs a new clip color, add a named role to the token list and
 provide it in every `CLIP_PALETTES` entry. Do not add a literal to the

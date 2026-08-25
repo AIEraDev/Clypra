@@ -287,40 +287,50 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           {displayFadeInPx > 0 && (
             <>
               <path
-                d={`M 0 100 Q ${fadeInPercent * 0.55} 35 ${fadeInPercent} ${fadeMarkerYPercent} L ${fadeInPercent} 100 Z`}
+                d={`M 0 100 C ${fadeInPercent * 0.18} 72 ${fadeInPercent * 0.55} 12 ${fadeInPercent} ${fadeMarkerYPercent} L ${fadeInPercent} 100 Z`}
                 fill="var(--clypra-clip-envelope-fill)"
               />
               <path
-                d={`M 0 100 Q ${fadeInPercent * 0.55} 35 ${fadeInPercent} ${fadeMarkerYPercent}`}
+                d={`M 0 100 C ${fadeInPercent * 0.18} 72 ${fadeInPercent * 0.55} 12 ${fadeInPercent} ${fadeMarkerYPercent}`}
                 fill="none"
                 stroke="var(--clypra-clip-envelope-line)"
-                strokeWidth="0.7"
+                strokeWidth="0.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
               />
               <path
                 d={`M ${fadeInPercent} 0 L ${fadeInPercent} ${fadeMarkerYPercent}`}
                 fill="none"
                 stroke="var(--clypra-clip-envelope-line)"
-                strokeWidth="0.7"
+                strokeWidth="0.9"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
               />
             </>
           )}
           {displayFadeOutPx > 0 && (
             <>
               <path
-                d={`M ${fadeOutPercent} ${fadeMarkerYPercent} Q ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 35 100 100 L ${fadeOutPercent} 100 Z`}
+                d={`M ${fadeOutPercent} ${fadeMarkerYPercent} C ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 12 ${fadeOutPercent + (100 - fadeOutPercent) * 0.82} 72 100 100 L ${fadeOutPercent} 100 Z`}
                 fill="var(--clypra-clip-envelope-fill)"
               />
               <path
-                d={`M ${fadeOutPercent} ${fadeMarkerYPercent} Q ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 35 100 100`}
+                d={`M ${fadeOutPercent} ${fadeMarkerYPercent} C ${fadeOutPercent + (100 - fadeOutPercent) * 0.45} 12 ${fadeOutPercent + (100 - fadeOutPercent) * 0.82} 72 100 100`}
                 fill="none"
                 stroke="var(--clypra-clip-envelope-line)"
-                strokeWidth="0.7"
+                strokeWidth="0.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
               />
               <path
                 d={`M ${fadeOutPercent} 0 L ${fadeOutPercent} ${fadeMarkerYPercent}`}
                 fill="none"
                 stroke="var(--clypra-clip-envelope-line)"
-                strokeWidth="0.7"
+                strokeWidth="0.9"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
               />
             </>
           )}

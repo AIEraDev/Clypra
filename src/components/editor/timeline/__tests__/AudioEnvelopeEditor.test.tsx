@@ -205,6 +205,10 @@ describe("AudioEnvelopeEditor volume interaction", () => {
     expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "80px", top: "0px", height: "100%" });
     expect(screen.getByRole("button", { name: "Fade out handle" })).toHaveStyle({ left: "340px", top: "0px", height: "100%" });
 
+    const fadePaths = Array.from(document.querySelectorAll("svg path"));
+    expect(fadePaths.some((path) => path.getAttribute("d")?.includes(" C "))).toBe(true);
+    expect(fadePaths.some((path) => path.getAttribute("fill") === "var(--clypra-clip-envelope-fill)")).toBe(true);
+
     cleanup();
     render(<AudioEnvelopeEditor clip={createClip()} clipWidthPx={400} pixelsPerSecond={40} />);
     expect(screen.getByRole("button", { name: "Fade in handle" })).toHaveStyle({ left: "0px", top: "0px", height: "100%" });
