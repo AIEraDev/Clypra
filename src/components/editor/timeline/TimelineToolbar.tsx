@@ -12,8 +12,8 @@ import { useAnchoredTimelineZoom } from "@/hooks";
 import type { TimelineZoomAnchor } from "@/hooks/timeline/useAnchoredTimelineZoom";
 import { VoiceoverRecorderButton } from "./VoiceoverRecorderButton";
 
-const ZOOM_THUMB_SIZE_PX = 22;
-const ZOOM_RAIL_WIDTH_PX = 176; // w-44
+const ZOOM_THUMB_SIZE_PX = 12;
+const ZOOM_RAIL_WIDTH_PX = 112; // w-28
 
 const TIER_SEGMENTS = ([SpatialTier.L0, SpatialTier.L1, SpatialTier.L2, SpatialTier.L3] as const).map((tier) => {
   const boundary = DEFAULT_SRP_CONFIG[tier];
@@ -152,7 +152,7 @@ const TimelineToolbarComponent: React.FC = () => {
 
   const toolButton = "text-text-muted hover:text-text-primary hover:bg-surface-raised/80 cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto";
   const activeButton = "bg-accent/15 text-accent-soft border-accent/40 hover:bg-accent/20";
-  const zoomButton = "cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto h-8 w-8 rounded-full border border-accent/35 bg-surface-raised text-accent-soft shadow-[0_0_0_1px_rgba(0,0,0,0.28),0_6px_16px_rgba(0,0,0,0.22)] hover:border-accent/60 hover:bg-accent/15 hover:text-text-primary transition-colors";
+  const zoomButton = "cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto h-6 w-6 rounded-full border border-accent/35 bg-surface-raised text-accent-soft shadow-[0_0_0_1px_rgba(0,0,0,0.28),0_3px_8px_rgba(0,0,0,0.22)] hover:border-accent/60 hover:bg-accent/15 hover:text-text-primary transition-colors";
 
   const Tool = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <Tooltip>
@@ -274,26 +274,26 @@ const TimelineToolbarComponent: React.FC = () => {
 
           <VoiceoverRecorderButton />
 
-          <span className="inline-flex items-center gap-1">
-            <Button title="Fit sequence (Shift+Z)" variant="ghost" size="icon-sm" className={zoomButton} onClick={fitSequence} disabled={!hasTimelineContent} aria-label="Fit sequence">
-              <Maximize2 className="w-3.5 h-3.5" strokeWidth={2} />
+          <span className="inline-flex items-center gap-0.5">
+            <Button title="Fit sequence (Shift+Z)" variant="ghost" size="icon-xs" className={zoomButton} onClick={fitSequence} disabled={!hasTimelineContent} aria-label="Fit sequence">
+              <Maximize2 className="w-3 h-3" strokeWidth={2} />
             </Button>
-            <Button title="Zoom Out" variant="ghost" size="icon-sm" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={!hasTimelineContent || zoomLevel <= TIMELINE_ZOOM_MIN} aria-label="Zoom out timeline">
-              <ZoomOut className="w-2 h-2" strokeWidth={2} />
+            <Button title="Zoom Out" variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(-1)} disabled={!hasTimelineContent || zoomLevel <= TIMELINE_ZOOM_MIN} aria-label="Zoom out timeline">
+              <ZoomOut className="w-3 h-3" strokeWidth={2} />
             </Button>
 
-            <div ref={zoomRailRef} role="slider" tabIndex={hasTimelineContent ? 0 : -1} aria-disabled={!hasTimelineContent} aria-label="Timeline zoom" aria-valuemin={TIMELINE_ZOOM_MIN} aria-valuemax={TIMELINE_ZOOM_MAX} aria-valuenow={zoomLevel} aria-valuetext={`${zoomLevel.toFixed(2)} times, ${currentTierLabel}, ${temporalDetail.label}, ${cadenceLabel} samples`} onPointerDown={handleZoomPointerDown} onPointerMove={handleZoomPointerMove} onPointerUp={handleZoomPointerUp} onPointerCancel={handleZoomPointerCancel} onLostPointerCapture={handleZoomPointerCancel} onKeyDown={handleZoomKeyDown} className={`group relative flex h-8 w-44 items-center rounded-full outline-none ${hasTimelineContent ? "cursor-pointer touch-none" : "cursor-not-allowed opacity-40"} focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}>
-              <div className="relative mx-[11px] h-[7px] w-full overflow-hidden rounded-full bg-surface-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.04),0_5px_14px_rgba(0,0,0,0.28)]">
+            <div ref={zoomRailRef} role="slider" tabIndex={hasTimelineContent ? 0 : -1} aria-disabled={!hasTimelineContent} aria-label="Timeline zoom" aria-valuemin={TIMELINE_ZOOM_MIN} aria-valuemax={TIMELINE_ZOOM_MAX} aria-valuenow={zoomLevel} aria-valuetext={`${zoomLevel.toFixed(2)} times, ${currentTierLabel}, ${temporalDetail.label}, ${cadenceLabel} samples`} onPointerDown={handleZoomPointerDown} onPointerMove={handleZoomPointerMove} onPointerUp={handleZoomPointerUp} onPointerCancel={handleZoomPointerCancel} onLostPointerCapture={handleZoomPointerCancel} onKeyDown={handleZoomKeyDown} className={`group relative flex h-6 w-28 items-center rounded-full outline-none ${hasTimelineContent ? "cursor-pointer touch-none" : "cursor-not-allowed opacity-40"} focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}>
+              <div className="relative mx-[8px] h-[5px] w-full overflow-hidden rounded-full bg-surface-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.28)]">
                 {TIER_SEGMENTS.map(({ tier, left, width }) => (
                   <div key={tier} aria-hidden className={`absolute top-0 h-full ${TIER_BAND_CLASS[tier]}`} style={{ left: `${left}%`, width: `${width}%` }} />
                 ))}
                 <div className="relative h-full rounded-full bg-accent shadow-[0_0_16px_var(--clypra-accent-glow)]" style={{ width: `${zoomProgress}%` }} />
               </div>
-              <div data-testid="timeline-zoom-thumb" className="absolute top-1/2 h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 rounded-full border-3 border-accent bg-surface" style={{ left: `${zoomThumbLeftPx}px` }} />
+              <div data-testid="timeline-zoom-thumb" className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-surface" style={{ left: `${zoomThumbLeftPx}px` }} />
             </div>
 
-            <Button title="Zoom In" variant="ghost" size="icon-sm" className={zoomButton} onClick={() => zoomByStep(1)} disabled={!hasTimelineContent || zoomLevel >= TIMELINE_ZOOM_MAX} aria-label="Zoom in timeline">
-              <ZoomIn className="w-4 h-4" strokeWidth={2} />
+            <Button title="Zoom In" variant="ghost" size="icon-xs" className={zoomButton} onClick={() => zoomByStep(1)} disabled={!hasTimelineContent || zoomLevel >= TIMELINE_ZOOM_MAX} aria-label="Zoom in timeline">
+              <ZoomIn className="w-3.5 h-3.5" strokeWidth={2} />
             </Button>
           </span>
         </div>
