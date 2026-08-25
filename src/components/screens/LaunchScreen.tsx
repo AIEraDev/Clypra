@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useProjectStore } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { AspectRatio, MediaAsset, Project } from "@/types";
+import type { RecentProjectEntry } from "@/core/platform/platform";
 import { getProjectThumbnail, formatEditorTimecode } from "@/lib/media/projectThumbnail";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { useUIStore } from "@/store/uiStore";
@@ -15,7 +16,7 @@ import { useRecordingStore } from "@/store/recordingStore";
 
 interface LaunchScreenProps {
   onProjectCreate: (name: string, aspectRatio: AspectRatio, frameRate: 24 | 30 | 60, initialClipPaths?: string[]) => void;
-  onProjectOpen: (project: Project) => void;
+  onProjectOpen: (project: RecentProjectEntry) => void;
 }
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
@@ -604,7 +605,31 @@ export const LaunchScreen: React.FC<LaunchScreenProps> = ({ onProjectCreate, onP
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {recentProjects.map((project) => {
+              {recentProjects.map((entry) => {
+                if (entry.kind === "unreadable") {
+                  return (
+                    <div key={entry.id} className="relative rounded-xl border border-danger/30 bg-surface overflow-hidden">
+                      <div className="h-[170px] bg-danger/5 flex flex-col items-center justify-center p-5 text-center">
+                        <FolderOpen className="w-8 h-8 text-danger/70 mb-3" />
+                        <p className="text-xs font-semibold text-text-primary">Project needs recovery</p>
+                        <p className="text-[11px] text-text-muted mt-2 line-clamp-3">{entry.error}</p>
+                        {entry.backupAvailable && (
+                          <button
+                            className="mt-4 px-3 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold hover:bg-accent/90"
+                            onClick={() => onProjectOpen(entry)}
+                          >
+                            Open recovered copy
+                          </button>
+                        )}
+                      </div>
+                      <div className="px-3.5 py-3.5">
+                        <h4 className="text-sm font-semibold text-text-primary truncate">{entry.name || entry.id}</h4>
+                        <p className="text-xs text-danger/80 mt-1">Original file was not opened or changed.</p>
+                      </div>
+                    </div>
+                  );
+                }
+                const project = entry;
                 const thumbnail = getProjectThumbnail(project);
                 const cardGlow = getAspectRatioGlow(project.aspectRatio);
                 return (
