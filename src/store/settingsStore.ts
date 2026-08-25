@@ -946,9 +946,25 @@ export function applyTheme(
     root.style.setProperty(property, value);
   });
 
-  // Keep legacy timeline names available to older consumers, but make the
-  // rendered clip families deterministic. Theme presets must not be able to
-  // collapse audio into the timeline surface by supplying a near-black hue.
+  // Promote per-theme clip colours into the canonical --clypra-clip-*-bg
+  // variables so every consumer (clip-kind-* CSS classes, ClipDragLayer,
+  // waveform, etc.) sees the correct hue for the active theme. This must run
+  // AFTER the main themeColors pass so theme values are available to read.
+  const clipColorMap: Array<[string, string]> = [
+    ["--color-timeline-clip-video", "--clypra-clip-video-bg"],
+    ["--color-timeline-clip-audio", "--clypra-clip-audio-bg"],
+    ["--color-timeline-clip-audio-solid", "--clypra-clip-audio-solid"],
+    ["--color-timeline-clip-text", "--clypra-clip-text-bg"],
+    ["--color-timeline-clip-video-border", "--clypra-clip-video-border"],
+    ["--color-timeline-clip-audio-border", "--clypra-clip-audio-border"],
+  ];
+  clipColorMap.forEach(([sourceVar, canonicalVar]) => {
+    const value = root.style.getPropertyValue(sourceVar).trim();
+    if (value) root.style.setProperty(canonicalVar, value);
+  });
+
+  // Keep legacy names available to older consumers (read-only aliases that
+  // point back to the canonical vars so they stay in sync with the theme).
   Object.entries(CLYPRA_LEGACY_COLOR_ALIASES).forEach(([property, value]) => {
     root.style.setProperty(property, value);
   });
