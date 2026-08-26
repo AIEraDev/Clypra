@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fmt;
 
-pub const NATIVE_CORE_CONTRACT_VERSION: u32 = 1;
+pub const NATIVE_CORE_CONTRACT_VERSION: u32 = 2;
 pub const DEFAULT_TIME_SCALE: u32 = 1_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -387,6 +387,31 @@ pub struct TextEffectInstance {
     pub effect_version: u32,
     #[serde(default)]
     pub parameter_overrides: HashMap<String, TextParamValue>,
+    #[serde(default)]
+    pub definition: Option<TextEffectDefinitionSnapshot>,
+}
+
+/// Normalized effect data resolved by React and executed by the native graph.
+/// The primitive name remains a string at the wire boundary so the native side
+/// can reject additions it does not understand instead of silently ignoring a
+/// pass.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEffectDefinitionSnapshot {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub passes: Vec<TextEffectPassSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEffectPassSnapshot {
+    pub primitive: String,
+    #[serde(default)]
+    pub tier: Option<String>,
+    #[serde(default)]
+    pub params: HashMap<String, TextParamValue>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -395,6 +420,10 @@ pub struct TextLayerSnapshot {
     pub text: String,
     pub font_id: String,
     pub font_size: f32,
+    #[serde(default = "default_text_weight")]
+    pub font_weight: String,
+    #[serde(default = "default_text_style")]
+    pub font_style: String,
     #[serde(default)]
     pub letter_spacing: f32,
     #[serde(default)]
@@ -403,6 +432,8 @@ pub struct TextLayerSnapshot {
     pub color: [f32; 4],
     #[serde(default = "default_text_align")]
     pub text_align: String,
+    #[serde(default = "default_text_vertical_align")]
+    pub vertical_align: String,
     pub x: f32,
     pub y: f32,
     #[serde(default)]
@@ -428,7 +459,35 @@ pub struct TextLayerSnapshot {
     #[serde(default)]
     pub shadow_blur: Option<f32>,
     #[serde(default)]
+    pub background: Option<TextBackgroundSnapshot>,
+    #[serde(default)]
+    pub runs: Vec<TextRunSnapshot>,
+    #[serde(default)]
+    pub template_id: Option<String>,
+    #[serde(default)]
+    pub template_data: Option<serde_json::Value>,
+    #[serde(default)]
     pub effect: Option<TextEffectInstance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextBackgroundSnapshot {
+    pub color: [f32; 4],
+    #[serde(default)]
+    pub padding: f32,
+    #[serde(default)]
+    pub border_radius: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRunSnapshot {
+    pub text: String,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub highlighted: bool,
 }
 
 fn default_text_color() -> [f32; 4] {
@@ -437,6 +496,18 @@ fn default_text_color() -> [f32; 4] {
 
 fn default_text_align() -> String {
     "left".to_string()
+}
+
+fn default_text_vertical_align() -> String {
+    "middle".to_string()
+}
+
+fn default_text_weight() -> String {
+    "normal".to_string()
+}
+
+fn default_text_style() -> String {
+    "normal".to_string()
 }
 
 fn default_opacity() -> f32 {
@@ -572,7 +643,7 @@ impl FrameRequest {
             ));
         }
         if let Some(mode) = self.mode.as_deref() {
-            if !matches!(mode, "playback" | "scrub" | "seek" | "frameStep") {
+            if !matches!(mode, "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch") {
                 return Err(NativeCoreError::InvalidContract(
                     "FrameRequest mode is not supported".to_string(),
                 ));
@@ -928,6 +999,12 @@ impl FrameRequest {
                 || !layer.line_height.is_finite()
                 || layer.line_height <= 0.0
                 || layer.text.len() > 10_000
+                || !matches!(layer.font_weight.as_str(), "normal" | "bold" | "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900")
+                || !matches!(layer.font_style.as_str(), "normal" | "italic")
+                || !matches!(layer.text_align.as_str(), "left" | "center" | "right" | "justify")
+                || !matches!(layer.vertical_align.as_str(), "top" | "middle" | "bottom")
+                || layer.box_width.map(|value| !value.is_finite() || value <= 0.0).unwrap_or(false)
+                || layer.box_height.map(|value| !value.is_finite() || value <= 0.0).unwrap_or(false)
                 || layer.color.iter().any(|c| !c.is_finite() || *c < 0.0 || *c > 1.0)
                 || layer.stroke_width.map(|w| !w.is_finite() || w < 0.0).unwrap_or(false)
                 || layer.stroke_color.map(|c| c.iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1.0)).unwrap_or(false)
@@ -937,6 +1014,34 @@ impl FrameRequest {
             {
                 return Err(NativeCoreError::InvalidContract(
                     "ProjectSnapshot contains an invalid text layer".to_string(),
+                ));
+            }
+            if let Some(background) = layer.background.as_ref() {
+                if background.color.iter().any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)
+                    || !background.padding.is_finite()
+                    || background.padding < 0.0
+                    || !background.border_radius.is_finite()
+                    || background.border_radius < 0.0
+                {
+                    return Err(NativeCoreError::InvalidContract(
+                        "ProjectSnapshot contains invalid text background data".to_string(),
+                    ));
+                }
+            }
+            let run_length: usize = layer.runs.iter().map(|run| run.text.len()).sum();
+            if layer.runs.len() > 512 || run_length > 10_000 || layer.runs.iter().any(|run| {
+                run.text.is_empty()
+                    || run.color.map(|color| color.iter().any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)).unwrap_or(false)
+            }) {
+                return Err(NativeCoreError::InvalidContract(
+                    "ProjectSnapshot contains invalid text runs".to_string(),
+                ));
+            }
+            if layer.template_id.as_ref().map(|id| id.trim().is_empty()).unwrap_or(false)
+                || layer.template_data.as_ref().map(|data| serde_json::to_vec(data).map(|bytes| bytes.len() > 256 * 1024).unwrap_or(true)).unwrap_or(false)
+            {
+                return Err(NativeCoreError::InvalidContract(
+                    "ProjectSnapshot contains invalid text template data".to_string(),
                 ));
             }
             if let Some(effect) = &layer.effect {
@@ -956,6 +1061,56 @@ impl FrameRequest {
                         return Err(NativeCoreError::InvalidContract(
                             "Text layer effect parameter override contains non-finite values (NaN/Inf)".to_string(),
                         ));
+                    }
+                }
+                if let Some(definition) = effect.definition.as_ref() {
+                    if definition.passes.len() > 16 {
+                        return Err(NativeCoreError::UnsupportedFeature(
+                            "Text effect definitions support at most 16 passes".to_string(),
+                        ));
+                    }
+                    for pass in &definition.passes {
+                        let primitive = pass.primitive.to_ascii_lowercase();
+                        if !matches!(
+                            primitive.as_str(),
+                            "distance_threshold"
+                                | "distance-threshold"
+                                | "fill"
+                                | "outline"
+                                | "stroke"
+                                | "glow"
+                                | "drop_shadow"
+                                | "drop-shadow"
+                                | "shadow"
+                                | "blur"
+                                | "bevel"
+                                | "gradient_map"
+                                | "gradient-map"
+                                | "noise_displace"
+                                | "noise-displace"
+                                | "chromatic_shift"
+                                | "chromatic-shift"
+                                | "color_grade"
+                                | "color-grade"
+                        ) {
+                            return Err(NativeCoreError::UnsupportedFeature(format!(
+                                "Unknown native text effect primitive '{}'",
+                                pass.primitive
+                            )));
+                        }
+                        for value in pass.params.values() {
+                            let is_finite = match value {
+                                TextParamValue::Float(value) => value.is_finite(),
+                                TextParamValue::Color(values) => values.iter().all(|value| value.is_finite()),
+                                TextParamValue::Vec2(values) => values.iter().all(|value| value.is_finite()),
+                                TextParamValue::String(_) => true,
+                            };
+                            if !is_finite {
+                                return Err(NativeCoreError::InvalidContract(
+                                    "Text effect definition contains a non-finite parameter".to_string(),
+                                ));
+                            }
+                        }
                     }
                 }
             }
@@ -1289,10 +1444,13 @@ mod tests {
             text: "Hello Clypra".to_string(),
             font_id: "inter".to_string(),
             font_size: 48.0,
+            font_weight: "normal".to_string(),
+            font_style: "normal".to_string(),
             letter_spacing: 0.0,
             line_height: 1.2,
             color: [1.0, 1.0, 1.0, 1.0],
             text_align: "left".to_string(),
+            vertical_align: "middle".to_string(),
             x: 0.0,
             y: 0.0,
             box_width: None,
@@ -1306,6 +1464,10 @@ mod tests {
             shadow_color: None,
             shadow_offset: None,
             shadow_blur: None,
+            background: None,
+            runs: vec![],
+            template_id: None,
+            template_data: None,
             effect: Some(TextEffectInstance {
                 effect_id: "neon-glow".to_string(),
                 effect_version: 1,
@@ -1314,6 +1476,7 @@ mod tests {
                     m.insert("radius".to_string(), TextParamValue::Float(0.3));
                     m
                 },
+                definition: None,
             }),
         };
 
