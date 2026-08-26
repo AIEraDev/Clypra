@@ -17,6 +17,7 @@ use crate::wgpu_compositor::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,6 +25,30 @@ use tauri::Manager;
 
 type DecodedNativeVideoFrame = (Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// Register an editor font before a frame request references it. The native
+/// renderer never substitutes a different family for an unregistered font.
+#[tauri::command]
+pub fn register_native_font(font_id: String, path: String) -> Result<u64, String> {
+    if font_id.trim().is_empty() {
+        return Err("Native font id must not be empty".to_string());
+    }
+    let path = Path::new(&path);
+    if !path.is_absolute() {
+        return Err("Native font registration requires an absolute filesystem path".to_string());
+    }
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("Unable to read native font '{}': {error}", path.display()))?;
+    if bytes.len() > 32 * 1024 * 1024 {
+        return Err("Native font exceeds the 32 MiB registration limit".to_string());
+    }
+    clypra_native_core::font_registry::global_font_registry().register_font(&font_id, &bytes)
+}
+
+#[tauri::command]
+pub fn list_native_fonts() -> Result<Vec<String>, String> {
+    Ok(clypra_native_core::font_registry::global_font_registry().list_fonts())
+}
 
 #[derive(Debug, Default, Clone, Copy)]
 struct NativeDecodeTimings {
@@ -684,7 +709,11 @@ fn compute_text_layer_placement(
                 "right" => text_layer.x + box_w - shaped_w * 0.5,
                 _ => text_layer.x + box_w * 0.5, // "center" is default
             };
-            let cy = text_layer.y + box_h * 0.5;
+            let cy = match text_layer.vertical_align.to_ascii_lowercase().as_str() {
+                "top" => text_layer.y + shaped_h * 0.5,
+                "bottom" => text_layer.y + box_h - shaped_h * 0.5,
+                _ => text_layer.y + box_h * 0.5,
+            };
             (cx, cy)
         }
         _ => (text_layer.x + shaped_w * 0.5, text_layer.y + shaped_h * 0.5),
