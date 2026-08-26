@@ -407,9 +407,33 @@ impl NativePreviewSession {
             return Ok((Arc::clone(tex), Arc::clone(view), tex.width(), tex.height()));
         }
 
-        // Cache miss: Shape text & generate SDF
-        let (font, font_hash) = clypra_native_core::font_registry::global_font_registry()
-            .require_font(&layer.font_id)?;
+        // Cache miss: Shape text & generate SDF. Keep this failure explicit;
+        // desktop authority must never silently substitute browser typography.
+        let font_registry = clypra_native_core::font_registry::global_font_registry();
+        let (font, font_hash) = match font_registry.require_font(&layer.font_id) {
+            Ok(font) => font,
+            Err(error) => {
+                eprintln!(
+                    "[native-preview][rust] text-font-missing font_id={} registered_count={} registered_ids={:?} reason={}",
+                    layer.font_id,
+                    font_registry.list_fonts().len(),
+                    font_registry.list_fonts(),
+                    error
+                );
+                return Err(error);
+            }
+        };
+        eprintln!(
+            "[native-preview][rust] text-cache-miss font_id={} text_len={} font_size={} effect_id={}",
+            layer.font_id,
+            layer.text.len(),
+            layer.font_size,
+            layer
+                .effect
+                .as_ref()
+                .map(|effect| effect.effect_id.as_str())
+                .unwrap_or("none")
+        );
         let align = clypra_native_core::glyph_cache::TextAlign::from_str_loose(&layer.text_align);
         let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned(
             &font,
@@ -477,6 +501,33 @@ impl NativePreviewSession {
             view_formats: &[],
         }));
         let target_view = Arc::new(target_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+
+        // The text effect passes use LoadOp::Load to accumulate shadow, glow,
+        // outline, and fill. Explicitly initialize the first pass target so a
+        // newly activated text layer cannot inherit undefined GPU contents.
+        let mut clear_encoder = self
+            .gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Clear Text Layer Target"),
+            });
+        {
+            let _clear_pass = clear_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Text Layer Target Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        self.gpu.queue.submit([clear_encoder.finish()]);
 
         if shaped.is_truncated {
             eprintln!(
