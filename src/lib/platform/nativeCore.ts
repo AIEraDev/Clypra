@@ -1,4 +1,4 @@
-export const NATIVE_CORE_CONTRACT_VERSION = 1;
+export const NATIVE_CORE_CONTRACT_VERSION = 2;
 export const NATIVE_CORE_TIME_SCALE = 1_000_000;
 /**
  * Tauri is the production editor runtime, so native preview is enforced there.
@@ -415,10 +415,14 @@ export interface NativeTextLayerSnapshot {
   text: string;
   fontId: string;
   fontSize: number;
+  /** CSS weight normalized to a stable native string (normal, bold, or 100–900). */
+  fontWeight?: string;
+  fontStyle?: "normal" | "italic";
   letterSpacing?: number;
   lineHeight?: number;
   color?: [number, number, number, number];
   textAlign?: string;
+  verticalAlign?: string;
   x: number;
   y: number;
   boxWidth?: number;
@@ -432,10 +436,32 @@ export interface NativeTextLayerSnapshot {
   shadowColor?: [number, number, number, number];
   shadowOffset?: [number, number];
   shadowBlur?: number;
+  background?: {
+    color: [number, number, number, number];
+    padding: number;
+    borderRadius: number;
+  };
+  runs?: Array<{
+    text: string;
+    color?: [number, number, number, number];
+    highlighted?: boolean;
+  }>;
+  /** Template identity and already-resolved customization payload. */
+  templateId?: string;
+  templateData?: Record<string, unknown>;
   effect?: {
     effectId: string;
     effectVersion: number;
     parameterOverrides?: Record<string, any>;
+    definition?: {
+      displayName?: string;
+      params?: Record<string, any>;
+      passes: Array<{
+        primitive: string;
+        tier?: string;
+        params?: Record<string, any>;
+      }>;
+    };
   };
 }
 
