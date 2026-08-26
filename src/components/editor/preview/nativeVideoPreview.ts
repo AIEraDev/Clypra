@@ -1233,7 +1233,7 @@ export function buildNativeFrameRequest(
   rasterLayers: NativeRasterLayerSnapshot[] = [],
   intent: {
     generation?: number;
-    mode?: "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep";
+    mode?: "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch";
     quality?: NativeFrameRequest["quality"];
     velocityPxPerSecond?: number;
     requestedAtMs?: number;
