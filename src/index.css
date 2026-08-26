@@ -522,6 +522,44 @@ input[type="range"]:focus-visible {
     cursor: grabbing !important;
   }
 
+  /* TransformOverlay temporarily puts the active drag cursor on body. Make
+     that cursor authoritative over the preview children as the pointer moves
+     away from the small handle hit target. */
+  body.cursor-nwse-resize,
+  body.cursor-nwse-resize * {
+    cursor: nwse-resize !important;
+  }
+
+  body.cursor-nesw-resize,
+  body.cursor-nesw-resize * {
+    cursor: nesw-resize !important;
+  }
+
+  body.cursor-ns-resize,
+  body.cursor-ns-resize * {
+    cursor: ns-resize !important;
+  }
+
+  body.cursor-ew-resize,
+  body.cursor-ew-resize * {
+    cursor: ew-resize !important;
+  }
+
+  body.cursor-move,
+  body.cursor-move * {
+    cursor: move !important;
+  }
+
+  body.cursor-grab,
+  body.cursor-grab * {
+    cursor: grab !important;
+  }
+
+  body.cursor-grabbing,
+  body.cursor-grabbing * {
+    cursor: grabbing !important;
+  }
+
   /* Global cursor lock for timeline resize operations */
   body.cursor-lock-col,
   body.cursor-lock-col * {
