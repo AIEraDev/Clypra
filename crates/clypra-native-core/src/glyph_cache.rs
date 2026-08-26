@@ -29,6 +29,8 @@ pub struct ShapedTextSdf {
     pub sdf_buffer: Vec<u8>,
     /// Bounding box offset relative to baseline origin: [min_x, min_y, max_x, max_y]
     pub bounds: [f32; 4],
+    /// Indicates whether text exceeded MAX_TEXT_CANVAS_DIMENSION and was safely clamped.
+    pub is_truncated: bool,
 }
 
 /// Text horizontal alignment.
@@ -50,11 +52,41 @@ impl TextAlign {
     }
 }
 
+/// Maximum permissible canvas dimension for an individual text layer SDF atlas.
+/// Prevents GPU validation panics and memory exhaustion on adversarial input.
+pub const MAX_TEXT_CANVAS_DIMENSION: usize = 8192;
+
+#[derive(Debug, Clone)]
+struct CacheEntry {
+    glyph: SdfGlyph,
+    bytes: usize,
+    pinned_epoch: u64,
+}
+
+/// Telemetry statistics for GlyphSdfCache monitoring.
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+pub struct GlyphCacheStats {
+    pub hits: u64,
+    pub misses: u64,
+    pub evictions: u64,
+    pub current_bytes: usize,
+    pub max_bytes: usize,
+    pub entry_count: usize,
+    pub pinned_count: usize,
+}
+
 /// Content-addressed glyph cache keyed by `(font_hash, glyph_index, target_size_px)`.
+/// Employs incremental LRU eviction with active-frame epoch pinning to eliminate
+/// mid-playback distance-transform hitches under memory pressure.
 pub struct GlyphSdfCache {
-    entries: RwLock<HashMap<(u64, u16, u32), SdfGlyph>>,
+    entries: RwLock<HashMap<(u64, u16, u32), CacheEntry>>,
+    lru_order: RwLock<std::collections::VecDeque<(u64, u16, u32)>>,
     total_bytes: RwLock<usize>,
+    current_epoch: RwLock<u64>,
     max_bytes: usize,
+    hits: std::sync::atomic::AtomicU64,
+    misses: std::sync::atomic::AtomicU64,
+    evictions: std::sync::atomic::AtomicU64,
 }
 
 impl GlyphSdfCache {
@@ -62,12 +94,42 @@ impl GlyphSdfCache {
     pub fn new(max_bytes: usize) -> Self {
         Self {
             entries: RwLock::new(HashMap::new()),
+            lru_order: RwLock::new(std::collections::VecDeque::new()),
             total_bytes: RwLock::new(0),
+            current_epoch: RwLock::new(0),
             max_bytes,
+            hits: std::sync::atomic::AtomicU64::new(0),
+            misses: std::sync::atomic::AtomicU64::new(0),
+            evictions: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
-    /// Retrieve or rasterize+generate an SDF glyph.
+    /// Advance active playback epoch. Expired pins (older than current epoch) become eligible for LRU eviction.
+    pub fn advance_epoch(&self, epoch: u64) {
+        let mut cur = self.current_epoch.write();
+        *cur = epoch;
+    }
+
+    /// Pin all glyphs referenced by a text string to protect them from eviction during playback at `epoch`.
+    pub fn pin_text_glyphs(
+        &self,
+        font: &Font,
+        font_hash: u64,
+        text: &str,
+        size_px: f32,
+        radius: f32,
+        padding: usize,
+        epoch: u64,
+    ) {
+        for ch in text.chars() {
+            if ch == '\n' {
+                continue;
+            }
+            let _ = self.get_or_insert_pinned(font, font_hash, ch, size_px, radius, padding, epoch);
+        }
+    }
+
+    /// Retrieve or rasterize+generate an SDF glyph (unpinned default).
     pub fn get_or_insert(
         &self,
         font: &Font,
@@ -77,6 +139,20 @@ impl GlyphSdfCache {
         radius: f32,
         padding: usize,
     ) -> SdfGlyph {
+        self.get_or_insert_pinned(font, font_hash, character, size_px, radius, padding, 0)
+    }
+
+    /// Retrieve or rasterize+generate an SDF glyph with active-frame epoch pinning.
+    pub fn get_or_insert_pinned(
+        &self,
+        font: &Font,
+        font_hash: u64,
+        character: char,
+        size_px: f32,
+        radius: f32,
+        padding: usize,
+        epoch: u64,
+    ) -> SdfGlyph {
         let glyph_index = font.lookup_glyph_index(character);
         let size_key = (size_px * 100.0).round() as u32;
         let key = (font_hash, glyph_index, size_key);
@@ -84,10 +160,25 @@ impl GlyphSdfCache {
         // Fast path: read lock check
         {
             let read = self.entries.read();
-            if let Some(glyph) = read.get(&key) {
-                return glyph.clone();
+            if let Some(entry) = read.get(&key) {
+                self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let glyph = entry.glyph.clone();
+                drop(read);
+                // Update LRU touch and pin epoch if requested
+                let mut lru = self.lru_order.write();
+                lru.retain(|k| *k != key);
+                lru.push_back(key);
+                if epoch > 0 {
+                    let mut write = self.entries.write();
+                    if let Some(mut_entry) = write.get_mut(&key) {
+                        mut_entry.pinned_epoch = mut_entry.pinned_epoch.max(epoch);
+                    }
+                }
+                return glyph;
             }
         }
+
+        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         // Slow path: rasterize with fontdue and generate SDF
         let (metrics, bitmap) = font.rasterize(character, size_px);
@@ -109,21 +200,77 @@ impl GlyphSdfCache {
             sdf_data,
         };
 
-        let glyph_bytes = glyph.sdf_data.len() + std::mem::size_of::<SdfGlyph>();
+        let glyph_bytes = glyph.sdf_data.len() + std::mem::size_of::<CacheEntry>();
         let mut write = self.entries.write();
+        let mut lru = self.lru_order.write();
         let mut total = self.total_bytes.write();
+        let cur_epoch = *self.current_epoch.read();
 
-        // Evict if over budget
-        if *total + glyph_bytes > self.max_bytes {
-            write.clear();
-            *total = 0;
+        // Incremental LRU eviction: pop oldest unpinned entries until budget is met
+        while *total + glyph_bytes > self.max_bytes {
+            let mut evicted_key = None;
+            let mut unpinned_idx = None;
+
+            for (idx, candidate_key) in lru.iter().enumerate() {
+                if let Some(candidate_entry) = write.get(candidate_key) {
+                    if candidate_entry.pinned_epoch < cur_epoch {
+                        unpinned_idx = Some(idx);
+                        evicted_key = Some(*candidate_key);
+                        break;
+                    }
+                }
+            }
+
+            if let (Some(idx), Some(key_to_evict)) = (unpinned_idx, evicted_key) {
+                lru.remove(idx);
+                if let Some(removed) = write.remove(&key_to_evict) {
+                    *total = total.saturating_sub(removed.bytes);
+                    self.evictions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            } else {
+                // All entries are pinned for the current active frame — break to avoid starving active frame
+                break;
+            }
         }
 
-        write.insert(key, glyph.clone());
+        lru.retain(|k| *k != key);
+        lru.push_back(key);
         *total += glyph_bytes;
+        write.insert(
+            key,
+            CacheEntry {
+                glyph: glyph.clone(),
+                bytes: glyph_bytes,
+                pinned_epoch: epoch,
+            },
+        );
 
         glyph
     }
+
+    /// Returns telemetry metrics for the glyph cache.
+    pub fn stats(&self) -> GlyphCacheStats {
+        let cur_epoch = *self.current_epoch.read();
+        let read = self.entries.read();
+        let pinned_count = read.values().filter(|e| e.pinned_epoch >= cur_epoch && e.pinned_epoch > 0).count();
+        GlyphCacheStats {
+            hits: self.hits.load(std::sync::atomic::Ordering::Relaxed),
+            misses: self.misses.load(std::sync::atomic::Ordering::Relaxed),
+            evictions: self.evictions.load(std::sync::atomic::Ordering::Relaxed),
+            current_bytes: *self.total_bytes.read(),
+            max_bytes: self.max_bytes,
+            entry_count: read.len(),
+            pinned_count,
+        }
+    }
+
+    /// Reset telemetry counters.
+    pub fn reset_stats(&self) {
+        self.hits.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.misses.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.evictions.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Shapes a text string and generates a composite signed-distance-field atlas buffer (Left-aligned).
     pub fn render_text_sdf(
         &self,
@@ -168,6 +315,7 @@ impl GlyphSdfCache {
                 height: 0,
                 sdf_buffer: Vec::new(),
                 bounds: [0.0; 4],
+                is_truncated: false,
             };
         }
 
@@ -265,11 +413,16 @@ impl GlyphSdfCache {
                 height: 0,
                 sdf_buffer: Vec::new(),
                 bounds: [0.0; 4],
+                is_truncated: false,
             };
         }
 
-        let canvas_w = ((max_x - min_x).ceil() as usize).max(1);
-        let canvas_h = ((max_y - min_y).ceil() as usize).max(1);
+        let raw_w = (max_x - min_x).ceil() as usize;
+        let raw_h = (max_y - min_y).ceil() as usize;
+        let is_truncated = raw_w > MAX_TEXT_CANVAS_DIMENSION || raw_h > MAX_TEXT_CANVAS_DIMENSION;
+
+        let canvas_w = raw_w.min(MAX_TEXT_CANVAS_DIMENSION).max(1);
+        let canvas_h = raw_h.min(MAX_TEXT_CANVAS_DIMENSION).max(1);
 
         // Background of SDF initialized to 0 (far exterior)
         let mut canvas_sdf = vec![0u8; canvas_w * canvas_h];
@@ -304,6 +457,7 @@ impl GlyphSdfCache {
             height: canvas_h as u32,
             sdf_buffer: canvas_sdf,
             bounds: [min_x, min_y, max_x, max_y],
+            is_truncated,
         }
     }
 }

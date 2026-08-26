@@ -241,3 +241,54 @@ fn render_text_sdf_alignment_modes() {
     // Left and Right alignment produce different pixel patterns on uneven multi-line text
     assert_ne!(left.sdf_buffer, right.sdf_buffer);
 }
+
+#[test]
+fn glyph_cache_lru_eviction_and_pinning() {
+    let font = test_font();
+    let hash = test_font_hash();
+    let cache = GlyphSdfCache::new(5000); // tightly bounded cache
+    cache.advance_epoch(1);
+
+    // Insert glyph 'A' pinned to epoch 1
+    let _ = cache.get_or_insert_pinned(&font, hash, 'A', 32.0, 8.0, 4, 1);
+    // Insert glyph 'B' unpinned (epoch 0)
+    let _ = cache.get_or_insert(&font, hash, 'B', 32.0, 8.0, 4);
+
+    let stats_before = cache.stats();
+    assert_eq!(stats_before.pinned_count, 1);
+    assert_eq!(stats_before.entry_count, 2);
+
+    // Insert more unpinned glyphs to trigger LRU eviction pressure
+    for ch in "CDEFGHIJKLMNOPQRSTUVWXYZ".chars() {
+        let _ = cache.get_or_insert(&font, hash, ch, 32.0, 8.0, 4);
+    }
+
+    let stats_after = cache.stats();
+    assert!(stats_after.evictions > 0, "Evictions must have occurred under budget pressure");
+
+    // Pinned glyph 'A' must still be resident
+    assert_eq!(stats_after.pinned_count, 1);
+    let hit_count_before = cache.stats().hits;
+    let _ = cache.get_or_insert(&font, hash, 'A', 32.0, 8.0, 4);
+    assert_eq!(cache.stats().hits, hit_count_before + 1, "Pinned glyph 'A' must be a cache hit");
+}
+
+#[test]
+fn render_text_sdf_clamps_extreme_dimensions_and_flags_truncated() {
+    use clypra_native_core::glyph_cache::MAX_TEXT_CANVAS_DIMENSION;
+    let font = test_font();
+    let hash = test_font_hash();
+    let cache = GlyphSdfCache::new(8 * 1024 * 1024);
+
+    // Construct a single-line string that is guaranteed to exceed MAX_TEXT_CANVAS_DIMENSION
+    let long_text: String = std::iter::repeat("EXTREMELY_LONG_TEXT_LINE_THAT_EXCEEDS_MAX_TEXTURE_BUDGET_")
+        .take(200)
+        .collect();
+
+    let result = cache.render_text_sdf(&font, hash, &long_text, 64.0, 0.0, 1.2, 8.0, 4);
+
+    assert!(result.is_truncated, "Extreme text must be flagged as truncated");
+    assert!(result.width as usize <= MAX_TEXT_CANVAS_DIMENSION, "Canvas width ({}) must be clamped to MAX ({})", result.width, MAX_TEXT_CANVAS_DIMENSION);
+    assert_eq!(result.sdf_buffer.len(), (result.width * result.height) as usize);
+}
+

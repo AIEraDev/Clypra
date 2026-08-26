@@ -46,7 +46,8 @@ pub mod native_core {
     pub use crate::contracts::{
         BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime,
         NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState,
-        ProjectSnapshot, QualityTier, RasterLayerSnapshot, TextEffectInstance, TextLayerSnapshot,
+        ProjectSnapshot, QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot,
+        TemplateElementKind, TemplateElementSnapshot, TextEffectInstance, TextLayerSnapshot,
         TextParamValue, TransitionSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE,
         NATIVE_CORE_CONTRACT_VERSION,
     };
@@ -71,7 +72,8 @@ pub use cache::FrameCache;
 pub use contracts::{
     BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime,
     NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState, ProjectSnapshot,
-    QualityTier, RasterLayerSnapshot, TextEffectInstance, TextLayerSnapshot, TextParamValue,
+    QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot, TemplateElementKind,
+    TemplateElementSnapshot, TextEffectInstance, TextLayerSnapshot, TextParamValue,
     TransitionSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
 pub use font_registry::{global_font_registry, FontRegistry, DEFAULT_FONT_ID};
