@@ -38,37 +38,16 @@ describe("NativeRasterBridge", () => {
     mocks.textKey.mockClear();
   });
 
-  it("shares cached text raster assets with the native compositor and can recover them", async () => {
-    const asset = {
-      assetId: "native-text:title:hash",
-      rgba: [255, 255, 255, 255],
-      width: 1,
-      height: 1,
-      x: 10,
-      y: 20,
-      rotation: 0,
-      opacity: 1,
-      zIndex: 2,
-      blendMode: "normal",
-      isText: true as const,
-    };
-    mocks.rasterizeText.mockResolvedValue(asset);
+  it("excludes text layers from raster bridge since text is natively rendered in wgpu", async () => {
     const scene = {
       visualLayers: [{ layerType: "text", layerId: "title" }],
       metadata: { canvasWidth: 1920, canvasHeight: 1080 },
     } as unknown as EvaluatedScene;
     const bridge = new NativeRasterBridge();
 
-    const first = await bridge.rasterize(scene, { frameKey: 0 });
-    const second = await bridge.rasterize(scene, { frameKey: 1 });
-
-    expect(first).toEqual([{ ...asset, rgba: undefined }]);
-    expect(second).toEqual(first);
-    expect(mocks.rasterizeText).toHaveBeenCalledTimes(1);
-    expect(mocks.register).toHaveBeenCalledTimes(1);
-
-    await expect(bridge.reregister(first)).resolves.toBe(true);
-    expect(mocks.register).toHaveBeenCalledTimes(2);
+    const rasters = await bridge.rasterize(scene, { frameKey: 0 });
+    expect(rasters).toEqual([]);
+    expect(mocks.register).not.toHaveBeenCalled();
     bridge.dispose();
   });
 

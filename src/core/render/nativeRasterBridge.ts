@@ -73,13 +73,14 @@ export class NativeRasterBridge {
   async rasterize(scene: EvaluatedScene, options: NativeRasterBridgeOptions): Promise<NativeRasterLayerSnapshot[]> {
     if (!isTauriRuntime()) return [];
 
-    const [text, background, animatedStickers, images] = await Promise.all([
-      this.rasterizeText(scene),
+    // Native GPU pass-chain interpreter in wgpu is the authoritative renderer for text on desktop Tauri.
+    // NativeRasterBridge only handles background, animated stickers, images, and smart overlays.
+    const [background, animatedStickers, images] = await Promise.all([
       this.rasterizeBackground(scene, options.frameKey),
       this.rasterizeAnimatedStickers(scene),
       this.rasterizeImages(scene),
     ]);
-    return [...background, ...text, ...animatedStickers, ...images];
+    return [...background, ...animatedStickers, ...images];
   }
 
   /**
