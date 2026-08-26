@@ -357,6 +357,22 @@ impl NativePreviewSession {
         &mut self,
         layer: &TextLayerSnapshot,
     ) -> Result<(Arc<wgpu::Texture>, Arc<wgpu::TextureView>, u32, u32), String> {
+        if let Some(definition) = layer.effect.as_ref().and_then(|effect| effect.definition.as_ref()) {
+            for pass in &definition.passes {
+                let primitive = pass.primitive.to_ascii_lowercase();
+                if !matches!(
+                    primitive.as_str(),
+                    "distance_threshold" | "distance-threshold" | "fill"
+                        | "outline" | "stroke" | "glow"
+                        | "drop_shadow" | "drop-shadow" | "shadow"
+                ) {
+                    return Err(format!(
+                        "Native text effect primitive '{}' is not implemented by this renderer",
+                        pass.primitive
+                    ));
+                }
+            }
+        }
         let params_json = serde_json::to_string(&layer.effect)
             .unwrap_or_else(|_| "{}".to_string());
         let color_hash = u64::from_le_bytes([
@@ -377,7 +393,14 @@ impl NativePreviewSession {
             layer.font_size,
             effect_id,
             effect_version,
-            &format!("{params_json}:{color_hash}"),
+            &format!(
+                "{params_json}:{color_hash}:{}:{}:{}:{}:{:?}",
+                layer.font_weight,
+                layer.font_style,
+                layer.vertical_align,
+                layer.background.is_some(),
+                layer.runs,
+            ),
         );
 
         if let Some((tex, view)) = self.text_cache.get(key) {
@@ -385,7 +408,8 @@ impl NativePreviewSession {
         }
 
         // Cache miss: Shape text & generate SDF
-        let (font, font_hash) = clypra_native_core::font_registry::global_font_registry().get_font(&layer.font_id);
+        let (font, font_hash) = clypra_native_core::font_registry::global_font_registry()
+            .require_font(&layer.font_id)?;
         let align = clypra_native_core::glyph_cache::TextAlign::from_str_loose(&layer.text_align);
         let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned(
             &font,
@@ -464,13 +488,36 @@ impl NativePreviewSession {
         // Execute pass-chain based on layer.effect definition/overrides
         let mut commands = Vec::new();
 
-        if let Some(effect) = &layer.effect {
-            let effect_id = effect.effect_id.to_lowercase();
-            let overrides = &effect.parameter_overrides;
+        if layer.effect.is_some() || layer.stroke_color.is_some() || layer.shadow_color.is_some() {
+            let effect = layer.effect.as_ref();
+            let mut effect_id = effect
+                .map(|effect| effect.effect_id.to_lowercase())
+                .unwrap_or_else(|| "raw_text".to_string());
+            let mut resolved_overrides = effect
+                .map(|effect| effect.parameter_overrides.clone())
+                .unwrap_or_default();
+            if let Some(definition) = effect.and_then(|effect| effect.definition.as_ref()) {
+                for pass in &definition.passes {
+                    effect_id.push(' ');
+                    effect_id.push_str(&pass.primitive.to_ascii_lowercase());
+                    resolved_overrides.extend(pass.params.clone());
+                }
+            }
+            let overrides = &resolved_overrides;
 
             // 1. Drop shadow pass (if applicable)
-            if effect_id.contains("shadow") || effect_id.contains("3d") || effect_id.contains("glitch") || overrides.contains_key("shadow_color") || overrides.contains_key("shadowColor") {
+            if layer.shadow_color.is_some() || effect_id.contains("shadow") || effect_id.contains("3d") || effect_id.contains("glitch") || overrides.contains_key("shadow_color") || overrides.contains_key("shadowColor") {
                 let mut shadow_params = DropShadowParams::default();
+                if let Some(color) = layer.shadow_color {
+                    shadow_params.color = color;
+                }
+                if let Some(blur) = layer.shadow_blur {
+                    shadow_params.radius = blur.max(0.0) / 64.0;
+                }
+                if let Some(offset) = layer.shadow_offset {
+                    shadow_params.offset_x = offset[0] / 256.0;
+                    shadow_params.offset_y = offset[1] / 256.0;
+                }
                 if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("shadow_color").or_else(|| overrides.get("shadowColor")) {
                     shadow_params.color = *c;
                 }
@@ -510,8 +557,14 @@ impl NativePreviewSession {
             }
 
             // 3. Outline pass (if applicable)
-            if effect_id.contains("outline") || effect_id.contains("stroke") || overrides.contains_key("outline_color") || overrides.contains_key("outlineColor") {
+            if layer.stroke_color.is_some() || effect_id.contains("outline") || effect_id.contains("stroke") || overrides.contains_key("outline_color") || overrides.contains_key("outlineColor") {
                 let mut outline_params = OutlineParams::default();
+                if let Some(color) = layer.stroke_color {
+                    outline_params.color = color;
+                }
+                if let Some(width) = layer.stroke_width {
+                    outline_params.width = width / 64.0;
+                }
                 if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("outline_color").or_else(|| overrides.get("outlineColor")) {
                     outline_params.color = *c;
                 }
@@ -537,6 +590,17 @@ impl NativePreviewSession {
         } else {
             layer.color
         };
+        // A resolved karaoke run is part of the native snapshot. The current
+        // SDF atlas is shaped as one paragraph, so a highlighted run uses the
+        // run color for the paragraph while mixed-run shaping is promoted to
+        // the next glyph-atlas revision. This keeps highlight state native and
+        // deterministic instead of reintroducing a browser caption canvas.
+        let fill_color = layer
+            .runs
+            .iter()
+            .find(|run| run.highlighted)
+            .and_then(|run| run.color)
+            .unwrap_or(fill_color);
 
         let params = DistanceThresholdParams {
             threshold: 0.502,
