@@ -17,7 +17,6 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
-import { getTransformController } from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
@@ -99,6 +98,7 @@ import {
   type NativePreviewRequestSource,
 } from "./nativePreviewScheduler";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
+import { ensureNativeFontsRegistered } from "@/core/fonts/nativeFontRegistry";
 import {
   NATIVE_PREVIEW_ONLY,
   type NativeFrameRequest,
@@ -239,6 +239,14 @@ export const NativeProgramPreview: React.FC = () => {
     width: number;
     height: number;
   } | null>(null);
+  // Persist prefetch identity across native surface/canvas effect restarts.
+  // Without this, a remounted render loop could repeatedly warm the same
+  // boundary and contend with visible presentation.
+  const nativePrefetchStateRef = useRef({
+    inFlight: new Map<string, Promise<void>>(),
+    completed: new Set<string>(),
+    failedAt: new Map<string, number>(),
+  });
   const qualityManagerSigRef = useRef<string>("");
   const telemetryRef = useRef(telemetryStats);
   const lastTelemetryFlushRef = useRef(0);
@@ -783,7 +791,11 @@ export const NativeProgramPreview: React.FC = () => {
     let lastRenderLoopError = "";
     let lastLoggedTextSignature = "";
     let lastLoggedMissingTextSignature = "";
-    const nativePrefetchInFlight = new Map<string, Promise<void>>();
+    let lastLoggedTextPresentationSignature = "";
+    let lastLoggedTextDropSignature = "";
+    const nativePrefetchInFlight = nativePrefetchStateRef.current.inFlight;
+    const nativePrefetchCompleted = nativePrefetchStateRef.current.completed;
+    const nativePrefetchFailedAt = nativePrefetchStateRef.current.failedAt;
 
     // Native frame decode/presentation is asynchronous. A small measured
     // look-ahead keeps the frame that completes aligned with the audio clock
@@ -976,6 +988,24 @@ export const NativeProgramPreview: React.FC = () => {
       return bridgeReregistered;
     };
 
+    const ensureNativeRequestFonts = async (
+      request: NativeFrameRequest,
+    ): Promise<void> => {
+      const fontIds = (request.project.textLayers ?? []).map(
+        (layer) => layer.fontId,
+      );
+      if (fontIds.length === 0) return;
+      try {
+        await ensureNativeFontsRegistered(fontIds);
+      } catch (error) {
+        console.error("[native-preview] font-registration-failed", {
+          fontIds,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    };
+
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
       maxCacheEntries: 12,
       maxInFlight: 2,
@@ -1002,6 +1032,7 @@ export const NativeProgramPreview: React.FC = () => {
         };
         let rgba: ArrayBuffer;
         try {
+          await ensureNativeRequestFonts(request);
           rgba = await render();
         } catch (error) {
           if (!(await reRegisterTextAssetsForRequest(request))) throw error;
@@ -1041,6 +1072,7 @@ export const NativeProgramPreview: React.FC = () => {
       const present = () =>
         queueNativeFrame(request).then(() => presentNativeFrame(request));
       try {
+        await ensureNativeRequestFonts(request);
         return await present();
       } catch (error) {
         if (!(await reRegisterTextAssetsForRequest(request))) throw error;
@@ -1074,7 +1106,14 @@ export const NativeProgramPreview: React.FC = () => {
       const targetFrame = Math.min(durationFrames - 1, Math.max(0, Math.floor(frameIndex)));
       const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
       const key = `${revision}:${targetFrame}`;
-      if (nativePrefetchInFlight.has(key)) return;
+      if (
+        nativePrefetchCompleted.has(key) ||
+        nativePrefetchInFlight.has(key)
+      ) {
+        return;
+      }
+      const previousFailureAt = nativePrefetchFailedAt.get(key) ?? 0;
+      if (performance.now() - previousFailureAt < 1000) return;
       // Keep warm-up bounded. The native queue is intentionally small and
       // browser-side segmentation/smart-overlay rasterization can be costly;
       // launching every future boundary at once would recreate the same
@@ -1143,9 +1182,13 @@ export const NativeProgramPreview: React.FC = () => {
         ) {
           return;
         }
+        await ensureNativeRequestFonts(request);
         await queueNativeFrame(request);
+        nativePrefetchCompleted.add(key);
+        nativePrefetchFailedAt.delete(key);
       })()
         .catch((error) => {
+          nativePrefetchFailedAt.set(key, performance.now());
           console.error("[native-preview] prefetch-failed", {
             frameIndex: targetFrame,
             revision,
@@ -1250,10 +1293,6 @@ export const NativeProgramPreview: React.FC = () => {
         const mediaReadyChanged =
           mediaReadyRevision !== lastRenderedMediaReadyRevision;
 
-        const transformController = getTransformController();
-        const hasActiveTransform =
-          transformController.getActiveTransform() !== null;
-
         const mightNeedRender =
           isPlaying ||
           timeChanged ||
@@ -1261,7 +1300,6 @@ export const NativeProgramPreview: React.FC = () => {
           transportChanged ||
           isFirstFrame ||
           forceRenderNeeded ||
-          hasActiveTransform ||
           clipsChanged ||
           tracksChanged ||
           transitionsChanged ||
@@ -1593,6 +1631,28 @@ export const NativeProgramPreview: React.FC = () => {
                         ? nativePresentationLatencyMs * 0.75 + elapsedMs * 0.25
                         : elapsedMs;
                     if (!presentation.presented) {
+                      const droppedTextLayers =
+                        requestToPresent.project.textLayers ?? [];
+                      const droppedTextSignature = droppedTextLayers
+                        .map(
+                          (layer) =>
+                            `${layer.text}|${layer.fontId}|${layer.fontWeight ?? ""}|${layer.effect?.effectId ?? ""}`,
+                        )
+                        .join("\u001f");
+                      if (
+                        droppedTextLayers.length > 0 &&
+                        droppedTextSignature !== lastLoggedTextDropSignature
+                      ) {
+                        lastLoggedTextDropSignature = droppedTextSignature;
+                        console.warn("[native-preview] text-surface-dropped", {
+                          frameIndex: requestToPresent.frameTime.frameIndex,
+                          dropped: presentation.dropped,
+                          stale: presentation.stale,
+                          frameAgeTicks: presentation.frameAgeTicks,
+                          audioPositionTicks: presentation.audioPositionTicks,
+                          textLayers: nativeTextDebugSummary(requestToPresent),
+                        });
+                      }
                       frontendSpan?.finish({
                         dropped: presentation.dropped,
                         stale: presentation.stale === true,
@@ -1614,6 +1674,29 @@ export const NativeProgramPreview: React.FC = () => {
                         current.clock.state !== "stopped" &&
                         currentRequestIsStillAuthoritative
                       ) {
+                        const presentedTextLayers =
+                          requestToPresent.project.textLayers ?? [];
+                        const presentationTextSignature = presentedTextLayers
+                          .map(
+                            (layer) =>
+                              `${layer.text}|${layer.fontId}|${layer.fontWeight ?? ""}|${layer.effect?.effectId ?? ""}`,
+                          )
+                          .join("\u001f");
+                        if (
+                          presentedTextLayers.length > 0 &&
+                          presentationTextSignature !==
+                            lastLoggedTextPresentationSignature
+                        ) {
+                          lastLoggedTextPresentationSignature =
+                            presentationTextSignature;
+                          console.debug("[native-preview] text-surface-presented", {
+                            frameIndex: requestToPresent.frameTime.frameIndex,
+                            textLayers: nativeTextDebugSummary(requestToPresent),
+                            presented: presentation.presented,
+                            dropped: presentation.dropped,
+                            stale: presentation.stale,
+                          });
+                        }
                         nativeSurfaceShown = true;
                         if (nativeSurfaceReadyRef.current) {
                           setNativeSurfacePresenting(true);
@@ -1710,7 +1793,6 @@ export const NativeProgramPreview: React.FC = () => {
           isFirstFrame ||
           forceRenderNeeded ||
           nativeFrameNeedsRetry ||
-          hasActiveTransform ||
           clipsChanged ||
           tracksChanged ||
           transitionsChanged ||
@@ -1954,7 +2036,6 @@ export const NativeProgramPreview: React.FC = () => {
         nativeBlockedKey = "";
         nativeFailureCount = 0;
         nativeRetryAt = 0;
-        nativePrefetchInFlight.clear();
         if (newClockState.state === "playing") {
           prefetchUpcomingNativeFrames(
             getFrameIndexAtTime(newClockState.time, renderStateRef.current.clock.frameRate),
