@@ -20,7 +20,7 @@ import { isValidArtifact } from "../transport";
 
 describe("NativeCore Contract & Serialization Invariants", () => {
   it("enforces active contract version matches Rust NativeCore specification", () => {
-    expect(NATIVE_CORE_CONTRACT_VERSION).toBe(1);
+    expect(NATIVE_CORE_CONTRACT_VERSION).toBe(2);
     expect(NATIVE_CORE_TIME_SCALE).toBe(1_000_000);
   });
 
