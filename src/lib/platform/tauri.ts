@@ -278,6 +278,7 @@ export interface NativeVideoProjectFrameRequest {
   clearColor?: [number, number, number, number];
   layers: NativeProjectVideoLayer[];
   rasterLayers?: import("./nativeCore").NativeRasterLayerSnapshot[];
+  textLayers?: import("./nativeCore").NativeTextLayerSnapshot[];
   transition?: import("./nativeCore").NativeTransitionSnapshot;
 }
 

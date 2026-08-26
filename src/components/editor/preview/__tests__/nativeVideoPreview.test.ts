@@ -406,15 +406,10 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(getNativePreviewBlockers(makeScene([image]), [raster])).toEqual([]);
   });
 
-  it("does not drop text or active track filters from the native scene", () => {
-    const textLayer = {
-      ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title" }),
-      layerType: "text",
-    } as never;
-    expect(buildNativeVideoProjectRequest(makeScene([makeVideoLayer(), textLayer]))).toBeNull();
+  it("does not drop unsupported active track filters from the native scene", () => {
     expect(buildNativeVideoProjectRequest({
       ...makeScene([makeVideoLayer()]),
-      activeFilter: { id: "blur", name: "Blur", intensity: 1 },
+      activeFilter: { id: "unsupported-blur", name: "Blur", intensity: 1 },
     })).toBeNull();
   });
 
@@ -430,31 +425,22 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(request?.layers[0].colorGrade).toMatchObject({ sepia: 0.75 });
   });
 
-  it("composes Studio-rasterized text layers alongside native video", () => {
+  it("composes native text layers alongside native video", () => {
     const textLayer = {
       ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title", zIndex: 1 }),
       layerType: "text",
+      text: "Clypra Native Text",
+      fontFamily: "Inter",
+      fontSize: 48,
     } as never;
-    const rasterLayer = {
-      assetId: "native-text:title:abcd1234",
-      rgba: [255, 255, 255, 255],
-      width: 1,
-      height: 1,
-      x: 10,
-      y: 20,
-      rotation: 0,
-      opacity: 1,
-      zIndex: 1,
-      blendMode: "normal",
-    };
 
     const request = buildNativeVideoProjectRequest(
-      makeScene([makeVideoLayer({ zIndex: 0 }), textLayer]),
-      [rasterLayer],
+      makeScene([makeVideoLayer({ zIndex: 0 }), textLayer])
     );
 
     expect(request?.layers[0].zIndex).toBe(0);
-    expect(request?.rasterLayers).toEqual([rasterLayer]);
+    expect(request?.textLayers).toBeDefined();
+    expect(request?.textLayers?.[0].text).toBe("Clypra Native Text");
   });
 
   it("propagates deterministic solid canvas backgrounds", () => {
@@ -1004,19 +990,20 @@ describe("buildNativeFrameRequest", () => {
   });
 
   it("does not serialize raster bytes into the per-frame scheduler key", () => {
-    const textLayer = {
-      ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title", zIndex: 1 }),
-      layerType: "text",
+    const imageLayer = {
+      ...makeVideoLayer({ layerId: "sticker", clipId: "sticker", mediaId: "sticker" }),
+      layerType: "media",
+      mediaType: "image",
     } as never;
     const request = buildNativeFrameRequest(
-      makeScene([makeVideoLayer(), textLayer]),
+      makeScene([makeVideoLayer(), imageLayer]),
       "project-1:7",
       67,
       30,
       960,
       540,
       [{
-        assetId: "native-text:title:abcd1234",
+        assetId: "native-image:sticker:abcd1234",
         rgba: Array.from({ length: 32 * 32 * 4 }, () => 255),
         width: 32,
         height: 32,
@@ -1031,7 +1018,7 @@ describe("buildNativeFrameRequest", () => {
 
     const key = getNativeFrameRequestKey(request!);
     expect(key).not.toContain("255,255,255,255");
-    expect(key).toContain("native-text:title:abcd1234");
+    expect(key).toContain("native-image:sticker:abcd1234");
   });
 
   it("reuses a rendered frame across seek generations and scheduling modes", () => {

@@ -920,12 +920,9 @@ export function buildNativeVideoProjectRequest(
   const clearColor = getNativeClearColor(scene, rasterLayers);
   if (!clearColor) return null;
 
-  const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-  const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
-  const textRasterLayers = visibleRasterLayers.filter((layer) =>
-    layer.isText || (layer.isText === undefined && textLayers.length === visibleRasterLayers.length),
+  const textLayers = scene.visualLayers.filter(
+    (layer): layer is EvaluatedTextLayer => layer.layerType === "text"
   );
-  if (textLayers.length !== textRasterLayers.length) return null;
   const allMediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
@@ -998,12 +995,53 @@ export function buildNativeVideoProjectRequest(
     return null;
   }
 
+  const nativeTextLayers = textLayers.map((layer) => {
+    const color = parseColorToRgba(layer.color || "#ffffff");
+    return {
+      text: layer.text || "",
+      fontId: layer.fontFamily || "default",
+      fontSize: layer.fontSize,
+      letterSpacing: layer.letterSpacing ?? 0,
+      lineHeight: layer.lineHeight ?? 1.2,
+      color,
+      textAlign: layer.textAlign || "left",
+      x: layer.x,
+      y: layer.y,
+      boxWidth: layer.width,
+      boxHeight: layer.height,
+      rotation: layer.rotation ?? 0,
+      opacity: layer.opacity ?? 1,
+      zIndex: layer.zIndex ?? 0,
+      blendMode: layer.blendMode || "normal",
+      ...(layer.stroke ? {
+        strokeColor: parseColorToRgba(layer.stroke.color),
+        strokeWidth: layer.stroke.width,
+      } : {}),
+      ...(layer.shadow ? {
+        shadowColor: parseColorToRgba(layer.shadow.color),
+        shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
+        shadowBlur: layer.shadow.blur,
+      } : {}),
+      ...(layer.styleId ? {
+        effect: {
+          effectId: layer.styleId,
+          effectVersion: 1,
+        },
+      } : {}),
+    };
+  });
+
+  const nonTextRasterLayers = rasterLayers.filter(
+    (layer) => !layer.isText && !layer.assetId.startsWith("native-text:")
+  );
+
   return {
     canvasWidth: scene.metadata.canvasWidth || 1920,
     canvasHeight: scene.metadata.canvasHeight || 1080,
     clearColor,
     layers,
-    ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
+    ...(nonTextRasterLayers.length > 0 ? { rasterLayers: nonTextRasterLayers } : {}),
+    ...(nativeTextLayers.length > 0 ? { textLayers: nativeTextLayers } : {}),
     ...(transition ? { transition } : {}),
   };
 }
@@ -1037,13 +1075,6 @@ export function getNativePreviewBlockers(
   }
 
   const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-  const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
-  const textRasterCount = visibleRasterLayers.filter((layer) =>
-    layer.isText || (layer.isText === undefined && textLayers.length === visibleRasterLayers.length),
-  ).length;
-  if (textLayers.length !== textRasterCount) {
-    add("One or more text layers do not have a registered native raster asset.");
-  }
 
   const mediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer),
@@ -1102,7 +1133,7 @@ export function getNativePreviewBlockers(
     imageLayers.length === 0 &&
     animatedStickerLayers.length === 0 &&
     textLayers.length === 0 &&
-    visibleRasterLayers.length === 0 &&
+    rasterLayers.filter((layer) => !layer.isMask).length === 0 &&
     getNativeBackgroundMediaPath(scene) === null
   ) {
     add("The scene has no native-renderable visual content at the current time.");
@@ -1189,6 +1220,8 @@ export function buildNativeFrameRequest(
         textAlign: layer.textAlign || "left",
         x: layer.x,
         y: layer.y,
+        boxWidth: layer.width,
+        boxHeight: layer.height,
         rotation: layer.rotation ?? 0,
         opacity: layer.opacity ?? 1,
         zIndex: layer.zIndex ?? 0,
@@ -1211,6 +1244,10 @@ export function buildNativeFrameRequest(
       };
     });
 
+  const nonTextRasterLayers = rasterLayers.filter(
+    (layer) => !layer.isText && !layer.assetId.startsWith("native-text:")
+  );
+
   return createNativeFrameRequest({
     requestId: `${projectRevision}:${frameIndex}:${outputWidth}x${outputHeight}`,
     frameTime: frameIndexToNativeTime(frameIndex, frameRate),
@@ -1222,7 +1259,7 @@ export function buildNativeFrameRequest(
       canvasHeight: request.canvasHeight,
       clearColor: request.clearColor ?? [0, 0, 0, 1],
       videoLayers,
-      ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
+      ...(nonTextRasterLayers.length > 0 ? { rasterLayers: nonTextRasterLayers } : {}),
       ...(textLayers.length > 0 ? { textLayers } : {}),
       ...(request.transition ? { transition: request.transition } : {}),
     },

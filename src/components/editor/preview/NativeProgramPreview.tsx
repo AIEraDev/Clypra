@@ -41,15 +41,11 @@ import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 import { TelemetryOverlay, type TelemetryStats } from "./TelemetryOverlay";
 import { AspectSelector } from "./AspectSelector";
 import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
-import { PlaybackQualitySelector } from "./PlaybackQualitySelector";
 import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
-import {
-  getPlaybackMetricsSnapshot,
-  tracePlayback,
-} from "@/core/playback/playbackTrace";
+import { getPlaybackMetricsSnapshot } from "@/core/playback/playbackTrace";
 import {
   getSyncMetricsSnapshot,
   startSyncMetricsFlushLoop,
@@ -1036,14 +1032,6 @@ export const NativeProgramPreview: React.FC = () => {
         () => undefined,
       );
       forceRenderNeeded = true;
-      tracePlayback("seek.intent", {
-        requestId: intent.requestId,
-        generation: intent.generation,
-        mode: intent.mode,
-        targetTime: intent.time,
-        quality: intent.quality,
-        velocityPxPerSecond: intent.velocityPxPerSecond,
-      });
     });
 
     const presentNativePlaybackFrame = async (request: NativeFrameRequest) => {
@@ -1266,15 +1254,6 @@ export const NativeProgramPreview: React.FC = () => {
           const seekTraceKey = `${playbackState}:${frameIndex}:${nativeRequestKey || "no-native-request"}`;
           if (seekTraceKey !== lastSeekTraceKey) {
             lastSeekTraceKey = seekTraceKey;
-            tracePlayback("native-render.seek-target", {
-              time: timeToRender,
-              frameIndex,
-              playbackState,
-              nativeRequest: Boolean(nativeRequest),
-              nativeRequestKey: nativeRequestKey.slice(0, 120),
-              nativeAudioClockReady:
-                !isTauriRuntime() || state.clock.hasNativeClockPosition,
-            });
           }
         } else {
           lastSeekTraceKey = "";
@@ -1629,16 +1608,6 @@ export const NativeProgramPreview: React.FC = () => {
                     nativeFrontendPerfSpans.get(nativeRequestKey);
                   frontendSpan?.finish({ stale: true });
                   nativeFrontendPerfSpans.delete(nativeRequestKey);
-                  tracePlayback("native-render.stale-seek-frame", {
-                    requestedTime: timeToRender,
-                    requestedFrameIndex: frameIndex,
-                    currentTime: renderStateRef.current.clock.time,
-                    currentFrameIndex: getFrameIndexAtTime(
-                      renderStateRef.current.clock.time,
-                      frameRate,
-                    ),
-                    playbackState,
-                  });
                   forceRenderNeeded = true;
                   return;
                 }
@@ -1662,13 +1631,6 @@ export const NativeProgramPreview: React.FC = () => {
                   // changes the target or explicitly seeks again.
                   nativeBlockedKey = nativeRequestKey;
                 }
-                tracePlayback("native-render.seek-frame-error", {
-                  time: timeToRender,
-                  frameIndex,
-                  failureCount: nativeFailureCount,
-                  blocked: nativeBlockedKey === nativeRequestKey,
-                  error: error instanceof Error ? error.message : String(error),
-                });
                 const frontendSpan =
                   nativeFrontendPerfSpans.get(nativeRequestKey);
                 frontendSpan?.finish({
