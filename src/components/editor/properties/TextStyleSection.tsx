@@ -54,6 +54,35 @@ const GOOGLE_FONTS = [
   { value: "Pacifico", label: "Pacifico" },
 ];
 
+const FONT_PICKER_OPTIONS = [...SYSTEM_FONTS, ...GOOGLE_FONTS];
+
+/**
+ * Keep the native select controlled even when older clips store a family
+ * alias (for example "Dancing Script") while evaluation resolves it to the
+ * Fontsource family ("Dancing Script Variable").
+ */
+export function resolveFontPickerValue(family: string): string {
+  const rawFamily = family.trim();
+  const normalizedFamily = normalizeFontFamily(rawFamily);
+  const normalizedBase = normalizedFamily.replace(/\s+variable$/i, "");
+
+  return (
+    FONT_PICKER_OPTIONS.find(
+      (font) => font.value.toLowerCase() === rawFamily.toLowerCase(),
+    )?.value ??
+    FONT_PICKER_OPTIONS.find(
+      (font) => font.value.toLowerCase() === normalizedFamily.toLowerCase(),
+    )?.value ??
+    FONT_PICKER_OPTIONS.find(
+      (font) => font.label.toLowerCase() === normalizedFamily.toLowerCase(),
+    )?.value ??
+    FONT_PICKER_OPTIONS.find(
+      (font) => font.value.toLowerCase() === normalizedBase.toLowerCase(),
+    )?.value ??
+    normalizedFamily
+  );
+}
+
 const COLOR_PALETTE = [
   { label: "White", value: "#ffffff" },
   { label: "Black", value: "#1a1a1a" },
@@ -123,8 +152,10 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
     () => new Set(getBundledNativeFontIds().map((fontId) => fontId.toLowerCase())),
     [],
   );
-  const selectedFont = normalizeFontFamily(textClip.fontFamily || effectFont?.family || "Inter Variable");
-  const selectedFontIsUnavailableNatively = nativeDesktop && !nativeFontIds.has(selectedFont.toLowerCase());
+  const requestedFont = textClip.fontFamily || effectFont?.family || "Inter Variable";
+  const resolvedFont = normalizeFontFamily(requestedFont);
+  const selectedFont = resolveFontPickerValue(requestedFont);
+  const selectedFontIsUnavailableNatively = nativeDesktop && !nativeFontIds.has(resolvedFont.toLowerCase());
 
   // Styling properties to batch-update across all caption clips on the same track
   const CAPTION_STYLE_KEYS = ["fontFamily", "fontSize", "color", "fontWeight", "fontStyle", "stroke", "shadow", "background", "lineHeight", "letterSpacing", "align", "valign"];
