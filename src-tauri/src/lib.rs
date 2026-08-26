@@ -211,6 +211,8 @@ pub fn run() {
             render_native_project_frame,
             render_native_video_project_frame,
             render_native_frame,
+            register_native_font,
+            list_native_fonts,
             queue_native_frame,
             cancel_native_preview_requests,
             register_native_raster_asset,
