@@ -1,4 +1,3 @@
-import { tracePlayback } from "./playbackTrace";
 import { recordAudioPoll } from "@/lib/playback/syncMetrics";
 
 /**
@@ -52,7 +51,11 @@ export class PlaybackClock {
   private _nativeClockAuthority = false;
   private _playStartAudioTime: number = 0;
   private _playStartClockTime: number = 0;
-  private _nativeClockPosition: { time: number; receivedAtMs: number; speed: number } | null = null;
+  private _nativeClockPosition: {
+    time: number;
+    receivedAtMs: number;
+    speed: number;
+  } | null = null;
 
   // Generation counter to prevent stale RAF ticks
   private _generation: number = 0;
@@ -113,8 +116,14 @@ export class PlaybackClock {
     // native status sample between IPC updates. Rendering consumers still read
     // one clock signal and do not need to know which platform owns it.
     if (this._state === "playing" && this._nativeClockPosition) {
-      const elapsed = Math.max(0, performance.now() - this._nativeClockPosition.receivedAtMs) / 1000;
-      const computedTime = this._nativeClockPosition.time + elapsed * this._nativeClockPosition.speed;
+      const elapsed =
+        Math.max(
+          0,
+          performance.now() - this._nativeClockPosition.receivedAtMs,
+        ) / 1000;
+      const computedTime =
+        this._nativeClockPosition.time +
+        elapsed * this._nativeClockPosition.speed;
       return Math.min(computedTime, this._duration);
     }
 
@@ -126,8 +135,14 @@ export class PlaybackClock {
 
     // If playing, calculate time synchronously based on audio context.
     // This ensures accurate time even if requestAnimationFrame is suspended (e.g. background tab).
-    if (this._state === "playing" && this._audioContext && this._audioContext.state === "running") {
-      const elapsed = (this._audioContext.currentTime - this._playStartAudioTime) * this._speed;
+    if (
+      this._state === "playing" &&
+      this._audioContext &&
+      this._audioContext.state === "running"
+    ) {
+      const elapsed =
+        (this._audioContext.currentTime - this._playStartAudioTime) *
+        this._speed;
       const computedTime = this._playStartClockTime + elapsed;
 
       // Clamp to duration if we've reached the end
@@ -199,31 +214,23 @@ export class PlaybackClock {
    */
   setNativeClockPosition(time: number, speed: number = this._speed): void {
     if (!Number.isFinite(time)) return;
-    const validSpeed = Number.isFinite(speed) ? Math.max(0.1, Math.min(4, speed)) : this._speed;
+    const validSpeed = Number.isFinite(speed)
+      ? Math.max(0.1, Math.min(4, speed))
+      : this._speed;
     const clampedTime = Math.max(0, Math.min(time, this._duration));
     // Capture the UI-side extrapolation before replacing it with the newest
     // authoritative native sample. This measures clock/poll divergence only;
     // backend video-vs-audio drift is recorded in the native presentation path.
     recordAudioPoll(clampedTime * 1000, this.time * 1000);
     const backwardTolerance = Math.max(0.05, 1 / this._frameRate);
-    if (this._state === "playing" && !this._isSeeking && clampedTime < this._time - backwardTolerance) {
-      tracePlayback("clock.native-position-ignored", {
-        nativeTime: clampedTime,
-        clockTime: this._time,
-        backwardDelta: clampedTime - this._time,
-        state: this._state,
-        duration: this._duration,
-      });
+    if (
+      this._state === "playing" &&
+      !this._isSeeking &&
+      clampedTime < this._time - backwardTolerance
+    ) {
       return;
     }
     if (this._isSeeking || Math.abs(clampedTime - this._time) > 0.5) {
-      tracePlayback("clock.native-position", {
-        nativeTime: clampedTime,
-        clockTimeBefore: this._time,
-        isSeeking: this._isSeeking,
-        state: this._state,
-        duration: this._duration,
-      });
     }
     this._nativeClockPosition = {
       time: clampedTime,
@@ -257,7 +264,10 @@ export class PlaybackClock {
    * Set duration.
    */
   setDuration(duration: number): void {
-    const validDuration = typeof duration === "number" && !isNaN(duration) && isFinite(duration) ? duration : 0;
+    const validDuration =
+      typeof duration === "number" && !isNaN(duration) && isFinite(duration)
+        ? duration
+        : 0;
     this._duration = Math.max(0, validDuration);
     this._notifyListeners();
   }
@@ -343,7 +353,9 @@ export class PlaybackClock {
     const currentGeneration = this._generation;
 
     // Start RAF loop with generation check
-    this._rafId = requestAnimationFrame(() => this._tickWithGeneration(currentGeneration));
+    this._rafId = requestAnimationFrame(() =>
+      this._tickWithGeneration(currentGeneration),
+    );
   }
 
   /**
@@ -406,20 +418,13 @@ export class PlaybackClock {
   seek(time: number): void {
     const seekRevision = ++this._seekRevision;
     const wasPlaying = this._state === "playing";
-    tracePlayback("clock.seek.begin", {
-      seekRevision,
-      requestedTime: time,
-      currentTime: this._time,
-      state: this._state,
-      wasPlaying,
-      nativeClockPosition: this._nativeClockPosition?.time ?? null,
-    });
 
     if (wasPlaying) {
       this.pause();
     }
 
-    const validTime = typeof time === "number" && !isNaN(time) && isFinite(time) ? time : 0;
+    const validTime =
+      typeof time === "number" && !isNaN(time) && isFinite(time) ? time : 0;
     const rawTime = Math.max(0, Math.min(validTime, this._duration));
 
     // Snap seek time to nearest frame boundary of the project's frame rate
@@ -427,13 +432,7 @@ export class PlaybackClock {
     this._time = Math.round(rawTime * frameRate) / frameRate;
 
     this._isSeeking = true;
-    tracePlayback("clock.seek.target", {
-      seekRevision,
-      targetTime: this._time,
-      duration: this._duration,
-      frameRate,
-      state: this._state,
-    });
+
     this._notifyListeners();
 
     if (wasPlaying) {
@@ -446,13 +445,13 @@ export class PlaybackClock {
    */
   completeSeek(): void {
     if (!this._isSeeking) return;
-    tracePlayback("clock.seek.complete", {
-      time: this._time,
-      state: this._state,
-      nativeClockPosition: this._nativeClockPosition?.time ?? null,
-    });
+
     this._isSeeking = false;
-    if (this._state === "playing" && this._audioContext && !this._nativeClockAuthority) {
+    if (
+      this._state === "playing" &&
+      this._audioContext &&
+      !this._nativeClockAuthority
+    ) {
       this._playStartAudioTime = this._audioContext.currentTime;
       this._playStartClockTime = this._time;
     }
@@ -492,7 +491,9 @@ export class PlaybackClock {
         this._notifyListeners();
         this._lastNotifyTime = now;
       }
-      this._rafId = requestAnimationFrame(() => this._tickWithGeneration(generation));
+      this._rafId = requestAnimationFrame(() =>
+        this._tickWithGeneration(generation),
+      );
       return;
     }
 
@@ -502,7 +503,9 @@ export class PlaybackClock {
     if (this._nativeClockAuthority || this._nativeClockPosition) {
       newTime = this.time;
     } else if (this._audioContext) {
-      const elapsed = (this._audioContext.currentTime - this._playStartAudioTime) * this._speed;
+      const elapsed =
+        (this._audioContext.currentTime - this._playStartAudioTime) *
+        this._speed;
       newTime = this._playStartClockTime + elapsed;
     } else {
       // Keep the handoff safe before native delivers its first sample.
@@ -534,7 +537,9 @@ export class PlaybackClock {
     }
 
     // Continue loop with generation check
-    this._rafId = requestAnimationFrame(() => this._tickWithGeneration(generation));
+    this._rafId = requestAnimationFrame(() =>
+      this._tickWithGeneration(generation),
+    );
   }
 
   // ─── Stall Compensation ────────────────────────────────────────────────────
@@ -565,7 +570,8 @@ export class PlaybackClock {
       this._stallStartAudioTime = null;
       return;
     }
-    const stallDuration = this._audioContext.currentTime - this._stallStartAudioTime;
+    const stallDuration =
+      this._audioContext.currentTime - this._stallStartAudioTime;
     if (stallDuration > 0 && this._state === "playing") {
       this._playStartAudioTime += stallDuration;
     }

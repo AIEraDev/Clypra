@@ -1,11 +1,20 @@
-import type { AudioChannelMode, AudioDownmixMode, AudioFadeCurve, Clip, MediaAsset, Track } from "@/types";
-import { getActiveAudioClips, type ExportAudioClipConfig } from "@/core/timeline/audioClips";
+import type {
+  AudioChannelMode,
+  AudioDownmixMode,
+  AudioFadeCurve,
+  Clip,
+  MediaAsset,
+  Track,
+} from "@/types";
+import {
+  getActiveAudioClips,
+  type ExportAudioClipConfig,
+} from "@/core/timeline/audioClips";
 import {
   replaceNativeAudioClips,
   startNativeAudio,
 } from "@/lib/platform/tauri";
 import type { NativeAudioClipStatus } from "@/lib/platform/nativeCore";
-import { tracePlayback } from "@/core/playback/playbackTrace";
 
 export const NATIVE_AUDIO_TIME_SCALE = 1_000_000;
 
@@ -22,7 +31,12 @@ export interface NativeAudioTimelineClip {
   fadeInCurve: AudioFadeCurve;
   fadeOutCurve: AudioFadeCurve;
   /** Relative clip ticks, not seconds. */
-  volumeKeyframes: Array<{ id: string; time: number; gain: number; easing?: "linear" | "exponential" | "bezier" }>;
+  volumeKeyframes: Array<{
+    id: string;
+    time: number;
+    gain: number;
+    easing?: "linear" | "exponential" | "bezier";
+  }>;
   channelMode: AudioChannelMode;
   downmix: AudioDownmixMode;
   channelMap?: number[];
@@ -77,30 +91,19 @@ export async function syncNativeAudioTimeline(
   endTime: number,
   options: NativeAudioTimelineOptions = {},
 ): Promise<NativeAudioTimelineSyncResult> {
-  const snapshot = buildNativeAudioTimeline(clips, tracks, assets, startTime, endTime, options);
+  const snapshot = buildNativeAudioTimeline(
+    clips,
+    tracks,
+    assets,
+    startTime,
+    endTime,
+    options,
+  );
   await startNativeAudio();
   // Native decodes the complete candidate before atomically replacing the
   // current graph. This prevents clear-first gaps and stale partial installs.
   const installed = await replaceNativeAudioClips(snapshot.clips);
-  tracePlayback("native.timeline-ready", {
-    clipCount: snapshot.clips.length,
-    installedCount: installed.length,
-    clips: snapshot.clips.map((clip) => ({
-      clipId: clip.clipId,
-      timelineStart: clip.timelineStartTicks / NATIVE_AUDIO_TIME_SCALE,
-      duration: clip.durationTicks / NATIVE_AUDIO_TIME_SCALE,
-      trimIn: clip.sourceStartTicks / NATIVE_AUDIO_TIME_SCALE,
-      gain: clip.gain,
-    })),
-    decoded: installed.map((clip) => ({
-      clipId: clip.id,
-      sampleCount: clip.sampleCount,
-      sampleRate: clip.sampleRate,
-      channels: clip.channels,
-      duration: clip.durationTicks / NATIVE_AUDIO_TIME_SCALE,
-      gain: clip.gain,
-    })),
-  });
+
   return {
     snapshot,
     installed,
@@ -123,11 +126,15 @@ function toNativeAudioTimelineClip(
     fadeOutTicks: secondsToTicks(config.fadeOut),
     fadeInCurve: config.fadeInCurve,
     fadeOutCurve: config.fadeOutCurve,
-    volumeKeyframes: config.volumeKeyframes.map((point) => ({ ...point, time: secondsToTicks(point.time) })),
+    volumeKeyframes: config.volumeKeyframes.map((point) => ({
+      ...point,
+      time: secondsToTicks(point.time),
+    })),
     channelMode: config.channelMode,
     downmix: config.downmix,
     channelMap: config.channelMap,
-    preservePitch: options.preserveTransportPitch === true || config.preservePitch,
+    preservePitch:
+      options.preserveTransportPitch === true || config.preservePitch,
   };
 }
 
