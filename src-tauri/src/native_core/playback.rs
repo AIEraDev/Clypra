@@ -48,10 +48,11 @@ pub fn is_video_late(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NATIVE_CORE_CONTRACT_VERSION;
 
     fn plan() -> PlaybackPlan {
         PlaybackPlan {
-            contract_version: 1,
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
             project_revision: "project:1".to_string(),
             frame_rate: 30,
             duration_frames: 300,
