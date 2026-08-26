@@ -10,7 +10,10 @@ they must have an owner and a deletion gate.
 - [ ] No `PreviewMediaPool` ownership.
 - [ ] No browser playback scheduler owns program frame selection.
 - [ ] No `VideoTextureManager` video decode/compositing path.
-- [x] Native surface receives the authoritative final frame.
+- [x] Native surface receives the authoritative final frame for playback,
+      pause, seek, scrub, and frame-step.
+- [x] Desktop text is sent as typed snapshots; the desktop text raster bridge
+      is no longer part of the native request path.
 
 ## Filmstrip and thumbnails
 
@@ -25,8 +28,9 @@ they must have an owner and a deletion gate.
 - [ ] Native audio output and sample-clock session pass A/V tests.
 - [x] Native surface probe creates/configures the actual Tauri window surface
   without repainting the editor.
-- [ ] Native surface/shared-texture playback passes the platform matrix.
-- [ ] Export consumes the same graph and golden frames as preview.
+- [ ] Native surface/shared-texture playback passes the platform matrix
+      (macOS, Windows, Linux X11, and Wayland hardware validation pending).
+- [x] Export consumes the same versioned frame graph entry point as preview.
 - [ ] Browser source-preview playback is removed.
 - [ ] Legacy browser export frame pools are retired after native export coverage.
 
