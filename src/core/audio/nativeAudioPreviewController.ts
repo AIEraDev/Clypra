@@ -5,7 +5,6 @@ import {
 } from "@/core/playback/PlaybackClock";
 import {
   configureNativePlayback,
-  getNativeAudioDiagnostics,
   getNativeAudioStatus,
   nativePauseFromAudio,
   nativePlayFromAudio,
@@ -61,7 +60,6 @@ export class NativeAudioPreviewController {
   private commandRevision = 0;
   private lastPollTraceAt = 0;
   private lastAudioStatusTraceAt = 0;
-  private audibilityCheckHandle: ReturnType<typeof setTimeout> | null = null;
   /** Latest transport-state intent. Older queued play/pause commands are stale. */
   private transportIntentRevision = 0;
   /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
@@ -210,8 +208,6 @@ export class NativeAudioPreviewController {
       if (this.clock.state === "playing") {
         const nativeState = await nativePlayFromAudio();
         this.adoptNativePosition(nativeState.audioPositionTicks);
-        await this.traceNativeAudioStatus("play");
-        this.scheduleAudibilityCheck();
       } else {
         await pauseNativeAudio();
       }
@@ -232,8 +228,6 @@ export class NativeAudioPreviewController {
     this.unsubscribe = null;
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
-    if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
-    this.audibilityCheckHandle = null;
     this.clock.clearNativeClockPosition();
     this.clock.setNativeClockAuthority(false);
     const pendingCommands = this.commandQueue;
@@ -299,12 +293,9 @@ export class NativeAudioPreviewController {
         const nativeState = await nativePlayFromAudio();
 
         this.adoptNativePosition(nativeState.audioPositionTicks);
-        this.scheduleAudibilityCheck();
       }, "seek-then-play");
     } else if (state.state !== "playing" && previous?.state === "playing") {
       this.restartPolling(false);
-      if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
-      this.audibilityCheckHandle = null;
       this.enqueue(async () => {
         if (
           this.transportIntentRevision !== transportIntentRevision ||
@@ -354,7 +345,6 @@ export class NativeAudioPreviewController {
           Math.max(0, Math.floor(targetTime * this.clock.frameRate)),
         );
         this.adoptNativePosition(nativeState.audioPositionTicks);
-        await this.traceNativeAudioStatus("seek");
       }, "seek");
     }
   }
@@ -392,65 +382,6 @@ export class NativeAudioPreviewController {
     } catch (error) {
       this.reportError(error);
     }
-  }
-
-  private async traceNativeAudioStatus(operation: string): Promise<void> {
-    try {
-      const status = await getNativeAudioStatus();
-    } catch (error) {}
-  }
-
-  /**
-   * Capture a small, derived diagnostic sample after the native callback has
-   * had time to run. The result names the owning boundary of silence while the
-   * native engine remains the only production playback path.
-   */
-  private scheduleAudibilityCheck(): void {
-    if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
-    this.audibilityCheckHandle = setTimeout(() => {
-      this.audibilityCheckHandle = null;
-      void this.traceNativeAudibility();
-    }, 750);
-  }
-
-  private async traceNativeAudibility(): Promise<void> {
-    if (this.disposed || !this.active || this.clock.state !== "playing") return;
-    try {
-      const diagnostics = await getNativeAudioDiagnostics();
-      const { status } = diagnostics;
-      const boundary =
-        diagnostics.installedClips.length === 0
-          ? "clip-discovery-or-install"
-          : diagnostics.activeClipIds.length === 0
-            ? "timeline-activation-or-source-range"
-            : diagnostics.mixerPeak <= 0.000001
-              ? "decode-or-mixer-gain-envelope"
-              : status.callbackCount === 0
-                ? "device-callback"
-                : status.nonSilentFrames === 0
-                  ? "callback-mixer-handoff"
-                  : "device-output-or-system-routing";
-      const evidence = {
-        boundary,
-        installedClipCount: diagnostics.installedClips.length,
-        activeClipIds: diagnostics.activeClipIds,
-        mixerPeak: diagnostics.mixerPeak,
-        clips: diagnostics.clipDiagnostics,
-        running: status.running,
-        playing: status.playing,
-        callbackCount: status.callbackCount,
-        renderedFrames: status.renderedFrames,
-        nonSilentFrames: status.nonSilentFrames,
-        deviceName: status.deviceName,
-        muted: status.muted,
-        volume: status.volume,
-        lastError: status.lastError,
-      };
-      // Native silence evidence must be visible even when optional playback
-      // debug filtering is off. This runs once per Play and never in the
-      // audio callback, so it cannot affect real-time performance.
-      console.info("[native-audio] audibility", evidence);
-    } catch (error) {}
   }
 
   private enqueue(operation: () => Promise<void>, label = "unknown"): void {
