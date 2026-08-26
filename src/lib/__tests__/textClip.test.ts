@@ -64,6 +64,38 @@ const panelBannerEffect = {
 } satisfies TextEffectDefinition & { width: number; height: number; canvasWidth: number; canvasHeight: number; fontSize: number };
 
 describe("calculateTextClipSize", () => {
+  it("measures explicit multiline text using the requested line height", () => {
+    const compact = calculateTextClipSize({
+      text: "A\nB",
+      fontFamily: "Inter",
+      fontSize: 100,
+      lineHeight: 1,
+      canvasWidth: 1920,
+    });
+    const loose = calculateTextClipSize({
+      text: "A\nB",
+      fontFamily: "Inter",
+      fontSize: 100,
+      lineHeight: 2,
+      canvasWidth: 1920,
+    });
+
+    expect(loose.height).toBeGreaterThan(compact.height);
+    expect(loose.bounds.measuredTextWidth).toBeGreaterThan(0);
+  });
+
+  it("keeps empty text ink empty", () => {
+    const empty = calculateTextClipSize({
+      text: "",
+      fontFamily: "Inter",
+      fontSize: 100,
+      canvasWidth: 1920,
+    });
+
+    expect(empty.measuredWidth).toBe(0);
+    expect(empty.bounds.measuredTextHeight).toBe(0);
+  });
+
   it("uses text effect typography when creating a style clip without explicit overrides", () => {
     const clip = createTextClip({
       trackId: "track-1",

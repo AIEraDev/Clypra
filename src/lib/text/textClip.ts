@@ -109,37 +109,66 @@ function measureTextInk(
   text: string,
   fontFamily: string,
   fontSize: number,
-  bold: boolean,
+  fontWeight: string | number | undefined,
+  fontStyle: "normal" | "italic" = "normal",
   letterSpacing = 0,
+  lineHeight = 1.2,
 ): { width: number; height: number } {
+  if (!text) return { width: 0, height: 0 };
+
+  const resolvedWeight =
+    typeof fontWeight === "number"
+      ? String(fontWeight)
+      : fontWeight === "bold"
+        ? "700"
+        : fontWeight || "400";
+  const lines = text.split("\n");
+  const fallbackLineHeight = Math.max(1, fontSize * 0.82);
+
   try {
     const canvas =
       typeof OffscreenCanvas !== "undefined"
         ? new OffscreenCanvas(1, 1)
         : document.createElement("canvas");
     const ctx = canvas.getContext("2d") as any;
-    if (!ctx)
+    if (!ctx) {
+      const longestLine = lines.reduce(
+        (longest, line) => Math.max(longest, line.length),
+        0,
+      );
       return {
-        width:
-          text.length * fontSize * 0.6 +
-          Math.max(0, text.length - 1) * letterSpacing,
-        height: fontSize * 0.82,
+        width: longestLine * fontSize * 0.6 + Math.max(0, longestLine - 1) * letterSpacing,
+        height: fallbackLineHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
       };
-    ctx.font = `${bold ? "bold" : "normal"} ${fontSize}px ${fontFamily}`;
-    const metrics = ctx.measureText(text);
-    const metricsHeight =
-      Number(metrics.actualBoundingBoxAscent ?? 0) +
-      Number(metrics.actualBoundingBoxDescent ?? 0);
+    }
+    ctx.font = `${fontStyle} ${resolvedWeight} ${fontSize}px ${fontFamily}`;
+    let width = 0;
+    let lineInkHeight = 0;
+    for (const line of lines) {
+      const metrics = ctx.measureText(line);
+      width = Math.max(
+        width,
+        Number(metrics.width ?? 0) + Math.max(0, line.length - 1) * letterSpacing,
+      );
+      lineInkHeight = Math.max(
+        lineInkHeight,
+        Number(metrics.actualBoundingBoxAscent ?? 0) +
+          Number(metrics.actualBoundingBoxDescent ?? 0),
+      );
+    }
+    lineInkHeight = Math.max(lineInkHeight, fallbackLineHeight);
     return {
-      width: metrics.width + Math.max(0, text.length - 1) * letterSpacing,
-      height: metricsHeight > 0 ? metricsHeight : fontSize * 0.82,
+      width,
+      height: lineInkHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
     };
   } catch (e) {
+    const longestLine = lines.reduce(
+      (longest, line) => Math.max(longest, line.length),
+      0,
+    );
     return {
-      width:
-        text.length * fontSize * 0.6 +
-        Math.max(0, text.length - 1) * letterSpacing,
-      height: fontSize * 0.82,
+      width: longestLine * fontSize * 0.6 + Math.max(0, longestLine - 1) * letterSpacing,
+      height: fallbackLineHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
     };
   }
 }
@@ -313,6 +342,7 @@ export function measureTextEffectContentBounds(options: {
   fontSize: number;
   bold?: boolean;
   fontWeight?: string | number;
+  fontStyle?: "normal" | "italic";
   letterSpacing?: number;
   lineHeight?: number;
   styleId?: string;
@@ -330,12 +360,16 @@ export function measureTextEffectContentBounds(options: {
     (typeof options.fontWeight === "number" && options.fontWeight >= 700);
   const letterSpacing =
     options.letterSpacing ?? options.effectDefinition?.font?.letterSpacing ?? 0;
+  const lineHeight =
+    options.lineHeight ?? options.effectDefinition?.font?.lineHeight ?? 1.2;
   const measured = measureTextInk(
     options.text,
     options.fontFamily,
     options.fontSize,
-    !!isBold,
+    options.fontWeight ?? (isBold ? "700" : "400"),
+    options.fontStyle ?? options.effectDefinition?.font?.style ?? "normal",
     letterSpacing,
+    lineHeight,
   );
   const renderBleed = effectBleed(options);
   const hasDeclaredBounds = !!options.effectDefinition?.boundingBox;
@@ -389,14 +423,18 @@ export function measureTextEffectContentBounds(options: {
     1,
     width - contentPaddingX * 2 - selectionInset * 2,
   );
+  const explicitLineCount = Math.max(1, options.text.split("\n").length);
   const wrappedLineCount = Math.max(
-    1,
+    explicitLineCount,
     Math.ceil(measured.width / contentInnerWidth),
   );
   const textHeight =
     source === "panel"
-      ? options.fontSize * wrappedLineCount
-      : measured.height * wrappedLineCount;
+      ? options.fontSize * lineHeight * wrappedLineCount
+      : measured.height +
+        Math.max(0, wrappedLineCount - explicitLineCount) *
+          options.fontSize *
+          lineHeight;
   const height = Math.max(
     24,
     textHeight + contentPaddingY * 2 + selectionInset * 2,
@@ -422,6 +460,7 @@ export function calculateTextClipSize(options: {
   fontSize: number;
   bold?: boolean;
   fontWeight?: string | number;
+  fontStyle?: "normal" | "italic";
   letterSpacing?: number;
   lineHeight?: number;
   styleId?: string;
@@ -831,6 +870,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
       fontSize,
       bold,
       fontWeight,
+      fontStyle,
       letterSpacing,
       lineHeight,
       styleId,
@@ -1104,12 +1144,14 @@ function calculateTextClipContentTransform(
     effectDefinition?.font?.family ??
     "Inter, system-ui, sans-serif";
   const fontWeight = merged.fontWeight ?? effectDefinition?.font?.weight;
+  const fontStyle = merged.fontStyle ?? effectDefinition?.font?.style;
 
   const sizing = calculateTextClipSize({
     text,
     fontFamily,
     fontSize,
     fontWeight,
+    fontStyle,
     letterSpacing: merged.letterSpacing,
     lineHeight: merged.lineHeight,
     styleId,
