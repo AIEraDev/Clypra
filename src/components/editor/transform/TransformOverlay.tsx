@@ -1225,6 +1225,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           data-transform-handle="move"
           style={{
             background: "transparent",
+            cursor: "move",
           }}
           onMouseDown={(e) => handleMouseDown(e, "move")}
         />
@@ -1499,6 +1500,7 @@ const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left,
       className={cursorClass}
       style={{
         ...style,
+        cursor,
         transform: `${style.transform ?? "translate(-50%, -50%)"} rotate(${-rotation}deg)`,
         transformOrigin: "center",
       }}
