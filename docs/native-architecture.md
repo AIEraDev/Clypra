@@ -11,7 +11,8 @@ All native changes also follow the project-wide
 authority failure must be diagnosed at its owning boundary, never hidden by a
 silent browser fallback.
 
-Status: migration branch `codex/native-architecture-migration`.
+Status: desktop native authority migration is active; contract v2 is the
+current wire format.
 
 ## Authority
 
@@ -95,8 +96,12 @@ native cache, native frame command, playback policy/session types, and a real
 main-thread Tauri/wgpu child-surface setup that retains a transparent,
 pointer-transparent preview surface for the preview session. Filmstrip
 migration and paused native frames are active
-on desktop. The native playback coordinator is now exposed as an opt-in
-command boundary without taking authority from the current browser adapter.
+on desktop. Paused, seek, scrub, frame-step, and continuous preview requests
+now target that retained surface; RGBA readback remains an export/diagnostic
+operation only. Text snapshots carry resolved font variants, alignment,
+panels, stroke/shadow, karaoke runs, template data, and normalized effect
+passes. Native font registration is explicit and authoritative lookup rejects
+missing families.
 The native audio gate now has a CPAL output stream and hardware callback clock,
 bounded FFmpeg-to-f32 PCM decoding, and a deterministic bounded multi-clip
 mixer with timeline seek, pause, gain, overlap summing, and device-rate
@@ -104,9 +109,11 @@ conversion. The Tauri program preview now performs a controlled native-audio
 takeover and samples that clock into the shared PlaybackClock, including speed
 and seek re-anchoring. Representable video scenes also have a non-blocking
 continuous native-frame path. Direct
-surface presentation is now implemented as a retained child-surface command
-with physical-pixel positioning, stale-request rejection, and swapchain
-recovery. Full native effects/text and legacy retirement remain gated work.
+surface presentation is implemented as a retained child-surface command with
+physical-pixel positioning, stale-request rejection, and swapchain recovery.
+Remaining graph work is tracked explicitly by native-only blockers (notably
+procedural backgrounds, Lottie/smart-overlay primitives, and the remaining
+text effect shader primitives) until their pixels are produced in Rust.
 
 ## Cross-Platform Tolerance
 
