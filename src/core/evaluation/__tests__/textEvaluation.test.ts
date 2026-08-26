@@ -85,6 +85,42 @@ describe("Text Layer Evaluation", () => {
     }
   });
 
+  it("keeps an explicitly empty text clip empty", () => {
+    const textClip: TextClip = {
+      id: "empty-text",
+      kind: "text",
+      trackId: "t1",
+      mediaId: "",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 100,
+      y: 200,
+      width: 800,
+      height: 100,
+      opacity: 1,
+      rotation: 0,
+      text: "",
+      fontSize: 48,
+      fontFamily: "Inter",
+      color: "#ffffff",
+      fontWeight: "normal",
+      fontStyle: "normal",
+      align: "center",
+      valign: "middle",
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      paddingX: 16,
+      paddingY: 16,
+    };
+
+    const scene = evaluateScene(1, [textClip], tracks, [], project);
+    const layer = scene.visualLayers[0];
+    expect(layer.layerType).toBe("text");
+    if (layer.layerType === "text") expect(layer.text).toBe("");
+  });
+
   it("uses cached text effect font when styled clip has no explicit font family", () => {
     useEffectsStore.setState({
       definitions: {
