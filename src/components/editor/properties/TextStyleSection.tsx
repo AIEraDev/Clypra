@@ -187,7 +187,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
     }
 
     if (newMode === "plain") {
-      const textContent = textClip.templateId ? customization.layerTexts?.[innerTemplate?.layers?.find((l: any) => l.kind === "text")?.id || ""] || customization.primaryText || textClip.text || "Text" : textClip.text;
+      const textContent = textClip.templateId ? customization.layerTexts?.[innerTemplate?.layers?.find((l: any) => l.kind === "text")?.id || ""] ?? customization.primaryText ?? textClip.text ?? "" : textClip.text;
 
       handleUpdateMultiple({
         templateId: undefined,
@@ -197,7 +197,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
         text: textContent,
       });
     } else if (newMode === "effect") {
-      const textContent = textClip.templateId ? customization.layerTexts?.[innerTemplate?.layers?.find((l: any) => l.kind === "text")?.id || ""] || customization.primaryText || textClip.text || "Text" : textClip.text;
+      const textContent = textClip.templateId ? customization.layerTexts?.[innerTemplate?.layers?.find((l: any) => l.kind === "text")?.id || ""] ?? customization.primaryText ?? textClip.text ?? "" : textClip.text;
 
       handleUpdateMultiple({
         templateId: undefined,
@@ -350,7 +350,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
                 customization={customization}
                 onChange={(nextCust) => {
                   const firstTextLayer = innerTemplate?.layers?.find((l: any) => l.kind === "text");
-                  const primaryTextVal = nextCust.layerTexts?.[firstTextLayer?.id || ""] || nextCust.primaryText || textClip.text;
+                  const primaryTextVal = nextCust.layerTexts?.[firstTextLayer?.id || ""] ?? nextCust.primaryText ?? textClip.text;
 
                   handleUpdateMultiple({
                     customization: nextCust,
