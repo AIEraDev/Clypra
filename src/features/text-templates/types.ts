@@ -76,16 +76,16 @@ export interface TemplateElement {
 
 export interface TemplateDefinition {
   id: string;
-  version: number;
-  displayName: string;
+  version?: number;
+  displayName?: string;
   category: TemplateCategory;
   description?: string;
   thumbnailUrl?: string;
   previewVideoUrl?: string;
   canvasWidth: number;
   canvasHeight: number;
-  defaultDuration: number;
-  elements: TemplateElement[];
+  defaultDuration?: number;
+  elements?: TemplateElement[];
 
   // Compatibility fields for legacy templates
   name?: string;
@@ -93,9 +93,19 @@ export interface TemplateDefinition {
   thumbnail?: string;
   preview?: string;
   duration?: number;
+  durationFrames?: number;
+  thumbnailFrame?: number;
   layers?: any[];
   templateData?: any;
   lottieData?: any;
+  tags?: string[];
+  fps?: number;
+  width?: number;
+  height?: number;
+  textLayers?: any[];
+  defaultPlacement?: string;
+  lottieFile?: string;
+  [key: string]: any;
 }
 
 // Backwards compatibility alias

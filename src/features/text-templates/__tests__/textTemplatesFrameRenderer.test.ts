@@ -13,6 +13,8 @@ vi.mock("@clypra-studio/engine", () => ({
 describe("Text Templates — Frame Renderer & Sequence Export Safety", () => {
   const mockTemplate: TextTemplate = {
     id: "tmpl-1",
+    version: 1,
+    displayName: "Cyber Motion",
     name: "Cyber Motion",
     label: "Cyber Motion",
     category: "title-card",
@@ -20,7 +22,9 @@ describe("Text Templates — Frame Renderer & Sequence Export Safety", () => {
     preview: "",
     canvasWidth: 1920,
     canvasHeight: 1080,
+    defaultDuration: 0.1,
     duration: 0.1, // 0.1s at 30fps = 3 frames
+    elements: [],
     layers: [
       { id: "layer-1", kind: "text", role: "primary", content: "Original" } as any,
       { id: "primary-fill-layer", kind: "shape" } as any,
