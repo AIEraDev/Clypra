@@ -13,6 +13,8 @@ import { TextModeSelector } from "./TextModeSelector";
 import { EffectStylePanel } from "./EffectStylePanel";
 import { TemplateLayerEditor } from "./TemplateLayerEditor";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
+import { isTauriRuntime } from "@/lib/platform/tauri";
+import { getBundledNativeFontIds } from "@/core/fonts/nativeFontRegistry";
 
 // Extracted font list for maintainability
 const SYSTEM_FONTS = [
@@ -116,6 +118,13 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
 
   // Determine current mode
   const mode = textClip.templateId ? "template" : textClip.styleId ? "effect" : "plain";
+  const nativeDesktop = isTauriRuntime();
+  const nativeFontIds = React.useMemo(
+    () => new Set(getBundledNativeFontIds().map((fontId) => fontId.toLowerCase())),
+    [],
+  );
+  const selectedFont = normalizeFontFamily(textClip.fontFamily || effectFont?.family || "Inter Variable");
+  const selectedFontIsUnavailableNatively = nativeDesktop && !nativeFontIds.has(selectedFont.toLowerCase());
 
   // Styling properties to batch-update across all caption clips on the same track
   const CAPTION_STYLE_KEYS = ["fontFamily", "fontSize", "color", "fontWeight", "fontStyle", "stroke", "shadow", "background", "lineHeight", "letterSpacing", "align", "valign"];
@@ -475,22 +484,32 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
             {/* Font Family */}
             <div>
               <label className="text-[10px] font-medium text-text-muted block mb-1 select-none">Font Family</label>
-              <select value={normalizeFontFamily(textClip.fontFamily || effectFont?.family || "Inter Variable")} onChange={(e) => handleCustomStyleUpdate("fontFamily", e.target.value)} className="w-full bg-surface-raised border border-border/60 rounded-md px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_8px_center] pr-7">
-                <optgroup label="System Fonts">
-                  {SYSTEM_FONTS.map((f) => (
-                    <option key={f.value} value={f.value}>
-                      {f.label}
+              <select value={selectedFont} onChange={(e) => handleCustomStyleUpdate("fontFamily", e.target.value)} className="w-full bg-surface-raised border border-border/60 rounded-md px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[right_8px_center] pr-7">
+                {!nativeDesktop && (
+                  <optgroup label="System Fonts">
+                    {SYSTEM_FONTS.map((f) => (
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label={nativeDesktop ? "Native Fonts" : "Google Web Fonts"}>
+                  {selectedFontIsUnavailableNatively && (
+                    <option value={selectedFont} disabled>
+                      {selectedFont} (not supported by native preview)
                     </option>
-                  ))}
-                </optgroup>
-                <optgroup label="Google Web Fonts">
-                  {GOOGLE_FONTS.map((f) => (
+                  )}
+                  {GOOGLE_FONTS.filter((font) => !nativeDesktop || nativeFontIds.has(font.value.toLowerCase())).map((f) => (
                     <option key={f.value} value={f.value}>
                       {f.label}
                     </option>
                   ))}
                 </optgroup>
               </select>
+              {nativeDesktop && (
+                <p className="mt-1 text-[10px] text-text-muted">Desktop preview supports the bundled native fonts shown here.</p>
+              )}
             </div>
 
             {/* Font Size */}
