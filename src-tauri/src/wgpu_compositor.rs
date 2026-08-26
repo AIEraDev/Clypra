@@ -454,21 +454,105 @@ impl NativePreviewSession {
         }));
         let target_view = Arc::new(target_texture.create_view(&wgpu::TextureViewDescriptor::default()));
 
-        // Execute raw text DistanceThreshold pass (fill color + AA)
+        if shaped.is_truncated {
+            eprintln!(
+                "[NativeCompositor] Warning: Text layer '{}' exceeded max canvas dimension and was safely truncated to ({}x{})",
+                layer.text, shaped.width, shaped.height
+            );
+        }
+
+        // Execute pass-chain based on layer.effect definition/overrides
+        let mut commands = Vec::new();
+
+        if let Some(effect) = &layer.effect {
+            let effect_id = effect.effect_id.to_lowercase();
+            let overrides = &effect.parameter_overrides;
+
+            // 1. Drop shadow pass (if applicable)
+            if effect_id.contains("shadow") || effect_id.contains("3d") || effect_id.contains("glitch") || overrides.contains_key("shadow_color") || overrides.contains_key("shadowColor") {
+                let mut shadow_params = DropShadowParams::default();
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("shadow_color").or_else(|| overrides.get("shadowColor")) {
+                    shadow_params.color = *c;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(r)) = overrides.get("shadow_radius").or_else(|| overrides.get("shadowBlur")).or_else(|| overrides.get("radius")) {
+                    shadow_params.radius = *r;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Vec2(off)) = overrides.get("shadow_offset").or_else(|| overrides.get("offset")) {
+                    shadow_params.offset_x = off[0];
+                    shadow_params.offset_y = off[1];
+                }
+                commands.push(self.text_pipeline.render_drop_shadow(
+                    &self.gpu.device,
+                    &sdf_view,
+                    &target_view,
+                    &shadow_params,
+                ));
+            }
+
+            // 2. Glow pass (if applicable)
+            if effect_id.contains("glow") || effect_id.contains("neon") || overrides.contains_key("glow_color") || overrides.contains_key("glowColor") {
+                let mut glow_params = GlowParams::default();
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("glow_color").or_else(|| overrides.get("glowColor")) {
+                    glow_params.color = *c;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(r)) = overrides.get("glow_radius").or_else(|| overrides.get("glowRadius")).or_else(|| overrides.get("radius")) {
+                    glow_params.radius = *r;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(i)) = overrides.get("glow_intensity").or_else(|| overrides.get("intensity")) {
+                    glow_params.intensity = *i;
+                }
+                commands.push(self.text_pipeline.render_glow(
+                    &self.gpu.device,
+                    &sdf_view,
+                    &target_view,
+                    &glow_params,
+                ));
+            }
+
+            // 3. Outline pass (if applicable)
+            if effect_id.contains("outline") || effect_id.contains("stroke") || overrides.contains_key("outline_color") || overrides.contains_key("outlineColor") {
+                let mut outline_params = OutlineParams::default();
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("outline_color").or_else(|| overrides.get("outlineColor")) {
+                    outline_params.color = *c;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(w)) = overrides.get("outline_width").or_else(|| overrides.get("strokeWidth")).or_else(|| overrides.get("width")) {
+                    outline_params.width = *w;
+                }
+                commands.push(self.text_pipeline.render_outline(
+                    &self.gpu.device,
+                    &sdf_view,
+                    &target_view,
+                    &outline_params,
+                ));
+            }
+        }
+
+        // Always execute core fill pass (DistanceThreshold)
+        let fill_color = if let Some(effect) = &layer.effect {
+            if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = effect.parameter_overrides.get("text_color").or_else(|| effect.parameter_overrides.get("fillColor")).or_else(|| effect.parameter_overrides.get("color")) {
+                *c
+            } else {
+                layer.color
+            }
+        } else {
+            layer.color
+        };
+
         let params = DistanceThresholdParams {
             threshold: 0.502,
             smoothing: 0.02,
             sdf_scale: 1.0,
             _pad: 0.0,
-            color: layer.color,
+            color: fill_color,
         };
-        let cmd = self.text_pipeline.render_distance_threshold(
+        commands.push(self.text_pipeline.render_distance_threshold(
             &self.gpu.device,
             &sdf_view,
             &target_view,
             &params,
-        );
-        self.gpu.queue.submit([cmd]);
+        ));
+
+        self.gpu.queue.submit(commands);
 
         self.text_cache.insert(key, Arc::clone(&target_texture), Arc::clone(&target_view), shaped.width, shaped.height);
 

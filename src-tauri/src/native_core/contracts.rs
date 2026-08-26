@@ -443,6 +443,52 @@ fn default_blend_mode() -> String {
     "normal".to_string()
 }
 
+/// Text template element kind (§3 Architecture Plan).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateElementKind {
+    Text,
+    SolidBackground,
+    Image,
+}
+
+/// Child element snapshot within a template definition (§3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateElementSnapshot {
+    pub id: String,
+    pub kind: TemplateElementKind,
+    pub relative_x: f32,
+    pub relative_y: f32,
+    pub width: f32,
+    pub height: f32,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(default)]
+    pub text_layer: Option<TextLayerSnapshot>,
+    #[serde(default)]
+    pub solid_color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub image_asset_id: Option<String>,
+}
+
+/// Template definition snapshot (§3).
+/// Instantiating this definition produces an independent compound clip snapshot on the timeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateDefinitionSnapshot {
+    pub id: String,
+    pub version: u32,
+    pub display_name: String,
+    pub category: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub canvas_width: u32,
+    pub canvas_height: u32,
+    pub default_duration_secs: f32,
+    pub elements: Vec<TemplateElementSnapshot>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSnapshot {
