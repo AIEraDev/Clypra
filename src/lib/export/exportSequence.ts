@@ -8,8 +8,8 @@
 
 import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
-import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
-import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
+import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 
@@ -203,11 +203,20 @@ export async function exportSequence(options: ExportSequenceOptions): Promise<Ex
           { frameKey },
         );
         const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
-          ? buildNativeVideoProjectRequest(scene, [...rasterLayers, ...smartOverlayRasters])
+          ? buildNativeFrameRequest(
+              scene,
+              `${project?.id ?? "export"}:${epoch}`,
+              frameKey,
+              frameRate,
+              width,
+              height,
+              [...rasterLayers, ...smartOverlayRasters],
+              { mode: "frameStep", quality: "full" },
+            )
           : null;
         if (nativeRequest) {
           try {
-            blob = await nativeFrameToBlob(await renderNativeVideoProjectFrame(nativeRequest));
+            blob = await nativeFrameToBlob(await renderNativeFrame(nativeRequest));
           } catch (error) {
             throw new Error(`[ExportSequence] Native frame failed: ${error instanceof Error ? error.message : String(error)}`);
           }
