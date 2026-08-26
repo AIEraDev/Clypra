@@ -8,6 +8,7 @@ use fontdue::{Font, FontSettings};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::io::Cursor;
 use std::sync::{Arc, OnceLock};
 
 /// Bundled compatibility font bytes (Inconsolata Regular).
@@ -36,7 +37,22 @@ impl FontRegistry {
     /// Register a font from raw TTF/OTF bytes.
     /// Returns the 64-bit content hash of the registered font.
     pub fn register_font(&self, font_id: &str, font_bytes: &[u8]) -> Result<u64, String> {
-        let font = Font::from_bytes(font_bytes, FontSettings::default())
+        if font_id.trim().is_empty() {
+            return Err("Native font id must not be empty".to_string());
+        }
+
+        // The web editor bundles fonts as WOFF2. Convert at the native
+        // boundary so the same deterministic registration API accepts both
+        // editor assets and user-provided TTF/OTF files.
+        let decoded_woff2;
+        let parse_bytes = if woff2::decode::is_woff2(font_bytes) {
+            decoded_woff2 = woff2::convert_woff2_to_ttf(&mut Cursor::new(font_bytes))
+                .map_err(|error| format!("Failed to decode WOFF2 font '{font_id}': {error}"))?;
+            decoded_woff2.as_slice()
+        } else {
+            font_bytes
+        };
+        let font = Font::from_bytes(parse_bytes, FontSettings::default())
             .map_err(|e| format!("Failed to parse font '{font_id}': {e}"))?;
 
         // Compute 64-bit content hash of font bytes
