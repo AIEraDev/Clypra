@@ -297,6 +297,10 @@ export const NativeProgramPreview: React.FC = () => {
       ),
     } satisfies PrecomputedSceneVersions,
   });
+  // The native render loop is event-driven while paused. React/store changes
+  // use this wake-up hook to request exactly one new frame instead of keeping
+  // an idle RAF loop alive.
+  const wakeNativeRenderLoopRef = useRef<(() => void) | null>(null);
 
   showTelemetryRef.current = showTelemetry;
 
@@ -1240,6 +1244,7 @@ export const NativeProgramPreview: React.FC = () => {
         void renderLoop();
       });
     };
+    wakeNativeRenderLoopRef.current = scheduleNextFrame;
 
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
@@ -2010,7 +2015,17 @@ export const NativeProgramPreview: React.FC = () => {
         nativeRetryAt = performance.now() + 250;
       } finally {
         renderInFlight = false;
-        scheduleNextFrame();
+        const latest = renderStateRef.current;
+        const hasPendingVisualChange =
+          latest.clock.state === "playing" ||
+          forceRenderNeeded ||
+          latest.clips !== lastRenderedClips ||
+          latest.tracks !== lastRenderedTracks ||
+          latest.transitions !== lastRenderedTransitions ||
+          latest.project !== lastRenderedProject ||
+          getFrameIndexAtTime(latest.clock.time, latest.clock.frameRate) !==
+            lastRenderedFrameIndex;
+        if (hasPendingVisualChange) scheduleNextFrame();
       }
     };
 
@@ -2042,6 +2057,7 @@ export const NativeProgramPreview: React.FC = () => {
           );
         }
       }
+      scheduleNextFrame();
     });
 
     scheduleNextFrame();
@@ -2051,6 +2067,9 @@ export const NativeProgramPreview: React.FC = () => {
       unsubscribeSeekIntent?.();
       nativePreviewScheduler.dispose();
       nativeRasterBridge.dispose();
+      if (wakeNativeRenderLoopRef.current === scheduleNextFrame) {
+        wakeNativeRenderLoopRef.current = null;
+      }
       if (rafId !== null) cancelAnimationFrame(rafId);
       frameScheduled = false;
     };
@@ -2062,6 +2081,24 @@ export const NativeProgramPreview: React.FC = () => {
     // nativeSurfaceReadyRef.current inside the loop, preventing the loop from restarting
     // (and emitting a blank frame) on every native surface probe and window resize.
   }, [canvasEl, project?.id]);
+
+  // Wake the paused native renderer for timeline edits, text input, seeks,
+  // and viewport changes. The loop itself decides whether one frame is
+  // actually needed and then goes idle again.
+  useEffect(() => {
+    wakeNativeRenderLoopRef.current?.();
+  }, [
+    clips,
+    tracks,
+    transitions,
+    mediaAssets,
+    epoch,
+    clockState.state,
+    clockState.time,
+    dimensions.width,
+    dimensions.height,
+    previewQuality,
+  ]);
 
   useEffect(() => {
     setActiveContext("program");
