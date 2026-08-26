@@ -47,8 +47,10 @@ pub mod native_core {
         BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime,
         NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState,
         ProjectSnapshot, QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot,
-        TemplateElementKind, TemplateElementSnapshot, TextEffectInstance, TextLayerSnapshot,
-        TextParamValue, TransitionSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE,
+        TemplateElementKind, TemplateElementSnapshot, TextBackgroundSnapshot, TextEffectDefinitionSnapshot,
+        TextEffectInstance, TextEffectPassSnapshot,
+        TextLayerSnapshot, TextParamValue, TextRunSnapshot, TransitionSnapshot, VideoLayerSnapshot,
+        DEFAULT_TIME_SCALE,
         NATIVE_CORE_CONTRACT_VERSION,
     };
     pub use crate::font_registry::{global_font_registry, FontRegistry, DEFAULT_FONT_ID};
@@ -73,8 +75,10 @@ pub use contracts::{
     BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime,
     NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState, ProjectSnapshot,
     QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot, TemplateElementKind,
-    TemplateElementSnapshot, TextEffectInstance, TextLayerSnapshot, TextParamValue,
-    TransitionSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
+    TemplateElementSnapshot, TextBackgroundSnapshot, TextEffectDefinitionSnapshot,
+    TextEffectInstance, TextEffectPassSnapshot, TextLayerSnapshot,
+    TextParamValue, TextRunSnapshot, TransitionSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE,
+    NATIVE_CORE_CONTRACT_VERSION,
 };
 pub use font_registry::{global_font_registry, FontRegistry, DEFAULT_FONT_ID};
 pub use glyph_cache::{global_glyph_cache, GlyphSdfCache, SdfGlyph, ShapedTextSdf, TextAlign};
