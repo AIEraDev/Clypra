@@ -212,6 +212,7 @@ pub fn run() {
             render_native_video_project_frame,
             render_native_frame,
             register_native_font,
+            register_native_font_bytes,
             list_native_fonts,
             queue_native_frame,
             cancel_native_preview_requests,
