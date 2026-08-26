@@ -15,6 +15,7 @@ import { formatSplitMessage } from "@/lib/timeline/clipName";
 
 import { clipboardService } from "@/core/clipboard/clipboardService";
 import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActions";
+import { useSettingsStore } from "@/store/settingsStore";
 
 export const useKeyboardShortcuts = () => {
   const { pause, seek, setActiveContext, togglePlayback } = useTransportControls();
@@ -348,6 +349,19 @@ export const useKeyboardShortcuts = () => {
 
         const track = useTimelineStore.getState().tracks.find((t) => t.id === selectedTrackId);
         toast.info(track?.muted ? "Track muted" : "Track unmuted");
+      } else if (isMeta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        // Ctrl/Cmd+B: Toggle media sidebar
+        const settings = useSettingsStore.getState();
+        settings.setSidebarCollapsed(!settings.sidebarCollapsed);
+      } else if (
+        (e.altKey && !isMeta && !e.shiftKey && e.key.toLowerCase() === "p") ||
+        (isMeta && e.shiftKey && e.key.toLowerCase() === "p")
+      ) {
+        e.preventDefault();
+        // Alt+P or Ctrl/Cmd+Shift+P: Toggle properties panel
+        const settings = useSettingsStore.getState();
+        settings.setPropertiesPanelCollapsed(!settings.propertiesPanelCollapsed);
       } else if (isMeta && e.altKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
         // Ctrl/Cmd+Alt+P: Pack selected track (remove gaps)
