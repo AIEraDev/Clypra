@@ -77,6 +77,9 @@ importers:
       '@fontsource/lato':
         specifier: ^5.2.7
         version: 5.3.0
+      '@fontsource/noto-emoji':
+        specifier: 5.3.0
+        version: 5.3.0
       '@fontsource/pacifico':
         specifier: ^5.2.7
         version: 5.3.0
@@ -705,6 +708,9 @@ packages:
 
   '@fontsource/lato@5.3.0':
     resolution: {integrity: sha512-0WhF/4rhrw+ErIyneKvhHn2YAl+xf8GDtllgOgOzDmeaSlLQtjpChXaQOpWhG2BchQW0WJy2zLV12Hdg0ndOMw==}
+
+  '@fontsource/noto-emoji@5.3.0':
+    resolution: {integrity: sha512-y/aOmKKsVYi91vu3jwcrcyFN6Q80YV8UG9U5KGbV+Fxmfxr2lzSRmDkGSLaTdHPjJI+niiknSFixL+x7ti6gNg==}
 
   '@fontsource/pacifico@5.3.0':
     resolution: {integrity: sha512-bWv0fHR1n36p7scRn+maaEaVeQCOq9yvfVfjyAeUzKrK4Y/3qiRAEj4hJgfxj/sjgZZGkeHyKPrbWdDaZtpCVw==}
@@ -4448,6 +4454,8 @@ snapshots:
   '@fontsource/bebas-neue@5.3.0': {}
 
   '@fontsource/lato@5.3.0': {}
+
+  '@fontsource/noto-emoji@5.3.0': {}
 
   '@fontsource/pacifico@5.3.0': {}
 
