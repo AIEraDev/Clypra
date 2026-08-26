@@ -42,6 +42,58 @@ function parseColorToRgba(color: string): [number, number, number, number] {
   }
   return [1, 1, 1, 1];
 }
+
+function normalizeNativeTextEffect(
+  layer: EvaluatedTextLayer,
+): NativeTextLayerSnapshot["effect"] {
+  const normalizeParam = (value: unknown): number | string | [number, number] | [number, number, number, number] | undefined => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") return value;
+    if (Array.isArray(value) && value.every((item) => typeof item === "number" && Number.isFinite(item))) {
+      if (value.length === 2) return value as [number, number];
+      if (value.length === 4) return value as [number, number, number, number];
+    }
+    return undefined;
+  };
+  const definition = layer.styleDefinition as
+    | (typeof layer.styleDefinition & {
+        id?: string;
+        version?: number;
+        name?: string;
+        passes?: Array<{
+          primitive?: string;
+          tier?: string;
+          params?: Record<string, unknown>;
+        }>;
+      })
+    | undefined;
+  if (!layer.styleId && !definition?.id) return undefined;
+
+  return {
+    effectId: layer.styleId ?? definition?.id ?? "native-text-effect",
+    effectVersion: definition?.version ?? 1,
+    ...(definition?.passes
+      ? {
+          definition: {
+            displayName: definition.name,
+            passes: definition.passes.map((pass) => ({
+              primitive: pass.primitive ?? "distance_threshold",
+              tier: pass.tier,
+              ...(pass.params
+                ? {
+                    params: Object.fromEntries(
+                      Object.entries(pass.params)
+                        .map(([key, value]) => [key, normalizeParam(value)] as const)
+                        .filter((entry): entry is [string, number | string | [number, number] | [number, number, number, number]] => entry[1] !== undefined),
+                    ),
+                  }
+                : {}),
+            })),
+          },
+        }
+      : {}),
+  };
+}
 import {
   DEFAULT_NATIVE_COLOR_POLICY,
   createNativeFrameRequest,
@@ -52,6 +104,7 @@ import {
   type NativeTransitionSnapshot,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
+  type NativeTextLayerSnapshot,
 } from "@/lib/platform/nativeCore";
 
 const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
@@ -997,14 +1050,24 @@ export function buildNativeVideoProjectRequest(
 
   const nativeTextLayers = textLayers.map((layer) => {
     const color = parseColorToRgba(layer.color || "#ffffff");
+    const effect = normalizeNativeTextEffect(layer);
     return {
       text: layer.text || "",
       fontId: layer.fontFamily || "default",
       fontSize: layer.fontSize,
+      fontWeight: typeof layer.fontWeight === "number" ? String(layer.fontWeight) : layer.fontWeight,
+      fontStyle: layer.fontStyle,
       letterSpacing: layer.letterSpacing ?? 0,
       lineHeight: layer.lineHeight ?? 1.2,
       color,
       textAlign: layer.textAlign || "left",
+      verticalAlign: layer.verticalAlign || "middle",
+      runs: layer.runs?.map((run) => ({
+        text: run.text,
+        ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
+        highlighted: run.highlighted === true,
+      })),
+      ...(layer.templateId ? { templateId: layer.templateId, templateData: layer.customization } : {}),
       x: layer.x,
       y: layer.y,
       boxWidth: layer.width,
@@ -1022,12 +1085,14 @@ export function buildNativeVideoProjectRequest(
         shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
         shadowBlur: layer.shadow.blur,
       } : {}),
-      ...(layer.styleId ? {
-        effect: {
-          effectId: layer.styleId,
-          effectVersion: 1,
+      ...(layer.background ? {
+        background: {
+          color: parseColorToRgba(layer.background.color),
+          padding: layer.background.padding,
+          borderRadius: layer.background.borderRadius,
         },
       } : {}),
+      ...(effect ? { effect } : {}),
     };
   });
 
@@ -1075,6 +1140,18 @@ export function getNativePreviewBlockers(
   }
 
   const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+  for (const layer of textLayers) {
+    if (layer.templateId) {
+      add(`Text template ${layer.templateId} requires native template primitives.`);
+    }
+    const passes = (layer.styleDefinition as { passes?: Array<{ primitive?: string }> } | undefined)?.passes ?? [];
+    for (const pass of passes) {
+      const primitive = (pass.primitive ?? "").toLowerCase().replace(/-/g, "_");
+      if (!["distance_threshold", "fill", "outline", "stroke", "glow", "drop_shadow", "shadow"].includes(primitive)) {
+        add(`Text effect primitive "${pass.primitive ?? "unknown"}" on layer ${layer.layerId} is not implemented by the native renderer.`);
+      }
+    }
+  }
 
   const mediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer),
@@ -1214,10 +1291,13 @@ export function buildNativeFrameRequest(
         text: layer.text || "",
         fontId: layer.fontFamily || "default",
         fontSize: layer.fontSize,
+        fontWeight: typeof layer.fontWeight === "number" ? String(layer.fontWeight) : layer.fontWeight,
+        fontStyle: layer.fontStyle,
         letterSpacing: layer.letterSpacing ?? 0,
         lineHeight: layer.lineHeight ?? 1.2,
         color,
         textAlign: layer.textAlign || "left",
+        verticalAlign: layer.verticalAlign || "middle",
         x: layer.x,
         y: layer.y,
         boxWidth: layer.width,
@@ -1235,12 +1315,22 @@ export function buildNativeFrameRequest(
           shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
           shadowBlur: layer.shadow.blur,
         } : {}),
-        ...(layer.styleId ? {
-          effect: {
-            effectId: layer.styleId,
-            effectVersion: 1,
+        ...(layer.background ? {
+          background: {
+            color: parseColorToRgba(layer.background.color),
+            padding: layer.background.padding,
+            borderRadius: layer.background.borderRadius,
           },
         } : {}),
+        ...(layer.runs ? {
+          runs: layer.runs.map((run) => ({
+            text: run.text,
+            ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
+            highlighted: run.highlighted === true,
+          })),
+        } : {}),
+        ...(layer.templateId ? { templateId: layer.templateId, templateData: layer.customization } : {}),
+        ...(normalizeNativeTextEffect(layer) ? { effect: normalizeNativeTextEffect(layer) } : {}),
       };
     });
 
