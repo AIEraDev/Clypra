@@ -1618,6 +1618,11 @@ pub async fn queue_native_frame(
         .ok_or_else(|| "Native preview frame queue is not initialized".to_string())?
         .inner()
         .clone();
+    // Prefetch work is deliberately outside the visible generation fence. Its
+    // cache key still contains the project revision and exact frame, so stale
+    // work can never be presented as a different frame, while allowing a
+    // look-ahead decode started at play time to survive subsequent clock ticks.
+    let is_prefetch = request.mode.as_deref() == Some("prefetch");
     let generation = request.generation.unwrap_or(0);
     let cancellation_generation;
     let scheduler_wait_started = Instant::now();
@@ -1625,9 +1630,11 @@ pub async fn queue_native_frame(
     {
         let mut queue_state = queue.lock().await;
         scheduler_wait_us = scheduler_wait_started.elapsed().as_micros() as u64;
-        queue_state.observe_generation(generation);
-        if !queue_state.is_generation_current(generation) {
-            return Ok(());
+        if !is_prefetch {
+            queue_state.observe_generation(generation);
+            if !queue_state.is_generation_current(generation) {
+                return Ok(());
+            }
         }
         if !queue_state.begin(&key) {
             return Ok(());
@@ -1635,11 +1642,30 @@ pub async fn queue_native_frame(
         cancellation_generation = queue_state.latest_generation.clone();
     }
 
-    let cancellation = Some((cancellation_generation, generation));
+    let cancellation = if is_prefetch {
+        None
+    } else {
+        Some((cancellation_generation, generation))
+    };
     match decode_native_video_layers(&legacy_request, cancellation).await {
         Ok((decoded_frames, decode_timings)) => {
+            if is_prefetch && !legacy_request.text_layers.is_empty() {
+                // Text SDF pipelines and glyph atlases are lazy. Warm them as
+                // part of the native prefetch command so the first visible
+                // frame does not pay the compilation/upload cost at a layer
+                // boundary. This is GPU work only; no RGBA readback crosses
+                // the WebView boundary.
+                if let Some(preview_state) =
+                    app.try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+                {
+                    let mut session = preview_state.lock().await;
+                    for text_layer in &legacy_request.text_layers {
+                        session.get_or_render_text_layer(text_layer)?;
+                    }
+                }
+            }
             let mut queue_state = queue.lock().await;
-            if queue_state.is_generation_current(generation) {
+            if is_prefetch || queue_state.is_generation_current(generation) {
                 queue_state.complete(
                     key,
                     QueuedNativeFrame {
