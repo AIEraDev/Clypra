@@ -180,11 +180,12 @@ mod tests {
     use super::*;
     use crate::native_core::{
         ColorPolicy, FrameTime, PixelFormat, ProjectSnapshot, QualityTier, VideoLayerSnapshot,
+        NATIVE_CORE_CONTRACT_VERSION,
     };
 
     fn request() -> FrameRequest {
         FrameRequest {
-            contract_version: 1,
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: "request-1".to_string(),
             frame_time: FrameTime::new(0, 0, 1_000_000).unwrap(),
             project: ProjectSnapshot {
@@ -230,7 +231,7 @@ mod tests {
     fn service_uses_request_identity_for_cache() {
         let mut service = NativeFrameService::new(1024).unwrap();
         let packet = FramePacket {
-            contract_version: 1,
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: "request-1".to_string(),
             frame_time: request().frame_time,
             width: 2,
