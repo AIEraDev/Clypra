@@ -435,4 +435,26 @@ mod tests {
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[0].params.get("glow_radius"), Some(&TextParamValue::Float(0.8)));
     }
+
+    #[test]
+    fn effect_definition_rejects_unknown_primitive_string() {
+        let malformed_json = r#"{
+            "effectId": "test-malformed",
+            "version": 1,
+            "displayName": "Malformed",
+            "paramSpecs": [],
+            "passes": [
+                {
+                    "primitive": "outlin",
+                    "tier": "tight",
+                    "params": {}
+                }
+            ]
+        }"#;
+
+        let result: Result<EffectDefinition, _> = serde_json::from_str(malformed_json);
+        assert!(result.is_err(), "unknown primitive 'outlin' must be rejected during deserialization");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("unknown variant") || err_msg.contains("outlin"));
+    }
 }

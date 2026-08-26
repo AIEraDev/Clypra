@@ -145,7 +145,7 @@ pub struct TextEffectPipeline {
     /// Linear clamp-to-edge sampler shared across all passes.
     pub sampler              : wgpu::Sampler,
 
-    _target_format           : wgpu::TextureFormat,
+    pub target_format        : wgpu::TextureFormat,
 }
 
 impl TextEffectPipeline {
@@ -280,7 +280,7 @@ impl TextEffectPipeline {
             pipeline_drop_shadow,
             bind_group_layout,
             sampler,
-            _target_format: target_format,
+            target_format,
         }
     }
 
