@@ -1,8 +1,8 @@
 //! Font Registry — In-memory, thread-safe TrueType / OpenType font repository.
 //!
 //! Maps font identifiers (e.g. "inter-regular", "roboto-bold") to parsed `fontdue::Font`
-//! instances and content hashes. Provides a bundled default font to guarantee 100%
-//! deterministic, offline rendering on all platforms without missing-font panics.
+//! instances and content hashes. The compatibility lookup retains a bundled default;
+//! authoritative rendering uses `require_font` and fails on missing registrations.
 
 use fontdue::{Font, FontSettings};
 use parking_lot::RwLock;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
-/// Bundled default fallback font bytes (Inconsolata Regular).
+/// Bundled compatibility font bytes (Inconsolata Regular).
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../tests/test_font.ttf");
 pub const DEFAULT_FONT_ID: &str = "default";
 
@@ -90,6 +90,17 @@ impl FontRegistry {
         (Arc::clone(&entry.0), entry.1, true)
     }
 
+    /// Strict lookup used by authoritative desktop rendering. Browser-style
+    /// fallback is intentionally kept only for compatibility/diagnostic APIs.
+    pub fn require_font(&self, font_id: &str) -> Result<(Arc<Font>, u64), String> {
+        let key = font_id.to_lowercase();
+        self.fonts
+            .read()
+            .get(&key)
+            .map(|entry| (Arc::clone(&entry.0), entry.1))
+            .ok_or_else(|| format!("Native font '{font_id}' is not registered"))
+    }
+
     /// Retrieve all missing font warnings accumulated during font lookups.
     pub fn get_missing_font_warnings(&self) -> Vec<String> {
         self.missing_warnings.read().clone()
@@ -161,6 +172,13 @@ mod tests {
         let (_, fetched_hash, is_fallback) = reg.get_font_with_status("inconsolata-custom");
         assert_eq!(hash, fetched_hash);
         assert!(!is_fallback);
+    }
+
+    #[test]
+    fn strict_lookup_rejects_unregistered_font() {
+        let reg = FontRegistry::new();
+        let error = reg.require_font("missing-desktop-font").unwrap_err();
+        assert!(error.contains("not registered"));
     }
 
     #[test]
