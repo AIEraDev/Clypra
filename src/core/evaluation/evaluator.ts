@@ -151,6 +151,14 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       const finalWidth = evalW * animationState.scale;
       const finalHeight = evalH * animationState.scale;
 
+      const karaokeTime = evalTime - clip.startTime;
+      const karaokeRuns = textClip.words?.length
+        ? textClip.words.map((word, wordIndex) => ({
+            text: word.word + (wordIndex < textClip.words!.length - 1 ? " " : ""),
+            highlighted: karaokeTime >= word.start && karaokeTime < word.end,
+          }))
+        : undefined;
+
       const textLayer: EvaluatedTextLayer = {
         layerId: clip.id,
         clipId: clip.id,
@@ -182,6 +190,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         verticalAlign: textClip.valign || "middle",
         lineHeight: evalLineHeight,
         letterSpacing: evalLetterSpacing,
+        ...(karaokeRuns ? { runs: karaokeRuns } : {}),
         stroke: textClip.stroke,
         shadow: textClip.shadow,
         background: textClip.background,
