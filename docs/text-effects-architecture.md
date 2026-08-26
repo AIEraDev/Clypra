@@ -139,7 +139,7 @@ SDF Generation Pass (swash -> Distance Transform)
   • Cached by (FontHash + GlyphID + TargetSize)
         │
         ▼
-Text Layer Raster Cache Check
+Native Text Layer Cache Check
   • Key: (TextHash + FontHash + EffectID + Version + OverridesHash + CanvasScale)
   • Hit: Return cached GPU Texture directly ($0.02ms blit)
   • Miss: Execute Pass-Chain Interpreter below
@@ -156,6 +156,11 @@ Pass-Chain Interpreter (wgpu)
         ▼
 Store in Text Layer Raster Cache & Hand to MultiTrackCompositor
   • Outputs RGBA8 (or RGBA16F HDR) into native frame graph
+
+Desktop contract note: the Tauri authority receives resolved text snapshots,
+including font variant, panel, stroke/shadow, karaoke-run, template, and
+effect-pass data. Missing fonts and malformed/unknown effect primitives fail
+the native request. Browser/WASM text rendering remains a separate runtime.
 ```
 
 ---
