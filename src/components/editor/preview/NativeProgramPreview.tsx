@@ -1284,9 +1284,9 @@ export const NativeProgramPreview: React.FC = () => {
           nativeAudioClockReady;
         const nativePausedPath =
           isTauriRuntime() && Boolean(nativeRequest) && !isPlaying;
-        // The child surface is playback-only. Paused and seeking frames must be
-        // committed to the DOM canvas so they share the exact same placement as
-        // the editor overlays and transport layout.
+        // The retained native surface owns every desktop frame state. A paused
+        // frame uses the exact request; playback may use the latency-compensated
+        // look-ahead request above.
         const nativePlaybackRequestKey = nativePlaybackRequest
           ? getNativeFrameRequestKey(nativePlaybackRequest)
           : nativeRequestKey;
@@ -1326,12 +1326,13 @@ export const NativeProgramPreview: React.FC = () => {
           nativeContinuousBlockedRevision !== nativeRevision;
         const nativeSurfaceOwnsCurrentFrame =
           nativeSurfaceShown &&
-          isPlaying &&
           lastNativePlaybackRequestKey === nativePlaybackRequestKey &&
-          nativeAudioClockReady &&
+          (!isPlaying || nativeAudioClockReady) &&
           nativeSurfaceUsable;
         const nativeDirectSurfacePath =
-          nativeSurfaceUsable && Boolean(nativeRequest) && nativePlaybackPath;
+          nativeSurfaceUsable &&
+          Boolean(nativeRequest) &&
+          (nativePlaybackPath || nativePausedPath);
         const nativeReadbackFallbackPath =
           isPlaying && nativePlaybackPath && !nativeSurfaceUsable;
         if (
@@ -1425,12 +1426,15 @@ export const NativeProgramPreview: React.FC = () => {
                     } else {
                       frontendSpan?.finish();
                       const current = renderStateRef.current;
+                      const currentRequestIsStillAuthoritative =
+                        requestKey === nativeRequestKey || isPlaying;
                       if (
                         isActive &&
                         nativeSurfaceGeometrySettledRef.current &&
                         current.project?.id === state.project?.id &&
                         current.epoch === state.epoch &&
-                        current.clock.state === "playing"
+                        current.clock.state !== "stopped" &&
+                        currentRequestIsStillAuthoritative
                       ) {
                         nativeSurfaceShown = true;
                         if (nativeSurfaceReadyRef.current) {
@@ -1466,7 +1470,8 @@ export const NativeProgramPreview: React.FC = () => {
                     nativePlaybackInFlight = null;
                   });
               } else {
-                // Native readback fallback path: asynchronous visible frame decode
+                // Non-authoritative diagnostic path retained for browser harnesses;
+                // Tauri never enters this branch because its preview is surface-only.
                 nativePlaybackInFlight = nativePreviewScheduler
                   .requestVisible(requestSource)
                   .then((frame) => {
@@ -1553,9 +1558,9 @@ export const NativeProgramPreview: React.FC = () => {
           }
         }
 
-        // Native Tauri preview is a hard boundary. If the retained surface is
-        // temporarily unavailable, use the same native renderer's RGBA readback
-        // path; never create a second renderer.
+        // Native Tauri preview is a hard boundary. Readback is reserved for
+        // export/diagnostics; the desktop preview keeps the last surface frame
+        // while the retained surface recovers.
         if (
           needsRender &&
           !nativeSurfaceShown &&
@@ -1819,7 +1824,7 @@ export const NativeProgramPreview: React.FC = () => {
           {isTauriRuntime()
             ? nativeSurfacePresenting
               ? "wgpu Surface"
-              : "Native readback"
+              : "Preparing wgpu Surface"
             : "Open the desktop runtime"}
         </span>
         <button
