@@ -180,7 +180,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         transitionType: transitionState.type,
         transitionProgress: transitionState.progress,
         blendMode: (clip as any).blendMode || "normal",
-        text: textClip.text || "Text",
+        // An explicitly empty clip is intentionally invisible. "Text" is
+        // only the creation-time default; it must not reappear during
+        // evaluation after the user clears the editor field.
+        text: textClip.text ?? "",
         fontFamily: normalizeFontFamily(textClip.fontFamily || styleDefinition?.font?.family || "Inter Variable"),
         fontSize: evalFontSize,
         color: evalColor,
