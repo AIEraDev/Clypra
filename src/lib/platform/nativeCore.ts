@@ -421,6 +421,8 @@ export interface NativeTextLayerSnapshot {
   textAlign?: string;
   x: number;
   y: number;
+  boxWidth?: number;
+  boxHeight?: number;
   rotation?: number;
   opacity?: number;
   zIndex?: number;

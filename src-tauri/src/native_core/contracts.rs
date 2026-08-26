@@ -406,6 +406,10 @@ pub struct TextLayerSnapshot {
     pub x: f32,
     pub y: f32,
     #[serde(default)]
+    pub box_width: Option<f32>,
+    #[serde(default)]
+    pub box_height: Option<f32>,
+    #[serde(default)]
     pub rotation: f32,
     #[serde(default = "default_opacity")]
     pub opacity: f32,
@@ -1291,6 +1295,8 @@ mod tests {
             text_align: "left".to_string(),
             x: 0.0,
             y: 0.0,
+            box_width: None,
+            box_height: None,
             rotation: 0.0,
             opacity: 1.0,
             z_index: 0,

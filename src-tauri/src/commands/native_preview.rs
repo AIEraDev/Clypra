@@ -672,6 +672,41 @@ fn project_layer_transform(
     )
 }
 
+fn compute_text_layer_placement(
+    text_layer: &TextLayerSnapshot,
+    shaped_w: f32,
+    shaped_h: f32,
+) -> (f32, f32) {
+    let (unrotated_center_x, unrotated_center_y) = match (text_layer.box_width, text_layer.box_height) {
+        (Some(box_w), Some(box_h)) if box_w > 0.0 && box_h > 0.0 => {
+            let cx = match text_layer.text_align.to_ascii_lowercase().as_str() {
+                "left" => text_layer.x + shaped_w * 0.5,
+                "right" => text_layer.x + box_w - shaped_w * 0.5,
+                _ => text_layer.x + box_w * 0.5, // "center" is default
+            };
+            let cy = text_layer.y + box_h * 0.5;
+            (cx, cy)
+        }
+        _ => (text_layer.x + shaped_w * 0.5, text_layer.y + shaped_h * 0.5),
+    };
+
+    let (final_center_x, final_center_y) = match (text_layer.box_width, text_layer.box_height) {
+        (Some(box_w), Some(box_h)) if box_w > 0.0 && box_h > 0.0 && text_layer.rotation != 0.0 => {
+            let box_cx = text_layer.x + box_w * 0.5;
+            let box_cy = text_layer.y + box_h * 0.5;
+            let rad = (-text_layer.rotation).to_radians();
+            let dx = unrotated_center_x - box_cx;
+            let dy = unrotated_center_y - box_cy;
+            let rot_x = box_cx + dx * rad.cos() - dy * rad.sin();
+            let rot_y = box_cy + dx * rad.sin() + dy * rad.cos();
+            (rot_x, rot_y)
+        }
+        _ => (unrotated_center_x, unrotated_center_y),
+    };
+
+    (final_center_x - shaped_w * 0.5, final_center_y - shaped_h * 0.5)
+}
+
 fn project_layer_transform_values(
     x: f32,
     y: f32,
@@ -1390,10 +1425,11 @@ async fn render_native_video_project_frame_bytes_timed(
         .iter()
         .zip(text_views.iter().zip(text_dims.iter()))
     {
+        let (layer_x, layer_y) = compute_text_layer_placement(text_layer, *width, *height);
         specs.push(NativeLayerSpec {
             view: view.as_ref(),
-            x: text_layer.x,
-            y: text_layer.y,
+            x: layer_x,
+            y: layer_y,
             width: *width,
             height: *height,
             rotation: text_layer.rotation,
@@ -1996,10 +2032,11 @@ pub async fn present_native_frame(
         .iter()
         .zip(text_views.iter().zip(text_dims.iter()))
     {
+        let (layer_x, layer_y) = compute_text_layer_placement(text_layer, *width, *height);
         specs.push(NativeLayerSpec {
             view: view.as_ref(),
-            x: text_layer.x,
-            y: text_layer.y,
+            x: layer_x,
+            y: layer_y,
             width: *width,
             height: *height,
             rotation: text_layer.rotation,
