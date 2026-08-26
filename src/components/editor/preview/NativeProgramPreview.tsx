@@ -1116,11 +1116,12 @@ export const NativeProgramPreview: React.FC = () => {
       }
       const previousFailureAt = nativePrefetchFailedAt.get(key) ?? 0;
       if (performance.now() - previousFailureAt < 1000) return;
-      // Keep warm-up bounded. The native queue is intentionally small and
-      // browser-side segmentation/smart-overlay rasterization can be costly;
-      // launching every future boundary at once would recreate the same
-      // contention this path is meant to remove.
-      if (nativePrefetchInFlight.size >= 2) return;
+      // Keep warm-up behind the visible playback path. A full native decode
+      // can be CPU-heavy, and two concurrent look-ahead jobs were enough to
+      // contend with surface presentation and reintroduce playback stutter.
+      // One nearby boundary is sufficient: text/image assets remain cached
+      // after that frame and do not need a second adjacent-frame prefetch.
+      if (nativePlaybackInFlight || nativePrefetchInFlight.size >= 1) return;
 
       const task = (async () => {
         const time = getFrameStartTime(targetFrame / frameRate, frameRate);
@@ -1209,6 +1210,7 @@ export const NativeProgramPreview: React.FC = () => {
       if (!state.project || state.clock.state !== "playing") return;
       const frameRate = Math.max(1, state.project.frameRate ?? 30);
       const currentTime = getFrameStartTime(currentFrame / frameRate, frameRate);
+      const prefetchHorizonFrame = currentFrame + Math.ceil(frameRate * 3);
       const durationFrames = Math.max(1, Math.ceil(state.clock.duration * frameRate));
       const candidates = new Set<number>();
 
@@ -1223,14 +1225,13 @@ export const NativeProgramPreview: React.FC = () => {
           durationFrames - 1,
           Math.max(currentFrame + 1, Math.ceil(clip.startTime * frameRate)),
         );
-        candidates.add(boundary);
-        candidates.add(Math.min(durationFrames - 1, boundary + 1));
+        if (boundary <= prefetchHorizonFrame) candidates.add(boundary);
       }
 
       [...candidates]
         .filter((frame) => frame > currentFrame && frame < durationFrames)
         .sort((left, right) => left - right)
-        .slice(0, 24)
+        .slice(0, 1)
         .forEach(prefetchNativeFrame);
     };
 
