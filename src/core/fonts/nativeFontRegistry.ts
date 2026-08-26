@@ -24,6 +24,10 @@ import permanentMarkerUrl from "@fontsource/permanent-marker/files/permanent-mar
 import bangersUrl from "@fontsource/bangers/files/bangers-latin-400-normal.woff2?url";
 import pressStartUrl from "@fontsource/press-start-2p/files/press-start-2p-latin-400-normal.woff2?url";
 import pacificoUrl from "@fontsource/pacifico/files/pacifico-latin-400-normal.woff2?url";
+import notoEmojiUrl from "@fontsource/noto-emoji/files/noto-emoji-emoji-400-normal.woff2?url";
+
+/** Internal native-only face used for emoji glyphs missing from editor fonts. */
+export const NATIVE_EMOJI_FONT_ID = "__clypra_noto_emoji";
 
 type NativeBundledFont = {
   url: string;
@@ -93,11 +97,12 @@ export async function ensureNativeFontsRegistered(
   fontIds: readonly string[],
 ): Promise<void> {
   if (!isTauriRuntime()) return;
+  const emojiFallback = registerBundledFont(NATIVE_EMOJI_FONT_ID, notoEmojiUrl);
   await Promise.all(
-    fontIdsKey(fontIds).flatMap((fontId) => {
+    [emojiFallback, ...fontIdsKey(fontIds).flatMap((fontId) => {
       const url = assetByFontId.get(fontId.toLowerCase());
       return url ? [registerBundledFont(fontId, url)] : [];
-    }),
+    })],
   );
 }
 
