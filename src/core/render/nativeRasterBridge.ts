@@ -17,11 +17,6 @@ import { isTauriRuntime, registerNativeImageAsset, registerNativeRasterAsset } f
 import type { NativeRasterLayerSnapshot } from "@/lib/platform/nativeCore";
 import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 import {
-  buildNativeTextRasterKey,
-  rasterizeTextLayerForNative,
-  type NativeTextRasterAsset,
-} from "@/components/editor/preview/nativeTextPreview";
-import {
   NativeAnimatedStickerRenderer,
   type NativeAnimatedStickerRaster,
 } from "@/components/editor/preview/nativeStickerPreview";
@@ -32,7 +27,6 @@ interface NativeRasterBridgeOptions {
   frameKey: number;
 }
 
-const MAX_TEXT_CACHE_ENTRIES = 96;
 const MAX_REGISTERED_ASSETS = 256;
 
 function evictOldest<TKey, TValue>(cache: Map<TKey, TValue>, maxEntries: number): void {
@@ -63,7 +57,6 @@ function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
  * contract failures rather than falling back to the browser compositor.
  */
 export class NativeRasterBridge {
-  private readonly textCache = new Map<string, Promise<NativeTextRasterAsset>>();
   private readonly imageCache = new Map<string, Promise<void>>();
   private readonly imageSourcesById = new Map<string, { sourcePath: string; width: number; height: number }>();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
@@ -159,32 +152,11 @@ export class NativeRasterBridge {
   }
 
   dispose(): void {
-    this.textCache.clear();
     this.imageCache.clear();
     this.imageSourcesById.clear();
     this.assetsById.clear();
     this.registeredAssetIds.clear();
     this.animatedStickerRenderer.dispose();
-  }
-
-  private async rasterizeText(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
-    const layers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-    const assets = await Promise.all(layers.map((layer) => {
-      const key = buildNativeTextRasterKey(layer);
-      let raster = this.textCache.get(key);
-      if (!raster) {
-        raster = rasterizeTextLayerForNative(layer);
-        this.textCache.set(key, raster);
-        evictOldest(this.textCache, MAX_TEXT_CACHE_ENTRIES);
-        void raster.catch(() => {
-          if (this.textCache.get(key) === raster) this.textCache.delete(key);
-        });
-      }
-      return raster;
-    }));
-
-    await Promise.all(assets.map((asset) => this.register(asset)));
-    return assets.map(snapshot);
   }
 
   private async rasterizeAnimatedStickers(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
