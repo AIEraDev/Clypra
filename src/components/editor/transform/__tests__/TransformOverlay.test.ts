@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildTransformStartClip, calculateScaledTextTransform, calculateTextResizeFontSize, isClipActiveAtTime, shouldScaleTextFontForHandle, getUpdatedConformForClipBounds } from "../TransformOverlay";
+import { getCursorForHandle } from "../calculator";
 import type { TextClip, TransformHandle, TransformState } from "@/types";
 
 describe("TransformOverlay resize policy", () => {
@@ -14,6 +15,13 @@ describe("TransformOverlay resize policy", () => {
   it("does not scale text font size for move or rotate", () => {
     expect(shouldScaleTextFontForHandle("move")).toBe(false);
     expect(shouldScaleTextFontForHandle("rotate")).toBe(false);
+  });
+
+  it("uses the matching diagonal cursor for each corner handle", () => {
+    expect(getCursorForHandle("nw")).toBe("nwse-resize");
+    expect(getCursorForHandle("se")).toBe("nwse-resize");
+    expect(getCursorForHandle("ne")).toBe("nesw-resize");
+    expect(getCursorForHandle("sw")).toBe("nesw-resize");
   });
 
   it("uses the edited axis when calculating resized text font size", () => {
