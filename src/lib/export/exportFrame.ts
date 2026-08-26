@@ -8,8 +8,8 @@
 
 import { evaluateTimelineSceneCached } from "../../core/evaluation/evaluator";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
-import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
-import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
+import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 
@@ -99,13 +99,22 @@ export async function exportFrame(options: ExportFrameOptions): Promise<Blob> {
       scene.metadata.canvasHeight,
       { frameKey },
     );
-    const nativeRequest = buildNativeVideoProjectRequest(scene, [...rasterLayers, ...smartOverlayRasters]);
+    const nativeRequest = buildNativeFrameRequest(
+      scene,
+      `${project?.id ?? "export"}:${epoch}`,
+      frameKey,
+      project?.frameRate || 30,
+      width,
+      height,
+      [...rasterLayers, ...smartOverlayRasters],
+      { mode: "frameStep", quality: "full" },
+    );
     if (!nativeRequest) {
       throw new Error("[ExportFrame] Frame is outside the native compositor contract");
     }
     let rgba: ArrayBuffer;
     try {
-      rgba = await renderNativeVideoProjectFrame(nativeRequest);
+      rgba = await renderNativeFrame(nativeRequest);
     } catch (error) {
       throw new Error(`[ExportFrame] Native frame export failed: ${error instanceof Error ? error.message : String(error)}`);
     }
