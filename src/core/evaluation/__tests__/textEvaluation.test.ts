@@ -306,7 +306,7 @@ describe("Text Layer Evaluation", () => {
       },
     ];
 
-    const scene = evaluateScene(5, [videoClip, textClip as any], [videoTrack, textTrack], assets, project);
+    const scene = evaluateScene(5, [videoClip, textClip as any], [textTrack, videoTrack], assets, project);
 
     expect(scene.visualLayers).toHaveLength(2);
 

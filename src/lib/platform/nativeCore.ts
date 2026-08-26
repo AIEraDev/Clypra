@@ -411,6 +411,32 @@ export interface NativeRasterLayerSnapshot {
   isText?: boolean;
 }
 
+export interface NativeTextLayerSnapshot {
+  text: string;
+  fontId: string;
+  fontSize: number;
+  letterSpacing?: number;
+  lineHeight?: number;
+  color?: [number, number, number, number];
+  textAlign?: string;
+  x: number;
+  y: number;
+  rotation?: number;
+  opacity?: number;
+  zIndex?: number;
+  blendMode?: string;
+  strokeColor?: [number, number, number, number];
+  strokeWidth?: number;
+  shadowColor?: [number, number, number, number];
+  shadowOffset?: [number, number];
+  shadowBlur?: number;
+  effect?: {
+    effectId: string;
+    effectVersion: number;
+    parameterOverrides?: Record<string, any>;
+  };
+}
+
 export interface NativeProjectSnapshot {
   schemaVersion: number;
   projectRevision: string;
@@ -421,6 +447,7 @@ export interface NativeProjectSnapshot {
   clearColor: [number, number, number, number];
   videoLayers: NativeVideoLayerSnapshot[];
   rasterLayers?: NativeRasterLayerSnapshot[];
+  textLayers?: NativeTextLayerSnapshot[];
   transition?: NativeTransitionSnapshot;
 }
 

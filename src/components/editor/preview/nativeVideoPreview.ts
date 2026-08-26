@@ -1,4 +1,4 @@
-import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/types";
+import type { EvaluatedMediaLayer, EvaluatedScene, EvaluatedTextLayer } from "@/core/evaluation/types";
 import type {
   NativeProjectVideoLayer,
   NativeVideoProjectFrameRequest,
@@ -6,6 +6,42 @@ import type {
 import { parseColor } from "@/core/evaluation/animation";
 import { resolveFilterToIR, type FilterIR } from "@/core/render/filterIR";
 import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
+
+function parseColorToRgba(color: string): [number, number, number, number] {
+  if (!color) return [1, 1, 1, 1];
+  const c = color.trim().toLowerCase();
+  if (c.startsWith("#")) {
+    const hex = c.slice(1);
+    if (hex.length === 3) {
+      const r = parseInt(hex[0] + hex[0], 16) / 255;
+      const g = parseInt(hex[1] + hex[1], 16) / 255;
+      const b = parseInt(hex[2] + hex[2], 16) / 255;
+      return [r, g, b, 1];
+    }
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16) / 255;
+      const g = parseInt(hex.slice(2, 4), 16) / 255;
+      const b = parseInt(hex.slice(4, 6), 16) / 255;
+      return [r, g, b, 1];
+    }
+    if (hex.length === 8) {
+      const r = parseInt(hex.slice(0, 2), 16) / 255;
+      const g = parseInt(hex.slice(2, 4), 16) / 255;
+      const b = parseInt(hex.slice(4, 6), 16) / 255;
+      const a = parseInt(hex.slice(6, 8), 16) / 255;
+      return [r, g, b, a];
+    }
+  }
+  const rgbaMatch = c.match(/rgba?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/);
+  if (rgbaMatch) {
+    const r = parseFloat(rgbaMatch[1]) / 255;
+    const g = parseFloat(rgbaMatch[2]) / 255;
+    const b = parseFloat(rgbaMatch[3]) / 255;
+    const a = rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1;
+    return [r, g, b, a];
+  }
+  return [1, 1, 1, 1];
+}
 import {
   DEFAULT_NATIVE_COLOR_POLICY,
   createNativeFrameRequest,
@@ -1139,6 +1175,42 @@ export function buildNativeFrameRequest(
     });
   }
 
+  const textLayers = scene.visualLayers
+    .filter((layer): layer is EvaluatedTextLayer => layer.layerType === "text")
+    .map((layer) => {
+      const color = parseColorToRgba(layer.color || "#ffffff");
+      return {
+        text: layer.text || "",
+        fontId: layer.fontFamily || "default",
+        fontSize: layer.fontSize,
+        letterSpacing: layer.letterSpacing ?? 0,
+        lineHeight: layer.lineHeight ?? 1.2,
+        color,
+        textAlign: layer.textAlign || "left",
+        x: layer.x,
+        y: layer.y,
+        rotation: layer.rotation ?? 0,
+        opacity: layer.opacity ?? 1,
+        zIndex: layer.zIndex ?? 0,
+        blendMode: layer.blendMode || "normal",
+        ...(layer.stroke ? {
+          strokeColor: parseColorToRgba(layer.stroke.color),
+          strokeWidth: layer.stroke.width,
+        } : {}),
+        ...(layer.shadow ? {
+          shadowColor: parseColorToRgba(layer.shadow.color),
+          shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
+          shadowBlur: layer.shadow.blur,
+        } : {}),
+        ...(layer.styleId ? {
+          effect: {
+            effectId: layer.styleId,
+            effectVersion: 1,
+          },
+        } : {}),
+      };
+    });
+
   return createNativeFrameRequest({
     requestId: `${projectRevision}:${frameIndex}:${outputWidth}x${outputHeight}`,
     frameTime: frameIndexToNativeTime(frameIndex, frameRate),
@@ -1151,6 +1223,7 @@ export function buildNativeFrameRequest(
       clearColor: request.clearColor ?? [0, 0, 0, 1],
       videoLayers,
       ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
+      ...(textLayers.length > 0 ? { textLayers } : {}),
       ...(request.transition ? { transition: request.transition } : {}),
     },
     outputWidth,
