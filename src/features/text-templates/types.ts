@@ -1,3 +1,15 @@
+/**
+ * Text Template Architecture Contracts (§3)
+ *
+ * A template is a composition of:
+ * - 1+ TemplateElements (Text, SolidBackground, Image)
+ * - relative positions within template bounds
+ * - ClipTextProperties / EffectDefinition references
+ *
+ * Instantiating a template creates a real timeline compound clip (§2),
+ * with pinned properties (detach on instantiation, §3).
+ */
+
 export type TemplateCategory =
   | "lower-third"    // name + title bars — most used in creator content
   | "title-card"     // full-screen openers
@@ -12,108 +24,82 @@ export const TEMPLATE_CATEGORIES = [
   "caption",
   "callout",
   "social",
-  "countdown"
+  "countdown",
 ] as const;
 
-export type AnimationPreset =
-  | "fade"
-  | "slide-up"
-  | "slide-down"
-  | "slide-left"
-  | "slide-right"
-  | "scale-in"
-  | "scale-out"
-  | "blur-in"
-  | "blur-out"
-  | "typewriter"
-  | "none";
+export type ElementKind = "text" | "solid" | "image";
 
-export interface LayerAnimation {
-  in: AnimationPreset;
-  out: AnimationPreset;
-  inDuration: number;
-  outDuration: number;
-  hold: "full" | number;
-}
-
-export interface TextLayer {
-  kind: "text";
-  id: string;
-  content: string;
+export interface TemplateTextProperties {
+  text: string;
   fontFamily: string;
   fontSize: number;
   color: string;
-  align: "left" | "center" | "right";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  role?: "primary" | "secondary" | "accent";
-  overflow?: "wrap" | "shrink" | "expand-panel" | "clip";
+  align?: "left" | "center" | "right";
   verticalAlign?: "top" | "middle" | "bottom";
-  fontWeight: number;
-  animation: LayerAnimation;
+  fontWeight?: number;
+  fontStyle?: "normal" | "italic";
+  letterSpacing?: number;
+  lineHeight?: number;
+  styleId?: string; // Reference to EffectDefinition ID
+  styleVersion?: number;
+  parameterOverrides?: Record<string, any>;
+  animation?: {
+    preset: "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "scale" | "zoom" | "none";
+    duration: number;
+  };
 }
 
-export interface ShapeLayer {
-  kind: "shape";
+export interface TemplateSolidProperties {
+  color: string;
+  borderRadius?: number;
+  opacity?: number;
+}
+
+export interface TemplateImageProperties {
+  url?: string;
+  assetId?: string;
+  opacity?: number;
+}
+
+export interface TemplateElement {
   id: string;
-  shape: "rect" | "line" | "circle";
-  fill: string;
-  stroke?: { color: string; width: number };
-  x: number;
-  y: number;
+  kind: ElementKind;
+  /** Relative position (x, y) offset from template center or origin */
+  relativePosition: { x: number; y: number };
   width: number;
   height: number;
-  animation: LayerAnimation;
+  zIndex?: number;
+  textProperties?: TemplateTextProperties;
+  solidProperties?: TemplateSolidProperties;
+  imageProperties?: TemplateImageProperties;
 }
 
-export interface ImageLayer {
-  kind: "image";
+export interface TemplateDefinition {
   id: string;
-  url: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  animation: LayerAnimation;
-}
-
-export type TemplateLayer = TextLayer | ShapeLayer | ImageLayer;
-
-export interface TextTemplate {
-  id: string;
-  label: string;
-  name?: string;             // backwards compatibility
+  version: number;
+  displayName: string;
   category: TemplateCategory;
-  duration: number;          // seconds
-  canvasWidth: number;       // design canvas (e.g. 1080)
-  canvasHeight: number;      // design canvas (e.g. 1920 for 9:16)
-  thumbnail: string;         // static preview URL
-  preview: string;           // short loop video URL
-  layers: TemplateLayer[];   // ordered bottom to top
-  
-  // Optional and legacy properties for backwards compatibility
-  lottieData?: any;
-  templateData?: any;
-  thumbnailUrl?: string;
-  thumbnailFrame?: number;
-  durationFrames?: number;
   description?: string;
-  tags?: string[];
-  fps?: number;
-  width?: number;
-  height?: number;
-  textLayers?: any[];
-  defaultPlacement?: string;
-  lottieFile?: string;
-  published?: boolean;
-  creatorName?: string;
-  creatorLink?: string;
+  thumbnailUrl?: string;
+  previewVideoUrl?: string;
+  canvasWidth: number;
+  canvasHeight: number;
+  defaultDuration: number;
+  elements: TemplateElement[];
+
+  // Compatibility fields for legacy templates
+  name?: string;
+  label?: string;
+  thumbnail?: string;
+  preview?: string;
+  duration?: number;
+  layers?: any[];
+  templateData?: any;
+  lottieData?: any;
 }
 
-// Map TemplateDefinition to TextTemplate for backwards compatibility
-export type TemplateDefinition = TextTemplate;
+// Backwards compatibility alias
+export type TextTemplate = TemplateDefinition;
 
 export interface TemplateCustomization {
   primaryText: string;
