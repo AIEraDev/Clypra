@@ -96,6 +96,17 @@ describe("calculateTextClipSize", () => {
     expect(empty.bounds.measuredTextHeight).toBe(0);
   });
 
+  it("keeps plain text vertical bounds close to the native glyph box", () => {
+    const bounds = measureTextEffectContentBounds({
+      text: "A",
+      fontFamily: "Inter",
+      fontSize: 100,
+      canvasWidth: 1920,
+    });
+
+    expect(bounds.contentHeight - bounds.measuredTextHeight).toBeCloseTo(16, 5);
+  });
+
   it("uses text effect typography when creating a style clip without explicit overrides", () => {
     const clip = createTextClip({
       trackId: "track-1",

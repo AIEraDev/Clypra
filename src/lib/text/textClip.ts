@@ -389,7 +389,10 @@ export function measureTextEffectContentBounds(options: {
     ? "panel"
     : "plain";
   let contentPaddingX = options.fontSize * 0.4;
-  let contentPaddingY = options.fontSize * 0.25;
+  // Native text textures already include a small SDF safety inset. Keep the
+  // editable plain-text box close to the actual glyph bounds instead of
+  // reserving a quarter of the font size above and below every line.
+  let contentPaddingY = Math.max(4, options.fontSize * 0.08);
 
   if (isPanelEffect) {
     source = "panel";
