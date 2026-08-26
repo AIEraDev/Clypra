@@ -47,6 +47,7 @@ interface UIStore {
   showExportModal: boolean;
   showNewProjectModal: boolean;
   showSettingsModal: boolean;
+  settingsInitialTab: "appearance" | "editor" | "performance" | "shortcuts" | "captions" | "cache" | "about" | null;
 
   previewMode: "program" | "source";
   sourceAsset: (Omit<MediaAsset, "type"> & { type: "video" | "audio" | "image" | "text" }) | null;
@@ -65,6 +66,7 @@ interface UIStore {
   toggleExportModal: () => void;
   toggleNewProjectModal: () => void;
   toggleSettingsModal: () => void;
+  openSettingsModal: (tab?: "appearance" | "editor" | "performance" | "shortcuts" | "captions" | "cache" | "about") => void;
 
   // Preview mode actions
   previewAsset: (asset: MediaAsset) => void;
@@ -88,6 +90,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   showExportModal: false,
   showNewProjectModal: false,
   showSettingsModal: false,
+  settingsInitialTab: null,
 
   previewMode: "program",
   sourceAsset: null,
@@ -165,7 +168,15 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleSettingsModal: () => {
     set((state) => ({
       showSettingsModal: !state.showSettingsModal,
+      settingsInitialTab: null,
     }));
+  },
+
+  openSettingsModal: (tab) => {
+    set({
+      showSettingsModal: true,
+      settingsInitialTab: tab || null,
+    });
   },
 
   // Preview mode actions
