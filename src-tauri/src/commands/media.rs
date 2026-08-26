@@ -74,7 +74,11 @@ pub async fn decode_image_rgba(
     Ok(tauri::ipc::Response::new(rgba))
 }
 
-fn decode_image_rgba_bytes(path: &str, width: u32, height: u32) -> Result<Vec<u8>, String> {
+pub(crate) fn decode_image_rgba_bytes(
+    path: &str,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
     let image = image::open(path)
         .map_err(|error| format!("Failed to decode still image {}: {}", path, error))?
         .to_rgba8();

@@ -23,6 +23,8 @@ import {
 } from "./nativeAudioTimeline";
 import { tracePlayback } from "@/core/playback/playbackTrace";
 
+const NATIVE_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
+
 export interface NativeAudioPreviewSource {
   projectRevision: string;
   frameRate: number;
@@ -102,6 +104,7 @@ export class NativeAudioPreviewController {
             nextSource.assets,
             0,
             nextSource.duration,
+            NATIVE_PREVIEW_AUDIO_OPTIONS,
           );
 
           if (!this.installedSnapshot || !hasSameClipLayout(this.installedSnapshot, nextSnapshot)) {
@@ -111,6 +114,7 @@ export class NativeAudioPreviewController {
               nextSource.assets,
               0,
               nextSource.duration,
+              NATIVE_PREVIEW_AUDIO_OPTIONS,
             );
             this.installedSnapshot = timeline.snapshot;
           } else if (!hasSameClipParameters(this.installedSnapshot, nextSnapshot)) {
@@ -154,6 +158,7 @@ export class NativeAudioPreviewController {
         this.source.assets,
         0,
         this.source.duration,
+        NATIVE_PREVIEW_AUDIO_OPTIONS,
       );
       this.installedSnapshot = timeline.snapshot;
       if (this.disposed) return false;

@@ -13,7 +13,7 @@ import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/type
 import { drawCanvasBackground } from "@/core/render/canvasBackground";
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
-import { decodeNativeRgbaFrame, isTauriRuntime, registerNativeRasterAsset } from "@/lib/platform/tauri";
+import { isTauriRuntime, registerNativeImageAsset, registerNativeRasterAsset } from "@/lib/platform/tauri";
 import type { NativeRasterLayerSnapshot } from "@/lib/platform/nativeCore";
 import {
   buildNativeTextRasterKey,
@@ -63,7 +63,8 @@ function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
  */
 export class NativeRasterBridge {
   private readonly textCache = new Map<string, Promise<NativeTextRasterAsset>>();
-  private readonly imageCache = new Map<string, Promise<number[]>>();
+  private readonly imageCache = new Map<string, Promise<void>>();
+  private readonly imageSourcesById = new Map<string, { sourcePath: string; width: number; height: number }>();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
   private readonly registeredAssetIds = new Set<string>();
   private readonly animatedStickerRenderer = new NativeAnimatedStickerRenderer();
@@ -137,15 +138,28 @@ export class NativeRasterBridge {
 
   /** Re-upload request assets after native device/cache recovery. */
   async reregister(references: NativeRasterLayerSnapshot[]): Promise<boolean> {
-    const assets = references.map((reference) => this.assetsById.get(reference.assetId));
-    if (assets.some((asset) => !asset)) return false;
-    await Promise.all(assets.map((asset) => this.register(asset!, true)));
+    const registrations = references.map((reference) => {
+      const imageSource = this.imageSourcesById.get(reference.assetId);
+      if (imageSource) {
+        return registerNativeImageAsset({
+          assetId: reference.assetId,
+          ...imageSource,
+        }).then(() => {
+          this.registeredAssetIds.add(reference.assetId);
+        });
+      }
+      const asset = this.assetsById.get(reference.assetId);
+      return asset ? this.register(asset, true) : null;
+    });
+    if (registrations.some((registration) => registration === null)) return false;
+    await Promise.all(registrations as Promise<void>[]);
     return true;
   }
 
   dispose(): void {
     this.textCache.clear();
     this.imageCache.clear();
+    this.imageSourcesById.clear();
     this.assetsById.clear();
     this.registeredAssetIds.clear();
     this.animatedStickerRenderer.dispose();
@@ -198,25 +212,27 @@ export class NativeRasterBridge {
     const assets = await Promise.all(layers.map((layer) => {
       const width = Math.max(1, Math.round(layer.width));
       const height = Math.max(1, Math.round(layer.height));
-      const pixelKey = stableSerialize({ sourcePath: layer.sourcePath, width, height });
-      const assetId = `native-image:${layer.layerId}:${stableSerialize({ sourcePath: layer.sourcePath, width, height })}`;
-      let pixels = this.imageCache.get(pixelKey);
-      if (!pixels) {
-        pixels = decodeNativeRgbaFrame(layer.sourcePath, width, height).then((buffer) => {
-          const rgba = Array.from(new Uint8Array(buffer));
-          if (rgba.length !== width * height * 4) {
-            throw new Error(`Native image decoder returned ${rgba.length} bytes; expected ${width * height * 4}`);
-          }
-          return rgba;
+      const sourceKey = stableSerialize({ sourcePath: layer.sourcePath, width, height });
+      const assetId = `native-image:${sourceKey}`;
+      this.imageSourcesById.set(assetId, { sourcePath: layer.sourcePath, width, height });
+      let registration = this.imageCache.get(assetId);
+      if (!registration) {
+        registration = registerNativeImageAsset({
+          assetId,
+          sourcePath: layer.sourcePath,
+          width,
+          height,
+        }).then(() => {
+          this.registeredAssetIds.add(assetId);
         });
-        this.imageCache.set(pixelKey, pixels);
-        void pixels.catch(() => {
-          if (this.imageCache.get(pixelKey) === pixels) this.imageCache.delete(pixelKey);
+        this.imageCache.set(assetId, registration);
+        void registration.catch(() => {
+          if (this.imageCache.get(assetId) === registration) this.imageCache.delete(assetId);
+          this.registeredAssetIds.delete(assetId);
         });
       }
-      return pixels.then((rgba) => ({
+      return registration.then(() => ({
         assetId,
-        rgba,
         width,
         height,
         x: layer.x,
@@ -229,8 +245,7 @@ export class NativeRasterBridge {
       }));
     }));
 
-    await Promise.all(assets.map((asset) => this.register(asset)));
-    return assets.map(snapshot);
+    return assets;
   }
 
   private async rasterizeBackground(scene: EvaluatedScene, frameKey: number): Promise<NativeRasterLayerSnapshot[]> {

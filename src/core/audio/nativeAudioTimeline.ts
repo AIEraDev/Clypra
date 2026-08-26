@@ -40,6 +40,11 @@ export interface NativeAudioTimelineSyncResult {
   installed: NativeAudioClipStatus[];
 }
 
+export interface NativeAudioTimelineOptions {
+  /** Preview transport speed is a monitoring control and must not alter voice pitch. */
+  preserveTransportPitch?: boolean;
+}
+
 /**
  * Convert the shared timeline audio query into the native clock contract.
  * The snapshot is relative to `startTime`, matching export audio semantics.
@@ -50,12 +55,13 @@ export function buildNativeAudioTimeline(
   assets: MediaAsset[],
   startTime: number,
   endTime: number,
+  options: NativeAudioTimelineOptions = {},
 ): NativeAudioTimelineSnapshot {
   const active = getActiveAudioClips(clips, tracks, assets, startTime, endTime);
   return {
     startTime,
     endTime,
-    clips: active.map(toNativeAudioTimelineClip),
+    clips: active.map((clip) => toNativeAudioTimelineClip(clip, options)),
   };
 }
 
@@ -69,8 +75,9 @@ export async function syncNativeAudioTimeline(
   assets: MediaAsset[],
   startTime: number,
   endTime: number,
+  options: NativeAudioTimelineOptions = {},
 ): Promise<NativeAudioTimelineSyncResult> {
-  const snapshot = buildNativeAudioTimeline(clips, tracks, assets, startTime, endTime);
+  const snapshot = buildNativeAudioTimeline(clips, tracks, assets, startTime, endTime, options);
   await startNativeAudio();
   // Native decodes the complete candidate before atomically replacing the
   // current graph. This prevents clear-first gaps and stale partial installs.
@@ -100,7 +107,10 @@ export async function syncNativeAudioTimeline(
   };
 }
 
-function toNativeAudioTimelineClip(config: ExportAudioClipConfig): NativeAudioTimelineClip {
+function toNativeAudioTimelineClip(
+  config: ExportAudioClipConfig,
+  options: NativeAudioTimelineOptions,
+): NativeAudioTimelineClip {
   return {
     clipId: config.clipId,
     path: config.path,
@@ -117,7 +127,7 @@ function toNativeAudioTimelineClip(config: ExportAudioClipConfig): NativeAudioTi
     channelMode: config.channelMode,
     downmix: config.downmix,
     channelMap: config.channelMap,
-    preservePitch: config.preservePitch,
+    preservePitch: options.preserveTransportPitch === true || config.preservePitch,
   };
 }
 

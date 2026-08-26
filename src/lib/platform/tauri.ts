@@ -199,6 +199,30 @@ export async function decodeNativeRgbaFrame(
   });
 }
 
+/**
+ * Decode and upload a still image entirely inside the native compositor.
+ *
+ * The pixel buffer must not cross the WebView boundary: doing so turns a
+ * first-use image into a multi-megabyte JSON/IPC operation and can stall the
+ * editor when playback enters the image clip.
+ */
+export async function registerNativeImageAsset(options: {
+  assetId: string;
+  sourcePath: string;
+  width: number;
+  height: number;
+}): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("registerNativeImageAsset requires the Tauri runtime");
+  }
+  await invoke("register_native_image_asset", {
+    assetId: options.assetId,
+    path: toNativePath(options.sourcePath),
+    width: Math.max(1, Math.round(options.width)),
+    height: Math.max(1, Math.round(options.height)),
+  });
+}
+
 export interface NativeProjectSolidLayer {
   color: [number, number, number, number];
   x: number;

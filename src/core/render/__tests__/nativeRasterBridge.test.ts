@@ -3,14 +3,14 @@ import type { EvaluatedScene } from "@/core/evaluation/types";
 
 const mocks = vi.hoisted(() => ({
   register: vi.fn().mockResolvedValue(undefined),
-  decodeImage: vi.fn(),
+  registerImage: vi.fn().mockResolvedValue(undefined),
   rasterizeText: vi.fn(),
   textKey: vi.fn(() => "caption-key"),
 }));
 
 vi.mock("@/lib/platform/tauri", () => ({
-  decodeNativeRgbaFrame: mocks.decodeImage,
   isTauriRuntime: () => true,
+  registerNativeImageAsset: mocks.registerImage,
   registerNativeRasterAsset: mocks.register,
 }));
 
@@ -31,7 +31,8 @@ import { NativeRasterBridge } from "../nativeRasterBridge";
 describe("NativeRasterBridge", () => {
   beforeEach(() => {
     mocks.register.mockClear();
-    mocks.decodeImage.mockReset();
+    mocks.registerImage.mockReset();
+    mocks.registerImage.mockResolvedValue(undefined);
     mocks.rasterizeText.mockReset();
     mocks.textKey.mockClear();
   });
@@ -70,13 +71,7 @@ describe("NativeRasterBridge", () => {
     bridge.dispose();
   });
 
-  it("decodes still images as cached alpha-preserving native rasters", async () => {
-    mocks.decodeImage.mockResolvedValue(new Uint8Array([
-      10, 20, 30, 0,
-      10, 20, 30, 255,
-      10, 20, 30, 128,
-      10, 20, 30, 255,
-    ]).buffer);
+  it("registers still images through the native-owned alpha raster cache", async () => {
     const scene = {
       visualLayers: [{
         layerType: "media",
@@ -102,10 +97,15 @@ describe("NativeRasterBridge", () => {
       visualLayers: [{ ...(scene.visualLayers[0] as object), x: 80, y: 96 }],
     } as unknown as EvaluatedScene, { frameKey: 1 });
 
-    expect(mocks.decodeImage).toHaveBeenCalledWith("/Users/test/logo.png", 2, 2);
-    expect(mocks.decodeImage).toHaveBeenCalledTimes(1);
+    expect(mocks.registerImage).toHaveBeenCalledWith({
+      assetId: expect.stringMatching(/^native-image:\{/),
+      sourcePath: "/Users/test/logo.png",
+      width: 2,
+      height: 2,
+    });
+    expect(mocks.registerImage).toHaveBeenCalledTimes(1);
     expect(rasters).toEqual([{
-      assetId: expect.stringMatching(/^native-image:logo:/),
+      assetId: expect.stringMatching(/^native-image:\{/),
       width: 2,
       height: 2,
       x: 12,
@@ -117,9 +117,7 @@ describe("NativeRasterBridge", () => {
       isText: false,
     }]);
     expect(movedRasters[0]).toMatchObject({ x: 80, y: 96 });
-    expect(mocks.register).toHaveBeenCalledWith(expect.objectContaining({
-      rgba: [10, 20, 30, 0, 10, 20, 30, 255, 10, 20, 30, 128, 10, 20, 30, 255],
-    }));
+    expect(mocks.register).not.toHaveBeenCalledWith(expect.objectContaining({ rgba: expect.anything() }));
     bridge.dispose();
   });
 });

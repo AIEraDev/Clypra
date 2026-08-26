@@ -1619,6 +1619,39 @@ pub async fn register_native_raster_asset(
         .map(|_| ())
 }
 
+/// Decode and upload a still-image asset without returning its pixels through
+/// the WebView. This keeps first-use image activation off the JS main thread
+/// and makes the native GPU cache the sole owner of the decoded raster.
+#[tauri::command]
+pub async fn register_native_image_asset(
+    app: tauri::AppHandle,
+    asset_id: String,
+    path: String,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    if asset_id.trim().is_empty() {
+        return Err("Native image asset id must be non-empty".to_string());
+    }
+    if width == 0 || height == 0 || width > 8192 || height > 8192 {
+        return Err("Native image dimensions are outside the native limit".to_string());
+    }
+
+    let rgba = tauri::async_runtime::spawn_blocking(move || {
+        crate::commands::media::decode_image_rgba_bytes(&path, width, height)
+    })
+    .await
+    .map_err(|error| format!("Native image decode task failed: {}", error))??;
+
+    let preview_state = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    let mut session = preview_state.lock().await;
+    session
+        .get_or_upload_rgba_layer_to_texture(&asset_id, width, height, Some(&rgba))
+        .map(|_| ())
+}
+
 /// Present a versioned frame directly to the retained native surface.
 ///
 /// This is deliberately a sibling of the readback renderer rather than a
