@@ -198,6 +198,13 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   /** Letter spacing in pixels */
   readonly letterSpacing: number;
 
+  /** Resolved caption runs for native karaoke/caption highlighting. */
+  readonly runs?: ReadonlyArray<{
+    text: string;
+    color?: string;
+    highlighted?: boolean;
+  }>;
+
   // ─── Text Styling (Phase 2) ───────────────────────────────────────────────
 
   /** Text stroke/outline */
