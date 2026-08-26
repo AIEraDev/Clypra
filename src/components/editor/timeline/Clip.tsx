@@ -955,7 +955,12 @@ const arePropsEqual = (prevProps: ClipProps, nextProps: ClipProps) => {
     prevProps.clip.duration !== nextProps.clip.duration ||
     prevProps.clip.trimIn !== nextProps.clip.trimIn ||
     prevProps.clip.trimOut !== nextProps.clip.trimOut ||
-    prevProps.clip.trackId !== nextProps.clip.trackId
+    prevProps.clip.trackId !== nextProps.clip.trackId ||
+    prevProps.clip.kind !== nextProps.clip.kind ||
+    prevProps.clip.name !== nextProps.clip.name ||
+    (prevProps.clip.kind === "text" &&
+      nextProps.clip.kind === "text" &&
+      (prevProps.clip as any).text !== (nextProps.clip as any).text)
   ) {
     return false;
   }
