@@ -5,7 +5,7 @@ use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
 use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
     NativeFrameService, NativeFrameServiceStats, NativeSurfacePresentation, PerformanceSample,
-    PixelFormat, PreviewMode, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
+    PixelFormat, PreviewMode, TextLayerSnapshot, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
 use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
@@ -340,6 +340,8 @@ pub struct NativeVideoProjectFrameRequest {
     #[serde(default)]
     pub raster_layers: Vec<NativeProjectRasterLayer>,
     #[serde(default)]
+    pub text_layers: Vec<TextLayerSnapshot>,
+    #[serde(default)]
     pub transition: Option<TransitionSnapshot>,
 }
 
@@ -649,6 +651,7 @@ fn to_video_project_request(
         clear_color: request.project.clear_color,
         layers,
         raster_layers,
+        text_layers: request.project.text_layers.clone(),
         transition: request.project.transition.clone(),
     })
 }
@@ -1281,7 +1284,7 @@ async fn render_native_video_project_frame_bytes_timed(
 
     let mut session = state.lock().await;
     let conversion_started = Instant::now();
-    let mut textures = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
+    let mut textures = Vec::with_capacity(request.layers.len() + request.raster_layers.len() + request.text_layers.len());
     let mut views = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
     for (layer, (y_plane, uv_plane, width, height, color)) in
         request.layers.iter().zip(decoded_frames.iter())
@@ -1309,6 +1312,14 @@ async fn render_native_video_project_frame_bytes_timed(
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
+    let mut text_views = Vec::with_capacity(request.text_layers.len());
+    let mut text_dims = Vec::with_capacity(request.text_layers.len());
+    for text_layer in &request.text_layers {
+        let (texture, view, width, height) = session.get_or_render_text_layer(text_layer)?;
+        text_views.push(view);
+        text_dims.push((width as f32, height as f32));
+        textures.push(texture);
+    }
     let conversion_time_us = conversion_started
         .elapsed()
         .as_micros()
@@ -1321,7 +1332,7 @@ async fn render_native_video_project_frame_bytes_timed(
         request.canvas_height,
         wgpu::TextureFormat::Rgba8UnormSrgb,
     );
-    let mut specs = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
+    let mut specs = Vec::with_capacity(request.layers.len() + request.raster_layers.len() + request.text_layers.len());
     let mask_views: HashMap<&str, &wgpu::TextureView> = request
         .raster_layers
         .iter()
@@ -1367,6 +1378,28 @@ async fn render_native_video_project_frame_bytes_timed(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            color_grade: ColorGradeUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+            lut: None,
+            grain_seed: 0.0,
+        });
+    }
+    for (text_layer, (view, (width, height))) in request
+        .text_layers
+        .iter()
+        .zip(text_views.iter().zip(text_dims.iter()))
+    {
+        specs.push(NativeLayerSpec {
+            view: view.as_ref(),
+            x: text_layer.x,
+            y: text_layer.y,
+            width: *width,
+            height: *height,
+            rotation: text_layer.rotation,
+            opacity: text_layer.opacity,
+            z_index: text_layer.z_index,
+            blend_mode: &text_layer.blend_mode,
             color_grade: ColorGradeUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
@@ -1886,6 +1919,14 @@ pub async fn present_native_frame(
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
+    let mut text_views = Vec::with_capacity(legacy_request.text_layers.len());
+    let mut text_dims = Vec::with_capacity(legacy_request.text_layers.len());
+    for text_layer in &legacy_request.text_layers {
+        let (texture, view, width, height) = session.get_or_render_text_layer(text_layer)?;
+        text_views.push(view);
+        text_dims.push((width as f32, height as f32));
+        textures.push(texture);
+    }
 
     let conversion_upload_us = conversion_started.elapsed().as_micros() as u64;
     let compose_started = Instant::now();
@@ -1897,7 +1938,7 @@ pub async fn present_native_frame(
         target_format,
     );
     let mut specs =
-        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len());
+        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len() + legacy_request.text_layers.len());
     let mask_views: HashMap<&str, &wgpu::TextureView> = legacy_request
         .raster_layers
         .iter()
@@ -1943,6 +1984,28 @@ pub async fn present_native_frame(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            color_grade: ColorGradeUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+            lut: None,
+            grain_seed: 0.0,
+        });
+    }
+    for (text_layer, (view, (width, height))) in legacy_request
+        .text_layers
+        .iter()
+        .zip(text_views.iter().zip(text_dims.iter()))
+    {
+        specs.push(NativeLayerSpec {
+            view: view.as_ref(),
+            x: text_layer.x,
+            y: text_layer.y,
+            width: *width,
+            height: *height,
+            rotation: text_layer.rotation,
+            opacity: text_layer.opacity,
+            z_index: text_layer.z_index,
+            blend_mode: &text_layer.blend_mode,
             color_grade: ColorGradeUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),

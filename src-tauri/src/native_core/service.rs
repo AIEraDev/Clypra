@@ -170,6 +170,7 @@ impl NativeFrameService {
             window_seek_p99_ms: percentile_ms(&mut seek_samples, 0.99),
             window_cache_hit_rate: if cache_samples == 0 { 0.0 } else { hits as f64 / cache_samples as f64 },
             mode_stats,
+            text_layer_cache_hits: 0,
         }
     }
 }
@@ -211,6 +212,7 @@ mod tests {
                     body_effect: None,
                 }],
                 raster_layers: vec![],
+                text_layers: vec![],
             },
             output_width: 2,
             output_height: 2,

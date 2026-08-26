@@ -8,6 +8,8 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use wgpu::util::DeviceExt;
+use clypra_native_core::contracts::TextLayerSnapshot;
 
 pub mod texture_pool;
 pub use texture_pool::{
@@ -48,6 +50,21 @@ pub use bezier::{interpolate_keyframe, CubicBezier};
 pub mod speed_ramp;
 pub use speed_ramp::{SpeedKeyframe, SpeedRampProfile};
 
+pub mod text_effect_pipeline;
+pub use text_effect_pipeline::{
+    DistanceThresholdParams, DropShadowParams, GlowParams, OutlineParams, TextEffectPipeline,
+};
+
+pub mod effect_interpreter;
+pub use effect_interpreter::{
+    validate_effect_definition, resolve_passes, sanitize_parameter_overrides,
+    EffectDefinition, EffectValidationError, ParamSpec, ParamType, PrimitiveKind,
+    PrimitivePass, ResolutionTier, ResolvedPass, param_color, param_f32, param_vec2,
+};
+
+pub mod text_layer_cache;
+pub use text_layer_cache::{text_layer_cache_key, TextLayerCache};
+
 pub struct NativeWgpuRenderer {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
@@ -68,9 +85,12 @@ pub struct NativePreviewSession {
     pipeline: wgpu::RenderPipeline,
     ring: Option<YuvTextureRingBuffer>,
     rgba_layers: RgbaLayerTextureCache,
+    pub text_cache: TextLayerCache,
+    pub text_pipeline: TextEffectPipeline,
 }
 
 const RGBA_LAYER_CACHE_BYTES: usize = 128 * 1024 * 1024;
+const TEXT_LAYER_CACHE_BYTES: usize = 256 * 1024 * 1024;
 
 struct RgbaLayerTextureCacheEntry {
     texture: Arc<wgpu::Texture>,
@@ -115,7 +135,6 @@ impl RgbaLayerTextureCache {
         if bytes == 0 || bytes > RGBA_LAYER_CACHE_BYTES {
             return;
         }
-
         self.remove(&asset_id);
         while self.current_bytes.saturating_add(bytes) > RGBA_LAYER_CACHE_BYTES {
             let Some(oldest) = self.order.pop_front() else {
@@ -125,7 +144,6 @@ impl RgbaLayerTextureCache {
                 self.current_bytes = self.current_bytes.saturating_sub(removed.bytes);
             }
         }
-
         self.current_bytes = self.current_bytes.saturating_add(bytes);
         self.order.push_back(asset_id.clone());
         self.entries.insert(
@@ -161,6 +179,8 @@ impl NativePreviewSession {
             &yuv_layout,
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
+        let text_pipeline = TextEffectPipeline::new(&gpu.device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let text_cache = TextLayerCache::new(TEXT_LAYER_CACHE_BYTES);
 
         Self {
             gpu,
@@ -169,6 +189,8 @@ impl NativePreviewSession {
             pipeline,
             ring: None,
             rgba_layers: RgbaLayerTextureCache::new(),
+            text_cache,
+            text_pipeline,
         }
     }
 
@@ -327,6 +349,130 @@ impl NativePreviewSession {
                 .insert(asset_id.to_string(), Arc::clone(&texture), width, height);
         }
         Ok(texture)
+    }
+
+    /// Retrieve a cached text layer GPU texture or render it via the SDF pipeline.
+    /// Returns (texture, view, width, height).
+    pub fn get_or_render_text_layer(
+        &mut self,
+        layer: &TextLayerSnapshot,
+    ) -> Result<(Arc<wgpu::Texture>, Arc<wgpu::TextureView>, u32, u32), String> {
+        let params_json = serde_json::to_string(&layer.effect)
+            .unwrap_or_else(|_| "{}".to_string());
+        let color_hash = u64::from_le_bytes([
+            (layer.color[0] * 255.0) as u8,
+            (layer.color[1] * 255.0) as u8,
+            (layer.color[2] * 255.0) as u8,
+            (layer.color[3] * 255.0) as u8,
+            layer.text_align.as_bytes().first().copied().unwrap_or(0),
+            (layer.letter_spacing * 10.0) as u8,
+            (layer.line_height * 10.0) as u8,
+            0,
+        ]);
+        let effect_id = layer.effect.as_ref().map(|e| e.effect_id.as_str()).unwrap_or("raw_text");
+        let effect_version = layer.effect.as_ref().map(|e| e.effect_version).unwrap_or(1);
+        let key = text_layer_cache_key(
+            &layer.text,
+            &layer.font_id,
+            layer.font_size,
+            effect_id,
+            effect_version,
+            &format!("{params_json}:{color_hash}"),
+        );
+
+        if let Some((tex, view)) = self.text_cache.get(key) {
+            return Ok((Arc::clone(tex), Arc::clone(view), tex.width(), tex.height()));
+        }
+
+        // Cache miss: Shape text & generate SDF
+        let (font, font_hash) = clypra_native_core::font_registry::global_font_registry().get_font(&layer.font_id);
+        let align = clypra_native_core::glyph_cache::TextAlign::from_str_loose(&layer.text_align);
+        let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned(
+            &font,
+            font_hash,
+            &layer.text,
+            layer.font_size,
+            layer.letter_spacing,
+            layer.line_height,
+            align,
+            8.0,
+            4,
+        );
+
+        if shaped.width == 0 || shaped.height == 0 {
+            // Empty text — 1x1 transparent dummy texture
+            let texture = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Empty Text Layer"),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            }));
+            let view = Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            return Ok((texture, view, 1, 1));
+        }
+
+        // Upload SDF buffer (R8Unorm)
+        let sdf_texture = self.gpu.device.create_texture_with_data(
+            &self.gpu.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Text Layer SDF Atlas"),
+                size: wgpu::Extent3d {
+                    width: shaped.width,
+                    height: shaped.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &shaped.sdf_buffer,
+        );
+        let sdf_view = sdf_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create target RGBA8 texture
+        let target_texture = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Composited Text Layer"),
+            size: wgpu::Extent3d {
+                width: shaped.width,
+                height: shaped.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        }));
+        let target_view = Arc::new(target_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+
+        // Execute raw text DistanceThreshold pass (fill color + AA)
+        let params = DistanceThresholdParams {
+            threshold: 0.502,
+            smoothing: 0.02,
+            sdf_scale: 1.0,
+            _pad: 0.0,
+            color: layer.color,
+        };
+        let cmd = self.text_pipeline.render_distance_threshold(
+            &self.gpu.device,
+            &sdf_view,
+            &target_view,
+            &params,
+        );
+        self.gpu.queue.submit([cmd]);
+
+        self.text_cache.insert(key, Arc::clone(&target_texture), Arc::clone(&target_view), shaped.width, shaped.height);
+
+        Ok((target_texture, target_view, shaped.width, shaped.height))
     }
 
     #[allow(clippy::too_many_arguments)]
