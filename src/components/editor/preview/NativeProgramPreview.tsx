@@ -36,6 +36,7 @@ import { AspectRatio } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
+import { toast } from "@/lib/toast";
 
 import { TelemetryOverlay, type TelemetryStats } from "./TelemetryOverlay";
 import { AspectSelector } from "./AspectSelector";
@@ -193,9 +194,6 @@ export const NativeProgramPreview: React.FC = () => {
   // on every native surface probe and window resize.
   const nativeSurfaceReadyRef = useRef(false);
   const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
-  const [nativeOnlyBlocked, setNativeOnlyBlocked] = useState(false);
-  const [nativeOnlyBlockers, setNativeOnlyBlockers] = useState<string[]>([]);
-  const nativeOnlyBlockedRef = useRef(false);
   const nativeOnlyBlockersKeyRef = useRef("");
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -1528,12 +1526,18 @@ export const NativeProgramPreview: React.FC = () => {
           const blockerKey = blockers.join("\n");
           if (nativeOnlyBlockersKeyRef.current !== blockerKey) {
             nativeOnlyBlockersKeyRef.current = blockerKey;
-            setNativeOnlyBlockers(blockers);
+            if (blockers.length > 0) {
+              toast.error(
+                ["Native-only preview", ...blockers].join("\n"),
+                { id: "native-only-preview-blocked", duration: 6000 },
+              );
+            } else {
+              toast.dismiss("native-only-preview-blocked");
+            }
           }
-        }
-        if (nativeOnlyBlockedRef.current !== nativeOnlySceneBlocked) {
-          nativeOnlyBlockedRef.current = nativeOnlySceneBlocked;
-          setNativeOnlyBlocked(nativeOnlySceneBlocked);
+        } else if (nativeOnlyBlockersKeyRef.current) {
+          nativeOnlyBlockersKeyRef.current = "";
+          toast.dismiss("native-only-preview-blocked");
         }
         const nativeRevision = `${state.project?.id ?? "unknown-project"}:${state.epoch}`;
         if (nativeRevision !== nativeContinuousObservedRevision) {
@@ -1920,11 +1924,14 @@ export const NativeProgramPreview: React.FC = () => {
                 nativeFrontendPerfSpans.delete(nativeRequestKey);
                 nativeRetryAt = performance.now() + 250;
                 if (nativeOnlyMode) {
-                  setNativeOnlyBlocked(true);
-                  setNativeOnlyBlockers([
-                    "Native GPU frame rendering failed for the current frame.",
-                    error instanceof Error ? error.message : String(error),
-                  ]);
+                  toast.error(
+                    [
+                      "Native-only preview",
+                      "Native GPU frame rendering failed for the current frame.",
+                      error instanceof Error ? error.message : String(error),
+                    ].join("\n"),
+                    { id: "native-only-preview-blocked", duration: 6000 },
+                  );
                 }
               }
             }
@@ -2253,23 +2260,6 @@ export const NativeProgramPreview: React.FC = () => {
             </>
           </div>
         </div>
-
-        {isTauriRuntime() && NATIVE_PREVIEW_ONLY && nativeOnlyBlocked && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
-            <div className="rounded-lg border border-accent/30 bg-black/80 px-4 py-3 text-center shadow-xl">
-              <div className="text-sm font-semibold text-text-primary">
-                Native-only proof mode
-              </div>
-              <div className="mt-1 max-w-xs text-xs text-text-muted">
-                {nativeOnlyBlockers.length > 0
-                  ? nativeOnlyBlockers.map((blocker) => (
-                      <div key={blocker}>• {blocker}</div>
-                    ))
-                  : "This scene is waiting for a native wgpu surface or contains a graph feature not migrated yet."}
-              </div>
-            </div>
-          </div>
-        )}
 
         {clips.length === 0 && (
           <div
