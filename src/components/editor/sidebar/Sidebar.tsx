@@ -38,6 +38,7 @@ export interface SidebarProps extends MediaTabProps {
   width?: number;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  className?: string;
 }
 
 const SidebarComponent: React.FC<SidebarProps> = ({
@@ -46,6 +47,7 @@ const SidebarComponent: React.FC<SidebarProps> = ({
   width,
   collapsed = false,
   onToggleCollapse,
+  className = "",
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
 
@@ -55,8 +57,10 @@ const SidebarComponent: React.FC<SidebarProps> = ({
 
   return (
     <div
-      className="min-h-0 panel-shell flex flex-col overflow-hidden shrink-0 transition-[width] duration-150"
-      style={{ width: collapsed ? 44 : (width ?? 400) }}
+      className={`min-h-0 panel-shell flex flex-col overflow-hidden transition-[width] duration-150 ${
+        collapsed || width !== undefined ? "shrink-0" : "flex-1 min-w-0"
+      } ${className}`}
+      style={{ width: collapsed ? 44 : width }}
     >
       {/* Tab Navigation / Header */}
       <div className="panel-head border-b border-border relative flex items-center">
