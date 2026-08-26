@@ -423,6 +423,10 @@ impl NativePreviewSession {
                 return Err(error);
             }
         };
+        let emoji_fallback = font_registry
+            .require_font(clypra_native_core::font_registry::EMOJI_FALLBACK_FONT_ID)
+            .ok()
+            .map(|(font, hash)| (font, hash));
         eprintln!(
             "[native-preview][rust] text-cache-miss font_id={} text_len={} font_size={} effect_id={}",
             layer.font_id,
@@ -435,9 +439,12 @@ impl NativePreviewSession {
                 .unwrap_or("none")
         );
         let align = clypra_native_core::glyph_cache::TextAlign::from_str_loose(&layer.text_align);
-        let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned(
+        let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned_with_fallback(
             &font,
             font_hash,
+            emoji_fallback
+                .as_ref()
+                .map(|(font, hash)| (font.as_ref(), *hash)),
             &layer.text,
             layer.font_size,
             layer.letter_spacing,
