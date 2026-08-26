@@ -14,6 +14,8 @@ use std::sync::{Arc, OnceLock};
 /// Bundled compatibility font bytes (Inconsolata Regular).
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../tests/test_font.ttf");
 pub const DEFAULT_FONT_ID: &str = "default";
+/// Internal face used for glyphs missing from the selected editor font.
+pub const EMOJI_FALLBACK_FONT_ID: &str = "__clypra_noto_emoji";
 
 /// Thread-safe registry of parsed TrueType / OpenType fonts.
 pub struct FontRegistry {
