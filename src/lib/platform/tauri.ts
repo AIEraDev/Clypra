@@ -330,6 +330,19 @@ export async function registerNativeFont(fontId: string, path: string): Promise<
   return invoke<number>("register_native_font", { fontId, path: toNativePath(path) });
 }
 
+/** Register a bundled font asset directly from the WebView bundle. */
+export async function registerNativeFontBytes(
+  fontId: string,
+  bytes: ArrayBuffer | Uint8Array,
+): Promise<number> {
+  if (!isTauriRuntime()) throw new Error("registerNativeFontBytes requires the Tauri runtime");
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  return invoke<number>("register_native_font_bytes", {
+    fontId,
+    bytes: Array.from(data),
+  });
+}
+
 export async function listNativeFonts(): Promise<string[]> {
   if (!isTauriRuntime()) return [];
   return invoke<string[]>("list_native_fonts");
