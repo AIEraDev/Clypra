@@ -19,6 +19,7 @@ import {
   updateNativeAudioClipParameters,
 } from "@/lib/platform/tauri";
 import { isTauriRuntime } from "@/lib/platform/tauri";
+import { NATIVE_CORE_CONTRACT_VERSION } from "@/lib/platform/nativeCore";
 import {
   buildNativeAudioTimeline,
   syncNativeAudioTimeline,
@@ -146,7 +147,7 @@ export class NativeAudioPreviewController {
           }
 
           await configureNativePlayback({
-            contractVersion: 1,
+            contractVersion: NATIVE_CORE_CONTRACT_VERSION,
             projectRevision: nextSource.projectRevision,
             frameRate: Math.max(1, Math.round(nextSource.frameRate)),
             durationFrames: Math.max(
@@ -183,7 +184,7 @@ export class NativeAudioPreviewController {
       this.installedSnapshot = timeline.snapshot;
       if (this.disposed) return false;
       await configureNativePlayback({
-        contractVersion: 1,
+        contractVersion: NATIVE_CORE_CONTRACT_VERSION,
         projectRevision: this.source.projectRevision,
         frameRate: Math.max(1, Math.round(this.source.frameRate)),
         durationFrames: Math.max(
