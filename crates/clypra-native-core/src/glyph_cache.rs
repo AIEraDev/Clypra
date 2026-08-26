@@ -309,6 +309,36 @@ impl GlyphSdfCache {
         radius: f32,
         padding: usize,
     ) -> ShapedTextSdf {
+        self.render_text_sdf_aligned_with_fallback(
+            font,
+            font_hash,
+            None,
+            text,
+            size_px,
+            letter_spacing,
+            line_height_mult,
+            align,
+            radius,
+            padding,
+        )
+    }
+
+    /// Shape text with an optional fallback face for characters missing from
+    /// the selected font. This keeps the user's typography authoritative while
+    /// allowing emoji and other supplementary glyphs to remain visible.
+    pub fn render_text_sdf_aligned_with_fallback(
+        &self,
+        font: &Font,
+        font_hash: u64,
+        fallback: Option<(&Font, u64)>,
+        text: &str,
+        size_px: f32,
+        letter_spacing: f32,
+        line_height_mult: f32,
+        align: TextAlign,
+        radius: f32,
+        padding: usize,
+    ) -> ShapedTextSdf {
         if text.is_empty() {
             return ShapedTextSdf {
                 width: 0,
@@ -349,7 +379,16 @@ impl GlyphSdfCache {
                 continue;
             }
 
-            let glyph = self.get_or_insert(font, font_hash, ch, size_px, radius, padding);
+            let (glyph_font, glyph_hash) = match fallback {
+                Some((fallback_font, fallback_hash))
+                    if font.lookup_glyph_index(ch) == 0
+                        && fallback_font.lookup_glyph_index(ch) != 0 =>
+                {
+                    (fallback_font, fallback_hash)
+                }
+                _ => (font, font_hash),
+            };
+            let glyph = self.get_or_insert(glyph_font, glyph_hash, ch, size_px, radius, padding);
             let adv = glyph.advance_width;
 
             if glyph.width > 0 && glyph.height > 0 {
