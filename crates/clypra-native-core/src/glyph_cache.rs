@@ -52,6 +52,61 @@ impl TextAlign {
     }
 }
 
+/// Apply the CSS text-style controls that are not represented by fontdue's
+/// single-face rasterizer. The transform is intentionally deterministic and
+/// bounded so it remains safe for large editor font sizes.
+fn style_bitmap(
+    bitmap: &[u8],
+    width: usize,
+    height: usize,
+    font_weight: u16,
+    italic: bool,
+) -> (Vec<u8>, usize) {
+    if width == 0 || height == 0 || bitmap.is_empty() {
+        return (Vec::new(), width);
+    }
+
+    let bold_radius = match font_weight {
+        900..=u16::MAX => 3usize,
+        700..=899 => 2usize,
+        500..=699 => 1usize,
+        _ => 0usize,
+    };
+    let shear = if italic {
+        ((height as f32 * 0.22).ceil() as usize).min(32)
+    } else {
+        0
+    };
+    let output_width = width.saturating_add(shear).max(1);
+    let mut styled = vec![0u8; output_width * height];
+
+    for y in 0..height {
+        let italic_shift = if shear > 0 {
+            ((height.saturating_sub(1 + y)) as f32 / height as f32 * shear as f32).round()
+                as isize
+        } else {
+            0
+        };
+        for x in 0..width {
+            let source = bitmap[y * width + x];
+            if source == 0 {
+                continue;
+            }
+            let min_x = x.saturating_sub(bold_radius);
+            let max_x = (x + bold_radius).min(width.saturating_sub(1));
+            for expanded_x in min_x..=max_x {
+                let output_x = expanded_x as isize + italic_shift;
+                if output_x >= 0 && (output_x as usize) < output_width {
+                    let index = y * output_width + output_x as usize;
+                    styled[index] = styled[index].max(source);
+                }
+            }
+        }
+    }
+
+    (styled, output_width)
+}
+
 /// Maximum permissible canvas dimension for an individual text layer SDF atlas.
 /// Prevents GPU validation panics and memory exhaustion on adversarial input.
 pub const MAX_TEXT_CANVAS_DIMENSION: usize = 8192;
@@ -142,6 +197,36 @@ impl GlyphSdfCache {
         self.get_or_insert_pinned(font, font_hash, character, size_px, radius, padding, 0)
     }
 
+    /// Retrieve or rasterize a glyph with the resolved native text style.
+    ///
+    /// fontdue exposes the font face but does not synthesize CSS-style weight
+    /// or italic variants. Native text still needs those controls to be
+    /// visible, so the cache applies a small deterministic bitmap dilation for
+    /// heavier weights and a shear for italic text before generating the SDF.
+    pub fn get_or_insert_styled(
+        &self,
+        font: &Font,
+        font_hash: u64,
+        character: char,
+        size_px: f32,
+        font_weight: u16,
+        italic: bool,
+        radius: f32,
+        padding: usize,
+    ) -> SdfGlyph {
+        self.get_or_insert_pinned_with_style(
+            font,
+            font_hash,
+            character,
+            size_px,
+            radius,
+            padding,
+            0,
+            font_weight,
+            italic,
+        )
+    }
+
     /// Retrieve or rasterize+generate an SDF glyph with active-frame epoch pinning.
     pub fn get_or_insert_pinned(
         &self,
@@ -153,9 +238,37 @@ impl GlyphSdfCache {
         padding: usize,
         epoch: u64,
     ) -> SdfGlyph {
+        self.get_or_insert_pinned_with_style(
+            font,
+            font_hash,
+            character,
+            size_px,
+            radius,
+            padding,
+            epoch,
+            400,
+            false,
+        )
+    }
+
+    fn get_or_insert_pinned_with_style(
+        &self,
+        font: &Font,
+        font_hash: u64,
+        character: char,
+        size_px: f32,
+        radius: f32,
+        padding: usize,
+        epoch: u64,
+        font_weight: u16,
+        italic: bool,
+    ) -> SdfGlyph {
         let glyph_index = font.lookup_glyph_index(character);
         let size_key = (size_px * 100.0).round() as u32;
-        let key = (font_hash, glyph_index, size_key);
+        let style_hash = font_hash
+            ^ ((font_weight as u64) << 16)
+            ^ if italic { 1u64 << 63 } else { 0 };
+        let key = (style_hash, glyph_index, size_key);
 
         // Fast path: read lock check
         {
@@ -182,9 +295,16 @@ impl GlyphSdfCache {
 
         // Slow path: rasterize with fontdue and generate SDF
         let (metrics, bitmap) = font.rasterize(character, size_px);
+        let (bitmap, bitmap_width) = style_bitmap(
+            &bitmap,
+            metrics.width,
+            metrics.height,
+            font_weight,
+            italic,
+        );
 
-        let (sdf_data, sdf_w, sdf_h) = if metrics.width > 0 && metrics.height > 0 {
-            generate_padded_sdf(&bitmap, metrics.width, metrics.height, padding, radius)
+        let (sdf_data, sdf_w, sdf_h) = if bitmap_width > 0 && metrics.height > 0 {
+            generate_padded_sdf(&bitmap, bitmap_width, metrics.height, padding, radius)
         } else {
             (Vec::new(), 0, 0)
         };
@@ -246,6 +366,38 @@ impl GlyphSdfCache {
         );
 
         glyph
+    }
+
+    /// Shapes a styled multi-line text string with fallback glyph support.
+    pub fn render_text_sdf_aligned_with_fallback_styled(
+        &self,
+        font: &Font,
+        font_hash: u64,
+        fallback: Option<(&Font, u64)>,
+        text: &str,
+        size_px: f32,
+        font_weight: u16,
+        italic: bool,
+        letter_spacing: f32,
+        line_height_mult: f32,
+        align: TextAlign,
+        radius: f32,
+        padding: usize,
+    ) -> ShapedTextSdf {
+        self.render_text_sdf_aligned_with_fallback_inner(
+            font,
+            font_hash,
+            fallback,
+            text,
+            size_px,
+            font_weight,
+            italic,
+            letter_spacing,
+            line_height_mult,
+            align,
+            radius,
+            padding,
+        )
     }
 
     /// Returns telemetry metrics for the glyph cache.
@@ -339,6 +491,37 @@ impl GlyphSdfCache {
         radius: f32,
         padding: usize,
     ) -> ShapedTextSdf {
+        self.render_text_sdf_aligned_with_fallback_styled(
+            font,
+            font_hash,
+            fallback,
+            text,
+            size_px,
+            400,
+            false,
+            letter_spacing,
+            line_height_mult,
+            align,
+            radius,
+            padding,
+        )
+    }
+
+    fn render_text_sdf_aligned_with_fallback_inner(
+        &self,
+        font: &Font,
+        font_hash: u64,
+        fallback: Option<(&Font, u64)>,
+        text: &str,
+        size_px: f32,
+        font_weight: u16,
+        italic: bool,
+        letter_spacing: f32,
+        line_height_mult: f32,
+        align: TextAlign,
+        radius: f32,
+        padding: usize,
+    ) -> ShapedTextSdf {
         if text.is_empty() {
             return ShapedTextSdf {
                 width: 0,
@@ -388,7 +571,16 @@ impl GlyphSdfCache {
                 }
                 _ => (font, font_hash),
             };
-            let glyph = self.get_or_insert(glyph_font, glyph_hash, ch, size_px, radius, padding);
+            let glyph = self.get_or_insert_styled(
+                glyph_font,
+                glyph_hash,
+                ch,
+                size_px,
+                font_weight,
+                italic,
+                radius,
+                padding,
+            );
             let adv = glyph.advance_width;
 
             if glyph.width > 0 && glyph.height > 0 {

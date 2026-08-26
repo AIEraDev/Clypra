@@ -439,7 +439,19 @@ impl NativePreviewSession {
                 .unwrap_or("none")
         );
         let align = clypra_native_core::glyph_cache::TextAlign::from_str_loose(&layer.text_align);
-        let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned_with_fallback(
+        let font_weight = match layer.font_weight.trim().to_ascii_lowercase().as_str() {
+            "thin" => 100,
+            "extralight" | "extra-light" => 200,
+            "light" => 300,
+            "medium" => 500,
+            "semibold" | "semi-bold" => 600,
+            "bold" => 700,
+            "extrabold" | "extra-bold" => 800,
+            "black" => 900,
+            value => value.parse::<u16>().unwrap_or(400).clamp(100, 900),
+        };
+        let italic = layer.font_style.eq_ignore_ascii_case("italic");
+        let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned_with_fallback_styled(
             &font,
             font_hash,
             emoji_fallback
@@ -447,6 +459,8 @@ impl NativePreviewSession {
                 .map(|(font, hash)| (font.as_ref(), *hash)),
             &layer.text,
             layer.font_size,
+            font_weight,
+            italic,
             layer.letter_spacing,
             layer.line_height,
             align,

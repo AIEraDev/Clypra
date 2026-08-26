@@ -35,8 +35,9 @@ type NativeBundledFont = {
 };
 
 // These are the same latin editor fonts imported by index.css. Registering a
-// family once is sufficient for the current native glyph cache; weight/style
-// remain resolved values in the frame snapshot and are part of its cache key.
+// family once is sufficient for the native glyph cache; the resolved
+// weight/style values remain in the frame snapshot and are applied by Rust's
+// deterministic glyph rasterizer.
 const BUNDLED_FONTS: readonly NativeBundledFont[] = [
   { url: interUrl, aliases: ["Inter", "Inter Variable"] },
   { url: montserratUrl, aliases: ["Montserrat", "Montserrat Variable"] },

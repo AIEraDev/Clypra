@@ -149,6 +149,20 @@ fn glyph_cache_hit_returns_identical_data() {
 }
 
 #[test]
+fn styled_glyphs_are_cached_separately_and_change_rasterization() {
+    let font = test_font();
+    let hash = test_font_hash();
+    let cache = GlyphSdfCache::new(8 * 1024 * 1024);
+    let regular = cache.get_or_insert_styled(&font, hash, 'A', 72.0, 400, false, 8.0, 4);
+    let bold = cache.get_or_insert_styled(&font, hash, 'A', 72.0, 800, false, 8.0, 4);
+    let italic = cache.get_or_insert_styled(&font, hash, 'A', 72.0, 400, true, 8.0, 4);
+
+    assert_ne!(regular.sdf_data, bold.sdf_data, "bold must not reuse regular glyph pixels");
+    assert_ne!(regular.sdf_data, italic.sdf_data, "italic must not reuse regular glyph pixels");
+    assert!(italic.width >= regular.width, "italic shear must preserve the glyph");
+}
+
+#[test]
 fn glyph_cache_different_sizes_are_distinct() {
     let font = test_font();
     let hash = test_font_hash();
@@ -291,4 +305,3 @@ fn render_text_sdf_clamps_extreme_dimensions_and_flags_truncated() {
     assert!(result.width as usize <= MAX_TEXT_CANVAS_DIMENSION, "Canvas width ({}) must be clamped to MAX ({})", result.width, MAX_TEXT_CANVAS_DIMENSION);
     assert_eq!(result.sdf_buffer.len(), (result.width * result.height) as usize);
 }
-
