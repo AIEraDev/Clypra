@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EvaluatedScene } from "@/core/evaluation/types";
+import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 
 const mocks = vi.hoisted(() => ({
   register: vi.fn().mockResolvedValue(undefined),
@@ -98,14 +99,14 @@ describe("NativeRasterBridge", () => {
     } as unknown as EvaluatedScene, { frameKey: 1 });
 
     expect(mocks.registerImage).toHaveBeenCalledWith({
-      assetId: expect.stringMatching(/^native-image:\{/),
+      assetId: buildNativeImageAssetId("/Users/test/logo.png", 2, 2),
       sourcePath: "/Users/test/logo.png",
       width: 2,
       height: 2,
     });
     expect(mocks.registerImage).toHaveBeenCalledTimes(1);
     expect(rasters).toEqual([{
-      assetId: expect.stringMatching(/^native-image:\{/),
+      assetId: buildNativeImageAssetId("/Users/test/logo.png", 2, 2),
       width: 2,
       height: 2,
       x: 12,

@@ -15,6 +15,7 @@ import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOv
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { isTauriRuntime, registerNativeImageAsset, registerNativeRasterAsset } from "@/lib/platform/tauri";
 import type { NativeRasterLayerSnapshot } from "@/lib/platform/nativeCore";
+import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 import {
   buildNativeTextRasterKey,
   rasterizeTextLayerForNative,
@@ -212,8 +213,7 @@ export class NativeRasterBridge {
     const assets = await Promise.all(layers.map((layer) => {
       const width = Math.max(1, Math.round(layer.width));
       const height = Math.max(1, Math.round(layer.height));
-      const sourceKey = stableSerialize({ sourcePath: layer.sourcePath, width, height });
-      const assetId = `native-image:${sourceKey}`;
+      const assetId = buildNativeImageAssetId(layer.sourcePath, width, height);
       this.imageSourcesById.set(assetId, { sourcePath: layer.sourcePath, width, height });
       let registration = this.imageCache.get(assetId);
       if (!registration) {

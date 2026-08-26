@@ -5,6 +5,7 @@ import type {
 } from "@/lib/platform/tauri";
 import { parseColor } from "@/core/evaluation/animation";
 import { resolveFilterToIR, type FilterIR } from "@/core/render/filterIR";
+import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 import {
   DEFAULT_NATIVE_COLOR_POLICY,
   createNativeFrameRequest,
@@ -33,6 +34,18 @@ const NATIVE_VIDEO_EFFECT_RENDERERS = new Set([
   "fire", "particles", "dust_particles",
 ]);
 const NATIVE_BACKGROUND_MEDIA_LAYER_ID = "__native-background-media";
+
+function hasNativeImageRasterAsset(
+  layer: EvaluatedMediaLayer,
+  asset: NativeRasterLayerSnapshot,
+): boolean {
+  if (asset.isMask) return false;
+  // Accept the old layer-scoped identity while projects/frames transition to
+  // the deterministic source-scoped identity. New producers must use the
+  // shared identity helper above.
+  return asset.assetId === buildNativeImageAssetId(layer.sourcePath, layer.width, layer.height)
+    || asset.assetId.startsWith(`native-image:${layer.layerId}:`);
+}
 
 function getNativeTransitionSnapshot(
   scene: EvaluatedScene,
@@ -887,7 +900,7 @@ export function buildNativeVideoProjectRequest(
   );
   const backgroundMediaPath = getNativeBackgroundMediaPath(scene);
   if (imageLayers.some((layer) => !rasterLayers.some((asset) =>
-    !asset.isMask && asset.assetId.startsWith(`native-image:${layer.layerId}:`),
+    hasNativeImageRasterAsset(layer, asset),
   ))) return null;
   if (
     mediaLayers.length === 0 &&
@@ -1011,7 +1024,7 @@ export function getNativePreviewBlockers(
     }
   }
   for (const layer of imageLayers) {
-    if (!rasterLayers.some((asset) => !asset.isMask && asset.assetId.startsWith(`native-image:${layer.layerId}:`))) {
+    if (!rasterLayers.some((asset) => hasNativeImageRasterAsset(layer, asset))) {
       add(`Still image ${layer.layerId} is waiting for its alpha-preserving native raster frame.`);
     }
   }

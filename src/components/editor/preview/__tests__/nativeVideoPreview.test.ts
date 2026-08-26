@@ -7,6 +7,7 @@ import {
   getNativeFrameRequestKey,
   isRenderableNativePreviewFrame,
 } from "../nativeVideoPreview";
+import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 
 function makeVideoLayer(overrides: Partial<EvaluatedMediaLayer> = {}): EvaluatedMediaLayer {
   return {
@@ -387,7 +388,7 @@ describe("buildNativeVideoProjectRequest", () => {
       zIndex: 3,
     });
     const raster = {
-      assetId: "native-image:image-1:source",
+      assetId: buildNativeImageAssetId("/Users/test/logo.png", 640, 360),
       width: 640,
       height: 360,
       x: 320,
