@@ -8,7 +8,7 @@ import {
 
 function makeRequest(frameIndex: number): NativeFrameRequest {
   return {
-    contractVersion: 1,
+    contractVersion: 2,
     requestId: `request-${frameIndex}`,
     frameTime: { frameIndex, ticks: frameIndex * 33_333, timescale: 1_000_000 },
     project: {
