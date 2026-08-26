@@ -784,6 +784,36 @@ fn compute_text_layer_placement(
     (final_center_x - shaped_w * 0.5, final_center_y - shaped_h * 0.5)
 }
 
+/// Fit the native text texture inside the editor's text box.
+///
+/// The texture is rasterized by the native font stack, so its bounds can be
+/// wider than the browser's estimate (emoji fallback and synthetic italic are
+/// the most common examples).  The text box remains the authoritative layout
+/// constraint; scale only when the native texture would otherwise overflow it.
+fn compute_text_layer_scale(
+    text_layer: &TextLayerSnapshot,
+    shaped_w: f32,
+    shaped_h: f32,
+) -> f32 {
+    let (Some(box_w), Some(box_h)) = (text_layer.box_width, text_layer.box_height) else {
+        return 1.0;
+    };
+
+    if !box_w.is_finite()
+        || !box_h.is_finite()
+        || !shaped_w.is_finite()
+        || !shaped_h.is_finite()
+        || box_w <= 0.0
+        || box_h <= 0.0
+        || shaped_w <= 0.0
+        || shaped_h <= 0.0
+    {
+        return 1.0;
+    }
+
+    (box_w / shaped_w).min(box_h / shaped_h).clamp(0.0001, 1.0)
+}
+
 fn project_layer_transform_values(
     x: f32,
     y: f32,
@@ -1502,13 +1532,17 @@ async fn render_native_video_project_frame_bytes_timed(
         .iter()
         .zip(text_views.iter().zip(text_dims.iter()))
     {
-        let (layer_x, layer_y) = compute_text_layer_placement(text_layer, *width, *height);
+        let scale = compute_text_layer_scale(text_layer, *width, *height);
+        let display_width = *width * scale;
+        let display_height = *height * scale;
+        let (layer_x, layer_y) =
+            compute_text_layer_placement(text_layer, display_width, display_height);
         specs.push(NativeLayerSpec {
             view: view.as_ref(),
             x: layer_x,
             y: layer_y,
-            width: *width,
-            height: *height,
+            width: display_width,
+            height: display_height,
             rotation: text_layer.rotation,
             opacity: text_layer.opacity,
             z_index: text_layer.z_index,
@@ -2133,13 +2167,17 @@ pub async fn present_native_frame(
         .iter()
         .zip(text_views.iter().zip(text_dims.iter()))
     {
-        let (layer_x, layer_y) = compute_text_layer_placement(text_layer, *width, *height);
+        let scale = compute_text_layer_scale(text_layer, *width, *height);
+        let display_width = *width * scale;
+        let display_height = *height * scale;
+        let (layer_x, layer_y) =
+            compute_text_layer_placement(text_layer, display_width, display_height);
         specs.push(NativeLayerSpec {
             view: view.as_ref(),
             x: layer_x,
             y: layer_y,
-            width: *width,
-            height: *height,
+            width: display_width,
+            height: display_height,
             rotation: text_layer.rotation,
             opacity: text_layer.opacity,
             z_index: text_layer.z_index,
@@ -2428,11 +2466,12 @@ pub async fn get_native_frame_service_stats(
 #[cfg(test)]
 mod tests {
     use super::{
-        color_params, merge_color_metadata, parse_blend_mode, project_layer_transform,
-        validate_project_request, validate_video_project_request, NativeDecodeTimings,
-        NativePreviewFrameQueue, NativeProjectFrameRequest, NativeVideoProjectFrameRequest,
-        QueuedNativeFrame,
+        color_params, compute_text_layer_scale, merge_color_metadata, parse_blend_mode,
+        project_layer_transform, validate_project_request, validate_video_project_request,
+        NativeDecodeTimings, NativePreviewFrameQueue, NativeProjectFrameRequest,
+        NativeVideoProjectFrameRequest, QueuedNativeFrame,
     };
+    use crate::native_core::TextLayerSnapshot;
     use crate::thumbnail_engine::decoder::VideoColorMetadata;
     use std::time::Instant;
 
@@ -2540,6 +2579,54 @@ mod tests {
         assert!((transform.scale_x - 0.5).abs() < f32::EPSILON);
         assert!((transform.scale_y - 0.5).abs() < f32::EPSILON);
         assert!((transform.rotation_rad + std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    fn text_layer_with_box(box_width: Option<f32>, box_height: Option<f32>) -> TextLayerSnapshot {
+        TextLayerSnapshot {
+            text: "Hello".to_string(),
+            font_id: "inter".to_string(),
+            font_size: 48.0,
+            font_weight: "normal".to_string(),
+            font_style: "normal".to_string(),
+            letter_spacing: 0.0,
+            line_height: 1.2,
+            color: [1.0, 1.0, 1.0, 1.0],
+            text_align: "left".to_string(),
+            vertical_align: "top".to_string(),
+            x: 10.0,
+            y: 20.0,
+            box_width,
+            box_height,
+            rotation: 0.0,
+            opacity: 1.0,
+            z_index: 0,
+            blend_mode: "normal".to_string(),
+            stroke_color: None,
+            stroke_width: None,
+            shadow_color: None,
+            shadow_offset: None,
+            shadow_blur: None,
+            background: None,
+            runs: Vec::new(),
+            template_id: None,
+            template_data: None,
+            effect: None,
+        }
+    }
+
+    #[test]
+    fn native_text_scale_fits_rasterized_bounds_inside_text_box() {
+        let layer = text_layer_with_box(Some(100.0), Some(40.0));
+
+        assert_eq!(compute_text_layer_scale(&layer, 200.0, 80.0), 0.5);
+        assert_eq!(compute_text_layer_scale(&layer, 80.0, 30.0), 1.0);
+    }
+
+    #[test]
+    fn native_text_scale_does_not_scale_without_a_valid_text_box() {
+        let layer = text_layer_with_box(None, None);
+        assert_eq!(compute_text_layer_scale(&layer, 200.0, 80.0), 1.0);
+        assert_eq!(compute_text_layer_scale(&layer, f32::NAN, 80.0), 1.0);
     }
 
     #[test]
