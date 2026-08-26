@@ -38,6 +38,24 @@ import { CommandJournal } from "@/core/history";
 import type { Command, CommandJournalState } from "@/core/history";
 import { useTimelineStore } from "./timelineStore";
 import { useUIStore } from "./uiStore";
+import { useProjectStore } from "./projectStore";
+
+/**
+ * History commands update the timeline store with setState directly. That is
+ * intentional (the command result is already a complete immutable state), but
+ * it also means the timeline auto-save middleware cannot observe the write.
+ * Keep persistence attached to the command bridge so property edits made from
+ * the Properties panel are saved just like edits made through timeline
+ * actions.
+ */
+function scheduleProjectSaveAfterTimelineMutation(): void {
+  try {
+    useProjectStore.getState().scheduleAutoSave();
+  } catch {
+    // History is also used in isolated tests and during startup before the
+    // project store is ready. Persistence must not make a command fail.
+  }
+}
 
 interface HistoryStore {
   // Command journal instance
@@ -94,8 +112,10 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       // Execute command (command handles epoch increment internally)
       const newState = journal.execute(command, timelineStore);
 
-      // Update timeline store (auto-save triggered by middleware)
+      // Apply the command result, then explicitly notify persistence because
+      // this direct setState bypasses the timeline middleware wrapper.
       useTimelineStore.setState(newState);
+      scheduleProjectSaveAfterTimelineMutation();
     },
 
     undo: () => {
@@ -110,8 +130,9 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       // to ensure render caches are properly invalidated after undo.
       const newState = journal.undo(timelineStore);
 
-      // Update timeline store (auto-save triggered by middleware)
+      // Apply the historical state, then persist the undo.
       useTimelineStore.setState({ ...newState, epoch: timelineStore.epoch + 1 });
+      scheduleProjectSaveAfterTimelineMutation();
 
       // TL-BUG-001 fix: Clear stale selection after undo.
       // Timeline state may no longer contain the previously selected clips/gaps/transitions.
@@ -133,8 +154,9 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       // Redo (command handles epoch increment internally)
       const newState = journal.redo(timelineStore);
 
-      // Update timeline store (auto-save triggered by middleware)
+      // Apply the historical state, then persist the redo.
       useTimelineStore.setState({ ...newState, epoch: timelineStore.epoch + 1 });
+      scheduleProjectSaveAfterTimelineMutation();
 
       // TL-BUG-001 fix: Clear stale selection after redo.
       try {
@@ -160,6 +182,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => {
       const timelineStore = useTimelineStore.getState();
       const newState = journal.rollbackTransaction(timelineStore);
       useTimelineStore.setState({ ...newState, epoch: timelineStore.epoch + 1 });
+      scheduleProjectSaveAfterTimelineMutation();
     },
 
     clear: () => {
