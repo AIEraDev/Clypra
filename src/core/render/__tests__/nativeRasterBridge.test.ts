@@ -118,6 +118,8 @@ describe("NativeRasterBridge", () => {
     }]);
     expect(movedRasters[0]).toMatchObject({ x: 80, y: 96 });
     expect(mocks.register).not.toHaveBeenCalledWith(expect.objectContaining({ rgba: expect.anything() }));
+    await expect(bridge.reregister(rasters)).resolves.toBe(true);
+    expect(mocks.registerImage).toHaveBeenCalledTimes(2);
     bridge.dispose();
   });
 });

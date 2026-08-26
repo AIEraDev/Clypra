@@ -1633,7 +1633,16 @@ pub async fn register_native_image_asset(
     if asset_id.trim().is_empty() {
         return Err("Native image asset id must be non-empty".to_string());
     }
-    if width == 0 || height == 0 || width > 8192 || height > 8192 {
+    let expected_bytes = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "Native image dimensions overflow".to_string())?;
+    if width == 0
+        || height == 0
+        || width > 8192
+        || height > 8192
+        || expected_bytes > 64 * 1024 * 1024
+    {
         return Err("Native image dimensions are outside the native limit".to_string());
     }
 
