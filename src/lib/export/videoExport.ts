@@ -16,8 +16,8 @@ import { getActiveAudioClips } from "../../core/timeline/audioClips";
 import { PRESET_CONFIGS } from "./exportPresets";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
 import type { ExportAudioClip, ExportProgress } from "../../types/export";
-import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
-import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
+import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { verifyExportDependencies, ExportBlockedError, type MissingTextEffect } from "./exportPreflight";
@@ -311,11 +311,20 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         { frameKey },
       );
       const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
-        ? buildNativeVideoProjectRequest(scene, [...rasterLayers, ...smartOverlayRasters])
+        ? buildNativeFrameRequest(
+            scene,
+            `${project?.id ?? "export"}:${epoch}`,
+            frameKey,
+            frameRate,
+            width,
+            height,
+            [...rasterLayers, ...smartOverlayRasters],
+            { mode: "frameStep", quality: "full" },
+          )
         : null;
       if (nativeRequest) {
         try {
-          frameBytes = new Uint8Array(await renderNativeVideoProjectFrame(nativeRequest));
+          frameBytes = new Uint8Array(await renderNativeFrame(nativeRequest));
         } catch (error) {
           throw new Error(`[videoExport] Native frame ${i} failed: ${error instanceof Error ? error.message : String(error)}`);
         }
