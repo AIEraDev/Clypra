@@ -37,12 +37,60 @@ pub fn register_native_font(font_id: String, path: String) -> Result<u64, String
     if !path.is_absolute() {
         return Err("Native font registration requires an absolute filesystem path".to_string());
     }
-    let bytes = std::fs::read(path)
-        .map_err(|error| format!("Unable to read native font '{}': {error}", path.display()))?;
+    let bytes = std::fs::read(path).map_err(|error| {
+        let message = format!("Unable to read native font '{}': {error}", path.display());
+        eprintln!("[native-font][rust] register-failed id={} reason={}", font_id, message);
+        message
+    })?;
     if bytes.len() > 32 * 1024 * 1024 {
-        return Err("Native font exceeds the 32 MiB registration limit".to_string());
+        let message = "Native font exceeds the 32 MiB registration limit".to_string();
+        eprintln!("[native-font][rust] register-failed id={} reason={}", font_id, message);
+        return Err(message);
     }
-    clypra_native_core::font_registry::global_font_registry().register_font(&font_id, &bytes)
+    register_native_font_bytes(font_id, bytes)
+}
+
+/// Register bundled/editor font bytes without requiring the WebView to expose
+/// a filesystem path. This is the normal path for Vite-bundled WOFF2 assets.
+#[tauri::command]
+pub fn register_native_font_bytes(font_id: String, bytes: Vec<u8>) -> Result<u64, String> {
+    if font_id.trim().is_empty() {
+        return Err("Native font id must not be empty".to_string());
+    }
+    if bytes.is_empty() {
+        return Err(format!("Native font '{}' has no bytes", font_id));
+    }
+    if bytes.len() > 32 * 1024 * 1024 {
+        return Err(format!(
+            "Native font '{}' exceeds the 32 MiB registration limit",
+            font_id
+        ));
+    }
+
+    eprintln!(
+        "[native-font][rust] register-start id={} bytes={} format={}",
+        font_id,
+        bytes.len(),
+        if woff2::decode::is_woff2(&bytes) { "woff2" } else { "sfnt" }
+    );
+    let result = clypra_native_core::font_registry::global_font_registry()
+        .register_font(&font_id, &bytes);
+    match &result {
+        Ok(hash) => eprintln!(
+            "[native-font][rust] register-ok id={} hash={} registered_count={}",
+            font_id,
+            hash,
+            clypra_native_core::font_registry::global_font_registry()
+                .list_fonts()
+                .len()
+        ),
+        Err(error) => eprintln!(
+            "[native-font][rust] register-failed id={} reason={}",
+            font_id,
+            error
+        ),
+    }
+    result
 }
 
 #[tauri::command]
@@ -1647,23 +1695,21 @@ pub async fn queue_native_frame(
     } else {
         Some((cancellation_generation, generation))
     };
+    if is_prefetch && !legacy_request.text_layers.is_empty() {
+        // Warm text before the potentially expensive FFmpeg seek. Otherwise a
+        // future boundary can finish decoding only after the text SDF compile
+        // has missed the presentation deadline.
+        if let Some(preview_state) =
+            app.try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        {
+            let mut session = preview_state.lock().await;
+            for text_layer in &legacy_request.text_layers {
+                session.get_or_render_text_layer(text_layer)?;
+            }
+        }
+    }
     match decode_native_video_layers(&legacy_request, cancellation).await {
         Ok((decoded_frames, decode_timings)) => {
-            if is_prefetch && !legacy_request.text_layers.is_empty() {
-                // Text SDF pipelines and glyph atlases are lazy. Warm them as
-                // part of the native prefetch command so the first visible
-                // frame does not pay the compilation/upload cost at a layer
-                // boundary. This is GPU work only; no RGBA readback crosses
-                // the WebView boundary.
-                if let Some(preview_state) =
-                    app.try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
-                {
-                    let mut session = preview_state.lock().await;
-                    for text_layer in &legacy_request.text_layers {
-                        session.get_or_render_text_layer(text_layer)?;
-                    }
-                }
-            }
             let mut queue_state = queue.lock().await;
             if is_prefetch || queue_state.is_generation_current(generation) {
                 queue_state.complete(
