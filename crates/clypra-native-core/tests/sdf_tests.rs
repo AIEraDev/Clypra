@@ -80,8 +80,11 @@ fn sdf_corners_less_than_centre() {
 
 #[test]
 fn sdf_circle_radial_symmetry() {
-    let (w, h) = (64, 64);
-    let (cx, cy, r) = (31.5_f32, 31.5_f32, 20.0_f32);
+    // Use an odd-dimension grid so the circle center (32.0, 32.0) lands exactly
+    // on a pixel center, ensuring sampling points (±24px) are perfectly symmetric
+    // on the discrete grid without half-pixel rounding bias.
+    let (w, h) = (65, 65);
+    let (cx, cy, r) = (32.0_f32, 32.0_f32, 20.0_f32);
     let mask = circle_mask(w, h, cx, cy, r);
     let sdf = generate_sdf(&mask, w, h, 12.0);
 
@@ -95,10 +98,10 @@ fn sdf_circle_radial_symmetry() {
     let west  = sample(-(r + 4.0), 0.0);
     let north = sample(0.0, -(r + 4.0));
     let south = sample(0.0, r + 4.0);
-    // ±12 tolerance: pixel-grid discretisation on a circular arc causes up to ~1px
-    // of error across axis-aligned vs diagonal sampling directions.
-    let max_diff = east.abs_diff(west).max(north.abs_diff(south));
-    assert!(max_diff <= 12,
+
+    // Exact symmetry: opposite Cardinal directions must be identical (diff == 0).
+    let max_diff = east.abs_diff(west).max(north.abs_diff(south)).max(east.abs_diff(north));
+    assert!(max_diff <= 1,
         "radial symmetry broken: E={east} W={west} N={north} S={south} diff={max_diff}");
 }
 
