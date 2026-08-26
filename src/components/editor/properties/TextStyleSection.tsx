@@ -1,5 +1,5 @@
 import React from "react";
-import { Type, Palette, AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical, Save, Trash2, PaintBucket, Layers, Layout } from "lucide-react";
+import { Type, Palette, AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical, Save, Trash2, PaintBucket, Layers, Layout, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { normalizeFontFamily } from "@/core/evaluation/evaluator";
 import type { TextEffectDefinition } from "@/features/text-effects/types/types";
@@ -318,6 +318,17 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
     return matchesCat && matchesSearch;
   });
 
+  const isTextExceedingMaxDimension = React.useMemo(() => {
+    const text = textClip.text || "";
+    if (!text) return false;
+    const fontSize = textClip.fontSize || 32;
+    const letterSpacing = textClip.letterSpacing || 0;
+    const lines = text.split("\n");
+    const maxLineChars = Math.max(...lines.map((l) => l.length), 0);
+    const estimatedMaxLinePx = maxLineChars * (fontSize * 0.7 + letterSpacing);
+    return estimatedMaxLinePx > 8192;
+  }, [textClip.text, textClip.fontSize, textClip.letterSpacing]);
+
   return (
     <div className="space-y-3">
       {/* Mode Selector */}
@@ -357,7 +368,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
         </div>
       )}
 
-      {mode === "effect" && (
+      {mode === "effect" && activeEffectDefinition && (
         <div className="space-y-3">
           <EffectStylePanel
             effectId={textClip.styleId || "custom"}
@@ -367,11 +378,17 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
               const el = document.getElementById("quick-presets-section");
               el?.scrollIntoView({ behavior: "smooth" });
             }}
-            isModified={false} // Will display detach tips if user changes style properties
+            isModified={false}
           />
           <div>
             <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">Text Content</label>
             <textarea value={textClip.text || ""} onChange={(e) => handleUpdate("text", e.target.value)} rows={3} placeholder="CLYPRA" className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors" />
+            {isTextExceedingMaxDimension && (
+              <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>Text exceeds 8192px canvas budget and was clamped.</span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -380,6 +397,12 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
         <div>
           <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">Text Content</label>
           <textarea value={textClip.text || ""} onChange={(e) => handleUpdate("text", e.target.value)} rows={3} placeholder="CLYPRA" className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors" />
+          {isTextExceedingMaxDimension && (
+            <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>Text exceeds 8192px canvas budget and was clamped.</span>
+            </div>
+          )}
         </div>
       )}
 
