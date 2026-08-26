@@ -324,6 +324,17 @@ export async function renderNativeFrame(request: NativeFrameRequest): Promise<Ar
   return invoke<ArrayBuffer>("render_native_frame", { request: nativeRequest });
 }
 
+/** Register a bundled/editor font in the strict native font registry. */
+export async function registerNativeFont(fontId: string, path: string): Promise<number> {
+  if (!isTauriRuntime()) throw new Error("registerNativeFont requires the Tauri runtime");
+  return invoke<number>("register_native_font", { fontId, path: toNativePath(path) });
+}
+
+export async function listNativeFonts(): Promise<string[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<string[]>("list_native_fonts");
+}
+
 /**
  * Submit a versioned frame directly to the retained native wgpu surface.
  * Readback via renderNativeFrame remains the fallback when the preview is
