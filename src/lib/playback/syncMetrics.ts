@@ -164,14 +164,7 @@ export function startSyncMetricsFlushLoop(intervalMs = 5000): void {
     const paintJitter = playheadPaintJitter.takeAndReset();
     const seekLatency = seekUserLatency.takeAndReset();
     if (uiDrift.n === 0 && paintJitter.n === 0 && seekLatency.n === 0) return;
-    const timestampEpochMs = Date.now();
-    console.log(
-      `🎯 [A/V Sync Frontend Metrics: 5s Window] [av-sync][react] source=react event=window_flush ts_epoch_ms=${timestampEpochMs} window_id=${Math.floor(timestampEpochMs / 5000)}`,
-    );
-    console.table([
-      { metric: "ui_playhead_drift", n: uiDrift.n, avg: `${uiDrift.avg.toFixed(2)}ms`, max_abs: `${uiDrift.maxAbs.toFixed(2)}ms` },
-      { metric: "playhead_paint_jitter", n: paintJitter.n, avg: `${paintJitter.avg.toFixed(2)}ms`, max_abs: `${paintJitter.maxAbs.toFixed(2)}ms` },
-      { metric: "seek_user_latency", n: seekLatency.n, avg: `${seekLatency.avg.toFixed(2)}ms`, max_abs: `${seekLatency.maxAbs.toFixed(2)}ms` },
-    ]);
+    // Metrics remain available to the telemetry overlay and diagnostics API,
+    // but periodic console summaries are intentionally silent in production.
   }, intervalMs);
 }
