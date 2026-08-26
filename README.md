@@ -10,7 +10,7 @@ A modern video editor built on Tauri v2, React 19, and Rust with hardware-accele
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md) [![GitHub issues](https://img.shields.io/github/issues/AIEraDev/clypra)](https://github.com/AIEraDev/clypra/issues) [![GitHub stars](https://img.shields.io/github/stars/AIEraDev/clypra)](https://github.com/AIEraDev/clypra/stargazers) [![GitHub Sponsors](https://img.shields.io/github/sponsors/AIEraDev?label=Sponsors&logo=githubsponsors&color=EA4AAA)](SPONSORS.md)
 
-[Features](#features) • [Architecture](#architecture) • [Installation](#installation) • [Development](#development) • [Contributing](CONTRIBUTING.md)
+[Features](#key-features) • [Architecture](#architecture) • [⚡ Performance Telemetry](#-production-performance-telemetry--privacy) • [Installation](#installation) • [Development](#development) • [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -34,6 +34,20 @@ Clypra is a **free, open-source video editor** (MIT License) with professional-g
 - 🎵 **High-Fidelity Audio & Waveforms** — Real-time peak + RMS waveform rendering, frame-accurate AV sync, and clip volume controls.
 - 🎨 **Text & Visual Compositing** — Custom text styling, animated overlays, filters, and real-time canvas previews.
 - 📦 **Multi-Format Import & Export** — Support for MP4, MOV, WebM, MKV, MP3, WAV, PNG, and high-quality ProRes/H.264 export.
+- 🛡️ **Zero-Overhead Performance Telemetry** — Production-only frame timing analysis to optimize driver compatibility and cross-OS rendering with zero PII.
+
+---
+
+## ⚡ Production Performance Telemetry & Privacy
+
+To ensure stutter-free 60 FPS playback and diagnose edge-case GPU driver regressions across diverse hardware configurations, Clypra includes a lightweight, non-blocking telemetry collector:
+
+- **What We Collect**: High-level numerical timings (decode $\mu$s, compose $\mu$s, P95 seek latency, dropped frame counts, OS family, and GPU vendor/model).
+- **Strict Privacy (Zero PII)**: Zero video frames, media assets, project titles, file paths, or personal user identities are ever accessed or sent.
+- **Adaptive Sampling**: Smooth 60 FPS playback is sampled at 1%, while dropped frames ($>5\%$) and driver fallbacks are captured at 100% to isolate regressions without impacting playback frame pacing.
+- **Analysis Hub**: Aggregated performance metrics are analyzed by engineers in the [Clypra Studio Admin Console](https://github.com/AIEraDev/clypra-studio) (`/studio/admin`).
+
+For technical details, see the [Performance Telemetry Specification](docs/performance-telemetry.md).
 
 ---
 
@@ -65,7 +79,8 @@ Clypra is built with a native Rust/Tauri v2 core for hardware video operations, 
 ```
 
 For performance benchmarks and technical deep-dives, see the
-[Native Performance Contract](docs/performance-contract.md) and the
+[Native Performance Contract](docs/performance-contract.md), the
+[Performance Telemetry Specification](docs/performance-telemetry.md), and the
 [Program Preview Performance Runbook](docs/program-preview-performance-runbook.md).
 
 ---
