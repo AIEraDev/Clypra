@@ -231,6 +231,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   const startAngleRef = useRef<number | undefined>(undefined);
   /** Start font size for text clips — supports proportional dynamic scaling */
   const startFontSizeRef = useRef<number | undefined>(undefined);
+  /** Latest pointer event waiting for the transform RAF batch. */
+  const pendingMouseMoveRef = useRef<MouseEvent | null>(null);
+  const mouseMoveRafRef = useRef<number | null>(null);
 
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
@@ -439,7 +442,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     [selectedClip, scale, viewport, canvasWidth, canvasHeight, transformController],
   );
 
-  const handleMouseMove = useCallback(
+  const applyMouseMove = useCallback(
     (e: MouseEvent) => {
       if (!isDragging || !activeTransform) return;
 
@@ -822,8 +825,36 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     [isDragging, activeTransform, selectedClip, scale, viewport, canvasWidth, canvasHeight, updateClip, transformController, clips, currentTime],
   );
 
+  // Pointer events can arrive considerably faster than the native preview can
+  // compose a frame. Keep only the newest position and apply it once per
+  // display frame. This preserves responsive transform feedback without
+  // queuing a native render for every raw mousemove event.
+  const handleMouseMove = useCallback(
+    (event: MouseEvent) => {
+      pendingMouseMoveRef.current = event;
+      if (mouseMoveRafRef.current !== null) return;
+
+      mouseMoveRafRef.current = requestAnimationFrame(() => {
+        mouseMoveRafRef.current = null;
+        const pending = pendingMouseMoveRef.current;
+        pendingMouseMoveRef.current = null;
+        if (pending) applyMouseMove(pending);
+      });
+    },
+    [applyMouseMove],
+  );
+
   const handleMouseUp = useCallback(() => {
     if (!isDragging || !activeTransform) return;
+
+    // Do not commit a stale transform when mouseup lands before the queued RAF.
+    if (mouseMoveRafRef.current !== null) {
+      cancelAnimationFrame(mouseMoveRafRef.current);
+      mouseMoveRafRef.current = null;
+    }
+    const pendingMouseMove = pendingMouseMoveRef.current;
+    pendingMouseMoveRef.current = null;
+    if (pendingMouseMove) applyMouseMove(pendingMouseMove);
 
     setIsDragging(false);
     setSnappedX(false);
@@ -886,7 +917,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     }
 
     transformController.endTransform();
-  }, [isDragging, activeTransform, execute, selectedClipIds, transformController]);
+  }, [isDragging, activeTransform, execute, selectedClipIds, transformController, applyMouseMove]);
 
   const getClipAspect = useCallback(() => {
     if (!selectedClip) return 16 / 9;
@@ -1083,6 +1114,11 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   React.useEffect(() => {
     return () => {
+      if (mouseMoveRafRef.current !== null) {
+        cancelAnimationFrame(mouseMoveRafRef.current);
+        mouseMoveRafRef.current = null;
+      }
+      pendingMouseMoveRef.current = null;
       // Cleanup: remove all cursor classes on unmount
       const cursorClasses = ["cursor-move", "cursor-nwse-resize", "cursor-nesw-resize", "cursor-ns-resize", "cursor-ew-resize", "cursor-grabbing"];
       cursorClasses.forEach((cls) => document.body.classList.remove(cls));
@@ -1406,15 +1442,22 @@ interface HandleProps {
 const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left, top, width, height, rotation }) => {
   const getHandleStyle = (): React.CSSProperties => {
     const handleSize = 10;
+    const isCorner = position === "nw" || position === "ne" || position === "sw" || position === "se";
     const baseStyle: React.CSSProperties = {
       position: "absolute",
-      width: `${handleSize}px`,
-      height: `${handleSize}px`,
-      backgroundColor: "var(--color-handle)",
-      border: "1px solid var(--color-handle-border)",
+      // Give corner handles a forgiving hit target. The visible dot remains
+      // 10px, but the cursor should not fall back to the move surface when
+      // the pointer is only a few pixels from a vertex.
+      width: `${isCorner ? handleSize + 10 : handleSize}px`,
+      height: `${isCorner ? handleSize + 10 : handleSize}px`,
+      backgroundColor: isCorner ? "transparent" : "var(--color-handle)",
+      border: isCorner ? "0" : "1px solid var(--color-handle-border)",
       borderRadius: "50%",
       transform: "translate(-50%, -50%)",
-      boxShadow: "0 2px 4px rgba(0, 0, 0, 0.18)",
+      boxShadow: isCorner ? "none" : "0 2px 4px rgba(0, 0, 0, 0.18)",
+      display: isCorner ? "flex" : undefined,
+      alignItems: isCorner ? "center" : undefined,
+      justifyContent: isCorner ? "center" : undefined,
       zIndex: 20000,
       pointerEvents: "auto",
     };
@@ -1507,6 +1550,22 @@ const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left,
       onMouseDown={onMouseDown}
       data-transform-handle={position}
     >
+      {position !== "rotate" &&
+        (position === "nw" || position === "ne" || position === "sw" || position === "se") && (
+          <span
+            aria-hidden="true"
+            style={{
+              width: "10px",
+              height: "10px",
+              display: "block",
+              borderRadius: "50%",
+              backgroundColor: "var(--color-handle)",
+              border: "1px solid var(--color-handle-border)",
+              boxShadow: "0 2px 4px rgba(0, 0, 0, 0.18)",
+              pointerEvents: "none",
+            }}
+          />
+        )}
       {position === "rotate" && (
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--color-bg)" }}>
           <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
