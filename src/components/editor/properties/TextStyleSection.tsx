@@ -226,9 +226,11 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({ textClip, pr
   const handleApplyTemplate = (templateItem: any) => {
     handleUpdateMultiple({
       templateId: templateItem.id,
-      text: textClip.text || "Title",
+      // An empty text value is an intentional user value. Do not replace it
+      // with a template placeholder while switching modes.
+      text: textClip.text ?? "",
       customization: {
-        primaryText: textClip.text || "Title",
+        primaryText: textClip.text ?? "",
         secondaryText: "Subtitle",
         accentText: "Accent",
         primaryColor: "#ffffff",
