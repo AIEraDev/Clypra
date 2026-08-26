@@ -1,4 +1,4 @@
-use super::contracts::DEFAULT_TIME_SCALE;
+use super::contracts::{DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION};
 use super::playback::frame_for_audio_position;
 use super::{FrameTime, NativeCoreError, PlaybackClockStatus, PlaybackPlan, PlaybackState};
 
@@ -21,7 +21,7 @@ impl PlaybackSession {
         let position = FrameTime::new(0, 0, DEFAULT_TIME_SCALE)?;
         Ok(Self {
             state: PlaybackState {
-                contract_version: plan.contract_version,
+                contract_version: NATIVE_CORE_CONTRACT_VERSION,
                 project_revision: plan.project_revision.clone(),
                 audio_position_ticks: 0,
                 presented_frame: if plan.duration_frames > 0 {
@@ -179,10 +179,11 @@ fn position_from_ticks(ticks: i64) -> Result<FrameTime, NativeCoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NATIVE_CORE_CONTRACT_VERSION;
 
     fn plan() -> PlaybackPlan {
         PlaybackPlan {
-            contract_version: 1,
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
             project_revision: "project:1".to_string(),
             frame_rate: 30,
             duration_frames: 30,
