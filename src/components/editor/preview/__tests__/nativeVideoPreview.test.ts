@@ -975,7 +975,7 @@ describe("buildNativeFrameRequest", () => {
     const request = buildNativeFrameRequest(makeScene([makeVideoLayer({ sourceTime: 2.25 })]), "project-1:7", 67, 30, 960, 540);
 
     expect(request).toMatchObject({
-      contractVersion: 1,
+      contractVersion: 2,
       requestId: "project-1:7:67:960x540",
       frameTime: { frameIndex: 67, ticks: 2_233_333, timescale: 1_000_000 },
       project: { projectRevision: "project-1:7" },
@@ -1039,5 +1039,45 @@ describe("buildNativeFrameRequest", () => {
     });
 
     expect(second).toBe(first);
+  });
+
+  it("keeps resolved native text styling, karaoke runs, and template data typed", () => {
+    const textLayer = {
+      ...makeVideoLayer(),
+      layerId: "title",
+      clipId: "title",
+      layerType: "text",
+      text: "Hello world",
+      fontFamily: "Inter Variable",
+      fontSize: 48,
+      color: "#ffffff",
+      fontWeight: 700,
+      fontStyle: "italic",
+      textAlign: "center",
+      verticalAlign: "bottom",
+      lineHeight: 1.2,
+      letterSpacing: 2,
+      stroke: { color: "#00ffff", width: 3 },
+      shadow: { color: "#000000aa", blur: 8, offsetX: 2, offsetY: 4 },
+      background: { color: "#00000088", padding: 12, borderRadius: 8 },
+      runs: [{ text: "Hello ", highlighted: false }, { text: "world", highlighted: true }],
+      templateId: "lower-third",
+      customization: { accent: "#00ffff" },
+      styleId: "neon-glow",
+    } as never;
+    const request = buildNativeFrameRequest(makeScene([textLayer]), "project-1:7", 67, 30, 1920, 1080)!;
+    const text = request.project.textLayers?.[0];
+
+    expect(text).toMatchObject({
+      fontWeight: "700",
+      fontStyle: "italic",
+      verticalAlign: "bottom",
+      strokeWidth: 3,
+      shadowBlur: 8,
+      background: { padding: 12, borderRadius: 8 },
+      templateId: "lower-third",
+      templateData: { accent: "#00ffff" },
+    });
+    expect(text?.runs?.find((run) => run.highlighted)?.text).toBe("world");
   });
 });
