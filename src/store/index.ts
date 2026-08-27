@@ -1,6 +1,7 @@
 export * from "./captionStore";
 export * from "./dragStateStore";
 export * from "./exportStore";
+export * from "./exportHistoryStore";
 export * from "./favoritesStore";
 export * from "./historyStore";
 export * from "./presetStore";
