@@ -203,7 +203,9 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
   // text renders at wrong size after resize operations.
   // We DO apply scale to geometric properties (bleed, stroke, shadow) for quality independence.
   const fontSize = layer.fontSize; // Use fontSize directly from layer state
-  const effectDef = layer.styleId ? (useEffectsStore.getState().definitions[layer.styleId] ?? layer.styleDefinition) : layer.styleDefinition;
+  const effectDef = layer.styleDefinition ?? (layer.styleId
+    ? useEffectsStore.getState().definitions[layer.styleId]
+    : undefined);
   const declaredBleed = effectBleed({
     styleId: layer.styleId,
     effectDefinition: effectDef,
