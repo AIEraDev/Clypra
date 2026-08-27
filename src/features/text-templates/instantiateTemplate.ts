@@ -12,7 +12,7 @@
 
 import type { Clip, TextClip } from "@/types";
 import { generateId } from "@/lib/utils/id";
-import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
+import { resolveTextEffectDefinition } from "@/lib/text/textClip";
 import type { TemplateDefinition, TemplateCustomization, TemplateElement } from "./types";
 
 export interface InstantiateTemplateOptions {
@@ -122,11 +122,10 @@ export function instantiateTemplateElement(
       fontSize: 48,
       color: "#FFFFFF",
     };
-    const pinnedStyleDefinition =
-      textProps.styleDefinition ??
-      (textProps.styleId
-        ? useEffectsStore.getState().definitions[textProps.styleId]
-        : undefined);
+    const pinnedStyleDefinition = resolveTextEffectDefinition(
+      textProps.styleId,
+      textProps.styleDefinition,
+    );
 
     // Apply any customized text overrides
     let finalText = textProps.text;
@@ -226,6 +225,7 @@ export function instantiateTemplateElement(
     trimIn: 0,
     trimOut: 0,
     mediaId: element.imageProperties?.assetId || `image-${generateId("media")}`,
+    mediaUrl: element.imageProperties?.url,
     templateId,
     templateVersion,
     x: element.relativePosition.x,

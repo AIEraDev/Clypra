@@ -148,6 +148,36 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect((roleChild as TextClip).fontSize).toBe(18);
   });
 
+  it("retains template image URLs when no media-library asset ID is provided", () => {
+    const imageUrl = "https://cdn.example.com/brand-mark.png";
+    const compoundClip = instantiateTemplate(
+      {
+        id: "image-title-v1",
+        version: 2,
+        category: "title-card",
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        elements: [
+          {
+            id: "brand-mark",
+            kind: "image",
+            relativePosition: { x: 20, y: 20 },
+            width: 160,
+            height: 160,
+            imageProperties: { url: imageUrl },
+          },
+        ],
+      },
+      { trackId: "track-image", startTime: 0 },
+    );
+
+    expect(compoundClip.compoundChildren?.[0]).toMatchObject({
+      kind: "image",
+      mediaUrl: imageUrl,
+      templateVersion: 2,
+    });
+  });
+
   it("seamlessly expands via standard expandCompoundClips without any custom composition layer (§2)", () => {
     const compoundClip = instantiateTemplate(lowerThirdTemplate, {
       trackId: "track-1",
