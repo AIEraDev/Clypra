@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useCallback } from "react";
 import { TemplatePreviewPlayer } from "@/features/text-templates";
-import { renderTextEffectCore, type TextEffectConfig, _buildConfig } from "@clypra-studio/engine";
+import { evaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig } from "@clypra-studio/engine";
 import { getFontLoader } from "@/core/fonts/FontLoader";
 
 // Effects are designed for this banner canvas size (800×200).
@@ -138,7 +138,14 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
       ctx.clearRect(0, 0, PREVIEW_CANVAS_W, PREVIEW_CANVAS_H);
 
       try {
-        renderTextEffectCore(ctx, effectConfig);
+        // Studio's authoring surface evaluates a SceneDocument. Use the same
+        // scene path here so source preview does not use a second legacy
+        // renderer with different post-FX/layout behavior.
+        evaluateScene(
+          textEffectConfigToScene(effectConfig),
+          0,
+          ctx,
+        );
       } catch (error) {
         console.error("[TextSourcePreview] ❌ Error:", error);
         ctx.fillStyle = "#ff0000";
