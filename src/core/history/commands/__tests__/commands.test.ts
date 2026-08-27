@@ -129,5 +129,38 @@ describe("History Commands Suite", () => {
       expect(state3.clips[0].x).toBe(30);
       expect((state3.clips[0] as any).scale).toBe(2.0);
     });
+
+    it("restores the complete clip snapshot across undo and redo", () => {
+      const clip = {
+        id: "clip-1",
+        x: 0,
+        y: 0,
+        scale: 1,
+        audio: {
+          linkState: "unlinked",
+          linkedClipId: "source-1",
+          linkOffsetSeconds: 0.25,
+          volume: 0.8,
+        },
+        styleDefinition: { id: "pinned-neon", version: 4 },
+        futureField: { preserved: true },
+      } as any;
+      const state = { clips: [clip], epoch: 0 };
+      const command = new TransformClipCommand(
+        clip.id,
+        { x: clip.x },
+        { x: 80 },
+      );
+
+      const transformed = command.apply(state);
+      expect(transformed.clips[0].x).toBe(80);
+      expect(transformed.clips[0].futureField).toEqual({ preserved: true });
+
+      const restored = command.invert().apply(transformed);
+      expect(restored.clips[0]).toEqual(clip);
+
+      const redone = command.apply(restored);
+      expect(redone.clips[0]).toEqual(transformed.clips[0]);
+    });
   });
 });
