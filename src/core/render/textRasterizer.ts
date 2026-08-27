@@ -3,7 +3,7 @@ import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type Tex
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
-import { effectBleed } from "../../lib/text/textClip";
+import { effectBleed, resolveTextEffectDefinition } from "../../lib/text/textClip";
 import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
 
 
@@ -203,9 +203,10 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
   // text renders at wrong size after resize operations.
   // We DO apply scale to geometric properties (bleed, stroke, shadow) for quality independence.
   const fontSize = layer.fontSize; // Use fontSize directly from layer state
-  const effectDef = layer.styleDefinition ?? (layer.styleId
-    ? useEffectsStore.getState().definitions[layer.styleId]
-    : undefined);
+  const effectDef = resolveTextEffectDefinition(
+    layer.styleId,
+    layer.styleDefinition,
+  );
   const declaredBleed = effectBleed({
     styleId: layer.styleId,
     effectDefinition: effectDef,

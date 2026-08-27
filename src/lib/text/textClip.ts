@@ -495,7 +495,12 @@ export function calculateTextClipSize(options: {
   };
 }
 
-function resolveTextEffectDefinition(
+/**
+ * Resolve a text effect without allowing a live catalog entry to override a
+ * definition pinned to the clip. The live store fallback is retained only for
+ * legacy clips that predate pinned effect snapshots.
+ */
+export function resolveTextEffectDefinition(
   styleId?: string,
   effectDefinition?: TextEffectDefinition,
 ): TextEffectDefinition | undefined {

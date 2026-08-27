@@ -30,6 +30,7 @@ import { evaluateProperty } from "./animation";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
 import { normalizeFilterIntensity } from "../render/filterIR";
+import { resolveTextEffectDefinition } from "@/lib/text/textClip";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { compareCompositorClips } from "@/core/compositor/ordering";
@@ -130,11 +131,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       const textClip = clip as unknown as TextClip;
       const transitionState = evaluateTransitionState(clip, transitionWindows);
 
-      // Prefer the definition captured on the clip. Falling back to the live
-      // catalog is only for legacy clips that predate pinned style snapshots.
-      const styleDefinition = textClip.styleDefinition ?? (textClip.styleId
-        ? useEffectsStore.getState().definitions[textClip.styleId]
-        : undefined);
+      const styleDefinition = resolveTextEffectDefinition(
+        textClip.styleId,
+        textClip.styleDefinition,
+      );
 
       const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
       const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : textClip.color || "#ffffff";

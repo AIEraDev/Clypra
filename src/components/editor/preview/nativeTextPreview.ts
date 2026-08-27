@@ -1,7 +1,6 @@
 import type { EvaluatedTextLayer } from "@/core/evaluation/types";
-import { effectBleed } from "@/lib/text/textClip";
+import { effectBleed, resolveTextEffectDefinition } from "@/lib/text/textClip";
 import { getTextRenderMetrics, normalizeFontSize } from "@/lib/utils/fixedSizing";
-import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { rasterizeTextLayer } from "@/core/render/textRasterizer";
 
 export interface NativeTextRasterAsset {
@@ -70,9 +69,7 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
 
 /** Resolve the immutable clip snapshot before consulting the live catalog. */
 export function resolveNativeTextEffectDefinition(layer: EvaluatedTextLayer) {
-  return layer.styleDefinition ?? (layer.styleId
-    ? useEffectsStore.getState().definitions[layer.styleId]
-    : undefined);
+  return resolveTextEffectDefinition(layer.styleId, layer.styleDefinition);
 }
 
 function createCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas {
