@@ -64,12 +64,14 @@ import {
   presentNativeFrame,
   getNativeFrameServiceStats,
   getNativeSyncMetricsSnapshot,
+  getNativeGpuStatus,
   queueNativeFrame,
   registerNativeRasterAsset,
   probeNativeSurface,
   renderNativeFrame,
   resizeNativeSurface,
 } from "@/lib/platform/tauri";
+import { telemetryCollector } from "@/services/telemetryCollector";
 import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
 
 import type { SmartOverlayClip } from "@/types/smartOverlay";
@@ -303,9 +305,19 @@ export const NativeProgramPreview: React.FC = () => {
   showTelemetryRef.current = showTelemetry;
 
   useEffect(() => {
-    if (!showTelemetry) {
-      setTelemetryStats(null);
-      return;
+    // Probe native GPU status for accurate hardware telemetry
+    if (isTauriRuntime()) {
+      getNativeGpuStatus()
+        .then((status) => {
+          if (status) {
+            telemetryCollector.updateFromNativeGpu({
+              adapterName: status.adapterName,
+              backend: status.backend,
+              deviceType: status.deviceType,
+            });
+          }
+        })
+        .catch(() => {});
     }
 
     startSyncMetricsFlushLoop();
@@ -318,6 +330,32 @@ export const NativeProgramPreview: React.FC = () => {
         getNativeFrameServiceStats().catch(() => null),
       ]);
       if (!active) return;
+
+      // Extract current video profile
+      const videoAsset = renderStateRef.current.mediaAssets.find(
+        (a) => a.type === "video",
+      );
+
+      const profile = {
+        width:
+          videoAsset?.width || renderStateRef.current.project?.canvasWidth || 3840,
+        height:
+          videoAsset?.height || renderStateRef.current.project?.canvasHeight || 2160,
+        nominalFps: renderStateRef.current.project?.frameRate || 60,
+      };
+
+      // Feed production telemetry collector in background
+      telemetryCollector.recordNativeSyncSnapshot(
+        nativeSync,
+        nativeRender,
+        profile,
+      );
+
+      if (!showTelemetryRef.current) {
+        setTelemetryStats(null);
+        return;
+      }
+
       const hasNativeDrift = Boolean(nativeSync && nativeSync.av_drift.n > 0);
       const hasNativeSeeks = Boolean(nativeSync && nativeSync.seeks.n > 0);
       const lastRender = nativeRender?.lastSample;
@@ -385,7 +423,11 @@ export const NativeProgramPreview: React.FC = () => {
     };
 
     void flushMetrics();
-    const interval = window.setInterval(() => void flushMetrics(), 250);
+    const pollIntervalMs = showTelemetry ? 250 : 1000;
+    const interval = window.setInterval(
+      () => void flushMetrics(),
+      pollIntervalMs,
+    );
     return () => {
       active = false;
       window.clearInterval(interval);
