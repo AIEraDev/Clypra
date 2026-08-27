@@ -150,10 +150,11 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   // Preflight dependency check: enforce §1.2 zero silent-fallback contract
   const preflight = await verifyExportDependencies(clips as any, { assets });
   if (!preflight.ready) {
-    if (preflight.missingImageAssets.length > 0) {
+    if (preflight.missingImageAssets.length > 0 || preflight.missingAudioAssets.length > 0) {
       throw new ExportBlockedError(
         preflight.missingEffects,
         preflight.missingImageAssets,
+        preflight.missingAudioAssets,
       );
     }
     if (!config.forceExportWithBaseTypography) {

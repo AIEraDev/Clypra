@@ -24,20 +24,29 @@ export interface MissingImageAsset {
   assetId: string;
 }
 
+export interface MissingAudioAsset {
+  clipId: string;
+  clipName: string;
+  assetId: string;
+}
+
 export interface ExportPreflightResult {
   ready: boolean;
   missingEffects: MissingTextEffect[];
   missingImageAssets: MissingImageAsset[];
+  missingAudioAssets: MissingAudioAsset[];
   missingFonts: string[];
 }
 
 export class ExportBlockedError extends Error {
   public readonly missingEffects: MissingTextEffect[];
   public readonly missingImageAssets: MissingImageAsset[];
+  public readonly missingAudioAssets: MissingAudioAsset[];
 
   constructor(
     missingEffects: MissingTextEffect[],
     missingImageAssets: MissingImageAsset[] = [],
+    missingAudioAssets: MissingAudioAsset[] = [],
   ) {
     const sections: string[] = [];
     if (missingEffects.length > 0) {
@@ -54,14 +63,23 @@ export class ExportBlockedError extends Error {
           .join(", ")}`,
       );
     }
+    if (missingAudioAssets.length > 0) {
+      sections.push(
+        `audio assets: ${missingAudioAssets
+          .map((asset) => `"${asset.assetId}" on clip "${asset.clipName || asset.clipId}"`)
+          .join(", ")}`,
+      );
+    }
+    const missingMedia = missingImageAssets.length > 0 || missingAudioAssets.length > 0;
     const guidance =
-      missingImageAssets.length > 0
-        ? "Restore the referenced image assets before exporting; missing images cannot be force-exported."
+      missingMedia
+        ? "Restore the referenced media assets before exporting; missing media cannot be force-exported."
         : "Explicit force-export confirmation is required to proceed with base typography.";
     super(`Export blocked: Missing ${sections.join("; ")}. ${guidance}`);
     this.name = "ExportBlockedError";
     this.missingEffects = missingEffects;
     this.missingImageAssets = missingImageAssets;
+    this.missingAudioAssets = missingAudioAssets;
   }
 }
 
@@ -78,9 +96,11 @@ export async function verifyExportDependencies(
   const isOnline = options.isOnline ?? (typeof navigator !== "undefined" ? navigator.onLine : true);
   const flattenedClips = expandCompoundClips(clips);
   const missingImageAssets: MissingImageAsset[] = [];
+  const missingAudioAssets: MissingAudioAsset[] = [];
   if (options.assets) {
     const assetIds = new Set(options.assets.map((asset) => asset.id));
     const checkedImageIds = new Set<string>();
+    const checkedAudioIds = new Set<string>();
     for (const clip of flattenedClips) {
       const mediaId = clip.mediaId || "";
       if (clip.kind !== "image" || mediaId.startsWith("solid-") || checkedImageIds.has(clip.id)) {
@@ -99,6 +119,30 @@ export async function verifyExportDependencies(
         clipId: clip.id,
         clipName: clip.name || clip.id,
         assetId: mediaId || directUrl || "unknown-image",
+      });
+    }
+
+    for (const clip of flattenedClips) {
+      const asset = options.assets.find((candidate) => candidate.id === clip.mediaId);
+      const directAudioPath = (clip as any).audioPath as string | undefined;
+      const hasAudio =
+        clip.kind === "audio" ||
+        asset?.type === "audio" ||
+        asset?.type === "video" ||
+        Boolean(directAudioPath) ||
+        Boolean(clip.audio) ||
+        clip.role === "audio";
+      if (!hasAudio) continue;
+
+      const audioId = clip.mediaId || directAudioPath || "unknown-audio";
+      if (checkedAudioIds.has(audioId)) continue;
+      checkedAudioIds.add(audioId);
+      if (directAudioPath || (assetIds.has(audioId) && Boolean(asset?.path))) continue;
+
+      missingAudioAssets.push({
+        clipId: clip.id,
+        clipName: clip.name || clip.id,
+        assetId: audioId,
       });
     }
   }
@@ -146,9 +190,13 @@ export async function verifyExportDependencies(
   }
 
   return {
-    ready: missingEffects.length === 0 && missingImageAssets.length === 0,
+    ready:
+      missingEffects.length === 0 &&
+      missingImageAssets.length === 0 &&
+      missingAudioAssets.length === 0,
     missingEffects,
     missingImageAssets,
+    missingAudioAssets,
     missingFonts,
   };
 }

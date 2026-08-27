@@ -181,6 +181,29 @@ describe("Export Preflight Dependency Verification (§1.2 Architecture Contract)
     expect(result.missingImageAssets).toHaveLength(0);
   });
 
+  it("blocks an audio clip whose media asset is unavailable", async () => {
+    const result = await verifyExportDependencies(
+      [
+        {
+          id: "voiceover-1",
+          name: "Voiceover",
+          kind: "audio",
+          mediaId: "missing-voiceover",
+        } as any,
+      ],
+      { isOnline: false, assets: [] },
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.missingAudioAssets).toEqual([
+      {
+        clipId: "voiceover-1",
+        clipName: "Voiceover",
+        assetId: "missing-voiceover",
+      },
+    ]);
+  });
+
   it("formats actionable error message in ExportBlockedError", () => {
     const err = new ExportBlockedError([
       { clipId: "c1", clipName: "Title 1", styleId: "cyberpunk-glow" },
@@ -198,8 +221,8 @@ describe("Export Preflight Dependency Verification (§1.2 Architecture Contract)
 
     expect(err.missingImageAssets).toHaveLength(1);
     expect(err.message).toContain("brand-mark");
-    expect(err.message).toContain("Restore the referenced image assets");
-    expect(err.message).toContain("images cannot be force-exported");
+    expect(err.message).toContain("Restore the referenced media assets");
+    expect(err.message).toContain("media cannot be force-exported");
     expect(err.message).not.toContain("force-export confirmation");
   });
 });

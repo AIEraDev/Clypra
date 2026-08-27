@@ -45,6 +45,7 @@ import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toast } from "@/lib/toast";
 import { useExportHistoryStore } from "@/store/exportHistoryStore";
 import type {
+  MissingAudioAsset,
   MissingImageAsset,
   MissingTextEffect,
 } from "@/lib/export/exportPreflight";
@@ -157,6 +158,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const [result, setResult] = useState<ExportResult | null>(null);
   const [blockedEffects, setBlockedEffects] = useState<Array<{ clipId: string; clipName: string; styleId: string }>>([]);
   const [blockedImageAssets, setBlockedImageAssets] = useState<MissingImageAsset[]>([]);
+  const [blockedAudioAssets, setBlockedAudioAssets] = useState<MissingAudioAsset[]>([]);
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
   const [ffmpegVersion, setFfmpegVersion] = useState<string>("");
   const [mobileExportMode, setMobileExportMode] = useState<"cloud" | "clypra">("cloud");
@@ -248,6 +250,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       setResult(null);
       setBlockedEffects([]);
       setBlockedImageAssets([]);
+      setBlockedAudioAssets([]);
       exportAbortRef.current = false;
       setIsEditingName(false);
       setEditNameValue("");
@@ -608,6 +611,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       if (err?.name === "ExportBlockedError" || err?.missingEffects) {
         setBlockedEffects(err.missingEffects || []);
         setBlockedImageAssets(err.missingImageAssets || []);
+        setBlockedAudioAssets(err.missingAudioAssets || []);
         safeSetPhase("blocked-missing-effects");
         return;
       }
@@ -1293,8 +1297,8 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   </h3>
                   <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
                     Clypra prevents silent visual degradation and missing image content.
-                    {blockedImageAssets.length > 0
-                      ? " Restore the missing image assets below before exporting; images cannot be force-exported."
+                    {blockedImageAssets.length > 0 || blockedAudioAssets.length > 0
+                      ? " Restore the missing media assets below before exporting; media cannot be force-exported."
                       : " Restore the dependencies below before exporting, or explicitly force-export with base typography."}
                   </p>
                 </div>
@@ -1310,6 +1314,12 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     <div key={`${item.clipId}-${item.assetId}`} className="flex justify-between items-center text-text-primary">
                       <span className="font-medium truncate max-w-[200px]">"{item.clipName}"</span>
                       <span className="text-amber-400 font-mono text-[10px]">image: {item.assetId}</span>
+                    </div>
+                  ))}
+                  {blockedAudioAssets.map((item) => (
+                    <div key={`${item.clipId}-${item.assetId}`} className="flex justify-between items-center text-text-primary">
+                      <span className="font-medium truncate max-w-[200px]">"{item.clipName}"</span>
+                      <span className="text-amber-400 font-mono text-[10px]">audio: {item.assetId}</span>
                     </div>
                   ))}
                 </div>
@@ -1329,9 +1339,9 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     onClick={() => handleExport(false)}
                     className="text-[11px] w-full"
                   >
-                    {blockedImageAssets.length > 0 ? "Retry Export" : "Retry Connection"}
+                    {blockedImageAssets.length > 0 || blockedAudioAssets.length > 0 ? "Retry Export" : "Retry Connection"}
                   </Button>
-                  {blockedEffects.length > 0 && blockedImageAssets.length === 0 && (
+                  {blockedEffects.length > 0 && blockedImageAssets.length === 0 && blockedAudioAssets.length === 0 && (
                     <Button
                       variant="ghost"
                       size="sm"

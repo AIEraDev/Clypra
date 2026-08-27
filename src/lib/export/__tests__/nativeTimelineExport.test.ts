@@ -282,6 +282,39 @@ describe("analyzeNativeTimelineExport", () => {
     });
   });
 
+  it("routes embedded audio automation to the audio-mix export path", () => {
+    const result = analyzeNativeTimelineExport({
+      clips: [
+        clip({
+          id: "automated-video",
+          volumeKeyframes: [
+            { id: "gain-start", time: 0, gain: 1, easing: "linear" },
+            { id: "gain-end", time: 3, gain: 0.25, easing: "linear" },
+          ],
+        }),
+      ],
+      tracks,
+      transitions: [],
+      assets,
+      project,
+      startTime: 0,
+      endTime: 3,
+      outputPath: "/output/movie.mp4",
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      codec: "h264",
+      preset: "fast",
+      crf: 23,
+      pixelFormat: "yuv420p",
+    });
+
+    expect(result).toEqual({
+      eligible: false,
+      reasons: ["Clip automated-video uses audio features that require the audio-mix export path"],
+    });
+  });
+
   it("expands a compound into its visual children before building the native plan", () => {
     const compound: Clip = {
       ...clip({ id: "compound-1", mediaId: "compound-compound-1", startTime: 0, duration: 9, trimIn: 0, trimOut: 9 }),
