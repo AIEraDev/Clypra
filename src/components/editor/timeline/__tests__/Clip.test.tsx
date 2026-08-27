@@ -39,22 +39,35 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => {
 
 // Mock stores
 const mockSelectClip = vi.fn();
+const mockToggleClipSelection = vi.fn();
 const mockUpdateClip = vi.fn();
 
-vi.mock("@/store/uiStore", () => ({
-  useUIStore: () => ({
-    selectClip: mockSelectClip,
-    toggleClipSelection: vi.fn(),
-  }),
-}));
+const uiStoreState = {
+  selectedClipIds: [] as string[],
+  selectClip: mockSelectClip,
+  toggleClipSelection: mockToggleClipSelection,
+};
 
-vi.mock("@/store/timelineStore", () => ({
-  useTimelineStore: () => ({
-    updateClip: mockUpdateClip,
-    rippleEditEnabled: false,
-    rippleTrimClip: vi.fn(),
-  }),
-}));
+vi.mock("@/store/uiStore", () => {
+  const store = (selector?: (s: any) => any) => (selector ? selector(uiStoreState) : uiStoreState);
+  store.getState = () => uiStoreState;
+  return { useUIStore: store };
+});
+
+const timelineStoreState = {
+  updateClip: mockUpdateClip,
+  rippleEditEnabled: false,
+  rippleTrimClip: vi.fn(),
+  snapEnabled: false,
+  setSnapGuides: vi.fn(),
+  clearSnapGuides: vi.fn(),
+};
+
+vi.mock("@/store/timelineStore", () => {
+  const store = (selector?: (s: any) => any) => (selector ? selector(timelineStoreState) : timelineStoreState);
+  store.getState = () => timelineStoreState;
+  return { useTimelineStore: store };
+});
 
 const createMockClip = (overrides?: Partial<ClipType>): ClipType => ({
   id: "clip-1",
@@ -571,6 +584,131 @@ describe("Clip Component", () => {
       expect(trimIn).toBeGreaterThanOrEqual(0);
       expect(trimOut).toBeLessThanOrEqual(mediaDuration);
       expect(trimOut).toBeGreaterThan(trimIn);
+    });
+  });
+
+  describe("Keyboard Navigation & Accessibility (Finding 8.1)", () => {
+    it("renders with tabIndex=0 when unlocked and tabIndex=-1 when locked", () => {
+      const clip = createMockClip({ id: "clip-unlocked" });
+      const { unmount } = renderClip(clip, undefined, { locked: false });
+
+      const clipElement = screen.getByTestId("clip-clip-unlocked");
+      expect(clipElement).toHaveAttribute("tabindex", "0");
+      unmount();
+
+      const lockedClip = createMockClip({ id: "clip-locked" });
+      renderClip(lockedClip, undefined, { locked: true });
+      const lockedElement = screen.getByTestId("clip-clip-locked");
+      expect(lockedElement).toHaveAttribute("tabindex", "-1");
+    });
+
+    it("renders complete ARIA semantics and accessible description", () => {
+      const clip = createMockClip({
+        id: "clip-a11y",
+        name: "Intro Sequence",
+        trackId: "track-1",
+        startTime: 4.5,
+        duration: 12.0,
+      });
+
+      renderClip(clip, undefined, { selected: true, locked: false });
+
+      const element = screen.getByTestId("clip-clip-a11y");
+      expect(element).toHaveAttribute("role", "button");
+      expect(element).toHaveAttribute("aria-selected", "true");
+      expect(element).toHaveAttribute("aria-disabled", "false");
+      expect(element).toHaveAttribute("aria-haspopup", "menu");
+      expect(element.getAttribute("aria-label")).toContain("Intro Sequence");
+      expect(element.getAttribute("aria-label")).toContain("track track-1");
+      expect(element.getAttribute("aria-label")).toContain("start 4.50 seconds");
+      expect(element.getAttribute("aria-label")).toContain("duration 12.00 seconds");
+      expect(element.getAttribute("aria-label")).toContain("selected");
+    });
+
+    it("selects clip on Enter and Space keypress", () => {
+      const clip = createMockClip({ id: "clip-kb-select" });
+      renderClip(clip);
+
+      const element = screen.getByTestId("clip-clip-kb-select");
+
+      fireEvent.keyDown(element, { key: "Enter" });
+      expect(mockSelectClip).toHaveBeenCalledWith("clip-kb-select");
+
+      fireEvent.keyDown(element, { key: " " });
+      expect(mockSelectClip).toHaveBeenCalledWith("clip-kb-select");
+    });
+
+    it("toggles multi-selection on Shift+Enter keypress", () => {
+      const clip = createMockClip({ id: "clip-shift-select" });
+      renderClip(clip);
+
+      const element = screen.getByTestId("clip-clip-shift-select");
+
+      fireEvent.keyDown(element, { key: "Enter", shiftKey: true });
+      expect(mockToggleClipSelection).toHaveBeenCalledWith("clip-shift-select");
+    });
+
+    it("deselects clip on Escape keypress when selected", () => {
+      const clip = createMockClip({ id: "clip-escape" });
+      renderClip(clip, undefined, { selected: true });
+
+      const element = screen.getByTestId("clip-clip-escape");
+
+      fireEvent.keyDown(element, { key: "Escape" });
+      expect(mockSelectClip).toHaveBeenCalledWith(null);
+    });
+
+    it("triggers onContextMenu on ContextMenu key and Shift+F10", () => {
+      const clip = createMockClip({ id: "clip-context-kb" });
+      const onContextMenu = vi.fn();
+      renderClip(clip, undefined, { onContextMenu });
+
+      const element = screen.getByTestId("clip-clip-context-kb");
+
+      fireEvent.keyDown(element, { key: "ContextMenu" });
+      expect(onContextMenu).toHaveBeenCalledWith(expect.anything(), "clip-context-kb");
+
+      onContextMenu.mockClear();
+      fireEvent.keyDown(element, { key: "F10", shiftKey: true });
+      expect(onContextMenu).toHaveBeenCalledWith(expect.anything(), "clip-context-kb");
+    });
+
+    it("nudges clip startTime with Alt+ArrowRight and Alt+ArrowLeft", () => {
+      const clip = createMockClip({ id: "clip-nudge", startTime: 5.0 });
+      renderClip(clip);
+
+      const element = screen.getByTestId("clip-clip-nudge");
+
+      // Nudge right 1 frame (1/30s ≈ 0.0333s)
+      fireEvent.keyDown(element, { key: "ArrowRight", altKey: true });
+      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
+        startTime: 5.0 + 1 / 30,
+      });
+
+      // Nudge right with Shift (1.0s)
+      fireEvent.keyDown(element, { key: "ArrowRight", altKey: true, shiftKey: true });
+      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
+        startTime: 6.0,
+      });
+
+      // Nudge left 1 frame
+      fireEvent.keyDown(element, { key: "ArrowLeft", altKey: true });
+      expect(mockUpdateClip).toHaveBeenCalledWith("clip-nudge", {
+        startTime: 5.0 - 1 / 30,
+      });
+    });
+
+    it("does not allow keyboard actions when clip is locked", () => {
+      const clip = createMockClip({ id: "clip-locked-kb" });
+      renderClip(clip, undefined, { locked: true });
+
+      const element = screen.getByTestId("clip-clip-locked-kb");
+
+      fireEvent.keyDown(element, { key: "Enter" });
+      expect(mockSelectClip).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(element, { key: "ArrowRight", altKey: true });
+      expect(mockUpdateClip).not.toHaveBeenCalled();
     });
   });
 });
