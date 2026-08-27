@@ -68,6 +68,13 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
   });
 }
 
+/** Resolve the immutable clip snapshot before consulting the live catalog. */
+export function resolveNativeTextEffectDefinition(layer: EvaluatedTextLayer) {
+  return layer.styleDefinition ?? (layer.styleId
+    ? useEffectsStore.getState().definitions[layer.styleId]
+    : undefined);
+}
+
 function createCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas {
   if (typeof OffscreenCanvas !== "undefined") {
     return new OffscreenCanvas(width, height);
@@ -89,9 +96,7 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
 export async function rasterizeTextLayerForNative(
   layer: EvaluatedTextLayer,
 ): Promise<NativeTextRasterAsset> {
-  const effectDefinition = layer.styleId
-    ? (useEffectsStore.getState().definitions[layer.styleId] ?? layer.styleDefinition)
-    : layer.styleDefinition;
+  const effectDefinition = resolveNativeTextEffectDefinition(layer);
   const normalizedFontSize = normalizeFontSize(layer.fontSize);
   const metrics = getTextRenderMetrics(normalizedFontSize);
   const bleed = effectBleed({
