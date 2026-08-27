@@ -71,7 +71,8 @@ function normalizeNativeTextEffect(
 
   return {
     effectId: layer.styleId ?? definition?.id ?? "native-text-effect",
-    effectVersion: definition?.version ?? 1,
+    effectVersion: layer.styleVersion ?? (Number(definition?.version) || 1),
+    parameterOverrides: layer.parameterOverrides,
     ...(definition?.passes
       ? {
           definition: {

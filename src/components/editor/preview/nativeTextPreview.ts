@@ -57,6 +57,8 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
     lineHeight: layer.lineHeight,
     letterSpacing: layer.letterSpacing,
     styleId: layer.styleId,
+    styleVersion: layer.styleVersion,
+    parameterOverrides: layer.parameterOverrides,
     templateId: layer.templateId,
     customization: layer.customization,
     stroke: layer.stroke,
