@@ -237,7 +237,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const isAudioClip = selectedAsset?.type === "audio" || selectedClip?.kind === "audio" || !!(selectedClip as any)?.audioPath;
   const isVideoClip = selectedAsset?.type === "video"; // Video clips have audio tracks
   const isTextClip = selectedClip && "text" in selectedClip;
-  const hasAudioTrack = isAudioClip || isVideoClip; // Both audio clips and video clips have audio
+  const hasAudioTrack = isAudioClip || isVideoClip || Boolean(selectedClip?.audio); // Audio-backed clips, including text with an attached audio model
 
   if (!selectedClipId || !selectedClip) {
     return (
