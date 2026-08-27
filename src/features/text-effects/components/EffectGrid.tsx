@@ -67,7 +67,14 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
 
     const cachedEffect = useEffectsStore.getState().definitions[itemId];
     if (downloadedEffects.includes(itemId) && cachedEffect) {
-      applyEffectToTimeline(cachedEffect);
+      try {
+        const latestEffect = await TextEffectsApi.getFullEffect(item.category, itemId, { forceRefresh: true });
+        applyEffectToTimeline(latestEffect);
+      } catch {
+        // Preserve offline use of downloaded effects when the catalog is
+        // temporarily unavailable.
+        applyEffectToTimeline(cachedEffect);
+      }
       return;
     }
 
@@ -77,7 +84,7 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
 
     // Lazy load the full effect definition
     try {
-      const fullEffect = cachedEffect || (await TextEffectsApi.getFullEffect(item.category, item.id));
+      const fullEffect = await TextEffectsApi.getFullEffect(item.category, item.id, { forceRefresh: true });
 
       setTimeout(() => {
         completeDownload(itemId, "effect");
@@ -115,7 +122,10 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
       const startTime = performance.now();
 
       // Resolve the full effect configuration
-      const fullEffect = useEffectsStore.getState().definitions[itemId] || (await TextEffectsApi.getFullEffect(item.category, itemId));
+      // A Studio publish can update an effect without changing its id. Source
+      // preview must therefore validate against the latest definition rather
+      // than replaying an older memory/IndexedDB copy.
+      const fullEffect = await TextEffectsApi.getFullEffect(item.category, itemId, { forceRefresh: true });
 
       const loadTime = (performance.now() - startTime).toFixed(2);
       console.log(`[EffectGrid:Preview] ✅ Effect loaded in ${loadTime}ms: ${itemId}`);
