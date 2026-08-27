@@ -1,6 +1,6 @@
 [package]
 name = "clypra"
-version = "1.4.4"
+version = "1.4.5"
 description = "A modern, open-source video editor with native performance and GPU-accelerated preview"
 authors = ["Clypra Contributors"]
 edition = "2021"

@@ -425,8 +425,7 @@ impl NativePreviewSession {
         };
         let emoji_fallback = font_registry
             .require_font(clypra_native_core::font_registry::EMOJI_FALLBACK_FONT_ID)
-            .ok()
-            .map(|(font, hash)| (font, hash));
+            .ok();
         eprintln!(
             "[native-preview][rust] text-cache-miss font_id={} text_len={} font_size={} effect_id={}",
             layer.font_id,

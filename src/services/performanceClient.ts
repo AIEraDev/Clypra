@@ -265,7 +265,7 @@ export const performanceClient = {
   /**
    * Fetch build-over-build regression
    */
-  async getReleaseRegression(baseVersion = "1.4.3", targetVersion = "1.4.4"): Promise<ReleaseRegressionData | null> {
+  async getReleaseRegression(baseVersion = "1.4.4", targetVersion = "1.4.5"): Promise<ReleaseRegressionData | null> {
     try {
       const url = `${getApiBaseUrl()}/performance/comparison/releases?base_version=${encodeURIComponent(baseVersion)}&target_version=${encodeURIComponent(targetVersion)}`;
       const res = await fetch(url, { headers: getApiHeaders() });

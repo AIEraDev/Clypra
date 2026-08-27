@@ -5,6 +5,10 @@ import { Timeline } from "../Timeline";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useUIStore } from "@/store/uiStore";
+import {
+  TIMELINE_CLIP_START_OFFSET_PX,
+  timelineTimeToPixel,
+} from "@/lib/timeline/timelineViewport";
 
 const seekMock = vi.fn();
 const setDurationMock = vi.fn();
@@ -159,7 +163,7 @@ describe("Timeline click behavior", () => {
 
     fireEvent.click(scroller, { clientX: 210, clientY: 20 });
     expect(seekMock).toHaveBeenCalledTimes(1);
-    expect(seekMock).toHaveBeenCalledWith(2.5);
+    expect(seekMock).toHaveBeenCalledWith(2.3);
   });
 
   it("does not seek when clicking interactive timeline elements", () => {
@@ -759,7 +763,9 @@ describe("Timeline wheel zoom", () => {
     });
 
     const afterPps = useTimelineStore.getState().pixelsPerSecond;
-    const expected = Math.round(((200 + (400 - 160)) / 100) * afterPps) - (400 - 160);
+    const localTimelineX = 400 - 160;
+    const anchorTime = (200 + localTimelineX - TIMELINE_CLIP_START_OFFSET_PX) / 100;
+    const expected = timelineTimeToPixel(anchorTime, afterPps) - localTimelineX;
 
     expect(scroller.scrollLeft).toBeCloseTo(expected, 0);
     expect(useTimelineStore.getState().scrollLeft).toBe(scroller.scrollLeft);

@@ -119,9 +119,8 @@ pub fn sanitize_parameter_overrides(
         let value = match spec.ty {
             ParamType::Float => {
                 if let TextParamValue::Float(v) = raw {
-                    let v = sanitize_f32(*v, spec.min, spec.max).unwrap_or_else(|| {
-                        if let TextParamValue::Float(d) = &spec.default { *d } else { 0.0 }
-                    });
+                    let default_val = if let TextParamValue::Float(d) = &spec.default { *d } else { 0.0 };
+                    let v = sanitize_f32(*v, spec.min, spec.max).unwrap_or(default_val);
                     TextParamValue::Float(v)
                 } else {
                     spec.default.clone()

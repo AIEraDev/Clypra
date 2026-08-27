@@ -129,11 +129,11 @@ pub fn text_layer_cache_key(
     hasher.update(b"\x00");
     hasher.update(font_id.as_bytes());
     hasher.update(b"\x00");
-    hasher.update(&font_size.to_bits().to_le_bytes());
+    hasher.update(font_size.to_bits().to_le_bytes());
     hasher.update(b"\x00");
     hasher.update(effect_id.as_bytes());
     hasher.update(b"\x00");
-    hasher.update(&effect_version.to_le_bytes());
+    hasher.update(effect_version.to_le_bytes());
     hasher.update(b"\x00");
     hasher.update(params_json.as_bytes());
 

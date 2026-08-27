@@ -4,7 +4,64 @@ All notable changes to Clypra will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.5] - 2026-08-27
+
+### 🔤 Native GPU SDF Text Engine & Font Registry
+- **Native Signed Distance Field (SDF) text rendering** — migrated text rendering from browser canvas to GPU-accelerated wgpu/WGSL SDF shaders for razor-sharp typography at any preview scale.
+- **Native font registry & WOFF2 support** — added `register_native_font` / `register_native_font_bytes` IPC commands; native core automatically decodes bundled WOFF2 and TTF fonts via `woff2-patched`.
+- **Per-glyph font fallback & Noto Emoji** — `render_text_sdf_aligned_with_fallback` seamlessly resolves missing glyphs to the bundled `@fontsource/noto-emoji` fallback font.
+- **Synthetic weight & italic transforms** — pre-SDF bitmap dilation and skewing synthesize bold and italic styles for single-weight fonts.
+- **Contract v2 text snapshots** — extended native contract to v2, introducing text runs for timed karaoke/captions, vertical alignment, and multi-pass text shaders.
+- **Native text templates & compound clip reuse** — text templates instantiate natively with full styling and shader passes preserved across export and preview.
+- **Retired browser text rasterization** — desktop preview and export render text layers directly via wgpu, removing canvas raster roundtrips and DOM bottlenecks.
+
+### 🔊 Professional Audio Engine & Timeline Controls
+- **Extended native audio mixer** — Rust mixer supports fade-in / fade-out curves, keyframe interpolation, pan, channel routing, and pitch preservation.
+- **Interactive audio envelope editor** — CapCut-style volume rubber bands and fade handle knobs directly on clips with cubic Bézier curves.
+- **J/L-cut audio unlinking** — added `UnlinkAudioCommand` and `RelinkAudioCommand` for independent audio/video trimming and J/L cut workflows.
+- **Atomic audio graph updates** — `replaceNativeAudioClips` IPC synchronizes audio edits in-place without restarting playback decoders.
+- **Desktop Web Audio engine** — browser desktop audio path honors clip-level `preservePitch` with smooth time-stretching.
+- **Waveform fade curves & solo button** — waveforms render overlaid fade curves with source-scoped peak caching and per-track solo controls.
+
+### 🔄 Session-Safe Deferred Updates & Auto-Updater Pipeline
+- **Two-stage update lifecycle** — separated update download from installation via `AutoUpdateManager` singleton; active editing sessions are never interrupted.
+- **Save-before-update verification** — transport playback is paused and project state is atomically saved and verified before update restart; save failures abort installation safely.
+- **Unified updater state** — synchronized update notifications, downloading status, and restart prompts across SettingsModal and UpdateBanner.
+
+### 💾 Project Persistence Reliability & Crash Recovery
+- **Atomic save pipeline** — verified candidate write (`.tmp`), generation rotation (`.bak`), and atomic file replacement with save receipt verification.
+- **Transactional project hydration** — `validateAndMigrateProjectPayload` safely migrates legacy project fields; hydration failures roll back to the previously active project.
+- **Failure-isolated recent projects** — corrupt or unreadable projects no longer hide valid projects and offer one-click recovery from verified backup files.
+- **Crash recovery snapshot v2** — IndexedDB snapshot persists timeline gaps, markers, and schema version.
+- **Cross-platform save hardening** — resolved Windows backup rename races and mobile Capacitor overwrite/rename paths.
+
+### 🖥️ Dual-Monitor Workspace & Preview Layouts
+- **Dual-monitor preview workspace** — added `PreviewMonitorWorkspace` supporting configurable side-by-side row and stacked column orientations for Source and Program monitors.
+- **Independent preview panels** — `PreviewPanel` supports an explicit `mode` prop ("program" vs "source") regardless of global preview state.
+- **Interaction-deferred transport context** — `SourcePreview` defers transport claiming until user interaction, preventing accidental playback hijacking on mount.
+
+### 🎨 Design System, Semantic Tokens & Clip Palettes
+- **Per-theme clip palettes** — clip colors derive from dynamic semantic design tokens (`--clypra-clip-*`) mapped 1-to-1 with UI themes.
+- **Full palette fidelity** — eliminated heavy CSS saturation and opacity filters that dulled theme palette colors.
+- **Live theme preview swatches** — Settings theme swatches preview actual built-in clip palette color schemes.
+
+### 📐 Timeline Viewport Precision & Interactions
+- **Sub-pixel alignment & 20px clip-start offset** — consistent timeline coordinates across Ruler, Clips, Playhead, Gaps, and mouse/wheel seek anchors via `TIMELINE_CLIP_START_OFFSET_PX`.
+- **Refined visual hierarchy** — distinct A-roll (primary) and B-roll visual roles with dedicated track heights.
+- **Visual track ordering guards** — visual tracks are prevented from being placed below the main video track, enforced across drag/drop and history undo/redo.
+- **CapCut-style ruler** — clean ticks with compact `MM:SS` formatting under one hour and `HH:MM:SS` timecodes for longer projects.
+- **Spring-animated zoom & canonical overview** — buttery-smooth anchored wheel zoom with spring physics; projects reliably open at standard minimum zoom.
+
+### ⚡ Performance, Telemetry & Lookahead Pre-fetching
+- **Zero-PII performance telemetry** — lightweight client and collector reporting stage timings and dropped frames with adaptive sampling.
+- **Bounded lookahead pre-fetching** — predictive decoding warms upcoming clip assets within a 3-second horizon without saturating GPU presentation.
+- **Event-driven paused render loop** — native preview pauses RAF loops while stopped, waking instantaneously on state and transform changes.
+- **24-track compositor density** — validated multi-track layer pooling and composition stability up to 24 concurrent tracks.
+
+### 🛠️ UI Polish & Workflow Shortcuts
+- **Collapsible properties panel** — 44px collapsed rail with expand button and shortcut icons; `Alt+P` / `Cmd+Shift+P` toggle shortcut.
+- **Media library shortcut** — `Cmd+B` toggles the media library drawer.
+- **Transform overlay polish** — RAF-throttled gizmo tracking, enlarged hit targets, and diagonal resize cursors.
 
 ## [1.4.4] - 2026-08-25
 

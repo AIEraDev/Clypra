@@ -89,7 +89,7 @@ class TelemetryCollector {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private cachedHardware: TelemetryHardwareContext | null = null;
   private isEnabled: boolean = true;
-  private appVersion: string = "1.4.4";
+  private appVersion: string = "1.4.5";
 
   constructor() {
     if (typeof window !== "undefined") {
