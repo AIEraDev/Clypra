@@ -699,7 +699,7 @@ const ClipInner: React.FC<ClipProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       onContextMenu={handleContextMenu}
-      className={`absolute rounded-[1px] h-full overflow-hidden border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
+      className={`absolute rounded-[1px] h-full overflow-hidden border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${mediaAsset?.isMissing ? "ring-1 ring-red-500/80" : ""} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
@@ -836,6 +836,15 @@ const ClipInner: React.FC<ClipProps> = ({
             <div className="min-w-0 truncate text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text">
               {mediaAsset?.name || "Clip"}
             </div>
+            {mediaAsset?.isMissing && (
+              <span
+                data-testid="clip-offline-badge"
+                className="shrink-0 bg-red-600/90 text-white px-1 py-px rounded text-[7px] font-bold uppercase tracking-wider"
+                title="Source media file is missing or offline"
+              >
+                Offline
+              </span>
+            )}
             <div className="shrink-0 text-[9px] font-medium text-timeline-clip-duration">
               {formatDuration(clip.duration)}
             </div>

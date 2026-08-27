@@ -25,6 +25,7 @@ import {
   Layers,
   Ungroup,
   Pencil,
+  Link2,
 } from "lucide-react";
 import type { ClipCommand, ClipCommandContext } from "./types";
 import { clipboardService } from "@/core/clipboard/clipboardService";
@@ -506,6 +507,33 @@ export const clipCommands: ClipCommand[] = [
     disabledReason: () => "Nothing selected",
     execute: () => {
       useUIStore.getState().clearSelection();
+    },
+  },
+
+  // ─── Media Management ───────────────────────────────────────────────────────
+  {
+    id: "clip.relinkMedia",
+    label: "Relink Media...",
+    icon: Link2,
+    group: "media",
+    isVisible: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      if (ids.length !== 1) return false;
+      const clip = ctx.clips.find((c) => c.id === ids[0]);
+      if (!clip || !clip.mediaId) return false;
+      return !clip.id.startsWith("text-clip-") && clip.kind !== "text" && clip.kind !== "filter";
+    },
+    isEnabled: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      const clip = ctx.clips.find((c) => c.id === ids[0]);
+      return !!clip?.mediaId;
+    },
+    execute: (ctx) => {
+      const ids = getTargetClipIds(ctx);
+      const clip = ctx.clips.find((c) => c.id === ids[0]);
+      if (clip?.mediaId) {
+        void useProjectStore.getState().promptRelinkMedia(clip.mediaId);
+      }
     },
   },
 
