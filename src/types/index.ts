@@ -300,6 +300,8 @@ export interface Clip {
   templateId?: string;
   /** Template catalog version captured when this clip was created. */
   templateVersion?: number;
+  /** Direct visual URL retained by template image children when no media asset exists. */
+  mediaUrl?: string;
   adjustments?: import("@clypra-studio/engine").ColorAdjustments;
   /** GPU UltraKey Chroma Key configuration */
   chromaKey?: import("./compositor").ChromaKeyConfig;
