@@ -141,6 +141,46 @@ describe("Export Preflight Dependency Verification (§1.2 Architecture Contract)
     expect(result.missingEffects[0].clipName).toBe("Speaker Name");
   });
 
+  it("blocks offline export when a template image asset is missing", async () => {
+    const result = await verifyExportDependencies(
+      [
+        {
+          id: "template-image-1",
+          name: "Brand Mark",
+          kind: "image",
+          mediaId: "brand-mark-asset",
+        } as any,
+      ],
+      { isOnline: false, assets: [] },
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.missingImageAssets).toEqual([
+      {
+        clipId: "template-image-1",
+        clipName: "Brand Mark",
+        assetId: "brand-mark-asset",
+      },
+    ]);
+  });
+
+  it("allows a self-contained template image URL without a media asset", async () => {
+    const result = await verifyExportDependencies(
+      [
+        {
+          id: "template-image-2",
+          kind: "image",
+          mediaId: "generated-image",
+          mediaUrl: "data:image/png;base64,AAAA",
+        } as any,
+      ],
+      { isOnline: false, assets: [] },
+    );
+
+    expect(result.ready).toBe(true);
+    expect(result.missingImageAssets).toHaveLength(0);
+  });
+
   it("formats actionable error message in ExportBlockedError", () => {
     const err = new ExportBlockedError([
       { clipId: "c1", clipName: "Title 1", styleId: "cyberpunk-glow" },
@@ -149,5 +189,17 @@ describe("Export Preflight Dependency Verification (§1.2 Architecture Contract)
     expect(err.message).toContain("cyberpunk-glow");
     expect(err.message).toContain("Title 1");
     expect(err.message).toContain("force-export confirmation");
+  });
+
+  it("includes missing image assets in the blocking error", () => {
+    const err = new ExportBlockedError([], [
+      { clipId: "image-1", clipName: "Brand Mark", assetId: "brand-mark" },
+    ]);
+
+    expect(err.missingImageAssets).toHaveLength(1);
+    expect(err.message).toContain("brand-mark");
+    expect(err.message).toContain("Restore the referenced image assets");
+    expect(err.message).toContain("images cannot be force-exported");
+    expect(err.message).not.toContain("force-export confirmation");
   });
 });
