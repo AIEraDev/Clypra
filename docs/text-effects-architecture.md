@@ -75,7 +75,7 @@ The interpreter must be structurally incapable of executing anything beyond a wh
 
 ### 1.2 Offline, Caching & Export Policy
 
-The desktop app and web studio must provide a reliable offline experience while strictly enforcing Clypra's [Architecture-First ADR](file:///Users/AIEraDev/Documents/clypra-family/clypra/docs/architecture-first-delivery-adr.md) (*"Silent fallback is not an acceptable production failure policy"*):
+The desktop app and web studio must provide a reliable offline experience while strictly enforcing Clypra's [Architecture-First ADR](./architecture-first-delivery-adr.md) (*"Silent fallback is not an acceptable production failure policy"*):
 
 - **Storage Location**:
   - Desktop: Content-addressed cache directory (`~/.clypra/cache/text-effects/{id}_v{version}.json`).
@@ -290,7 +290,7 @@ To eliminate typography discrepancy between Web (WASM) and Desktop (Tauri):
 
 ## 7. Parity Verification & Golden-Pixel Harness
 
-In accordance with Clypra's [Golden-Frame Protocol](file:///Users/AIEraDev/Documents/clypra-family/clypra/docs/golden-frame-protocol.md):
+In accordance with Clypra's [Golden-Frame Protocol](./golden-frame-protocol.md):
 
 1. **Primitive Fixture Suite**:
    - Every primitive from §3 is evaluated with a canonical test string ("Clypra FX 4K") and deterministic uniforms.
