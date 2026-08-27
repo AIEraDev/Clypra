@@ -12,6 +12,7 @@
 
 import type { Clip, TextClip } from "@/types";
 import { generateId } from "@/lib/utils/id";
+import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import type { TemplateDefinition, TemplateCustomization, TemplateElement } from "./types";
 
 export interface InstantiateTemplateOptions {
@@ -56,6 +57,8 @@ export function instantiateTemplate(
       customization: options.customization,
       index,
       textIndex: currentTextIndex,
+      templateId: template.id,
+      templateVersion: template.version ?? 1,
     });
   });
 
@@ -75,6 +78,8 @@ export function instantiateTemplate(
     opacity: 1,
     rotation: 0,
     mediaId: `compound-${compoundId}`,
+    templateId: template.id,
+    templateVersion: template.version ?? 1,
     compoundChildren: children,
     compoundPreview: template.thumbnailUrl || template.thumbnail,
   };
@@ -96,9 +101,19 @@ export function instantiateTemplateElement(
     customization?: TemplateCustomization;
     index: number;
     textIndex?: number;
+    templateId: string;
+    templateVersion: number;
   }
 ): Clip {
-  const { trackId, duration, customization, index, textIndex = 0 } = context;
+  const {
+    trackId,
+    duration,
+    customization,
+    index,
+    textIndex = 0,
+    templateId,
+    templateVersion,
+  } = context;
 
   if (element.kind === "text") {
     const textProps = element.textProperties || {
@@ -107,6 +122,11 @@ export function instantiateTemplateElement(
       fontSize: 48,
       color: "#FFFFFF",
     };
+    const pinnedStyleDefinition =
+      textProps.styleDefinition ??
+      (textProps.styleId
+        ? useEffectsStore.getState().definitions[textProps.styleId]
+        : undefined);
 
     // Apply any customized text overrides
     let finalText = textProps.text;
@@ -143,6 +163,15 @@ export function instantiateTemplateElement(
       letterSpacing: textProps.letterSpacing ?? 0,
       lineHeight: textProps.lineHeight ?? 1.2,
       styleId: textProps.styleId,
+      styleVersion: textProps.styleVersion ?? 1,
+      parameterOverrides: textProps.parameterOverrides
+        ? cloneSerializable(textProps.parameterOverrides)
+        : undefined,
+      styleDefinition: pinnedStyleDefinition
+        ? cloneSerializable(pinnedStyleDefinition)
+        : undefined,
+      templateId,
+      templateVersion,
       x: element.relativePosition.x,
       y: element.relativePosition.y,
       width: element.width,
@@ -172,6 +201,8 @@ export function instantiateTemplateElement(
       trimIn: 0,
       trimOut: 0,
       mediaId: `solid-${generateId("media")}`,
+      templateId,
+      templateVersion,
       opacity: solidProps.opacity ?? 1,
       x: element.relativePosition.x,
       y: element.relativePosition.y,
@@ -195,6 +226,8 @@ export function instantiateTemplateElement(
     trimIn: 0,
     trimOut: 0,
     mediaId: element.imageProperties?.assetId || `image-${generateId("media")}`,
+    templateId,
+    templateVersion,
     x: element.relativePosition.x,
     y: element.relativePosition.y,
     width: element.width,
@@ -205,6 +238,10 @@ export function instantiateTemplateElement(
   };
 
   return imageClip;
+}
+
+function cloneSerializable<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 /**

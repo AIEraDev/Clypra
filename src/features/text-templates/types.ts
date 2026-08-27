@@ -43,6 +43,8 @@ export interface TemplateTextProperties {
   styleId?: string; // Reference to EffectDefinition ID
   styleVersion?: number;
   parameterOverrides?: Record<string, any>;
+  /** Optional embedded definition used to keep instantiated clips reproducible. */
+  styleDefinition?: import("@clypra-studio/engine").TextEffectDefinition;
   animation?: {
     preset: "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "scale" | "zoom" | "none";
     duration: number;

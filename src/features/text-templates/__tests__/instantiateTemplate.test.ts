@@ -30,6 +30,7 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
           fontWeight: 700,
           styleId: "neon-glow",
           styleVersion: 1,
+          parameterOverrides: { glowStrength: 0.75 },
         },
       },
     ],
@@ -109,6 +110,12 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect(childText.fontFamily).toBe("Inter Variable");
     expect(childText.fontSize).toBe(64);
     expect(childText.styleId).toBe("neon-glow");
+    expect(childText.styleVersion).toBe(1);
+    expect(childText.parameterOverrides).toEqual({ glowStrength: 0.75 });
+    expect(childText.templateId).toBe("minimal-title-v1");
+    expect(childText.templateVersion).toBe(1);
+    expect(compoundClip.templateId).toBe("minimal-title-v1");
+    expect(compoundClip.templateVersion).toBe(1);
     expect(childText.startTime).toBe(0); // relative to parent
     expect(childText.duration).toBe(4.0);
   });
