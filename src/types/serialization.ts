@@ -341,11 +341,13 @@ export function fromRustClip(rust: RustClip): Clip {
   let kind: Clip["kind"] = rust.kind as any;
   if (!kind) {
     // Legacy migration: infer kind from patterns
-    if ("text" in rust || rust.id.startsWith("text-clip-")) {
+    if ((rust as any).isCompound || (rust as any).is_compound) {
+      kind = "compound" as any;
+    } else if ("text" in rust || rust.id?.startsWith("text-clip-")) {
       kind = "text";
-    } else if (rust.mediaId.startsWith("sticker-")) {
+    } else if (rust.mediaId?.startsWith("sticker-")) {
       kind = "sticker";
-    } else if (rust.id.startsWith("filter-clip-") || rust.kind === "filter") {
+    } else if (rust.id?.startsWith("filter-clip-") || rust.kind === "filter") {
       kind = "filter";
     } else {
       // Default to video for unknown legacy clips
