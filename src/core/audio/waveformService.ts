@@ -12,12 +12,22 @@ const WAVEFORM_CACHE_MAX = 50;
  */
 const waveformCache = new Map<string, WaveformBucket[]>();
 const waveformRequests = new Map<string, Promise<WaveformBucket[]>>();
+const browserWaveformRequests = new Map<string, Promise<WaveformBucket[]>>();
 
 export interface NativeWaveformRequest {
   path: string;
   numBuckets: number;
   startTime?: number;
   duration?: number;
+}
+
+export interface BrowserWaveformRequest {
+  url: string;
+  sourceStart: number;
+  visibleDuration: number;
+  bucketCount: number;
+  sourceDuration?: number;
+  sourceBucketCount?: number;
 }
 
 function waveformCacheSet(key: string, value: WaveformBucket[]): void {
@@ -76,6 +86,117 @@ export function getNativeWaveformData(
   return pending;
 }
 
+function computeWaveformBuckets(
+  channelData: Float32Array,
+  startSample: number,
+  endSample: number,
+  bucketCount: number,
+): WaveformBucket[] {
+  const visibleChannelData = channelData.subarray(
+    Math.max(0, startSample),
+    Math.max(startSample, Math.min(channelData.length, endSample)),
+  );
+  const totalSamples = visibleChannelData.length;
+  const buckets = Array.from({ length: bucketCount }, (_, index) => {
+    const start = Math.floor((index * totalSamples) / bucketCount);
+    const end = Math.min(
+      totalSamples,
+      Math.floor(((index + 1) * totalSamples) / bucketCount),
+    );
+    let peak = 0;
+    let sumSquares = 0;
+    const count = Math.max(1, end - start);
+
+    for (let sample = start; sample < end; sample += 1) {
+      const value = Math.abs(visibleChannelData[sample]);
+      peak = Math.max(peak, value);
+      sumSquares += value * value;
+    }
+
+    return { peak, rms: Math.sqrt(sumSquares / count) };
+  });
+
+  let maxPeak = 0;
+  let maxRms = 0;
+  for (const bucket of buckets) {
+    maxPeak = Math.max(maxPeak, bucket.peak);
+    maxRms = Math.max(maxRms, bucket.rms);
+  }
+  if (maxPeak > 0 || maxRms > 0) {
+    for (const bucket of buckets) {
+      if (maxPeak > 0) bucket.peak /= maxPeak;
+      if (maxRms > 0) bucket.rms /= maxRms;
+    }
+  }
+
+  return buckets;
+}
+
+/** Browser fallback with the same source-scoped in-flight deduplication as native extraction. */
+export function getBrowserWaveformData(
+  cacheKey: string,
+  request: BrowserWaveformRequest,
+): Promise<WaveformBucket[]> {
+  const cached = waveformCacheGet(cacheKey);
+  if (cached) return Promise.resolve(cached);
+
+  const existing = browserWaveformRequests.get(cacheKey);
+  if (existing) return existing;
+
+  const pending = (async () => {
+    const response = await fetch(request.url);
+    if (!response.ok) throw new Error(`Failed to fetch audio: ${response.status}`);
+
+    const arrayBuffer = await response.arrayBuffer();
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) throw new Error("Web Audio is unavailable");
+
+    const audioContext = new AudioContextClass();
+    try {
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const channelData = audioBuffer.getChannelData(0);
+      const sampleRate = audioBuffer.sampleRate;
+      const sourceDuration = Number.isFinite(request.sourceDuration) && request.sourceDuration! > 0
+        ? request.sourceDuration!
+        : undefined;
+
+      if (sourceDuration) {
+        const sourceBuckets = computeWaveformBuckets(
+          channelData,
+          0,
+          channelData.length,
+          request.sourceBucketCount ?? 2048,
+        );
+        return sampleWaveformRange(
+          sourceBuckets,
+          request.sourceStart / sourceDuration,
+          (request.sourceStart + request.visibleDuration) / sourceDuration,
+          request.bucketCount,
+        );
+      }
+
+      return computeWaveformBuckets(
+        channelData,
+        Math.floor(Math.max(0, request.sourceStart) * sampleRate),
+        Math.floor(Math.max(0, request.sourceStart + request.visibleDuration) * sampleRate),
+        request.bucketCount,
+      );
+    } finally {
+      await audioContext.close();
+    }
+  })()
+    .then((buckets) => {
+      cacheWaveformData(cacheKey, buckets);
+      return buckets;
+    })
+    .finally(() => {
+      browserWaveformRequests.delete(cacheKey);
+    });
+
+  browserWaveformRequests.set(cacheKey, pending);
+  return pending;
+}
+
 export function sampleWaveformRange(
   source: WaveformBucket[],
   startFraction: number,
@@ -101,4 +222,5 @@ export function sampleWaveformRange(
 export function clearWaveformServiceCache(): void {
   waveformCache.clear();
   waveformRequests.clear();
+  browserWaveformRequests.clear();
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { platform } from "@/core/platform";
 import {
-  cacheWaveformData,
+  getBrowserWaveformData,
   getNativeWaveformData,
   sampleWaveformRange,
 } from "@/core/audio/waveformService";
@@ -103,76 +103,24 @@ export function useWaveformData({
           }
         } catch {}
 
-        const AudioContextClass =
-          window.AudioContext || (window as any).webkitAudioContext;
-        const audioContext = new AudioContextClass();
-
         try {
-          const response = await fetch(resolvedPath);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch audio: ${response.status}`);
-          }
-
-          const arrayBuffer = await response.arrayBuffer();
-          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-          if (isCancelled) return;
-
-          const channelData = audioBuffer.getChannelData(0);
-          const sampleRate = audioBuffer.sampleRate;
-          const startSample = Math.max(0, Math.floor(sourceStart * sampleRate));
-          const endSample = Math.min(
-            channelData.length,
-            Math.floor((sourceStart + visibleSourceDuration) * sampleRate),
-          );
-          const visibleChannelData = channelData.subarray(
-            startSample,
-            endSample,
-          );
-          const totalSamples = visibleChannelData.length;
-          const buckets: WaveformBucket[] = [];
-
-          for (let i = 0; i < sampleCount; i++) {
-            const start = Math.floor((i * totalSamples) / sampleCount);
-            const end = Math.min(
-              totalSamples,
-              Math.floor(((i + 1) * totalSamples) / sampleCount),
-            );
-            let peak = 0;
-            let sumSquares = 0;
-            const count = Math.max(1, end - start);
-
-            for (let j = start; j < end; j++) {
-              const value = Math.abs(visibleChannelData[j]);
-              peak = Math.max(peak, value);
-              sumSquares += value * value;
-            }
-
-            buckets.push({
-              peak,
-              rms: Math.sqrt(sumSquares / count),
-            });
-          }
-
-          let maxPeak = 0;
-          let maxRms = 0;
-          for (const bucket of buckets) {
-            maxPeak = Math.max(maxPeak, bucket.peak);
-            maxRms = Math.max(maxRms, bucket.rms);
-          }
-          if (maxPeak > 0 || maxRms > 0) {
-            for (const bucket of buckets) {
-              if (maxPeak > 0) bucket.peak /= maxPeak;
-              if (maxRms > 0) bucket.rms /= maxRms;
-            }
-          }
+          const canUseSourceCache = Number.isFinite(mediaDuration) && mediaDuration! > 0;
+          const browserCacheKey = canUseSourceCache ? sourceCacheKey : cacheKey;
+          const buckets = await getBrowserWaveformData(browserCacheKey, {
+            url: resolvedPath,
+            sourceStart,
+            visibleDuration: visibleSourceDuration,
+            bucketCount: sampleCount,
+            sourceDuration: canUseSourceCache ? mediaDuration : undefined,
+            sourceBucketCount: WAVEFORM_SOURCE_BUCKETS,
+          });
 
           if (!isCancelled) {
-            cacheWaveformData(cacheKey, buckets);
             setWaveformData(buckets);
             setIsLoading(false);
           }
-        } finally {
-          audioContext.close();
+        } catch {
+          throw new Error("Browser waveform fallback failed");
         }
       } catch {
         if (!isCancelled) {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import {
   clearWaveformServiceCache,
+  getBrowserWaveformData,
   getNativeWaveformData,
 } from "../waveformService";
 
@@ -50,5 +51,40 @@ describe("waveform service request coalescing", () => {
       { peak: 0.5, rms: 0.25 },
     ]);
     expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares one browser decode between concurrent consumers of a source", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const decodeAudioData = vi.fn().mockResolvedValue({
+      sampleRate: 4,
+      getChannelData: () => new Float32Array([0, 0.5, -0.25, 1]),
+    });
+    const close = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("AudioContext", class {
+      decodeAudioData = decodeAudioData;
+      close = close;
+    });
+
+    const request = {
+      url: "asset://song.mp3",
+      sourceStart: 0,
+      visibleDuration: 1,
+      sourceDuration: 1,
+      bucketCount: 4,
+      sourceBucketCount: 4,
+    };
+    const first = getBrowserWaveformData("source:asset://song.mp3:2048", request);
+    const second = getBrowserWaveformData("source:asset://song.mp3:2048", request);
+
+    expect(first).toBe(second);
+    await expect(first).resolves.toHaveLength(4);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(decodeAudioData).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });
