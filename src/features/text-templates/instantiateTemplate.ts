@@ -162,7 +162,8 @@ export function instantiateTemplateElement(
       letterSpacing: textProps.letterSpacing ?? 0,
       lineHeight: textProps.lineHeight ?? 1.2,
       styleId: textProps.styleId,
-      styleVersion: textProps.styleVersion ?? 1,
+      styleVersion:
+        textProps.styleVersion ?? (Number(pinnedStyleDefinition?.version) || 1),
       parameterOverrides: textProps.parameterOverrides
         ? cloneSerializable(textProps.parameterOverrides)
         : undefined,
@@ -267,6 +268,10 @@ export function applyTemplateStyle(
     fontSize: 48,
     color: "#FFFFFF",
   };
+  const pinnedStyleDefinition = resolveTextEffectDefinition(
+    textProps.styleId,
+    textProps.styleDefinition,
+  );
 
   return {
     ...targetClip,
@@ -281,6 +286,14 @@ export function applyTemplateStyle(
     letterSpacing: textProps.letterSpacing ?? targetClip.letterSpacing,
     lineHeight: textProps.lineHeight ?? targetClip.lineHeight,
     styleId: textProps.styleId,
+    styleVersion:
+      textProps.styleVersion ?? (Number(pinnedStyleDefinition?.version) || 1),
+    parameterOverrides: textProps.parameterOverrides
+      ? cloneSerializable(textProps.parameterOverrides)
+      : undefined,
+    styleDefinition: pinnedStyleDefinition
+      ? cloneSerializable(pinnedStyleDefinition)
+      : undefined,
   };
 }
 
