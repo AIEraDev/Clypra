@@ -17,8 +17,10 @@ export interface TelemetryHardwareContext {
   gpuVendor: "apple" | "nvidia" | "amd" | "intel" | "qualcomm" | "arm" | "software" | "unknown";
   gpuModel: string;
   gpuDriverVersion?: string;
+  dedicatedVramMb?: number;
   graphicsBackend: "metal" | "d3d12" | "d3d11" | "vulkan" | "webgpu" | "webgl2" | "software";
   displayDpr: number;
+  thermalThrottlingState?: "nominal" | "fair" | "serious" | "critical";
   isBatteryPowered?: boolean;
 }
 
@@ -44,7 +46,36 @@ export interface TelemetryStageTimings {
   surfaceAcquireUs?: number;
   readbackUs?: number;
   submitPresentUs?: number;
+  schedulerWaitUs?: number;
+  ipcWaitUs?: number;
   totalTimeUs: number;
+}
+
+export type TelemetryOperationMode =
+  | "playback"
+  | "playback-lookahead"
+  | "seek-warm"
+  | "seek-cold"
+  | "scrub"
+  | "frame-step"
+  | "export-transcode"
+  | "shader-composition"
+  | "ai-inference"
+  | "filmstrip-extraction";
+
+export interface TelemetryExportMetrics {
+  exportDurationMs: number;
+  mediaDurationMs: number;
+  totalFrames: number;
+  exportFps: number;
+  realTimeFactor: number;
+  renderTimeUs: number;
+  encodeTimeUs: number;
+  peakRamMb: number;
+  peakVramMb?: number;
+  success: boolean;
+  failureReason?: string;
+  videoProfile?: Partial<TelemetryVideoProfile>;
 }
 
 export interface TelemetryEvent {
@@ -55,7 +86,7 @@ export interface TelemetryEvent {
   device: TelemetryHardwareContext;
   video: TelemetryVideoProfile;
   workload: {
-    mode: "playback" | "seek-warm" | "seek-cold" | "scrub" | "export-transcode" | "shader-composition";
+    mode: TelemetryOperationMode;
     durationMs: number;
     targetFps: number;
     renderedFps: number;
@@ -66,8 +97,28 @@ export interface TelemetryEvent {
     cancelledFrames: number;
     avDriftMs?: number;
     peakRamMb: number;
+    peakVramMb?: number;
     cacheHitRatio: number;
     stageTimings: TelemetryStageTimings;
+    isSessionRollup?: boolean;
+    jankEventsCount?: number;
+  };
+  exportMetrics?: {
+    exportDurationMs: number;
+    mediaDurationMs: number;
+    realTimeFactor: number;
+    exportFps: number;
+    renderTimeUs: number;
+    encodeTimeUs: number;
+    success: boolean;
+    failureReason?: string;
+  };
+  aiMetrics?: {
+    task: "auto-reframe" | "whisper-captions" | "silence-detector";
+    inferenceDurationMs: number;
+    throughputFps?: number;
+    realTimeFactor?: number;
+    success: boolean;
   };
   fallbackEvent?: {
     triggered: boolean;
@@ -81,8 +132,191 @@ export interface TelemetryEvent {
 
 const DEFAULT_API_INGEST_URL = "https://clypra-worker-api.abdulkabirmusa.com/performance/telemetry/ingest/batch";
 const MAX_QUEUE_SIZE = 100;
+const MAX_OFFLINE_BATCHES = 50;
 const FLUSH_INTERVAL_MS = 15000;
 const NOMINAL_SAMPLE_RATE = 0.01; // 1% sample rate for smooth 60fps frames
+const ROLLUP_WINDOW_MS = 30000; // 30s session rollup window
+const SLEEP_DISCONTINUITY_THRESHOLD_MS = 1500; // Discard time gaps > 1.5s as sleep/backgrounding
+
+/**
+ * Continuous Session Rollup Accumulator.
+ * Accumulates fine-grained frame metrics without spamming the network.
+ */
+class SessionRollupAccumulator {
+  private windowStartMs: number = Date.now();
+  private lastFrameTimestampMs: number = 0;
+  private renderTimesUs: number[] = [];
+  private decodeTimesUs: number[] = [];
+  private composeTimesUs: number[] = [];
+  private uploadTimesUs: number[] = [];
+  private readbackTimesUs: number[] = [];
+  private presentTimesUs: number[] = [];
+  private driftSamplesMs: number[] = [];
+  private seekLatenciesMs: number[] = [];
+  private totalFrames: number = 0;
+  private droppedFrames: number = 0;
+  private staleFrames: number = 0;
+  private cancelledFrames: number = 0;
+  private jankEvents: number = 0;
+  private cacheHits: number = 0;
+  private cacheMisses: number = 0;
+  private lastKnownVideoProfile: Partial<TelemetryVideoProfile> = {};
+
+  public recordFrame(
+    timings: TelemetryStageTimings,
+    dropped: boolean,
+    videoProfile: Partial<TelemetryVideoProfile> = {},
+    avDriftMs?: number,
+    isStale: boolean = false,
+    isCancelled: boolean = false,
+    cacheHit: boolean = true
+  ): void {
+    const now = Date.now();
+
+    // Detect system sleep / backgrounding discontinuity
+    if (this.lastFrameTimestampMs > 0 && now - this.lastFrameTimestampMs > SLEEP_DISCONTINUITY_THRESHOLD_MS) {
+      this.lastFrameTimestampMs = now;
+      return;
+    }
+    this.lastFrameTimestampMs = now;
+
+    this.totalFrames++;
+    if (dropped) this.droppedFrames++;
+    if (isStale) this.staleFrames++;
+    if (isCancelled) this.cancelledFrames++;
+    if (cacheHit) this.cacheHits++;
+    else this.cacheMisses++;
+
+    if (timings.totalTimeUs > 25000) {
+      this.jankEvents++;
+    }
+
+    if (this.renderTimesUs.length < 1000) {
+      this.renderTimesUs.push(timings.totalTimeUs);
+      if (timings.decodeUs !== undefined) this.decodeTimesUs.push(timings.decodeUs);
+      if (timings.composeUs !== undefined) this.composeTimesUs.push(timings.composeUs);
+      if (timings.conversionUploadUs !== undefined) this.uploadTimesUs.push(timings.conversionUploadUs);
+      if (timings.readbackUs !== undefined) this.readbackTimesUs.push(timings.readbackUs);
+      if (timings.submitPresentUs !== undefined) this.presentTimesUs.push(timings.submitPresentUs);
+    }
+
+    if (avDriftMs !== undefined && this.driftSamplesMs.length < 500) {
+      this.driftSamplesMs.push(Math.abs(avDriftMs));
+    }
+
+    if (Object.keys(videoProfile).length > 0) {
+      this.lastKnownVideoProfile = { ...this.lastKnownVideoProfile, ...videoProfile };
+    }
+  }
+
+  public recordSeek(seekLatencyMs: number): void {
+    if (this.seekLatenciesMs.length < 500) {
+      this.seekLatenciesMs.push(seekLatencyMs);
+    }
+  }
+
+  public shouldEmitRollup(): boolean {
+    const elapsed = Date.now() - this.windowStartMs;
+    return elapsed >= ROLLUP_WINDOW_MS && this.totalFrames > 0;
+  }
+
+  public extractRollupAndReset(): {
+    durationMs: number;
+    totalFrames: number;
+    droppedFrames: number;
+    droppedFramesRatio: number;
+    staleFrames: number;
+    cancelledFrames: number;
+    jankEventsCount: number;
+    avDriftP95Ms: number;
+    cacheHitRatio: number;
+    stageTimings: TelemetryStageTimings;
+    videoProfile: Partial<TelemetryVideoProfile>;
+  } | null {
+    if (this.totalFrames === 0) {
+      this.windowStartMs = Date.now();
+      return null;
+    }
+
+    const durationMs = Math.max(1, Date.now() - this.windowStartMs);
+    const droppedFramesRatio = this.droppedFrames / this.totalFrames;
+
+    const mean = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
+    const p95 = (arr: number[]) => {
+      if (arr.length === 0) return 0;
+      const sorted = [...arr].sort((a, b) => a - b);
+      const idx = Math.min(sorted.length - 1, Math.round((sorted.length - 1) * 0.95));
+      return sorted[idx];
+    };
+
+    const totalTimeUs = p95(this.renderTimesUs) || mean(this.renderTimesUs) || 16667;
+    const stageTimings: TelemetryStageTimings = {
+      decodeUs: mean(this.decodeTimesUs) || undefined,
+      composeUs: mean(this.composeTimesUs) || undefined,
+      conversionUploadUs: mean(this.uploadTimesUs) || undefined,
+      readbackUs: mean(this.readbackTimesUs) || undefined,
+      submitPresentUs: mean(this.presentTimesUs) || undefined,
+      totalTimeUs,
+    };
+
+    const totalCacheOps = this.cacheHits + this.cacheMisses;
+    const cacheHitRatio = totalCacheOps > 0 ? Number((this.cacheHits / totalCacheOps).toFixed(3)) : 1.0;
+    const avDriftP95Ms = p95(this.driftSamplesMs);
+
+    const result = {
+      durationMs,
+      totalFrames: this.totalFrames,
+      droppedFrames: this.droppedFrames,
+      droppedFramesRatio: Number(droppedFramesRatio.toFixed(4)),
+      staleFrames: this.staleFrames,
+      cancelledFrames: this.cancelledFrames,
+      jankEventsCount: this.jankEvents,
+      avDriftP95Ms,
+      cacheHitRatio,
+      stageTimings,
+      videoProfile: this.lastKnownVideoProfile,
+    };
+
+    this.windowStartMs = Date.now();
+    this.totalFrames = 0;
+    this.droppedFrames = 0;
+    this.staleFrames = 0;
+    this.cancelledFrames = 0;
+    this.jankEvents = 0;
+    this.cacheHits = 0;
+    this.cacheMisses = 0;
+    this.renderTimesUs = [];
+    this.decodeTimesUs = [];
+    this.composeTimesUs = [];
+    this.uploadTimesUs = [];
+    this.readbackTimesUs = [];
+    this.presentTimesUs = [];
+    this.driftSamplesMs = [];
+    this.seekLatenciesMs = [];
+
+    return result;
+  }
+
+  public reset(): void {
+    this.windowStartMs = Date.now();
+    this.lastFrameTimestampMs = 0;
+    this.totalFrames = 0;
+    this.droppedFrames = 0;
+    this.staleFrames = 0;
+    this.cancelledFrames = 0;
+    this.jankEvents = 0;
+    this.cacheHits = 0;
+    this.cacheMisses = 0;
+    this.renderTimesUs = [];
+    this.decodeTimesUs = [];
+    this.composeTimesUs = [];
+    this.uploadTimesUs = [];
+    this.readbackTimesUs = [];
+    this.presentTimesUs = [];
+    this.driftSamplesMs = [];
+    this.seekLatenciesMs = [];
+  }
+}
 
 class TelemetryCollector {
   private queue: TelemetryEvent[] = [];
@@ -90,6 +324,7 @@ class TelemetryCollector {
   private cachedHardware: TelemetryHardwareContext | null = null;
   private isEnabled: boolean = true;
   private appVersion: string = "1.4.5";
+  private rollupAccumulator = new SessionRollupAccumulator();
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -97,14 +332,22 @@ class TelemetryCollector {
       this.startFlushTimer();
       window.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") {
+          this.flushRollupIfPending();
           this.flush();
         }
+      });
+      window.addEventListener("online", () => {
+        this.drainOfflineQueue();
       });
     }
   }
 
   public setEnabled(enabled: boolean): void {
     this.isEnabled = enabled;
+    if (!enabled) {
+      this.clearQueue();
+      this.rollupAccumulator.reset();
+    }
   }
 
   public setAppVersion(version: string): void {
@@ -117,6 +360,66 @@ class TelemetryCollector {
 
   public clearQueue(): void {
     this.queue = [];
+    this.clearOfflineQueue();
+  }
+
+  /**
+   * Sanitizes video properties into coarse privacy-safe buckets with zero path/title data.
+   */
+  public sanitizeVideoProfile(profile: Partial<TelemetryVideoProfile> = {}): TelemetryVideoProfile {
+    const width = profile.width || 3840;
+    const height = profile.height || 2160;
+
+    let resolutionBucket: TelemetryVideoProfile["resolutionBucket"] = "1080p";
+    const maxDim = Math.max(width, height);
+    if (maxDim >= 7000) resolutionBucket = "8k";
+    else if (maxDim >= 3500) resolutionBucket = "4k";
+    else if (maxDim >= 2400) resolutionBucket = "1440p";
+    else if (maxDim >= 1800) resolutionBucket = "1080p";
+    else if (maxDim >= 1200) resolutionBucket = "720p";
+    else resolutionBucket = "custom";
+
+    return {
+      container: profile.container || "mp4",
+      codec: profile.codec || "hevc",
+      width,
+      height,
+      resolutionBucket: profile.resolutionBucket || resolutionBucket,
+      nominalFps: profile.nominalFps || 60,
+      pacingMode: profile.pacingMode || "cfr",
+      bitDepth: profile.bitDepth || 10,
+      colorSpace: profile.colorSpace || "rec709",
+      hdrFormat: profile.hdrFormat || "none",
+      bitrateKbps: profile.bitrateKbps || 25000,
+    };
+  }
+
+  /**
+   * Updates cached hardware context with authoritative native GPU status from Tauri.
+   */
+  public updateFromNativeGpu(nativeGpu: {
+    adapterName: string | null;
+    backend: string | null;
+    deviceType: string | null;
+  }): void {
+    const hw = this.initHardwareContext();
+    if (nativeGpu.adapterName) {
+      hw.gpuModel = nativeGpu.adapterName;
+      if (/Apple/i.test(nativeGpu.adapterName)) hw.gpuVendor = "apple";
+      else if (/NVIDIA/i.test(nativeGpu.adapterName)) hw.gpuVendor = "nvidia";
+      else if (/AMD|Radeon/i.test(nativeGpu.adapterName)) hw.gpuVendor = "amd";
+      else if (/Intel/i.test(nativeGpu.adapterName)) hw.gpuVendor = "intel";
+      else if (/Mali/i.test(nativeGpu.adapterName)) hw.gpuVendor = "arm";
+      else if (/Adreno|Qualcomm/i.test(nativeGpu.adapterName)) hw.gpuVendor = "qualcomm";
+    }
+
+    if (nativeGpu.backend) {
+      const b = nativeGpu.backend.toLowerCase();
+      if (b.includes("metal")) hw.graphicsBackend = "metal";
+      else if (b.includes("dx12") || b.includes("d3d12")) hw.graphicsBackend = "d3d12";
+      else if (b.includes("vulkan")) hw.graphicsBackend = "vulkan";
+      else if (b.includes("webgpu")) hw.graphicsBackend = "webgpu";
+    }
   }
 
   /**
@@ -194,15 +497,32 @@ class TelemetryCollector {
 
   /**
    * Records a completed playback or render span.
+   * Feeds continuous session rollup accumulator and immediately enqueues anomalies at 100%.
    */
   public recordRenderSpan(
     timings: TelemetryStageTimings,
     droppedFrames: number,
     totalFrames: number,
     videoProfile: Partial<TelemetryVideoProfile> = {},
-    workloadMode: "playback" | "scrub" | "export-transcode" = "playback"
+    workloadMode: TelemetryOperationMode = "playback",
+    avDriftMs?: number,
+    staleFrames: number = 0,
+    cancelledFrames: number = 0
   ): void {
     if (!this.isEnabled) return;
+
+    this.rollupAccumulator.recordFrame(
+      timings,
+      droppedFrames > 0,
+      videoProfile,
+      avDriftMs,
+      staleFrames > 0,
+      cancelledFrames > 0
+    );
+
+    if (this.rollupAccumulator.shouldEmitRollup()) {
+      this.flushRollupIfPending();
+    }
 
     const droppedRatio = totalFrames > 0 ? droppedFrames / totalFrames : 0;
     const isAnomaly = droppedRatio > 0.05 || timings.totalTimeUs > 16667;
@@ -213,19 +533,7 @@ class TelemetryCollector {
     }
 
     const hardware = this.initHardwareContext();
-    const fullVideoProfile: TelemetryVideoProfile = {
-      container: videoProfile.container || "mp4",
-      codec: videoProfile.codec || "hevc",
-      width: videoProfile.width || 3840,
-      height: videoProfile.height || 2160,
-      resolutionBucket: videoProfile.resolutionBucket || "4k",
-      nominalFps: videoProfile.nominalFps || 60,
-      pacingMode: videoProfile.pacingMode || "cfr",
-      bitDepth: videoProfile.bitDepth || 10,
-      colorSpace: videoProfile.colorSpace || "rec709",
-      hdrFormat: videoProfile.hdrFormat || "none",
-      bitrateKbps: videoProfile.bitrateKbps || 25000,
-    };
+    const fullVideoProfile = this.sanitizeVideoProfile(videoProfile);
 
     const event: TelemetryEvent = {
       eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -242,8 +550,9 @@ class TelemetryCollector {
         totalFrames: totalFrames || 1,
         droppedFrames: droppedFrames || 0,
         droppedFramesRatio: droppedRatio,
-        staleFrames: 0,
-        cancelledFrames: 0,
+        staleFrames,
+        cancelledFrames,
+        avDriftMs,
         peakRamMb: 512,
         cacheHitRatio: 0.9,
         stageTimings: timings,
@@ -264,25 +573,15 @@ class TelemetryCollector {
   ): void {
     if (!this.isEnabled) return;
 
+    this.rollupAccumulator.recordSeek(seekLatencyMs);
+
     const isAnomaly = seekLatencyMs > 100.0;
     if (!isAnomaly && Math.random() > NOMINAL_SAMPLE_RATE) {
       return;
     }
 
     const hardware = this.initHardwareContext();
-    const fullVideoProfile: TelemetryVideoProfile = {
-      container: videoProfile.container || "mp4",
-      codec: videoProfile.codec || "hevc",
-      width: videoProfile.width || 3840,
-      height: videoProfile.height || 2160,
-      resolutionBucket: videoProfile.resolutionBucket || "4k",
-      nominalFps: videoProfile.nominalFps || 60,
-      pacingMode: videoProfile.pacingMode || "cfr",
-      bitDepth: videoProfile.bitDepth || 10,
-      colorSpace: videoProfile.colorSpace || "rec709",
-      hdrFormat: videoProfile.hdrFormat || "none",
-      bitrateKbps: videoProfile.bitrateKbps || 25000,
-    };
+    const fullVideoProfile = this.sanitizeVideoProfile(videoProfile);
 
     const event: TelemetryEvent = {
       eventId: `evt_seek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -317,6 +616,109 @@ class TelemetryCollector {
   }
 
   /**
+   * Records an export/transcoding run.
+   */
+  public recordExportSpan(metrics: TelemetryExportMetrics): void {
+    if (!this.isEnabled) return;
+
+    const hardware = this.initHardwareContext();
+    const fullVideoProfile = this.sanitizeVideoProfile(metrics.videoProfile);
+
+    const event: TelemetryEvent = {
+      eventId: `evt_export_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      appVersion: this.appVersion,
+      appBuildNumber: "prod",
+      appEnvironment: "production",
+      device: hardware,
+      video: fullVideoProfile,
+      workload: {
+        mode: "export-transcode",
+        durationMs: Math.round(metrics.exportDurationMs),
+        targetFps: fullVideoProfile.nominalFps,
+        renderedFps: metrics.exportFps,
+        totalFrames: metrics.totalFrames,
+        droppedFrames: metrics.success ? 0 : 1,
+        droppedFramesRatio: metrics.success ? 0 : 1.0,
+        staleFrames: 0,
+        cancelledFrames: 0,
+        peakRamMb: metrics.peakRamMb,
+        peakVramMb: metrics.peakVramMb,
+        cacheHitRatio: 0.95,
+        stageTimings: {
+          composeUs: metrics.renderTimeUs,
+          conversionUploadUs: metrics.encodeTimeUs,
+          totalTimeUs: Math.round(metrics.exportDurationMs * 1000),
+        },
+      },
+      exportMetrics: {
+        exportDurationMs: metrics.exportDurationMs,
+        mediaDurationMs: metrics.mediaDurationMs,
+        realTimeFactor: Number(metrics.realTimeFactor.toFixed(2)),
+        exportFps: Number(metrics.exportFps.toFixed(1)),
+        renderTimeUs: metrics.renderTimeUs,
+        encodeTimeUs: metrics.encodeTimeUs,
+        success: metrics.success,
+        failureReason: metrics.failureReason,
+      },
+      timestampMs: Date.now(),
+    };
+
+    this.enqueueEvent(event);
+    if (!metrics.success) {
+      this.flush();
+    }
+  }
+
+  /**
+   * Records an AI / Smart Feature inference task (Whisper, Auto-Reframe, Silence detection).
+   */
+  public recordAIInferenceSpan(
+    task: "auto-reframe" | "whisper-captions" | "silence-detector",
+    inferenceDurationMs: number,
+    throughputFps?: number,
+    realTimeFactor?: number,
+    success: boolean = true
+  ): void {
+    if (!this.isEnabled) return;
+
+    const hardware = this.initHardwareContext();
+    const event: TelemetryEvent = {
+      eventId: `evt_ai_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      appVersion: this.appVersion,
+      appBuildNumber: "prod",
+      appEnvironment: "production",
+      device: hardware,
+      video: this.sanitizeVideoProfile(),
+      workload: {
+        mode: "ai-inference",
+        durationMs: Math.round(inferenceDurationMs),
+        targetFps: 60,
+        renderedFps: throughputFps || 60,
+        totalFrames: 1,
+        droppedFrames: success ? 0 : 1,
+        droppedFramesRatio: success ? 0 : 1.0,
+        staleFrames: 0,
+        cancelledFrames: 0,
+        peakRamMb: 512,
+        cacheHitRatio: 1.0,
+        stageTimings: {
+          totalTimeUs: Math.round(inferenceDurationMs * 1000),
+        },
+      },
+      aiMetrics: {
+        task,
+        inferenceDurationMs,
+        throughputFps,
+        realTimeFactor,
+        success,
+      },
+      timestampMs: Date.now(),
+    };
+
+    this.enqueueEvent(event);
+  }
+
+  /**
    * Records a hardware fallback occurrence (e.g. WebGPU -> WebGL, HW decode -> SW FFmpeg).
    */
   public recordFallbackEvent(
@@ -334,19 +736,7 @@ class TelemetryCollector {
       appBuildNumber: "prod",
       appEnvironment: "production",
       device: hardware,
-      video: {
-        container: "mp4",
-        codec: "hevc",
-        width: 3840,
-        height: 2160,
-        resolutionBucket: "4k",
-        nominalFps: 60,
-        pacingMode: "cfr",
-        bitDepth: 10,
-        colorSpace: "rec709",
-        hdrFormat: "none",
-        bitrateKbps: 25000,
-      },
+      video: this.sanitizeVideoProfile(),
       workload: {
         mode: "playback",
         durationMs: 100,
@@ -374,13 +764,107 @@ class TelemetryCollector {
     };
 
     this.enqueueEvent(event);
-    // Flush immediately for high-priority fallbacks
-    this.flush();
+    this.flush(); // Flush immediately for high-priority fallbacks
+  }
+
+  /**
+   * Consumes snapshots from native Tauri preview & sync services directly.
+   */
+  public recordNativeSyncSnapshot(
+    nativeSync: {
+      av_drift?: { p95_abs_micros: number };
+      dropped_frames?: number;
+      frame_pacing?: { jank_events: number };
+      seeks?: { avg_latency_micros: number; correct: number; n: number };
+    } | null,
+    nativeRender: {
+      lastSample?: {
+        decodeTimeUs: number;
+        composeTimeUs: number;
+        readbackTimeUs: number;
+        presentTimeUs?: number;
+        totalTimeUs: number;
+      } | null;
+      windowDroppedFrames?: number;
+      windowStaleFrames?: number;
+      windowCancelledFrames?: number;
+    } | null,
+    videoProfile: Partial<TelemetryVideoProfile> = {}
+  ): void {
+    if (!this.isEnabled) return;
+
+    const last = nativeRender?.lastSample;
+    if (!last) return;
+
+    const timings: TelemetryStageTimings = {
+      decodeUs: last.decodeTimeUs,
+      composeUs: last.composeTimeUs,
+      readbackUs: last.readbackTimeUs,
+      submitPresentUs: last.presentTimeUs,
+      totalTimeUs: last.totalTimeUs,
+    };
+
+    const dropped = (nativeRender?.windowDroppedFrames || 0) + (nativeSync?.dropped_frames || 0);
+    const avDriftMs = nativeSync?.av_drift ? nativeSync.av_drift.p95_abs_micros / 1000 : 0;
+
+    this.recordRenderSpan(
+      timings,
+      dropped > 0 ? 1 : 0,
+      60,
+      videoProfile,
+      "playback",
+      avDriftMs,
+      nativeRender?.windowStaleFrames || 0,
+      nativeRender?.windowCancelledFrames || 0
+    );
+  }
+
+  /**
+   * Emits pending session rollup if enough activity occurred.
+   */
+  public flushRollupIfPending(): void {
+    const rollup = this.rollupAccumulator.extractRollupAndReset();
+    if (!rollup) return;
+
+    const hardware = this.initHardwareContext();
+    const fullVideoProfile = this.sanitizeVideoProfile(rollup.videoProfile);
+
+    const event: TelemetryEvent = {
+      eventId: `evt_rollup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      appVersion: this.appVersion,
+      appBuildNumber: "prod",
+      appEnvironment: "production",
+      device: hardware,
+      video: fullVideoProfile,
+      workload: {
+        mode: "playback",
+        durationMs: rollup.durationMs,
+        targetFps: fullVideoProfile.nominalFps,
+        renderedFps:
+          rollup.stageTimings.totalTimeUs > 0
+            ? Math.min(fullVideoProfile.nominalFps, 1000000 / rollup.stageTimings.totalTimeUs)
+            : fullVideoProfile.nominalFps,
+        totalFrames: rollup.totalFrames,
+        droppedFrames: rollup.droppedFrames,
+        droppedFramesRatio: rollup.droppedFramesRatio,
+        staleFrames: rollup.staleFrames,
+        cancelledFrames: rollup.cancelledFrames,
+        avDriftMs: rollup.avDriftP95Ms,
+        peakRamMb: 512,
+        cacheHitRatio: rollup.cacheHitRatio,
+        stageTimings: rollup.stageTimings,
+        isSessionRollup: true,
+        jankEventsCount: rollup.jankEventsCount,
+      },
+      timestampMs: Date.now(),
+    };
+
+    this.enqueueEvent(event);
   }
 
   private enqueueEvent(event: TelemetryEvent): void {
     if (this.queue.length >= MAX_QUEUE_SIZE) {
-      // Drop oldest to maintain strict upper memory bounds
+      // Drop oldest to maintain strict upper memory bounds (< 2MB)
       this.queue.shift();
     }
     this.queue.push(event);
@@ -393,6 +877,7 @@ class TelemetryCollector {
   private startFlushTimer(): void {
     if (this.flushTimer) clearInterval(this.flushTimer);
     this.flushTimer = setInterval(() => {
+      this.flushRollupIfPending();
       this.flush();
     }, FLUSH_INTERVAL_MS);
   }
@@ -423,13 +908,71 @@ class TelemetryCollector {
           body: JSON.stringify(payload),
           keepalive: true,
         });
-        return res.ok;
+
+        if (res.ok) {
+          this.drainOfflineQueue();
+          return true;
+        } else {
+          this.saveToOfflineStorage(payload);
+          return false;
+        }
       }
       return true;
     } catch {
-      // Non-blocking catch: telemetry never throws or disturbs the editor
+      // Offline fallback: save batch to offline storage with bounded capacity
+      this.saveToOfflineStorage(payload);
       return false;
     }
+  }
+
+  private saveToOfflineStorage(batch: { batchId: string; sentAtMs: number; events: TelemetryEvent[] }): void {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const key = "clypra:telemetry:offline_queue";
+      const raw = localStorage.getItem(key);
+      const queue: Array<{ batchId: string; sentAtMs: number; events: TelemetryEvent[] }> = raw ? JSON.parse(raw) : [];
+      if (queue.length >= MAX_OFFLINE_BATCHES) {
+        queue.shift(); // Bound storage
+      }
+      queue.push(batch);
+      localStorage.setItem(key, JSON.stringify(queue));
+    } catch {
+      // Storage unavailable or disabled
+    }
+  }
+
+  private async drainOfflineQueue(): Promise<void> {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const key = "clypra:telemetry:offline_queue";
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const queue: Array<{ batchId: string; sentAtMs: number; events: TelemetryEvent[] }> = JSON.parse(raw);
+      if (queue.length === 0) return;
+
+      localStorage.removeItem(key);
+      for (const batch of queue) {
+        await fetch(DEFAULT_API_INGEST_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Clypra-Client": "tauri-desktop",
+          },
+          body: JSON.stringify(batch),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch {
+      // Safe non-blocking catch
+    }
+  }
+
+  private clearOfflineQueue(): void {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem("clypra:telemetry:offline_queue");
+      }
+    } catch {}
   }
 
   public dispose(): void {
