@@ -247,6 +247,41 @@ describe("analyzeNativeTimelineExport", () => {
     });
   });
 
+  it("routes active text overlays to the compositor instead of dropping them", () => {
+    const result = analyzeNativeTimelineExport({
+      clips: [
+        clip({ id: "video-clip" }),
+        {
+          ...clip({
+            id: "title-clip",
+            kind: "text",
+            trackId: "text-track",
+            mediaId: "text-title",
+          }),
+        },
+      ],
+      tracks,
+      transitions: [],
+      assets,
+      project,
+      startTime: 0,
+      endTime: 3,
+      outputPath: "/output/movie.mp4",
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      codec: "h264",
+      preset: "fast",
+      crf: 23,
+      pixelFormat: "yuv420p",
+    });
+
+    expect(result).toEqual({
+      eligible: false,
+      reasons: ["Text clips require compositor export"],
+    });
+  });
+
   it("expands a compound into its visual children before building the native plan", () => {
     const compound: Clip = {
       ...clip({ id: "compound-1", mediaId: "compound-compound-1", startTime: 0, duration: 9, trimIn: 0, trimOut: 9 }),

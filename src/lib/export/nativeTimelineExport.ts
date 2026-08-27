@@ -122,6 +122,9 @@ export function analyzeNativeTimelineExport(
   const activeVideoAssetClips = activeClips.filter((clip) =>
     videoAssetIds.has(clip.mediaId),
   );
+  const activeTextClips = activeClips.filter(
+    (clip) => clip.kind === "text" || (clip as Clip & { layerType?: string }).layerType === "text",
+  );
   const standaloneAudioClips = activeClips.filter((clip) => {
     const asset = input.assets.find((candidate) => candidate.id === clip.mediaId);
     const directAudioPath = (clip as Clip & { audioPath?: string }).audioPath;
@@ -138,6 +141,13 @@ export function analyzeNativeTimelineExport(
   // FFmpeg mix instead of silently dropping standalone audio.
   if (standaloneAudioClips.length > 0) {
     reasons.push("Standalone timeline audio requires the audio-mix export path");
+  }
+
+  // Text is compositor content, not a property of the source video. The
+  // cut-only native plan has no text-layer payload, so allowing a text clip
+  // here would silently produce a video-only export and bypass text preflight.
+  if (activeTextClips.length > 0) {
+    reasons.push("Text clips require compositor export");
   }
 
   const videoClips = activeVideoAssetClips.filter(
