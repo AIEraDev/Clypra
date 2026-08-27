@@ -15,7 +15,7 @@ interface EffectGridProps {
 }
 
 export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProps) {
-  const [activeCategory, setActiveCategory] = useState("3d");
+  const [activeCategory, setActiveCategory] = useState<string>("essentials");
   const { index, indexLoading, indexError, loadCategory } = useEffectsStore();
 
   // Consume global favorites and downloads store
