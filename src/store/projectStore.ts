@@ -69,6 +69,9 @@ interface ProjectStore {
   addMediaAsset: (asset: MediaAsset) => void;
   updateMediaAsset: (assetId: string, updates: Partial<MediaAsset>) => void;
   removeMediaAsset: (assetId: string) => void;
+  checkMissingMedia: () => Promise<string[]>;
+  relinkMediaAsset: (assetId: string, newPath: string) => Promise<{ success: boolean; relinkedOtherCount: number }>;
+  promptRelinkMedia: (assetId: string) => Promise<boolean>;
   updateProject: (updates: Partial<Project>) => void;
   setProjectThumbnail: (thumbnail: string) => void;
   setRecentProjects: (projects: RecentProjectEntry[]) => void;
@@ -251,6 +254,22 @@ function scheduleCrashRecoverySnapshot(): void {
     crashRecoveryFirstMutation = null;
     void flushCrashRecoverySnapshot(scheduledProjectId);
   }, CRASH_RECOVERY_DELAY);
+}
+
+function getFileName(filePath: string): string {
+  return filePath.split(/[/\\]/).pop() || filePath;
+}
+
+function getDirectoryPath(filePath: string): string {
+  const lastSlash = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+  return lastSlash > 0 ? filePath.substring(0, lastSlash) : "";
+}
+
+function joinPath(dir: string, file: string): string {
+  if (dir.includes("\\")) {
+    return `${dir}\\${file}`;
+  }
+  return `${dir}/${file}`;
 }
 
 // Wire up ResourceTracker's active project ID resolver after the module is fully evaluated.
@@ -642,6 +661,25 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         } catch (err) {
           // Prewarming failed silently - graceful degradation
         }
+
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // PHASE 6: Verify Media Files on Disk
+        // ═══════════════════════════════════════════════════════════════════════════════
+        const loadedProjectId = project.id;
+        get()
+          .checkMissingMedia()
+          .then((missingIds) => {
+            const currentProject = get().project;
+            if (!currentProject || currentProject.id !== loadedProjectId) return;
+            if (missingIds.length > 0) {
+              get().showToast(
+                `${missingIds.length} media file${missingIds.length > 1 ? "s are" : " is"} missing or offline. Use Relink Media to locate.`,
+                "warning",
+                5000,
+              );
+            }
+          })
+          .catch(() => {});
       } catch (error) {
         // A failed hydration/session transition must not leave an empty or
         // half-loaded project visible. Rebuild the previous active state.
@@ -713,6 +751,239 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       mediaAssets: state.mediaAssets.filter((a) => a.id !== assetId),
     }));
     get().scheduleAutoSave();
+  },
+
+  checkMissingMedia: async () => {
+    const assets = get().mediaAssets;
+    if (!assets.length) return [];
+
+    const missingIds: string[] = [];
+    const updatedAssets = await Promise.all(
+      assets.map(async (asset) => {
+        if (
+          !asset.path ||
+          asset.path.startsWith("data:") ||
+          asset.path.startsWith("http:") ||
+          asset.path.startsWith("https:") ||
+          asset.path.startsWith("asset://")
+        ) {
+          return asset.isMissing ? { ...asset, isMissing: false } : asset;
+        }
+
+        try {
+          const exists = await platform.fileExists(asset.path);
+          if (!exists) {
+            missingIds.push(asset.id);
+            return { ...asset, isMissing: true };
+          } else if (asset.isMissing) {
+            return { ...asset, isMissing: false };
+          }
+          return asset;
+        } catch {
+          missingIds.push(asset.id);
+          return { ...asset, isMissing: true };
+        }
+      }),
+    );
+
+    const hasChanges = updatedAssets.some((a, i) => a.isMissing !== assets[i].isMissing);
+    if (hasChanges) {
+      set({ mediaAssets: updatedAssets });
+    }
+
+    return missingIds;
+  },
+
+  relinkMediaAsset: async (assetId, newPath) => {
+    const currentAssets = get().mediaAssets;
+    const targetAsset = currentAssets.find((a) => a.id === assetId);
+    if (!targetAsset) return { success: false, relinkedOtherCount: 0 };
+
+    try {
+      // 1. Probe new file metadata
+      const filename = getFileName(newPath);
+      let metadata: any = {
+        duration: targetAsset.duration,
+        width: targetAsset.width,
+        height: targetAsset.height,
+      };
+      try {
+        metadata = await platform.getMediaMetadata(newPath);
+      } catch (e) {
+        console.warn("[projectStore] Metadata probe fallback during relink:", e);
+      }
+
+      // 2. Extract new poster frame if video
+      let newPosterFrame = targetAsset.posterFrame;
+      if (targetAsset.type === "video") {
+        try {
+          newPosterFrame = await platform.extractPosterFrame(
+            newPath,
+            metadata.duration || targetAsset.duration || 1,
+            window.devicePixelRatio || 1.0,
+          );
+        } catch (e) {
+          console.warn("[projectStore] Poster frame extraction fallback during relink:", e);
+        }
+      } else if (targetAsset.type === "image") {
+        newPosterFrame = platform.convertFileSrc(newPath);
+      }
+
+      const updatedTargetAsset: MediaAsset = {
+        ...targetAsset,
+        path: newPath,
+        name: filename,
+        duration: metadata.duration || targetAsset.duration,
+        width: metadata.width || targetAsset.width,
+        height: metadata.height || targetAsset.height,
+        posterFrame: newPosterFrame,
+        isMissing: false,
+      };
+
+      // 3. Scan same directory for other missing assets (automatic sibling relinking)
+      const newDir = getDirectoryPath(newPath);
+      let relinkedOtherCount = 0;
+      const otherUpdatedAssets: MediaAsset[] = [];
+
+      for (const asset of currentAssets) {
+        if (asset.id === assetId) continue;
+        if (asset.isMissing && newDir) {
+          const siblingFileName = getFileName(asset.path);
+          const candidatePath = joinPath(newDir, siblingFileName);
+          try {
+            const exists = await platform.fileExists(candidatePath);
+            if (exists) {
+              let sibMeta: any = {
+                duration: asset.duration,
+                width: asset.width,
+                height: asset.height,
+              };
+              try {
+                sibMeta = await platform.getMediaMetadata(candidatePath);
+              } catch {}
+              let sibPoster = asset.posterFrame;
+              if (asset.type === "video") {
+                try {
+                  sibPoster = await platform.extractPosterFrame(
+                    candidatePath,
+                    sibMeta.duration || asset.duration || 1,
+                    window.devicePixelRatio || 1.0,
+                  );
+                } catch {}
+              } else if (asset.type === "image") {
+                sibPoster = platform.convertFileSrc(candidatePath);
+              }
+              otherUpdatedAssets.push({
+                ...asset,
+                path: candidatePath,
+                name: siblingFileName,
+                duration: sibMeta.duration || asset.duration,
+                width: sibMeta.width || asset.width,
+                height: sibMeta.height || asset.height,
+                posterFrame: sibPoster,
+                isMissing: false,
+              });
+              relinkedOtherCount++;
+              continue;
+            }
+          } catch {}
+        }
+        otherUpdatedAssets.push(asset);
+      }
+
+      // Update media assets in store
+      const allUpdatedAssets = otherUpdatedAssets.map((a) =>
+        a.id === assetId ? updatedTargetAsset : a,
+      );
+      const finalAssets = allUpdatedAssets.some((a) => a.id === assetId)
+        ? allUpdatedAssets
+        : [...allUpdatedAssets, updatedTargetAsset];
+      set({ mediaAssets: finalAssets });
+
+      // 4. Update timeline clips referencing relinked assets
+      try {
+        const { useTimelineStore } = await import("./timelineStore");
+        const timelineState = useTimelineStore.getState();
+        const relinkedMap = new Map<string, MediaAsset>();
+        finalAssets.forEach((a) => {
+          if (a.isMissing === false) relinkedMap.set(a.id, a);
+        });
+
+        const updatedClips = timelineState.clips.map((clip) => {
+          const relinked = relinkedMap.get(clip.mediaId);
+          if (!relinked) return clip;
+          if (typeof relinked.duration === "number" && relinked.duration > 0 && clip.trimOut > relinked.duration) {
+            const nextTrimOut = relinked.duration;
+            const nextDuration = Math.max(0.1, nextTrimOut - clip.trimIn);
+            return {
+              ...clip,
+              trimOut: nextTrimOut,
+              duration: nextDuration,
+            };
+          }
+          return clip;
+        });
+
+        useTimelineStore.setState({ clips: updatedClips });
+      } catch (err) {
+        console.warn("[projectStore] Failed to update timeline clips during relink:", err);
+      }
+
+      // 5. Invalidate waveform cache
+      try {
+        const { clearWaveformServiceCache } = await import("@/core/audio/waveformService");
+        clearWaveformServiceCache();
+      } catch {}
+
+      // 6. Schedule auto-save
+      get().scheduleAutoSave();
+      return { success: true, relinkedOtherCount };
+    } catch (error) {
+      console.error("[projectStore] Failed to relink media asset:", error);
+      return { success: false, relinkedOtherCount: 0 };
+    }
+  },
+
+  promptRelinkMedia: async (assetId) => {
+    const asset = get().mediaAssets.find((a) => a.id === assetId);
+    if (!asset) return false;
+
+    const filters =
+      asset.type === "audio"
+        ? [{ name: "Audio Files", extensions: ["mp3", "wav", "aac", "flac", "m4a", "ogg"] }]
+        : asset.type === "image"
+          ? [{ name: "Image Files", extensions: ["png", "jpg", "jpeg", "webp", "svg", "gif"] }]
+          : [{ name: "Media Files", extensions: ["mp4", "mov", "mkv", "webm", "flv", "avi"] }];
+
+    try {
+      const selected = await platform.openFileDialog({
+        multiple: false,
+        filters,
+      });
+
+      if (!selected || !selected.length || !selected[0].path) {
+        return false;
+      }
+
+      const newPath = selected[0].path;
+      const { success, relinkedOtherCount } = await get().relinkMediaAsset(assetId, newPath);
+
+      if (success) {
+        if (relinkedOtherCount > 0) {
+          get().showToast(`Relinked ${asset.name} and ${relinkedOtherCount} other missing file(s)`);
+        } else {
+          get().showToast(`Relinked ${asset.name} successfully`);
+        }
+        return true;
+      } else {
+        get().showToast(`Failed to relink ${asset.name}`, "error");
+        return false;
+      }
+    } catch (err) {
+      console.error("[projectStore] promptRelinkMedia error:", err);
+      get().showToast(`Failed to relink media`, "error");
+      return false;
+    }
   },
 
   updateProject: (updates) => {
