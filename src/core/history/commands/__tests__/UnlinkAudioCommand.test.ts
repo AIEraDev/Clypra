@@ -23,7 +23,9 @@ describe("UnlinkAudioCommand", () => {
     const relinked = command.invert().apply(unlinked);
     expect(relinked.clips).toEqual([source]);
     const redone = command.apply(relinked);
-    expect(redone.clips.some((clip) => clip.id === audio.id)).toBe(true);
+    const redoneAudio = redone.clips.find((clip) => clip.id === audio.id);
+    expect(redoneAudio).toBeDefined();
+    expect(redoneAudio).not.toBe(audio);
   });
 
   it("relinks a moved companion and restores the source gain", () => {
@@ -36,6 +38,22 @@ describe("UnlinkAudioCommand", () => {
     expect(relinked.clips).toHaveLength(1);
     expect(relinked.clips[0].volume).toBeCloseTo(0.7);
     expect(relinked.clips[0].audio?.linkState).toBe("linked");
+  });
+
+  it("restores nested source state without sharing snapshot objects", () => {
+    const nestedSource = {
+      ...source,
+      audio: { volume: 0.7, linkState: "linked", keyframes: [{ time: 0, gain: 1 }] },
+      styleDefinition: { id: "pinned-style", version: 3 },
+    } as any;
+    const command = new UnlinkAudioCommand(nestedSource, "/media/video.mp4", [videoTrack]);
+    const initial = { tracks: [videoTrack], clips: [nestedSource], epoch: 0 };
+    const unlinked = command.apply(initial);
+    const restored = command.invert().apply(unlinked);
+
+    expect(restored.clips).toEqual([nestedSource]);
+    expect(restored.clips[0]).not.toBe(nestedSource);
+    expect(restored.clips[0].audio).not.toBe(nestedSource.audio);
   });
 
   it("records the J/L-cut offset when the unlinked companion is moved", () => {

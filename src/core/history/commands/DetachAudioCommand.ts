@@ -12,6 +12,11 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 /**
  * Detaches the embedded audio of one video clip as a normal timeline clip.
  *
@@ -32,7 +37,7 @@ export class DetachAudioCommand implements Command {
   private readonly audioClip: Clip;
 
   constructor(sourceClip: Clip, sourcePath: string, tracks: Track[]) {
-    this.sourceClip = { ...sourceClip };
+    this.sourceClip = cloneClipSnapshot(sourceClip);
 
     const reusableTrack = tracks.find((track) => track.type === "audio" && !track.locked);
     this.targetTrackId = reusableTrack?.id ?? generateId("track");
@@ -58,7 +63,7 @@ export class DetachAudioCommand implements Command {
     });
 
     this.audioClip = {
-      ...this.sourceClip,
+      ...cloneClipSnapshot(this.sourceClip),
       id: generateId("clip"),
       name: `${this.sourceClip.name || "Video"} Audio`,
       trackId: this.targetTrackId,
@@ -98,7 +103,7 @@ export class DetachAudioCommand implements Command {
             ? { ...clip, ...synchronizeClipAudioProperties(clip, { volume: 0 }) }
             : clip
         )),
-        this.audioClip,
+        cloneClipSnapshot(this.audioClip),
       ],
       epoch: state.epoch + 1,
     };
@@ -123,19 +128,28 @@ class RestoreDetachedAudioCommand implements Command {
   readonly label = "Undo Detach Audio";
   readonly timestamp = Date.now();
   readonly undoable = true;
+  private readonly original: DetachAudioCommand;
+  private readonly sourceClip: Clip;
+  private readonly audioClip: Clip;
+  private readonly generatedTrackId: string | null;
 
   constructor(
-    private readonly original: DetachAudioCommand,
-    private readonly sourceClip: Clip,
-    private readonly audioClip: Clip,
-    private readonly generatedTrackId: string | null,
-  ) {}
+    original: DetachAudioCommand,
+    sourceClip: Clip,
+    audioClip: Clip,
+    generatedTrackId: string | null,
+  ) {
+    this.original = original;
+    this.sourceClip = cloneClipSnapshot(sourceClip);
+    this.audioClip = cloneClipSnapshot(audioClip);
+    this.generatedTrackId = generatedTrackId;
+  }
 
   apply(state: TimelineState): TimelineState {
     const hasAudioClip = state.clips.some((clip) => clip.id === this.audioClip.id);
     const clips = state.clips
       .filter((clip) => clip.id !== this.audioClip.id)
-      .map((clip) => (clip.id === this.sourceClip.id ? this.sourceClip : clip));
+      .map((clip) => (clip.id === this.sourceClip.id ? cloneClipSnapshot(this.sourceClip) : clip));
     const hasOtherClipsOnGeneratedTrack = this.generatedTrackId
       ? clips.some((clip) => clip.trackId === this.generatedTrackId)
       : true;

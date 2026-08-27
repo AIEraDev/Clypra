@@ -155,7 +155,7 @@ describe("History Commands Suite", () => {
 
       const transformed = command.apply(state);
       expect(transformed.clips[0].x).toBe(80);
-      expect(transformed.clips[0].futureField).toEqual({ preserved: true });
+      expect((transformed.clips[0] as any).futureField).toEqual({ preserved: true });
 
       const restored = command.invert().apply(transformed);
       expect(restored.clips[0]).toEqual(clip);
@@ -183,7 +183,7 @@ describe("History Commands Suite", () => {
 
       const updated = command.apply(state);
       expect(updated.clips[0].name).toBe("After");
-      expect(updated.clips[0].futureField).toEqual({ preserved: true });
+      expect((updated.clips[0] as any).futureField).toEqual({ preserved: true });
 
       const restored = command.invert().apply(updated);
       expect(restored.clips[0]).toEqual(clip);
