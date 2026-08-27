@@ -5,7 +5,7 @@
 )]
 
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 pub mod ai;
 pub mod audio;
@@ -297,12 +297,12 @@ pub fn run() {
             run_wgpu_smoke_test,
             run_native_document_wgpu_export,
         ])
-        .on_window_event(|_window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                #[cfg(target_os = "macos")]
-                {
-                    _window.app_handle().exit(0);
-                }
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Prevent immediate OS destruction so the webview can perform
+                // unsaved-changes dirty checks, user prompt, and clean shutdown.
+                api.prevent_close();
+                let _ = window.emit("clypra://close-requested", ());
             }
         })
         .run(tauri::generate_context!())
