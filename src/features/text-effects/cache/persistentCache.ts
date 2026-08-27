@@ -16,7 +16,10 @@ import type { EffectFullDefinition } from "../types/types";
 const DB_NAME = "clypra_text_effects";
 const DB_VERSION = 1;
 const STORE_NAME = "definitions";
-const CACHE_VERSION = "v1"; // Increment to invalidate all cached effects
+// Published definitions can change while an effect id stays the same. Bump
+// this whenever the definition contract changes so older serialized defaults
+// cannot survive an editor upgrade and reintroduce stale visual properties.
+const CACHE_VERSION = "v2";
 
 interface CachedEffect {
   id: string;
