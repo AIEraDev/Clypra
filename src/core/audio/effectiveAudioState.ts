@@ -73,7 +73,13 @@ export function evaluateEffectiveAudioState(
   clip: Clip,
   track: Track | undefined,
   timelineTime: number,
-  options: { tracks?: Track[]; masterVolume?: number; masterMuted?: boolean } = {},
+  options: {
+    tracks?: Track[];
+    masterVolume?: number;
+    masterMuted?: boolean;
+    /** Preview transport speed is a monitoring control, so it keeps pitch stable. */
+    preserveTransportPitch?: boolean;
+  } = {},
 ): EffectiveAudioState {
   const audio = getClipAudioProperties(clip);
   const timeIntoClip = clamp(timelineTime - clip.startTime, 0, Math.max(0, clip.duration));
@@ -98,7 +104,7 @@ export function evaluateEffectiveAudioState(
     fadeOut: audio.fadeOut,
     keyframes: audio.volumeKeyframes,
     effects: audio.effects,
-    preservePitch: audio.speed.preservePitch,
+    preservePitch: options.preserveTransportPitch === true || audio.speed.preservePitch,
     channelConfig: audio.channelConfig,
   };
 }

@@ -234,6 +234,43 @@ describe("Project Serialization Layer", () => {
     expect(roundTrippedClip.fontFamily).toBe("Inter");
   });
 
+  it("preserves cross-track compound child topology through project serialization", () => {
+    const child = (id: string, trackId: string, startTime: number): Clip => ({
+      id,
+      kind: trackId === "audio" ? "audio" : "video",
+      trackId,
+      mediaId: `${id}-asset`,
+      startTime,
+      duration: 2,
+      trimIn: 0,
+      trimOut: 2,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+    });
+    const compound: Clip = {
+      ...child("compound", "video", 10),
+      kind: "compound",
+      mediaId: "compound-compound",
+      duration: 4,
+      trimOut: 4,
+      compoundChildren: [
+        child("picture", "video", 0),
+        child("music", "audio", 1),
+      ],
+    };
+
+    const restored = fromRustClip(toRustClip(compound));
+
+    expect(restored.compoundChildren?.map((clip) => [clip.id, clip.trackId, clip.startTime])).toEqual([
+      ["picture", "video", 0],
+      ["music", "audio", 1],
+    ]);
+  });
+
   it("applies fallback default values during deserialization when fields are missing from Rust", () => {
     const incompleteRustProject = {
       id: "project-1",
@@ -260,6 +297,7 @@ describe("Project Serialization Layer", () => {
       created_at: 1000,
       modified_at: 2000,
       timeline_schema_version: 1,
+      main_video_track_id: "track-1",
       tracks: [{ id: "track-1", type: "video", name: "Video", muted: false, locked: false, visible: true, height: 68 }],
       clips: [{ id: "clip-1", kind: "video", trackId: "track-1", mediaId: "media-1", startTime: 0, duration: 2, trimIn: 0, trimOut: 2, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, rotation: 0 }],
       gaps: [{ id: "gap-1", track_id: "track-1", start_time: 2, duration: 1, type: "manual", source: "user-insert", protected: false }],
@@ -273,6 +311,7 @@ describe("Project Serialization Layer", () => {
     expect(snapshot.gaps[0].id).toBe("gap-1");
     expect(snapshot.markers[0].id).toBe("marker-1");
     expect(snapshot.rustProject.timeline_schema_version).toBe(1);
+    expect(snapshot.mainVideoTrackId).toBe("track-1");
   });
 
   it("rejects malformed payloads instead of producing an empty project", () => {

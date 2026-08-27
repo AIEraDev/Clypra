@@ -16,8 +16,11 @@ import { getActiveAudioClips } from "../../core/timeline/audioClips";
 import { PRESET_CONFIGS } from "./exportPresets";
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem } from "../../types";
 import type { ExportAudioClip, ExportProgress } from "../../types/export";
-import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
-import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
+import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
+import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
+import type { SmartOverlayClip } from "@/types/smartOverlay";
+import { verifyExportDependencies, ExportBlockedError, type MissingTextEffect } from "./exportPreflight";
 
 /**
  * Video export progress - Re-exported from types/export
@@ -85,6 +88,12 @@ export interface VideoExportConfig {
   signal?: AbortSignal;
 
   /**
+   * Explicit opt-in override to proceed with export when text effect definitions
+   * are missing offline, rendering base typography instead of blocking.
+   */
+  forceExportWithBaseTypography?: boolean;
+
+  /**
    * Called as soon as the FFmpeg session is live, providing a cancel() function
    * that kills the backend process and stops the frame loop cleanly.
    * The ExportDialog stores this reference so the Cancel button works correctly.
@@ -110,6 +119,9 @@ export interface VideoExportResult {
 
   /** Whether export was cancelled */
   cancelled: boolean;
+
+  /** Persistent record of any text effects that degraded to base typography */
+  degradedTextEffects?: MissingTextEffect[];
 }
 
 /**
@@ -132,8 +144,21 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     throw new Error("[videoExport] Native video export requires the desktop runtime");
   }
 
-  const { invoke, Channel } = await import("@tauri-apps/api/core");
   const { clips, tracks, transitions = [], assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, onSessionReady, signal } = config;
+
+  // Preflight dependency check: enforce §1.2 zero silent-fallback contract
+  const preflight = await verifyExportDependencies(clips as any);
+  if (!preflight.ready && preflight.missingEffects.length > 0) {
+    if (!config.forceExportWithBaseTypography) {
+      throw new ExportBlockedError(preflight.missingEffects);
+    }
+    console.warn(
+      "[videoExport] ⚠️ FORCE EXPORT OPT-IN: Uncached offline text effects will degrade to base typography:",
+      preflight.missingEffects
+    );
+  }
+
+  const { invoke, Channel } = await import("@tauri-apps/api/core");
 
   const startTimeMs = Date.now();
 
@@ -243,6 +268,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   }
 
   let inFlightWritePromise: Promise<void> | null = null;
+  const nativeRasterBridge = new NativeRasterBridge();
 
   // EX-3 fix: Removed AudioContext/OscillatorNode keepalive. The pattern was intended
   // to prevent Chromium background-tab throttling of setTimeout, but Tauri's WebView is
@@ -271,12 +297,34 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       // Evaluate scene for this frame using the canonical evaluator
       const scene = evaluateTimelineSceneCached(time, clips, tracks, assets, project, epoch, transitions);
       let frameBytes: Uint8Array;
+      const frameKey = startFrameIndex + i;
+      const rasterLayers = await nativeRasterBridge.rasterize(scene, { frameKey });
+      const activeSmartOverlays = clips.filter(
+        (clip): clip is SmartOverlayClip =>
+          clip.kind === "smart-overlay" && time >= clip.startTime && time < clip.startTime + clip.duration,
+      );
+      const smartOverlayRasters = await nativeRasterBridge.rasterizeSmartOverlays(
+        activeSmartOverlays,
+        time,
+        scene.metadata.canvasWidth,
+        scene.metadata.canvasHeight,
+        { frameKey },
+      );
       const nativeRequest = width === scene.metadata.canvasWidth && height === scene.metadata.canvasHeight
-        ? buildNativeVideoProjectRequest(scene)
+        ? buildNativeFrameRequest(
+            scene,
+            `${project?.id ?? "export"}:${epoch}`,
+            frameKey,
+            frameRate,
+            width,
+            height,
+            [...rasterLayers, ...smartOverlayRasters],
+            { mode: "frameStep", quality: "full" },
+          )
         : null;
       if (nativeRequest) {
         try {
-          frameBytes = new Uint8Array(await renderNativeVideoProjectFrame(nativeRequest));
+          frameBytes = new Uint8Array(await renderNativeFrame(nativeRequest));
         } catch (error) {
           throw new Error(`[videoExport] Native frame ${i} failed: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -335,6 +383,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       throw error;
     }
   } finally {
+    nativeRasterBridge.dispose();
     // Release global image bitmaps and evaluated frames to free up memory
     try {
       getResourceCache().clear();
@@ -353,6 +402,7 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
     totalTimeMs,
     avgTimePerFrameMs,
     cancelled,
+    ...(preflight.missingEffects.length > 0 ? { degradedTextEffects: preflight.missingEffects } : {}),
   };
 }
 

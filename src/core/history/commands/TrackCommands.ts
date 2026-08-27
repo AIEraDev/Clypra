@@ -180,7 +180,7 @@ class RestoreTrackCommand implements Command {
 /**
  * Toggle Track Property Command
  *
- * For toggling lock, mute, visibility.
+ * For toggling lock, mute, solo, and visibility.
  */
 export class ToggleTrackPropertyCommand implements Command {
   readonly id: string;
@@ -190,7 +190,7 @@ export class ToggleTrackPropertyCommand implements Command {
 
   constructor(
     private readonly trackId: string,
-    private readonly property: "locked" | "muted" | "visible",
+    private readonly property: "locked" | "muted" | "solo" | "visible",
   ) {
     this.id = generateCommandId();
     this.label = `Toggle Track ${property.charAt(0).toUpperCase() + property.slice(1)}`;

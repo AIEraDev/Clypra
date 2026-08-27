@@ -230,6 +230,45 @@ describe("timelineClip timing helpers", () => {
       expect(normalized.trimIn).toBe(5);
       expect(normalized.trimOut).toBe(15);
     });
+
+    it("preserves authored still-image duration and placement during reload normalization", () => {
+      const clip: Clip = {
+        id: "image-clip",
+        kind: "image",
+        trackId: "video-2",
+        mediaId: "image-asset",
+        startTime: 13.6,
+        duration: 64,
+        trimIn: 0,
+        trimOut: 64,
+        x: 407.37,
+        y: 0,
+        width: 1105.26,
+        height: 1080,
+        opacity: 1,
+        rotation: 0,
+      };
+      const asset: MediaAsset = {
+        id: "image-asset",
+        name: "favicon.png",
+        path: "/favicon.png",
+        type: "image",
+        duration: 5,
+        width: 1269,
+        height: 1240,
+        size: 1000,
+      };
+
+      const normalized = normalizeClipTiming(clip, asset);
+
+      expect(normalized.startTime).toBe(13.6);
+      expect(normalized.duration).toBe(64);
+      expect(normalized.trimOut).toBe(64);
+      expect(normalized.x).toBe(407.37);
+      expect(normalized.y).toBe(0);
+      expect(normalized.width).toBe(1105.26);
+      expect(normalized.height).toBe(1080);
+    });
   });
 
   describe("createClipFromAsset", () => {
@@ -551,5 +590,4 @@ describe("timelineClip timing helpers", () => {
   });
 
 });
-
 

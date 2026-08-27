@@ -235,7 +235,7 @@ mod tests {
 
     fn plan() -> PlaybackPlan {
         PlaybackPlan {
-            contract_version: 1,
+            contract_version: crate::native_core::NATIVE_CORE_CONTRACT_VERSION,
             project_revision: "test:1".to_string(),
             frame_rate: 30,
             duration_frames: 30,

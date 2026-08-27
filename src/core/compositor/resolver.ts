@@ -10,6 +10,7 @@
  */
 
 import type { CompositorClip, RenderLayer, RenderStack, EvaluatedClip } from "./types";
+import { compareCompositorClips } from "./ordering";
 import { getClipEndTime } from "@/lib/timeline/timelineClip";
 
 /**
@@ -45,8 +46,8 @@ export function resolveRenderStack(time: number, clips: CompositorClip[]): Rende
   // Evaluate each clip at this time
   const evaluatedLayers = activeCandidates.map((clip) => evaluateClipAtTime(clip, time)).filter((layer) => layer.opacity > 0); // Skip fully transparent layers
 
-  // Sort by compositing order (deterministic)
-  const sortedLayers = evaluatedLayers.sort(compareRenderLayers);
+  // Sort by the shared preview/export compositing contract.
+  const sortedLayers = evaluatedLayers.sort((a, b) => compareCompositorClips(a.clip, b.clip));
 
   return {
     time,
@@ -86,52 +87,6 @@ export function evaluateClipAtTime(clip: CompositorClip, time: number): RenderLa
     },
     inTransition: false,
   };
-}
-
-/**
- * Compare two render layers for compositing order.
- * Lower values render first (background), higher values render last (foreground).
- *
- * Ordering rules:
- * 1. Role type (background < primary < overlay < text < effect)
- * 2. Track index (HIGHER index = lower in stack, so top track in UI renders on top)
- * 3. Z-index (explicit layer control)
- * 4. Evaluation priority (tie-breaker)
- */
-function compareRenderLayers(a: RenderLayer, b: RenderLayer): number {
-  // 1. Compare by role type
-  const roleOrder = getRoleOrder(a.clip.role) - getRoleOrder(b.clip.role);
-  if (roleOrder !== 0) return roleOrder;
-
-  // 2. Compare by track index (INVERTED: higher track index renders BELOW lower track index)
-  // This makes the top track in the UI (index 0) render on top
-  // Track 0 = top of UI = renders LAST (on top)
-  // Track 1 = below Track 0 = renders FIRST (underneath)
-  const trackOrder = b.clip.trackIndex - a.clip.trackIndex;
-  if (trackOrder !== 0) return trackOrder;
-
-  // 3. Compare by z-index
-  const zOrder = a.clip.zIndex - b.clip.zIndex;
-  if (zOrder !== 0) return zOrder;
-
-  // 4. Compare by evaluation priority (tie-breaker)
-  return a.clip.evaluationPriority - b.clip.evaluationPriority;
-}
-
-/**
- * Get numeric order for role types.
- * Lower numbers render first (background), higher numbers render last (foreground).
- */
-function getRoleOrder(role: CompositorClip["role"]): number {
-  const order: Record<CompositorClip["role"], number> = {
-    background: 0,
-    primary: 1,
-    overlay: 2,
-    text: 3,
-    effect: 4,
-    audio: -1, // Audio doesn't participate in visual compositing
-  };
-  return order[role] ?? 1; // Default to primary level
 }
 
 /**

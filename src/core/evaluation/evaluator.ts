@@ -32,6 +32,7 @@ import { calculateTextAnimationState } from "@/lib/text/textAnimation";
 import { normalizeFilterIntensity } from "../render/filterIR";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
+import { compareCompositorClips } from "@/core/compositor/ordering";
 
 /**
  * Evaluate the NLE timeline at a specific time.
@@ -96,19 +97,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     })
     .sort((a, b) => a.trackIndex - b.trackIndex);
 
-  const sortedClips = activeClips.sort((a, b) => {
-    const roleOrder = getRoleOrder(a.role) - getRoleOrder(b.role);
-    if (roleOrder !== 0) return roleOrder;
-    // CRITICAL: Lower trackIndex (top in UI) must draw LAST to appear on top
-    // The rasterizer draws array elements in order: [0] first, [last] last
-    // Canvas compositing: last drawn = on top
-    // So: higher trackIndex → earlier in array, lower trackIndex → later in array
-    const trackOrder = b.trackIndex - a.trackIndex; // DESC: higher index first (draws early/below), lower index last (draws late/on top)
-    if (trackOrder !== 0) return trackOrder;
-    const zOrder = a.zIndex - b.zIndex;
-    if (zOrder !== 0) return zOrder;
-    return a.evaluationPriority - b.evaluationPriority;
-  });
+  const sortedClips = activeClips.sort(compareCompositorClips);
 
   // ─── 3. Evaluate Visual Layers ────────────────────────────────────────────
 
@@ -162,6 +151,14 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       const finalWidth = evalW * animationState.scale;
       const finalHeight = evalH * animationState.scale;
 
+      const karaokeTime = evalTime - clip.startTime;
+      const karaokeRuns = textClip.words?.length
+        ? textClip.words.map((word, wordIndex) => ({
+            text: word.word + (wordIndex < textClip.words!.length - 1 ? " " : ""),
+            highlighted: karaokeTime >= word.start && karaokeTime < word.end,
+          }))
+        : undefined;
+
       const textLayer: EvaluatedTextLayer = {
         layerId: clip.id,
         clipId: clip.id,
@@ -183,7 +180,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         transitionType: transitionState.type,
         transitionProgress: transitionState.progress,
         blendMode: (clip as any).blendMode || "normal",
-        text: textClip.text || "Text",
+        // An explicitly empty clip is intentionally invisible. "Text" is
+        // only the creation-time default; it must not reappear during
+        // evaluation after the user clears the editor field.
+        text: textClip.text ?? "",
         fontFamily: normalizeFontFamily(textClip.fontFamily || styleDefinition?.font?.family || "Inter Variable"),
         fontSize: evalFontSize,
         color: evalColor,
@@ -193,6 +193,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         verticalAlign: textClip.valign || "middle",
         lineHeight: evalLineHeight,
         letterSpacing: evalLetterSpacing,
+        ...(karaokeRuns ? { runs: karaokeRuns } : {}),
         stroke: textClip.stroke,
         shadow: textClip.shadow,
         background: textClip.background,
@@ -404,18 +405,6 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getRoleOrder(role: string): number {
-  const order: Record<string, number> = {
-    background: 0,
-    primary: 1,
-    overlay: 2,
-    text: 3,
-    effect: 4,
-    audio: -1,
-  };
-  return order[role] ?? 1;
-}
 
 function normalizeEffectIntensity(value: unknown): number {
   const numeric = typeof value === "number" ? value : 1;

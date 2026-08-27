@@ -6,13 +6,6 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://clypra-worker-api.abdulkabirmusa.com";
 const API_KEY = import.meta.env.VITE_CLYPRA_API_KEY || "";
 
-// Log API key status at module load (only shows if key exists, not the key itself)
-if (!API_KEY) {
-  console.warn("[API] VITE_CLYPRA_API_KEY is not set. API requests may fail.");
-} else {
-  console.log("[API] API key configured successfully");
-}
-
 /**
  * Create headers with API key for authenticated requests
  * Used by all API clients (text-effects, video-effects, audio, stickers, filters, transitions, etc.)

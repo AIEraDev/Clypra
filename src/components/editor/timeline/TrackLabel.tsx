@@ -27,6 +27,7 @@ import {
   type TrackVisualSpec,
 } from "@/lib/timeline/trackTypeConfig";
 import type { Track } from "@/types";
+import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActions";
 
 interface TrackLabelProps {
   track: Track;
@@ -60,10 +61,6 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
     clips,
     gaps,
     mainVideoTrackId,
-    toggleTrackLock,
-    toggleTrackMute,
-    toggleTrackSolo,
-    toggleTrackVisibility,
   } = useTimelineStore();
   const { selectedTrackId, selectTrack } = useUIStore();
   const visualSpec =
@@ -107,7 +104,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
       <button
         onClick={(e) => {
           e.stopPropagation();
-          toggleTrackLock(track.id);
+          toggleTrackPropertyWithHistory(track.id, "locked");
         }}
         className={`p-1 rounded transition-colors cursor-pointer hover:bg-timeline-button-hover ${track.locked ? "bg-timeline-button-hover text-timeline-track-name" : "text-timeline-button-icon"}`}
         aria-label={track.locked ? "Unlock track" : "Lock track"}
@@ -123,7 +120,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
       <button
         onClick={(e) => {
           e.stopPropagation();
-          toggleTrackVisibility(track.id);
+          toggleTrackPropertyWithHistory(track.id, "visible");
         }}
         className={`p-1 rounded transition-colors cursor-pointer hover:bg-timeline-button-hover ${track.visible ? "text-timeline-button-icon" : "bg-timeline-button-hover text-timeline-track-name"}`}
         aria-label={track.visible ? "Hide track" : "Show track"}
@@ -141,7 +138,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            toggleTrackSolo(track.id);
+            toggleTrackPropertyWithHistory(track.id, "solo");
           }}
           disabled={track.locked}
           className={`p-1 rounded transition-colors ${track.locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-timeline-button-hover"} ${track.solo ? "bg-accent/20 text-accent" : "text-timeline-button-icon"}`}
@@ -162,7 +159,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            toggleTrackMute(track.id);
+            toggleTrackPropertyWithHistory(track.id, "muted");
           }}
           disabled={track.locked}
           className={`p-1 rounded transition-colors ${track.locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-timeline-button-hover"} ${track.muted ? "bg-timeline-button-hover text-timeline-track-name" : "text-timeline-button-icon"}`}

@@ -18,10 +18,11 @@ export async function renderToFrameSequence(
     throw new Error("Failed to get 2D context");
   }
 
-  const renderer = new TemplateRenderer(template);
+  const renderer = new TemplateRenderer(template as any);
 
   // Apply customizations to the renderer's overrides
-  for (const layer of template.layers) {
+  const layers = template.layers || [];
+  for (const layer of layers) {
     if (layer.kind === "text") {
       const changes: any = {};
       if (layer.role === "primary") {
@@ -48,7 +49,8 @@ export async function renderToFrameSequence(
 
   const frames: Blob[] = [];
   const fps = 30; // standard output frame rate
-  const totalFrames = Math.round(template.duration * fps);
+  const duration = template.defaultDuration ?? template.duration ?? 3.0;
+  const totalFrames = Math.round(duration * fps);
 
   for (let f = 0; f < totalFrames; f++) {
     const time = f / fps;

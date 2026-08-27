@@ -151,12 +151,18 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             <div className="flex-1 min-h-0 flex overflow-hidden relative">
               <EnhancedMediaPanel
                 onAddToTimeline={handleAddToTimeline}
-                width={sidebarCollapsed ? 44 : sidebarW}
+                width={
+                  sidebarCollapsed
+                    ? 44
+                    : propertiesPanelCollapsed
+                      ? undefined
+                      : sidebarW
+                }
                 collapsed={sidebarCollapsed}
                 onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
               />
 
-              {!sidebarCollapsed && (
+              {!sidebarCollapsed && !propertiesPanelCollapsed && (
                 <div
                   onPointerDown={handleSidebarResizerPointerDown}
                   onDoubleClick={handleSidebarDoubleClick}
@@ -170,16 +176,15 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 />
               )}
 
-              {/* Properties panel expands in center to fill remaining width */}
-              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                <PropertiesPanel
-                  fillWidth={true}
-                  collapsed={propertiesPanelCollapsed}
-                  onToggleCollapse={() =>
-                    setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
-                  }
-                />
-              </div>
+              {/* Properties panel */}
+              <PropertiesPanel
+                fillWidth={!propertiesPanelCollapsed}
+                width={propertiesPanelCollapsed ? 44 : undefined}
+                collapsed={propertiesPanelCollapsed}
+                onToggleCollapse={() =>
+                  setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+                }
+              />
             </div>
 
             {/* Vertical resizer for timeline */}
@@ -295,12 +300,18 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             <div className="flex-1 min-h-0 flex overflow-hidden relative">
               <EnhancedMediaPanel
                 onAddToTimeline={handleAddToTimeline}
-                width={sidebarCollapsed ? 44 : sidebarW}
+                width={
+                  sidebarCollapsed
+                    ? 44
+                    : propertiesPanelCollapsed
+                      ? undefined
+                      : sidebarW
+                }
                 collapsed={sidebarCollapsed}
                 onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
               />
 
-              {!sidebarCollapsed && (
+              {!sidebarCollapsed && !propertiesPanelCollapsed && (
                 <div
                   onPointerDown={handleSidebarResizerPointerDown}
                   onDoubleClick={handleSidebarDoubleClick}
@@ -314,15 +325,14 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 />
               )}
 
-              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                <PropertiesPanel
-                  fillWidth={true}
-                  collapsed={propertiesPanelCollapsed}
-                  onToggleCollapse={() =>
-                    setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
-                  }
-                />
-              </div>
+              <PropertiesPanel
+                fillWidth={!propertiesPanelCollapsed}
+                width={propertiesPanelCollapsed ? 44 : undefined}
+                collapsed={propertiesPanelCollapsed}
+                onToggleCollapse={() =>
+                  setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
+                }
+              />
             </div>
 
             {/* Vertical resizer for timeline */}
@@ -445,7 +455,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Right Properties Panel */}
             <PropertiesPanel
-              width={propertiesPanelCollapsed ? 0 : propertiesW}
+              width={propertiesPanelCollapsed ? 44 : propertiesW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
                 setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
@@ -530,7 +540,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Collapsed/Compact Properties */}
             <PropertiesPanel
-              width={propertiesPanelCollapsed ? 0 : propertiesW}
+              width={propertiesPanelCollapsed ? 44 : propertiesW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
                 setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
@@ -616,7 +626,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Right Text & Captions Properties */}
             <PropertiesPanel
-              width={propertiesPanelCollapsed ? 0 : propertiesW}
+              width={propertiesPanelCollapsed ? 44 : propertiesW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
                 setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
@@ -701,7 +711,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Dominant Wide Properties Inspector */}
             <PropertiesPanel
-              width={propertiesPanelCollapsed ? 0 : wideInspectorW}
+              width={propertiesPanelCollapsed ? 44 : wideInspectorW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
                 setPropertiesPanelCollapsed(!propertiesPanelCollapsed)
@@ -824,7 +834,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {/* Right Properties Panel */}
           <PropertiesPanel
-            width={propertiesPanelCollapsed ? 0 : propertiesW}
+            width={propertiesPanelCollapsed ? 44 : propertiesW}
             collapsed={propertiesPanelCollapsed}
             onToggleCollapse={() =>
               setPropertiesPanelCollapsed(!propertiesPanelCollapsed)

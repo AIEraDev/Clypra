@@ -1,6 +1,6 @@
 [package]
 name = "clypra"
-version = "1.4.4"
+version = "1.4.5"
 description = "A modern, open-source video editor with native performance and GPU-accelerated preview"
 authors = ["Clypra Contributors"]
 edition = "2021"
@@ -44,6 +44,7 @@ unicode-segmentation = "1"
 reqwest = { version = "0.12", features = ["stream"] }
 futures-util = "0.3"
 parking_lot = "0.12"
+woff2 = { package = "woff2-patched", version = "0.4" }
 log = "0.4"
 
 # Cross-platform native audio output and hardware-clock adapter.

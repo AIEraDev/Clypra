@@ -183,6 +183,46 @@ export async function renderNativePreviewFrame(
   return invoke<ArrayBuffer>("render_native_preview_frame", args);
 }
 
+/** Decode one native still-image frame as alpha-preserving RGBA8 pixels. */
+export async function decodeNativeRgbaFrame(
+  sourcePath: string,
+  width: number,
+  height: number,
+): Promise<ArrayBuffer> {
+  if (!isTauriRuntime()) {
+    throw new Error("decodeNativeRgbaFrame requires the Tauri runtime");
+  }
+  return invoke<ArrayBuffer>("decode_image_rgba", {
+    path: toNativePath(sourcePath),
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+  });
+}
+
+/**
+ * Decode and upload a still image entirely inside the native compositor.
+ *
+ * The pixel buffer must not cross the WebView boundary: doing so turns a
+ * first-use image into a multi-megabyte JSON/IPC operation and can stall the
+ * editor when playback enters the image clip.
+ */
+export async function registerNativeImageAsset(options: {
+  assetId: string;
+  sourcePath: string;
+  width: number;
+  height: number;
+}): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("registerNativeImageAsset requires the Tauri runtime");
+  }
+  await invoke("register_native_image_asset", {
+    assetId: options.assetId,
+    path: toNativePath(options.sourcePath),
+    width: Math.max(1, Math.round(options.width)),
+    height: Math.max(1, Math.round(options.height)),
+  });
+}
+
 export interface NativeProjectSolidLayer {
   color: [number, number, number, number];
   x: number;
@@ -238,6 +278,7 @@ export interface NativeVideoProjectFrameRequest {
   clearColor?: [number, number, number, number];
   layers: NativeProjectVideoLayer[];
   rasterLayers?: import("./nativeCore").NativeRasterLayerSnapshot[];
+  textLayers?: import("./nativeCore").NativeTextLayerSnapshot[];
   transition?: import("./nativeCore").NativeTransitionSnapshot;
 }
 
@@ -281,6 +322,30 @@ export async function renderNativeFrame(request: NativeFrameRequest): Promise<Ar
     },
   };
   return invoke<ArrayBuffer>("render_native_frame", { request: nativeRequest });
+}
+
+/** Register a bundled/editor font in the strict native font registry. */
+export async function registerNativeFont(fontId: string, path: string): Promise<number> {
+  if (!isTauriRuntime()) throw new Error("registerNativeFont requires the Tauri runtime");
+  return invoke<number>("register_native_font", { fontId, path: toNativePath(path) });
+}
+
+/** Register a bundled font asset directly from the WebView bundle. */
+export async function registerNativeFontBytes(
+  fontId: string,
+  bytes: ArrayBuffer | Uint8Array,
+): Promise<number> {
+  if (!isTauriRuntime()) throw new Error("registerNativeFontBytes requires the Tauri runtime");
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  return invoke<number>("register_native_font_bytes", {
+    fontId,
+    bytes: Array.from(data),
+  });
+}
+
+export async function listNativeFonts(): Promise<string[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<string[]>("list_native_fonts");
 }
 
 /**

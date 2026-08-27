@@ -335,8 +335,10 @@ pub async fn start_video_export(
     if !valid_audio_clips.is_empty() {
         let mut filter_complex = String::new();
 
-        // Apply vertical flip to the input video stream (since WebGL readPixels is bottom-left oriented)
-        filter_complex.push_str("[0:v]vflip[v];");
+        // Native compositor readback is already top-to-bottom RGBA. Do not
+        // apply the legacy WebGL readPixels vertical flip here; doing so
+        // turns every compositor export upside down.
+        filter_complex.push_str("[0:v]null[v];");
 
         // Generate a silent audio track matching the exact video duration.
         // This serves as a duration anchor. When mixed with duration=longest,
@@ -462,7 +464,7 @@ pub async fn start_video_export(
 
         cmd.arg("-filter_complex").arg(filter_complex);
 
-        // Map streams explicitly: vflipped video [v], mixed audio [a]
+        // Map streams explicitly: compositor video [v], mixed audio [a]
         cmd.arg("-map").arg("[v]");
         cmd.arg("-map").arg("[a]");
 
@@ -471,8 +473,7 @@ pub async fn start_video_export(
         cmd.arg("-ar").arg("48000"); // Lock output sample rate
         cmd.arg("-b:a").arg("128k");
     } else {
-        // Map only the video stream from input 0, and apply vflip
-        cmd.arg("-vf").arg("vflip");
+        // Native compositor readback is already top-to-bottom RGBA.
         cmd.arg("-map").arg("0:v");
     }
 

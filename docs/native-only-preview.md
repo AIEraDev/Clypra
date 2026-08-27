@@ -26,9 +26,9 @@ The preview header should show `Program Preview (Native-only)` and then
 `wgpu Surface`. If the scene contains an unmigrated transition, background,
 effect, unsupported text/sticker path, or the surface is not ready, the
 proof-mode blocker lists the concrete migration reason instead of silently
-rendering through a legacy browser compositor. Gradient and
-shader backgrounds are rasterized once per native frame and media backgrounds
-are decoded as a native layer below the timeline.
+rendering through a legacy browser compositor. Media backgrounds are decoded
+as a native layer below the timeline. Gradient and shader backgrounds remain
+explicit blockers until their native graph nodes are enabled.
 
 The first transition proof case is two video clips with no text, sticker, or
 mask layer. Cross-dissolve, directional wipe, and zoom-blur are composed by
@@ -45,13 +45,12 @@ Wave, ripple, bulge, twist, and fisheye effects now share the native bounded
 distortion sampling pass. Their evaluated time and strength travel as compact
 uniforms; no browser canvas effect pass is required.
 
-Static sticker image clips, evaluated Lottie frames, and smart-overlay cards are
-uploaded as immutable native raster assets, then composited by wgpu. The
-browser overlay canvas is not part of the authoritative preview path. Lottie
-frame evaluation still uses the
-Studio-compatible JS asset library; only the resulting pixels cross the native
-bridge. Animated GIF stickers use the native FFmpeg media decoder directly,
-including timestamped seeks during playback.
+Static sticker image clips are uploaded as immutable native raster assets, then
+composited by wgpu. Lottie frames and smart-overlay cards remain explicit
+blockers until their primitives are evaluated in the native graph; the browser
+overlay canvas is not an authoritative fallback. Animated GIF stickers use
+the native FFmpeg media decoder directly, including timestamped seeks during
+playback.
 
 Raster-only scenes are valid native proof fixtures too: a smart-overlay or
 text asset can be presented on the native surface without requiring a video

@@ -4,19 +4,7 @@ import { usePresetStore } from "../presetStore";
 describe("presetStore — Custom Property & Text Presets", () => {
   beforeEach(() => {
     usePresetStore.setState({
-      presets: [
-        {
-          id: "preset-neon",
-          name: "Neon Glow",
-          fontFamily: "Outfit Variable",
-          fontSize: 48,
-          fontWeight: "bold",
-          color: "#ff007f",
-          align: "center",
-          valign: "middle",
-          lineHeight: 1.2,
-        },
-      ],
+      presets: [],
     });
   });
 
@@ -33,7 +21,7 @@ describe("presetStore — Custom Property & Text Presets", () => {
     });
 
     const presets = usePresetStore.getState().presets;
-    expect(presets.length).toBe(2);
+    expect(presets.length).toBe(1);
 
     const cyber = presets.find((p) => p.name === "Cyber Yellow");
     expect(cyber).toBeDefined();

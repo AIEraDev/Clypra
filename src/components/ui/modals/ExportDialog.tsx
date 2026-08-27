@@ -65,7 +65,7 @@ interface ExportDialogProps {
   onClose: () => void;
 }
 
-type ExportPhase = "configure" | "exporting" | "complete" | "error";
+type ExportPhase = "configure" | "exporting" | "complete" | "error" | "blocked-missing-effects";
 
 interface VideoExportProgress {
   currentFrame?: number;
@@ -146,6 +146,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const [progress, setProgress] = useState<VideoExportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExportResult | null>(null);
+  const [blockedEffects, setBlockedEffects] = useState<Array<{ clipId: string; clipName: string; styleId: string }>>([]);
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
   const [ffmpegVersion, setFfmpegVersion] = useState<string>("");
   const [mobileExportMode, setMobileExportMode] = useState<"cloud" | "clypra">("cloud");
@@ -429,7 +430,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   }, [isOpen]);
 
   // ─── Export handler ────────────────────────────────────────────────
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(async (forceWithBaseTypography: boolean = false) => {
     if (!outputPath || !project) return;
 
     safeSetPhase("exporting");
@@ -530,6 +531,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
         crf: selectedPreset.crf,
         pixelFormat: selectedPreset.pixelFormat as any,
         signal: controller.signal,
+        forceExportWithBaseTypography: forceWithBaseTypography,
         onProgress: (p) => safeSetProgress(p),
         // FIX (BUG-C2): Receive the live cancel function as soon as FFmpeg starts.
         // Storing it in a ref lets handleCancelExport call it at any time.
@@ -547,13 +549,22 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
           avgTimePerFrameMs: exportResult.avgTimePerFrameMs,
         });
         safeSetPhase("complete");
-        toast.success("Video exported successfully!");
+        if (exportResult.degradedTextEffects && exportResult.degradedTextEffects.length > 0) {
+          toast.warning("Video exported with base typography fallback for uncached effects.");
+        } else {
+          toast.success("Video exported successfully!");
+        }
       } else {
         safeSetPhase("configure");
         toast.info("Export cancelled");
       }
-    } catch (err) {
+    } catch (err: any) {
       if (!isMountedRef.current) return;
+      if (err?.name === "ExportBlockedError" || err?.missingEffects) {
+        setBlockedEffects(err.missingEffects || []);
+        safeSetPhase("blocked-missing-effects");
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Export failed";
       safeSetError(msg);
       safeSetPhase("error");
@@ -950,7 +961,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                 ) : (
                   <Button
                     variant="default"
-                    onClick={handleExport}
+                    onClick={() => handleExport(false)}
                     disabled={!canExport}
                     className="min-w-[100px]"
                     style={{
@@ -1168,6 +1179,63 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     className="text-[11px]"
                   >
                     Close
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ═══ PHASE: Blocked - Missing Offline Effects ═══ */}
+          {phase === "blocked-missing-effects" && (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-5 overflow-y-auto">
+              <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
+                <AlertCircle className="w-8 h-8" />
+              </div>
+
+              <div className="w-full max-w-[420px] text-center space-y-4">
+                <div>
+                  <h3 className="text-[15px] font-bold text-text-primary tracking-tight">
+                    Export Blocked: Missing Text Effects
+                  </h3>
+                  <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
+                    The following text effect(s) are not cached locally and the network is unavailable.
+                    Clypra prevents silent visual degradation by default.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-[11px] text-left space-y-2 max-h-[140px] overflow-y-auto scrollbar-thin">
+                  {blockedEffects.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-text-primary">
+                      <span className="font-medium truncate max-w-[200px]">"{item.clipName}"</span>
+                      <span className="text-amber-400 font-mono text-[10px]">style: {item.styleId}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => safeSetPhase("configure")}
+                    className="text-[11px] w-full"
+                  >
+                    Cancel Export (Recommended)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleExport(false)}
+                    className="text-[11px] w-full"
+                  >
+                    Retry Connection
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport(true)}
+                    className="text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 w-full"
+                  >
+                    Force Export with Base Typography
                   </Button>
                 </div>
               </div>

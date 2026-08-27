@@ -20,7 +20,15 @@ export function getClipVisibleDuration(clip: Pick<Clip, "trimIn" | "trimOut">): 
 }
 
 export function normalizeClipTiming(clip: Clip, asset?: MediaAsset): Clip {
-  const sourceDuration = asset ? resolveClipDuration(asset) : Infinity;
+  // Still images are durationless sources. Their default duration is only the
+  // insertion-time value; once a user extends or trims the image on the
+  // timeline, that authored duration is canonical and must survive reload.
+  // Video/audio clips remain bounded by their decoded source duration.
+  const sourceDuration = asset?.type === "image"
+    ? Infinity
+    : asset
+      ? resolveClipDuration(asset)
+      : Infinity;
   const rawTrimIn = typeof clip.trimIn === "number" && !isNaN(clip.trimIn) ? clip.trimIn : 0;
   const rawTrimOut = typeof clip.trimOut === "number" && !isNaN(clip.trimOut) ? clip.trimOut : typeof clip.duration === "number" && !isNaN(clip.duration) ? clip.duration : 0;
   const rawStartTime = typeof clip.startTime === "number" && !isNaN(clip.startTime) ? clip.startTime : 0;

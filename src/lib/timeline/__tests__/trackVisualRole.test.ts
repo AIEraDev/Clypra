@@ -20,7 +20,7 @@ describe("track visual roles", () => {
       role: "b-roll",
       label: "B-Roll",
       height: 60,
-      opacity: 0.8,
+      opacity: 1,
     });
     expect(getTrackVisualSpec(tracks[1], tracks, "main")).toMatchObject({
       role: "a-roll",
@@ -50,13 +50,13 @@ describe("track visual roles", () => {
   });
 
   it.each([
-    ["audio", "Audio", 70, 0.6],
-    ["text", "Text", 30, 0.8],
-    ["sticker", "Sticker", 30, 0.8],
-    ["filter", "Filter", 30, 0.8],
-    ["video-effect", "Video Effect", 30, 0.8],
-    ["body-effect", "Body Effect", 30, 0.8],
-    ["animated-overlay", "Animated Overlay", 30, 0.8],
+    ["audio", "Audio", 60, 1],
+    ["text", "Text", 30, 1],
+    ["sticker", "Sticker", 30, 1],
+    ["filter", "Filter", 30, 1],
+    ["video-effect", "Video Effect", 30, 1],
+    ["body-effect", "Body Effect", 30, 1],
+    ["animated-overlay", "Animated Overlay", 30, 1],
   ] as const)("resolves %s strictly by TrackType", (type, label, height, opacity) => {
     const spec = getTrackVisualSpec(track(type, type), [track(type, type)], null);
 

@@ -539,6 +539,9 @@ const arePropsEqual = (prevProps: TrackProps, nextProps: TrackProps) => {
     const nextClip = nextProps.clips[i];
     if (
       prevClip.id !== nextClip.id ||
+      prevClip.kind !== nextClip.kind ||
+      prevClip.name !== nextClip.name ||
+      prevClip.text !== nextClip.text ||
       prevClip.startTime !== nextClip.startTime ||
       prevClip.duration !== nextClip.duration ||
       prevClip.volume !== nextClip.volume ||

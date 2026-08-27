@@ -299,7 +299,7 @@ describe("Clip Component", () => {
 
     const clipElement = screen.getByTestId("clip-clip-1");
     expect(clipElement).toHaveStyle({ opacity: "0.8" });
-    expect(clipElement.className).toContain("saturate-75");
+    expect(clipElement.className).toContain("border-accent/30");
   });
 
   describe("Resize Logic Validation", () => {

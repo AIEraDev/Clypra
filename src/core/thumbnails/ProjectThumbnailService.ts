@@ -13,8 +13,8 @@
 
 import type { Clip, Track, MediaAsset, Project, TransitionTimelineItem, Gap, TimelineMarker } from "@/types";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
-import { buildNativeVideoProjectRequest } from "@/components/editor/preview/nativeVideoPreview";
-import { isTauriRuntime, renderNativeVideoProjectFrame } from "@/lib/platform/tauri";
+import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
+import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
 
 export interface ProjectThumbnailSourceState {
   tracks: Track[];
@@ -101,19 +101,34 @@ class ProjectThumbnailService {
       return firstVisual?.posterFrame || firstVisual?.coverArt || (firstVisual?.type === "image" ? firstVisual.path : undefined);
     }
 
-    const nativeRequest = buildNativeVideoProjectRequest(scene);
-    if (!nativeRequest || nativeRequest.layers.length === 0) {
+    const frameRate = Math.max(1, Math.round(project.frameRate || 30));
+    const frameIndex = Math.max(0, Math.round(targetTime * frameRate));
+    const nativeRequest = buildNativeFrameRequest(
+      scene,
+      `${project.id}:${epoch}`,
+      frameIndex,
+      frameRate,
+      project.canvasWidth || 1920,
+      project.canvasHeight || 1080,
+      [],
+      { mode: "frameStep", quality: "full" },
+    );
+    if (!nativeRequest || (
+      nativeRequest.project.videoLayers.length === 0 &&
+      (nativeRequest.project.rasterLayers?.length ?? 0) === 0 &&
+      (nativeRequest.project.textLayers?.length ?? 0) === 0
+    )) {
       // If no compositable visual layers exist, fallback to asset poster
       const firstVisual = mediaAssets.find((a) => a.type === "video" || a.type === "image");
       return firstVisual?.posterFrame || firstVisual?.coverArt || (firstVisual?.type === "image" ? firstVisual.path : undefined);
     }
 
-    const canvasWidth = nativeRequest.canvasWidth || project.canvasWidth || 1920;
-    const canvasHeight = nativeRequest.canvasHeight || project.canvasHeight || 1080;
+    const canvasWidth = nativeRequest.project.canvasWidth || project.canvasWidth || 1920;
+    const canvasHeight = nativeRequest.project.canvasHeight || project.canvasHeight || 1080;
 
     let rgba: ArrayBuffer;
     try {
-      rgba = await renderNativeVideoProjectFrame(nativeRequest);
+      rgba = await renderNativeFrame(nativeRequest);
     } catch (err) {
       console.warn("[ProjectThumbnailService] Native thumbnail render failed:", err);
       return undefined;

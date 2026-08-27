@@ -5,7 +5,7 @@ use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
 use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
     NativeFrameService, NativeFrameServiceStats, NativeSurfacePresentation, PerformanceSample,
-    PixelFormat, PreviewMode, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
+    PixelFormat, PreviewMode, TextLayerSnapshot, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
 use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
@@ -17,6 +17,7 @@ use crate::wgpu_compositor::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,6 +25,78 @@ use tauri::Manager;
 
 type DecodedNativeVideoFrame = (Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// Register an editor font before a frame request references it. The native
+/// renderer never substitutes a different family for an unregistered font.
+#[tauri::command]
+pub fn register_native_font(font_id: String, path: String) -> Result<u64, String> {
+    if font_id.trim().is_empty() {
+        return Err("Native font id must not be empty".to_string());
+    }
+    let path = Path::new(&path);
+    if !path.is_absolute() {
+        return Err("Native font registration requires an absolute filesystem path".to_string());
+    }
+    let bytes = std::fs::read(path).map_err(|error| {
+        let message = format!("Unable to read native font '{}': {error}", path.display());
+        eprintln!("[native-font][rust] register-failed id={} reason={}", font_id, message);
+        message
+    })?;
+    if bytes.len() > 32 * 1024 * 1024 {
+        let message = "Native font exceeds the 32 MiB registration limit".to_string();
+        eprintln!("[native-font][rust] register-failed id={} reason={}", font_id, message);
+        return Err(message);
+    }
+    register_native_font_bytes(font_id, bytes)
+}
+
+/// Register bundled/editor font bytes without requiring the WebView to expose
+/// a filesystem path. This is the normal path for Vite-bundled WOFF2 assets.
+#[tauri::command]
+pub fn register_native_font_bytes(font_id: String, bytes: Vec<u8>) -> Result<u64, String> {
+    if font_id.trim().is_empty() {
+        return Err("Native font id must not be empty".to_string());
+    }
+    if bytes.is_empty() {
+        return Err(format!("Native font '{}' has no bytes", font_id));
+    }
+    if bytes.len() > 32 * 1024 * 1024 {
+        return Err(format!(
+            "Native font '{}' exceeds the 32 MiB registration limit",
+            font_id
+        ));
+    }
+
+    eprintln!(
+        "[native-font][rust] register-start id={} bytes={} format={}",
+        font_id,
+        bytes.len(),
+        if woff2::decode::is_woff2(&bytes) { "woff2" } else { "sfnt" }
+    );
+    let result = clypra_native_core::font_registry::global_font_registry()
+        .register_font(&font_id, &bytes);
+    match &result {
+        Ok(hash) => eprintln!(
+            "[native-font][rust] register-ok id={} hash={} registered_count={}",
+            font_id,
+            hash,
+            clypra_native_core::font_registry::global_font_registry()
+                .list_fonts()
+                .len()
+        ),
+        Err(error) => eprintln!(
+            "[native-font][rust] register-failed id={} reason={}",
+            font_id,
+            error
+        ),
+    }
+    result
+}
+
+#[tauri::command]
+pub fn list_native_fonts() -> Result<Vec<String>, String> {
+    Ok(clypra_native_core::font_registry::global_font_registry().list_fonts())
+}
 
 #[derive(Debug, Default, Clone, Copy)]
 struct NativeDecodeTimings {
@@ -340,6 +413,8 @@ pub struct NativeVideoProjectFrameRequest {
     #[serde(default)]
     pub raster_layers: Vec<NativeProjectRasterLayer>,
     #[serde(default)]
+    pub text_layers: Vec<TextLayerSnapshot>,
+    #[serde(default)]
     pub transition: Option<TransitionSnapshot>,
 }
 
@@ -649,6 +724,7 @@ fn to_video_project_request(
         clear_color: request.project.clear_color,
         layers,
         raster_layers,
+        text_layers: request.project.text_layers.clone(),
         transition: request.project.transition.clone(),
     })
 }
@@ -667,6 +743,75 @@ fn project_layer_transform(
         canvas_width,
         canvas_height,
     )
+}
+
+fn compute_text_layer_placement(
+    text_layer: &TextLayerSnapshot,
+    shaped_w: f32,
+    shaped_h: f32,
+) -> (f32, f32) {
+    let (unrotated_center_x, unrotated_center_y) = match (text_layer.box_width, text_layer.box_height) {
+        (Some(box_w), Some(box_h)) if box_w > 0.0 && box_h > 0.0 => {
+            let cx = match text_layer.text_align.to_ascii_lowercase().as_str() {
+                "left" => text_layer.x + shaped_w * 0.5,
+                "right" => text_layer.x + box_w - shaped_w * 0.5,
+                _ => text_layer.x + box_w * 0.5, // "center" is default
+            };
+            let cy = match text_layer.vertical_align.to_ascii_lowercase().as_str() {
+                "top" => text_layer.y + shaped_h * 0.5,
+                "bottom" => text_layer.y + box_h - shaped_h * 0.5,
+                _ => text_layer.y + box_h * 0.5,
+            };
+            (cx, cy)
+        }
+        _ => (text_layer.x + shaped_w * 0.5, text_layer.y + shaped_h * 0.5),
+    };
+
+    let (final_center_x, final_center_y) = match (text_layer.box_width, text_layer.box_height) {
+        (Some(box_w), Some(box_h)) if box_w > 0.0 && box_h > 0.0 && text_layer.rotation != 0.0 => {
+            let box_cx = text_layer.x + box_w * 0.5;
+            let box_cy = text_layer.y + box_h * 0.5;
+            let rad = (-text_layer.rotation).to_radians();
+            let dx = unrotated_center_x - box_cx;
+            let dy = unrotated_center_y - box_cy;
+            let rot_x = box_cx + dx * rad.cos() - dy * rad.sin();
+            let rot_y = box_cy + dx * rad.sin() + dy * rad.cos();
+            (rot_x, rot_y)
+        }
+        _ => (unrotated_center_x, unrotated_center_y),
+    };
+
+    (final_center_x - shaped_w * 0.5, final_center_y - shaped_h * 0.5)
+}
+
+/// Fit the native text texture inside the editor's text box.
+///
+/// The texture is rasterized by the native font stack, so its bounds can be
+/// wider than the browser's estimate (emoji fallback and synthetic italic are
+/// the most common examples).  The text box remains the authoritative layout
+/// constraint; scale only when the native texture would otherwise overflow it.
+fn compute_text_layer_scale(
+    text_layer: &TextLayerSnapshot,
+    shaped_w: f32,
+    shaped_h: f32,
+) -> f32 {
+    let (Some(box_w), Some(box_h)) = (text_layer.box_width, text_layer.box_height) else {
+        return 1.0;
+    };
+
+    if !box_w.is_finite()
+        || !box_h.is_finite()
+        || !shaped_w.is_finite()
+        || !shaped_h.is_finite()
+        || box_w <= 0.0
+        || box_h <= 0.0
+        || shaped_w <= 0.0
+        || shaped_h <= 0.0
+    {
+        return 1.0;
+    }
+
+    (box_w / shaped_w).min(box_h / shaped_h).clamp(0.0001, 1.0)
 }
 
 fn project_layer_transform_values(
@@ -1281,7 +1426,7 @@ async fn render_native_video_project_frame_bytes_timed(
 
     let mut session = state.lock().await;
     let conversion_started = Instant::now();
-    let mut textures = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
+    let mut textures = Vec::with_capacity(request.layers.len() + request.raster_layers.len() + request.text_layers.len());
     let mut views = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
     for (layer, (y_plane, uv_plane, width, height, color)) in
         request.layers.iter().zip(decoded_frames.iter())
@@ -1309,6 +1454,14 @@ async fn render_native_video_project_frame_bytes_timed(
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
+    let mut text_views = Vec::with_capacity(request.text_layers.len());
+    let mut text_dims = Vec::with_capacity(request.text_layers.len());
+    for text_layer in &request.text_layers {
+        let (texture, view, width, height) = session.get_or_render_text_layer(text_layer)?;
+        text_views.push(view);
+        text_dims.push((width as f32, height as f32));
+        textures.push(texture);
+    }
     let conversion_time_us = conversion_started
         .elapsed()
         .as_micros()
@@ -1321,7 +1474,7 @@ async fn render_native_video_project_frame_bytes_timed(
         request.canvas_height,
         wgpu::TextureFormat::Rgba8UnormSrgb,
     );
-    let mut specs = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
+    let mut specs = Vec::with_capacity(request.layers.len() + request.raster_layers.len() + request.text_layers.len());
     let mask_views: HashMap<&str, &wgpu::TextureView> = request
         .raster_layers
         .iter()
@@ -1367,6 +1520,33 @@ async fn render_native_video_project_frame_bytes_timed(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            color_grade: ColorGradeUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+            lut: None,
+            grain_seed: 0.0,
+        });
+    }
+    for (text_layer, (view, (width, height))) in request
+        .text_layers
+        .iter()
+        .zip(text_views.iter().zip(text_dims.iter()))
+    {
+        let scale = compute_text_layer_scale(text_layer, *width, *height);
+        let display_width = *width * scale;
+        let display_height = *height * scale;
+        let (layer_x, layer_y) =
+            compute_text_layer_placement(text_layer, display_width, display_height);
+        specs.push(NativeLayerSpec {
+            view: view.as_ref(),
+            x: layer_x,
+            y: layer_y,
+            width: display_width,
+            height: display_height,
+            rotation: text_layer.rotation,
+            opacity: text_layer.opacity,
+            z_index: text_layer.z_index,
+            blend_mode: &text_layer.blend_mode,
             color_grade: ColorGradeUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
@@ -1520,6 +1700,11 @@ pub async fn queue_native_frame(
         .ok_or_else(|| "Native preview frame queue is not initialized".to_string())?
         .inner()
         .clone();
+    // Prefetch work is deliberately outside the visible generation fence. Its
+    // cache key still contains the project revision and exact frame, so stale
+    // work can never be presented as a different frame, while allowing a
+    // look-ahead decode started at play time to survive subsequent clock ticks.
+    let is_prefetch = request.mode.as_deref() == Some("prefetch");
     let generation = request.generation.unwrap_or(0);
     let cancellation_generation;
     let scheduler_wait_started = Instant::now();
@@ -1527,9 +1712,11 @@ pub async fn queue_native_frame(
     {
         let mut queue_state = queue.lock().await;
         scheduler_wait_us = scheduler_wait_started.elapsed().as_micros() as u64;
-        queue_state.observe_generation(generation);
-        if !queue_state.is_generation_current(generation) {
-            return Ok(());
+        if !is_prefetch {
+            queue_state.observe_generation(generation);
+            if !queue_state.is_generation_current(generation) {
+                return Ok(());
+            }
         }
         if !queue_state.begin(&key) {
             return Ok(());
@@ -1537,11 +1724,28 @@ pub async fn queue_native_frame(
         cancellation_generation = queue_state.latest_generation.clone();
     }
 
-    let cancellation = Some((cancellation_generation, generation));
+    let cancellation = if is_prefetch {
+        None
+    } else {
+        Some((cancellation_generation, generation))
+    };
+    if is_prefetch && !legacy_request.text_layers.is_empty() {
+        // Warm text before the potentially expensive FFmpeg seek. Otherwise a
+        // future boundary can finish decoding only after the text SDF compile
+        // has missed the presentation deadline.
+        if let Some(preview_state) =
+            app.try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        {
+            let mut session = preview_state.lock().await;
+            for text_layer in &legacy_request.text_layers {
+                session.get_or_render_text_layer(text_layer)?;
+            }
+        }
+    }
     match decode_native_video_layers(&legacy_request, cancellation).await {
         Ok((decoded_frames, decode_timings)) => {
             let mut queue_state = queue.lock().await;
-            if queue_state.is_generation_current(generation) {
+            if is_prefetch || queue_state.is_generation_current(generation) {
                 queue_state.complete(
                     key,
                     QueuedNativeFrame {
@@ -1616,6 +1820,48 @@ pub async fn register_native_raster_asset(
             asset.height,
             Some(&asset.rgba),
         )
+        .map(|_| ())
+}
+
+/// Decode and upload a still-image asset without returning its pixels through
+/// the WebView. This keeps first-use image activation off the JS main thread
+/// and makes the native GPU cache the sole owner of the decoded raster.
+#[tauri::command]
+pub async fn register_native_image_asset(
+    app: tauri::AppHandle,
+    asset_id: String,
+    path: String,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    if asset_id.trim().is_empty() {
+        return Err("Native image asset id must be non-empty".to_string());
+    }
+    let expected_bytes = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "Native image dimensions overflow".to_string())?;
+    if width == 0
+        || height == 0
+        || width > 8192
+        || height > 8192
+        || expected_bytes > 64 * 1024 * 1024
+    {
+        return Err("Native image dimensions are outside the native limit".to_string());
+    }
+
+    let rgba = tauri::async_runtime::spawn_blocking(move || {
+        crate::commands::media::decode_image_rgba_bytes(&path, width, height)
+    })
+    .await
+    .map_err(|error| format!("Native image decode task failed: {}", error))??;
+
+    let preview_state = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+    let mut session = preview_state.lock().await;
+    session
+        .get_or_upload_rgba_layer_to_texture(&asset_id, width, height, Some(&rgba))
         .map(|_| ())
 }
 
@@ -1844,6 +2090,14 @@ pub async fn present_native_frame(
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
+    let mut text_views = Vec::with_capacity(legacy_request.text_layers.len());
+    let mut text_dims = Vec::with_capacity(legacy_request.text_layers.len());
+    for text_layer in &legacy_request.text_layers {
+        let (texture, view, width, height) = session.get_or_render_text_layer(text_layer)?;
+        text_views.push(view);
+        text_dims.push((width as f32, height as f32));
+        textures.push(texture);
+    }
 
     let conversion_upload_us = conversion_started.elapsed().as_micros() as u64;
     let compose_started = Instant::now();
@@ -1855,7 +2109,7 @@ pub async fn present_native_frame(
         target_format,
     );
     let mut specs =
-        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len());
+        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len() + legacy_request.text_layers.len());
     let mask_views: HashMap<&str, &wgpu::TextureView> = legacy_request
         .raster_layers
         .iter()
@@ -1901,6 +2155,33 @@ pub async fn present_native_frame(
             opacity: layer.opacity,
             z_index: layer.z_index,
             blend_mode: &layer.blend_mode,
+            color_grade: ColorGradeUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+            lut: None,
+            grain_seed: 0.0,
+        });
+    }
+    for (text_layer, (view, (width, height))) in legacy_request
+        .text_layers
+        .iter()
+        .zip(text_views.iter().zip(text_dims.iter()))
+    {
+        let scale = compute_text_layer_scale(text_layer, *width, *height);
+        let display_width = *width * scale;
+        let display_height = *height * scale;
+        let (layer_x, layer_y) =
+            compute_text_layer_placement(text_layer, display_width, display_height);
+        specs.push(NativeLayerSpec {
+            view: view.as_ref(),
+            x: layer_x,
+            y: layer_y,
+            width: display_width,
+            height: display_height,
+            rotation: text_layer.rotation,
+            opacity: text_layer.opacity,
+            z_index: text_layer.z_index,
+            blend_mode: &text_layer.blend_mode,
             color_grade: ColorGradeUniforms::default(),
             mask_view: None,
             body_effect: BodyEffectUniforms::default(),
@@ -2185,11 +2466,12 @@ pub async fn get_native_frame_service_stats(
 #[cfg(test)]
 mod tests {
     use super::{
-        color_params, merge_color_metadata, parse_blend_mode, project_layer_transform,
-        validate_project_request, validate_video_project_request, NativeDecodeTimings,
-        NativePreviewFrameQueue, NativeProjectFrameRequest, NativeVideoProjectFrameRequest,
-        QueuedNativeFrame,
+        color_params, compute_text_layer_scale, merge_color_metadata, parse_blend_mode,
+        project_layer_transform, validate_project_request, validate_video_project_request,
+        NativeDecodeTimings, NativePreviewFrameQueue, NativeProjectFrameRequest,
+        NativeVideoProjectFrameRequest, QueuedNativeFrame,
     };
+    use crate::native_core::TextLayerSnapshot;
     use crate::thumbnail_engine::decoder::VideoColorMetadata;
     use std::time::Instant;
 
@@ -2297,6 +2579,54 @@ mod tests {
         assert!((transform.scale_x - 0.5).abs() < f32::EPSILON);
         assert!((transform.scale_y - 0.5).abs() < f32::EPSILON);
         assert!((transform.rotation_rad + std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    fn text_layer_with_box(box_width: Option<f32>, box_height: Option<f32>) -> TextLayerSnapshot {
+        TextLayerSnapshot {
+            text: "Hello".to_string(),
+            font_id: "inter".to_string(),
+            font_size: 48.0,
+            font_weight: "normal".to_string(),
+            font_style: "normal".to_string(),
+            letter_spacing: 0.0,
+            line_height: 1.2,
+            color: [1.0, 1.0, 1.0, 1.0],
+            text_align: "left".to_string(),
+            vertical_align: "top".to_string(),
+            x: 10.0,
+            y: 20.0,
+            box_width,
+            box_height,
+            rotation: 0.0,
+            opacity: 1.0,
+            z_index: 0,
+            blend_mode: "normal".to_string(),
+            stroke_color: None,
+            stroke_width: None,
+            shadow_color: None,
+            shadow_offset: None,
+            shadow_blur: None,
+            background: None,
+            runs: Vec::new(),
+            template_id: None,
+            template_data: None,
+            effect: None,
+        }
+    }
+
+    #[test]
+    fn native_text_scale_fits_rasterized_bounds_inside_text_box() {
+        let layer = text_layer_with_box(Some(100.0), Some(40.0));
+
+        assert_eq!(compute_text_layer_scale(&layer, 200.0, 80.0), 0.5);
+        assert_eq!(compute_text_layer_scale(&layer, 80.0, 30.0), 1.0);
+    }
+
+    #[test]
+    fn native_text_scale_does_not_scale_without_a_valid_text_box() {
+        let layer = text_layer_with_box(None, None);
+        assert_eq!(compute_text_layer_scale(&layer, 200.0, 80.0), 1.0);
+        assert_eq!(compute_text_layer_scale(&layer, f32::NAN, 80.0), 1.0);
     }
 
     #[test]

@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fmt;
 
-pub const NATIVE_CORE_CONTRACT_VERSION: u32 = 1;
+pub const NATIVE_CORE_CONTRACT_VERSION: u32 = 2;
 pub const DEFAULT_TIME_SCALE: u32 = 1_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -370,6 +371,199 @@ pub struct RasterLayerSnapshot {
     pub is_text: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TextParamValue {
+    Float(f32),
+    Color([f32; 4]),
+    Vec2([f32; 2]),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEffectInstance {
+    pub effect_id: String,
+    pub effect_version: u32,
+    #[serde(default)]
+    pub parameter_overrides: HashMap<String, TextParamValue>,
+    #[serde(default)]
+    pub definition: Option<TextEffectDefinitionSnapshot>,
+}
+
+/// Normalized effect data resolved by React and executed by the native graph.
+/// The primitive name remains a string at the wire boundary so the native side
+/// can reject additions it does not understand instead of silently ignoring a
+/// pass.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEffectDefinitionSnapshot {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub passes: Vec<TextEffectPassSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEffectPassSnapshot {
+    pub primitive: String,
+    #[serde(default)]
+    pub tier: Option<String>,
+    #[serde(default)]
+    pub params: HashMap<String, TextParamValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextLayerSnapshot {
+    pub text: String,
+    pub font_id: String,
+    pub font_size: f32,
+    #[serde(default = "default_text_weight")]
+    pub font_weight: String,
+    #[serde(default = "default_text_style")]
+    pub font_style: String,
+    #[serde(default)]
+    pub letter_spacing: f32,
+    #[serde(default)]
+    pub line_height: f32,
+    #[serde(default = "default_text_color")]
+    pub color: [f32; 4],
+    #[serde(default = "default_text_align")]
+    pub text_align: String,
+    #[serde(default = "default_text_vertical_align")]
+    pub vertical_align: String,
+    pub x: f32,
+    pub y: f32,
+    #[serde(default)]
+    pub box_width: Option<f32>,
+    #[serde(default)]
+    pub box_height: Option<f32>,
+    #[serde(default)]
+    pub rotation: f32,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(default = "default_blend_mode")]
+    pub blend_mode: String,
+    #[serde(default)]
+    pub stroke_color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub stroke_width: Option<f32>,
+    #[serde(default)]
+    pub shadow_color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub shadow_offset: Option<[f32; 2]>,
+    #[serde(default)]
+    pub shadow_blur: Option<f32>,
+    #[serde(default)]
+    pub background: Option<TextBackgroundSnapshot>,
+    #[serde(default)]
+    pub runs: Vec<TextRunSnapshot>,
+    #[serde(default)]
+    pub template_id: Option<String>,
+    #[serde(default)]
+    pub template_data: Option<serde_json::Value>,
+    #[serde(default)]
+    pub effect: Option<TextEffectInstance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextBackgroundSnapshot {
+    pub color: [f32; 4],
+    #[serde(default)]
+    pub padding: f32,
+    #[serde(default)]
+    pub border_radius: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRunSnapshot {
+    pub text: String,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub highlighted: bool,
+}
+
+fn default_text_color() -> [f32; 4] {
+    [1.0, 1.0, 1.0, 1.0]
+}
+
+fn default_text_align() -> String {
+    "left".to_string()
+}
+
+fn default_text_vertical_align() -> String {
+    "middle".to_string()
+}
+
+fn default_text_weight() -> String {
+    "normal".to_string()
+}
+
+fn default_text_style() -> String {
+    "normal".to_string()
+}
+
+fn default_opacity() -> f32 {
+    1.0
+}
+
+fn default_blend_mode() -> String {
+    "normal".to_string()
+}
+
+/// Text template element kind (§3 Architecture Plan).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateElementKind {
+    Text,
+    SolidBackground,
+    Image,
+}
+
+/// Child element snapshot within a template definition (§3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateElementSnapshot {
+    pub id: String,
+    pub kind: TemplateElementKind,
+    pub relative_x: f32,
+    pub relative_y: f32,
+    pub width: f32,
+    pub height: f32,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(default)]
+    pub text_layer: Option<TextLayerSnapshot>,
+    #[serde(default)]
+    pub solid_color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub image_asset_id: Option<String>,
+}
+
+/// Template definition snapshot (§3).
+/// Instantiating this definition produces an independent compound clip snapshot on the timeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateDefinitionSnapshot {
+    pub id: String,
+    pub version: u32,
+    pub display_name: String,
+    pub category: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub canvas_width: u32,
+    pub canvas_height: u32,
+    pub default_duration_secs: f32,
+    pub elements: Vec<TemplateElementSnapshot>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSnapshot {
@@ -383,6 +577,8 @@ pub struct ProjectSnapshot {
     pub video_layers: Vec<VideoLayerSnapshot>,
     #[serde(default)]
     pub raster_layers: Vec<RasterLayerSnapshot>,
+    #[serde(default)]
+    pub text_layers: Vec<TextLayerSnapshot>,
     #[serde(default)]
     pub transition: Option<TransitionSnapshot>,
 }
@@ -447,7 +643,7 @@ impl FrameRequest {
             ));
         }
         if let Some(mode) = self.mode.as_deref() {
-            if !matches!(mode, "playback" | "scrub" | "seek" | "frameStep") {
+            if !matches!(mode, "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch") {
                 return Err(NativeCoreError::InvalidContract(
                     "FrameRequest mode is not supported".to_string(),
                 ));
@@ -785,6 +981,140 @@ impl FrameRequest {
                 ));
             }
         }
+        if self.project.text_layers.len() > 64 {
+            return Err(NativeCoreError::InvalidContract(
+                "ProjectSnapshot supports at most 64 text layers".to_string(),
+            ));
+        }
+        for layer in &self.project.text_layers {
+            if layer.font_id.trim().is_empty()
+                || !layer.font_size.is_finite()
+                || layer.font_size <= 0.0
+                || layer.font_size > 1024.0
+                || !layer.x.is_finite()
+                || !layer.y.is_finite()
+                || !layer.rotation.is_finite()
+                || !layer.opacity.is_finite()
+                || !layer.letter_spacing.is_finite()
+                || !layer.line_height.is_finite()
+                || layer.line_height <= 0.0
+                || layer.text.len() > 10_000
+                || !matches!(layer.font_weight.as_str(), "normal" | "bold" | "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900")
+                || !matches!(layer.font_style.as_str(), "normal" | "italic")
+                || !matches!(layer.text_align.as_str(), "left" | "center" | "right" | "justify")
+                || !matches!(layer.vertical_align.as_str(), "top" | "middle" | "bottom")
+                || layer.box_width.map(|value| !value.is_finite() || value <= 0.0).unwrap_or(false)
+                || layer.box_height.map(|value| !value.is_finite() || value <= 0.0).unwrap_or(false)
+                || layer.color.iter().any(|c| !c.is_finite() || *c < 0.0 || *c > 1.0)
+                || layer.stroke_width.map(|w| !w.is_finite() || w < 0.0).unwrap_or(false)
+                || layer.stroke_color.map(|c| c.iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1.0)).unwrap_or(false)
+                || layer.shadow_blur.map(|b| !b.is_finite() || b < 0.0).unwrap_or(false)
+                || layer.shadow_color.map(|c| c.iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1.0)).unwrap_or(false)
+                || layer.shadow_offset.map(|o| !o[0].is_finite() || !o[1].is_finite()).unwrap_or(false)
+            {
+                return Err(NativeCoreError::InvalidContract(
+                    "ProjectSnapshot contains an invalid text layer".to_string(),
+                ));
+            }
+            if let Some(background) = layer.background.as_ref() {
+                if background.color.iter().any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)
+                    || !background.padding.is_finite()
+                    || background.padding < 0.0
+                    || !background.border_radius.is_finite()
+                    || background.border_radius < 0.0
+                {
+                    return Err(NativeCoreError::InvalidContract(
+                        "ProjectSnapshot contains invalid text background data".to_string(),
+                    ));
+                }
+            }
+            let run_length: usize = layer.runs.iter().map(|run| run.text.len()).sum();
+            if layer.runs.len() > 512 || run_length > 10_000 || layer.runs.iter().any(|run| {
+                run.text.is_empty()
+                    || run.color.map(|color| color.iter().any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)).unwrap_or(false)
+            }) {
+                return Err(NativeCoreError::InvalidContract(
+                    "ProjectSnapshot contains invalid text runs".to_string(),
+                ));
+            }
+            if layer.template_id.as_ref().map(|id| id.trim().is_empty()).unwrap_or(false)
+                || layer.template_data.as_ref().map(|data| serde_json::to_vec(data).map(|bytes| bytes.len() > 256 * 1024).unwrap_or(true)).unwrap_or(false)
+            {
+                return Err(NativeCoreError::InvalidContract(
+                    "ProjectSnapshot contains invalid text template data".to_string(),
+                ));
+            }
+            if let Some(effect) = &layer.effect {
+                if effect.effect_id.trim().is_empty() || effect.effect_version == 0 {
+                    return Err(NativeCoreError::InvalidContract(
+                        "Text layer effect requires valid effect_id and non-zero version".to_string(),
+                    ));
+                }
+                for (_, param_val) in &effect.parameter_overrides {
+                    let is_finite = match param_val {
+                        TextParamValue::Float(f) => f.is_finite(),
+                        TextParamValue::Color(c) => c.iter().all(|v| v.is_finite()),
+                        TextParamValue::Vec2(v) => v.iter().all(|x| x.is_finite()),
+                        TextParamValue::String(_) => true,
+                    };
+                    if !is_finite {
+                        return Err(NativeCoreError::InvalidContract(
+                            "Text layer effect parameter override contains non-finite values (NaN/Inf)".to_string(),
+                        ));
+                    }
+                }
+                if let Some(definition) = effect.definition.as_ref() {
+                    if definition.passes.len() > 16 {
+                        return Err(NativeCoreError::UnsupportedFeature(
+                            "Text effect definitions support at most 16 passes".to_string(),
+                        ));
+                    }
+                    for pass in &definition.passes {
+                        let primitive = pass.primitive.to_ascii_lowercase();
+                        if !matches!(
+                            primitive.as_str(),
+                            "distance_threshold"
+                                | "distance-threshold"
+                                | "fill"
+                                | "outline"
+                                | "stroke"
+                                | "glow"
+                                | "drop_shadow"
+                                | "drop-shadow"
+                                | "shadow"
+                                | "blur"
+                                | "bevel"
+                                | "gradient_map"
+                                | "gradient-map"
+                                | "noise_displace"
+                                | "noise-displace"
+                                | "chromatic_shift"
+                                | "chromatic-shift"
+                                | "color_grade"
+                                | "color-grade"
+                        ) {
+                            return Err(NativeCoreError::UnsupportedFeature(format!(
+                                "Unknown native text effect primitive '{}'",
+                                pass.primitive
+                            )));
+                        }
+                        for value in pass.params.values() {
+                            let is_finite = match value {
+                                TextParamValue::Float(value) => value.is_finite(),
+                                TextParamValue::Color(values) => values.iter().all(|value| value.is_finite()),
+                                TextParamValue::Vec2(values) => values.iter().all(|value| value.is_finite()),
+                                TextParamValue::String(_) => true,
+                            };
+                            if !is_finite {
+                                return Err(NativeCoreError::InvalidContract(
+                                    "Text effect definition contains a non-finite parameter".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         for video_layer in &self.project.video_layers {
             if let Some(body_effect) = video_layer.body_effect.as_ref() {
                 if !self.project.raster_layers.iter().any(|mask| mask.is_mask && mask.asset_id == body_effect.mask_asset_id) {
@@ -933,6 +1263,7 @@ mod tests {
                     body_effect: None,
                 }],
                 raster_layers: vec![],
+                text_layers: vec![],
             },
             output_width: 1920,
             output_height: 1080,
@@ -1017,6 +1348,45 @@ mod tests {
     }
 
     #[test]
+    fn request_validation_enforces_video_and_raster_layer_caps() {
+        let mut video_at_limit = request();
+        let video_layer = video_at_limit.project.video_layers[0].clone();
+        video_at_limit.project.video_layers = vec![video_layer; 256];
+        assert!(video_at_limit.validate().is_ok());
+        video_at_limit.project.video_layers.push(video_at_limit.project.video_layers[0].clone());
+        assert!(video_at_limit
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("at most 256 video layers"));
+
+        let mut raster_at_limit = request();
+        let raster_layer = RasterLayerSnapshot {
+            asset_id: "native-raster".to_string(),
+            rgba: None,
+            width: 64,
+            height: 32,
+            x: 0.0,
+            y: 0.0,
+            rotation: 0.0,
+            opacity: 1.0,
+            z_index: 1,
+            blend_mode: "normal".to_string(),
+            color_grade: None,
+            is_mask: false,
+            is_text: false,
+        };
+        raster_at_limit.project.raster_layers = vec![raster_layer; 64];
+        assert!(raster_at_limit.validate().is_ok());
+        raster_at_limit.project.raster_layers.push(raster_at_limit.project.raster_layers[0].clone());
+        assert!(raster_at_limit
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("at most 64 raster layers"));
+    }
+
+    #[test]
     fn raster_transition_accepts_two_native_source_layers() {
         let mut value = request();
         value.project.video_layers.clear();
@@ -1065,5 +1435,74 @@ mod tests {
         value
             .validate()
             .expect("two raster layers should be valid transition sources");
+    }
+
+    #[test]
+    fn text_layers_validation_rejects_nan_and_enforces_caps() {
+        let mut value = request();
+        let valid_text_layer = TextLayerSnapshot {
+            text: "Hello Clypra".to_string(),
+            font_id: "inter".to_string(),
+            font_size: 48.0,
+            font_weight: "normal".to_string(),
+            font_style: "normal".to_string(),
+            letter_spacing: 0.0,
+            line_height: 1.2,
+            color: [1.0, 1.0, 1.0, 1.0],
+            text_align: "left".to_string(),
+            vertical_align: "middle".to_string(),
+            x: 0.0,
+            y: 0.0,
+            box_width: None,
+            box_height: None,
+            rotation: 0.0,
+            opacity: 1.0,
+            z_index: 0,
+            blend_mode: "normal".to_string(),
+            stroke_color: None,
+            stroke_width: None,
+            shadow_color: None,
+            shadow_offset: None,
+            shadow_blur: None,
+            background: None,
+            runs: vec![],
+            template_id: None,
+            template_data: None,
+            effect: Some(TextEffectInstance {
+                effect_id: "neon-glow".to_string(),
+                effect_version: 1,
+                parameter_overrides: {
+                    let mut m = HashMap::new();
+                    m.insert("radius".to_string(), TextParamValue::Float(0.3));
+                    m
+                },
+                definition: None,
+            }),
+        };
+
+        // Valid layer passes
+        value.project.text_layers = vec![valid_text_layer.clone()];
+        assert!(value.validate().is_ok());
+
+        // NaN parameter override is rejected
+        let mut nan_layer = valid_text_layer.clone();
+        nan_layer.effect.as_mut().unwrap().parameter_overrides.insert(
+            "radius".to_string(),
+            TextParamValue::Float(f32::NAN),
+        );
+        value.project.text_layers = vec![nan_layer];
+        assert!(value
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("parameter override contains non-finite"));
+
+        // More than 64 text layers rejected
+        value.project.text_layers = (0..65).map(|_| valid_text_layer.clone()).collect();
+        assert!(value
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("at most 64 text layers"));
     }
 }

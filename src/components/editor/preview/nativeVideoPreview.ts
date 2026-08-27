@@ -1,10 +1,99 @@
-import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/types";
+import type { EvaluatedMediaLayer, EvaluatedScene, EvaluatedTextLayer } from "@/core/evaluation/types";
 import type {
   NativeProjectVideoLayer,
   NativeVideoProjectFrameRequest,
 } from "@/lib/platform/tauri";
 import { parseColor } from "@/core/evaluation/animation";
 import { resolveFilterToIR, type FilterIR } from "@/core/render/filterIR";
+import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
+
+function parseColorToRgba(color: string): [number, number, number, number] {
+  if (!color) return [1, 1, 1, 1];
+  const c = color.trim().toLowerCase();
+  if (c.startsWith("#")) {
+    const hex = c.slice(1);
+    if (hex.length === 3) {
+      const r = parseInt(hex[0] + hex[0], 16) / 255;
+      const g = parseInt(hex[1] + hex[1], 16) / 255;
+      const b = parseInt(hex[2] + hex[2], 16) / 255;
+      return [r, g, b, 1];
+    }
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16) / 255;
+      const g = parseInt(hex.slice(2, 4), 16) / 255;
+      const b = parseInt(hex.slice(4, 6), 16) / 255;
+      return [r, g, b, 1];
+    }
+    if (hex.length === 8) {
+      const r = parseInt(hex.slice(0, 2), 16) / 255;
+      const g = parseInt(hex.slice(2, 4), 16) / 255;
+      const b = parseInt(hex.slice(4, 6), 16) / 255;
+      const a = parseInt(hex.slice(6, 8), 16) / 255;
+      return [r, g, b, a];
+    }
+  }
+  const rgbaMatch = c.match(/rgba?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/);
+  if (rgbaMatch) {
+    const r = parseFloat(rgbaMatch[1]) / 255;
+    const g = parseFloat(rgbaMatch[2]) / 255;
+    const b = parseFloat(rgbaMatch[3]) / 255;
+    const a = rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1;
+    return [r, g, b, a];
+  }
+  return [1, 1, 1, 1];
+}
+
+function normalizeNativeTextEffect(
+  layer: EvaluatedTextLayer,
+): NativeTextLayerSnapshot["effect"] {
+  const normalizeParam = (value: unknown): number | string | [number, number] | [number, number, number, number] | undefined => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") return value;
+    if (Array.isArray(value) && value.every((item) => typeof item === "number" && Number.isFinite(item))) {
+      if (value.length === 2) return value as [number, number];
+      if (value.length === 4) return value as [number, number, number, number];
+    }
+    return undefined;
+  };
+  const definition = layer.styleDefinition as
+    | (typeof layer.styleDefinition & {
+        id?: string;
+        version?: number;
+        name?: string;
+        passes?: Array<{
+          primitive?: string;
+          tier?: string;
+          params?: Record<string, unknown>;
+        }>;
+      })
+    | undefined;
+  if (!layer.styleId && !definition?.id) return undefined;
+
+  return {
+    effectId: layer.styleId ?? definition?.id ?? "native-text-effect",
+    effectVersion: definition?.version ?? 1,
+    ...(definition?.passes
+      ? {
+          definition: {
+            displayName: definition.name,
+            passes: definition.passes.map((pass) => ({
+              primitive: pass.primitive ?? "distance_threshold",
+              tier: pass.tier,
+              ...(pass.params
+                ? {
+                    params: Object.fromEntries(
+                      Object.entries(pass.params)
+                        .map(([key, value]) => [key, normalizeParam(value)] as const)
+                        .filter((entry): entry is [string, number | string | [number, number] | [number, number, number, number]] => entry[1] !== undefined),
+                    ),
+                  }
+                : {}),
+            })),
+          },
+        }
+      : {}),
+  };
+}
 import {
   DEFAULT_NATIVE_COLOR_POLICY,
   createNativeFrameRequest,
@@ -15,6 +104,7 @@ import {
   type NativeTransitionSnapshot,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
+  type NativeTextLayerSnapshot,
 } from "@/lib/platform/nativeCore";
 
 const NATIVE_BLEND_MODES = new Set(["normal", "multiply", "screen", "overlay", "add", "additive", "difference"]);
@@ -33,6 +123,18 @@ const NATIVE_VIDEO_EFFECT_RENDERERS = new Set([
   "fire", "particles", "dust_particles",
 ]);
 const NATIVE_BACKGROUND_MEDIA_LAYER_ID = "__native-background-media";
+
+function hasNativeImageRasterAsset(
+  layer: EvaluatedMediaLayer,
+  asset: NativeRasterLayerSnapshot,
+): boolean {
+  if (asset.isMask) return false;
+  // Accept the old layer-scoped identity while projects/frames transition to
+  // the deterministic source-scoped identity. New producers must use the
+  // shared identity helper above.
+  return asset.assetId === buildNativeImageAssetId(layer.sourcePath, layer.width, layer.height)
+    || asset.assetId.startsWith(`native-image:${layer.layerId}:`);
+}
 
 function getNativeTransitionSnapshot(
   scene: EvaluatedScene,
@@ -810,7 +912,7 @@ function isSupportedNativeVideoLayer(
   const isStaticSticker = layer.clipKind === "sticker" && layer.stickerFormat === "static";
   const isGifSticker = layer.clipKind === "sticker" && layer.stickerFormat === "gif";
   return (
-    (layer.mediaType === "video" || layer.mediaType === "image") &&
+    isNativeVideoGraphLayer(layer) &&
     (layer.clipKind !== "sticker" || isStaticSticker || isGifSticker) &&
     isNativeFileSource(layer.sourcePath) &&
     getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, mpgStack) !== null &&
@@ -821,6 +923,10 @@ function isSupportedNativeVideoLayer(
 
 function isNativeAnimatedStickerLayer(layer: EvaluatedMediaLayer): boolean {
   return layer.clipKind === "sticker" && layer.stickerFormat === "lottie";
+}
+
+function isNativeVideoGraphLayer(layer: EvaluatedMediaLayer): boolean {
+  return layer.mediaType === "video" || (layer.clipKind === "sticker" && layer.stickerFormat === "gif");
 }
 
 /**
@@ -867,18 +973,21 @@ export function buildNativeVideoProjectRequest(
   const clearColor = getNativeClearColor(scene, rasterLayers);
   if (!clearColor) return null;
 
-  const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-  const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
-  const textRasterLayers = visibleRasterLayers.filter((layer) =>
-    layer.isText || (layer.isText === undefined && textLayers.length === visibleRasterLayers.length),
+  const textLayers = scene.visualLayers.filter(
+    (layer): layer is EvaluatedTextLayer => layer.layerType === "text"
   );
-  if (textLayers.length !== textRasterLayers.length) return null;
   const allMediaLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
   const animatedStickerLayers = allMediaLayers.filter(isNativeAnimatedStickerLayer);
-  const mediaLayers = allMediaLayers.filter((layer) => !isNativeAnimatedStickerLayer(layer));
+  const mediaLayers = allMediaLayers.filter((layer) => isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer));
+  const imageLayers = allMediaLayers.filter(
+    (layer) => layer.mediaType === "image" && layer.stickerFormat !== "gif" && layer.stickerFormat !== "lottie",
+  );
   const backgroundMediaPath = getNativeBackgroundMediaPath(scene);
+  if (imageLayers.some((layer) => !rasterLayers.some((asset) =>
+    hasNativeImageRasterAsset(layer, asset),
+  ))) return null;
   if (
     mediaLayers.length === 0 &&
     textLayers.length === 0 &&
@@ -939,12 +1048,65 @@ export function buildNativeVideoProjectRequest(
     return null;
   }
 
+  const nativeTextLayers = textLayers.map((layer) => {
+    const color = parseColorToRgba(layer.color || "#ffffff");
+    const effect = normalizeNativeTextEffect(layer);
+    return {
+      text: layer.text || "",
+      fontId: layer.fontFamily || "default",
+      fontSize: layer.fontSize,
+      fontWeight: typeof layer.fontWeight === "number" ? String(layer.fontWeight) : layer.fontWeight,
+      fontStyle: layer.fontStyle,
+      letterSpacing: layer.letterSpacing ?? 0,
+      lineHeight: layer.lineHeight ?? 1.2,
+      color,
+      textAlign: layer.textAlign || "left",
+      verticalAlign: layer.verticalAlign || "middle",
+      runs: layer.runs?.map((run) => ({
+        text: run.text,
+        ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
+        highlighted: run.highlighted === true,
+      })),
+      ...(layer.templateId ? { templateId: layer.templateId, templateData: layer.customization } : {}),
+      x: layer.x,
+      y: layer.y,
+      boxWidth: layer.width,
+      boxHeight: layer.height,
+      rotation: layer.rotation ?? 0,
+      opacity: layer.opacity ?? 1,
+      zIndex: layer.zIndex ?? 0,
+      blendMode: layer.blendMode || "normal",
+      ...(layer.stroke ? {
+        strokeColor: parseColorToRgba(layer.stroke.color),
+        strokeWidth: layer.stroke.width,
+      } : {}),
+      ...(layer.shadow ? {
+        shadowColor: parseColorToRgba(layer.shadow.color),
+        shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
+        shadowBlur: layer.shadow.blur,
+      } : {}),
+      ...(layer.background ? {
+        background: {
+          color: parseColorToRgba(layer.background.color),
+          padding: layer.background.padding,
+          borderRadius: layer.background.borderRadius,
+        },
+      } : {}),
+      ...(effect ? { effect } : {}),
+    };
+  });
+
+  const nonTextRasterLayers = rasterLayers.filter(
+    (layer) => !layer.isText && !layer.assetId.startsWith("native-text:")
+  );
+
   return {
     canvasWidth: scene.metadata.canvasWidth || 1920,
     canvasHeight: scene.metadata.canvasHeight || 1080,
     clearColor,
     layers,
-    ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
+    ...(nonTextRasterLayers.length > 0 ? { rasterLayers: nonTextRasterLayers } : {}),
+    ...(nativeTextLayers.length > 0 ? { textLayers: nativeTextLayers } : {}),
     ...(transition ? { transition } : {}),
   };
 }
@@ -978,16 +1140,24 @@ export function getNativePreviewBlockers(
   }
 
   const textLayers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-  const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
-  const textRasterCount = visibleRasterLayers.filter((layer) =>
-    layer.isText || (layer.isText === undefined && textLayers.length === visibleRasterLayers.length),
-  ).length;
-  if (textLayers.length !== textRasterCount) {
-    add("One or more text layers do not have a registered native raster asset.");
+  for (const layer of textLayers) {
+    if (layer.templateId) {
+      add(`Text template ${layer.templateId} requires native template primitives.`);
+    }
+    const passes = (layer.styleDefinition as { passes?: Array<{ primitive?: string }> } | undefined)?.passes ?? [];
+    for (const pass of passes) {
+      const primitive = (pass.primitive ?? "").toLowerCase().replace(/-/g, "_");
+      if (!["distance_threshold", "fill", "outline", "stroke", "glow", "drop_shadow", "shadow"].includes(primitive)) {
+        add(`Text effect primitive "${pass.primitive ?? "unknown"}" on layer ${layer.layerId} is not implemented by the native renderer.`);
+      }
+    }
   }
 
   const mediaLayers = scene.visualLayers.filter(
-    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && !isNativeAnimatedStickerLayer(layer),
+    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer),
+  );
+  const imageLayers = scene.visualLayers.filter(
+    (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && layer.mediaType === "image" && layer.stickerFormat !== "gif" && layer.stickerFormat !== "lottie",
   );
   const animatedStickerLayers = scene.visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeAnimatedStickerLayer(layer),
@@ -995,6 +1165,11 @@ export function getNativePreviewBlockers(
   for (const layer of animatedStickerLayers) {
     if (!rasterLayers.some((asset) => !asset.isMask && asset.assetId.startsWith(`native-sticker:${layer.layerId}:`))) {
       add(`Animated sticker ${layer.layerId} is waiting for its native raster frame.`);
+    }
+  }
+  for (const layer of imageLayers) {
+    if (!rasterLayers.some((asset) => hasNativeImageRasterAsset(layer, asset))) {
+      add(`Still image ${layer.layerId} is waiting for its alpha-preserving native raster frame.`);
     }
   }
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
@@ -1032,9 +1207,10 @@ export function getNativePreviewBlockers(
   }
   if (
     mediaLayers.length === 0 &&
+    imageLayers.length === 0 &&
     animatedStickerLayers.length === 0 &&
     textLayers.length === 0 &&
-    visibleRasterLayers.length === 0 &&
+    rasterLayers.filter((layer) => !layer.isMask).length === 0 &&
     getNativeBackgroundMediaPath(scene) === null
   ) {
     add("The scene has no native-renderable visual content at the current time.");
@@ -1057,7 +1233,7 @@ export function buildNativeFrameRequest(
   rasterLayers: NativeRasterLayerSnapshot[] = [],
   intent: {
     generation?: number;
-    mode?: "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep";
+    mode?: "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch";
     quality?: NativeFrameRequest["quality"];
     velocityPxPerSecond?: number;
     requestedAtMs?: number;
@@ -1068,7 +1244,7 @@ export function buildNativeFrameRequest(
 
   const nativeMediaLayers = request.layers.filter((layer) => layer.layerId !== NATIVE_BACKGROUND_MEDIA_LAYER_ID);
   const videoLayers = scene.visualLayers
-    .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && !isNativeAnimatedStickerLayer(layer))
+    .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer))
     .map((layer, index) => {
       const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
       return {
@@ -1107,6 +1283,61 @@ export function buildNativeFrameRequest(
     });
   }
 
+  const textLayers = scene.visualLayers
+    .filter((layer): layer is EvaluatedTextLayer => layer.layerType === "text")
+    .map((layer) => {
+      const color = parseColorToRgba(layer.color || "#ffffff");
+      return {
+        text: layer.text || "",
+        fontId: layer.fontFamily || "default",
+        fontSize: layer.fontSize,
+        fontWeight: typeof layer.fontWeight === "number" ? String(layer.fontWeight) : layer.fontWeight,
+        fontStyle: layer.fontStyle,
+        letterSpacing: layer.letterSpacing ?? 0,
+        lineHeight: layer.lineHeight ?? 1.2,
+        color,
+        textAlign: layer.textAlign || "left",
+        verticalAlign: layer.verticalAlign || "middle",
+        x: layer.x,
+        y: layer.y,
+        boxWidth: layer.width,
+        boxHeight: layer.height,
+        rotation: layer.rotation ?? 0,
+        opacity: layer.opacity ?? 1,
+        zIndex: layer.zIndex ?? 0,
+        blendMode: layer.blendMode || "normal",
+        ...(layer.stroke ? {
+          strokeColor: parseColorToRgba(layer.stroke.color),
+          strokeWidth: layer.stroke.width,
+        } : {}),
+        ...(layer.shadow ? {
+          shadowColor: parseColorToRgba(layer.shadow.color),
+          shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
+          shadowBlur: layer.shadow.blur,
+        } : {}),
+        ...(layer.background ? {
+          background: {
+            color: parseColorToRgba(layer.background.color),
+            padding: layer.background.padding,
+            borderRadius: layer.background.borderRadius,
+          },
+        } : {}),
+        ...(layer.runs ? {
+          runs: layer.runs.map((run) => ({
+            text: run.text,
+            ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
+            highlighted: run.highlighted === true,
+          })),
+        } : {}),
+        ...(layer.templateId ? { templateId: layer.templateId, templateData: layer.customization } : {}),
+        ...(normalizeNativeTextEffect(layer) ? { effect: normalizeNativeTextEffect(layer) } : {}),
+      };
+    });
+
+  const nonTextRasterLayers = rasterLayers.filter(
+    (layer) => !layer.isText && !layer.assetId.startsWith("native-text:")
+  );
+
   return createNativeFrameRequest({
     requestId: `${projectRevision}:${frameIndex}:${outputWidth}x${outputHeight}`,
     frameTime: frameIndexToNativeTime(frameIndex, frameRate),
@@ -1118,7 +1349,8 @@ export function buildNativeFrameRequest(
       canvasHeight: request.canvasHeight,
       clearColor: request.clearColor ?? [0, 0, 0, 1],
       videoLayers,
-      ...(rasterLayers.length > 0 ? { rasterLayers } : {}),
+      ...(nonTextRasterLayers.length > 0 ? { rasterLayers: nonTextRasterLayers } : {}),
+      ...(textLayers.length > 0 ? { textLayers } : {}),
       ...(request.transition ? { transition: request.transition } : {}),
     },
     outputWidth,

@@ -47,9 +47,21 @@ interface UIStore {
   showExportModal: boolean;
   showNewProjectModal: boolean;
   showSettingsModal: boolean;
+  settingsInitialTab:
+    | "appearance"
+    | "editor"
+    | "shortcuts"
+    | "captions"
+    | "cache"
+    | "about"
+    | null;
 
   previewMode: "program" | "source";
-  sourceAsset: (Omit<MediaAsset, "type"> & { type: "video" | "audio" | "image" | "text" }) | null;
+  sourceAsset:
+    | (Omit<MediaAsset, "type"> & {
+        type: "video" | "audio" | "image" | "text";
+      })
+    | null;
   sourceTextPreset: any | null;
   sourceInPoint: number | null;
   sourceOutPoint: number | null;
@@ -65,6 +77,15 @@ interface UIStore {
   toggleExportModal: () => void;
   toggleNewProjectModal: () => void;
   toggleSettingsModal: () => void;
+  openSettingsModal: (
+    tab?:
+      | "appearance"
+      | "editor"
+      | "shortcuts"
+      | "captions"
+      | "cache"
+      | "about",
+  ) => void;
 
   // Preview mode actions
   previewAsset: (asset: MediaAsset) => void;
@@ -88,6 +109,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   showExportModal: false,
   showNewProjectModal: false,
   showSettingsModal: false,
+  settingsInitialTab: null,
 
   previewMode: "program",
   sourceAsset: null,
@@ -123,7 +145,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set((state) => {
       const already = state.selectedClipIds.includes(clipId);
       return {
-        selectedClipIds: already ? state.selectedClipIds.filter((id) => id !== clipId) : [...state.selectedClipIds, clipId],
+        selectedClipIds: already
+          ? state.selectedClipIds.filter((id) => id !== clipId)
+          : [...state.selectedClipIds, clipId],
         selectedTransitionId: null,
         selectedGapId: null, // TL-07 fix: Clear gap selection when toggling clip selection
       };
@@ -165,7 +189,15 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleSettingsModal: () => {
     set((state) => ({
       showSettingsModal: !state.showSettingsModal,
+      settingsInitialTab: null,
     }));
+  },
+
+  openSettingsModal: (tab) => {
+    set({
+      showSettingsModal: true,
+      settingsInitialTab: tab || null,
+    });
   },
 
   // Preview mode actions

@@ -4,7 +4,8 @@
  * Tracks request counts, dispatch-to-first-artifact latency, cache application time,
  * and paint commit latency aggregated per SpatialTier (L0/L1/L2/L3).
  *
- * Automatically flushes a periodic console.table summary every 5 seconds.
+ * Metrics are exposed to the overlay and diagnostics API; they do not emit
+ * periodic console output.
  */
 
 import { SpatialTier, normalizeSpatialTier } from "./types";
@@ -77,59 +78,24 @@ export function recordPaintCommit(tierInput: unknown, ms: number): void {
   filmstripMetrics[tier].paintCommitMs.record(ms);
 }
 
-export interface TierMetricsRow {
-  tier: string;
-  "req/5s": number;
-  "dispatch→first(ms)": number;
-  "cacheApply(ms)": number;
-  "paintCommit(ms)": number;
-}
-
 let flushLoopStarted = false;
 
-/**
- * Start the 5-second console.table summary loop.
- */
+/** Start the rolling reset loop used by the filmstrip metrics overlay. */
 export function startMetricsFlushLoop(intervalMs = 5000): void {
   if (flushLoopStarted || typeof window === "undefined") return;
   flushLoopStarted = true;
 
   setInterval(() => {
-    const rows: TierMetricsRow[] = [];
-    const tiers: Array<{ tier: SpatialTier; label: string }> = [
-      { tier: SpatialTier.L0, label: "L0 (160x90)" },
-      { tier: SpatialTier.L1, label: "L1 (240x135)" },
-      { tier: SpatialTier.L2, label: "L2 (320x180)" },
-      { tier: SpatialTier.L3, label: "L3 (480x270)" },
-    ];
-
-    let hasActivity = false;
-
-    for (const { tier, label } of tiers) {
+    for (const tier of [SpatialTier.L0, SpatialTier.L1, SpatialTier.L2, SpatialTier.L3]) {
       const stats = filmstripMetrics[tier];
-      const reqCount = stats.requestCount;
       stats.requestCount = 0; // reset window counter
-
-      const firstLat = stats.dispatchToFirstArtifactMs.takeAndReset();
-      const cacheApp = stats.cacheApplyMs.takeAndReset();
-      const paintCom = stats.paintCommitMs.takeAndReset();
-
-      if (reqCount > 0 || firstLat.n > 0 || cacheApp.n > 0 || paintCom.n > 0) {
-        hasActivity = true;
-        rows.push({
-          tier: label,
-          "req/5s": reqCount,
-          "dispatch→first(ms)": firstLat.avgMs,
-          "cacheApply(ms)": cacheApp.avgMs,
-          "paintCommit(ms)": paintCom.avgMs,
-        });
-      }
+      stats.dispatchToFirstArtifactMs.takeAndReset();
+      stats.cacheApplyMs.takeAndReset();
+      stats.paintCommitMs.takeAndReset();
     }
 
-    if (hasActivity && console.table) {
-      console.log("🎬 [Filmstrip Frontend Metrics: 5s Window]");
-      console.table(rows);
-    }
+    // Keep collecting/resetting the rolling values for the overlay without
+    // polluting the developer console during normal editing.
   }, intervalMs);
 }
 

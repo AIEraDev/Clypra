@@ -41,24 +41,6 @@ interface PresetStore {
 
 const DEFAULT_PRESETS: TextPreset[] = [
   {
-    id: "preset-neon",
-    name: "Neon Glow",
-    fontFamily: "Outfit Variable",
-    fontSize: 48,
-    fontWeight: "bold",
-    color: "#ff007f",
-    align: "center",
-    valign: "middle",
-    lineHeight: 1.2,
-    letterSpacing: 4,
-    shadow: {
-      color: "#ff007f",
-      blur: 15,
-      offsetX: 0,
-      offsetY: 0,
-    },
-  },
-  {
     id: "preset-minimal",
     name: "Minimalist Sans",
     fontFamily: "Inter Variable",
@@ -133,6 +115,18 @@ export const usePresetStore = create<PresetStore>()(
     }),
     {
       name: "clypra-text-presets",
+      // Remove the retired built-in from persisted stores created before it
+      // was removed from DEFAULT_PRESETS. Custom presets remain untouched.
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<PresetStore>;
+        return {
+          ...currentState,
+          ...persisted,
+          presets: (persisted.presets ?? currentState.presets).filter(
+            (preset) => preset.id !== "preset-neon",
+          ),
+        };
+      },
     }
   )
 );

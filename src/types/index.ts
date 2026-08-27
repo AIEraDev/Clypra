@@ -230,6 +230,8 @@ export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { 
 }
 
 export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay" | "compound";
+/** Semantic participation of a clip in the compositor. */
+export type ClipRole = "primary" | "overlay" | "text" | "effect" | "background" | "audio";
 export type { SmartOverlayClip, SmartOverlayType, SmartOverlayContentUnion, SmartOverlayStyle, SmartOverlayPreset } from "./smartOverlay";
 
 
@@ -273,6 +275,12 @@ export interface Clip {
   audioFX?: AudioFXConfig;
   /** Canonical first-class audio model. Legacy fields above remain during migration. */
   audio?: ClipAudioProperties;
+  /** Semantic compositor role. Background/effect roles are structural; normal visual clips stack by track. */
+  role?: ClipRole;
+  /** Persisted ordering within a track. Lower values draw first. */
+  zIndex?: number;
+  /** Stable final tie-breaker for otherwise identical clip placement. */
+  evaluationPriority?: number;
   kind?: ClipKind; // Optional for backward compatibility
   /** Video overlays (actual video files like smoke, fire, light leaks) */
   overlays?: ClipOverlay[];

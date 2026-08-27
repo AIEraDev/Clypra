@@ -19,6 +19,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { toast } from "@/lib/toast";
 import { GapManager } from "@/lib/timeline/gapManager";
+import { toggleTrackPropertyWithHistory } from "@/core/history/trackPropertyActions";
 
 export const timelineCommands: TimelineCommand[] = [
   // ─── Clipboard ──────────────────────────────────────────────────────────────
@@ -123,9 +124,8 @@ export const timelineCommands: TimelineCommand[] = [
     isEnabled: (ctx) => Boolean(ctx.clickedTrackId),
     execute: (ctx) => {
       if (!ctx.clickedTrackId) return;
-      const store = useTimelineStore.getState();
-      store.toggleTrackLock(ctx.clickedTrackId);
-      const track = store.tracks.find((t) => t.id === ctx.clickedTrackId);
+      toggleTrackPropertyWithHistory(ctx.clickedTrackId, "locked");
+      const track = useTimelineStore.getState().tracks.find((t) => t.id === ctx.clickedTrackId);
       toast.info(track?.locked ? "Track locked" : "Track unlocked");
     },
   },
@@ -147,7 +147,7 @@ export const timelineCommands: TimelineCommand[] = [
         toast.info("Unlock the track before changing mute");
         return;
       }
-      store.toggleTrackMute(ctx.clickedTrackId);
+      toggleTrackPropertyWithHistory(ctx.clickedTrackId, "muted");
       const track = useTimelineStore.getState().tracks.find((t) => t.id === ctx.clickedTrackId);
       toast.info(track?.muted ? "Track muted" : "Track unmuted");
     },
@@ -163,9 +163,8 @@ export const timelineCommands: TimelineCommand[] = [
     isEnabled: (ctx) => Boolean(ctx.clickedTrackId),
     execute: (ctx) => {
       if (!ctx.clickedTrackId) return;
-      const store = useTimelineStore.getState();
-      store.toggleTrackVisibility(ctx.clickedTrackId);
-      const track = store.tracks.find((t) => t.id === ctx.clickedTrackId);
+      toggleTrackPropertyWithHistory(ctx.clickedTrackId, "visible");
+      const track = useTimelineStore.getState().tracks.find((t) => t.id === ctx.clickedTrackId);
       toast.info(track?.visible ? "Track visible" : "Track hidden");
     },
   },

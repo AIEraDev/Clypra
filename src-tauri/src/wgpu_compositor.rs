@@ -8,6 +8,8 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use wgpu::util::DeviceExt;
+use clypra_native_core::contracts::TextLayerSnapshot;
 
 pub mod texture_pool;
 pub use texture_pool::{
@@ -48,6 +50,21 @@ pub use bezier::{interpolate_keyframe, CubicBezier};
 pub mod speed_ramp;
 pub use speed_ramp::{SpeedKeyframe, SpeedRampProfile};
 
+pub mod text_effect_pipeline;
+pub use text_effect_pipeline::{
+    DistanceThresholdParams, DropShadowParams, GlowParams, OutlineParams, TextEffectPipeline,
+};
+
+pub mod effect_interpreter;
+pub use effect_interpreter::{
+    validate_effect_definition, resolve_passes, sanitize_parameter_overrides,
+    EffectDefinition, EffectValidationError, ParamSpec, ParamType, PrimitiveKind,
+    PrimitivePass, ResolutionTier, ResolvedPass, param_color, param_f32, param_vec2,
+};
+
+pub mod text_layer_cache;
+pub use text_layer_cache::{text_layer_cache_key, TextLayerCache};
+
 pub struct NativeWgpuRenderer {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
@@ -68,9 +85,12 @@ pub struct NativePreviewSession {
     pipeline: wgpu::RenderPipeline,
     ring: Option<YuvTextureRingBuffer>,
     rgba_layers: RgbaLayerTextureCache,
+    pub text_cache: TextLayerCache,
+    pub text_pipeline: TextEffectPipeline,
 }
 
 const RGBA_LAYER_CACHE_BYTES: usize = 128 * 1024 * 1024;
+const TEXT_LAYER_CACHE_BYTES: usize = 256 * 1024 * 1024;
 
 struct RgbaLayerTextureCacheEntry {
     texture: Arc<wgpu::Texture>,
@@ -115,7 +135,6 @@ impl RgbaLayerTextureCache {
         if bytes == 0 || bytes > RGBA_LAYER_CACHE_BYTES {
             return;
         }
-
         self.remove(&asset_id);
         while self.current_bytes.saturating_add(bytes) > RGBA_LAYER_CACHE_BYTES {
             let Some(oldest) = self.order.pop_front() else {
@@ -125,7 +144,6 @@ impl RgbaLayerTextureCache {
                 self.current_bytes = self.current_bytes.saturating_sub(removed.bytes);
             }
         }
-
         self.current_bytes = self.current_bytes.saturating_add(bytes);
         self.order.push_back(asset_id.clone());
         self.entries.insert(
@@ -161,6 +179,8 @@ impl NativePreviewSession {
             &yuv_layout,
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
+        let text_pipeline = TextEffectPipeline::new(&gpu.device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let text_cache = TextLayerCache::new(TEXT_LAYER_CACHE_BYTES);
 
         Self {
             gpu,
@@ -169,6 +189,8 @@ impl NativePreviewSession {
             pipeline,
             ring: None,
             rgba_layers: RgbaLayerTextureCache::new(),
+            text_cache,
+            text_pipeline,
         }
     }
 
@@ -327,6 +349,349 @@ impl NativePreviewSession {
                 .insert(asset_id.to_string(), Arc::clone(&texture), width, height);
         }
         Ok(texture)
+    }
+
+    /// Retrieve a cached text layer GPU texture or render it via the SDF pipeline.
+    /// Returns (texture, view, width, height).
+    pub fn get_or_render_text_layer(
+        &mut self,
+        layer: &TextLayerSnapshot,
+    ) -> Result<(Arc<wgpu::Texture>, Arc<wgpu::TextureView>, u32, u32), String> {
+        if let Some(definition) = layer.effect.as_ref().and_then(|effect| effect.definition.as_ref()) {
+            for pass in &definition.passes {
+                let primitive = pass.primitive.to_ascii_lowercase();
+                if !matches!(
+                    primitive.as_str(),
+                    "distance_threshold" | "distance-threshold" | "fill"
+                        | "outline" | "stroke" | "glow"
+                        | "drop_shadow" | "drop-shadow" | "shadow"
+                ) {
+                    return Err(format!(
+                        "Native text effect primitive '{}' is not implemented by this renderer",
+                        pass.primitive
+                    ));
+                }
+            }
+        }
+        let params_json = serde_json::to_string(&layer.effect)
+            .unwrap_or_else(|_| "{}".to_string());
+        let color_hash = u64::from_le_bytes([
+            (layer.color[0] * 255.0) as u8,
+            (layer.color[1] * 255.0) as u8,
+            (layer.color[2] * 255.0) as u8,
+            (layer.color[3] * 255.0) as u8,
+            layer.text_align.as_bytes().first().copied().unwrap_or(0),
+            (layer.letter_spacing * 10.0) as u8,
+            (layer.line_height * 10.0) as u8,
+            0,
+        ]);
+        let effect_id = layer.effect.as_ref().map(|e| e.effect_id.as_str()).unwrap_or("raw_text");
+        let effect_version = layer.effect.as_ref().map(|e| e.effect_version).unwrap_or(1);
+        let key = text_layer_cache_key(
+            &layer.text,
+            &layer.font_id,
+            layer.font_size,
+            effect_id,
+            effect_version,
+            &format!(
+                "{params_json}:{color_hash}:{}:{}:{}:{}:{:?}",
+                layer.font_weight,
+                layer.font_style,
+                layer.vertical_align,
+                layer.background.is_some(),
+                layer.runs,
+            ),
+        );
+
+        if let Some((tex, view)) = self.text_cache.get(key) {
+            return Ok((Arc::clone(tex), Arc::clone(view), tex.width(), tex.height()));
+        }
+
+        // Cache miss: Shape text & generate SDF. Keep this failure explicit;
+        // desktop authority must never silently substitute browser typography.
+        let font_registry = clypra_native_core::font_registry::global_font_registry();
+        let (font, font_hash) = match font_registry.require_font(&layer.font_id) {
+            Ok(font) => font,
+            Err(error) => {
+                eprintln!(
+                    "[native-preview][rust] text-font-missing font_id={} registered_count={} registered_ids={:?} reason={}",
+                    layer.font_id,
+                    font_registry.list_fonts().len(),
+                    font_registry.list_fonts(),
+                    error
+                );
+                return Err(error);
+            }
+        };
+        let emoji_fallback = font_registry
+            .require_font(clypra_native_core::font_registry::EMOJI_FALLBACK_FONT_ID)
+            .ok();
+        eprintln!(
+            "[native-preview][rust] text-cache-miss font_id={} text_len={} font_size={} effect_id={}",
+            layer.font_id,
+            layer.text.len(),
+            layer.font_size,
+            layer
+                .effect
+                .as_ref()
+                .map(|effect| effect.effect_id.as_str())
+                .unwrap_or("none")
+        );
+        let align = clypra_native_core::glyph_cache::TextAlign::from_str_loose(&layer.text_align);
+        let font_weight = match layer.font_weight.trim().to_ascii_lowercase().as_str() {
+            "thin" => 100,
+            "extralight" | "extra-light" => 200,
+            "light" => 300,
+            "medium" => 500,
+            "semibold" | "semi-bold" => 600,
+            "bold" => 700,
+            "extrabold" | "extra-bold" => 800,
+            "black" => 900,
+            value => value.parse::<u16>().unwrap_or(400).clamp(100, 900),
+        };
+        let italic = layer.font_style.eq_ignore_ascii_case("italic");
+        let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned_with_fallback_styled(
+            &font,
+            font_hash,
+            emoji_fallback
+                .as_ref()
+                .map(|(font, hash)| (font.as_ref(), *hash)),
+            &layer.text,
+            layer.font_size,
+            font_weight,
+            italic,
+            layer.letter_spacing,
+            layer.line_height,
+            align,
+            8.0,
+            4,
+        );
+
+        if shaped.width == 0 || shaped.height == 0 {
+            // Empty text — 1x1 transparent dummy texture
+            let texture = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Empty Text Layer"),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            }));
+            let view = Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            return Ok((texture, view, 1, 1));
+        }
+
+        // Upload SDF buffer (R8Unorm)
+        let sdf_texture = self.gpu.device.create_texture_with_data(
+            &self.gpu.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Text Layer SDF Atlas"),
+                size: wgpu::Extent3d {
+                    width: shaped.width,
+                    height: shaped.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &shaped.sdf_buffer,
+        );
+        let sdf_view = sdf_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create target RGBA8 texture
+        let target_texture = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Composited Text Layer"),
+            size: wgpu::Extent3d {
+                width: shaped.width,
+                height: shaped.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        }));
+        let target_view = Arc::new(target_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+
+        // The text effect passes use LoadOp::Load to accumulate shadow, glow,
+        // outline, and fill. Explicitly initialize the first pass target so a
+        // newly activated text layer cannot inherit undefined GPU contents.
+        let mut clear_encoder = self
+            .gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Clear Text Layer Target"),
+            });
+        {
+            let _clear_pass = clear_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Text Layer Target Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        self.gpu.queue.submit([clear_encoder.finish()]);
+
+        if shaped.is_truncated {
+            eprintln!(
+                "[NativeCompositor] Warning: Text layer '{}' exceeded max canvas dimension and was safely truncated to ({}x{})",
+                layer.text, shaped.width, shaped.height
+            );
+        }
+
+        // Execute pass-chain based on layer.effect definition/overrides
+        let mut commands = Vec::new();
+
+        if layer.effect.is_some() || layer.stroke_color.is_some() || layer.shadow_color.is_some() {
+            let effect = layer.effect.as_ref();
+            let mut effect_id = effect
+                .map(|effect| effect.effect_id.to_lowercase())
+                .unwrap_or_else(|| "raw_text".to_string());
+            let mut resolved_overrides = effect
+                .map(|effect| effect.parameter_overrides.clone())
+                .unwrap_or_default();
+            if let Some(definition) = effect.and_then(|effect| effect.definition.as_ref()) {
+                for pass in &definition.passes {
+                    effect_id.push(' ');
+                    effect_id.push_str(&pass.primitive.to_ascii_lowercase());
+                    resolved_overrides.extend(pass.params.clone());
+                }
+            }
+            let overrides = &resolved_overrides;
+
+            // 1. Drop shadow pass (if applicable)
+            if layer.shadow_color.is_some() || effect_id.contains("shadow") || effect_id.contains("3d") || effect_id.contains("glitch") || overrides.contains_key("shadow_color") || overrides.contains_key("shadowColor") {
+                let mut shadow_params = DropShadowParams::default();
+                if let Some(color) = layer.shadow_color {
+                    shadow_params.color = color;
+                }
+                if let Some(blur) = layer.shadow_blur {
+                    shadow_params.radius = blur.max(0.0) / 64.0;
+                }
+                if let Some(offset) = layer.shadow_offset {
+                    shadow_params.offset_x = offset[0] / 256.0;
+                    shadow_params.offset_y = offset[1] / 256.0;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("shadow_color").or_else(|| overrides.get("shadowColor")) {
+                    shadow_params.color = *c;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(r)) = overrides.get("shadow_radius").or_else(|| overrides.get("shadowBlur")).or_else(|| overrides.get("radius")) {
+                    shadow_params.radius = *r;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Vec2(off)) = overrides.get("shadow_offset").or_else(|| overrides.get("offset")) {
+                    shadow_params.offset_x = off[0];
+                    shadow_params.offset_y = off[1];
+                }
+                commands.push(self.text_pipeline.render_drop_shadow(
+                    &self.gpu.device,
+                    &sdf_view,
+                    &target_view,
+                    &shadow_params,
+                ));
+            }
+
+            // 2. Glow pass (if applicable)
+            if effect_id.contains("glow") || effect_id.contains("neon") || overrides.contains_key("glow_color") || overrides.contains_key("glowColor") {
+                let mut glow_params = GlowParams::default();
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("glow_color").or_else(|| overrides.get("glowColor")) {
+                    glow_params.color = *c;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(r)) = overrides.get("glow_radius").or_else(|| overrides.get("glowRadius")).or_else(|| overrides.get("radius")) {
+                    glow_params.radius = *r;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(i)) = overrides.get("glow_intensity").or_else(|| overrides.get("intensity")) {
+                    glow_params.intensity = *i;
+                }
+                commands.push(self.text_pipeline.render_glow(
+                    &self.gpu.device,
+                    &sdf_view,
+                    &target_view,
+                    &glow_params,
+                ));
+            }
+
+            // 3. Outline pass (if applicable)
+            if layer.stroke_color.is_some() || effect_id.contains("outline") || effect_id.contains("stroke") || overrides.contains_key("outline_color") || overrides.contains_key("outlineColor") {
+                let mut outline_params = OutlineParams::default();
+                if let Some(color) = layer.stroke_color {
+                    outline_params.color = color;
+                }
+                if let Some(width) = layer.stroke_width {
+                    outline_params.width = width / 64.0;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("outline_color").or_else(|| overrides.get("outlineColor")) {
+                    outline_params.color = *c;
+                }
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(w)) = overrides.get("outline_width").or_else(|| overrides.get("strokeWidth")).or_else(|| overrides.get("width")) {
+                    outline_params.width = *w;
+                }
+                commands.push(self.text_pipeline.render_outline(
+                    &self.gpu.device,
+                    &sdf_view,
+                    &target_view,
+                    &outline_params,
+                ));
+            }
+        }
+
+        // Always execute core fill pass (DistanceThreshold)
+        let fill_color = if let Some(effect) = &layer.effect {
+            if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = effect.parameter_overrides.get("text_color").or_else(|| effect.parameter_overrides.get("fillColor")).or_else(|| effect.parameter_overrides.get("color")) {
+                *c
+            } else {
+                layer.color
+            }
+        } else {
+            layer.color
+        };
+        // A resolved karaoke run is part of the native snapshot. The current
+        // SDF atlas is shaped as one paragraph, so a highlighted run uses the
+        // run color for the paragraph while mixed-run shaping is promoted to
+        // the next glyph-atlas revision. This keeps highlight state native and
+        // deterministic instead of reintroducing a browser caption canvas.
+        let fill_color = layer
+            .runs
+            .iter()
+            .find(|run| run.highlighted)
+            .and_then(|run| run.color)
+            .unwrap_or(fill_color);
+
+        let params = DistanceThresholdParams {
+            threshold: 0.502,
+            smoothing: 0.02,
+            sdf_scale: 1.0,
+            _pad: 0.0,
+            color: fill_color,
+        };
+        commands.push(self.text_pipeline.render_distance_threshold(
+            &self.gpu.device,
+            &sdf_view,
+            &target_view,
+            &params,
+        ));
+
+        self.gpu.queue.submit(commands);
+
+        self.text_cache.insert(key, Arc::clone(&target_texture), Arc::clone(&target_view), shaped.width, shaped.height);
+
+        Ok((target_texture, target_view, shaped.width, shaped.height))
     }
 
     #[allow(clippy::too_many_arguments)]

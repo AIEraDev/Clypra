@@ -80,7 +80,7 @@ interface TimelineStore {
   /** Increment epoch (for cache invalidation) */
   incrementEpoch: () => void;
   /** Hydrate timeline state from project load (atomic operation) */
-  hydrateFromProject: (payload: { tracks?: any[]; clips?: any[]; transitions?: TransitionTimelineItem[]; gaps?: Gap[]; markers?: TimelineMarker[]; cleanEmptyTracks?: boolean }) => void;
+  hydrateFromProject: (payload: { tracks?: any[]; clips?: any[]; transitions?: TransitionTimelineItem[]; gaps?: Gap[]; markers?: TimelineMarker[]; mainVideoTrackId?: string | null; cleanEmptyTracks?: boolean }) => void;
   addTrack: (type: TrackType) => void;
   /** Inserts a track at index (clamped); returns the new track id. */
   insertTrackAt: (type: TrackType, index: number) => string;
@@ -314,8 +314,21 @@ export const useTimelineStore = create<TimelineStore>(
           return normalizeClipTiming(clip, asset);
         });
 
-        // Reset mainVideoTrackId and re-derive from loaded tracks.
-        const newMainVideoTrackId = finalTracks.find((t) => t.type === "video")?.id ?? null;
+        // The main row is explicit when present. For older projects, infer it
+        // from the clip/media contract so an image overlay track (which is
+        // serialized as a compatible video row) cannot become the main row.
+        const explicitMainTrack = finalTracks.find(
+          (track) => track.id === payload?.mainVideoTrackId && track.type === "video",
+        );
+        const inferredMainTrack = finalTracks.find((track) =>
+          track.type === "video" && finalClipsRaw.some((clip: any) => {
+            if (clip.trackId !== track.id) return false;
+            if (clip.kind === "video") return true;
+            const asset = mediaAssets.find((candidate) => candidate.id === clip.mediaId);
+            return asset?.type === "video";
+          }),
+        );
+        const newMainVideoTrackId = explicitMainTrack?.id ?? inferredMainTrack?.id ?? finalTracks.find((t) => t.type === "video")?.id ?? null;
         finalTracks = normalizeTrackOrderForMainVideo(finalTracks, newMainVideoTrackId);
 
         // Atomic state update - all or nothing

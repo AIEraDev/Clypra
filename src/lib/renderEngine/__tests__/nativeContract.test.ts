@@ -20,7 +20,7 @@ import { isValidArtifact } from "../transport";
 
 describe("NativeCore Contract & Serialization Invariants", () => {
   it("enforces active contract version matches Rust NativeCore specification", () => {
-    expect(NATIVE_CORE_CONTRACT_VERSION).toBe(1);
+    expect(NATIVE_CORE_CONTRACT_VERSION).toBe(2);
     expect(NATIVE_CORE_TIME_SCALE).toBe(1_000_000);
   });
 
@@ -112,5 +112,53 @@ describe("NativeCore Contract & Serialization Invariants", () => {
 
     // Invalid null artifact
     expect(isValidArtifact(null as any)).toBe(false);
+  });
+
+  it("supports textLayers in NativeProjectSnapshot with raw text attributes", () => {
+    const request = createNativeFrameRequest({
+      requestId: "preview:text-1",
+      frameTime: secondsToNativeTime(0.0, 30),
+      project: {
+        schemaVersion: 1,
+        projectRevision: "rev-text-1",
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        clearColor: [0, 0, 0, 1],
+        videoLayers: [],
+        textLayers: [
+          {
+            text: "Hello Clypra Native Text",
+            fontId: "Inter Variable",
+            fontSize: 48,
+            letterSpacing: 1.5,
+            lineHeight: 1.2,
+            color: [1, 0.5, 0.2, 1],
+            textAlign: "center",
+            x: 960,
+            y: 540,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 1,
+            blendMode: "normal",
+            strokeColor: [0, 0, 0, 1],
+            strokeWidth: 2,
+            shadowColor: [0, 0, 0, 0.5],
+            shadowOffset: [4, 4],
+            shadowBlur: 8,
+          },
+        ],
+      },
+      outputWidth: 1920,
+      outputHeight: 1080,
+      quality: "full",
+      colorPolicy: DEFAULT_NATIVE_COLOR_POLICY,
+      renderGraphVersion: 1,
+    });
+
+    expect(request.project.textLayers).toBeDefined();
+    expect(request.project.textLayers?.length).toBe(1);
+    expect(request.project.textLayers?.[0].text).toBe("Hello Clypra Native Text");
+    expect(request.project.textLayers?.[0].color).toEqual([1, 0.5, 0.2, 1]);
+    expect(request.project.textLayers?.[0].textAlign).toBe("center");
   });
 });

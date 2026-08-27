@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildTransformStartClip, calculateScaledTextTransform, calculateTextResizeFontSize, isClipActiveAtTime, shouldScaleTextFontForHandle, getUpdatedConformForClipBounds } from "../TransformOverlay";
+import { buildTransformStartClip, calculateScaledTextTransform, calculateTextResizeFontSize, getHitTestCandidates, isClipActiveAtTime, shouldScaleTextFontForHandle, getUpdatedConformForClipBounds } from "../TransformOverlay";
+import { getCursorForHandle } from "../calculator";
 import type { TextClip, TransformHandle, TransformState } from "@/types";
 
 describe("TransformOverlay resize policy", () => {
@@ -14,6 +15,13 @@ describe("TransformOverlay resize policy", () => {
   it("does not scale text font size for move or rotate", () => {
     expect(shouldScaleTextFontForHandle("move")).toBe(false);
     expect(shouldScaleTextFontForHandle("rotate")).toBe(false);
+  });
+
+  it("uses the matching diagonal cursor for each corner handle", () => {
+    expect(getCursorForHandle("nw")).toBe("nwse-resize");
+    expect(getCursorForHandle("se")).toBe("nwse-resize");
+    expect(getCursorForHandle("ne")).toBe("nesw-resize");
+    expect(getCursorForHandle("sw")).toBe("nesw-resize");
   });
 
   it("uses the edited axis when calculating resized text font size", () => {
@@ -111,6 +119,43 @@ describe("TransformOverlay visibility policy", () => {
     expect(isClipActiveAtTime(clip, 3)).toBe(true);
     expect(isClipActiveAtTime(clip, 7.999)).toBe(true);
     expect(isClipActiveAtTime(clip, 8)).toBe(false);
+  });
+});
+
+describe("TransformOverlay hit testing", () => {
+  const tracks = [
+    { id: "text-track", type: "text", visible: true },
+    { id: "image-track", type: "video", visible: true },
+    { id: "hidden-track", type: "image", visible: false },
+  ] as any;
+
+  const clip = (id: string, trackId: string, startTime = 0, duration = 10) =>
+    ({
+      id,
+      trackId,
+      startTime,
+      duration,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+    }) as any;
+
+  it("returns the visually topmost active layer first", () => {
+    const candidates = getHitTestCandidates(
+      [
+        clip("image", "image-track"),
+        clip("text", "text-track"),
+        clip("inactive", "text-track", 10, 5),
+        clip("hidden", "hidden-track"),
+      ],
+      tracks,
+      5,
+      50,
+      50,
+    );
+
+    expect(candidates.map((candidate) => candidate.id)).toEqual(["text", "image"]);
   });
 });
 

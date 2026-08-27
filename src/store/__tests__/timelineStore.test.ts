@@ -557,5 +557,25 @@ describe("timelineStore clip operations", () => {
       expect(useTimelineStore.getState().tracks).toHaveLength(1);
       expect(useTimelineStore.getState().tracks[0].id).toBe("track-video-main");
     });
+
+    it("does not promote an image overlay row to the main video row on legacy load", () => {
+      const { hydrateFromProject } = useTimelineStore.getState();
+      hydrateFromProject({
+        tracks: [
+          { ...mockTracks[0], id: "track-image-overlay", name: "Image Overlay" },
+          { ...mockTracks[0], id: "track-video-main", name: "Main Video Track" },
+        ],
+        clips: [
+          { ...mockClips[0], id: "clip-image", kind: "image", trackId: "track-image-overlay", mediaId: "image-1" },
+          { ...mockClips[0], id: "clip-video", kind: "video", trackId: "track-video-main", mediaId: "video-1" },
+        ],
+      });
+
+      expect(useTimelineStore.getState().mainVideoTrackId).toBe("track-video-main");
+      expect(useTimelineStore.getState().tracks.map((track) => track.id)).toEqual([
+        "track-image-overlay",
+        "track-video-main",
+      ]);
+    });
   });
 });

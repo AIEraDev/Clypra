@@ -95,4 +95,28 @@ describe("native audio timeline contract", () => {
     expect(getActiveAudioClips([clip], [track], [asset], 0, 5)[0].volume).toBe(0);
     expect(buildNativeAudioTimeline([clip], [track], [asset], 0, 5).clips[0].gain).toBe(0);
   });
+
+  it("preserves pitch when the native preview transport is faster than real time", () => {
+    const track: Track = {
+      id: "video-track", name: "Video", type: "video", muted: false, locked: false, visible: true, height: 80,
+    };
+    const asset: MediaAsset = {
+      id: "asset", name: "voice.mp4", path: "/media/voice.mp4", type: "video", duration: 5, size: 1,
+    };
+    const clip: Clip = {
+      id: "clip", kind: "video", trackId: track.id, mediaId: asset.id,
+      startTime: 0, duration: 5, trimIn: 0, trimOut: 5,
+      x: 0, y: 0, width: 0, height: 0, opacity: 1, rotation: 0,
+    } as Clip;
+
+    expect(buildNativeAudioTimeline([clip], [track], [asset], 0, 5).clips[0].preservePitch).toBe(false);
+    expect(buildNativeAudioTimeline(
+      [clip],
+      [track],
+      [asset],
+      0,
+      5,
+      { preserveTransportPitch: true },
+    ).clips[0].preservePitch).toBe(true);
+  });
 });

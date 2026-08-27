@@ -135,6 +135,27 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
           }
         }
 
+        // ── Template Insertion via Compound Clip Reuse (§1, §2) ──
+        if (item.presetType === "template" || item.templateId) {
+          const { useTemplateStore } = await import("@/features/text-templates/templateStore");
+          const { instantiateTemplate } = await import("@/features/text-templates/instantiateTemplate");
+          const templateDef =
+            item.templateDefinition ||
+            useTemplateStore.getState().templates.find((t) => t.id === item.templateId);
+
+          if (templateDef) {
+            const compoundClip = instantiateTemplate(templateDef, {
+              trackId: targetTrackId,
+              startTime: placement.startTime,
+              canvasWidth: project?.canvasWidth || 1920,
+              canvasHeight: project?.canvasHeight || 1080,
+              customization: item.customization,
+            });
+            execute(new AddClipCommand(compoundClip));
+            return;
+          }
+        }
+
         const textClip = createTextClip({
           trackId: targetTrackId,
           startTime: placement.startTime,

@@ -21,7 +21,7 @@ import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import { calculateTransform, getDefaultConstraints, getCursorForHandle } from "./calculator";
 import { screenToCanvas, canvasToScreen, hitTestClip, type ViewportTransform } from "@/lib/utils/coordinateSystem";
 import { hasTextClipContentTransformDrift, resolveTextClipContentTransform } from "@/lib/text/textClip";
-import type { Clip, TextClip, TransformHandle, TransformState } from "@/types";
+import type { Clip, TextClip, Track, TransformHandle, TransformState } from "@/types";
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
@@ -166,6 +166,41 @@ function mouseToCanvas(clientX: number, clientY: number, overlayRect: DOMRect, v
   return screenToCanvas(localX, localY, viewport, { width: canvasWidth, height: canvasHeight }, scale, { x: 0, y: 0 });
 }
 
+/**
+ * Return active clips under a canvas point in compositor order. This is shared
+ * by the full-overlay click target and the selected clip's move surface: the
+ * latter otherwise intercepts every click inside the selected video and makes
+ * text/image layers impossible to select.
+ */
+export function getHitTestCandidates(
+  clips: readonly Clip[],
+  tracks: readonly Track[],
+  currentTime: number,
+  canvasX: number,
+  canvasY: number,
+): Clip[] {
+  const trackIndexMap = new Map(tracks.map((track, index) => [track.id, index]));
+  const visibleTrackIds = new Set(
+    tracks.filter((track) => track.visible !== false).map((track) => track.id),
+  );
+
+  return clips
+    .map((clip, index) => ({ clip, index }))
+    .filter(({ clip }) => {
+      if (!visibleTrackIds.has(clip.trackId)) return false;
+      if (!(clip.width > 0 && clip.height > 0)) return false;
+      return isClipActiveAtTime(clip, currentTime);
+    })
+    .filter(({ clip }) => hitTestClip(canvasX, canvasY, clip))
+    .sort((a, b) => {
+      const trackA = trackIndexMap.get(a.clip.trackId) ?? Number.MAX_SAFE_INTEGER;
+      const trackB = trackIndexMap.get(b.clip.trackId) ?? Number.MAX_SAFE_INTEGER;
+      if (trackA !== trackB) return trackA - trackB;
+      return b.index - a.index;
+    })
+    .map(({ clip }) => clip);
+}
+
 export function getUpdatedConformForClipBounds(clip: Clip, newX: number, newY: number, newWidth: number, newHeight: number, canvasWidth: number, canvasHeight: number): any | undefined {
   if (clip.conform && clip.conform.sourceWidth && clip.conform.sourceHeight) {
     const baseConformed = resolveConform({ ...clip.conform, userScale: 1, userOffsetX: 0, userOffsetY: 0 }, canvasWidth, canvasHeight);
@@ -231,6 +266,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   const startAngleRef = useRef<number | undefined>(undefined);
   /** Start font size for text clips — supports proportional dynamic scaling */
   const startFontSizeRef = useRef<number | undefined>(undefined);
+  /** Latest pointer event waiting for the transform RAF batch. */
+  const pendingMouseMoveRef = useRef<MouseEvent | null>(null);
+  const mouseMoveRafRef = useRef<number | null>(null);
 
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
@@ -264,46 +302,13 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       // Convert screen coordinates to canvas coordinates using overlay-local mapping
       const canvasCoords = mouseToCanvas(e.clientX, e.clientY, rect, viewport, canvasWidth, canvasHeight, scale);
 
-      // If user mousedown is inside the currently selected clip, keep selection stable.
-      // This avoids deselect-on-second-mousedown when playhead/time filtering excludes
-      // the clip from the generic hit-candidate list.
-      if (selectedClip && hitTestClip(canvasCoords.x, canvasCoords.y, selectedClip)) {
-        if (e.shiftKey || e.metaKey || e.ctrlKey) {
-          toggleClipSelection(selectedClip.id);
-        } else {
-          selectClip(selectedClip.id);
-        }
-        return;
-      }
-
-      const trackIndexMap = new Map(tracks.map((t, idx) => [t.id, idx]));
-      const visibleTrackIds = new Set(tracks.filter((t) => t.visible !== false).map((t) => t.id));
-
-      // Selectable clips in program preview:
-      // - visible track
-      // - active at playhead
-      // - non-degenerate bounds
-      const selectable = clips
-        .map((clip, idx) => ({ clip, idx }))
-        .filter(({ clip }) => {
-          if (!visibleTrackIds.has(clip.trackId)) return false;
-          if (!(clip.width > 0 && clip.height > 0)) return false;
-          const end = clip.startTime + clip.duration;
-          return clip.startTime <= currentTime && currentTime < end;
-        });
-
-      // Topmost-first ordering for hit-selection.
-      // Lower track index is visually higher in current compositor ordering.
-      const hitCandidates = selectable
-        .filter(({ clip }) => hitTestClip(canvasCoords.x, canvasCoords.y, clip))
-        .sort((a, b) => {
-          const ta = trackIndexMap.get(a.clip.trackId) ?? Number.MAX_SAFE_INTEGER;
-          const tb = trackIndexMap.get(b.clip.trackId) ?? Number.MAX_SAFE_INTEGER;
-          if (ta !== tb) return ta - tb;
-          // Same track: later clip in state wins by default
-          return b.idx - a.idx;
-        })
-        .map(({ clip }) => clip);
+      const hitCandidates = getHitTestCandidates(
+        clips,
+        tracks,
+        currentTime,
+        canvasCoords.x,
+        canvasCoords.y,
+      );
 
       if (hitCandidates.length > 0) {
         // Multi-select modifier: toggle topmost hit only.
@@ -439,7 +444,62 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     [selectedClip, scale, viewport, canvasWidth, canvasHeight, transformController],
   );
 
-  const handleMouseMove = useCallback(
+  // The selected clip's move surface sits above the preview pixels. If another
+  // active clip is visually above the selected clip at the pointer location,
+  // route the click to that layer instead of starting a drag on the video.
+  const handleMoveSurfaceMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (!selectedClip) return;
+
+      const rect = overlayRef.current?.getBoundingClientRect();
+      if (rect) {
+        const canvasCoords = mouseToCanvas(
+          e.clientX,
+          e.clientY,
+          rect,
+          viewport,
+          canvasWidth,
+          canvasHeight,
+          scale,
+        );
+        const topmostClip = getHitTestCandidates(
+          clips,
+          tracks,
+          currentTime,
+          canvasCoords.x,
+          canvasCoords.y,
+        )[0];
+
+        if (topmostClip && topmostClip.id !== selectedClip.id) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.shiftKey || e.metaKey || e.ctrlKey) {
+            toggleClipSelection(topmostClip.id);
+          } else {
+            selectClip(topmostClip.id);
+          }
+          return;
+        }
+      }
+
+      handleMouseDown(e, "move");
+    },
+    [
+      selectedClip,
+      viewport,
+      canvasWidth,
+      canvasHeight,
+      scale,
+      clips,
+      tracks,
+      currentTime,
+      toggleClipSelection,
+      selectClip,
+      handleMouseDown,
+    ],
+  );
+
+  const applyMouseMove = useCallback(
     (e: MouseEvent) => {
       if (!isDragging || !activeTransform) return;
 
@@ -822,8 +882,36 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     [isDragging, activeTransform, selectedClip, scale, viewport, canvasWidth, canvasHeight, updateClip, transformController, clips, currentTime],
   );
 
+  // Pointer events can arrive considerably faster than the native preview can
+  // compose a frame. Keep only the newest position and apply it once per
+  // display frame. This preserves responsive transform feedback without
+  // queuing a native render for every raw mousemove event.
+  const handleMouseMove = useCallback(
+    (event: MouseEvent) => {
+      pendingMouseMoveRef.current = event;
+      if (mouseMoveRafRef.current !== null) return;
+
+      mouseMoveRafRef.current = requestAnimationFrame(() => {
+        mouseMoveRafRef.current = null;
+        const pending = pendingMouseMoveRef.current;
+        pendingMouseMoveRef.current = null;
+        if (pending) applyMouseMove(pending);
+      });
+    },
+    [applyMouseMove],
+  );
+
   const handleMouseUp = useCallback(() => {
     if (!isDragging || !activeTransform) return;
+
+    // Do not commit a stale transform when mouseup lands before the queued RAF.
+    if (mouseMoveRafRef.current !== null) {
+      cancelAnimationFrame(mouseMoveRafRef.current);
+      mouseMoveRafRef.current = null;
+    }
+    const pendingMouseMove = pendingMouseMoveRef.current;
+    pendingMouseMoveRef.current = null;
+    if (pendingMouseMove) applyMouseMove(pendingMouseMove);
 
     setIsDragging(false);
     setSnappedX(false);
@@ -886,7 +974,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     }
 
     transformController.endTransform();
-  }, [isDragging, activeTransform, execute, selectedClipIds, transformController]);
+  }, [isDragging, activeTransform, execute, selectedClipIds, transformController, applyMouseMove]);
 
   const getClipAspect = useCallback(() => {
     if (!selectedClip) return 16 / 9;
@@ -1083,6 +1171,11 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   React.useEffect(() => {
     return () => {
+      if (mouseMoveRafRef.current !== null) {
+        cancelAnimationFrame(mouseMoveRafRef.current);
+        mouseMoveRafRef.current = null;
+      }
+      pendingMouseMoveRef.current = null;
       // Cleanup: remove all cursor classes on unmount
       const cursorClasses = ["cursor-move", "cursor-nwse-resize", "cursor-nesw-resize", "cursor-ns-resize", "cursor-ew-resize", "cursor-grabbing"];
       cursorClasses.forEach((cls) => document.body.classList.remove(cls));
@@ -1225,8 +1318,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           data-transform-handle="move"
           style={{
             background: "transparent",
+            cursor: "move",
           }}
-          onMouseDown={(e) => handleMouseDown(e, "move")}
+          onMouseDown={handleMoveSurfaceMouseDown}
         />
 
         {/* Corner handles (centered exactly on the box vertices) */}
@@ -1405,15 +1499,22 @@ interface HandleProps {
 const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left, top, width, height, rotation }) => {
   const getHandleStyle = (): React.CSSProperties => {
     const handleSize = 10;
+    const isCorner = position === "nw" || position === "ne" || position === "sw" || position === "se";
     const baseStyle: React.CSSProperties = {
       position: "absolute",
-      width: `${handleSize}px`,
-      height: `${handleSize}px`,
-      backgroundColor: "var(--color-handle)",
-      border: "1px solid var(--color-handle-border)",
+      // Give corner handles a forgiving hit target. The visible dot remains
+      // 10px, but the cursor should not fall back to the move surface when
+      // the pointer is only a few pixels from a vertex.
+      width: `${isCorner ? handleSize + 10 : handleSize}px`,
+      height: `${isCorner ? handleSize + 10 : handleSize}px`,
+      backgroundColor: isCorner ? "transparent" : "var(--color-handle)",
+      border: isCorner ? "0" : "1px solid var(--color-handle-border)",
       borderRadius: "50%",
       transform: "translate(-50%, -50%)",
-      boxShadow: "0 2px 4px rgba(0, 0, 0, 0.18)",
+      boxShadow: isCorner ? "none" : "0 2px 4px rgba(0, 0, 0, 0.18)",
+      display: isCorner ? "flex" : undefined,
+      alignItems: isCorner ? "center" : undefined,
+      justifyContent: isCorner ? "center" : undefined,
       zIndex: 20000,
       pointerEvents: "auto",
     };
@@ -1499,12 +1600,29 @@ const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left,
       className={cursorClass}
       style={{
         ...style,
+        cursor,
         transform: `${style.transform ?? "translate(-50%, -50%)"} rotate(${-rotation}deg)`,
         transformOrigin: "center",
       }}
       onMouseDown={onMouseDown}
       data-transform-handle={position}
     >
+      {position !== "rotate" &&
+        (position === "nw" || position === "ne" || position === "sw" || position === "se") && (
+          <span
+            aria-hidden="true"
+            style={{
+              width: "10px",
+              height: "10px",
+              display: "block",
+              borderRadius: "50%",
+              backgroundColor: "var(--color-handle)",
+              border: "1px solid var(--color-handle-border)",
+              boxShadow: "0 2px 4px rgba(0, 0, 0, 0.18)",
+              pointerEvents: "none",
+            }}
+          />
+        )}
       {position === "rotate" && (
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--color-bg)" }}>
           <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />

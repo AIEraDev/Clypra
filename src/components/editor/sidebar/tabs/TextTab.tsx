@@ -472,7 +472,7 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     );
   }
   // Filter items - templates only (effects are handled by EffectGrid)
-  const filteredTemplates = templates.filter((template) => template.category.toLowerCase().replace("-", " ") === activeCategory.toLowerCase() && (template.name || template.label).toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredTemplates = templates.filter((template) => template.category.toLowerCase().replace("-", " ") === activeCategory.toLowerCase() && (template.displayName || template.name || template.label || "").toLowerCase().includes(searchQuery.toLowerCase()));
 
   const favoriteTemplatesList = templates.filter((t) => favorites.includes(t.id));
 

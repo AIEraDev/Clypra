@@ -45,4 +45,28 @@ describe("effective audio state", () => {
     expect(track.muted).toBe(false);
     expect(isTrackAudible(other, [track, other])).toBe(true);
   });
+
+  it("keeps hidden tracks audible until the separate audio policy mutes or solos them", () => {
+    const hidden = { ...track, visible: false };
+
+    // Visibility is a compositor concern. Audio contribution is controlled by
+    // mute/solo, so hiding a video track must not silently remove its sound.
+    expect(isTrackAudible(hidden, [hidden])).toBe(true);
+    expect(evaluateEffectiveAudioState(clip, hidden, 11.5, { tracks: [hidden] }).muted).toBe(false);
+  });
+
+  it("keeps pitch stable when preview transport speed is changed", () => {
+    const clipWithoutPitchCorrection = {
+      ...clip,
+      audio: normalizeClipAudioProperties({ kind: "audio", audio: { speed: { preservePitch: false } } }),
+    };
+
+    expect(evaluateEffectiveAudioState(clipWithoutPitchCorrection, track, clip.startTime).preservePitch).toBe(false);
+    expect(evaluateEffectiveAudioState(
+      clipWithoutPitchCorrection,
+      track,
+      clip.startTime,
+      { preserveTransportPitch: true },
+    ).preservePitch).toBe(true);
+  });
 });

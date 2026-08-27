@@ -17,6 +17,8 @@ import { AudioBufferPool } from "./AudioBufferPool";
 import { AudioFXNodeChain } from "./AudioFXNodeChain";
 import { evaluateEffectiveAudioState } from "./effectiveAudioState";
 
+const BROWSER_PREVIEW_AUDIO_OPTIONS = { preserveTransportPitch: true } as const;
+
 export interface ActiveVoice {
   clipId: string;
   sourceNode: AudioNode & { stop?: () => void };
@@ -118,6 +120,7 @@ export class AudioEngine {
         tracks,
         masterVolume: this._masterVolume,
         masterMuted: this._isMuted,
+        ...BROWSER_PREVIEW_AUDIO_OPTIONS,
       });
       const isTrackLocked = track?.locked ?? false;
 
@@ -169,7 +172,10 @@ export class AudioEngine {
       return;
     }
 
-    const effective = evaluateEffectiveAudioState(clip, track, timelineTime, { tracks });
+    const effective = evaluateEffectiveAudioState(clip, track, timelineTime, {
+      tracks,
+      ...BROWSER_PREVIEW_AUDIO_OPTIONS,
+    });
     const scheduleAudioTime = this.ctx.currentTime;
     const pitchPreservingSource = effective.preservePitch && Math.abs(this._playbackSpeed - 1) > 0.001
       ? this.createPitchPreservingSource(buffer, bufferOffset, remainingTimelineDuration, this._playbackSpeed, clip.id)

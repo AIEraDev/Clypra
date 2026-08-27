@@ -165,6 +165,12 @@ pub struct NativeFrameServiceStats {
     pub window_cache_hit_rate: f64,
     #[serde(default)]
     pub mode_stats: Vec<ModeStats>,
+    /// Hits on the VRAM SDF text layer cache. Kept separate from `cache_hits`
+    /// (which measures frame-level render cache hits) to avoid skewing
+    /// decode/composition telemetry. A static text layer that is never
+    /// re-rendered should contribute here, not to `cache_hits`.
+    #[serde(default)]
+    pub text_layer_cache_hits: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

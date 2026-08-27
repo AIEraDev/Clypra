@@ -7,6 +7,7 @@ import {
   getNativeFrameRequestKey,
   isRenderableNativePreviewFrame,
 } from "../nativeVideoPreview";
+import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 
 function makeVideoLayer(overrides: Partial<EvaluatedMediaLayer> = {}): EvaluatedMediaLayer {
   return {
@@ -205,18 +206,30 @@ describe("buildNativeVideoProjectRequest", () => {
     }] as any))).toBeNull();
   });
 
-  it("routes static sticker image clips through the native media layer", () => {
-    const request = buildNativeVideoProjectRequest(makeScene([makeVideoLayer({
+  it("routes static sticker image clips through an alpha-preserving native raster layer", () => {
+    const layer = makeVideoLayer({
+      layerId: "sticker-static",
+      clipId: "sticker-static",
       clipKind: "sticker",
       mediaType: "image",
       stickerFormat: "static",
       sourcePath: "/Users/test/sticker.png",
-    })]));
-
-    expect(request?.layers[0]).toMatchObject({
-      videoPath: "/Users/test/sticker.png",
-      timeSecs: 2,
     });
+    const request = buildNativeVideoProjectRequest(makeScene([layer]), [{
+      assetId: "native-image:sticker-static:source",
+      width: layer.width,
+      height: layer.height,
+      x: layer.x,
+      y: layer.y,
+      rotation: layer.rotation,
+      opacity: layer.opacity,
+      zIndex: layer.zIndex,
+      blendMode: layer.blendMode,
+      isText: false,
+    }]);
+
+    expect(request?.layers).toEqual([]);
+    expect(request?.rasterLayers?.[0].assetId).toBe("native-image:sticker-static:source");
   });
 
   it("routes animated GIF stickers through the native FFmpeg media layer", () => {
@@ -354,21 +367,49 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(buildNativeVideoProjectRequest(makeScene([
       makeVideoLayer({ filter: { id: "filter", name: "blur", intensity: 1 } }),
     ]))).toBeNull();
-    expect(buildNativeVideoProjectRequest(makeScene([
-      makeVideoLayer(),
-      { ...makeVideoLayer({ mediaId: "image-1" }), mediaType: "image", sourceTime: 0 } as never,
-    ]))).not.toBeNull();
+    const image = makeVideoLayer({ layerId: "image-1", mediaId: "image-1", mediaType: "image", sourceTime: 0 });
+    expect(buildNativeVideoProjectRequest(makeScene([makeVideoLayer(), image]))).toBeNull();
+    expect(getNativePreviewBlockers(makeScene([image]))).toContain(
+      "Still image image-1 is waiting for its alpha-preserving native raster frame.",
+    );
   });
 
-  it("does not drop text or active track filters from the native scene", () => {
-    const textLayer = {
-      ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title" }),
-      layerType: "text",
-    } as never;
-    expect(buildNativeVideoProjectRequest(makeScene([makeVideoLayer(), textLayer]))).toBeNull();
+  it("composes a still image only when its registered native raster is available", () => {
+    const image = makeVideoLayer({
+      layerId: "image-1",
+      clipId: "image-1",
+      mediaId: "image-1",
+      mediaType: "image",
+      sourcePath: "/Users/test/logo.png",
+      x: 320,
+      y: 180,
+      width: 640,
+      height: 360,
+      zIndex: 3,
+    });
+    const raster = {
+      assetId: buildNativeImageAssetId("/Users/test/logo.png", 640, 360),
+      width: 640,
+      height: 360,
+      x: 320,
+      y: 180,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 3,
+      blendMode: "normal" as const,
+      isText: false,
+    };
+    const request = buildNativeVideoProjectRequest(makeScene([image]), [raster]);
+
+    expect(request?.layers).toEqual([]);
+    expect(request?.rasterLayers).toEqual([raster]);
+    expect(getNativePreviewBlockers(makeScene([image]), [raster])).toEqual([]);
+  });
+
+  it("does not drop unsupported active track filters from the native scene", () => {
     expect(buildNativeVideoProjectRequest({
       ...makeScene([makeVideoLayer()]),
-      activeFilter: { id: "blur", name: "Blur", intensity: 1 },
+      activeFilter: { id: "unsupported-blur", name: "Blur", intensity: 1 },
     })).toBeNull();
   });
 
@@ -384,31 +425,22 @@ describe("buildNativeVideoProjectRequest", () => {
     expect(request?.layers[0].colorGrade).toMatchObject({ sepia: 0.75 });
   });
 
-  it("composes Studio-rasterized text layers alongside native video", () => {
+  it("composes native text layers alongside native video", () => {
     const textLayer = {
       ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title", zIndex: 1 }),
       layerType: "text",
+      text: "Clypra Native Text",
+      fontFamily: "Inter",
+      fontSize: 48,
     } as never;
-    const rasterLayer = {
-      assetId: "native-text:title:abcd1234",
-      rgba: [255, 255, 255, 255],
-      width: 1,
-      height: 1,
-      x: 10,
-      y: 20,
-      rotation: 0,
-      opacity: 1,
-      zIndex: 1,
-      blendMode: "normal",
-    };
 
     const request = buildNativeVideoProjectRequest(
-      makeScene([makeVideoLayer({ zIndex: 0 }), textLayer]),
-      [rasterLayer],
+      makeScene([makeVideoLayer({ zIndex: 0 }), textLayer])
     );
 
     expect(request?.layers[0].zIndex).toBe(0);
-    expect(request?.rasterLayers).toEqual([rasterLayer]);
+    expect(request?.textLayers).toBeDefined();
+    expect(request?.textLayers?.[0].text).toBe("Clypra Native Text");
   });
 
   it("propagates deterministic solid canvas backgrounds", () => {
@@ -943,7 +975,7 @@ describe("buildNativeFrameRequest", () => {
     const request = buildNativeFrameRequest(makeScene([makeVideoLayer({ sourceTime: 2.25 })]), "project-1:7", 67, 30, 960, 540);
 
     expect(request).toMatchObject({
-      contractVersion: 1,
+      contractVersion: 2,
       requestId: "project-1:7:67:960x540",
       frameTime: { frameIndex: 67, ticks: 2_233_333, timescale: 1_000_000 },
       project: { projectRevision: "project-1:7" },
@@ -958,19 +990,20 @@ describe("buildNativeFrameRequest", () => {
   });
 
   it("does not serialize raster bytes into the per-frame scheduler key", () => {
-    const textLayer = {
-      ...makeVideoLayer({ layerId: "title", clipId: "title", mediaId: "title", zIndex: 1 }),
-      layerType: "text",
+    const imageLayer = {
+      ...makeVideoLayer({ layerId: "sticker", clipId: "sticker", mediaId: "sticker" }),
+      layerType: "media",
+      mediaType: "image",
     } as never;
     const request = buildNativeFrameRequest(
-      makeScene([makeVideoLayer(), textLayer]),
+      makeScene([makeVideoLayer(), imageLayer]),
       "project-1:7",
       67,
       30,
       960,
       540,
       [{
-        assetId: "native-text:title:abcd1234",
+        assetId: "native-image:sticker:abcd1234",
         rgba: Array.from({ length: 32 * 32 * 4 }, () => 255),
         width: 32,
         height: 32,
@@ -985,7 +1018,7 @@ describe("buildNativeFrameRequest", () => {
 
     const key = getNativeFrameRequestKey(request!);
     expect(key).not.toContain("255,255,255,255");
-    expect(key).toContain("native-text:title:abcd1234");
+    expect(key).toContain("native-image:sticker:abcd1234");
   });
 
   it("reuses a rendered frame across seek generations and scheduling modes", () => {
@@ -1006,5 +1039,45 @@ describe("buildNativeFrameRequest", () => {
     });
 
     expect(second).toBe(first);
+  });
+
+  it("keeps resolved native text styling, karaoke runs, and template data typed", () => {
+    const textLayer = {
+      ...makeVideoLayer(),
+      layerId: "title",
+      clipId: "title",
+      layerType: "text",
+      text: "Hello world",
+      fontFamily: "Inter Variable",
+      fontSize: 48,
+      color: "#ffffff",
+      fontWeight: 700,
+      fontStyle: "italic",
+      textAlign: "center",
+      verticalAlign: "bottom",
+      lineHeight: 1.2,
+      letterSpacing: 2,
+      stroke: { color: "#00ffff", width: 3 },
+      shadow: { color: "#000000aa", blur: 8, offsetX: 2, offsetY: 4 },
+      background: { color: "#00000088", padding: 12, borderRadius: 8 },
+      runs: [{ text: "Hello ", highlighted: false }, { text: "world", highlighted: true }],
+      templateId: "lower-third",
+      customization: { accent: "#00ffff" },
+      styleId: "neon-glow",
+    } as never;
+    const request = buildNativeFrameRequest(makeScene([textLayer]), "project-1:7", 67, 30, 1920, 1080)!;
+    const text = request.project.textLayers?.[0];
+
+    expect(text).toMatchObject({
+      fontWeight: "700",
+      fontStyle: "italic",
+      verticalAlign: "bottom",
+      strokeWidth: 3,
+      shadowBlur: 8,
+      background: { padding: 12, borderRadius: 8 },
+      templateId: "lower-third",
+      templateData: { accent: "#00ffff" },
+    });
+    expect(text?.runs?.find((run) => run.highlighted)?.text).toBe("world");
   });
 });

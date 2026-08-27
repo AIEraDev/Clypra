@@ -59,11 +59,10 @@ describe("WebGL Compositor & Validator", () => {
       expect(stack.hasContent).toBe(true);
       expect(stack.layers.length).toBe(3);
 
-      // Compositing sorting order (bottom-to-top rendering):
-      // Role order is background (0) < primary (1) < text (3)
+      // Background is structural. Ordinary visual roles follow track order.
       expect(stack.layers[0].clip.id).toBe("clip-bg");       // background
-      expect(stack.layers[1].clip.id).toBe("clip-primary");  // primary
-      expect(stack.layers[2].clip.id).toBe("clip-text");     // text
+      expect(stack.layers[1].clip.id).toBe("clip-text");     // lower editor track
+      expect(stack.layers[2].clip.id).toBe("clip-primary");  // top editor track
     });
 
     it("should sort track indices correctly as tie breakers (top tracks render on top)", () => {

@@ -63,6 +63,7 @@ interface ProjectStore {
       gaps?: Gap[];
       markers?: TimelineMarker[];
       mediaAssets?: MediaAsset[];
+      mainVideoTrackId?: string | null;
     },
   ) => Promise<void> | void;
   addMediaAsset: (asset: MediaAsset) => void;
@@ -126,7 +127,7 @@ async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapsh
   if (!project) return null;
 
   const { useTimelineStore } = await import("./timelineStore");
-  const { tracks, clips, transitions, gaps, markers, epoch } = useTimelineStore.getState();
+  const { tracks, clips, transitions, gaps, markers, epoch, mainVideoTrackId } = useTimelineStore.getState();
 
   return {
     project,
@@ -139,7 +140,15 @@ async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapsh
     epoch,
     timelineSchemaVersion: project.timelineSchemaVersion ?? 1,
     migrated: false,
-    rustProject: toRustProject(project, { tracks, clips, transitions, gaps, markers, mediaAssets }),
+    rustProject: toRustProject(project, {
+      tracks,
+      clips,
+      transitions,
+      gaps,
+      markers,
+      mediaAssets,
+      mainVideoTrackId,
+    }),
   };
 }
 
@@ -478,6 +487,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           transitions: payload?.transitions ?? [],
           gaps: payload?.gaps ?? [],
           markers: payload?.markers ?? [],
+          mainVideoTrackId: payload?.mainVideoTrackId,
           cleanEmptyTracks: true,
         });
 

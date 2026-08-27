@@ -24,12 +24,19 @@ export function toCompositorClip(clip: Clip, tracks: Track[]): CompositorClip {
   const trackIndex = tracks.findIndex((t) => t.id === clip.trackId);
 
   // Use explicit clip role when available, otherwise infer from track position.
-  const role = ((clip as any).role as ClipRole | undefined) ?? inferRoleFromTrackPosition(track, trackIndex, tracks);
+  const role = clip.role ?? inferRoleFromTrackPosition(track, trackIndex, tracks);
 
-  // Default z-index and priority
-  // TODO: These should eventually come from clip metadata
-  const zIndex = trackIndex; // Higher tracks = higher z-index
-  const evaluationPriority = 0; // Default priority
+  // Preserve an explicit clip z-index when one has been persisted. Track order is
+  // still the cross-track ordering rule; this value only resolves clips that
+  // share the same role and track. Falling back to the track index retains the
+  // legacy ordering for clips created before z-index was stored on the clip.
+  const persistedZIndex = clip.zIndex;
+  const zIndex = typeof persistedZIndex === "number" && Number.isFinite(persistedZIndex)
+    ? persistedZIndex
+    : Math.max(0, trackIndex);
+  const evaluationPriority = Number.isFinite(clip.evaluationPriority)
+    ? clip.evaluationPriority!
+    : 0;
 
   // Resolve kind if missing or incorrect
   const kind = clip.kind ?? (track?.type === "filter" ? "filter" : clip.id.startsWith("filter-clip-") ? "filter" : undefined);
@@ -97,11 +104,12 @@ export function inferRoleFromTrackPosition(track: Track | undefined, trackIndex:
 }
 
 /**
- * Convert CompositorClip back to legacy Clip.
- * Strips compositor metadata.
+ * Convert a runtime compositor clip back to persisted clip state.
+ * Track index is derived from the current timeline order and is deliberately
+ * not stored; role, z-index, and priority are first-class clip metadata.
  */
 export function fromCompositorClip(compositorClip: CompositorClip): Clip {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { role, trackIndex, zIndex, evaluationPriority, ...legacyClip } = compositorClip;
-  return legacyClip;
+  const { trackIndex, ...clip } = compositorClip;
+  return clip;
 }

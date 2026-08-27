@@ -98,6 +98,44 @@ describe("Track timeline behavior", () => {
     );
   });
 
+  it("updates a text clip label immediately when its text changes", () => {
+    const track = { id: "track-text", type: "text", name: "Text", muted: false, locked: false, visible: true, height: 80 } as any;
+    const clip = {
+      id: "text-1",
+      kind: "text",
+      trackId: "track-text",
+      mediaId: "",
+      name: "Text",
+      text: "Abdulkabir Musa",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      opacity: 1,
+      rotation: 0,
+    };
+
+    const { rerender } = render(
+      <Track track={track} pixelsPerSecond={100} clips={[clip] as any} />,
+    );
+    expect(screen.getByText("Abdulkabir Musa")).toBeInTheDocument();
+
+    rerender(
+      <Track
+        track={track}
+        pixelsPerSecond={100}
+        clips={[{ ...clip, text: "Abd" }] as any}
+      />,
+    );
+
+    expect(screen.queryByText("Abdulkabir Musa")).not.toBeInTheDocument();
+    expect(screen.getByText("Abd")).toBeInTheDocument();
+  });
+
   it("passes the strict B-roll visual role to the track and its clips", () => {
     const visualSpec: TrackVisualSpec = {
       role: "b-roll",

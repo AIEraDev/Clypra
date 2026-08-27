@@ -62,7 +62,10 @@ describe("History Commands Suite", () => {
         epoch: 0,
       };
 
-      const newTrack = { id: "track-2", type: "video", name: "Track 2", height: 100, visible: true, locked: false, muted: false } as Track;
+      // Video tracks deliberately insert at the top. Use an audio track here to
+      // verify the explicit requested insertion index without conflating that
+      // placement policy with command inversion.
+      const newTrack = { id: "track-2", type: "audio", name: "Track 2", height: 100, visible: true, locked: false, muted: false } as Track;
       const addCmd = new AddTrackCommand(newTrack, 1);
       const state1 = addCmd.apply(state);
 
@@ -89,6 +92,10 @@ describe("History Commands Suite", () => {
       const toggleInv = toggleCmd.invert();
       const state5 = toggleInv.apply(state4);
       expect(state5.tracks[0].locked).toBe(false);
+
+      const soloCmd = new ToggleTrackPropertyCommand("track-1", "solo");
+      const state6 = soloCmd.apply(state);
+      expect(state6.tracks[0].solo).toBe(true);
     });
   });
 

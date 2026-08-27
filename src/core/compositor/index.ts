@@ -21,6 +21,7 @@ export type { CompositorClip, RenderLayer, RenderStack, EvaluatedClip, ClipRole,
 
 // Resolver (core engine)
 export { resolveRenderStack, evaluateClipAtTime, evaluateClip, getClipsInRange, hasContentAtTime } from "./resolver";
+export { compareCompositorClips } from "./ordering";
 
 // Validator (diagnostics)
 export { validateTimeline, validateForExport } from "./validator";
