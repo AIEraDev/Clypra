@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { platform } from "@/core/platform";
+import {
+  cacheWaveformData,
+  getNativeWaveformData,
+  sampleWaveformRange,
+} from "@/core/audio/waveformService";
 import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 import { normalizePathForTauriInvoke } from "@/lib/platform/tauri";
 import type { WaveformBucket } from "@/types";
@@ -21,28 +25,8 @@ interface UseWaveformDataResult {
   hasError: boolean;
 }
 
-const WAVEFORM_CACHE_MAX = 50;
 /** Versioned source-scoped peak cache. Viewport density/trim is sampled from it. */
 const WAVEFORM_SOURCE_BUCKETS = 2048;
-const waveformCache = new Map<string, WaveformBucket[]>();
-
-function waveformCacheSet(key: string, value: WaveformBucket[]): void {
-  waveformCache.delete(key);
-  waveformCache.set(key, value);
-  if (waveformCache.size > WAVEFORM_CACHE_MAX) {
-    const oldest = waveformCache.keys().next().value;
-    if (oldest !== undefined) waveformCache.delete(oldest);
-  }
-}
-
-function waveformCacheGet(key: string): WaveformBucket[] | undefined {
-  const value = waveformCache.get(key);
-  if (value !== undefined) {
-    waveformCache.delete(key);
-    waveformCache.set(key, value);
-  }
-  return value;
-}
 
 function quantizeWaveformSampleCount(rawWidthPx: number): number {
   const target = Math.max(rawWidthPx / 1.5, 200);
@@ -50,27 +34,6 @@ function quantizeWaveformSampleCount(rawWidthPx: number): number {
   if (target <= 512) return 512;
   if (target <= 1024) return 1024;
   return 2048;
-}
-
-function sampleWaveformRange(
-  source: WaveformBucket[],
-  startFraction: number,
-  endFraction: number,
-  bucketCount: number,
-): WaveformBucket[] {
-  if (!source.length) return [];
-  const start = Math.max(0, Math.min(source.length, Math.floor(startFraction * source.length)));
-  const end = Math.max(start + 1, Math.min(source.length, Math.ceil(endFraction * source.length)));
-  const range = source.slice(start, end);
-  return Array.from({ length: bucketCount }, (_, index) => {
-    const from = Math.floor((index * range.length) / bucketCount);
-    const to = Math.max(from + 1, Math.floor(((index + 1) * range.length) / bucketCount));
-    const group = range.slice(from, to);
-    return group.reduce<WaveformBucket>((result, bucket) => ({
-      peak: Math.max(result.peak, bucket.peak),
-      rms: Math.max(result.rms, bucket.rms),
-    }), { peak: 0, rms: 0 });
-  });
 }
 
 export function useWaveformData({
@@ -104,14 +67,6 @@ export function useWaveformData({
   useEffect(() => {
     const sourceCacheKey = `waveform-v1:${resolvedPath}:${mediaDuration ?? "unknown"}:source:${WAVEFORM_SOURCE_BUCKETS}`;
     const cacheKey = `${sourceCacheKey}:${sourceStart.toFixed(3)}:${visibleSourceDuration.toFixed(3)}:${sampleCount}`;
-    const cached = waveformCacheGet(cacheKey);
-    if (cached) {
-      setWaveformData(cached);
-      setHasError(false);
-      setIsLoading(false);
-      return;
-    }
-
     let isCancelled = false;
 
     const generateWaveform = async () => {
@@ -123,21 +78,17 @@ export function useWaveformData({
           const canUseSourceCache = Number.isFinite(mediaDuration) && mediaDuration! > 0;
           let buckets: WaveformBucket[] = [];
           if (canUseSourceCache) {
-            let sourceBuckets = waveformCacheGet(sourceCacheKey);
-            if (!sourceBuckets) {
-              sourceBuckets = await invoke<WaveformBucket[]>("extract_waveform_data", {
-                path: normalizePathForTauriInvoke(audioPath),
-                numBuckets: WAVEFORM_SOURCE_BUCKETS,
-                startTime: 0,
-                duration: mediaDuration,
-              });
-              if (sourceBuckets?.length) waveformCacheSet(sourceCacheKey, sourceBuckets);
-            }
+            const sourceBuckets = await getNativeWaveformData(sourceCacheKey, {
+              path: normalizePathForTauriInvoke(audioPath),
+              numBuckets: WAVEFORM_SOURCE_BUCKETS,
+              startTime: 0,
+              duration: mediaDuration,
+            });
             buckets = sourceBuckets?.length
               ? sampleWaveformRange(sourceBuckets, sourceStart / mediaDuration!, (sourceStart + visibleSourceDuration) / mediaDuration!, sampleCount)
               : [];
           } else {
-            buckets = await invoke<WaveformBucket[]>("extract_waveform_data", {
+            buckets = await getNativeWaveformData(cacheKey, {
               path: normalizePathForTauriInvoke(audioPath),
               numBuckets: sampleCount,
               startTime: sourceStart,
@@ -146,7 +97,6 @@ export function useWaveformData({
           }
 
           if (!isCancelled && buckets && buckets.length > 0) {
-            waveformCacheSet(cacheKey, buckets);
             setWaveformData(buckets);
             setIsLoading(false);
             return;
@@ -217,7 +167,7 @@ export function useWaveformData({
           }
 
           if (!isCancelled) {
-            waveformCacheSet(cacheKey, buckets);
+            cacheWaveformData(cacheKey, buckets);
             setWaveformData(buckets);
             setIsLoading(false);
           }
