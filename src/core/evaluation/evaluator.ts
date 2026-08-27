@@ -130,7 +130,11 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       const textClip = clip as unknown as TextClip;
       const transitionState = evaluateTransitionState(clip, transitionWindows);
 
-      const styleDefinition = textClip.styleId ? (useEffectsStore.getState().definitions[textClip.styleId] ?? textClip.styleDefinition) : textClip.styleDefinition;
+      // Prefer the definition captured on the clip. Falling back to the live
+      // catalog is only for legacy clips that predate pinned style snapshots.
+      const styleDefinition = textClip.styleDefinition ?? (textClip.styleId
+        ? useEffectsStore.getState().definitions[textClip.styleId]
+        : undefined);
 
       const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
       const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : textClip.color || "#ffffff";
@@ -198,6 +202,8 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         shadow: textClip.shadow,
         background: textClip.background,
         styleId: textClip.styleId,
+        styleVersion: textClip.styleVersion,
+        parameterOverrides: textClip.parameterOverrides,
         styleDefinition,
         templateId: textClip.templateId,
         customization: textClip.customization,
