@@ -24,8 +24,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@clypra/ui-color-picker": ["../clypra-studio/packages/ui-color-picker/dist/index.d.ts"],
-      "@clypra/ui-color-picker/*": ["../clypra-studio/packages/ui-color-picker/dist/*"]
+      "@clypra/ui-color-picker": ["../clypra-packages/packages/ui-color-picker/dist/index.d.ts"],
+      "@clypra/ui-color-picker/*": ["../clypra-packages/packages/ui-color-picker/dist/*"]
     },
 
     /* Test type declarations */

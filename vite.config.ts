@@ -9,7 +9,7 @@ const host = process.env.TAURI_DEV_HOST;
 // In local development, resolve packages from the sibling clypra-packages
 // workspace source for hot-reload. In CI / production builds (where the
 // sibling repo doesn't exist), fall through to node_modules which holds
-// the published npm versions (@clypra/ui-color-picker@0.1.0, etc.).
+// the published npm versions (@clypra/ui-color-picker@0.2.1, etc.).
 const packagesCandidate = path.resolve(__dirname, "../clypra-packages/packages");
 const legacyCandidate = path.resolve(__dirname, "../clypra-studio/packages");
 const workspacePackagesDir = fs.existsSync(packagesCandidate)
