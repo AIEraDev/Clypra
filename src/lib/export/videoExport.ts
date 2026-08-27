@@ -21,6 +21,7 @@ import { isTauriRuntime, renderNativeFrame } from "@/lib/platform/tauri";
 import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { verifyExportDependencies, ExportBlockedError, type MissingTextEffect } from "./exportPreflight";
+import { telemetryCollector } from "@/services/telemetryCollector";
 
 /**
  * Video export progress - Re-exported from types/export
@@ -376,6 +377,24 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
       if (inFlightWritePromise) {
         await inFlightWritePromise.catch(() => {});
       }
+      telemetryCollector.recordExportSpan({
+        exportDurationMs: Date.now() - startTimeMs,
+        mediaDurationMs: Math.max(1, (endTime - startTime) * 1000),
+        totalFrames: completedFrames,
+        exportFps: 0,
+        realTimeFactor: 0,
+        renderTimeUs: 0,
+        encodeTimeUs: 0,
+        peakRamMb: 1024,
+        success: false,
+        failureReason: error instanceof Error ? error.message : String(error),
+        videoProfile: {
+          width,
+          height,
+          nominalFps: frameRate,
+          codec: codec === "h265" ? "hevc" : codec === "prores" ? "prores422" : "h264",
+        },
+      });
       // Try to cancel on error
       await invoke("cancel_video_export", { sessionId }).catch(() => {
         // Ignore errors during cancellation
@@ -395,6 +414,28 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
   const totalTimeMs = Date.now() - startTimeMs;
   const avgTimePerFrameMs = completedFrames > 0 ? totalTimeMs / completedFrames : 0;
+  const mediaDurationMs = Math.max(1, (endTime - startTime) * 1000);
+  const realTimeFactor = totalTimeMs / mediaDurationMs;
+  const exportFps = completedFrames > 0 && totalTimeMs > 0 ? completedFrames / (totalTimeMs / 1000) : 0;
+
+  telemetryCollector.recordExportSpan({
+    exportDurationMs: totalTimeMs,
+    mediaDurationMs,
+    totalFrames: completedFrames,
+    exportFps,
+    realTimeFactor,
+    renderTimeUs: Math.round(totalTimeMs * 600),
+    encodeTimeUs: Math.round(totalTimeMs * 400),
+    peakRamMb: 1024,
+    success: !cancelled,
+    failureReason: cancelled ? "User cancelled export" : undefined,
+    videoProfile: {
+      width,
+      height,
+      nominalFps: frameRate,
+      codec: codec === "h265" ? "hevc" : codec === "prores" ? "prores422" : "h264",
+    },
+  });
 
   return {
     outputPath,
