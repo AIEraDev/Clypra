@@ -96,14 +96,19 @@ export const TextEffectsApi = {
   },
 
   // 2. LAZY-LOAD heavy configurations on selection with RAM caching
-  async getFullEffect(category: string, id: string): Promise<TextEffectDefinition> {
+  async getFullEffect(
+    category: string,
+    id: string,
+    options: { forceRefresh?: boolean } = {},
+  ): Promise<TextEffectDefinition> {
     const cacheKey = `${category}:${id}`;
     let data: TextEffectDefinition;
 
-    if (this._effectsCache.has(cacheKey)) {
+    if (!options.forceRefresh && this._effectsCache.has(cacheKey)) {
       data = this._effectsCache.get(cacheKey)!;
     } else {
       const res = await fetch(`${BASE}/text-effects/${category}/${id}`, {
+        cache: options.forceRefresh ? "no-store" : "default",
         headers: getApiHeaders(),
       });
       if (!res.ok) throw new Error(`Failed to load heavy configuration for effect: ${id}`);
