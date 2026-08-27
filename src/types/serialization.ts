@@ -407,6 +407,13 @@ export function fromRustClip(rust: RustClip): Clip {
     clip.styleDefinition = rust.style_definition;
     delete clip.style_definition;
   }
+
+  const rawChildren = (rust as any).compoundChildren ?? (rust as any).compound_children;
+  if (Array.isArray(rawChildren)) {
+    clip.compoundChildren = rawChildren.map((child: RustClip) => fromRustClip(child));
+    delete clip.compound_children;
+  }
+
   return clip as Clip;
 }
 
@@ -581,6 +588,13 @@ export function toRustClip(frontend: Clip): RustClip {
     rust.style_definition = fAny.styleDefinition;
     delete rust.styleDefinition;
   }
+
+  const rawChildren = fAny.compoundChildren ?? fAny.compound_children;
+  if (Array.isArray(rawChildren)) {
+    rust.compoundChildren = rawChildren.map((child: Clip) => toRustClip(child));
+    delete rust.compound_children;
+  }
+
   return rust as RustClip;
 }
 
