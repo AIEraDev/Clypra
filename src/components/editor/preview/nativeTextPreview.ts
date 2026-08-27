@@ -2,6 +2,7 @@ import type { EvaluatedTextLayer } from "@/core/evaluation/types";
 import { effectBleed, resolveTextEffectDefinition } from "@/lib/text/textClip";
 import { getTextRenderMetrics, normalizeFontSize } from "@/lib/utils/fixedSizing";
 import { rasterizeTextLayer } from "@/core/render/textRasterizer";
+import { getFontLoader } from "@/core/fonts/FontLoader";
 
 export interface NativeTextRasterAsset {
   assetId: string;
@@ -93,6 +94,23 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
 export async function rasterizeTextLayerForNative(
   layer: EvaluatedTextLayer,
 ): Promise<NativeTextRasterAsset> {
+  // The raster must use the same font variant as Studio/source preview before
+  // any glyph metrics or effect bounds are computed.
+  if (layer.fontFamily) {
+    try {
+      await getFontLoader().ensureFont({
+        family: layer.fontFamily,
+        weight: layer.fontWeight,
+        style: layer.fontStyle,
+      });
+      if (typeof document !== "undefined" && document.fonts) {
+        await document.fonts.ready;
+      }
+    } catch (error) {
+      console.warn(`[NativeTextPreview] Failed to pre-load font "${layer.fontFamily}":`, error);
+    }
+  }
+
   const effectDefinition = resolveNativeTextEffectDefinition(layer);
   const normalizedFontSize = normalizeFontSize(layer.fontSize);
   const metrics = getTextRenderMetrics(normalizedFontSize);
