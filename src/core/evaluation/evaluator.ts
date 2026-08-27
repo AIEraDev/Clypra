@@ -31,6 +31,7 @@ import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
 import { normalizeFilterIntensity } from "../render/filterIR";
 import { resolveTextEffectDefinition } from "@/lib/text/textClip";
+import { evaluateEffectiveAudioState } from "@/core/audio/effectiveAudioState";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { compareCompositorClips } from "@/core/compositor/ordering";
@@ -330,23 +331,30 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
   for (const clip of sortedClips) {
     const asset = assetMap.get(clip.mediaId);
     const track = trackMap.get(clip.trackId);
+    const directAudioPath = (clip as any).audioPath as string | undefined;
     // Audio layer creation:
     // - Explicit audio role clips always create audio
     // - Video assets with primary OR overlay role create audio (video tracks have audio)
-    const hasAudio = clip.role === "audio" || (asset?.type === "video" && (clip.role === "primary" || clip.role === "overlay"));
-    if (!hasAudio || !asset) continue;
-    if (track?.muted ?? false) continue;
+    const hasAudio =
+      clip.kind === "audio" ||
+      asset?.type === "audio" ||
+      asset?.type === "video" ||
+      Boolean(directAudioPath) ||
+      Boolean(clip.audio);
+    if (!hasAudio || (!asset && !directAudioPath)) continue;
 
     const sourceTime = resolveClipSourceTime(clip, evalTime, {
       clampToRange: true,
       frameRate: project?.frameRate ?? 30,
     }).sourceTime;
-    const sourcePath = asset.path ? (isExternalOrDataUrl(asset.path) ? asset.path : convertFileSrc(asset.path)) : "";
+    const rawAudioPath = directAudioPath || asset?.path || "";
+    const sourcePath = rawAudioPath
+      ? (isExternalOrDataUrl(rawAudioPath) ? rawAudioPath : convertFileSrc(rawAudioPath))
+      : "";
     if (!sourcePath) continue;
 
-    const clipVolume = clip.volume ?? 1.0;
-    const trackVolume = track?.volume ?? 1.0;
-    const effectiveVolume = Math.max(0, Math.min(3.0, clipVolume * trackVolume));
+    const effectiveAudio = evaluateEffectiveAudioState(clip, track, evalTime, { tracks });
+    const effectiveVolume = Math.max(0, Math.min(3.0, effectiveAudio.gain));
 
     audioLayers.push({
       layerId: `${clip.id}-audio`,
@@ -354,10 +362,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       mediaId: clip.mediaId,
       sourcePath,
       sourceTime,
-      pan: 0.0,
+      pan: effectiveAudio.pan,
       priority: clip.trackIndex,
       volume: effectiveVolume,
-      muted: track?.muted ?? false,
+      muted: effectiveAudio.muted,
     });
   }
 
