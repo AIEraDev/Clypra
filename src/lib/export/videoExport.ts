@@ -148,8 +148,14 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   const { clips, tracks, transitions = [], assets, project, epoch, startTime, endTime, outputPath, frameRate = project?.frameRate || 30, width = project?.canvasWidth || 1920, height = project?.canvasHeight || 1080, codec = "h264", preset = "medium", crf = 23, pixelFormat = "yuv420p", onProgress, onSessionReady, signal } = config;
 
   // Preflight dependency check: enforce §1.2 zero silent-fallback contract
-  const preflight = await verifyExportDependencies(clips as any);
-  if (!preflight.ready && preflight.missingEffects.length > 0) {
+  const preflight = await verifyExportDependencies(clips as any, { assets });
+  if (!preflight.ready) {
+    if (preflight.missingImageAssets.length > 0) {
+      throw new ExportBlockedError(
+        preflight.missingEffects,
+        preflight.missingImageAssets,
+      );
+    }
     if (!config.forceExportWithBaseTypography) {
       throw new ExportBlockedError(preflight.missingEffects);
     }

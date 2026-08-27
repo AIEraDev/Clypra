@@ -44,7 +44,10 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toast } from "@/lib/toast";
 import { useExportHistoryStore } from "@/store/exportHistoryStore";
-import type { MissingTextEffect } from "@/lib/export/exportPreflight";
+import type {
+  MissingImageAsset,
+  MissingTextEffect,
+} from "@/lib/export/exportPreflight";
 
 // Import extracted components
 import { ProgressRing } from "../primitives/ProgressRing";
@@ -153,6 +156,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExportResult | null>(null);
   const [blockedEffects, setBlockedEffects] = useState<Array<{ clipId: string; clipName: string; styleId: string }>>([]);
+  const [blockedImageAssets, setBlockedImageAssets] = useState<MissingImageAsset[]>([]);
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
   const [ffmpegVersion, setFfmpegVersion] = useState<string>("");
   const [mobileExportMode, setMobileExportMode] = useState<"cloud" | "clypra">("cloud");
@@ -242,6 +246,8 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       setProgress(null);
       setError(null);
       setResult(null);
+      setBlockedEffects([]);
+      setBlockedImageAssets([]);
       exportAbortRef.current = false;
       setIsEditingName(false);
       setEditNameValue("");
@@ -601,6 +607,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       if (!isMountedRef.current) return;
       if (err?.name === "ExportBlockedError" || err?.missingEffects) {
         setBlockedEffects(err.missingEffects || []);
+        setBlockedImageAssets(err.missingImageAssets || []);
         safeSetPhase("blocked-missing-effects");
         return;
       }
@@ -1272,7 +1279,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
             </div>
           )}
 
-          {/* ═══ PHASE: Blocked - Missing Offline Effects ═══ */}
+          {/* ═══ PHASE: Blocked - Missing Dependencies ═══ */}
           {phase === "blocked-missing-effects" && (
             <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-5 overflow-y-auto">
               <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
@@ -1282,11 +1289,13 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               <div className="w-full max-w-[420px] text-center space-y-4">
                 <div>
                   <h3 className="text-[15px] font-bold text-text-primary tracking-tight">
-                    Export Blocked: Missing Text Effects
+                    Export Blocked: Missing Dependencies
                   </h3>
                   <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
-                    The following text effect(s) are not cached locally and the network is unavailable.
-                    Clypra prevents silent visual degradation by default.
+                    Clypra prevents silent visual degradation and missing image content.
+                    {blockedImageAssets.length > 0
+                      ? " Restore the missing image assets below before exporting; images cannot be force-exported."
+                      : " Restore the dependencies below before exporting, or explicitly force-export with base typography."}
                   </p>
                 </div>
 
@@ -1295,6 +1304,12 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     <div key={idx} className="flex justify-between items-center text-text-primary">
                       <span className="font-medium truncate max-w-[200px]">"{item.clipName}"</span>
                       <span className="text-amber-400 font-mono text-[10px]">style: {item.styleId}</span>
+                    </div>
+                  ))}
+                  {blockedImageAssets.map((item) => (
+                    <div key={`${item.clipId}-${item.assetId}`} className="flex justify-between items-center text-text-primary">
+                      <span className="font-medium truncate max-w-[200px]">"{item.clipName}"</span>
+                      <span className="text-amber-400 font-mono text-[10px]">image: {item.assetId}</span>
                     </div>
                   ))}
                 </div>
@@ -1314,16 +1329,18 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     onClick={() => handleExport(false)}
                     className="text-[11px] w-full"
                   >
-                    Retry Connection
+                    {blockedImageAssets.length > 0 ? "Retry Export" : "Retry Connection"}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport(true)}
-                    className="text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 w-full"
-                  >
-                    Force Export with Base Typography
-                  </Button>
+                  {blockedEffects.length > 0 && blockedImageAssets.length === 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleExport(true)}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 w-full"
+                    >
+                      Force Export with Base Typography
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
