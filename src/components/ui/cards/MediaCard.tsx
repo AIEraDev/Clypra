@@ -70,11 +70,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
           />
         ) : asset.type === "audio" ? (
           <MediaCardWaveform
-            audioPath={
-              isWebviewOrExternalUrl(asset.path)
-                ? asset.path
-                : platform.convertFileSrc(asset.path)
-            }
+            audioPath={asset.path}
             duration={asset.duration}
             className="w-full h-full"
           />

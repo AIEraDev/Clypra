@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
-import { drawProfessionalWaveform, convertLegacyWaveform, getThemeAccentRgb } from "@/lib/utils/canvasUtils";
-import type { WaveformBucket } from "@/types";
+import { drawProfessionalWaveform, getThemeAccentRgb } from "@/lib/utils/canvasUtils";
+import { useWaveformData } from "@/components/editor/timeline/useWaveformData";
 
 interface MediaCardWaveformProps {
   audioPath: string;
@@ -8,14 +8,17 @@ interface MediaCardWaveformProps {
   className?: string;
 }
 
-// Compact waveform visualization for audio files in media cards
-// Generates a static waveform preview using Web Audio API
+// Compact waveform visualization for audio files in media cards.
+// Uses the shared source-scoped waveform service used by timeline clips.
 export const MediaCardWaveform: React.FC<MediaCardWaveformProps> = ({ audioPath, duration, className = "" }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [waveformData, setWaveformData] = useState<WaveformBucket[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
   const [themeRevision, setThemeRevision] = useState(0);
+  const { waveformData, isLoading, hasError } = useWaveformData({
+    audioPath,
+    clipWidthPx: 300,
+    duration,
+    mediaDuration: duration,
+  });
 
   // Watch for theme changes on document element and trigger redraw
   useEffect(() => {
@@ -28,89 +31,6 @@ export const MediaCardWaveform: React.FC<MediaCardWaveformProps> = ({ audioPath,
     });
     return () => observer.disconnect();
   }, []);
-
-  // Generate waveform data from audio file
-  useEffect(() => {
-    let isCancelled = false;
-
-    const generateWaveform = async () => {
-      try {
-        setIsLoading(true);
-        setHasError(false);
-
-        // Create audio context
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        const audioContext = new AudioContextClass();
-
-        // Fetch and decode audio
-        const response = await fetch(audioPath);
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch audio: ${response.status}`);
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-        if (isCancelled) {
-          audioContext.close();
-          return;
-        }
-
-        // Get channel data (use first channel for mono/stereo)
-        const channelData = audioBuffer.getChannelData(0);
-        const samples = 100; // Number of bars to display
-        const blockSize = Math.floor(channelData.length / samples);
-        const waveform: number[] = [];
-
-        // Calculate RMS (Root Mean Square) for each block
-        for (let i = 0; i < samples; i++) {
-          const start = i * blockSize;
-          const end = start + blockSize;
-          let sum = 0;
-
-          for (let j = start; j < end && j < channelData.length; j++) {
-            sum += channelData[j] * channelData[j];
-          }
-
-          const rms = Math.sqrt(sum / blockSize);
-          waveform.push(rms);
-        }
-
-        // Normalize waveform data
-        const max = Math.max(...waveform);
-        const normalized = waveform.map((v) => (max > 0 ? v / max : 0));
-
-        // Convert to peak + RMS format
-        const buckets = convertLegacyWaveform(normalized);
-
-        if (!isCancelled) {
-          setWaveformData(buckets);
-          setIsLoading(false);
-        }
-
-        audioContext.close();
-      } catch (error) {
-        console.error("[MediaCardWaveform] Failed to generate waveform for:", audioPath, error);
-        // Show flat line pattern to indicate unsupported format (honest UX)
-        if (!isCancelled) {
-          // Flat line with very minimal variation to clearly indicate "no real data"
-          const flatLine = Array.from({ length: 100 }, () => 0.15);
-          const buckets = convertLegacyWaveform(flatLine);
-          setWaveformData(buckets);
-          setHasError(true);
-          setIsLoading(false);
-        }
-      }
-    };
-
-    generateWaveform();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [audioPath]);
 
   // Draw professional waveform on canvas
   useEffect(() => {
