@@ -38,16 +38,43 @@ describe("NativeRasterBridge", () => {
     mocks.textKey.mockClear();
   });
 
-  it("excludes text layers from raster bridge since text is natively rendered in wgpu", async () => {
+  it("registers text layers as Studio-engine rasters for native composition", async () => {
     const scene = {
       visualLayers: [{ layerType: "text", layerId: "title" }],
       metadata: { canvasWidth: 1920, canvasHeight: 1080 },
     } as unknown as EvaluatedScene;
+    mocks.rasterizeText.mockResolvedValue({
+      assetId: "native-text:title:hash",
+      rgba: [255, 255, 255, 255],
+      width: 1,
+      height: 1,
+      x: 10,
+      y: 20,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      blendMode: "normal",
+      isText: true,
+    });
     const bridge = new NativeRasterBridge();
 
     const rasters = await bridge.rasterize(scene, { frameKey: 0 });
-    expect(rasters).toEqual([]);
-    expect(mocks.register).not.toHaveBeenCalled();
+    expect(rasters).toEqual([{
+      assetId: "native-text:title:hash",
+      width: 1,
+      height: 1,
+      x: 10,
+      y: 20,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      blendMode: "normal",
+      isText: true,
+    }]);
+    expect(mocks.register).toHaveBeenCalledWith(expect.objectContaining({
+      assetId: "native-text:title:hash",
+      rgba: [255, 255, 255, 255],
+    }));
     bridge.dispose();
   });
 
