@@ -1609,8 +1609,8 @@ export const NativeProgramPreview: React.FC = () => {
           !nativePlaybackInFlight
         ) {
           const requestToPresent =
-            isPlaying && nativeSurfaceUsable
-              ? nativePlaybackRequest
+            isPlaying
+              ? nativePlaybackRequest ?? nativeRequest
               : nativeRequest;
           if (requestToPresent) {
             const requestKey = getNativeFrameRequestKey(requestToPresent);
