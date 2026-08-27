@@ -3,7 +3,6 @@ import { TopBar } from "./TopBar";
 import { Sidebar as EnhancedMediaPanel } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
 import { SourcePreview } from "./preview/SourcePreview";
-import { PreviewMonitorWorkspace } from "./preview/PreviewMonitorWorkspace";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
 import { FilmstripMetricsOverlay } from "./timeline/FilmstripMetricsOverlay";
@@ -23,12 +22,6 @@ const SafeMediaPanel: React.FC<React.ComponentProps<typeof EnhancedMediaPanel>> 
 const SafePropertiesPanel: React.FC<React.ComponentProps<typeof PropertiesPanel>> = (props) => (
   <ErrorBoundary name="Properties Inspector">
     <PropertiesPanel {...props} />
-  </ErrorBoundary>
-);
-
-const SafePreviewWorkspace: React.FC<React.ComponentProps<typeof PreviewMonitorWorkspace>> = (props) => (
-  <ErrorBoundary name="Preview Monitor">
-    <PreviewMonitorWorkspace {...props} />
   </ErrorBoundary>
 );
 
@@ -264,7 +257,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell flex flex-col overflow-hidden shrink-0"
             style={{ width: `${tallPlayerW}px` }}
           >
-            <SafePreviewWorkspace orientation="column" />
+            <SafePreviewPanel />
           </div>
 
           {/* Live Dimension HUDs */}
@@ -315,7 +308,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell flex flex-col overflow-hidden shrink-0"
             style={{ width: `${tallPlayerW}px` }}
           >
-            <SafePreviewWorkspace orientation="column" />
+            <SafePreviewPanel />
           </div>
 
           {/* Horizontal Resizer */}
@@ -558,7 +551,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Giant Center Preview Monitor */}
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell shadow-2xl">
-              <SafePreviewWorkspace orientation="row" />
+              <SafePreviewPanel />
             </div>
 
             {!propertiesPanelCollapsed && (
@@ -643,7 +636,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             {/* Centered 9:16 Portrait Preview Monitor */}
             <div className="flex-1 min-w-0 flex items-center justify-center overflow-hidden panel-shell bg-surface/30">
               <div className="w-full h-full max-w-[460px] flex flex-col overflow-hidden">
-                <SafePreviewWorkspace orientation="column" />
+                <SafePreviewPanel />
               </div>
             </div>
 
@@ -729,7 +722,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Preview Monitor */}
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
-              <SafePreviewWorkspace orientation="row" />
+              <SafePreviewPanel />
             </div>
 
             {!propertiesPanelCollapsed && (
@@ -832,7 +825,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {/* Center Preview Panel */}
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
-            <SafePreviewWorkspace orientation="row" />
+            <SafePreviewPanel />
           </div>
 
           {/* Properties Dimension HUD */}
