@@ -38,6 +38,25 @@ describe("timeline flow commands", () => {
     expect(command.invert().apply(deleted).clips).toEqual(state.clips);
   });
 
+  it("deeply snapshots nested metadata for ripple-delete undo", () => {
+    const nested = clip("nested", 0, 2);
+    nested.kind = "compound";
+    nested.compoundChildren = [
+      { ...clip("text-child", 0, 2), kind: "text", styleDefinition: { id: "title", version: "2" } } as any,
+      { ...clip("audio-child", 0, 2), kind: "audio", audio: { gainDb: -5 } } as any,
+    ];
+    const state = { tracks: [track], clips: [nested, clip("later", 2, 2)], gaps: [], epoch: 0 };
+    const command = new RippleDeleteRangeCommand(["later"]);
+    const deleted = command.apply(state);
+    (deleted.clips[0].compoundChildren![0] as any).styleDefinition.version = "mutated";
+    (deleted.clips[0].compoundChildren![1] as any).audio.gainDb = 12;
+
+    const restored = command.invert().apply(deleted);
+    const restoredChildren = restored.clips.find((item: Clip) => item.id === "nested")!.compoundChildren!;
+    expect((restoredChildren[0] as any).styleDefinition).toEqual({ id: "title", version: "2" });
+    expect((restoredChildren[1] as any).audio.gainDb).toBe(-5);
+  });
+
   it("does not ripple edits across a protected gap", () => {
     const state = {
       tracks: [track],
@@ -63,6 +82,35 @@ describe("timeline flow commands", () => {
     expect(pieces[1]).toMatchObject({ startTime: 7, duration: 6, trimIn: 9, trimOut: 15 });
     expect(result.clips.find((item) => item.id === "later")?.startTime).toBe(13);
     expect(command.invert().apply(result).clips).toEqual(state.clips);
+  });
+
+  it("deeply snapshots nested text and audio metadata for insert undo", () => {
+    const original = clip("source", 0, 10);
+    original.kind = "compound";
+    original.compoundChildren = [
+      {
+        ...clip("text-child", 0, 10),
+        kind: "text",
+        styleDefinition: { id: "pinned-title", version: "3" },
+        parameterOverrides: { glowRadius: 0.4 },
+      } as any,
+      {
+        ...clip("audio-child", 0, 10),
+        kind: "audio",
+        audio: { gainDb: -6, volumeKeyframes: [] },
+      } as any,
+    ];
+    const state = { tracks: [track], clips: [original], gaps: [], epoch: 0 };
+    const command = new InsertEditCommand(clip("inserted", 4, 2), 4, original.id);
+    const result = command.apply(state);
+    const splitPiece = result.clips.find((item) => item.id !== "inserted")!;
+    (splitPiece.compoundChildren![0] as any).styleDefinition.version = "mutated";
+    (splitPiece.compoundChildren![1] as any).audio.gainDb = 12;
+
+    const restored = command.invert().apply(result);
+    const restoredChildren = restored.clips[0].compoundChildren!;
+    expect((restoredChildren[0] as any).styleDefinition).toEqual({ id: "pinned-title", version: "3" });
+    expect((restoredChildren[1] as any).audio.gainDb).toBe(-6);
   });
 
   it("inserts at an existing cut without creating a redundant split", () => {

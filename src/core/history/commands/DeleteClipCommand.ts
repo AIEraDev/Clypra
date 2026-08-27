@@ -16,6 +16,11 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 export class DeleteClipCommand implements Command {
   readonly id: string;
   readonly label: string;
@@ -37,7 +42,7 @@ export class DeleteClipCommand implements Command {
 
   apply(state: TimelineState): TimelineState {
     const clip = state.clips.find((c) => c.id === this.clipId);
-    this.deletedClip = clip || null;
+    this.deletedClip = clip ? cloneClipSnapshot(clip) : null;
 
     if (!clip) return state;
 
@@ -55,7 +60,9 @@ export class DeleteClipCommand implements Command {
       const trackToDelete = tracks.find((t) => t.id === clip.trackId);
       // Only auto-prune if the track type is configured with autoPrune: true.
       if (trackToDelete && shouldAutoPruneTrack(trackToDelete, state.tracks)) {
-        this.deletedTrack = trackToDelete;
+        this.deletedTrack = typeof structuredClone === "function"
+          ? structuredClone(trackToDelete)
+          : JSON.parse(JSON.stringify(trackToDelete)) as Track;
         this.deletedTrackIndex = tracks.findIndex((t) => t.id === clip.trackId);
         tracks = tracks.filter((t) => t.id !== clip.trackId);
       }
@@ -130,14 +137,17 @@ export class AddClipCommand implements Command {
   readonly timestamp: number;
   readonly undoable: boolean = true;
 
+  private readonly clip: Clip;
+
   constructor(
-    private readonly clip: Clip,
+    clip: Clip,
     private readonly restoredTrack?: Track | null,
     private readonly restoredTrackIndex?: number,
     private readonly restoredTransitions: TransitionTimelineItem[] = [],
     private readonly restoredClipIndex: number = -1,
     private readonly restoredGaps?: Gap[],
   ) {
+    this.clip = cloneClipSnapshot(clip);
     this.id = generateCommandId();
     this.label = "Add Clip";
     this.timestamp = Date.now();
@@ -155,7 +165,7 @@ export class AddClipCommand implements Command {
     if (this.restoredClipIndex >= 0) {
       clips = [...state.clips];
       const insertIndex = Math.max(0, Math.min(this.restoredClipIndex, clips.length));
-      clips.splice(insertIndex, 0, { ...this.clip });
+      clips.splice(insertIndex, 0, cloneClipSnapshot(this.clip));
     } else {
       // New clips use the legacy safe-position behavior; deleted clips carry
       // an explicit index and are restored exactly at their original slot.
@@ -176,7 +186,7 @@ export class AddClipCommand implements Command {
         }
       }
 
-      clips = [...state.clips, { ...this.clip, startTime: finalStartTime }];
+      clips = [...state.clips, { ...cloneClipSnapshot(this.clip), startTime: finalStartTime }];
     }
 
     const nextState: TimelineState = {

@@ -9,8 +9,13 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 function cloneClips(clips: Clip[]): Clip[] {
-  return clips.map((clip) => ({ ...clip }));
+  return clips.map(cloneClipSnapshot);
 }
 
 function cloneGaps(gaps: Gap[]): Gap[] {
@@ -27,12 +32,22 @@ export class TimelineTrimCommand implements Command {
   readonly timestamp = Date.now();
   readonly undoable = true;
 
+  private readonly beforeClips: Clip[];
+  private readonly afterClips: Clip[];
+  private readonly beforeGaps: Gap[];
+  private readonly afterGaps: Gap[];
+
   constructor(
-    private readonly beforeClips: Clip[],
-    private readonly afterClips: Clip[],
-    private readonly beforeGaps: Gap[],
-    private readonly afterGaps: Gap[],
-  ) {}
+    beforeClips: Clip[],
+    afterClips: Clip[],
+    beforeGaps: Gap[],
+    afterGaps: Gap[],
+  ) {
+    this.beforeClips = cloneClips(beforeClips);
+    this.afterClips = cloneClips(afterClips);
+    this.beforeGaps = cloneGaps(beforeGaps);
+    this.afterGaps = cloneGaps(afterGaps);
+  }
 
   apply(state: TimelineState): TimelineState {
     return {

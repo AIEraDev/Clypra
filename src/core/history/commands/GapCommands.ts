@@ -17,6 +17,16 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
+function cloneGapSnapshot(gap: Gap): Gap {
+  if (typeof structuredClone === "function") return structuredClone(gap);
+  return JSON.parse(JSON.stringify(gap)) as Gap;
+}
+
 /**
  * Insert Gap Command
  *
@@ -57,7 +67,7 @@ export class InsertGapCommand implements Command {
       return state;
     }
 
-    this.insertedGap = result.gap;
+    this.insertedGap = cloneGapSnapshot(result.gap);
 
     // Store original positions for undo
     this.shiftedClips = result.affectedClipIds!.map((clipId) => {
@@ -71,15 +81,15 @@ export class InsertGapCommand implements Command {
     // Apply the gap insertion and shift affected clips only
     return {
       ...state,
-      gaps: [...state.gaps, result.gap],
+      gaps: [...state.gaps.map(cloneGapSnapshot), cloneGapSnapshot(result.gap)],
       clips: state.clips.map((c) => {
         if (result.affectedClipIds!.includes(c.id)) {
           return {
-            ...c,
+            ...cloneClipSnapshot(c),
             startTime: c.startTime + this.duration,
           };
         }
-        return c;
+        return cloneClipSnapshot(c);
       }),
       epoch: state.epoch + 1,
     };
@@ -136,7 +146,7 @@ export class RemoveGapCommand implements Command {
     const gap = state.gaps.find((g) => g.id === this.gapId);
     if (!gap) return state;
 
-    this.removedGap = gap;
+    this.removedGap = cloneGapSnapshot(gap);
 
     // Use removeGapWithRipple with protected gap logic
     const result = removeGapWithRipple(gap, state.clips, state.gaps);
@@ -158,15 +168,15 @@ export class RemoveGapCommand implements Command {
     // Remove gap and shift affected clips only
     return {
       ...state,
-      gaps: state.gaps.filter((g) => g.id !== this.gapId),
+      gaps: state.gaps.filter((g) => g.id !== this.gapId).map(cloneGapSnapshot),
       clips: state.clips.map((c) => {
         if (result.affectedClipIds!.includes(c.id)) {
           return {
-            ...c,
+            ...cloneClipSnapshot(c),
             startTime: c.startTime - gap.duration,
           };
         }
-        return c;
+        return cloneClipSnapshot(c);
       }),
       epoch: state.epoch + 1,
     };
@@ -206,33 +216,38 @@ class RestoreGapCommand implements Command {
   readonly undoable: boolean = true;
 
   constructor(
-    private readonly gap: Gap,
-    private readonly originalPositions: Array<{ id: string; originalStartTime: number }>,
+    gap: Gap,
+    originalPositions: Array<{ id: string; originalStartTime: number }>,
   ) {
     this.id = generateCommandId();
     this.label = "Restore Gap";
     this.timestamp = Date.now();
+    this.gap = cloneGapSnapshot(gap);
+    this.originalPositions = originalPositions.map((position) => ({ ...position }));
   }
+
+  private readonly gap: Gap;
+  private readonly originalPositions: Array<{ id: string; originalStartTime: number }>;
 
   apply(state: TimelineState): TimelineState {
     // Restore gap
-    const restoredGap = { ...this.gap };
+    const restoredGap = cloneGapSnapshot(this.gap);
 
     // Shift clips back to original positions
     const clipsWithRestoredPositions = state.clips.map((c) => {
       const originalPosition = this.originalPositions.find((p) => p.id === c.id);
       if (originalPosition) {
         return {
-          ...c,
+          ...cloneClipSnapshot(c),
           startTime: originalPosition.originalStartTime,
         };
       }
-      return c;
+      return cloneClipSnapshot(c);
     });
 
     return {
       ...state,
-      gaps: [...state.gaps, restoredGap],
+      gaps: [...state.gaps.map(cloneGapSnapshot), restoredGap],
       clips: clipsWithRestoredPositions,
       epoch: state.epoch + 1,
     };
@@ -306,15 +321,15 @@ export class ResizeGapCommand implements Command {
     // Resize gap and shift affected clips only
     return {
       ...state,
-      gaps: state.gaps.map((g) => (g.id === this.gapId ? result.gap! : g)),
+      gaps: state.gaps.map((g) => (g.id === this.gapId ? cloneGapSnapshot(result.gap!) : cloneGapSnapshot(g))),
       clips: state.clips.map((c) => {
         if (result.affectedClipIds!.includes(c.id)) {
           return {
-            ...c,
+            ...cloneClipSnapshot(c),
             startTime: c.startTime + deltaTime,
           };
         }
-        return c;
+        return cloneClipSnapshot(c);
       }),
       epoch: state.epoch + 1,
     };
@@ -372,7 +387,7 @@ export class PackTrackCommand implements Command {
     const trackGaps = state.gaps.filter((g) => g.trackId === this.trackId);
 
     // Store removed gaps for undo
-    this.removedGaps = trackGaps.filter((g) => !g.protected);
+    this.removedGaps = trackGaps.filter((g) => !g.protected).map(cloneGapSnapshot);
     const remainingGaps = trackGaps.filter((g) => g.protected);
 
     // Calculate new clip positions by packing them tightly
@@ -392,13 +407,13 @@ export class PackTrackCommand implements Command {
     const updatedClips = state.clips.map((c) => {
       const newPosition = this.clipPositions.find((p) => p.id === c.id);
       if (newPosition) {
-        return { ...c, startTime: newPosition.newStartTime };
+        return { ...cloneClipSnapshot(c), startTime: newPosition.newStartTime };
       }
-      return c;
+      return cloneClipSnapshot(c);
     });
 
     // Keep only protected gaps, remove unprotected ones
-    const updatedGaps = state.gaps.filter((g) => g.trackId !== this.trackId || g.protected);
+    const updatedGaps = state.gaps.filter((g) => g.trackId !== this.trackId || g.protected).map(cloneGapSnapshot);
 
     return {
       ...state,
@@ -442,25 +457,30 @@ class UnpackTrackCommand implements Command {
 
   constructor(
     private readonly trackId: string,
-    private readonly gapsToRestore: Gap[],
-    private readonly originalPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }>,
+    gapsToRestore: Gap[],
+    originalPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }>,
   ) {
     this.id = generateCommandId();
     this.label = "Unpack Track";
     this.timestamp = Date.now();
+    this.gapsToRestore = gapsToRestore.map(cloneGapSnapshot);
+    this.originalPositions = originalPositions.map((position) => ({ ...position }));
   }
+
+  private readonly gapsToRestore: Gap[];
+  private readonly originalPositions: Array<{ id: string; originalStartTime: number; newStartTime: number }>;
 
   apply(state: TimelineState): TimelineState {
     // Restore gaps
-    const restoredGaps = [...state.gaps, ...this.gapsToRestore];
+    const restoredGaps = [...state.gaps.map(cloneGapSnapshot), ...this.gapsToRestore.map(cloneGapSnapshot)];
 
     // Restore original clip positions
     const restoredClips = state.clips.map((c) => {
       const originalPosition = this.originalPositions.find((p) => p.id === c.id);
       if (originalPosition) {
-        return { ...c, startTime: originalPosition.originalStartTime };
+        return { ...cloneClipSnapshot(c), startTime: originalPosition.originalStartTime };
       }
-      return c;
+      return cloneClipSnapshot(c);
     });
 
     return {
@@ -536,11 +556,11 @@ export class ToggleGapProtectionCommand implements Command {
       gaps: state.gaps.map((g) =>
         g.id === gap!.id
           ? {
-              ...g,
+              ...cloneGapSnapshot(g),
               protected: !g.protected,
               type: !g.protected ? ("protected" as const) : ("manual" as const),
             }
-          : g,
+          : cloneGapSnapshot(g),
       ),
       epoch: state.epoch + 1,
     };

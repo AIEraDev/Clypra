@@ -49,4 +49,32 @@ describe("DeleteClipCommand", () => {
     expect(restoredState.tracks).toHaveLength(1);
     expect(restoredState.tracks![0].id).toBe("track-1");
   });
+
+  it("keeps nested audio and text metadata isolated in the delete snapshot", () => {
+    const clip = createTestClip({
+      id: "nested",
+      kind: "compound",
+      compoundChildren: [
+        {
+          ...createTestClip({ id: "text-child", kind: "text" }),
+          styleDefinition: { id: "pinned-title", version: "3" },
+          parameterOverrides: { glowRadius: 0.4 },
+        } as any,
+        {
+          ...createTestClip({ id: "audio-child", kind: "audio" }),
+          audio: { gainDb: -6, volumeKeyframes: [] },
+        } as any,
+      ],
+    });
+    const command = new DeleteClipCommand("nested");
+    const deleted = command.apply({ clips: [clip], epoch: 0 });
+
+    (clip.compoundChildren![0] as any).styleDefinition.version = "changed";
+    (clip.compoundChildren![1] as any).audio.gainDb = 12;
+
+    const restored = command.invert().apply(deleted);
+    const restoredChildren = restored.clips[0].compoundChildren!;
+    expect((restoredChildren[0] as any).styleDefinition).toEqual({ id: "pinned-title", version: "3" });
+    expect((restoredChildren[1] as any).audio.gainDb).toBe(-6);
+  });
 });

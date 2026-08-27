@@ -108,6 +108,39 @@ describe("SplitClipCommand", () => {
       expect(rightClip?.startTime).toBe(5.0);
       expect(rightClip?.duration).toBe(5.0);
     });
+
+    it("isolates nested text and audio metadata between split halves and undo", () => {
+      const clip = createTestClip({
+        kind: "compound",
+        compoundChildren: [
+          {
+            ...createTestClip({ id: "text-child", kind: "text" }),
+            styleDefinition: { id: "pinned-title", version: "3" },
+            parameterOverrides: { glowRadius: 0.4 },
+          } as any,
+          {
+            ...createTestClip({ id: "audio-child", kind: "audio" }),
+            audio: { gainDb: -6, volumeKeyframes: [] },
+          } as any,
+        ],
+      });
+      const command = new SplitClipCommand("clip-1", 5, 30, clip);
+
+      const split = command.apply({ clips: [clip], epoch: 0 });
+      const left = split.clips.find((candidate) => candidate.id === command.getLeftClipId())!;
+      const right = split.clips.find((candidate) => candidate.id === command.getRightClipId())!;
+
+      (left.compoundChildren![0] as any).styleDefinition.version = "mutated";
+      (left.compoundChildren![1] as any).audio.gainDb = 12;
+
+      expect((right.compoundChildren![0] as any).styleDefinition).toEqual({ id: "pinned-title", version: "3" });
+      expect((right.compoundChildren![1] as any).audio.gainDb).toBe(-6);
+
+      const restored = command.invert().apply(split);
+      const restoredChildren = restored.clips[0].compoundChildren!;
+      expect((restoredChildren[0] as any).styleDefinition).toEqual({ id: "pinned-title", version: "3" });
+      expect((restoredChildren[1] as any).audio.gainDb).toBe(-6);
+    });
   });
 
   describe("frame snapping", () => {

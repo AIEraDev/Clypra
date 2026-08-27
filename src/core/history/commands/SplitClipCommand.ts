@@ -16,6 +16,11 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 export class SplitClipCommand implements Command {
   readonly id: string;
   readonly label: string;
@@ -26,16 +31,18 @@ export class SplitClipCommand implements Command {
   private leftClipId: string | null = null;
   private rightClipId: string | null = null;
   private originalClipIndex: number = -1;
+  private readonly originalClip: Clip;
 
   constructor(
     private readonly clipId: string,
     private readonly splitTime: number,
     private readonly frameRate: number,
-    private readonly originalClip: Clip,
+    originalClip: Clip,
   ) {
     this.id = generateCommandId();
     this.label = "Split Clip";
     this.timestamp = Date.now();
+    this.originalClip = cloneClipSnapshot(originalClip);
   }
 
   apply(state: TimelineState): TimelineState {
@@ -77,7 +84,7 @@ export class SplitClipCommand implements Command {
 
     // Create LEFT split with new ID
     const leftClip: Clip = {
-      ...clip,
+      ...cloneClipSnapshot(clip),
       id: this.leftClipId,
       duration: leftDuration,
       trimOut: leftTrimOut,
@@ -85,7 +92,7 @@ export class SplitClipCommand implements Command {
 
     // Create RIGHT split with new ID
     const rightClip: Clip = {
-      ...clip,
+      ...cloneClipSnapshot(clip),
       id: this.rightClipId,
       startTime: snappedSplitTime, // ✅ Use snapped time
       duration: rightDuration,
@@ -189,11 +196,12 @@ class MergeSplitClipsCommand implements Command {
   readonly label: string;
   readonly timestamp: number;
   readonly undoable: boolean = true;
+  private readonly originalClip: Clip;
 
   constructor(
     private readonly leftClipId: string,
     private readonly rightClipId: string,
-    private readonly originalClip: Clip,
+    originalClip: Clip,
     private readonly frameRate: number = 30,
     // TL-BUG-002 fix: Store the exact split time for correct invert()
     private readonly splitTime?: number,
@@ -202,6 +210,7 @@ class MergeSplitClipsCommand implements Command {
     this.id = generateCommandId();
     this.label = "Merge Split Clips";
     this.timestamp = Date.now();
+    this.originalClip = cloneClipSnapshot(originalClip);
   }
 
   apply(state: TimelineState): TimelineState {
@@ -210,7 +219,7 @@ class MergeSplitClipsCommand implements Command {
     const insertIndex = this.originalClipIndex >= 0
       ? Math.min(this.originalClipIndex, clips.length)
       : clips.length;
-    clips.splice(insertIndex, 0, this.originalClip);
+    clips.splice(insertIndex, 0, cloneClipSnapshot(this.originalClip));
     return {
       ...state,
       clips,
