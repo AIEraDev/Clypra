@@ -12,6 +12,7 @@ import { platform } from "@/core/platform";
 import { SettingsModal } from "./components/ui/SettingsModal";
 import { ClosingProjectModal } from "./components/ui/ClosingProjectModal";
 import { CrashRecoveryDialog } from "./components/ui/CrashRecoveryDialog";
+import { UnsavedChangesDialog } from "@/components/ui/modals";
 import { ErrorBoundary } from "@/components/ErrorBoundary"; // Add root error boundary
 import { hasSnapshot, getSnapshot, clearSnapshot, type RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
@@ -32,6 +33,8 @@ const App = () => {
   const [isRestoring, setIsRestoring] = useState(false);
   const [isClosingProject, setIsClosingProject] = useState(false);
   const [projectNameBeforeClose, setProjectNameBeforeClose] = useState<string>("");
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [isSavingBeforeClose, setIsSavingBeforeClose] = useState(false);
   const closingWindowRef = useRef(false);
   const { isRecording, previewRecording, setPreviewRecording } = useRecordingStore();
   const autoUpdater = useAutoUpdater();
@@ -493,51 +496,121 @@ const App = () => {
     }
   }, []);
 
-  // Borderless windows do not have an OS-owned close button. Keep native
-  // close requests on the same save/cleanup path as the custom title bar,
-  // and ensure the entire app process exits completely.
+  const exitApp = async () => {
+    try {
+      const { exit } = await import("@tauri-apps/plugin-process");
+      await exit(0);
+    } catch {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().destroy();
+      } catch (err) {
+        console.error("[App] Failed to destroy window on exit:", err);
+      }
+    }
+  };
+
+  const requestAppClose = useCallback(async () => {
+    if (closingWindowRef.current) return;
+    const currentProject = useProjectStore.getState().project;
+    if (!currentProject) {
+      closingWindowRef.current = true;
+      await exitApp();
+      return;
+    }
+
+    const isDirty = useProjectStore.getState().hasUnsavedChanges();
+    if (isDirty) {
+      setShowUnsavedDialog(true);
+      return;
+    }
+
+    // Clean project: close smoothly and exit
+    closingWindowRef.current = true;
+    try {
+      await handleCloseProject();
+      await exitApp();
+    } catch (err) {
+      console.error("[App] Failed to cleanly exit app:", err);
+      await exitApp();
+    } finally {
+      closingWindowRef.current = false;
+    }
+  }, [handleCloseProject]);
+
+  const handleSaveAndExit = async () => {
+    setIsSavingBeforeClose(true);
+    closingWindowRef.current = true;
+    try {
+      const { saveCurrentProject } = useProjectStore.getState();
+      await saveCurrentProject();
+      await handleCloseProject();
+      await exitApp();
+    } catch (err) {
+      console.error("[App] Failed to save and exit:", err);
+      useProjectStore.getState().showToast("Failed to save project before closing", "error");
+      closingWindowRef.current = false;
+      setIsSavingBeforeClose(false);
+      setShowUnsavedDialog(false);
+    }
+  };
+
+  const handleDiscardAndExit = async () => {
+    setShowUnsavedDialog(false);
+    closingWindowRef.current = true;
+    try {
+      const { clearSnapshot } = await import("@/core/runtime/CrashRecoveryService");
+      await clearSnapshot().catch(() => {});
+      const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
+      await disposeActiveSession().catch(() => {});
+      await exitApp();
+    } catch (err) {
+      console.error("[App] Failed to discard and exit:", err);
+      await exitApp();
+    }
+  };
+
+  const handleCancelExit = () => {
+    setShowUnsavedDialog(false);
+    closingWindowRef.current = false;
+  };
+
+  // Intercept window close requests across OS platforms.
+  // If dirty, prompt the user with UnsavedChangesDialog before quitting.
   useEffect(() => {
     if (!platform.isTauri()) return;
 
-    let unlisten: (() => void) | undefined;
+    let unlistenCloseRequested: (() => void) | undefined;
+    let unlistenCustomEvent: (() => void) | undefined;
     let disposed = false;
 
-    void import("@tauri-apps/api/window")
-      .then(async ({ getCurrentWindow }) => {
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
         if (disposed) return;
         const win = getCurrentWindow();
-        unlisten = await win.onCloseRequested(async (event) => {
-          if (closingWindowRef.current) return;
 
+        unlistenCloseRequested = await win.onCloseRequested((event) => {
           event.preventDefault();
-          closingWindowRef.current = true;
-          try {
-            if (useProjectStore.getState().project) {
-              await handleCloseProject();
-            }
-            try {
-              const { exit } = await import("@tauri-apps/plugin-process");
-              await exit(0);
-            } catch {
-              await win.destroy();
-            }
-          } catch (err) {
-            console.error("[App] Failed to cleanly exit app:", err);
-            await win.destroy();
-          } finally {
-            closingWindowRef.current = false;
-          }
+          void requestAppClose();
         });
-      })
-      .catch((error) => console.warn("[App] Failed to install native close handler:", error));
+
+        const { listen } = await import("@tauri-apps/api/event");
+        if (disposed) return;
+        unlistenCustomEvent = await listen("clypra://close-requested", () => {
+          void requestAppClose();
+        });
+      } catch (error) {
+        console.warn("[App] Failed to install native close handler:", error);
+      }
+    })();
 
     return () => {
       disposed = true;
-      if (unlisten) {
-        void Promise.resolve(unlisten()).catch(() => {});
-      }
+      if (unlistenCloseRequested) unlistenCloseRequested();
+      if (unlistenCustomEvent) unlistenCustomEvent();
     };
-  }, [handleCloseProject]);
+  }, [requestAppClose]);
 
   if (isLoading) {
     return (
@@ -582,6 +655,16 @@ const App = () => {
 
       {/* ── Crash Recovery Dialog ────────────────────────────────────────── */}
       <CrashRecoveryDialog isOpen={!!pendingRecovery && !project} snapshot={pendingRecovery} isRestoring={isRestoring} onRestore={handleRestoreSession} onDiscard={handleDiscardRecovery} />
+
+      {/* ── Unsaved Changes Confirmation Dialog ─────────────────────────── */}
+      <UnsavedChangesDialog
+        isOpen={showUnsavedDialog}
+        projectName={project?.name || ""}
+        isSaving={isSavingBeforeClose}
+        onSave={handleSaveAndExit}
+        onDiscard={handleDiscardAndExit}
+        onCancel={handleCancelExit}
+      />
 
       {/* ── Auto-Update Banner ───────────────────────────────────────────── */}
       <UpdateBanner updater={autoUpdater} />
