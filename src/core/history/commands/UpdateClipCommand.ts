@@ -14,6 +14,16 @@ interface TimelineState {
   epoch: number;
 }
 
+interface UpdateClipSnapshots {
+  before?: Clip;
+  after?: Clip;
+}
+
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 export class UpdateClipCommand implements Command {
   readonly id: string;
   readonly label: string;
@@ -24,38 +34,67 @@ export class UpdateClipCommand implements Command {
     private readonly clipId: string,
     private readonly oldProperties: Partial<Clip>,
     private readonly newProperties: Partial<Clip>,
+    snapshots: UpdateClipSnapshots = {},
   ) {
     this.id = generateCommandId();
     this.label = "Update Clip";
     this.timestamp = Date.now();
+    this.beforeSnapshot = snapshots.before
+      ? cloneClipSnapshot(snapshots.before)
+      : null;
+    this.afterSnapshot = snapshots.after
+      ? cloneClipSnapshot(snapshots.after)
+      : null;
   }
 
+  private beforeSnapshot: Clip | null;
+  private afterSnapshot: Clip | null;
+
   apply(state: TimelineState): TimelineState {
+    const currentClip = state.clips.find((clip) => clip.id === this.clipId);
+    if (!currentClip) return state;
+
+    // Keep the public constructor patch-based for existing callers, but make
+    // undo/redo restore a complete clip so newly-added fields cannot drift.
+    if (!this.afterSnapshot) {
+      if (!this.beforeSnapshot) {
+        this.beforeSnapshot = cloneClipSnapshot(currentClip);
+      }
+      const synchronized = synchronizeClipAudioProperties(currentClip, this.newProperties);
+      const linkedSource = currentClip.audio?.linkState === "unlinked" && currentClip.audio.linkedClipId
+        ? state.clips.find((candidate) => candidate.id === currentClip.audio?.linkedClipId)
+        : undefined;
+      const linkOffsetSeconds = this.newProperties.startTime !== undefined && linkedSource
+        ? this.newProperties.startTime - linkedSource.startTime
+        : synchronized.audio?.linkOffsetSeconds;
+      this.afterSnapshot = cloneClipSnapshot({
+        ...currentClip,
+        ...synchronized,
+        ...(synchronized.audio && linkOffsetSeconds !== undefined
+          ? { audio: { ...synchronized.audio, linkOffsetSeconds } }
+          : {}),
+      });
+    }
+
     return {
       ...state,
       clips: state.clips.map((clip) => {
         if (clip.id !== this.clipId) return clip;
-        const synchronized = synchronizeClipAudioProperties(clip, this.newProperties);
-        const linkedSource = clip.audio?.linkState === "unlinked" && clip.audio.linkedClipId
-          ? state.clips.find((candidate) => candidate.id === clip.audio?.linkedClipId)
-          : undefined;
-        const linkOffsetSeconds = this.newProperties.startTime !== undefined && linkedSource
-          ? this.newProperties.startTime - linkedSource.startTime
-          : synchronized.audio?.linkOffsetSeconds;
-        return {
-          ...clip,
-          ...synchronized,
-          ...(synchronized.audio && linkOffsetSeconds !== undefined
-            ? { audio: { ...synchronized.audio, linkOffsetSeconds } }
-            : {}),
-        };
+        return cloneClipSnapshot(this.afterSnapshot!);
       }),
       epoch: state.epoch + 1, // ✅ Epoch increment inside command
     };
   }
 
   invert(): Command {
-    return new UpdateClipCommand(this.clipId, this.newProperties, this.oldProperties);
+    return new UpdateClipCommand(
+      this.clipId,
+      this.newProperties,
+      this.oldProperties,
+      this.beforeSnapshot && this.afterSnapshot
+        ? { before: this.afterSnapshot, after: this.beforeSnapshot }
+        : {},
+    );
   }
 
   merge(next: Command): Command | null {
@@ -65,6 +104,7 @@ export class UpdateClipCommand implements Command {
         this.clipId,
         this.oldProperties, // Keep original old
         next.newProperties, // Use new properties from next
+        this.beforeSnapshot ? { before: this.beforeSnapshot } : {},
       );
     }
     return null;
