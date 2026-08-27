@@ -10,12 +10,18 @@ import type { TextEffectDefinition } from "../../types/types";
 // Mock TextEffectsApi
 vi.mock("../../api/textEffectsApi", () => ({
   TEXT_EFFECT_CATEGORIES: [
-    "3d",
-    "neon",
     "essentials",
+    "neon",
+    "3d",
     "glitch",
     "gradient",
-    "outline"
+    "outline",
+    "cinematic",
+    "retro",
+    "minimal",
+    "grunge",
+    "metallic",
+    "handwritten",
   ] as const,
   TextEffectsApi: {
     getFullEffect: vi.fn(),
