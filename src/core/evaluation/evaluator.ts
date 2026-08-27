@@ -229,6 +229,16 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         stickerSourceId: clip.stickerSourceId,
       };
     }
+    if (!asset && clip.kind === "image" && clip.mediaUrl) {
+      asset = {
+        id: clip.mediaId,
+        name: clip.name || "Template Image",
+        path: clip.mediaUrl,
+        type: "image",
+        duration: clip.duration,
+        size: 0,
+      };
+    }
     // Explicit audio clips can retain their source video asset so the audio
     // router can resolve the embedded/direct audio path. They must never enter
     // the visual compositor as video layers.
