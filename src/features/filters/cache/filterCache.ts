@@ -6,6 +6,11 @@
 import { BaseDirectory, exists, mkdir, writeFile, readFile, remove, readDir } from "@tauri-apps/plugin-fs";
 import { join, appCacheDir } from "@tauri-apps/api/path";
 import type { FilterAsset } from "../types";
+import {
+  isValidFilterUrl,
+  sanitizeRemoteFilterPayload,
+  MAX_FILTER_PAYLOAD_BYTES,
+} from "../security/filterValidation";
 
 export interface CachedFilter {
   id: string;
@@ -121,30 +126,15 @@ class FilterCacheManager {
   async downloadFilter(filter: FilterAsset, onProgress?: (progress: FilterDownloadProgress) => void): Promise<CachedFilter> {
     await this.initialize();
 
-    if (!this.cacheDir) {
-      throw new Error("Cache directory not initialized");
-    }
-
     // Return cached if already downloaded
     if (this.isCached(filter.id)) {
       return this.cacheIndex.get(filter.id)!;
     }
 
     try {
-      // Get the full cache directory path
-      const appCache = await appCacheDir();
-      const fullCacheDir = await join(appCache, CACHE_DIR);
-
-      // Ensure the cache directory exists using the full path
-      const dirExists = await exists(fullCacheDir);
-      if (!dirExists) {
-        await mkdir(fullCacheDir, { recursive: true });
-      }
-
       const sanitizedName = sanitizeFileName(filter.name);
       const fileName = `${filter.id}_${sanitizedName}.json`;
       const relativePath = `${CACHE_DIR}/${fileName}`;
-      const fullPath = await join(appCache, relativePath);
 
       // Fetch full detail when none of the render paths are inlined.
       // Priority: gradingParams (GPU) > effectStack (V2 MPG)
@@ -153,20 +143,33 @@ class FilterCacheManager {
       const needsDetail = !hasRenderData && !!finalFilter.url;
 
       if (needsDetail && finalFilter.url) {
-        try {
-          const res = await fetch(finalFilter.url);
-          if (res.ok) {
-            const remoteFilter = await res.json();
-            finalFilter = {
-              ...finalFilter,
-              ...remoteFilter,
-              id: finalFilter.id, // Preserve listing id/name/category
-              name: finalFilter.name,
-              category: finalFilter.category,
-            };
+        if (!isValidFilterUrl(finalFilter.url)) {
+          console.warn(`[FilterCacheManager] Blocked invalid or unsafe filter URL: ${finalFilter.url}`);
+        } else {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            const res = await fetch(finalFilter.url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+              const contentLength = res.headers.get("content-length");
+              if (contentLength && parseInt(contentLength, 10) > MAX_FILTER_PAYLOAD_BYTES) {
+                throw new Error(`Filter payload exceeds maximum size limit (${contentLength} bytes)`);
+              }
+
+              const text = await res.text();
+              if (text.length > MAX_FILTER_PAYLOAD_BYTES) {
+                throw new Error(`Filter payload exceeds maximum size limit (${text.length} bytes)`);
+              }
+
+              const remoteFilter = JSON.parse(text);
+              finalFilter = sanitizeRemoteFilterPayload(remoteFilter, finalFilter);
+            }
+          } catch (fetchErr) {
+            console.warn(`[FilterCacheManager] Error fetching filter details from remote:`, fetchErr);
           }
-        } catch (fetchErr) {
-          console.warn(`[FilterCacheManager] Error fetching filter details from remote:`, fetchErr);
         }
       }
 
@@ -182,8 +185,17 @@ class FilterCacheManager {
         });
       }
 
-      // Write to the full path
-      await writeFile(fullPath, fileData);
+      // Write to disk only if running in a native desktop Tauri environment
+      if (this.cacheDir) {
+        const appCache = await appCacheDir();
+        const fullCacheDir = await join(appCache, CACHE_DIR);
+        const dirExists = await exists(fullCacheDir);
+        if (!dirExists) {
+          await mkdir(fullCacheDir, { recursive: true });
+        }
+        const fullPath = await join(appCache, relativePath);
+        await writeFile(fullPath, fileData);
+      }
 
       const cachedFile: CachedFilter = {
         id: finalFilter.id,
@@ -195,7 +207,9 @@ class FilterCacheManager {
       };
 
       this.cacheIndex.set(finalFilter.id, cachedFile);
-      await this.saveIndex();
+      if (this.cacheDir) {
+        await this.saveIndex();
+      }
 
       return cachedFile;
     } catch (error) {
@@ -242,7 +256,8 @@ class FilterCacheManager {
 
       const data = await readFile(cached.localPath, { baseDir: BaseDirectory.AppCache });
       const jsonText = new TextDecoder().decode(data);
-      return JSON.parse(jsonText);
+      const parsed = JSON.parse(jsonText);
+      return sanitizeRemoteFilterPayload(parsed, cached.filter);
     } catch (error) {
       console.error("[FilterCache] Failed to load cached filter:", error);
       return null;
