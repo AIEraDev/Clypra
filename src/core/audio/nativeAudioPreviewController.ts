@@ -5,6 +5,7 @@ import {
 } from "@/core/playback/PlaybackClock";
 import {
   configureNativePlayback,
+  getNativeAudioDiagnostics,
   getNativeAudioStatus,
   nativePauseFromAudio,
   nativePlayFromAudio,
@@ -60,6 +61,7 @@ export class NativeAudioPreviewController {
   private commandRevision = 0;
   private lastPollTraceAt = 0;
   private lastAudioStatusTraceAt = 0;
+  private audibilityCheckHandle: ReturnType<typeof setTimeout> | null = null;
   /** Latest transport-state intent. Older queued play/pause commands are stale. */
   private transportIntentRevision = 0;
   /** Latest paused seek intent. Rapid scrubs collapse to the newest target. */
@@ -208,6 +210,7 @@ export class NativeAudioPreviewController {
       if (this.clock.state === "playing") {
         const nativeState = await nativePlayFromAudio();
         this.adoptNativePosition(nativeState.audioPositionTicks);
+        this.scheduleAudibilityCheck("initialize-play");
       } else {
         await pauseNativeAudio();
       }
@@ -228,6 +231,8 @@ export class NativeAudioPreviewController {
     this.unsubscribe = null;
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
+    if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
+    this.audibilityCheckHandle = null;
     this.clock.clearNativeClockPosition();
     this.clock.setNativeClockAuthority(false);
     const pendingCommands = this.commandQueue;
@@ -293,9 +298,12 @@ export class NativeAudioPreviewController {
         const nativeState = await nativePlayFromAudio();
 
         this.adoptNativePosition(nativeState.audioPositionTicks);
+        this.scheduleAudibilityCheck("play");
       }, "seek-then-play");
     } else if (state.state !== "playing" && previous?.state === "playing") {
       this.restartPolling(false);
+      if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
+      this.audibilityCheckHandle = null;
       this.enqueue(async () => {
         if (
           this.transportIntentRevision !== transportIntentRevision ||
@@ -381,6 +389,58 @@ export class NativeAudioPreviewController {
       }
     } catch (error) {
       this.reportError(error);
+    }
+  }
+
+  /**
+   * Capture native mixer/callback evidence after Play has had time to reach
+   * the CPAL callback. This stays off the real-time audio thread.
+   */
+  private scheduleAudibilityCheck(operation: string): void {
+    if (this.audibilityCheckHandle) clearTimeout(this.audibilityCheckHandle);
+    this.audibilityCheckHandle = setTimeout(() => {
+      this.audibilityCheckHandle = null;
+      void this.traceNativeAudibility(operation);
+    }, 750);
+  }
+
+  private async traceNativeAudibility(operation: string): Promise<void> {
+    if (this.disposed || !this.active || this.clock.state !== "playing") return;
+    try {
+      const diagnostics = await getNativeAudioDiagnostics();
+      const { status } = diagnostics;
+      const boundary =
+        diagnostics.installedClips.length === 0
+          ? "clip-discovery-or-install"
+          : diagnostics.activeClipIds.length === 0
+            ? "timeline-activation-or-source-range"
+            : diagnostics.mixerPeak <= 0.000001
+              ? "decode-or-mixer-gain-envelope"
+              : status.callbackCount === 0
+                ? "device-callback"
+                : status.nonSilentFrames === 0
+                  ? "callback-mixer-handoff"
+                  : "device-output-or-system-routing";
+
+      console.info("[native-audio] audibility", {
+        operation,
+        boundary,
+        installedClipCount: diagnostics.installedClips.length,
+        activeClipIds: diagnostics.activeClipIds,
+        mixerPeak: diagnostics.mixerPeak,
+        clips: diagnostics.clipDiagnostics,
+        running: status.running,
+        playing: status.playing,
+        callbackCount: status.callbackCount,
+        renderedFrames: status.renderedFrames,
+        nonSilentFrames: status.nonSilentFrames,
+        deviceName: status.deviceName,
+        muted: status.muted,
+        volume: status.volume,
+        lastError: status.lastError,
+      });
+    } catch (error) {
+      console.warn("[native-audio] diagnostics-failed", { operation, error });
     }
   }
 
