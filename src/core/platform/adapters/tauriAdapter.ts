@@ -43,6 +43,17 @@ export class TauriPlatformAdapter implements PlatformInterface {
     return join(...paths);
   }
 
+  async fileExists(path: string): Promise<boolean> {
+    if (!path) return false;
+    if (isExternalOrDataUrl(path)) return true;
+    try {
+      const { exists } = await import("@tauri-apps/plugin-fs");
+      return await exists(path);
+    } catch {
+      return false;
+    }
+  }
+
   async openFileDialog(options: { multiple?: boolean; directory?: boolean; filters?: { name: string; extensions: string[] }[] }): Promise<SelectedFile[] | null> {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const result = await open({

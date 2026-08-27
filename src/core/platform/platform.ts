@@ -59,6 +59,7 @@ export interface PlatformInterface {
   appDataDir(): Promise<string>;
   appCacheDir(): Promise<string>;
   joinPaths(...paths: string[]): Promise<string>;
+  fileExists(path: string): Promise<boolean>;
 
   // Dialogs
   openFileDialog(options: { multiple?: boolean; directory?: boolean; filters?: { name: string; extensions: string[] }[] }): Promise<SelectedFile[] | null>;
