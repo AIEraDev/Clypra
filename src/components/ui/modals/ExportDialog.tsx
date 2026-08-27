@@ -34,6 +34,7 @@ import {
   Download,
   CheckCircle2,
   Cloud,
+  History,
 } from "lucide-react";
 import { Modal } from "../primitives/Modal";
 import { Button } from "../primitives/Button";
@@ -42,6 +43,8 @@ import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toast } from "@/lib/toast";
+import { useExportHistoryStore } from "@/store/exportHistoryStore";
+import type { MissingTextEffect } from "@/lib/export/exportPreflight";
 
 // Import extracted components
 import { ProgressRing } from "../primitives/ProgressRing";
@@ -82,6 +85,7 @@ interface ExportResult {
   avgTimePerFrameMs: number;
   outputPath?: string;
   cancelled?: boolean;
+  degradedTextEffects?: MissingTextEffect[];
 }
 
 function getQualityTierForPreset(presetKey: ExportPreset) {
@@ -138,6 +142,8 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const { project, mediaAssets, renameProject } = useProjectStore();
   const { clips, tracks, transitions, epoch, getTimelineEndTime } =
     useTimelineStore();
+  const exportHistory = useExportHistoryStore((state) => state.entries);
+  const addExportHistoryEntry = useExportHistoryStore((state) => state.addEntry);
 
   // State
   const [preset, setPreset] = useState<ExportPreset>("1080p-fast");
@@ -166,6 +172,30 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   const cancelExportFnRef = useRef<(() => Promise<void>) | null>(null);
 
   const selectedPreset = PRESET_CONFIGS[preset];
+  const recentProjectExports = exportHistory
+    .filter((entry) => entry.projectId === project?.id)
+    .slice(0, 4);
+
+  const recordCompletedExport = useCallback(
+    (completed: {
+      outputPath?: string;
+      totalFrames: number;
+      totalTimeMs: number;
+      degradedTextEffects?: MissingTextEffect[];
+    }) => {
+      if (!project || !completed.outputPath) return;
+      addExportHistoryEntry({
+        projectId: project.id,
+        projectName: project.name,
+        outputPath: completed.outputPath,
+        exportedAt: Date.now(),
+        totalFrames: completed.totalFrames,
+        totalTimeMs: completed.totalTimeMs,
+        degradedTextEffects: completed.degradedTextEffects ?? [],
+      });
+    },
+    [addExportHistoryEntry, project],
+  );
 
   // Dynamically resolve export dimensions using project aspect ratio and quality tier
   const projectW = project?.canvasWidth || 1920;
@@ -391,20 +421,22 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       const filename = `${project.name || "video-cloud"}-${Date.now()}.mp4`;
       const sharedPath = await platform.saveAndShareVideo(videoBlob, filename);
 
-      setPhase("complete");
-      setResult({
+      const cloudResult = {
         outputPath: sharedPath,
         totalFrames: Math.round(sequenceDuration * (project?.frameRate ?? 30)),
         totalTimeMs: 0,
         avgTimePerFrameMs: 0,
         cancelled: false,
-      });
+      };
+      setPhase("complete");
+      setResult(cloudResult);
+      recordCompletedExport(cloudResult);
     } catch (err: any) {
       console.error("[ExportDialog] Cloud render failed:", err);
       setError(err?.message || "Cloud rendering failed.");
       setPhase("error");
     }
-  }, [project, clips, tracks, transitions, mediaAssets, sequenceDuration]);
+  }, [project, clips, tracks, transitions, mediaAssets, sequenceDuration, recordCompletedExport]);
 
   // ─── Mobile capabilities check ─────────────────────────────────────
   useEffect(() => {
@@ -491,14 +523,17 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
           if (!isMountedRef.current) return;
 
           if (!nativeResult.cancelled) {
-            safeSetResult({
+            const completedResult = {
               totalFrames: nativeResult.completedFrames,
               totalTimeMs: nativeResult.totalTimeMs,
               avgTimePerFrameMs:
                 nativeResult.totalTimeMs > 0 && nativeResult.completedFrames > 0
                   ? nativeResult.totalTimeMs / nativeResult.completedFrames
                   : 0,
-            });
+              outputPath,
+            };
+            safeSetResult(completedResult);
+            recordCompletedExport(completedResult);
             safeSetPhase("complete");
             return;
           } else {
@@ -543,11 +578,15 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       if (!isMountedRef.current) return;
 
       if (!exportResult.cancelled) {
-        safeSetResult({
+        const completedResult = {
           totalFrames: exportResult.totalFrames,
           totalTimeMs: exportResult.totalTimeMs,
           avgTimePerFrameMs: exportResult.avgTimePerFrameMs,
-        });
+          outputPath,
+          degradedTextEffects: exportResult.degradedTextEffects,
+        };
+        safeSetResult(completedResult);
+        recordCompletedExport(completedResult);
         safeSetPhase("complete");
         if (exportResult.degradedTextEffects && exportResult.degradedTextEffects.length > 0) {
           toast.warning("Video exported with base typography fallback for uncached effects.");
@@ -589,6 +628,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     safeSetError,
     safeSetResult,
     safeSetProgress,
+    recordCompletedExport,
   ]);
 
   // FIX (BUG-C2): Actually cancel the backend FFmpeg session and stop the frame loop.
@@ -904,6 +944,34 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   </section>
                 )}
 
+                {recentProjectExports.length > 0 && (
+                  <section>
+                    <h3 className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2.5 flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5" />
+                      Recent Exports
+                    </h3>
+                    <div className="rounded-lg border border-white/6 bg-white/2 divide-y divide-white/6">
+                      {recentProjectExports.map((entry) => (
+                        <div key={entry.id} className="px-3 py-2.5 text-[11px]">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium text-text-primary truncate" title={entry.outputPath}>
+                              {entry.outputPath.split("/").pop() || entry.outputPath}
+                            </span>
+                            <span className="text-text-muted shrink-0">
+                              {new Date(entry.exportedAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-text-muted">
+                            {entry.degradedTextEffects.length > 0
+                              ? `Base typography fallback (${entry.degradedTextEffects.length} effect${entry.degradedTextEffects.length === 1 ? "" : "s"})`
+                              : `${entry.totalFrames.toLocaleString()} frames`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
                 {/* Empty timeline warning */}
                 {sequenceDuration <= 0 && (
                   <div className="flex items-start gap-3 p-3 bg-amber-500/8 border border-amber-500/20 rounded-lg">
@@ -1103,6 +1171,25 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                           ? result.outputPath?.split("/").pop()
                           : displayPath}
                       </span>
+                    </div>
+                  </div>
+                )}
+
+                {result?.degradedTextEffects && result.degradedTextEffects.length > 0 && (
+                  <div className="w-full max-w-[360px] rounded-lg border border-amber-500/25 bg-amber-500/8 p-3 text-left text-[11px]">
+                    <div className="font-semibold text-amber-400">
+                      Export completed with base typography fallback
+                    </div>
+                    <p className="mt-1 text-text-muted leading-relaxed">
+                      The following uncached text effects were rendered with their base typography. This result was recorded in export history.
+                    </p>
+                    <div className="mt-2 space-y-1 text-text-primary">
+                      {result.degradedTextEffects.map((effect) => (
+                        <div key={`${effect.clipId}-${effect.styleId}`} className="flex justify-between gap-3">
+                          <span className="truncate">{effect.clipName || effect.clipId}</span>
+                          <span className="font-mono text-[10px] text-amber-300 shrink-0">{effect.styleId}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
