@@ -32,7 +32,7 @@ import { toRustProject, type ProjectPersistenceSnapshot } from "@/types/serializ
 import { generateId } from "@/lib/utils/id";
 import { convertRawConfigToDefinition } from "@/features/text-effects/lib/definitionConversion";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
-import { calculateTextClipSize } from "@/lib/text/textClip";
+import { calculateTextClipSize, resolveTextEffectDefinition } from "@/lib/text/textClip";
 import { useSettingsStore } from "./settingsStore";
 import { saveSnapshot, clearSnapshot } from "@/core/runtime/CrashRecoveryService";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
@@ -218,12 +218,13 @@ function normalizeLoadedTextEffectClipBounds(clips: any[] | undefined, project: 
   if (!clips?.length) return clips ?? [];
 
   try {
-    const definitions = useEffectsStore.getState().definitions;
-
     return clips.map((clip) => {
       if (clip?.kind !== "text" || !clip.styleId) return clip;
 
-      const effectDefinition = definitions[clip.styleId] ?? clip.styleDefinition;
+      const effectDefinition = resolveTextEffectDefinition(
+        clip.styleId,
+        clip.styleDefinition,
+      );
       if (!effectDefinition) return clip;
 
       const nativeDefinition = effectDefinition as any;
