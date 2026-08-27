@@ -4,7 +4,7 @@ import { isWebviewOrExternalUrl } from "@/lib/platform/pathConversion";
 
 // @ts-ignore - react-dnd types issue
 import { useDrag } from "react-dnd";
-import { Film, Plus } from "lucide-react";
+import { Film, Plus, AlertTriangle } from "lucide-react";
 
 import { useUIStore } from "@/store/uiStore";
 import { formatTime } from "@/lib/utils/timeFormatting";
@@ -57,7 +57,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       ref={drag as unknown as React.Ref<HTMLDivElement>}
       onClick={handleClick}
       onContextMenu={onContextMenu}
-      className={`group relative bg-surface-raised rounded overflow-hidden transition-all cursor-pointer ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""}`}
+      className={`group relative bg-surface-raised rounded overflow-hidden transition-all cursor-pointer ${isDragging ? "opacity-50" : ""} ${isSelected ? "ring-1 ring-accent" : ""} ${asset.isMissing ? "ring-1 ring-red-500/60" : ""}`}
     >
       <div className="aspect-video bg-surface-raised flex items-center justify-center relative">
         {asset.type === "video" &&
@@ -98,6 +98,17 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         {isUsedInTimeline && (
           <div className="absolute top-1 left-1 bg-purple-950/80 px-1 py-px rounded-xs text-[8px] text-white flex items-center gap-1">
             <span>Added</span>
+          </div>
+        )}
+        {/* "Offline" badge */}
+        {asset.isMissing && (
+          <div
+            data-testid="media-offline-badge"
+            className="absolute top-1 right-1 bg-red-600/90 text-white px-1.5 py-0.5 rounded text-[8px] font-bold flex items-center gap-1 shadow-sm z-10"
+            title="File is missing or moved"
+          >
+            <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+            <span>OFFLINE</span>
           </div>
         )}
       </div>
