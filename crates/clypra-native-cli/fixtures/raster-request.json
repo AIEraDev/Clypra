@@ -1,5 +1,5 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "requestId": "fixture:raster:0",
   "frameTime": { "frameIndex": 0, "ticks": 0, "timescale": 1000000 },
   "project": {
