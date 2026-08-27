@@ -88,6 +88,9 @@ export interface CreateTextClipOptions {
   /** Effect definition for accurate bounding box calculation */
   effectDefinition?: TextEffectDefinition;
 
+  /** Effect catalog version to pin on the created clip. */
+  styleVersion?: number;
+
   /** Template definition/data for accurate content-bounds calculation */
   templateDefinition?: TextTemplate;
 }
@@ -786,6 +789,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     textRole,
     words,
     styleId,
+    styleVersion,
     templateId,
     customization,
     stroke,
@@ -926,6 +930,8 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     options.lineHeight ?? resolvedEffectDefinition?.font?.lineHeight ?? 1.2;
   const letterSpacing =
     options.letterSpacing ?? resolvedEffectDefinition?.font?.letterSpacing ?? 0;
+  const resolvedStyleVersion =
+    styleVersion ?? (Number(resolvedEffectDefinition?.version) || 1);
 
   const clip: TextClip = {
     id: generateId("text-clip"),
@@ -958,6 +964,7 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     textRole,
     words, // Include word-level timestamps for karaoke-style highlighting
     styleId,
+    styleVersion: resolvedStyleVersion,
     styleDefinition: resolvedEffectDefinition,
     templateId,
     customization,
