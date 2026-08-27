@@ -78,6 +78,9 @@ interface ProjectStore {
   /** Persist the current project immediately and verify the storage result. */
   saveCurrentProject: () => Promise<ProjectSaveResult | null>;
   scheduleAutoSave: () => void;
+  isDirty: boolean;
+  setIsDirty: (isDirty: boolean) => void;
+  hasUnsavedChanges: () => boolean;
 }
 
 const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
@@ -276,6 +279,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   recentProjects: [],
   toastMessage: null,
   toastVariant: "success" as const,
+  isDirty: false,
+  setIsDirty: (isDirty) => set({ isDirty }),
+  hasUnsavedChanges: () => get().isDirty || autoSaveTimer !== null,
 
   setToastMessage: (message, variant) => set({ toastMessage: message, ...(variant ? { toastVariant: variant } : {}) }),
 
@@ -322,7 +328,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       audioModelVersion: AUDIO_MODEL_VERSION,
     };
 
-    set({ project, mediaAssets: [] });
+    set({ project, mediaAssets: [], isDirty: false });
 
     // Let timelineStore reset its own state
     try {
@@ -501,6 +507,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         await createProjectSession(project.id);
 
         if (currentLoadId !== loadId) return;
+        set({ isDirty: false });
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 5: Prewarm Video Decoders (Background)
@@ -708,7 +715,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // PHASE 3: Clear ProjectStore State
     // ═══════════════════════════════════════════════════════════════════════════════
     const closedProjectId = get().project?.id;
-    set({ project: null, mediaAssets: [] });
+    set({ project: null, mediaAssets: [], isDirty: false });
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // PHASE 4: Reset Timeline State
@@ -740,10 +747,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
     const snapshot = await captureCurrentProjectSnapshot();
     if (!snapshot) return null;
-    return persistCurrentProjectSnapshot(snapshot);
+    const result = await persistCurrentProjectSnapshot(snapshot);
+    if (result?.verified) {
+      set({ isDirty: false });
+    }
+    return result;
   },
 
   scheduleAutoSave: () => {
+    set({ isDirty: true });
+
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
     }
@@ -770,7 +783,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         const snapshot = await captureCurrentProjectSnapshot();
         if (!snapshot || snapshot.project.id !== scheduledProjectId) return;
 
-        await persistCurrentProjectSnapshot(snapshot);
+        const result = await persistCurrentProjectSnapshot(snapshot);
+        if (result?.verified) {
+          set({ isDirty: false });
+        }
         get().showToast("Project saved");
 
         // ── Canonical Project Thumbnail Generation ───────────────────────
