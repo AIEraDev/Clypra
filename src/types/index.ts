@@ -222,6 +222,8 @@ export interface MediaAsset {
   stickerSourceId?: string;
   streams?: MediaStreamInfo[];
   derivedFrom?: DerivedMediaProvenance;
+  /** Whether the media asset file was detected as missing/offline on disk */
+  isMissing?: boolean;
 }
 
 /** Type guard to check if asset has visual dimensions */
