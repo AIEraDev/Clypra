@@ -298,6 +298,8 @@ export interface Clip {
   stickerImagePath?: string;
   /** Text template ID for text clips */
   templateId?: string;
+  /** Template catalog version captured when this clip was created. */
+  templateVersion?: number;
   adjustments?: import("@clypra-studio/engine").ColorAdjustments;
   /** GPU UltraKey Chroma Key configuration */
   chromaKey?: import("./compositor").ChromaKeyConfig;
@@ -469,6 +471,10 @@ export interface TextClip extends Clip {
   paddingX: number;
   paddingY: number;
   styleId?: string;
+  /** Effect catalog version captured when this clip was created. */
+  styleVersion?: number;
+  /** Effect parameters captured when this clip was created. */
+  parameterOverrides?: Record<string, any>;
   templateId?: string;
   customization?: any;
   /** Role of the text clip: caption for subtitles, title for decorative text/graphics */
