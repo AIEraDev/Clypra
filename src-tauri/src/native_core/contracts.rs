@@ -472,6 +472,49 @@ pub struct TextLayerSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NativeCaptionCue {
+    pub id: String,
+    /// 1MHz microsecond ticks, directly equal to `audio_position_ticks`
+    pub start_ticks: i64,
+    pub end_ticks: i64,
+    pub text: String,
+    #[serde(default)]
+    pub speaker: Option<String>,
+    #[serde(default)]
+    pub style_override: Option<serde_json::Value>,
+    #[serde(default = "default_caption_version")]
+    pub style_version: u32,
+    #[serde(default)]
+    pub effect_version: Option<u32>,
+}
+
+fn default_caption_version() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeCaptionTrack {
+    pub id: String,
+    #[serde(default = "default_caption_version")]
+    pub caption_model_version: u32,
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default)]
+    pub locked: bool,
+    #[serde(default)]
+    pub default_style: serde_json::Value,
+    #[serde(default)]
+    pub cues: Vec<NativeCaptionCue>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TextBackgroundSnapshot {
     pub color: [f32; 4],
     #[serde(default)]
@@ -1504,5 +1547,53 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("at most 64 text layers"));
+    }
+
+    #[test]
+    fn test_caption_contracts_roundtrip() {
+        let track = NativeCaptionTrack {
+            id: "track-captions-1".to_string(),
+            caption_model_version: 1,
+            name: "Subtitles".to_string(),
+            visible: true,
+            locked: false,
+            default_style: serde_json::json!({
+                "fontSize": 36,
+                "fontFamily": "Inter Variable",
+                "color": "#ffffff"
+            }),
+            cues: vec![
+                NativeCaptionCue {
+                    id: "cue-1".to_string(),
+                    start_ticks: 500_000,
+                    end_ticks: 2_500_000,
+                    text: "Welcome to Clypra".to_string(),
+                    speaker: Some("Narrator".to_string()),
+                    style_override: None,
+                    style_version: 1,
+                    effect_version: None,
+                },
+                NativeCaptionCue {
+                    id: "cue-2".to_string(),
+                    start_ticks: 2_500_000,
+                    end_ticks: 5_000_000,
+                    text: "Next generation video editor".to_string(),
+                    speaker: None,
+                    style_override: Some(serde_json::json!({
+                        "color": "#facc15"
+                    })),
+                    style_version: 1,
+                    effect_version: Some(2),
+                },
+            ],
+        };
+
+        let json = serde_json::to_string(&track).expect("Serialization failed");
+        let deserialized: NativeCaptionTrack = serde_json::from_str(&json).expect("Deserialization failed");
+        assert_eq!(track, deserialized);
+        assert_eq!(deserialized.cues[0].start_ticks, 500_000);
+        assert_eq!(deserialized.cues[0].end_ticks, 2_500_000);
+        assert_eq!(deserialized.cues[1].speaker, None);
+        assert_eq!(deserialized.cues[0].speaker.as_deref(), Some("Narrator"));
     }
 }
