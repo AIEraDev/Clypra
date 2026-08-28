@@ -1596,8 +1596,9 @@ async fn render_native_video_project_frame_bytes_timed(
                 std::slice::from_ref(&to_layer),
                 Some(clear_color),
             )?;
+            let overlays = if layers.len() > 2 { &layers[2..] } else { &[] };
             let (rgba, compositor_compose_us, readback_us) = compositor
-                .render_transition_to_rgba_bytes_timed(
+                .render_transition_with_overlays_to_rgba_bytes_timed(
                     &session.gpu.device,
                     &session.gpu.queue,
                     request.canvas_width,
@@ -1605,6 +1606,8 @@ async fn render_native_video_project_frame_bytes_timed(
                     &from_view,
                     &to_view,
                     &transition_uniforms(transition),
+                    overlays,
+                    Some(clear_color),
                 )
                 .await?;
             (rgba, compositor_compose_us, readback_us)
