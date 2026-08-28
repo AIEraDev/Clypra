@@ -196,11 +196,15 @@ export const NativeProgramPreview: React.FC = () => {
     null,
   );
   const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
+  const [nativeSurfaceError, setNativeSurfaceError] = useState<string | null>(
+    null,
+  );
   // Audit 4.6 fix: mirror nativeSurfaceReady in a ref so the render loop can read the
   // latest value imperatively without nativeSurfaceReady being listed in the effect deps.
   // Having it in deps caused the entire render loop to restart (RAF cancelled, blank frame)
   // on every native surface probe and window resize.
   const nativeSurfaceReadyRef = useRef(false);
+  const nativeSurfaceErrorRef = useRef<string | null>(null);
   const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
   const nativeOnlyBlockersKeyRef = useRef("");
 
@@ -525,6 +529,8 @@ export const NativeProgramPreview: React.FC = () => {
       syncRequested = true;
       if (syncInFlight) return;
       syncInFlight = true;
+      nativeSurfaceErrorRef.current = null;
+      setNativeSurfaceError(null);
 
       void (async () => {
         try {
@@ -560,6 +566,8 @@ export const NativeProgramPreview: React.FC = () => {
             nativeSurfaceGeometrySettledRef.current = true;
             if (active) {
               nativeSurfaceReadyRef.current = true;
+              nativeSurfaceErrorRef.current = null;
+              setNativeSurfaceError(null);
               setNativeSurfaceReady(true);
             }
           }
@@ -567,6 +575,9 @@ export const NativeProgramPreview: React.FC = () => {
           nativeSurfaceConfiguredRef.current = false;
           nativeSurfaceGeometrySettledRef.current = false;
           if (active) {
+            const message = error instanceof Error ? error.message : String(error);
+            nativeSurfaceErrorRef.current = message;
+            setNativeSurfaceError(message);
             nativeSurfaceReadyRef.current = false;
             setNativeSurfaceReady(false);
           }
@@ -609,6 +620,8 @@ export const NativeProgramPreview: React.FC = () => {
       nativeSurfaceConfiguredRef.current = false;
       nativeSurfaceGeometrySettledRef.current = false;
       nativeSurfaceReadyRef.current = false;
+      nativeSurfaceErrorRef.current = null;
+      setNativeSurfaceError(null);
       setNativeSurfaceReady(false);
       setNativeSurfacePresenting(false);
       void hideNativeSurface().catch(() => undefined);
@@ -1553,13 +1566,16 @@ export const NativeProgramPreview: React.FC = () => {
         // Audit 4.6 fix: read nativeSurfaceReadyRef.current (imperative ref) rather than
         // the React state `nativeSurfaceReady` to avoid having the state in the effect deps.
         const nativeSurfaceReadyNow = nativeSurfaceReadyRef.current;
+        const nativeSurfaceErrorNow = nativeSurfaceErrorRef.current;
         if (nativeOnlyMode) {
           const blockers = [
             ...(!nativeRequest
               ? getNativePreviewBlockers(scene, nativeRasterLayers)
               : []),
-            ...(!nativeSurfaceReadyNow
-              ? ["The retained native wgpu surface is not ready."]
+            ...(nativeSurfaceErrorNow
+              ? [
+                  `The retained native wgpu surface failed to initialize: ${nativeSurfaceErrorNow}`,
+                ]
               : []),
           ];
           const blockerKey = blockers.join("\n");
@@ -2159,6 +2175,7 @@ export const NativeProgramPreview: React.FC = () => {
     dimensions.width,
     dimensions.height,
     previewQuality,
+    nativeSurfaceError,
   ]);
 
   useEffect(() => {
@@ -2205,7 +2222,9 @@ export const NativeProgramPreview: React.FC = () => {
           {isTauriRuntime()
             ? nativeSurfacePresenting
               ? "wgpu Surface"
-              : "Preparing wgpu Surface"
+              : nativeSurfaceError
+                ? "wgpu Surface unavailable"
+                : "Preparing wgpu Surface"
             : "Open the desktop runtime"}
         </span>
         <button
