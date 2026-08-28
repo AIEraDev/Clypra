@@ -141,11 +141,22 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
         // Studio's authoring surface evaluates a SceneDocument. Use the same
         // scene path here so source preview does not use a second legacy
         // renderer with different post-FX/layout behavior.
-        evaluateScene(
-          textEffectConfigToScene(effectConfig),
-          0,
-          ctx,
-        );
+        const publishedScene = (preset as any).scene;
+        if (publishedScene?.effectLayers) {
+          const scene = JSON.parse(JSON.stringify(publishedScene));
+          scene.text.content = effectConfig.text;
+          scene.text.fontFamily = effectConfig.fontFamily;
+          scene.text.fontWeight = effectConfig.fontWeight;
+          scene.text.fontStyle = effectConfig.fontStyle;
+          scene.text.fontSize = effectConfig.fontSize;
+          scene.text.letterSpacing = effectConfig.letterSpacing;
+          scene.text.lineHeight = effectConfig.lineHeight;
+          scene.canvas.width = PREVIEW_CANVAS_W;
+          scene.canvas.height = PREVIEW_CANVAS_H;
+          evaluateScene(scene, 0, ctx);
+        } else {
+          evaluateScene(textEffectConfigToScene(effectConfig), 0, ctx);
+        }
       } catch (error) {
         console.error("[TextSourcePreview] ❌ Error:", error);
         ctx.fillStyle = "#ff0000";

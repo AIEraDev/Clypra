@@ -179,7 +179,7 @@ describe("EffectGrid Component", () => {
     fireEvent.click(applyBtn);
 
     expect(startDownloadSpy).toHaveBeenCalledWith("bold-clean");
-    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledWith("essentials", "bold-clean");
+    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledWith("essentials", "bold-clean", { forceRefresh: true });
 
     // Flush promise microtasks to schedule setTimeout
     await Promise.resolve();
@@ -321,4 +321,3 @@ describe("EffectGrid Component", () => {
     expect(previewTextPresetSpy).not.toHaveBeenCalled();
   });
 });
-

@@ -250,6 +250,22 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
 
   if (layer.styleId) {
     if (effectDef) {
+      // New published effects carry the canonical scene snapshot. Render it
+      // directly so the editor never reconstructs visual state from a second
+      // flat/nested representation.
+      if ((effectDef as any).scene?.effectLayers) {
+        const canonicalScene = JSON.parse(JSON.stringify((effectDef as any).scene));
+        canonicalScene.text.content = layer.text;
+        canonicalScene.text.fontSize = unscaledFontSize;
+        canonicalScene.text.fontFamily = layer.fontFamily || canonicalScene.text.fontFamily;
+        canonicalScene.text.textPosX = layer.textAlign || canonicalScene.text.textPosX;
+        canonicalScene.text.textPosY = layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || canonicalScene.text.textPosY;
+        canonicalScene.canvas.width = unscaledOffW;
+        canonicalScene.canvas.height = unscaledOffH;
+        engineEvaluateScene(canonicalScene, layer.time ?? 0, ctx);
+        return;
+      }
+
       // Use _buildConfig (single source of truth) instead of TextEffectBuilder
       // This properly handles effect native dimensions and scales all effect
       // parameters (stroke width, glow blur, bevel depth) correctly.

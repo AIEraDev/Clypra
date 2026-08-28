@@ -553,6 +553,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             text: targetEffect.text || "CLYPRA", // Use default text from full definition
             presetType: "effect",
             styleId: targetEffect.id,
+            styleRevisionId: targetEffect.revisionId ?? targetEffect.revision?.revisionId,
+            styleContentHash: targetEffect.contentHash ?? targetEffect.revision?.contentHash,
+            styleSnapshot: targetEffect.scene,
             effectDefinition: targetEffect, // ← Pass the full effect definition for proper dimensions
             fontFamily: targetEffect.font?.family,
             color: targetEffect.fills?.[0]?.color,
@@ -595,6 +598,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             name: item.name || item.label,
             presetType: "template",
             templateId: item.id,
+            templateRevisionId: (item as any).revisionId ?? (item as any).revision?.revisionId,
+            templateContentHash: (item as any).contentHash ?? (item as any).revision?.contentHash,
+            templateDefinition: item,
           },
           "text",
         );
@@ -612,6 +618,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         name: template.name || template.label,
         presetType: "template",
         templateId: template.id,
+        templateRevisionId: (template as any).revisionId ?? (template as any).revision?.revisionId,
+        templateContentHash: (template as any).contentHash ?? (template as any).revision?.contentHash,
+        templateDefinition: template,
         customization: customization,
       },
       "text",
@@ -629,6 +638,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         text: text || "CLYPRA",
         presetType: "effect",
         styleId: effect.id,
+        styleRevisionId: effect.revisionId ?? effect.revision?.revisionId,
+        styleContentHash: effect.contentHash ?? effect.revision?.contentHash,
+        styleSnapshot: effect.scene,
         effectDefinition: effect, // ← Pass the full effect definition
         fontFamily: effect.font?.family,
         color: effect.fills?.[0]?.color,

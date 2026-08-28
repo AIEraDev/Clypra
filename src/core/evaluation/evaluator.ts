@@ -132,10 +132,18 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       const textClip = clip as unknown as TextClip;
       const transitionState = evaluateTransitionState(clip, transitionWindows);
 
-      const styleDefinition = resolveTextEffectDefinition(
+      const catalogStyleDefinition = resolveTextEffectDefinition(
         textClip.styleId,
         textClip.styleDefinition,
       );
+      const styleDefinition = catalogStyleDefinition || textClip.styleSnapshot
+        ? ({
+            ...(catalogStyleDefinition || {}),
+            id: textClip.styleId,
+            name: (catalogStyleDefinition as any)?.name || textClip.styleId || "Pinned Text Effect",
+            scene: textClip.styleSnapshot,
+          } as any)
+        : undefined;
 
       const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
       const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : textClip.color || "#ffffff";
@@ -204,6 +212,9 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         background: textClip.background,
         styleId: textClip.styleId,
         styleVersion: textClip.styleVersion,
+        styleRevisionId: textClip.styleRevisionId,
+        styleContentHash: textClip.styleContentHash,
+        styleSnapshot: textClip.styleSnapshot,
         parameterOverrides: textClip.parameterOverrides,
         styleDefinition,
         templateId: textClip.templateId,

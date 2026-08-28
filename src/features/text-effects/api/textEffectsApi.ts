@@ -10,6 +10,10 @@ export interface TextEffectSummary {
   tags: string[];
   thumbnail: string;
   description: string;
+  schemaVersion?: number;
+  revisionId?: string;
+  contentHash?: string;
+  rendererVersion?: string;
 }
 
 const BASE = getApiBaseUrl();
@@ -99,15 +103,18 @@ export const TextEffectsApi = {
   async getFullEffect(
     category: string,
     id: string,
-    options: { forceRefresh?: boolean } = {},
+    options: { forceRefresh?: boolean; revisionId?: string } = {},
   ): Promise<TextEffectDefinition> {
-    const cacheKey = `${category}:${id}`;
+    const cacheKey = `${category}:${id}:${options.revisionId || "latest"}`;
     let data: TextEffectDefinition;
 
     if (!options.forceRefresh && this._effectsCache.has(cacheKey)) {
       data = this._effectsCache.get(cacheKey)!;
     } else {
-      const res = await fetch(`${BASE}/text-effects/${category}/${id}`, {
+      const endpoint = options.revisionId
+        ? `${BASE}/text-effects/${category}/${id}/revisions/${options.revisionId}`
+        : `${BASE}/text-effects/${category}/${id}`;
+      const res = await fetch(endpoint, {
         cache: options.forceRefresh ? "no-store" : "default",
         headers: getApiHeaders(),
       });
@@ -148,13 +155,17 @@ export const TextEffectsApi = {
   },
 
   // 5. LAZY-LOAD heavy canvas templates on-timeline placement with RAM caching
-  async getTemplateData(category: string, id: string): Promise<any> {
-    const cacheKey = `${category}:${id}`;
-    if (this._templateCache.has(cacheKey)) {
+  async getTemplateData(category: string, id: string, options: { forceRefresh?: boolean; revisionId?: string } = {}): Promise<any> {
+    const cacheKey = `${category}:${id}:${options.revisionId || "latest"}`;
+    if (!options.forceRefresh && this._templateCache.has(cacheKey)) {
       return this._templateCache.get(cacheKey)!;
     }
 
-    const res = await fetch(`${BASE}/text-templates/${category}/${id}`, {
+    const endpoint = options.revisionId
+      ? `${BASE}/text-templates/${category}/${id}/revisions/${options.revisionId}`
+      : `${BASE}/text-templates/${category}/${id}`;
+    const res = await fetch(endpoint, {
+      cache: options.forceRefresh ? "no-store" : "default",
       headers: getApiHeaders(),
     });
     if (!res.ok) throw new Error(`Failed to load template payload for: ${id}`);

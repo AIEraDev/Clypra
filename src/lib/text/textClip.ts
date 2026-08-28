@@ -90,6 +90,10 @@ export interface CreateTextClipOptions {
 
   /** Effect catalog version to pin on the created clip. */
   styleVersion?: number;
+  /** Immutable effect revision to pin on the created clip. */
+  styleRevisionId?: string;
+  styleContentHash?: string;
+  styleSnapshot?: import("@clypra-studio/engine").SceneDocument;
 
   /** Template definition/data for accurate content-bounds calculation */
   templateDefinition?: TextTemplate;
@@ -790,6 +794,9 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     words,
     styleId,
     styleVersion,
+    styleRevisionId,
+    styleContentHash,
+    styleSnapshot,
     templateId,
     customization,
     stroke,
@@ -932,6 +939,9 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     options.letterSpacing ?? resolvedEffectDefinition?.font?.letterSpacing ?? 0;
   const resolvedStyleVersion =
     styleVersion ?? (Number(resolvedEffectDefinition?.version) || 1);
+  const resolvedStyleRevisionId = styleRevisionId ?? (resolvedEffectDefinition as any)?.revisionId ?? (resolvedEffectDefinition as any)?.revision?.revisionId;
+  const resolvedStyleContentHash = styleContentHash ?? (resolvedEffectDefinition as any)?.contentHash ?? (resolvedEffectDefinition as any)?.revision?.contentHash;
+  const resolvedStyleSnapshot = styleSnapshot ?? (resolvedEffectDefinition as any)?.scene;
 
   const clip: TextClip = {
     id: generateId("text-clip"),
@@ -965,6 +975,9 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     words, // Include word-level timestamps for karaoke-style highlighting
     styleId,
     styleVersion: resolvedStyleVersion,
+    styleRevisionId: resolvedStyleRevisionId,
+    styleContentHash: resolvedStyleContentHash,
+    styleSnapshot: resolvedStyleSnapshot,
     styleDefinition: resolvedEffectDefinition,
     templateId,
     customization,

@@ -302,6 +302,16 @@ export interface Clip {
   templateId?: string;
   /** Template catalog version captured when this clip was created. */
   templateVersion?: number;
+  /** Immutable template revision captured when this clip was created. */
+  templateRevisionId?: string;
+  templateContentHash?: string;
+  templateSnapshot?: import("@clypra-studio/engine").TextTemplate;
+  templateDependencies?: Array<{
+    effectId: string;
+    revisionId: string;
+    contentHash: string;
+    snapshot?: import("@clypra-studio/engine").SceneDocument;
+  }>;
   /** Direct visual URL retained by template image children when no media asset exists. */
   mediaUrl?: string;
   adjustments?: import("@clypra-studio/engine").ColorAdjustments;
@@ -477,6 +487,10 @@ export interface TextClip extends Clip {
   styleId?: string;
   /** Effect catalog version captured when this clip was created. */
   styleVersion?: number;
+  /** Immutable effect revision captured when this clip was created. */
+  styleRevisionId?: string;
+  styleContentHash?: string;
+  styleSnapshot?: import("@clypra-studio/engine").SceneDocument;
   /** Effect parameters captured when this clip was created. */
   parameterOverrides?: Record<string, any>;
   templateId?: string;

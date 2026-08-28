@@ -81,6 +81,7 @@ class TextEffectPersistentCache {
 
       const cached = await this.getFromIndexedDB(id);
       if (cached && cached.cacheVersion === CACHE_VERSION) {
+        console.log("Text Effect Cache ", cached);
         // Warm memory cache
         this.memoryCache.set(id, cached.definition);
         return cached.definition;
@@ -167,7 +168,11 @@ class TextEffectPersistentCache {
   /**
    * Get cache statistics
    */
-  async getStats(): Promise<{ memoryCount: number; diskCount: number; totalSizeMB: number }> {
+  async getStats(): Promise<{
+    memoryCount: number;
+    diskCount: number;
+    totalSizeMB: number;
+  }> {
     const memoryCount = this.memoryCache.size;
 
     try {
@@ -243,7 +248,10 @@ class TextEffectPersistentCache {
     });
   }
 
-  private async setInIndexedDB(id: string, definition: EffectFullDefinition): Promise<void> {
+  private async setInIndexedDB(
+    id: string,
+    definition: EffectFullDefinition,
+  ): Promise<void> {
     if (!this.db) return;
 
     const cached: CachedEffect = {

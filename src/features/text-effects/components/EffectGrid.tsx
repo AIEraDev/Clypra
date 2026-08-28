@@ -41,6 +41,9 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
         text: effect.text || "CLYPRA",
         presetType: "effect",
         styleId: effect.id,
+        styleRevisionId: effect.revisionId ?? effect.revision?.revisionId,
+        styleContentHash: effect.contentHash ?? effect.revision?.contentHash,
+        styleSnapshot: effect.scene,
         effectDefinition: effect,
         fontFamily: effect.font?.family,
         color: effect.fills?.[0]?.color,
@@ -68,7 +71,7 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
     const cachedEffect = useEffectsStore.getState().definitions[itemId];
     if (downloadedEffects.includes(itemId) && cachedEffect) {
       try {
-        const latestEffect = await TextEffectsApi.getFullEffect(item.category, itemId, { forceRefresh: true });
+        const latestEffect = await TextEffectsApi.getFullEffect(item.category, itemId, { forceRefresh: true, ...(item.revisionId ? { revisionId: item.revisionId } : {}) });
         applyEffectToTimeline(latestEffect);
       } catch {
         // Preserve offline use of downloaded effects when the catalog is
@@ -84,7 +87,7 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
 
     // Lazy load the full effect definition
     try {
-      const fullEffect = await TextEffectsApi.getFullEffect(item.category, item.id, { forceRefresh: true });
+      const fullEffect = await TextEffectsApi.getFullEffect(item.category, item.id, { forceRefresh: true, ...(item.revisionId ? { revisionId: item.revisionId } : {}) });
 
       setTimeout(() => {
         completeDownload(itemId, "effect");
@@ -125,7 +128,7 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
       // A Studio publish can update an effect without changing its id. Source
       // preview must therefore validate against the latest definition rather
       // than replaying an older memory/IndexedDB copy.
-      const fullEffect = await TextEffectsApi.getFullEffect(item.category, itemId, { forceRefresh: true });
+      const fullEffect = await TextEffectsApi.getFullEffect(item.category, itemId, { forceRefresh: true, ...(item.revisionId ? { revisionId: item.revisionId } : {}) });
 
       const loadTime = (performance.now() - startTime).toFixed(2);
       console.log(`[EffectGrid:Preview] ✅ Effect loaded in ${loadTime}ms: ${itemId}`);

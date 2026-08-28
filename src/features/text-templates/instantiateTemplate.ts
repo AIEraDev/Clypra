@@ -39,6 +39,13 @@ export function instantiateTemplate(
   const duration = template.defaultDuration || template.duration || 4.0;
   const canvasWidth = options.canvasWidth || template.canvasWidth || 1920;
   const canvasHeight = options.canvasHeight || template.canvasHeight || 1080;
+  const revision = (template as any).revision;
+  const templateRevisionId = (template as any).revisionId ?? revision?.revisionId;
+  const templateContentHash = (template as any).contentHash ?? revision?.contentHash;
+  const templateSnapshot = cloneSerializable(template);
+  const templateDependencies = Array.isArray((template as any).dependencies)
+    ? cloneSerializable((template as any).dependencies)
+    : undefined;
 
   // Build child clips for each template element
   const elements = template.elements && template.elements.length > 0
@@ -80,6 +87,10 @@ export function instantiateTemplate(
     mediaId: `compound-${compoundId}`,
     templateId: template.id,
     templateVersion: template.version ?? 1,
+    templateRevisionId,
+    templateContentHash,
+    templateSnapshot: templateSnapshot as any,
+    templateDependencies,
     compoundChildren: children,
     compoundPreview: template.thumbnailUrl || template.thumbnail,
   };
@@ -103,6 +114,10 @@ export function instantiateTemplateElement(
     textIndex?: number;
     templateId: string;
     templateVersion: number;
+    templateRevisionId?: string;
+    templateContentHash?: string;
+    templateSnapshot?: TemplateDefinition;
+    templateDependencies?: any[];
   }
 ): Clip {
   const {
@@ -113,6 +128,10 @@ export function instantiateTemplateElement(
     textIndex = 0,
     templateId,
     templateVersion,
+    templateRevisionId,
+    templateContentHash,
+    templateSnapshot,
+    templateDependencies,
   } = context;
 
   if (element.kind === "text") {
@@ -172,6 +191,10 @@ export function instantiateTemplateElement(
         : undefined,
       templateId,
       templateVersion,
+      templateRevisionId,
+      templateContentHash,
+      templateSnapshot: templateSnapshot as any,
+      templateDependencies,
       x: element.relativePosition.x,
       y: element.relativePosition.y,
       width: element.width,
@@ -291,9 +314,12 @@ export function applyTemplateStyle(
     parameterOverrides: textProps.parameterOverrides
       ? cloneSerializable(textProps.parameterOverrides)
       : undefined,
-    styleDefinition: pinnedStyleDefinition
-      ? cloneSerializable(pinnedStyleDefinition)
-      : undefined,
+      styleDefinition: pinnedStyleDefinition
+        ? cloneSerializable(pinnedStyleDefinition)
+        : undefined,
+      styleRevisionId: textProps.styleRef?.revisionId ?? (textProps as any).styleRevisionId,
+      styleContentHash: textProps.styleRef?.contentHash ?? (textProps as any).styleContentHash,
+      styleSnapshot: textProps.styleRef?.snapshot ?? (textProps as any).styleSnapshot,
   };
 }
 
