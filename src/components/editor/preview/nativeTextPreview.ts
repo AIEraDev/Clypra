@@ -3,6 +3,7 @@ import { effectBleed, resolveTextEffectDefinition } from "@/lib/text/textClip";
 import { getTextRenderMetrics, normalizeFontSize } from "@/lib/utils/fixedSizing";
 import { rasterizeTextLayer } from "@/core/render/textRasterizer";
 import { getFontLoader } from "@/core/fonts/FontLoader";
+import { traceTextRenderGeometry } from "@/core/render/textRenderTrace";
 
 export interface NativeTextRasterAsset {
   assetId: string;
@@ -131,6 +132,35 @@ export async function rasterizeTextLayerForNative(
   const bleedY = Math.max(metrics.paddingY, bleed.y);
   const width = Math.max(1, Math.ceil(layer.width + bleedX * 2));
   const height = Math.max(1, Math.ceil(layer.height + bleedY * 2));
+  traceTextRenderGeometry({
+    path: "program-preview",
+    assetId: layer.styleId,
+    revisionId: layer.styleRevisionId,
+    contentHash: layer.styleContentHash,
+    layer: {
+      layerId: layer.layerId,
+      x: layer.x,
+      y: layer.y,
+      width: layer.width,
+      height: layer.height,
+      fontFamily: layer.fontFamily,
+      fontSize: layer.fontSize,
+      fontWeight: layer.fontWeight,
+      fontStyle: layer.fontStyle,
+      textAlign: layer.textAlign,
+      verticalAlign: layer.verticalAlign,
+    },
+    render: {
+      bleedX,
+      bleedY,
+      rasterWidth: width,
+      rasterHeight: height,
+      rasterX: layer.x - bleedX,
+      rasterY: layer.y - bleedY,
+      renderer: "shared-text-effect-engine -> native-raster-composite",
+    },
+    authoredCanvas: (effectDefinition as any)?.scene?.canvas,
+  });
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d", { alpha: true });
   if (!ctx) throw new Error("Unable to create a 2D context for native text rasterization");
