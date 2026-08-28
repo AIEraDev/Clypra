@@ -78,6 +78,33 @@ describe("FontLoader", () => {
 
       expect(result.loaded).toBe(true);
     });
+
+    it("loads bundled editor fonts locally without injecting Google Fonts", async () => {
+      const result = await loader.ensureFont({
+        family: "Bebas Neue",
+        weight: 700,
+        style: "normal" as const,
+      });
+
+      expect(result.loaded).toBe(true);
+      expect(mockFonts.load).toHaveBeenCalledWith(
+        'normal 700 16px "Bebas Neue"',
+      );
+      expect(document.getElementById("gfont-bebas-neue")).toBeNull();
+    });
+
+    it("resolves variable-font aliases to their local CSS family", async () => {
+      const result = await loader.ensureFont({
+        family: "Inter",
+        weight: 600,
+        style: "normal" as const,
+      });
+
+      expect(result.loaded).toBe(true);
+      expect(mockFonts.load).toHaveBeenCalledWith(
+        'normal 600 16px "Inter Variable"',
+      );
+    });
   });
 
   describe("ensureFonts", () => {
