@@ -40,6 +40,21 @@ export function tracePlayback(
   }
 }
 
+/** Log only render/playback stages that exceed one frame budget. */
+export function traceSlowPlaybackStage(
+  stage: string,
+  startedAtMs: number,
+  details: Record<string, unknown> = {},
+): void {
+  const durationMs = performance.now() - startedAtMs;
+  if (durationMs < 16) return;
+  tracePlayback("slow-stage", {
+    stage,
+    durationMs: Number(durationMs.toFixed(2)),
+    ...details,
+  });
+}
+
 export interface PlaybackTraceEvent {
   category: "playback";
   event: string;
@@ -108,7 +123,13 @@ class PlaybackMetricsCollector {
       event.includes("timeline-ready") ||
       event.includes("audio-ready") ||
       event.includes("audio-status") ||
-      event.includes("audio-audibility")
+      event.includes("audio-audibility") ||
+      event.includes("lifecycle") ||
+      event.includes("surface") ||
+      event.includes("playback") ||
+      event.includes("pause") ||
+      event.includes("present") ||
+      event.includes("slow")
     );
   }
 
