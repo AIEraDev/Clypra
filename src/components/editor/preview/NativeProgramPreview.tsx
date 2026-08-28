@@ -108,6 +108,12 @@ import {
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
 
+function isExpectedStaleNativePreviewError(error: unknown): boolean {
+  return /native preview frame request is stale|request cancelled/i.test(
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
 const CANVAS_DIMENSIONS: Record<
   Exclude<AspectRatio, "original">,
   { width: number; height: number }
@@ -841,10 +847,6 @@ export const NativeProgramPreview: React.FC = () => {
     const nativePrefetchCompleted = nativePrefetchStateRef.current.completed;
     const nativePrefetchFailedAt = nativePrefetchStateRef.current.failedAt;
 
-    // Native frame decode/presentation is asynchronous. A small measured
-    // look-ahead keeps the frame that completes aligned with the audio clock
-    // instead of presenting the frame that was current when decoding started.
-    let nativePresentationLatencyMs = 0;
     let nativeSurfaceShown = false;
     let lastNativePlaybackRequestKey = "";
     let visibleRequestKey = "";
@@ -866,6 +868,40 @@ export const NativeProgramPreview: React.FC = () => {
     const registeredNativeBodyMaskAssets = new Set<string>();
     const nativeFrontendPerfSpans = new Map<string, NativePerfSpan>();
     const maxNativeBodyMaskCacheEntries = 90;
+
+    const getNativeRenderTarget = (
+      state: typeof renderStateRef.current,
+      isPlaying: boolean,
+      isInteracting: boolean,
+    ): { width: number; height: number; quality: NativeFrameRequest["quality"] } => {
+      const manager = qualityManagerRef.current;
+      if (!manager) {
+        return {
+          width: Math.max(1, Math.round(state.canvasWidth)),
+          height: Math.max(1, Math.round(state.canvasHeight)),
+          quality: "full",
+        };
+      }
+
+      const tier = manager.selectTierForInteraction(
+        isPlaying,
+        isInteracting,
+        false,
+        state.previewQuality,
+      );
+      const profile = manager.getRenderProfile(tier);
+      const quality: NativeFrameRequest["quality"] =
+        tier === PreviewQualityTier.Interaction
+          ? "quarter"
+          : tier === PreviewQualityTier.Playback
+            ? "half"
+            : "full";
+      return {
+        width: Math.max(1, profile.maxWidth),
+        height: Math.max(1, profile.maxHeight),
+        quality,
+      };
+    };
 
     const ensureNativeBodyMaskAssetRegistered = async (
       asset: NativeRasterLayerSnapshot & { rgba: number[] },
@@ -1167,6 +1203,7 @@ export const NativeProgramPreview: React.FC = () => {
 
       const task = (async () => {
         const time = getFrameStartTime(targetFrame / frameRate, frameRate);
+        const prefetchTarget = getNativeRenderTarget(state, true, false);
         const scene = evaluateTimelineSceneCached(
           time,
           state.clips,
@@ -1193,8 +1230,8 @@ export const NativeProgramPreview: React.FC = () => {
         const smartOverlays = await nativeRasterBridge.rasterizeSmartOverlays(
           activeSmartClips,
           time,
-          state.canvasWidth,
-          state.canvasHeight,
+          prefetchTarget.width,
+          prefetchTarget.height,
           { frameKey: targetFrame },
         );
         const request = buildNativeFrameRequest(
@@ -1202,10 +1239,13 @@ export const NativeProgramPreview: React.FC = () => {
           revision,
           targetFrame,
           frameRate,
-          state.canvasWidth,
-          state.canvasHeight,
+          prefetchTarget.width,
+          prefetchTarget.height,
           [...bridgeRasters, ...bodyMasks, ...smartOverlays],
-          { mode: "prefetch", quality: "full" },
+          {
+            mode: "prefetch",
+            quality: prefetchTarget.quality,
+          },
         );
         if (!request) return;
 
@@ -1256,11 +1296,10 @@ export const NativeProgramPreview: React.FC = () => {
       const durationFrames = Math.max(1, Math.ceil(state.clock.duration * frameRate));
       const candidates = new Set<number>();
 
-      // Target activation boundaries rather than every adjacent frame. The
-      // retained surface already queues its measured playback look-ahead;
-      // this path exists to prepare the expensive first-use assets for a
-      // layer that begins several seconds ahead without competing with the
-      // currently visible video decode.
+      // Target activation boundaries rather than every adjacent frame. This
+      // path prepares expensive first-use assets for a layer that begins
+      // several seconds ahead without competing with the currently visible
+      // video decode. It is intentionally not a second visible-frame loop.
       for (const clip of state.clips) {
         if (clip.kind === "audio" || clip.startTime <= currentTime) continue;
         const boundary = Math.min(
@@ -1300,6 +1339,11 @@ export const NativeProgramPreview: React.FC = () => {
         const frameRate = state.project?.frameRate ?? 30;
         const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
         const frameStartTime = getFrameStartTime(timeToRender, frameRate);
+        const renderTarget = getNativeRenderTarget(
+          state,
+          isPlaying,
+          !isPlaying && clock.isSeeking,
+        );
         const requestIntent = latestSeekIntent
           ? {
               generation: latestSeekIntent.generation,
@@ -1307,15 +1351,12 @@ export const NativeProgramPreview: React.FC = () => {
                 isPlaying && latestSeekIntent.mode !== "scrub"
                   ? ("playback" as const)
                   : latestSeekIntent.mode,
-              quality:
-                isPlaying && latestSeekIntent.mode !== "scrub"
-                  ? ("full" as const)
-                  : latestSeekIntent.quality,
+              quality: renderTarget.quality,
               velocityPxPerSecond: latestSeekIntent.velocityPxPerSecond,
               requestedAtMs: latestSeekIntent.issuedAtMs,
             }
           : isPlaying
-            ? { mode: "playback" as const, quality: "full" as const }
+            ? { mode: "playback" as const, quality: renderTarget.quality }
             : undefined;
 
         const timeChanged = frameIndex !== lastRenderedFrameIndex;
@@ -1367,6 +1408,25 @@ export const NativeProgramPreview: React.FC = () => {
         const nativeBridgeRasters = await nativeRasterBridge.rasterize(scene, {
           frameKey: frameIndex,
         });
+        // Playback is a latest-frame stream. If the clock advanced while the
+        // WebView was rasterizing an integration layer, abandon this work
+        // before doing more raster/IPC work or presenting an obsolete frame.
+        // Paused seeks remain strict and are checked by targetStillCurrent()
+        // after their awaited native response below.
+        const playbackTargetStillCurrent = () => {
+          const current = renderStateRef.current;
+          return (
+            !isPlaying ||
+            (current.project?.id === state.project?.id &&
+              current.epoch === state.epoch &&
+              current.clock.state === "playing" &&
+              getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex)
+          );
+        };
+        if (!playbackTargetStillCurrent()) {
+          forceRenderNeeded = true;
+          return;
+        }
         const nativeBodyMasks = await rasterizeNativeBodyMasks(
           scene,
           session?.getPreviewVideoElements() ?? new Map(),
@@ -1383,10 +1443,14 @@ export const NativeProgramPreview: React.FC = () => {
           await nativeRasterBridge.rasterizeSmartOverlays(
             nativeActiveSmartClips,
             frameStartTime,
-            state.canvasWidth,
-            state.canvasHeight,
+            renderTarget.width,
+            renderTarget.height,
             { frameKey: frameIndex },
           );
+        if (!playbackTargetStillCurrent()) {
+          forceRenderNeeded = true;
+          return;
+        }
         const nativeRasterLayers = [
           ...nativeBridgeRasters,
           ...nativeBodyMasks,
@@ -1397,8 +1461,8 @@ export const NativeProgramPreview: React.FC = () => {
           `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
           frameIndex,
           frameRate,
-          state.canvasWidth,
-          state.canvasHeight,
+          renderTarget.width,
+          renderTarget.height,
           nativeRasterLayers,
           requestIntent,
         );
@@ -1436,79 +1500,12 @@ export const NativeProgramPreview: React.FC = () => {
           });
         }
         if (isPlaying) prefetchUpcomingNativeFrames(frameIndex);
-        let nativePlaybackRequest = nativeRequest;
-        if (isPlaying && nativeRequest && nativePresentationLatencyMs > 0) {
-          const leadFrames = Math.min(
-            6,
-            Math.max(
-              0,
-              Math.round((nativePresentationLatencyMs * frameRate) / 1000),
-            ),
-          );
-          if (leadFrames > 0) {
-            const durationFrames = Math.max(
-              1,
-              Math.ceil(state.clock.duration * frameRate),
-            );
-            const lookAheadFrame = Math.min(
-              durationFrames - 1,
-              frameIndex + leadFrames,
-            );
-            if (lookAheadFrame !== frameIndex) {
-              const lookAheadTime = getFrameStartTime(
-                lookAheadFrame / frameRate,
-                frameRate,
-              );
-              const lookAheadScene = evaluateTimelineSceneCached(
-                lookAheadTime,
-                state.clips,
-                state.tracks,
-                state.mediaAssets,
-                state.project,
-                state.epoch,
-                state.transitions,
-                state.sceneVersions,
-              );
-              const lookAheadBridgeRasters = await nativeRasterBridge.rasterize(
-                lookAheadScene,
-                { frameKey: lookAheadFrame },
-              );
-              const lookAheadSmartClips = state.clips.filter(
-                (clip): clip is SmartOverlayClip =>
-                  clip.kind === "smart-overlay" &&
-                  lookAheadTime >= clip.startTime &&
-                  // Bug 4 fix: use strict < to match the evaluator boundary convention
-                  // (startTime <= evalTime < clipEnd). The visible-frame path at line
-                  // 1015 was already corrected; the look-ahead path had the same bug.
-                  lookAheadTime < clip.startTime + clip.duration,
-              );
-              const lookAheadSmartOverlays =
-                await nativeRasterBridge.rasterizeSmartOverlays(
-                  lookAheadSmartClips,
-                  lookAheadTime,
-                  state.canvasWidth,
-                  state.canvasHeight,
-                  { frameKey: lookAheadFrame },
-                );
-              nativePlaybackRequest =
-                buildNativeFrameRequest(
-                  lookAheadScene,
-                  `${state.project?.id ?? "unknown-project"}:${state.epoch}`,
-                  lookAheadFrame,
-                  frameRate,
-                  state.canvasWidth,
-                  state.canvasHeight,
-                  [...lookAheadBridgeRasters, ...lookAheadSmartOverlays],
-                  requestIntent
-                    ? { ...requestIntent, mode: "playback-lookahead" as const }
-                    : {
-                        mode: "playback-lookahead" as const,
-                        quality: "full" as const,
-                      },
-                ) ?? nativeRequest;
-            }
-          }
-        }
+        // Present the frame that was actually evaluated. Building a second
+        // look-ahead scene here doubles WebView rasterization and IPC exactly
+        // when the renderer is already behind. Native queue/prefetch remains
+        // responsible for bounded decode warm-up; this loop is latest-frame
+        // only and must never make the visible frame wait for another frame.
+        const nativePlaybackRequest = nativeRequest;
         const nativeRequestKey = nativeRequest
           ? getNativeFrameRequestKey(nativeRequest)
           : "";
@@ -1547,8 +1544,7 @@ export const NativeProgramPreview: React.FC = () => {
         const nativePausedPath =
           isTauriRuntime() && Boolean(nativeRequest) && !isPlaying;
         // The retained native surface owns every desktop frame state. A paused
-        // frame uses the exact request; playback may use the latency-compensated
-        // look-ahead request above.
+        // frame and playback both use the exact request evaluated for this tick.
         const nativePlaybackRequestKey = nativePlaybackRequest
           ? getNativeFrameRequestKey(nativePlaybackRequest)
           : nativeRequestKey;
@@ -1658,7 +1654,6 @@ export const NativeProgramPreview: React.FC = () => {
             const requestKey = getNativeFrameRequestKey(requestToPresent);
             if (requestKey !== lastNativePlaybackRequestKey) {
               lastNativePlaybackRequestKey = requestKey;
-              const requestStartedAt = performance.now();
               const requestSource: NativePreviewRequestSource = {
                 requestKey,
                 frameIndex: requestToPresent.frameTime.frameIndex,
@@ -1677,11 +1672,6 @@ export const NativeProgramPreview: React.FC = () => {
                 )
                   .then((presentation) => {
                     frontendSpan?.markIpcFinished();
-                    const elapsedMs = performance.now() - requestStartedAt;
-                    nativePresentationLatencyMs =
-                      nativePresentationLatencyMs > 0
-                        ? nativePresentationLatencyMs * 0.75 + elapsedMs * 0.25
-                        : elapsedMs;
                     if (!presentation.presented) {
                       const droppedTextLayers =
                         requestToPresent.project.textLayers ?? [];
@@ -1764,6 +1754,16 @@ export const NativeProgramPreview: React.FC = () => {
                     }
                   })
                   .catch((error) => {
+                    if (isExpectedStaleNativePreviewError(error)) {
+                      // A newer playback tick can invalidate a request while
+                      // native decode is still unwinding. This is expected
+                      // latest-frame behavior, not a renderer fault.
+                      frontendSpan?.markIpcFinished();
+                      frontendSpan?.finish({ stale: true });
+                      lastNativePlaybackRequestKey = "";
+                      forceRenderNeeded = true;
+                      return;
+                    }
                     console.error("[native-preview] surface-present-failed", {
                       frameIndex: requestToPresent.frameTime.frameIndex,
                       requestKey,
@@ -1943,6 +1943,19 @@ export const NativeProgramPreview: React.FC = () => {
                 // retry this exact request. One failed readback must not
                 // permanently disable paused seeking.
                 nativeFrame = null;
+                const stale = isExpectedStaleNativePreviewError(error);
+                if (stale) {
+                  // Stale paused work is expected during rapid scrubbing. It
+                  // must not trip the renderer circuit breaker or show a
+                  // native-only failure toast for an obsolete frame.
+                  const frontendSpan =
+                    nativeFrontendPerfSpans.get(nativeRequestKey);
+                  frontendSpan?.finish({ stale: true });
+                  nativeFrontendPerfSpans.delete(nativeRequestKey);
+                  nativeRetryAt = 0;
+                  forceRenderNeeded = true;
+                  return;
+                }
                 if (nativeFailureKey !== nativeRequestKey) {
                   nativeFailureKey = nativeRequestKey;
                   nativeFailureCount = 0;
@@ -1957,9 +1970,7 @@ export const NativeProgramPreview: React.FC = () => {
                 const frontendSpan =
                   nativeFrontendPerfSpans.get(nativeRequestKey);
                 frontendSpan?.finish({
-                  stale:
-                    error instanceof Error &&
-                    /stale|cancel/i.test(error.message),
+                  stale,
                   cancelled:
                     error instanceof DOMException &&
                     error.name === "AbortError",
@@ -1983,7 +1994,7 @@ export const NativeProgramPreview: React.FC = () => {
             // trigger a full GPU composition plus RGBA readback, and all requests
             // for one source serialize on its decoder mutex. On a seek this turns
             // eight background frames into visible latency for the next target.
-            // Playback lookahead uses the retained native surface path instead.
+            // Playback prefetch uses the retained native surface path instead.
 
             if (!targetStillCurrent()) {
               forceRenderNeeded = true;

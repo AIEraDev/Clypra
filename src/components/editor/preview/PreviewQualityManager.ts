@@ -92,8 +92,8 @@ export class PreviewQualityManager {
         const w = this.sequenceWidth * scale;
         const h = this.sequenceHeight * scale;
         return {
-          maxWidth: Math.floor(w),
-          maxHeight: Math.floor(h),
+          maxWidth: Math.max(1, Math.floor(w)),
+          maxHeight: Math.max(1, Math.floor(h)),
           dprScale: 1.0,
           useDpr: false,
           estimatedVRAMBytes: w * h * 4,
@@ -106,8 +106,8 @@ export class PreviewQualityManager {
         const w = this.sequenceWidth * scale;
         const h = this.sequenceHeight * scale;
         return {
-          maxWidth: Math.floor(w),
-          maxHeight: Math.floor(h),
+          maxWidth: Math.max(1, Math.floor(w)),
+          maxHeight: Math.max(1, Math.floor(h)),
           dprScale: 1.0,
           useDpr: false,
           estimatedVRAMBytes: w * h * 4,
@@ -120,8 +120,8 @@ export class PreviewQualityManager {
         const w = this.sequenceWidth * scale;
         const h = this.sequenceHeight * scale;
         return {
-          maxWidth: Math.floor(w),
-          maxHeight: Math.floor(h),
+          maxWidth: Math.max(1, Math.floor(w)),
+          maxHeight: Math.max(1, Math.floor(h)),
           dprScale: 1.0,
           useDpr: false,
           estimatedVRAMBytes: w * h * 4,
@@ -134,8 +134,8 @@ export class PreviewQualityManager {
         const w = this.sequenceWidth * scale;
         const h = this.sequenceHeight * scale;
         return {
-          maxWidth: Math.floor(w),
-          maxHeight: Math.floor(h),
+          maxWidth: Math.max(1, Math.floor(w)),
+          maxHeight: Math.max(1, Math.floor(h)),
           dprScale: this.dpr,
           useDpr: true,
           estimatedVRAMBytes: w * h * 4,

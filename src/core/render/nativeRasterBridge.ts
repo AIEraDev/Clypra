@@ -105,6 +105,10 @@ export class NativeRasterBridge {
 
     const rasterWidth = Math.max(1, Math.round(width));
     const rasterHeight = Math.max(1, Math.round(height));
+    // The rendered pixels are time-dependent, so this cache is intentionally
+    // frame-addressed. The preview scheduler is responsible for ensuring that
+    // only the newest playback frame reaches this method; callers must not
+    // turn this into an unbounded background queue.
     const assetId = `native-smart-overlay:${options.frameKey}:${stableSerialize(activeClips)}`;
     const existing = this.assetsById.get(assetId);
     if (existing) {
@@ -281,7 +285,16 @@ export class NativeRasterBridge {
 
     const width = Math.max(1, Math.round(scene.metadata.canvasWidth));
     const height = Math.max(1, Math.round(scene.metadata.canvasHeight));
-    const assetId = `native-background:${frameKey}:${stableSerialize(background)}`;
+    // Gradients are immutable for a given configuration and dimensions. The
+    // old frame-keyed identity forced a full-canvas getImageData() and native
+    // upload on every playback frame even though the pixels never changed.
+    // Shaders are time-dependent and remain frame-addressed until they have a
+    // native procedural implementation.
+    const backgroundIdentity = stableSerialize(background);
+    const timeDependent = background.type === "shader";
+    const assetId = timeDependent
+      ? `native-background:${frameKey}:${backgroundIdentity}`
+      : `native-background:${backgroundIdentity}:${width}x${height}`;
     const existing = this.assetsById.get(assetId);
     if (existing) {
       await this.register(existing);

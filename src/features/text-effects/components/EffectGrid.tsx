@@ -45,19 +45,6 @@ export function EffectGrid({ searchQuery = "", onAddToTimeline }: EffectGridProp
         styleContentHash: effect.contentHash ?? effect.revision?.contentHash,
         styleSnapshot: effect.scene,
         effectDefinition: effect,
-        fontFamily: effect.font?.family,
-        color: effect.fills?.[0]?.color,
-        fontWeight: effect.font?.weight,
-        fontStyle: effect.font?.style,
-        stroke: effect.strokes?.[0] ? { color: effect.strokes[0].color, width: effect.strokes[0].width } : undefined,
-        shadow: effect.shadows?.[0] ? { color: effect.shadows[0].color, blur: effect.shadows[0].blur, offsetX: effect.shadows[0].offsetX ?? 0, offsetY: effect.shadows[0].offsetY ?? 0 } : undefined,
-        background: effect.panel
-          ? {
-              color: effect.panel.color || "rgba(0,0,0,0.6)",
-              padding: effect.panel.paddingX !== undefined ? effect.panel.paddingX : 12,
-              borderRadius: effect.panel.radius !== undefined ? effect.panel.radius : 6,
-            }
-          : undefined,
       },
       "text",
     );

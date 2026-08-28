@@ -129,6 +129,49 @@ describe("calculateTextClipSize", () => {
     expect(clip.styleDefinition).toBe(inkGlowEffect);
   });
 
+  it("uses canonical scene typography when legacy effect fields are absent", () => {
+    const canonicalEffect = {
+      id: "canonical-mango",
+      name: "Canonical Mango",
+      category: "outline",
+      description: "",
+      tags: [],
+      scene: {
+        schemaVersion: 2,
+        canvas: { width: 800, height: 200, background: "transparent" },
+        text: {
+          content: "CLYPRA",
+          fontFamily: "Bangers",
+          fontWeight: 900,
+          fontStyle: "normal",
+          fontSize: 140,
+          letterSpacing: 5,
+          lineHeight: 1.3,
+          textPosX: "center",
+          textPosY: "middle",
+        },
+        effectLayers: [],
+      },
+    } as any;
+
+    const clip = createTextClip({
+      trackId: "track-1",
+      startTime: 0,
+      duration: 3,
+      text: "CLYPRA",
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      styleId: "canonical-mango",
+      effectDefinition: canonicalEffect,
+    });
+
+    expect(clip.fontFamily).toBe("Bangers");
+    expect(clip.fontSize).toBe(140);
+    expect(clip.fontWeight).toBe(900);
+    expect(clip.lineHeight).toBe(1.3);
+    expect(clip.letterSpacing).toBe(5);
+  });
+
   it("does not put ink-effect render bleed into the editable text box height", () => {
     const sized = calculateTextClipSize({
       text: "CLYPRA",
