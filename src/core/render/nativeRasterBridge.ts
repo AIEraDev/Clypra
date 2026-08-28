@@ -353,7 +353,9 @@ export class NativeRasterBridge {
       this.registeredAssetIds.delete(oldestId);
     }
     if (!force && this.registeredAssetIds.has(asset.assetId)) return;
-    await registerNativeRasterAsset(asset);
+    if (asset.rgba && asset.rgba.length > 0) {
+      await registerNativeRasterAsset(asset);
+    }
     this.registeredAssetIds.add(asset.assetId);
   }
 }
