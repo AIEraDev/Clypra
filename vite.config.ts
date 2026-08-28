@@ -35,6 +35,13 @@ const workspaceAlias = hasWorkspace
         workspacePackagesDir,
         "clypra-engine/src/index.ts",
       ),
+      // Text effects must use the same sibling shared-engine source in local
+      // development as Studio; otherwise the editor silently tests the stale
+      // npm package and can diverge on contributor state/rendering.
+      "@clypra-studio/engine": path.resolve(
+        workspacePackagesDir,
+        "clypra-engine/src/index.ts",
+      ),
     }
   : {};
 
