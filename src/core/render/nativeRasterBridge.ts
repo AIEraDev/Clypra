@@ -87,6 +87,17 @@ export class NativeRasterBridge {
   }
 
   /**
+   * Warm only the text path for an upcoming timeline boundary. This is kept
+   * separate from `rasterize` so playback can prepare a font/effect without
+   * also decoding or uploading unrelated media for a frame that is not yet
+   * visible.
+   */
+  async prewarmTextAssets(scene: EvaluatedScene): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await this.rasterizeText(scene);
+  }
+
+  /**
    * Smart overlays are evaluated as timeline entities rather than visual scene
    * layers. Keep that distinction explicit while giving preview and export the
    * same native raster representation.
