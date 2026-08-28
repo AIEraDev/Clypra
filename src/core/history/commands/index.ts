@@ -23,3 +23,17 @@ export { GroupClipsCommand, UngroupClipsCommand, validateGroupSelection } from "
 export { DuplicateClipsCommand } from "./DuplicateClipCommand";
 export { SwapClipsCommand } from "./SwapClipsCommand";
 export { TimelineDragCommand, buildTimelineDragCommand, buildTimelineDragResult } from "./TimelineDragCommand";
+export {
+  AddCaptionTrackCommand,
+  RemoveCaptionTrackCommand,
+  UpdateCaptionTrackCommand,
+  AddCaptionCueCommand,
+  RemoveCaptionCueCommand,
+  UpdateCaptionCueCommand,
+  BatchUpdateCaptionCuesCommand,
+} from "./CaptionCommands";
+export {
+  AddStickerCommand,
+  DeleteStickerCommand,
+  UpdateStickerSettingsCommand,
+} from "./StickerCommands";
