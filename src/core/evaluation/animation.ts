@@ -23,7 +23,10 @@ export interface NumericKeyframe {
     | "ease-in-out"
     | "bezier"
     | "cubic-bezier"
-    | "exponential";
+    | "exponential"
+    | "logarithmic"
+    | "hold"
+    | (string & {});
   controlPoints?: [number, number, number, number];
 }
 
