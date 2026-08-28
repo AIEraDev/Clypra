@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, test, expect, vi } from "vitest";
 import { renderTextEffect, renderTextEffectToDataURL, renderTextEffectAsync } from "../renderer";
 import { TextEffectDefinition } from "../types/types";
-import { _buildConfig } from "@clypra-studio/engine";
+import { _buildConfig, textEffectConfigToScene, defaultConfig as engineDefaultConfig } from "@clypra-studio/engine";
 const SolarisInkDefinition: TextEffectDefinition = {
   id: "solaris-ink",
   name: "Solaris Ink",
@@ -115,8 +115,6 @@ describe("text effect config builder", () => {
       canvasWidth: 800,
       canvasHeight: 200,
       strokeWidth: 20,
-      customRenderer: "InkBrushEngine",
-      inkColor: "#FF174D",
     } as TextEffectDefinition & Record<string, unknown>;
 
     const config = _buildConfig(effect, "NEON", 75, 600, 200);
@@ -125,8 +123,6 @@ describe("text effect config builder", () => {
     expect(config.canvasWidth).toBe(600);
     expect(config.canvasHeight).toBe(200);
     expect(config.strokeWidth).toBe(1.5);
-    expect(config.customRenderer).toBe("InkBrushEngine");
-    expect(config.inkColor).toBe("#FF174D");
   });
 });
 
@@ -254,6 +250,29 @@ describe("Clypra Text Effects Engine & Presets", () => {
         renderTextEffect(canvas, "Clypra Test", effect, 48);
       }).not.toThrow();
     });
+  });
+
+  test("prefers the canonical scene over contradictory legacy style fields", () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 200;
+    const scene = textEffectConfigToScene({
+      ...engineDefaultConfig,
+      text: "CANONICAL",
+      fillType: "solid",
+      fillColor: "#00FF00",
+      canvasWidth: 800,
+      canvasHeight: 200,
+    });
+    const effect = {
+      ...SolarisInkDefinition,
+      fills: [{ type: "solid", color: "#FF0000" }],
+      scene,
+    } as TextEffectDefinition;
+
+    renderTextEffect(canvas, "CANONICAL", effect, 80);
+
+    expect(mockCtx.fillStyle).toBe("#00FF00");
   });
 
   test("renderTextEffectToDataURL generates a valid base64 PNG data URL", () => {
