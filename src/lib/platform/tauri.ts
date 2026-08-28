@@ -456,14 +456,46 @@ export async function getNativePreviewSurfaceGeometry(
 
   const rect = element.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  const windowPosition = await getCurrentWindow().innerPosition();
-  return {
+  const currentWindow = getCurrentWindow();
+  // On macOS with `titleBarStyle: "Overlay"`, WKWebView coordinates start at
+  // the window's outer origin while `innerPosition()` refers to the client
+  // area. The native child uses `set_position`, which sets its outer position.
+  // Mixing those coordinate spaces moves the surface vertically by the native
+  // title-bar inset and makes it cover the preview header. Use the same outer
+  // coordinate space on macOS; retain client-area coordinates elsewhere.
+  const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const windowPosition = isMac
+    ? await currentWindow.outerPosition()
+    : await currentWindow.innerPosition();
+  // `element` is the actual centered program viewport. Do not clamp its top
+  // to the toolbar or subtract a fixed header clearance here: that changes
+  // the native surface aspect ratio and top-aligns the frame, which leaves a
+  // black strip at the bottom when the viewport is letterboxed. The header is
+  // already outside this element in the flex layout.
+  const geometry = {
     xPhysical: windowPosition.x + Math.round(rect.left * dpr),
     yPhysical: windowPosition.y + Math.round(rect.top * dpr),
     widthPhysical: Math.max(1, Math.round(rect.width * dpr)),
     heightPhysical: Math.max(1, Math.round(rect.height * dpr)),
     devicePixelRatio: dpr,
   };
+
+  if (import.meta.env.DEV) {
+    console.debug("[native-preview] surface-geometry", {
+      rect: {
+        left: Number(rect.left.toFixed(2)),
+        top: Number(rect.top.toFixed(2)),
+        width: Number(rect.width.toFixed(2)),
+        height: Number(rect.height.toFixed(2)),
+      },
+      dpr,
+      positionSpace: isMac ? "outer" : "inner",
+      windowPosition,
+      geometry,
+    });
+  }
+
+  return geometry;
 }
 
 /** Notify native preview geometry when the host window moves. */
