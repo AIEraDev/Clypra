@@ -1261,6 +1261,38 @@ impl MultiTrackCompositor {
         uniforms: &TransitionUniforms,
         #[cfg(target_arch = "wasm32")] is_gl: bool,
     ) -> Result<(Vec<u8>, u64, u64), String> {
+        self.render_transition_with_overlays_to_rgba_bytes_timed(
+            device,
+            queue,
+            width,
+            height,
+            from_view,
+            to_view,
+            uniforms,
+            &[],
+            Some(wgpu::Color::BLACK),
+            #[cfg(target_arch = "wasm32")]
+            is_gl,
+        )
+        .await
+    }
+
+    /// Render a transition with text/overlay layers on top and return CPU-observable
+    /// composition and readback durations.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn render_transition_with_overlays_to_rgba_bytes_timed(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        from_view: &wgpu::TextureView,
+        to_view: &wgpu::TextureView,
+        uniforms: &TransitionUniforms,
+        overlays: &[CompositeLayer<'_>],
+        clear_color: Option<wgpu::Color>,
+        #[cfg(target_arch = "wasm32")] is_gl: bool,
+    ) -> Result<(Vec<u8>, u64, u64), String> {
         let texture_desc = wgpu::TextureDescriptor {
             label: Some("Transition Render Target"),
             size: wgpu::Extent3d {
@@ -1287,8 +1319,12 @@ impl MultiTrackCompositor {
             from_view,
             to_view,
             uniforms,
-            Some(wgpu::Color::BLACK),
+            clear_color.or(Some(wgpu::Color::BLACK)),
         )?;
+
+        if !overlays.is_empty() {
+            self.composite_layers(device, queue, &target_view, overlays, None)?;
+        }
         let compose_us = compose_started.elapsed().as_micros() as u64;
         let readback_started = std::time::Instant::now();
 
