@@ -27,7 +27,8 @@ import { create } from "zustand";
 import { platform } from "@/core/platform";
 import type { Project, MediaAsset, TransitionTimelineItem, TimelineMarker } from "@/types";
 import type { Gap } from "@/types/gap";
-import { AUDIO_MODEL_VERSION, MAX_PROJECT_NAME_LENGTH } from "@/types";
+import type { CaptionTrack } from "@/types/captions";
+import { AUDIO_MODEL_VERSION, CAPTION_MODEL_VERSION, MAX_PROJECT_NAME_LENGTH } from "@/types";
 import { toRustProject, type ProjectPersistenceSnapshot } from "@/types/serialization";
 import { generateId } from "@/lib/utils/id";
 import { convertRawConfigToDefinition } from "@/features/text-effects/lib/definitionConversion";
@@ -38,6 +39,13 @@ import { saveSnapshot, clearSnapshot } from "@/core/runtime/CrashRecoveryService
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { tracePlayback } from "@/core/playback/playbackTrace";
+import {
+  clearNativeSurfaceReadiness,
+  ensureNativeSurfaceReadiness,
+  hideNativeSurfaceWhenIdle,
+  waitForNativeSurfaceReady,
+} from "@/core/runtime/nativeSurfaceLifecycle";
 import { toast } from "@/lib/toast";
 import { suppressAutoSave, enableAutoSave } from "./middleware/autoSaveMiddleware";
 import type { ProjectSaveResult, RecentProjectEntry } from "@/core/platform/platform";
@@ -63,7 +71,19 @@ interface ProjectStore {
   setToastMessage: (message: string | null, variant?: "success" | "error" | "warning") => void;
   /** Convenience: show toast with variant and auto-dismiss. */
   showToast: (message: string, variant?: "success" | "error" | "warning", durationMs?: number) => void;
-  createProject: (name: string, aspectRatio: string, frameRate: 24 | 30 | 60) => Promise<void>;
+  createProject: (
+    name: string,
+    aspectRatio: string,
+    frameRate: 24 | 30 | 60,
+    initialTimeline?: {
+      tracks?: any[];
+      clips?: any[];
+      transitions?: TransitionTimelineItem[];
+      gaps?: Gap[];
+      canvasWidth?: number;
+      canvasHeight?: number;
+    },
+  ) => Promise<void>;
   createProjectFromTemplate: (templateId: string, customName?: string) => Promise<void>;
   loadProject: (
     project: Project,
@@ -73,6 +93,7 @@ interface ProjectStore {
       transitions?: TransitionTimelineItem[];
       gaps?: Gap[];
       markers?: TimelineMarker[];
+      captionTracks?: CaptionTrack[];
       mediaAssets?: MediaAsset[];
       mainVideoTrackId?: string | null;
     },
@@ -104,6 +125,8 @@ export type ProjectInitializationPhase =
   | "hydrating-timeline"
   | "warming-text"
   | "starting-preview"
+  | "verifying-media"
+  | "closing"
   | "error";
 
 export interface ProjectInitializationState {
@@ -117,8 +140,25 @@ export interface ProjectInitializationState {
 
 const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 
-// ✅ FIX-005: Load mutex to prevent concurrent project loads
-let loadInProgress: Promise<void> | null = null;
+// Project transitions are one transaction. Opening, creating, and closing
+// projects share this tail so a second request waits for the first request's
+// session, native surface, media, and store cleanup to finish.
+let projectTransitionTail: Promise<void> = Promise.resolve();
+
+function withProjectTransition<T>(operation: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const previous = projectTransitionTail;
+  projectTransitionTail = previous.then(() => gate, () => gate);
+
+  return previous
+    .catch(() => undefined)
+    .then(operation)
+    .finally(release);
+}
+
 let currentLoadId = 0;
 let initializationSequence = 0;
 
@@ -168,7 +208,7 @@ async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapsh
   if (!project) return null;
 
   const { useTimelineStore } = await import("./timelineStore");
-  const { tracks, clips, transitions, gaps, markers, epoch, mainVideoTrackId } = useTimelineStore.getState();
+  const { tracks, clips, transitions, gaps, markers, captionTracks, epoch, mainVideoTrackId } = useTimelineStore.getState();
 
   return {
     project,
@@ -178,6 +218,7 @@ async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapsh
     transitions,
     gaps,
     markers,
+    captionTracks: captionTracks ?? [],
     epoch,
     timelineSchemaVersion: project.timelineSchemaVersion ?? 1,
     migrated: false,
@@ -187,6 +228,7 @@ async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapsh
       transitions,
       gaps,
       markers,
+      captionTracks: captionTracks ?? [],
       mediaAssets,
       mainVideoTrackId,
     }),
@@ -428,6 +470,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   projectInitialization: null,
   beginProjectInitialization: (projectName) => {
     const id = ++initializationSequence;
+    tracePlayback("project-lifecycle-start", {
+      initializationId: id,
+      projectName,
+    });
     set({
       projectInitialization: {
         id,
@@ -440,6 +486,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     return id;
   },
   updateProjectInitialization: (initializationId, phase, progress, message) => {
+    tracePlayback("project-lifecycle-phase", {
+      initializationId,
+      phase,
+      progress,
+      message,
+    });
     set((state) => {
       if (state.projectInitialization?.id !== initializationId) return state;
       return {
@@ -454,12 +506,14 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     });
   },
   completeProjectInitialization: (initializationId) => {
+    tracePlayback("project-lifecycle-complete", { initializationId });
     set((state) => {
       if (state.projectInitialization?.id !== initializationId) return state;
       return { projectInitialization: null };
     });
   },
   failProjectInitialization: (initializationId, error) => {
+    tracePlayback("project-lifecycle-error", { initializationId, error });
     set((state) => {
       if (state.projectInitialization?.id !== initializationId) return state;
       return {
@@ -506,7 +560,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
   },
 
-  createProject: async (name, aspectRatio, frameRate) => {
+  createProject: (name, aspectRatio, frameRate, initialTimeline = {}) => withProjectTransition(async () => {
     const initializationId = get().beginProjectInitialization(name.trim() || "Untitled Project");
     get().updateProjectInitialization(initializationId, "preparing", 12, "Creating project session…");
 
@@ -530,21 +584,29 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
       aspectRatio: aspectRatio as any,
-      canvasWidth: dims.width,
-      canvasHeight: dims.height,
+      canvasWidth: initialTimeline.canvasWidth ?? dims.width,
+      canvasHeight: initialTimeline.canvasHeight ?? dims.height,
       frameRate,
       duration: 0,
       timelineSchemaVersion: 1,
       audioModelVersion: AUDIO_MODEL_VERSION,
+      captionModelVersion: CAPTION_MODEL_VERSION,
     };
 
+    ensureNativeSurfaceReadiness(project.id);
     set({ project, mediaAssets: [], isDirty: false });
     get().updateProjectInitialization(initializationId, "hydrating-timeline", 36, "Building timeline…");
 
     // Let timelineStore reset its own state
     try {
       const { useTimelineStore } = await import("./timelineStore");
-      useTimelineStore.getState().hydrateFromProject({ tracks: [], clips: [], transitions: [], gaps: [] });
+      useTimelineStore.getState().hydrateFromProject({
+        tracks: initialTimeline.tracks ?? [],
+        clips: initialTimeline.clips ?? [],
+        transitions: initialTimeline.transitions ?? [],
+        gaps: initialTimeline.gaps ?? [],
+        captionTracks: (initialTimeline as any)?.captionTracks ?? [],
+      });
     } catch {}
 
     // Initialize runtime session
@@ -563,7 +625,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
     get().completeProjectInitialization(initializationId);
     get().scheduleAutoSave();
-  },
+  }),
 
   createProjectFromTemplate: async (templateId, customName) => {
     const { getTemplateById } = await import("@/features/templates/projectTemplates");
@@ -573,15 +635,6 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
 
     const name = customName || template.name;
-    await get().createProject(name, template.aspectRatio, template.frameRate);
-
-    const currentProj = get().project;
-    if (currentProj) {
-      const updatedProj = { ...currentProj, canvasWidth: template.width, canvasHeight: template.height };
-      set({ project: updatedProj });
-    }
-
-    const { useTimelineStore } = await import("./timelineStore");
     const initialTracks = template.initialTracks.map((t) => ({
       id: generateId("track"),
       type: t.type as any,
@@ -592,7 +645,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       height: TRACK_TYPE_CONFIG[t.type as keyof typeof TRACK_TYPE_CONFIG]?.height ?? 30,
     }));
 
-    useTimelineStore.getState().hydrateFromProject({
+    // Include the template timeline in the same transaction as project
+    // creation. The loading modal must not disappear while a second,
+    // untracked hydration pass is still changing the session's scene.
+    await get().createProject(name, template.aspectRatio, template.frameRate, {
+      canvasWidth: template.width,
+      canvasHeight: template.height,
       tracks: initialTracks,
       clips: [],
       transitions: [],
@@ -600,22 +658,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     });
   },
 
-  loadProject: async (project, payload) => {
+  loadProject: (project, payload) => withProjectTransition(async () => {
     const loadId = ++currentLoadId;
-
-    // ✅ FIX-005: Wait for previous load to complete to prevent concurrent load races
-    if (loadInProgress) {
-      await loadInProgress;
-    }
-
-    // Check if we were superceded while waiting for the previous load
-    if (loadId !== currentLoadId) {
-      return;
-    }
-
-    // Wrap load logic in a promise we can track
-    loadInProgress = (async () => {
-      const initializationId = get().beginProjectInitialization(project.name);
+    const initializationId = get().beginProjectInitialization(project.name);
       if (autoSaveTimer) {
         clearTimeout(autoSaveTimer);
         autoSaveTimer = null;
@@ -654,6 +699,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // PHASE 2: Load Project & Media Assets
         // ═══════════════════════════════════════════════════════════════════════════════
         get().updateProjectInitialization(initializationId, "loading-assets", 18, "Loading project assets…");
+        ensureNativeSurfaceReadiness(project.id);
         set({ project, mediaAssets: payload?.mediaAssets ?? [] });
 
         const allPayloadClips = flattenClips(payload?.clips);
@@ -719,7 +765,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           transitions: payload?.transitions ?? [],
           gaps: payload?.gaps ?? [],
           markers: payload?.markers ?? [],
-          mainVideoTrackId: payload?.mainVideoTrackId,
+          ...(payload?.captionTracks !== undefined ? { captionTracks: payload.captionTracks } : {}),
+          ...(payload?.mainVideoTrackId !== undefined ? { mainVideoTrackId: payload.mainVideoTrackId } : {}),
           cleanEmptyTracks: true,
         });
 
@@ -736,50 +783,47 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         });
 
         if (currentLoadId !== loadId) return;
-        set({ isDirty: false });
-        get().completeProjectInitialization(initializationId);
 
         // ═══════════════════════════════════════════════════════════════════════════════
-        // PHASE 5: Prewarm Video Decoders (Background)
+        // PHASE 5: Prewarm Video Decoders (required before opening)
         // ═══════════════════════════════════════════════════════════════════════════════
+        get().updateProjectInitialization(initializationId, "starting-preview", 94, "Prewarming media decoders…");
         try {
           const { prewarmDecoders } = await import("@/lib/platform/tauri");
           const videoAssets = (payload?.mediaAssets ?? []).filter((a) => a.type === "video");
           if (videoAssets.length > 0) {
             const videoPaths = videoAssets.map((a) => a.path);
-            // ✅ FIX (RACE-002): Capture project ID before the async call. Validate it in the
-            // .then() callback so that if the user switches projects during the Rust decode
-            // operation the stale result is discarded instead of polluting the decoder pool.
-            const projectIdAtPrewarm = project.id;
-            prewarmDecoders(videoPaths).then((count) => {
-              const currentProject = get().project;
-              if (!currentProject || currentProject.id !== projectIdAtPrewarm) {
-                return;
-              }
-            });
+            // This is part of the open barrier so first play cannot compete
+            // with native decoder initialization.
+            await prewarmDecoders(videoPaths);
           }
         } catch (err) {
-          // Prewarming failed silently - graceful degradation
+          // The platform helper already degrades safely; keep opening if the
+          // optional prewarm command itself cannot be loaded.
+          console.warn("[projectStore] Video decoder prewarm unavailable", err);
         }
 
+        get().updateProjectInitialization(initializationId, "starting-preview", 96, "Waiting for native preview surface…");
+        await waitForNativeSurfaceReady(project.id);
+
         // ═══════════════════════════════════════════════════════════════════════════════
-        // PHASE 6: Verify Media Files on Disk
+        // PHASE 6: Verify Media Files on Disk (required before opening)
         // ═══════════════════════════════════════════════════════════════════════════════
+        get().updateProjectInitialization(initializationId, "verifying-media", 97, "Verifying project media…");
         const loadedProjectId = project.id;
-        get()
-          .checkMissingMedia()
-          .then((missingIds) => {
-            const currentProject = get().project;
-            if (!currentProject || currentProject.id !== loadedProjectId) return;
-            if (missingIds.length > 0) {
-              get().showToast(
-                `${missingIds.length} media file${missingIds.length > 1 ? "s are" : " is"} missing or offline. Use Relink Media to locate.`,
-                "warning",
-                5000,
-              );
-            }
-          })
-          .catch(() => {});
+        const missingIds = await get().checkMissingMedia();
+        const currentProject = get().project;
+        if (currentProject?.id === loadedProjectId && missingIds.length > 0) {
+          get().showToast(
+            `${missingIds.length} media file${missingIds.length > 1 ? "s are" : " is"} missing or offline. Use Relink Media to locate.`,
+            "warning",
+            5000,
+          );
+        }
+
+        if (currentLoadId !== loadId) return;
+        set({ isDirty: false });
+        get().completeProjectInitialization(initializationId);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         get().failProjectInitialization(initializationId, message);
@@ -799,13 +843,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         throw error;
       } finally {
         enableAutoSave();
-        // ✅ FIX-005: Clear load mutex after completion
-        loadInProgress = null;
       }
-    })();
-
-    return loadInProgress;
-  },
+  }),
 
   addMediaAsset: (asset) => {
     set((state) => {
@@ -1158,9 +1197,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
   },
 
-  closeProject: async () => {
+  closeProject: () => withProjectTransition(async () => {
     currentLoadId++; // Cancel any active load
     get().clearProjectInitialization();
+
+    // Hide the process-global child surface before disposing the session. This
+    // is awaited through the same queue used by preview React effects, so an
+    // old unmount cannot hide a surface belonging to the next project.
+    await hideNativeSurfaceWhenIdle().catch((error) => {
+      console.warn("[projectStore] Native preview surface was already unavailable during close", error);
+    });
 
     // Cancel the debounce, then always flush the latest in-memory state. This
     // is intentionally independent of the auto-save preference and timer.
@@ -1177,6 +1223,15 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         get().showToast("Failed to save before closing", "error");
         throw error;
       }
+    }
+
+    // saveCurrentProject may schedule a crash-recovery flush. Finish that
+    // write before clearing the snapshot, otherwise close and reopen can race
+    // and recreate the snapshot that close is meant to remove.
+    if (crashRecoveryPromise) {
+      await crashRecoveryPromise.catch((error) => {
+        console.warn("[projectStore] Crash-recovery flush did not finish cleanly during close", error);
+      });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -1200,6 +1255,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // PHASE 3: Clear ProjectStore State
     // ═══════════════════════════════════════════════════════════════════════════════
     const closedProjectId = get().project?.id;
+    if (closedProjectId) clearNativeSurfaceReadiness(closedProjectId);
     set({ project: null, mediaAssets: [], isDirty: false });
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -1208,7 +1264,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // Let timelineStore clear its own state
     try {
       const { useTimelineStore } = await import("./timelineStore");
-      useTimelineStore.getState().hydrateFromProject({ tracks: [], clips: [], transitions: [], gaps: [] });
+      useTimelineStore.getState().hydrateFromProject({ tracks: [], clips: [], transitions: [], gaps: [], captionTracks: [] });
     } catch (err) {}
 
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -1227,12 +1283,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     crashRecoveryFirstMutation = null;
 
     lifecycleMonitor.record("PROJECT_DISPOSE", { projectId: closedProjectId });
-    clearSnapshot().catch(() => {});
+    // Crash-recovery cleanup is part of a clean close. Await it so reopening
+    // cannot immediately see a stale recovery snapshot from this project.
+    await clearSnapshot().catch((error) => {
+      console.warn("[projectStore] Failed to clear crash-recovery snapshot during close", error);
+    });
     try {
       const { projectThumbnailService } = await import("@/core/thumbnails/ProjectThumbnailService");
       projectThumbnailService.reset();
     } catch {}
-  },
+  }),
 
   saveCurrentProject: async () => {
     // Capture only after any earlier save has completed so this explicit
