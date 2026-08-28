@@ -66,6 +66,10 @@ export function instantiateTemplate(
       textIndex: currentTextIndex,
       templateId: template.id,
       templateVersion: template.version ?? 1,
+      templateRevisionId,
+      templateContentHash,
+      templateSnapshot,
+      templateDependencies,
     });
   });
 

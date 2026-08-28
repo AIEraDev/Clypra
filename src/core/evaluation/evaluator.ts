@@ -135,6 +135,8 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       const catalogStyleDefinition = resolveTextEffectDefinition(
         textClip.styleId,
         textClip.styleDefinition,
+        textClip.styleRevisionId,
+        textClip.styleContentHash,
       );
       const styleDefinition = catalogStyleDefinition || textClip.styleSnapshot
         ? ({
@@ -218,6 +220,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         parameterOverrides: textClip.parameterOverrides,
         styleDefinition,
         templateId: textClip.templateId,
+        templateRevisionId: textClip.templateRevisionId,
+        templateContentHash: textClip.templateContentHash,
+        templateSnapshot: textClip.templateSnapshot,
+        templateDependencies: textClip.templateDependencies,
         customization: textClip.customization,
       };
 

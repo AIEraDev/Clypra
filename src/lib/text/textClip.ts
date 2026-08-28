@@ -510,12 +510,22 @@ export function calculateTextClipSize(options: {
 export function resolveTextEffectDefinition(
   styleId?: string,
   effectDefinition?: TextEffectDefinition,
+  revisionId?: string,
+  contentHash?: string,
 ): TextEffectDefinition | undefined {
   if (effectDefinition) return effectDefinition;
   if (!styleId) return undefined;
-  return useEffectsStore.getState().definitions[styleId] as
+  const definition = useEffectsStore.getState().definitions[styleId] as
     | TextEffectDefinition
     | undefined;
+  if (!definition) return undefined;
+  const identity = useEffectsStore.getState().definitionRevisions?.[styleId] ?? {
+    revisionId: (definition as any).revisionId ?? (definition as any).revision?.revisionId,
+    contentHash: (definition as any).contentHash ?? (definition as any).revision?.contentHash,
+  };
+  if (revisionId && identity.revisionId !== revisionId) return undefined;
+  if (contentHash && identity.contentHash !== contentHash) return undefined;
+  return definition;
 }
 
 export interface TextTemplateContentSize {

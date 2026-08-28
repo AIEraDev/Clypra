@@ -25,7 +25,9 @@
     "paths": {
       "@/*": ["./src/*"],
       "@clypra/ui-color-picker": ["../clypra-packages/packages/ui-color-picker/dist/index.d.ts"],
-      "@clypra/ui-color-picker/*": ["../clypra-packages/packages/ui-color-picker/dist/*"]
+      "@clypra/ui-color-picker/*": ["../clypra-packages/packages/ui-color-picker/dist/*"],
+      "@clypra-studio/engine": ["../clypra-packages/packages/clypra-engine/src/index.ts"],
+      "@clypra-studio/engine/*": ["../clypra-packages/packages/clypra-engine/src/*"]
     },
 
     /* Test type declarations */

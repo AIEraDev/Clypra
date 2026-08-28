@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useCallback } from "react";
 import { TemplatePreviewPlayer } from "@/features/text-templates";
 import { evaluateScene, textEffectConfigToScene, type TextEffectConfig, _buildConfig } from "@clypra-studio/engine";
 import { getFontLoader } from "@/core/fonts/FontLoader";
+import { traceTextRenderScene } from "@/core/render/textRenderTrace";
 
 // Effects are designed for this banner canvas size (800×200).
 const PREVIEW_CANVAS_W = 800;
@@ -153,9 +154,26 @@ export const TextSourcePreview: React.FC<TextSourcePreviewProps> = ({ preset }) 
           scene.text.lineHeight = effectConfig.lineHeight;
           scene.canvas.width = PREVIEW_CANVAS_W;
           scene.canvas.height = PREVIEW_CANVAS_H;
+          traceTextRenderScene(scene, {
+            path: "source-preview",
+            assetId: (preset as any).id,
+            category: (preset as any).category,
+            revisionId: (preset as any).revisionId,
+            contentHash: (preset as any).contentHash,
+            time: 0,
+          });
           evaluateScene(scene, 0, ctx);
         } else {
-          evaluateScene(textEffectConfigToScene(effectConfig), 0, ctx);
+          const scene = textEffectConfigToScene(effectConfig);
+          traceTextRenderScene(scene, {
+            path: "source-preview",
+            assetId: (preset as any).id,
+            category: (preset as any).category,
+            revisionId: (preset as any).revisionId,
+            contentHash: (preset as any).contentHash,
+            time: 0,
+          });
+          evaluateScene(scene, 0, ctx);
         }
       } catch (error) {
         console.error("[TextSourcePreview] ❌ Error:", error);

@@ -26,6 +26,7 @@ export class TextEffectsCacheManager {
     // 1. Clear Zustand store memory cache
     useEffectsStore.setState({
       definitions: {},
+      definitionRevisions: {},
       index: {},
       selectedEffect: null,
       selectedCategory: null,
@@ -68,7 +69,9 @@ export class TextEffectsCacheManager {
     useEffectsStore.setState((state) => {
       const newDefinitions = { ...state.definitions };
       delete newDefinitions[effectId];
-      return { definitions: newDefinitions };
+      const definitionRevisions = { ...state.definitionRevisions };
+      delete definitionRevisions[effectId];
+      return { definitions: newDefinitions, definitionRevisions };
     });
 
     // 2. Remove from IndexedDB

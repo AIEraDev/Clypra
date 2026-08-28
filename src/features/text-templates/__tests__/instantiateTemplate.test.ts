@@ -121,6 +121,30 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect(childText.duration).toBe(4.0);
   });
 
+  it("pins template revision and snapshot on every instantiated child", () => {
+    const revisionedTemplate = {
+      ...singleElementTemplate,
+      revision: {
+        assetId: "minimal-title-v1",
+        revisionId: "rev-17",
+        contentHash: "fnv1a-template-17",
+      },
+      dependencies: [{
+        effectId: "neon-glow",
+        revisionId: "effect-rev-4",
+        contentHash: "fnv1a-effect-4",
+      }],
+    } as any;
+
+    const compoundClip = instantiateTemplate(revisionedTemplate, { trackId: "track-1", startTime: 0 });
+    const childText = compoundClip.compoundChildren![0] as TextClip;
+
+    expect(childText.templateRevisionId).toBe("rev-17");
+    expect(childText.templateContentHash).toBe("fnv1a-template-17");
+    expect(childText.templateSnapshot).toEqual(revisionedTemplate);
+    expect(childText.templateDependencies).toEqual(revisionedTemplate.dependencies);
+  });
+
   it("derives a child style version from its pinned definition when omitted", () => {
     const template: TemplateDefinition = {
       ...singleElementTemplate,

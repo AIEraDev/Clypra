@@ -12,6 +12,32 @@ function drawScene(targetCtx: CanvasRenderingContext2D, cfg: TextEffectConfig, t
   engineEvaluateScene(scene, time, targetCtx);
 }
 
+function drawCanonicalScene(
+  targetCtx: CanvasRenderingContext2D,
+  effect: TextEffectDefinition,
+  text: string,
+  fontSize: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  time: number,
+): boolean {
+  if (!effect.scene?.effectLayers) return false;
+
+  // Published effects may contain both a canonical scene and legacy flat
+  // fields. The scene is authoritative; only runtime text/layout inputs are
+  // overridden for this timeline instance.
+  const scene = JSON.parse(JSON.stringify(effect.scene));
+  scene.text.content = text;
+  scene.text.fontSize = fontSize;
+  scene.text.fontFamily = effect.font?.family || scene.text.fontFamily;
+  scene.text.fontWeight = effect.font?.weight || scene.text.fontWeight;
+  scene.text.fontStyle = effect.font?.style || scene.text.fontStyle;
+  scene.canvas.width = canvasWidth;
+  scene.canvas.height = canvasHeight;
+  engineEvaluateScene(scene, time, targetCtx);
+  return true;
+}
+
 // textEffectConfigToScene is pure — cache by config object identity to avoid
 // rebuilding the full SceneDocument on every animation frame.
 const _sceneCache = new WeakMap<object, ReturnType<typeof textEffectConfigToScene>>();
@@ -52,6 +78,20 @@ export const renderTextEffectToContext = (ctx: CanvasRenderingContext2D | Offscr
     renderRegisteredEffect(ctx, effect, text, fontSize, canvasWidth, canvasHeight, time, clipStartTime, clipDuration);
     ctx.fillText = originalFillText;
     ctx.strokeText = originalStrokeText;
+    return;
+  }
+
+  if (
+    drawCanonicalScene(
+      ctx as CanvasRenderingContext2D,
+      effect,
+      text,
+      fontSize,
+      canvasWidth,
+      canvasHeight,
+      time ?? 0,
+    )
+  ) {
     return;
   }
 
