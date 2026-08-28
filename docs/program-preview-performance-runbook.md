@@ -243,18 +243,66 @@ The permanent playback contract is:
   abandon the obsolete work and schedule the current frame.
 - The visible playback loop builds one scene and one request per tick. It does
   not render a second look-ahead scene. Native queue/prefetch is the only
-  bounded decode warm-up mechanism.
-- Existing text boundaries are prewarmed during native session initialization,
-  with a five-second budget. Browser font loading, native font registration,
-  and text-effect rasterization therefore finish before first play whenever
-  possible. Newly inserted text uses a deferred look-ahead prewarm of up to
-  eight seconds; neither path may decode a second visible video frame or block
-  transport controls.
+  bounded decode warm-up mechanism, and it must not be launched from the
+  visible playback RAF because queue_native_frame shares the decoder mutex
+  with presentation. Session startup decoder prewarming is the safe cold-start
+  path; text assets have their separate isolated prewarm path.
+- Existing text boundaries are fully prewarmed during native session
+  initialization. Opening does not complete while browser font loading, native
+  font registration, or text-effect rasterization is still in flight. Newly
+  inserted text uses a deferred look-ahead prewarm of up to eight seconds;
+  neither path may decode a second visible video frame or block transport
+  controls.
 - Project creation, project opening, and crash-session recovery are gated by a
   blocking initialization modal. The modal is driven by the project-store
   lifecycle state, reports the active phase, and remains visible until the
   timeline and preview session are ready. This makes text/font prewarming an
   explicit startup contract instead of hidden work racing the first play.
+
+### 12. The native surface is a session resource, not a component side effect
+
+The native preview surface is process-global because it is hosted by a retained
+Tauri child window. Treating it as a set of independent React side effects made
+geometry updates, project cleanup, and frame presentation race one another. A
+resize could hide the only visible frame, expose an empty DOM canvas, and then
+wait indefinitely for a paused render loop to wake.
+
+The permanent ownership contract is:
+
+- `nativeSurfaceLifecycle.ts` is the sole owner of surface configure, resize,
+  present ordering, and release. Preview components may request a transaction;
+  they must not call native surface commands directly.
+- Every configure request has a monotonically increasing revision. A stale
+  revision cannot overwrite a newer project or geometry transaction.
+- Same-owner geometry changes are non-destructive: the retained surface stays
+  visible while the child window is moved/resized, and the next presentation is
+  serialized behind that operation.
+- Project release is the only normal path that hides the surface. It runs after
+  all earlier presentations and clears ownership so a later project cannot be
+  hidden by stale cleanup.
+- Completing a surface transaction wakes the event-driven paused renderer. A
+  native resize must never rely on an unrelated timeline event to repaint.
+- The native child window receives one canonical monitor-space rectangle from
+  the DOM viewport. Coordinate-space conversion belongs at that boundary and
+  must not be patched with fixed header offsets or render-scale adjustments.
+- The visible Program Preview render loop is also gated by that lifecycle
+  state. It must not start while the project is exposed to React but its
+  `ProjectSession` is still initializing, and it must use the active session's
+  shared raster bridge. A modal that only covers the UI is insufficient if a
+  background RAF can still issue a stopped-state native render during startup.
+- Project transitions are serialized. A second open/create/close request waits
+  for the current transition, and close awaits native-surface hide, save and
+  crash-recovery flush, session disposal, media release, store reset, timeline
+  reset, and snapshot cleanup before the project is removed from the UI. Native
+  surface lifecycle commands use the same queue as React cleanup so repeated
+  close/open cannot hide the next project's surface.
+- Built-in editor fonts are vendored as local WOFF2 assets. The application
+  must not import Google Fonts globally or invoke the engine's Google Fonts
+  injection path for a bundled family. The application font boundary resolves
+  bundled aliases to the local CSS family and reserves the remote fallback for
+  genuinely custom families only. This keeps font loading deterministic and
+  prevents a network stylesheet from appearing at a text boundary during
+  playback.
 - Static raster inputs use content/configuration-based asset identities and
   may be reused across frames. Time-dependent inputs, such as shaders, remain
   frame-addressed until they have a native procedural implementation.
@@ -299,6 +347,25 @@ Before changing React scheduling, UI rendering, or native policy:
    logging is suspected.
 7. Only after native timings identify the cost should UI or React work be
    considered.
+
+### Reproducing a lifecycle/playback hang
+
+In a development build, reproduce in this order: open the existing project,
+press Play, wait for the first visible boundary, press Pause, then seek across
+the first text and image boundaries. The React diagnostics use the existing
+structured playback trace and now include `project-lifecycle-*`,
+`surface-*`, `playback-state`, `native-present-*`, and
+`pause-surface-handoff` events. Capture the complete sequence from the first
+`project-lifecycle-start` through the freeze or blank frame; do not capture
+only the final toast.
+
+For a production-like debug run, enable the bounded trace before reproducing:
+
+```js
+localStorage.setItem("clypra:debug:playback", "1");
+```
+
+Disable it afterward with `localStorage.removeItem("clypra:debug:playback")`.
 
 ## Benchmark record
 
