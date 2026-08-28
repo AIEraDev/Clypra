@@ -1,13 +1,31 @@
 import {
   hideNativeSurface,
   isTauriRuntime,
+  probeNativeSurface,
+  resizeNativeSurface,
 } from "@/lib/platform/tauri";
 import { tracePlayback } from "@/core/playback/playbackTrace";
+import type { NativeSurfaceGeometry, NativeSurfaceProbe } from "@/lib/platform/nativeCore";
 
 // Native surface commands address one process-global child window in the Tauri
 // host. Keep lifecycle operations ordered across React mounts and project
 // transitions so a stale cleanup cannot hide a newly opened project's surface.
 let nativeSurfaceOperationTail: Promise<void> = Promise.resolve();
+let nativeSurfaceOwner: string | null = null;
+let nativeSurfaceGeometryKey = "";
+let nativeSurfaceConfigured = false;
+let nativeSurfaceRevision = 0;
+let nativeSurfaceProbe: NativeSurfaceProbe | null = null;
+
+function getGeometryKey(geometry: NativeSurfaceGeometry): string {
+  return [
+    geometry.xPhysical,
+    geometry.yPhysical,
+    geometry.widthPhysical,
+    geometry.heightPhysical,
+    geometry.devicePixelRatio,
+  ].join(":");
+}
 
 interface SurfaceReadinessState {
   generation: number;
@@ -45,6 +63,120 @@ export function enqueueNativeSurfaceOperation<T>(
 export function hideNativeSurfaceWhenIdle(): Promise<void> {
   if (!isTauriRuntime()) return Promise.resolve();
   return enqueueNativeSurfaceOperation(() => hideNativeSurface());
+}
+
+export interface NativeSurfaceConfiguration {
+  ownerProjectId: string;
+  revision: number;
+  geometryKey: string;
+  probe: NativeSurfaceProbe;
+}
+
+export function isNativeSurfaceRequestSuperseded(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === "Native surface geometry request was superseded"
+  );
+}
+
+/**
+ * Configure the process-global native surface as one transaction.
+ *
+ * A preview component must not independently hide, resize, or probe this
+ * surface. Those operations are global and React effects can outlive the
+ * component that scheduled them. The coordinator owns the surface identity
+ * and serializes the complete hide -> configure -> ready transaction.
+ */
+export function configureNativeSurface(
+  ownerProjectId: string,
+  geometry: NativeSurfaceGeometry,
+): Promise<NativeSurfaceConfiguration> {
+  const requestedRevision = ++nativeSurfaceRevision;
+  const requestedGeometryKey = getGeometryKey(geometry);
+
+  if (!isTauriRuntime()) {
+    return Promise.reject(new Error("Native surface requires the Tauri runtime"));
+  }
+
+  return enqueueNativeSurfaceOperation(async () => {
+    if (requestedRevision !== nativeSurfaceRevision) {
+      throw new Error("Native surface geometry request was superseded");
+    }
+
+    if (
+      nativeSurfaceConfigured &&
+      nativeSurfaceOwner === ownerProjectId &&
+      nativeSurfaceGeometryKey === requestedGeometryKey &&
+      nativeSurfaceProbe
+    ) {
+      return {
+        ownerProjectId,
+        revision: requestedRevision,
+        geometryKey: requestedGeometryKey,
+        probe: nativeSurfaceProbe,
+      };
+    }
+
+    // A geometry update must not blank the retained frame. The native surface
+    // remains visible while the OS moves/resizes it; the operation lane keeps
+    // the resize ahead of the next presentation. Only a new owner requires a
+    // hide before the initial configure.
+    const ownerChanged =
+      nativeSurfaceConfigured && nativeSurfaceOwner !== ownerProjectId;
+    if (ownerChanged || !nativeSurfaceConfigured) {
+      await hideNativeSurface().catch(() => undefined);
+    }
+    const probe = nativeSurfaceConfigured && !ownerChanged
+      ? await resizeNativeSurface(geometry)
+      : await probeNativeSurface(geometry);
+
+    nativeSurfaceOwner = ownerProjectId;
+    nativeSurfaceGeometryKey = requestedGeometryKey;
+    nativeSurfaceConfigured = true;
+    nativeSurfaceProbe = probe;
+    tracePlayback("surface-configured", {
+      projectId: ownerProjectId,
+      revision: requestedRevision,
+      geometryKey: requestedGeometryKey,
+      width: probe.windowWidthPhysical,
+      height: probe.windowHeightPhysical,
+    });
+
+    return {
+      ownerProjectId,
+      revision: requestedRevision,
+      geometryKey: requestedGeometryKey,
+      probe,
+    };
+  });
+}
+
+/** Serialize a frame presentation behind surface configuration/release. */
+export function presentOnNativeSurface<T>(
+  ownerProjectId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return enqueueNativeSurfaceOperation(async () => {
+    if (!nativeSurfaceConfigured || nativeSurfaceOwner !== ownerProjectId) {
+      throw new Error("Native preview surface is not configured for this project");
+    }
+    return operation();
+  });
+}
+
+/** Release ownership only after all prior presents have completed. */
+export function releaseNativeSurface(ownerProjectId: string): Promise<void> {
+  nativeSurfaceRevision += 1;
+  if (!isTauriRuntime()) return Promise.resolve();
+  return enqueueNativeSurfaceOperation(async () => {
+    if (nativeSurfaceOwner !== ownerProjectId) return;
+    await hideNativeSurface().catch(() => undefined);
+    nativeSurfaceOwner = null;
+    nativeSurfaceGeometryKey = "";
+    nativeSurfaceConfigured = false;
+    nativeSurfaceProbe = null;
+    tracePlayback("surface-owner-released", { projectId: ownerProjectId });
+  });
 }
 
 export function resetNativeSurfaceReadiness(projectId: string): void {
