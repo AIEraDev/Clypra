@@ -215,7 +215,11 @@ export class ProjectSession {
         this._onInitializationProgress?.(0.55, "Prewarming text and fonts…");
         const { NativeRasterBridge } = await import("@/core/render/nativeRasterBridge");
         this._nativeRasterBridge = new NativeRasterBridge();
-        await this._prewarmNativeTextAssets(5000);
+        // Opening is not complete until every text boundary has been warmed.
+        // This is deliberately awaited: a background warmup can contend with
+        // the first transport frame and recreate the entry freeze we are
+        // eliminating.
+        await this._prewarmNativeTextAssets();
       }
 
       this._onInitializationProgress?.(0.95, "Finalizing preview session…");
@@ -453,7 +457,7 @@ export class ProjectSession {
     getViewportController().reset();
   }
 
-  private async _prewarmNativeTextAssets(budgetMs: number): Promise<void> {
+  private async _prewarmNativeTextAssets(): Promise<void> {
     const bridge = this._nativeRasterBridge;
     if (!bridge || typeof document === "undefined") return;
 
@@ -473,12 +477,8 @@ export class ProjectSession {
       .sort((left, right) => left.startTime - right.startTime);
     if (textBoundaries.length === 0) return;
 
-    const deadline = Date.now() + budgetMs;
     const frameRate = Math.max(1, project.frameRate ?? 30);
     for (const clip of textBoundaries) {
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) break;
-
       const frameTime = getFrameStartTime(clip.startTime, frameRate);
       const scene = evaluator.evaluateTimelineScene(
         frameTime,
@@ -494,7 +494,7 @@ export class ProjectSession {
       if (textLayers.length === 0) continue;
 
       const warmup = Promise.all([
-        bridge.prewarmTextAssets(scene),
+        bridge.prewarmTextAssets(scene, "session-prewarm"),
         fontRegistry.ensureNativeFontsRegistered(
           textLayers.map((layer) => layer.fontFamily),
         ),
@@ -505,14 +505,7 @@ export class ProjectSession {
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      let timeoutId: ReturnType<typeof setTimeout> | null = null;
-      await Promise.race([
-        warmup,
-        new Promise<void>((resolve) => {
-          timeoutId = setTimeout(resolve, remainingMs);
-        }),
-      ]);
-      if (timeoutId !== null) clearTimeout(timeoutId);
+      await warmup;
     }
   }
 
