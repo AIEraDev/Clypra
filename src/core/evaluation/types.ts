@@ -131,6 +131,7 @@ export interface EvaluatedMediaLayer extends BaseVisualLayer {
     name: string;
     intensity: number;
     gradingParams?: import("@clypra-studio/engine").GradingParams;
+    lutId?: string;
   };
 
   /** Layout parameters for the clip fitting/cropping/transforming */
