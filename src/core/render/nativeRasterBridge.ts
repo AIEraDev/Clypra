@@ -21,6 +21,7 @@ import {
   rasterizeTextLayerForNative,
   type NativeTextRasterAsset,
 } from "@/components/editor/preview/nativeTextPreview";
+import type { TextRenderTracePhase } from "@/core/render/textRenderTrace";
 import {
   NativeAnimatedStickerRenderer,
   type NativeAnimatedStickerRaster,
@@ -30,6 +31,7 @@ type UploadableNativeRaster = NativeRasterLayerSnapshot & { rgba: number[] };
 
 interface NativeRasterBridgeOptions {
   frameKey: number;
+  phase?: TextRenderTracePhase;
 }
 
 const MAX_TEXT_CACHE_ENTRIES = 96;
@@ -78,7 +80,7 @@ export class NativeRasterBridge {
     // native SDF path remains a compatibility fallback for frames that cannot
     // be rasterized in the WebView.
     const [text, background, animatedStickers, images] = await Promise.all([
-      this.rasterizeText(scene),
+      this.rasterizeText(scene, options.phase ?? "visible-playback"),
       this.rasterizeBackground(scene, options.frameKey),
       this.rasterizeAnimatedStickers(scene),
       this.rasterizeImages(scene),
@@ -92,9 +94,12 @@ export class NativeRasterBridge {
    * also decoding or uploading unrelated media for a frame that is not yet
    * visible.
    */
-  async prewarmTextAssets(scene: EvaluatedScene): Promise<void> {
+  async prewarmTextAssets(
+    scene: EvaluatedScene,
+    phase: TextRenderTracePhase = "text-prefetch",
+  ): Promise<void> {
     if (!isTauriRuntime()) return;
-    await this.rasterizeText(scene);
+    await this.rasterizeText(scene, phase);
   }
 
   /**
@@ -185,13 +190,16 @@ export class NativeRasterBridge {
     this.animatedStickerRenderer.dispose();
   }
 
-  private async rasterizeText(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
+  private async rasterizeText(
+    scene: EvaluatedScene,
+    phase: TextRenderTracePhase,
+  ): Promise<NativeRasterLayerSnapshot[]> {
     const layers = scene.visualLayers.filter((layer) => layer.layerType === "text");
     const pendingAssets = layers.map((layer) => {
       const key = buildNativeTextRasterKey(layer);
       let raster = this.textCache.get(key);
       if (!raster) {
-        raster = rasterizeTextLayerForNative(layer);
+        raster = rasterizeTextLayerForNative(layer, { phase });
         this.textCache.set(key, raster);
         evictOldest(this.textCache, MAX_TEXT_CACHE_ENTRIES);
         void raster.catch(() => {
