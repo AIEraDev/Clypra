@@ -1012,7 +1012,7 @@ export function buildNativeVideoProjectRequest(
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
   if (transition === null) return null;
   if (transition && backgroundMediaPath !== null) return null;
-  if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) return null;
+  if (transition && rasterLayers.some((layer) => layer.isMask)) return null;
   if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) return null;
   if (!mediaLayers.every((layer) => isSupportedNativeVideoLayer(layer, scene.activeFilter?.effectStack))) {
     return null;
@@ -1190,8 +1190,8 @@ export function getNativePreviewBlockers(
   }
   const transition = getNativeTransitionSnapshot(scene, mediaLayers);
   if (transition === null) add("The active transition is not implemented in the native compositor.");
-  if (transition && (textLayers.length > 0 || rasterLayers.some((layer) => layer.isMask))) {
-    add("Native transitions currently require two video layers without text or mask layers.");
+  if (transition && rasterLayers.some((layer) => layer.isMask)) {
+    add("Native transitions currently do not support mask layers.");
   }
   if (scene.activeFilter && mediaLayers.some((layer) => layer.filter?.id !== scene.activeFilter?.id)) {
     add("The active filter track does not resolve consistently across native media layers.");
