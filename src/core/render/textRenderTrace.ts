@@ -41,6 +41,7 @@ export interface TextRenderTraceContext {
 }
 
 const loggedKeys = new Set<string>();
+const loggedGeometryKeys = new Set<string>();
 
 function isTraceEnabled(): boolean {
   return import.meta.env.DEV || import.meta.env.VITE_CLYPRA_TEXT_RENDER_TRACE === "1";
@@ -109,4 +110,26 @@ export function traceTextRenderScene(
 
 export function resetTextRenderTrace(): void {
   loggedKeys.clear();
+  loggedGeometryKeys.clear();
+}
+
+/** Log the evaluated timeline text-layer geometry once per layer/revision. */
+export function traceTextRenderGeometry(input: {
+  path: TextRenderTraceContext["path"];
+  assetId?: string;
+  revisionId?: string;
+  contentHash?: string;
+  layer: Record<string, unknown>;
+  render: Record<string, unknown>;
+  authoredCanvas?: unknown;
+}): void {
+  if (!isTraceEnabled()) return;
+  const key = `${input.path}:${input.assetId ?? "anonymous"}:${input.revisionId ?? "latest"}:${input.layer.layerId ?? "unknown"}:${JSON.stringify({ layer: input.layer, render: input.render })}`;
+  if (loggedGeometryKeys.has(key)) return;
+  loggedGeometryKeys.add(key);
+  console.groupCollapsed(`[Clypra:text-render] ${input.path} geometry ${input.assetId ?? "anonymous"}`);
+  console.log("layer", input.layer);
+  console.log("render", input.render);
+  console.log("authored effect canvas", input.authoredCanvas ?? null);
+  console.groupEnd();
 }
