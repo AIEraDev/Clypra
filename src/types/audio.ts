@@ -56,6 +56,8 @@ export interface ClipAudioProperties {
   effects?: AudioFXConfig;
 }
 
+export type AudioKeyframeEasing = "linear" | "exponential" | "bezier";
+
 /** Audio automation keyframe point. */
 export interface AudioKeyframe {
   id: string;
@@ -63,7 +65,9 @@ export interface AudioKeyframe {
   time: number;
   /** Linear gain multiplier. */
   gain: number;
-  easing?: "linear" | "exponential" | "bezier";
+  /** Optional value alias for shared evaluator */
+  value?: number;
+  easing?: AudioKeyframeEasing;
 }
 
 /** Easing curve types for audio fade transitions. */
