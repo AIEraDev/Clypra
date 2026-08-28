@@ -30,7 +30,7 @@ import { evaluateProperty } from "./animation";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
 import { normalizeFilterIntensity } from "../render/filterIR";
-import { resolveTextEffectDefinition } from "@/lib/text/textClip";
+import { resolveTextEffectDefinition, resolveTextEffectTypography } from "@/lib/text/textClip";
 import { evaluateEffectiveAudioState } from "@/core/audio/effectiveAudioState";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
@@ -146,11 +146,14 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
             scene: textClip.styleSnapshot,
           } as any)
         : undefined;
+      const styleTypography = resolveTextEffectTypography(styleDefinition);
 
-      const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
+      const evalFontSize = kf.fontSize !== undefined
+        ? evaluateProperty(kf.fontSize, offset, clip.duration)
+        : textClip.fontSize || styleTypography.fontSize || 48;
       const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : textClip.color || "#ffffff";
-      const evalLetterSpacing = kf.letterSpacing !== undefined ? evaluateProperty(kf.letterSpacing, offset, clip.duration) : (textClip.letterSpacing ?? styleDefinition?.font?.letterSpacing ?? 0);
-      const evalLineHeight = kf.lineHeight !== undefined ? evaluateProperty(kf.lineHeight, offset, clip.duration) : (textClip.lineHeight ?? styleDefinition?.font?.lineHeight ?? 1.2);
+      const evalLetterSpacing = kf.letterSpacing !== undefined ? evaluateProperty(kf.letterSpacing, offset, clip.duration) : (textClip.letterSpacing ?? styleTypography.letterSpacing ?? 0);
+      const evalLineHeight = kf.lineHeight !== undefined ? evaluateProperty(kf.lineHeight, offset, clip.duration) : (textClip.lineHeight ?? styleTypography.lineHeight ?? 1.2);
 
       // ── Calculate Text Animations ──────────────────────────────────────────
       const animationState = calculateTextAnimationState(evalTime, clip.startTime, clip.duration, textClip.entranceAnimation, textClip.exitAnimation);
@@ -199,11 +202,11 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         // only the creation-time default; it must not reappear during
         // evaluation after the user clears the editor field.
         text: textClip.text ?? "",
-        fontFamily: normalizeFontFamily(textClip.fontFamily || styleDefinition?.font?.family || "Inter Variable"),
+        fontFamily: normalizeFontFamily(textClip.fontFamily || styleTypography.fontFamily || "Inter Variable"),
         fontSize: evalFontSize,
         color: evalColor,
-        fontWeight: (textClip.fontWeight ?? styleDefinition?.font?.weight ?? "normal") as "normal" | "bold" | number,
-        fontStyle: textClip.fontStyle || styleDefinition?.font?.style || "normal",
+        fontWeight: (textClip.fontWeight ?? styleTypography.fontWeight ?? "normal") as "normal" | "bold" | number,
+        fontStyle: textClip.fontStyle || styleTypography.fontStyle || "normal",
         textAlign: textClip.align || "center",
         verticalAlign: textClip.valign || "middle",
         lineHeight: evalLineHeight,
