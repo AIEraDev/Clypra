@@ -47,12 +47,23 @@ interface ProjectStore {
   project: Project | null;
   mediaAssets: MediaAsset[];
   recentProjects: RecentProjectEntry[];
+  projectInitialization: ProjectInitializationState | null;
   toastMessage: string | null;
   toastVariant: "success" | "error" | "warning";
+  beginProjectInitialization: (projectName: string) => number;
+  updateProjectInitialization: (
+    initializationId: number,
+    phase: ProjectInitializationPhase,
+    progress: number,
+    message: string,
+  ) => void;
+  completeProjectInitialization: (initializationId: number) => void;
+  failProjectInitialization: (initializationId: number, error: string) => void;
+  clearProjectInitialization: () => void;
   setToastMessage: (message: string | null, variant?: "success" | "error" | "warning") => void;
   /** Convenience: show toast with variant and auto-dismiss. */
   showToast: (message: string, variant?: "success" | "error" | "warning", durationMs?: number) => void;
-  createProject: (name: string, aspectRatio: string, frameRate: 24 | 30 | 60) => void;
+  createProject: (name: string, aspectRatio: string, frameRate: 24 | 30 | 60) => Promise<void>;
   createProjectFromTemplate: (templateId: string, customName?: string) => Promise<void>;
   loadProject: (
     project: Project,
@@ -87,11 +98,29 @@ interface ProjectStore {
   flushCrashRecovery: () => Promise<void>;
 }
 
+export type ProjectInitializationPhase =
+  | "preparing"
+  | "loading-assets"
+  | "hydrating-timeline"
+  | "warming-text"
+  | "starting-preview"
+  | "error";
+
+export interface ProjectInitializationState {
+  id: number;
+  projectName: string;
+  phase: ProjectInitializationPhase;
+  progress: number;
+  message: string;
+  error?: string;
+}
+
 const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 // ✅ FIX-005: Load mutex to prevent concurrent project loads
 let loadInProgress: Promise<void> | null = null;
 let currentLoadId = 0;
+let initializationSequence = 0;
 
 const countGraphemes = (str: string): number => {
   return Array.from(graphemeSegmenter.segment(str)).length;
@@ -396,6 +425,55 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   project: null,
   mediaAssets: [],
   recentProjects: [],
+  projectInitialization: null,
+  beginProjectInitialization: (projectName) => {
+    const id = ++initializationSequence;
+    set({
+      projectInitialization: {
+        id,
+        projectName,
+        phase: "preparing",
+        progress: 4,
+        message: "Preparing project…",
+      },
+    });
+    return id;
+  },
+  updateProjectInitialization: (initializationId, phase, progress, message) => {
+    set((state) => {
+      if (state.projectInitialization?.id !== initializationId) return state;
+      return {
+        projectInitialization: {
+          ...state.projectInitialization,
+          phase,
+          progress: Math.max(0, Math.min(99, progress)),
+          message,
+          error: undefined,
+        },
+      };
+    });
+  },
+  completeProjectInitialization: (initializationId) => {
+    set((state) => {
+      if (state.projectInitialization?.id !== initializationId) return state;
+      return { projectInitialization: null };
+    });
+  },
+  failProjectInitialization: (initializationId, error) => {
+    set((state) => {
+      if (state.projectInitialization?.id !== initializationId) return state;
+      return {
+        projectInitialization: {
+          ...state.projectInitialization,
+          phase: "error",
+          progress: 100,
+          message: "Project could not be prepared",
+          error,
+        },
+      };
+    });
+  },
+  clearProjectInitialization: () => set({ projectInitialization: null }),
   toastMessage: null,
   toastVariant: "success" as const,
   isDirty: false,
@@ -429,6 +507,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   createProject: async (name, aspectRatio, frameRate) => {
+    const initializationId = get().beginProjectInitialization(name.trim() || "Untitled Project");
+    get().updateProjectInitialization(initializationId, "preparing", 12, "Creating project session…");
+
     // Dispose any existing session BEFORE resetting singletons (BUG-007 fix)
     try {
       const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
@@ -458,6 +539,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     };
 
     set({ project, mediaAssets: [], isDirty: false });
+    get().updateProjectInitialization(initializationId, "hydrating-timeline", 36, "Building timeline…");
 
     // Let timelineStore reset its own state
     try {
@@ -468,9 +550,18 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // Initialize runtime session
     try {
       const { createProjectSession } = await import("@/core/runtime/ProjectSession");
-      await createProjectSession(project.id);
-    } catch {}
+      await createProjectSession(project.id, {
+        onProgress: (progress, message) =>
+          get().updateProjectInitialization(initializationId, "warming-text", 36 + progress * 60, message),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[projectStore] Failed to initialize new project session:", error);
+      get().failProjectInitialization(initializationId, message);
+      return;
+    }
 
+    get().completeProjectInitialization(initializationId);
     get().scheduleAutoSave();
   },
 
@@ -524,6 +615,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
     // Wrap load logic in a promise we can track
     loadInProgress = (async () => {
+      const initializationId = get().beginProjectInitialization(project.name);
       if (autoSaveTimer) {
         clearTimeout(autoSaveTimer);
         autoSaveTimer = null;
@@ -561,6 +653,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 2: Load Project & Media Assets
         // ═══════════════════════════════════════════════════════════════════════════════
+        get().updateProjectInitialization(initializationId, "loading-assets", 18, "Loading project assets…");
         set({ project, mediaAssets: payload?.mediaAssets ?? [] });
 
         const allPayloadClips = flattenClips(payload?.clips);
@@ -605,6 +698,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         if (currentLoadId !== loadId) return;
 
         // Preload text templates and their fonts with persistent caching
+        get().updateProjectInitialization(initializationId, "warming-text", 32, "Preparing text styles and fonts…");
         try {
           const { useTemplateStore } = await import("@/features/text-templates/templateStore");
           await useTemplateStore.getState().preloadTemplatesAndFontsForClips(allPayloadClips);
@@ -617,6 +711,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 3: Hydrate Timeline State
         // ═══════════════════════════════════════════════════════════════════════════════
+        get().updateProjectInitialization(initializationId, "hydrating-timeline", 48, "Building timeline…");
         const normalizedClips = normalizeLoadedTextEffectClipBounds(payload?.clips ?? [], project);
         useTimelineStore.getState().hydrateFromProject({
           tracks: payload?.tracks ?? [],
@@ -633,11 +728,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 4: Initialize New Runtime Session
         // ═══════════════════════════════════════════════════════════════════════════════
+        get().updateProjectInitialization(initializationId, "starting-preview", 58, "Initializing preview runtime…");
         const { createProjectSession } = await import("@/core/runtime/ProjectSession");
-        await createProjectSession(project.id);
+        await createProjectSession(project.id, {
+          onProgress: (progress, message) =>
+            get().updateProjectInitialization(initializationId, "warming-text", 58 + progress * 38, message),
+        });
 
         if (currentLoadId !== loadId) return;
         set({ isDirty: false });
+        get().completeProjectInitialization(initializationId);
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 5: Prewarm Video Decoders (Background)
@@ -681,6 +781,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           })
           .catch(() => {});
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        get().failProjectInitialization(initializationId, message);
         // A failed hydration/session transition must not leave an empty or
         // half-loaded project visible. Rebuild the previous active state.
         try {
@@ -1058,6 +1160,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   closeProject: async () => {
     currentLoadId++; // Cancel any active load
+    get().clearProjectInitialization();
 
     // Cancel the debounce, then always flush the latest in-memory state. This
     // is intentionally independent of the auto-save preference and timer.
