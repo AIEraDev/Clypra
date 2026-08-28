@@ -250,6 +250,11 @@ The permanent playback contract is:
   possible. Newly inserted text uses a deferred look-ahead prewarm of up to
   eight seconds; neither path may decode a second visible video frame or block
   transport controls.
+- Project creation, project opening, and crash-session recovery are gated by a
+  blocking initialization modal. The modal is driven by the project-store
+  lifecycle state, reports the active phase, and remains visible until the
+  timeline and preview session are ready. This makes text/font prewarming an
+  explicit startup contract instead of hidden work racing the first play.
 - Static raster inputs use content/configuration-based asset identities and
   may be reused across frames. Time-dependent inputs, such as shaders, remain
   frame-addressed until they have a native procedural implementation.
