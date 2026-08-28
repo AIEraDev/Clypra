@@ -132,6 +132,8 @@ export interface Project {
   timelineSchemaVersion?: number;
   /** Version of the first-class audio clip model. */
   audioModelVersion?: number;
+  /** Version of the first-class caption model. */
+  captionModelVersion?: number;
 }
 
 export type TrackType = "video" | "audio" | "text" | "sticker" | "filter" | "video-effect" | "body-effect" | "animated-overlay";
@@ -332,17 +334,12 @@ export interface Clip {
   compoundPreview?: string;
 }
 
-export type EasingType = "linear" | "easeIn" | "easeOut" | "easeInOut" | "bezier";
+import type { Keyframe, KeyframeEasing } from "./keyframes";
 
-export interface VisualPropertyKeyframe {
-  id: string;
-  /** Relative time inside the clip (seconds) */
-  time: number;
-  /** Property value */
-  value: number;
+export type EasingType = KeyframeEasing;
+
+export interface VisualPropertyKeyframe extends Keyframe<number> {
   easing?: EasingType;
-  /** Bezier control points [x1, y1, x2, y2] for custom curve */
-  controlPoints?: [number, number, number, number];
 }
 
 export type VisualPropertyKey = "x" | "y" | "width" | "height" | "rotation" | "opacity";
@@ -658,3 +655,5 @@ export * from "./export";
 export * from "./gap";
 export * from "./serialization";
 export * from "./compositor";
+export * from "./captions";
+export * from "./keyframes";
