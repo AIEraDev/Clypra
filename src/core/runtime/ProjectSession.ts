@@ -59,6 +59,7 @@ import { isTauriRuntime } from "@/lib/platform/tauri";
 import type { Clip, MediaAsset } from "@/types";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { resourceTracker, installDiagnostics } from "@/core/monitoring/ResourceTracker";
+import { getFrameStartTime } from "@/lib/utils/frameTime";
 
 /**
  * Project Session State
@@ -85,6 +86,7 @@ export class ProjectSession {
   private _transportAuthority: TransportAuthority | null = null;
   private _programContext: ProgramPlaybackContext | null = null;
   private _sourceContext: SourcePlaybackContext | null = null;
+  private _nativeRasterBridge: import("@/core/render/nativeRasterBridge").NativeRasterBridge | null = null;
 
   // Lifecycle tracking
   private _initializePromise: Promise<void> | null = null;
@@ -143,6 +145,11 @@ export class ProjectSession {
     return this._sourceContext;
   }
 
+  /** Shared native preview asset bridge for session initialization and playback. */
+  get nativeRasterBridge(): import("@/core/render/nativeRasterBridge").NativeRasterBridge | null {
+    return this._nativeRasterBridge;
+  }
+
   // ─── Lifecycle ──────────────────────────────────────────────────────────
 
   /**
@@ -195,6 +202,15 @@ export class ProjectSession {
 
       // Initialize stores (timeline, UI)
       await this._initializeStores();
+
+      // Warm existing text boundaries before the session becomes active. The
+      // bridge is shared with NativeProgramPreview so first play does not
+      // repeat font/effect rasterization on the transport path.
+      if (isTauriRuntime()) {
+        const { NativeRasterBridge } = await import("@/core/render/nativeRasterBridge");
+        this._nativeRasterBridge = new NativeRasterBridge();
+        await this._prewarmNativeTextAssets(5000);
+      }
 
       this._state = "active";
 
@@ -267,6 +283,8 @@ export class ProjectSession {
       }
 
       // 6. Teardown render runtime (GPU resources, WebGL contexts)
+      this._nativeRasterBridge?.dispose();
+      this._nativeRasterBridge = null;
       if (this._renderRuntime) {
         this._renderRuntime.teardown();
         this._renderRuntime = null;
@@ -425,6 +443,69 @@ export class ProjectSession {
     // Reset viewport controller (imperative state)
     const { getViewportController } = await import("@/core/interactions");
     getViewportController().reset();
+  }
+
+  private async _prewarmNativeTextAssets(budgetMs: number): Promise<void> {
+    const bridge = this._nativeRasterBridge;
+    if (!bridge || typeof document === "undefined") return;
+
+    const [projectStore, timelineStore, evaluator, fontRegistry] = await Promise.all([
+      import("@/store/projectStore"),
+      import("@/store/timelineStore"),
+      import("@/core/evaluation/evaluator"),
+      import("@/core/fonts/nativeFontRegistry"),
+    ]);
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips, tracks, transitions } = timelineStore.useTimelineStore.getState();
+    const mediaAssets = projectStore.useProjectStore.getState().mediaAssets;
+    const textBoundaries = clips
+      .filter((clip) => clip.kind === "text")
+      .sort((left, right) => left.startTime - right.startTime);
+    if (textBoundaries.length === 0) return;
+
+    const deadline = Date.now() + budgetMs;
+    const frameRate = Math.max(1, project.frameRate ?? 30);
+    for (const clip of textBoundaries) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
+
+      const frameTime = getFrameStartTime(clip.startTime, frameRate);
+      const scene = evaluator.evaluateTimelineScene(
+        frameTime,
+        clips,
+        tracks,
+        mediaAssets,
+        project,
+        transitions,
+      );
+      const textLayers = scene.visualLayers.filter(
+        (layer) => layer.layerType === "text",
+      );
+      if (textLayers.length === 0) continue;
+
+      const warmup = Promise.all([
+        bridge.prewarmTextAssets(scene),
+        fontRegistry.ensureNativeFontsRegistered(
+          textLayers.map((layer) => layer.fontFamily),
+        ),
+      ]).catch((error) => {
+        console.warn("[ProjectSession] Native text prewarm failed", {
+          projectId: this.projectId,
+          frameTime,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      await Promise.race([
+        warmup,
+        new Promise<void>((resolve) => {
+          timeoutId = setTimeout(resolve, remainingMs);
+        }),
+      ]);
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
   }
 
   private async _resetStores(): Promise<void> {
