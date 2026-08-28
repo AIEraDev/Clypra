@@ -1,3 +1,5 @@
 allowBuilds:
   canvas: false
   esbuild: false
+minimumReleaseAgeExclude:
+  - "@clypra-studio/engine@1.4.0"
