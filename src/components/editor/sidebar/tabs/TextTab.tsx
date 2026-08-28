@@ -557,37 +557,6 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             styleContentHash: targetEffect.contentHash ?? targetEffect.revision?.contentHash,
             styleSnapshot: targetEffect.scene,
             effectDefinition: targetEffect, // ← Pass the full effect definition for proper dimensions
-            fontFamily: targetEffect.font?.family,
-            color: targetEffect.fills?.[0]?.color,
-            fontWeight: targetEffect.font?.weight,
-            fontStyle: targetEffect.font?.style,
-            stroke: targetEffect.strokes?.[0]
-              ? {
-                  color: targetEffect.strokes[0].color,
-                  width: targetEffect.strokes[0].width,
-                }
-              : undefined,
-            shadow: targetEffect.shadows?.[0]
-              ? {
-                  color: targetEffect.shadows[0].color,
-                  blur: targetEffect.shadows[0].blur,
-                  offsetX: targetEffect.shadows[0].offsetX ?? 0,
-                  offsetY: targetEffect.shadows[0].offsetY ?? 0,
-                }
-              : undefined,
-            background: targetEffect.panel
-              ? {
-                  color: targetEffect.panel.color || "rgba(0,0,0,0.6)",
-                  padding:
-                    targetEffect.panel.paddingX !== undefined
-                      ? targetEffect.panel.paddingX
-                      : 12,
-                  borderRadius:
-                    targetEffect.panel.radius !== undefined
-                      ? targetEffect.panel.radius
-                      : 6,
-                }
-              : undefined,
           },
           "text",
         );
@@ -642,32 +611,6 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         styleContentHash: effect.contentHash ?? effect.revision?.contentHash,
         styleSnapshot: effect.scene,
         effectDefinition: effect, // ← Pass the full effect definition
-        fontFamily: effect.font?.family,
-        color: effect.fills?.[0]?.color,
-        fontWeight: effect.font?.weight,
-        fontStyle: effect.font?.style,
-        stroke: effect.strokes?.[0]
-          ? { color: effect.strokes[0].color, width: effect.strokes[0].width }
-          : undefined,
-        shadow: effect.shadows?.[0]
-          ? {
-              color: effect.shadows[0].color,
-              blur: effect.shadows[0].blur,
-              offsetX: effect.shadows[0].offsetX ?? 0,
-              offsetY: effect.shadows[0].offsetY ?? 0,
-            }
-          : undefined,
-        background: effect.panel
-          ? {
-              color: effect.panel.color || "rgba(0,0,0,0.6)",
-              padding:
-                effect.panel.paddingX !== undefined
-                  ? effect.panel.paddingX
-                  : 12,
-              borderRadius:
-                effect.panel.radius !== undefined ? effect.panel.radius : 6,
-            }
-          : undefined,
       },
       "text",
     );
