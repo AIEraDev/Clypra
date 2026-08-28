@@ -253,7 +253,11 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
           const relativePath = cachedSticker.localImagePath || "";
           if (!relativePath) return;
           const absolutePath = await platform.joinPaths(appCache, relativePath);
-          const absoluteAnimationPath = cachedSticker.localAnimationPath
+          const isLottie = Boolean(
+            cachedSticker.localAnimationPath &&
+            (cachedSticker.localAnimationPath.endsWith(".json") || item.lottieUrl),
+          );
+          const absoluteAnimationPath = isLottie && cachedSticker.localAnimationPath
             ? await platform.joinPaths(appCache, cachedSticker.localAnimationPath)
             : undefined;
           const mediaAsset: MediaAsset = {
@@ -263,7 +267,7 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
             type: "image",
             duration: 3.0,
             size: 0,
-            stickerFormat: "lottie",
+            stickerFormat: isLottie ? "lottie" : "static",
             stickerAnimationPath: absoluteAnimationPath,
             stickerSourceId: item.id,
             width: 400,
@@ -413,6 +417,8 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
           pipeline: cachedFilter.filter.pipeline,
           gradingParams: cachedFilter.filter.gradingParams,
           effectStack: cachedFilter.filter.effectStack,
+          lut: cachedFilter.filter.lut,
+          lutId: cachedFilter.filter.lut ? cachedFilter.filter.id : undefined,
         };
         execute(new AddClipCommand(filterClip as any));
         useProjectStore.getState().showToast(`Added ${cachedFilter.filter.name} filter`);
