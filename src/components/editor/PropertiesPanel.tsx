@@ -71,6 +71,11 @@ export function buildClipPropertyTransform(clip: Clip, updates: Record<string, u
     newTransform.adjustments = newTransform.adjustments ? JSON.parse(JSON.stringify(newTransform.adjustments)) : undefined;
   }
 
+  if ("stickerSettings" in newTransform) {
+    oldTransform.stickerSettings = clip.stickerSettings ? JSON.parse(JSON.stringify(clip.stickerSettings)) : undefined;
+    newTransform.stickerSettings = newTransform.stickerSettings ? JSON.parse(JSON.stringify(newTransform.stickerSettings)) : undefined;
+  }
+
   return { oldTransform, newTransform };
 }
 
