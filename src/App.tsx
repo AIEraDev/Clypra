@@ -37,6 +37,7 @@ const App = () => {
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [isSavingBeforeClose, setIsSavingBeforeClose] = useState(false);
   const closingWindowRef = useRef(false);
+  const closingProjectRef = useRef(false);
   const { isRecording, previewRecording, setPreviewRecording } = useRecordingStore();
   const autoUpdater = useAutoUpdater();
 
@@ -449,8 +450,9 @@ const App = () => {
    */
   const handleCloseProject = useCallback(async () => {
     const currentProject = useProjectStore.getState().project;
-    if (!currentProject) return;
+    if (!currentProject || closingProjectRef.current) return;
 
+    closingProjectRef.current = true;
     setProjectNameBeforeClose(currentProject.name);
     setIsClosingProject(true);
 
@@ -461,6 +463,7 @@ const App = () => {
       const updateStep = (window as any).__updateClosingStep;
       if (!updateStep) {
         console.error("[App] Modal step updater not available");
+        closingProjectRef.current = false;
         setIsClosingProject(false);
         return;
       }
@@ -484,6 +487,7 @@ const App = () => {
 
       // Wait a moment for visual feedback, then close modal
       await new Promise((resolve) => setTimeout(resolve, 500));
+      closingProjectRef.current = false;
       setIsClosingProject(false);
       setProjectNameBeforeClose("");
     } catch (error) {
@@ -651,6 +655,7 @@ const App = () => {
         isOpen={isClosingProject}
         projectName={projectNameBeforeClose}
         onComplete={() => {
+          closingProjectRef.current = false;
           setIsClosingProject(false);
           setProjectNameBeforeClose("");
         }}
