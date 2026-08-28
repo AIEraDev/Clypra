@@ -3,7 +3,11 @@ import { effectBleed, resolveTextEffectDefinition } from "@/lib/text/textClip";
 import { getTextRenderMetrics, normalizeFontSize } from "@/lib/utils/fixedSizing";
 import { rasterizeTextLayer } from "@/core/render/textRasterizer";
 import { getFontLoader } from "@/core/fonts/FontLoader";
-import { traceTextRenderGeometry } from "@/core/render/textRenderTrace";
+import {
+  traceTextRenderGeometry,
+  traceTextRenderTiming,
+  type TextRenderTracePhase,
+} from "@/core/render/textRenderTrace";
 
 export interface NativeTextRasterAsset {
   assetId: string;
@@ -94,10 +98,14 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
  */
 export async function rasterizeTextLayerForNative(
   layer: EvaluatedTextLayer,
+  options: { phase?: TextRenderTracePhase } = {},
 ): Promise<NativeTextRasterAsset> {
+  const totalStartedAt = performance.now();
+  let fontWaitMs = 0;
   // The raster must use the same font variant as Studio/source preview before
   // any glyph metrics or effect bounds are computed.
   if (layer.fontFamily) {
+    const fontStartedAt = performance.now();
     try {
       await getFontLoader().ensureFont({
         family: layer.fontFamily,
@@ -110,6 +118,7 @@ export async function rasterizeTextLayerForNative(
     } catch (error) {
       console.warn(`[NativeTextPreview] Failed to pre-load font "${layer.fontFamily}":`, error);
     }
+    fontWaitMs = performance.now() - fontStartedAt;
   }
 
   const effectDefinition = resolveNativeTextEffectDefinition(layer);
@@ -169,11 +178,22 @@ export async function rasterizeTextLayerForNative(
   ctx.clearRect(0, 0, width, height);
   ctx.save();
   ctx.translate(layer.width / 2 + bleedX, layer.height / 2 + bleedY);
+  const rasterStartedAt = performance.now();
   await rasterizeTextLayer(ctx, layer, layer.width, layer.height, 1, 1);
+  const rasterMs = performance.now() - rasterStartedAt;
   ctx.restore();
 
   const rgba = Array.from(ctx.getImageData(0, 0, width, height).data);
   const cacheKey = buildNativeTextRasterKey(layer);
+  traceTextRenderTiming({
+    phase: options.phase ?? "visible-playback",
+    assetId: layer.styleId,
+    layerId: layer.layerId,
+    fontFamily: layer.fontFamily,
+    fontWaitMs,
+    rasterMs,
+    totalMs: performance.now() - totalStartedAt,
+  });
 
   return {
     assetId: `native-text:${layer.layerId}:${hashTextRasterKey(cacheKey)}`,
