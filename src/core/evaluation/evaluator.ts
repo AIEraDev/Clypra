@@ -330,6 +330,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
           ? {
               ...clip.filter,
               gradingParams: (clip as any).gradingParams,
+              lutId: (clip as any).lutId || (clip as any).lut,
             }
           : activeFilterClip
             ? {
@@ -337,6 +338,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
                 name: activeFilterClip.name || "",
                 intensity: normalizeFilterIntensity((activeFilterClip as any).intensity),
                 gradingParams: (activeFilterClip as any).gradingParams,
+                lutId: (activeFilterClip as any).lutId || (activeFilterClip as any).lut,
               }
             : undefined,
     };
