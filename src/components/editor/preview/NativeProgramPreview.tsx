@@ -45,7 +45,11 @@ import { VolumeControl } from "./VolumeControl";
 import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
-import { getPlaybackMetricsSnapshot } from "@/core/playback/playbackTrace";
+import {
+  getPlaybackMetricsSnapshot,
+  tracePlayback,
+  traceSlowPlaybackStage,
+} from "@/core/playback/playbackTrace";
 import {
   getSyncMetricsSnapshot,
   startSyncMetricsFlushLoop,
@@ -65,7 +69,6 @@ import {
   getNativeFrameServiceStats,
   getNativeSyncMetricsSnapshot,
   getNativeGpuStatus,
-  queueNativeFrame,
   registerNativeRasterAsset,
   probeNativeSurface,
   renderNativeFrame,
@@ -100,13 +103,20 @@ import {
   NativePreviewFrameScheduler,
   type NativePreviewRequestSource,
 } from "./nativePreviewScheduler";
-import { NativeRasterBridge } from "@/core/render/nativeRasterBridge";
 import { ensureNativeFontsRegistered } from "@/core/fonts/nativeFontRegistry";
 import {
   NATIVE_PREVIEW_ONLY,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
+import {
+  claimNativeSurfaceReadiness,
+  enqueueNativeSurfaceOperation,
+  failNativeSurfaceReadiness,
+  hideNativeSurfaceWhenIdle,
+  markNativeSurfaceReady,
+  releaseNativeSurfaceReadiness,
+} from "@/core/runtime/nativeSurfaceLifecycle";
 
 function isExpectedStaleNativePreviewError(error: unknown): boolean {
   return /native preview frame request is stale|request cancelled/i.test(
@@ -152,6 +162,9 @@ function drawNativeFrameToCanvas(
 export const NativeProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
   const project = useProjectStore((s) => s.project);
+  const projectInitializing = useProjectStore(
+    (s) => s.projectInitialization !== null,
+  );
   const updateProject = useProjectStore((s) => s.updateProject);
   const mediaAssets = useProjectStore((s) => s.mediaAssets);
   const tracks = useTimelineStore((s) => s.tracks);
@@ -249,13 +262,9 @@ export const NativeProgramPreview: React.FC = () => {
     width: number;
     height: number;
   } | null>(null);
-  // Persist prefetch identity across native surface/canvas effect restarts.
-  // Without this, a remounted render loop could repeatedly warm the same
-  // boundary and contend with visible presentation.
+  // Persist text-prefetch identity across native surface/canvas effect
+  // restarts. Text prewarming is isolated from the visible video decoder path.
   const nativePrefetchStateRef = useRef({
-    inFlight: new Map<string, Promise<void>>(),
-    completed: new Set<string>(),
-    failedAt: new Map<string, number>(),
     textInFlight: new Map<string, Promise<void>>(),
     textCompleted: new Set<string>(),
     textFailedAt: new Map<string, number>(),
@@ -501,18 +510,25 @@ export const NativeProgramPreview: React.FC = () => {
 
   const { scale, offsetX, offsetY, displayWidth, displayHeight } =
     displayTransform;
+  const nativeSurfaceViewportReady = displayWidth > 0 && displayHeight > 0;
 
   // The native presenter is hosted in a transparent child surface positioned
   // over the displayed program viewport and configured only in Tauri.
   useEffect(() => {
     if (
       !isTauriRuntime() ||
+      !project?.id ||
       !nativeSurfaceTargetRef.current ||
-      displayWidth <= 0 ||
-      displayHeight <= 0
+      !nativeSurfaceViewportReady
     ) {
       return;
     }
+    const readinessToken = claimNativeSurfaceReadiness(project.id);
+    tracePlayback("surface-setup-start", {
+      projectId: project.id,
+      generation: readinessToken.generation,
+      viewport: `${Math.round(displayWidth)}x${Math.round(displayHeight)}`,
+    });
 
     let active = true;
     let syncInFlight = false;
@@ -556,15 +572,19 @@ export const NativeProgramPreview: React.FC = () => {
             // an older hide cannot race a later native presentation.
             nativeSurfaceGeometrySettledRef.current = false;
             setNativeSurfacePresenting(false);
-            await hideNativeSurface().catch(() => undefined);
-            if (!active) break;
+            await enqueueNativeSurfaceOperation(async () => {
+              if (!active) return;
+              await hideNativeSurface().catch(() => undefined);
+              if (!active) return;
 
-            if (nativeSurfaceConfiguredRef.current) {
-              await resizeNativeSurface(geometry);
-            } else {
-              await probeNativeSurface(geometry);
-              nativeSurfaceConfiguredRef.current = true;
-            }
+              if (nativeSurfaceConfiguredRef.current) {
+                await resizeNativeSurface(geometry);
+              } else {
+                await probeNativeSurface(geometry);
+                nativeSurfaceConfiguredRef.current = true;
+              }
+            });
+            if (!active) break;
             appliedGeometryKey = nextGeometryKey;
             nativeSurfaceGeometrySettledRef.current = true;
             if (active) {
@@ -572,6 +592,7 @@ export const NativeProgramPreview: React.FC = () => {
               nativeSurfaceErrorRef.current = null;
               setNativeSurfaceError(null);
               setNativeSurfaceReady(true);
+              markNativeSurfaceReady(readinessToken);
             }
           }
         } catch (error) {
@@ -583,6 +604,7 @@ export const NativeProgramPreview: React.FC = () => {
             setNativeSurfaceError(message);
             nativeSurfaceReadyRef.current = false;
             setNativeSurfaceReady(false);
+            failNativeSurfaceReadiness(readinessToken, error);
           }
         } finally {
           syncInFlight = false;
@@ -627,14 +649,16 @@ export const NativeProgramPreview: React.FC = () => {
       setNativeSurfaceError(null);
       setNativeSurfaceReady(false);
       setNativeSurfacePresenting(false);
-      void hideNativeSurface().catch(() => undefined);
+      releaseNativeSurfaceReadiness(readinessToken);
+      void enqueueNativeSurfaceOperation(() => hideNativeSurface()).catch(
+        () => undefined,
+      );
     };
-    // Audit 5.4 fix: empty deps — mount once per component lifetime.
-    // The ResizeObserver + window 'resize' handler inside already call syncSurface()
-    // on every dimension change; displayWidth/displayHeight in deps caused the effect
-    // to re-mount on every pixel change during resize, accumulating window-moved
-    // listeners before the async unlistenWindowMoved Promise could resolve and clean up.
-  }, []);
+    // The boolean viewport dependency retries setup when the initial layout
+    // changes from zero-sized placeholder to a real preview. It remains stable
+    // during ordinary resize events, which keeps this effect from remounting on
+    // every pixel change; ResizeObserver handles those through syncSurface().
+  }, [project?.id, nativeSurfaceViewportReady]);
 
   // Keep paused/seeking frames on the DOM canvas. The native surface is a
   // separate child window, so leaving it visible after a pause can make the
@@ -643,8 +667,15 @@ export const NativeProgramPreview: React.FC = () => {
   useEffect(() => {
     if (!nativeSurfaceReady || clockState.state === "playing") return;
 
-    setNativeSurfacePresenting(false);
-    void hideNativeSurface().catch(() => undefined);
+    // Native playback is the authoritative desktop preview path. Do not hide
+    // it merely because the clock paused: the DOM readback canvas may not have
+    // an exact frame yet, and hiding here turns a valid paused frame into black.
+    tracePlayback("pause-surface-handoff", {
+      projectId: project?.id ?? null,
+      nativeSurfaceReady,
+      nativeSurfacePresenting,
+      time: Number(clockState.time.toFixed(3)),
+    });
   }, [clockState.state, nativeSurfaceReady]);
 
   const previewBackgroundLayer = useMemo(() => {
@@ -827,7 +858,14 @@ export const NativeProgramPreview: React.FC = () => {
     // The desktop editor is the native runtime. Browser rendering is kept out
     // of this component so a missing native runtime cannot silently resurrect a
     // second renderer.
-    if (!canvasEl || !project || !isTauriRuntime()) return;
+    // The project store exposes the project before session activation so the
+    // loading modal can render its progress. Do not start the visible RAF loop
+    // in that gap: it would create an unowned bridge and can issue a long
+    // stopped-state render while session prewarming is still in progress.
+    if (!canvasEl || !project || !isTauriRuntime() || projectInitializing) return;
+
+    const capturedSession = getActiveSessionOrNull();
+    if (!capturedSession) return;
 
     let rafId: number | null = null;
     let isActive = true;
@@ -853,15 +891,13 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeContinuousBlockedRevision = "";
     let nativeContinuousObservedRevision = "";
     let lastSeekTraceKey = "";
+    let lastTracedPlaybackState: string | null = null;
     let frameScheduled = false;
     let lastRenderLoopError = "";
     let lastLoggedTextSignature = "";
     let lastLoggedMissingTextSignature = "";
     let lastLoggedTextPresentationSignature = "";
     let lastLoggedTextDropSignature = "";
-    const nativePrefetchInFlight = nativePrefetchStateRef.current.inFlight;
-    const nativePrefetchCompleted = nativePrefetchStateRef.current.completed;
-    const nativePrefetchFailedAt = nativePrefetchStateRef.current.failedAt;
     const nativeTextPrefetchInFlight =
       nativePrefetchStateRef.current.textInFlight;
     const nativeTextPrefetchCompleted =
@@ -874,14 +910,31 @@ export const NativeProgramPreview: React.FC = () => {
     let lastNativePlaybackRequestKey = "";
     let visibleRequestKey = "";
     const seekController =
-      getActiveSessionOrNull()?.transportAuthority?.getSeekController();
+      capturedSession.transportAuthority?.getSeekController();
     let latestSeekIntent: SeekIntent | null =
       seekController?.getCurrent() ?? null;
     let visibleRequestGeneration = seekController?.getGeneration() ?? 0;
     let transportRevision = 0;
-    const sessionNativeRasterBridge = getActiveSessionOrNull()?.nativeRasterBridge;
-    const nativeRasterBridge = sessionNativeRasterBridge ?? new NativeRasterBridge();
-    const ownsNativeRasterBridge = !sessionNativeRasterBridge;
+    const sessionNativeRasterBridge = capturedSession?.nativeRasterBridge;
+    if (import.meta.env.DEV) {
+      console.debug("[native-preview] raster-bridge-owner", {
+        projectId: project.id,
+        sessionId: capturedSession?.sessionId ?? null,
+        sessionState: capturedSession?.state ?? null,
+        sharedSessionBridge: Boolean(sessionNativeRasterBridge),
+      });
+    }
+    if (!sessionNativeRasterBridge) {
+      console.warn("[native-preview] active session has no native raster bridge");
+      return;
+    }
+    const nativeRasterBridge = sessionNativeRasterBridge;
+    tracePlayback("playback-loop-start", {
+      projectId: project.id,
+      sessionId: capturedSession.sessionId,
+      surfaceReady: nativeSurfaceReadyRef.current,
+      surfaceError: nativeSurfaceErrorRef.current,
+    });
     const nativeBodyMaskInFlight = new Map<
       string,
       Promise<NativeRasterLayerSnapshot | null>
@@ -1174,14 +1227,24 @@ export const NativeProgramPreview: React.FC = () => {
     });
 
     const presentNativePlaybackFrame = async (request: NativeFrameRequest) => {
-      const present = () =>
-        queueNativeFrame(request).then(() => presentNativeFrame(request));
+      const startedAt = performance.now();
+      const present = () => presentNativeFrame(request);
       try {
         await ensureNativeRequestFonts(request);
-        return await present();
+        // The native surface is process-global and its window can be hidden or
+        // reconfigured by the lifecycle effect. Keep presentation in the same
+        // operation lane as hide/resize so a stale cleanup cannot hide the
+        // surface immediately after this frame is submitted.
+        return await enqueueNativeSurfaceOperation(present);
       } catch (error) {
         if (!(await reRegisterTextAssetsForRequest(request))) throw error;
-        return present();
+        return enqueueNativeSurfaceOperation(present);
+      } finally {
+        traceSlowPlaybackStage("native-present", startedAt, {
+          frameIndex: request.frameTime.frameIndex,
+          textLayerCount: request.project.textLayers?.length ?? 0,
+          requestKey: getNativeFrameRequestKey(request),
+        });
       }
     };
 
@@ -1194,123 +1257,6 @@ export const NativeProgramPreview: React.FC = () => {
         effectId: layer.effect?.effectId,
         effectVersion: layer.effect?.effectVersion,
       }));
-
-    /**
-     * Warm the native caches before a visual clip boundary reaches the audio
-     * clock. The visible RAF never awaits this work: image registration,
-     * animated asset rasterization, body-mask generation, native text SDF
-     * compilation, and decode-ahead all happen on the low-priority path.
-     */
-    const prefetchNativeFrame = (frameIndex: number): void => {
-      const state = renderStateRef.current;
-      const project = state.project;
-      if (!project || state.clock.state !== "playing" || !isTauriRuntime()) return;
-
-      const frameRate = Math.max(1, project.frameRate ?? 30);
-      const durationFrames = Math.max(1, Math.ceil(state.clock.duration * frameRate));
-      const targetFrame = Math.min(durationFrames - 1, Math.max(0, Math.floor(frameIndex)));
-      const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
-      const key = `${revision}:${targetFrame}`;
-      if (
-        nativePrefetchCompleted.has(key) ||
-        nativePrefetchInFlight.has(key)
-      ) {
-        return;
-      }
-      const previousFailureAt = nativePrefetchFailedAt.get(key) ?? 0;
-      if (performance.now() - previousFailureAt < 1000) return;
-      // Keep warm-up behind the visible playback path. A full native decode
-      // can be CPU-heavy, and two concurrent look-ahead jobs were enough to
-      // contend with surface presentation and reintroduce playback stutter.
-      // One nearby boundary is sufficient: text/image assets remain cached
-      // after that frame and do not need a second adjacent-frame prefetch.
-      if (nativePlaybackInFlight || nativePrefetchInFlight.size >= 1) return;
-
-      const task = (async () => {
-        const time = getFrameStartTime(targetFrame / frameRate, frameRate);
-        const prefetchTarget = getNativeRenderTarget(state, true, false);
-        const scene = evaluateTimelineSceneCached(
-          time,
-          state.clips,
-          state.tracks,
-          state.mediaAssets,
-          project,
-          state.epoch,
-          state.transitions,
-          state.sceneVersions,
-        );
-        const bridgeRasters = await nativeRasterBridge.rasterize(scene, {
-          frameKey: targetFrame,
-        });
-        const bodyMasks = await rasterizeNativeBodyMasks(
-          scene,
-          getActiveSessionOrNull()?.getPreviewVideoElements() ?? new Map(),
-        );
-        const activeSmartClips = state.clips.filter(
-          (clip): clip is SmartOverlayClip =>
-            clip.kind === "smart-overlay" &&
-            time >= clip.startTime &&
-            time < clip.startTime + clip.duration,
-        );
-        const smartOverlays = await nativeRasterBridge.rasterizeSmartOverlays(
-          activeSmartClips,
-          time,
-          prefetchTarget.width,
-          prefetchTarget.height,
-          { frameKey: targetFrame },
-        );
-        const request = buildNativeFrameRequest(
-          scene,
-          revision,
-          targetFrame,
-          frameRate,
-          prefetchTarget.width,
-          prefetchTarget.height,
-          [...bridgeRasters, ...bodyMasks, ...smartOverlays],
-          {
-            mode: "prefetch",
-            quality: prefetchTarget.quality,
-          },
-        );
-        if (!request) return;
-
-        const requestTextLayers = request.project.textLayers ?? [];
-        if (requestTextLayers.length > 0) {
-          console.debug("[native-preview] text-prefetch-ready", {
-            frameIndex: targetFrame,
-            textLayerCount: requestTextLayers.length,
-            textLayers: nativeTextDebugSummary(request),
-          });
-        }
-
-        const current = renderStateRef.current;
-        if (
-          !isActive ||
-          current.project?.id !== project.id ||
-          current.epoch !== state.epoch ||
-          current.clock.state !== "playing"
-        ) {
-          return;
-        }
-        await ensureNativeRequestFonts(request);
-        await queueNativeFrame(request);
-        nativePrefetchCompleted.add(key);
-        nativePrefetchFailedAt.delete(key);
-      })()
-        .catch((error) => {
-          nativePrefetchFailedAt.set(key, performance.now());
-          console.error("[native-preview] prefetch-failed", {
-            frameIndex: targetFrame,
-            revision,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        })
-        .finally(() => {
-          nativePrefetchInFlight.delete(key);
-        });
-
-      nativePrefetchInFlight.set(key, task);
-    };
 
     /**
      * Text has a distinct first-use cost: browser font loading, effect
@@ -1375,7 +1321,7 @@ export const NativeProgramPreview: React.FC = () => {
         if (textLayers.length === 0) return;
 
         await Promise.all([
-          nativeRasterBridge.prewarmTextAssets(scene),
+          nativeRasterBridge.prewarmTextAssets(scene, "text-prefetch"),
           ensureNativeFontsRegistered(
             textLayers.map((layer) => layer.fontFamily),
           ),
@@ -1433,35 +1379,6 @@ export const NativeProgramPreview: React.FC = () => {
       }, 250);
     };
 
-    const prefetchUpcomingNativeFrames = (currentFrame: number): void => {
-      const state = renderStateRef.current;
-      if (!state.project || state.clock.state !== "playing") return;
-      const frameRate = Math.max(1, state.project.frameRate ?? 30);
-      const currentTime = getFrameStartTime(currentFrame / frameRate, frameRate);
-      const prefetchHorizonFrame = currentFrame + Math.ceil(frameRate * 3);
-      const durationFrames = Math.max(1, Math.ceil(state.clock.duration * frameRate));
-      const candidates = new Set<number>();
-
-      // Target activation boundaries rather than every adjacent frame. This
-      // path prepares expensive first-use assets for a layer that begins
-      // several seconds ahead without competing with the currently visible
-      // video decode. It is intentionally not a second visible-frame loop.
-      for (const clip of state.clips) {
-        if (clip.kind === "audio" || clip.startTime <= currentTime) continue;
-        const boundary = Math.min(
-          durationFrames - 1,
-          Math.max(currentFrame + 1, Math.ceil(clip.startTime * frameRate)),
-        );
-        if (boundary <= prefetchHorizonFrame) candidates.add(boundary);
-      }
-
-      [...candidates]
-        .filter((frame) => frame > currentFrame && frame < durationFrames)
-        .sort((left, right) => left - right)
-        .slice(0, 1)
-        .forEach(prefetchNativeFrame);
-    };
-
     const scheduleNextFrame = () => {
       if (!isActive || frameScheduled) return;
       frameScheduled = true;
@@ -1475,6 +1392,9 @@ export const NativeProgramPreview: React.FC = () => {
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
       renderInFlight = true;
+      const renderStartedAt = performance.now();
+      let traceFrameIndex = -1;
+      let traceTextLayerCount = 0;
 
       try {
         const state = renderStateRef.current;
@@ -1484,6 +1404,21 @@ export const NativeProgramPreview: React.FC = () => {
 
         const frameRate = state.project?.frameRate ?? 30;
         const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
+        if (playbackState !== lastTracedPlaybackState) {
+          lastTracedPlaybackState = playbackState;
+          tracePlayback("playback-state", {
+            projectId: state.project?.id ?? null,
+            sessionId: capturedSession.sessionId,
+            playbackState,
+            time: Number(timeToRender.toFixed(3)),
+            frameIndex,
+            nativeClockReady: state.clock.hasNativeClockPosition,
+            surfaceReady: nativeSurfaceReadyRef.current,
+            surfacePresenting: nativeSurfaceShown,
+            renderInFlight,
+          });
+        }
+        traceFrameIndex = frameIndex;
         const frameStartTime = getFrameStartTime(timeToRender, frameRate);
         const renderTarget = getNativeRenderTarget(
           state,
@@ -1521,8 +1456,7 @@ export const NativeProgramPreview: React.FC = () => {
           state.transitions !== lastRenderedTransitions;
         const projectChanged = state.project !== lastRenderedProject;
 
-        const session = getActiveSessionOrNull();
-        const mediaReadyRevision = session?.getPreviewMediaReadyRevision() ?? 0;
+        const mediaReadyRevision = capturedSession.getPreviewMediaReadyRevision();
         const mediaReadyChanged =
           mediaReadyRevision !== lastRenderedMediaReadyRevision;
 
@@ -1541,6 +1475,7 @@ export const NativeProgramPreview: React.FC = () => {
 
         if (!mightNeedRender) return;
 
+        const evaluationStartedAt = performance.now();
         const scene = evaluateTimelineSceneCached(
           frameStartTime,
           state.clips,
@@ -1551,8 +1486,22 @@ export const NativeProgramPreview: React.FC = () => {
           state.transitions,
           state.sceneVersions,
         );
+        traceTextLayerCount = scene.visualLayers.filter((layer) => layer.layerType === "text").length;
+        traceSlowPlaybackStage("visible-scene-evaluation", evaluationStartedAt, {
+          frameIndex,
+          playbackState,
+          textLayerCount: traceTextLayerCount,
+        });
+        const bridgeStartedAt = performance.now();
         const nativeBridgeRasters = await nativeRasterBridge.rasterize(scene, {
           frameKey: frameIndex,
+          phase: "visible-playback",
+        });
+        traceSlowPlaybackStage("visible-raster-bridge", bridgeStartedAt, {
+          frameIndex,
+          playbackState,
+          textLayerCount: traceTextLayerCount,
+          rasterLayerCount: nativeBridgeRasters.length,
         });
         // Playback is a latest-frame stream. If the clock advanced while the
         // WebView was rasterizing an integration layer, abandon this work
@@ -1573,10 +1522,15 @@ export const NativeProgramPreview: React.FC = () => {
           forceRenderNeeded = true;
           return;
         }
+        const bodyMaskStartedAt = performance.now();
         const nativeBodyMasks = await rasterizeNativeBodyMasks(
           scene,
-          session?.getPreviewVideoElements() ?? new Map(),
+          capturedSession.getPreviewVideoElements(),
         );
+        traceSlowPlaybackStage("visible-body-masks", bodyMaskStartedAt, {
+          frameIndex,
+          bodyMaskCount: nativeBodyMasks.length,
+        });
         const nativeActiveSmartClips = state.clips.filter(
           (clip): clip is SmartOverlayClip =>
             clip.kind === "smart-overlay" &&
@@ -1585,6 +1539,7 @@ export const NativeProgramPreview: React.FC = () => {
             // (startTime <= evalTime < clipEnd). Was <= which rendered overlays one extra frame.
             frameStartTime < clip.startTime + clip.duration,
         );
+        const smartOverlayStartedAt = performance.now();
         const nativeSmartOverlays =
           await nativeRasterBridge.rasterizeSmartOverlays(
             nativeActiveSmartClips,
@@ -1593,6 +1548,10 @@ export const NativeProgramPreview: React.FC = () => {
             renderTarget.height,
             { frameKey: frameIndex },
           );
+        traceSlowPlaybackStage("visible-smart-overlays", smartOverlayStartedAt, {
+          frameIndex,
+          smartOverlayCount: nativeSmartOverlays.length,
+        });
         if (!playbackTargetStillCurrent()) {
           forceRenderNeeded = true;
           return;
@@ -1645,7 +1604,12 @@ export const NativeProgramPreview: React.FC = () => {
             textLayers: nativeTextDebugSummary(nativeRequest!),
           });
         }
-        if (isPlaying) prefetchUpcomingNativeFrames(frameIndex);
+        // Do not queue a speculative native video frame from the visible RAF.
+        // `queue_native_frame` uses the same decoder mutex as presentation, so
+        // launching it immediately before the visible request can freeze the
+        // surface several seconds before a text/media boundary. Decoder cold
+        // starts are handled during project/session initialization; text and
+        // other WebView assets use their isolated prewarm paths below.
         if (isPlaying) scheduleUpcomingNativeTextPrefetch();
         // Present the frame that was actually evaluated. Building a second
         // look-ahead scene here doubles WebView rasterization and IPC exactly
@@ -1749,15 +1713,30 @@ export const NativeProgramPreview: React.FC = () => {
           (nativePlaybackPath || nativePausedPath);
         const nativeReadbackFallbackPath =
           isPlaying && nativePlaybackPath && !nativeSurfaceUsable;
-        if (
+        // Do not hide a valid native frame merely because the next request is
+        // waiting for the audio clock, a seek, or a new scene to finish. The
+        // retained surface is the visual continuity buffer; hiding it here
+        // creates a black flash before the replacement frame is presented.
+        // Geometry changes, hard render failures, and project cleanup still
+        // hide it through their dedicated lifecycle/error paths below.
+        const nativeSurfaceNeedsHide =
           nativeSurfaceShown &&
-          !nativeDirectSurfacePath &&
-          !nativeSurfaceOwnsCurrentFrame
-        ) {
+          (!nativeSurfaceUsable ||
+            (!nativeRequest && !nativeSurfaceOwnsCurrentFrame));
+        if (nativeSurfaceNeedsHide) {
+          tracePlayback("surface-hide-for-recovery", {
+            projectId: state.project?.id ?? null,
+            playbackState,
+            frameIndex,
+            surfaceReady: nativeSurfaceReadyNow,
+            surfaceUsable: nativeSurfaceUsable,
+            hasNativeRequest: Boolean(nativeRequest),
+            surfaceOwnsCurrentFrame: nativeSurfaceOwnsCurrentFrame,
+          });
           nativeSurfaceShown = false;
           lastNativePlaybackRequestKey = "";
           setNativeSurfacePresenting(false);
-          void hideNativeSurface().catch(() => undefined);
+          void hideNativeSurfaceWhenIdle().catch(() => undefined);
         }
         const cachedNativeFrame =
           nativeRequestKey !== ""
@@ -1812,6 +1791,20 @@ export const NativeProgramPreview: React.FC = () => {
               };
 
               if (nativeSurfaceUsable) {
+                const tracePresentation = isFirstFrame || !isPlaying;
+                if (tracePresentation) {
+                  tracePlayback("native-present-start", {
+                    projectId: state.project?.id ?? null,
+                    sessionId: capturedSession.sessionId,
+                    frameIndex: requestToPresent.frameTime.frameIndex,
+                    requestKey,
+                    playbackState,
+                    audioClockReady: nativeAudioClockReady,
+                    surfaceReady: nativeSurfaceReadyNow,
+                    surfaceGeometrySettled:
+                      nativeSurfaceGeometrySettledRef.current,
+                  });
+                }
                 const frontendSpan = nativePerfCollector.isEnabled()
                   ? nativePerfCollector.begin(requestToPresent)
                   : null;
@@ -1822,6 +1815,20 @@ export const NativeProgramPreview: React.FC = () => {
                 )
                   .then((presentation) => {
                     frontendSpan?.markIpcFinished();
+                    if (tracePresentation) {
+                      tracePlayback("native-present-result", {
+                        projectId: state.project?.id ?? null,
+                        sessionId: capturedSession.sessionId,
+                        frameIndex: requestToPresent.frameTime.frameIndex,
+                        requestKey,
+                        playbackState,
+                        presented: presentation.presented,
+                        dropped: presentation.dropped,
+                        stale: presentation.stale,
+                        frameAgeTicks: presentation.frameAgeTicks,
+                        audioPositionTicks: presentation.audioPositionTicks,
+                      });
+                    }
                     if (!presentation.presented) {
                       const droppedTextLayers =
                         requestToPresent.project.textLayers ?? [];
@@ -1858,12 +1865,18 @@ export const NativeProgramPreview: React.FC = () => {
                       const current = renderStateRef.current;
                       const currentRequestIsStillAuthoritative =
                         requestKey === nativeRequestKey || isPlaying;
-                      if (
+                      // A stopped clock is the normal state immediately after
+                      // project load. A successfully presented frame must be
+                      // accepted there as the initial still, and it should
+                      // remain visible while a play/pause/seek transition is
+                      // waiting for its replacement.
+                      const canRetainPresentedSurface =
                         isActive &&
                         nativeSurfaceGeometrySettledRef.current &&
                         current.project?.id === state.project?.id &&
-                        current.epoch === state.epoch &&
-                        current.clock.state !== "stopped" &&
+                        current.epoch === state.epoch;
+                      if (
+                        canRetainPresentedSurface &&
                         currentRequestIsStillAuthoritative
                       ) {
                         const presentedTextLayers =
@@ -1893,13 +1906,17 @@ export const NativeProgramPreview: React.FC = () => {
                         if (nativeSurfaceReadyRef.current) {
                           setNativeSurfacePresenting(true);
                         }
-                      } else if (presentation.presented) {
-                        if (lastNativePlaybackRequestKey === requestKey) {
-                          lastNativePlaybackRequestKey = "";
-                          nativeSurfaceShown = false;
-                          setNativeSurfacePresenting(false);
-                          void hideNativeSurface().catch(() => undefined);
-                        }
+                      } else if (canRetainPresentedSurface && presentation.presented) {
+                        // The request may have become non-authoritative while
+                        // it was in flight, but its frame is still valid visual
+                        // continuity. Leave the retained surface visible until
+                        // the newer request is presented.
+                        tracePlayback("surface-retain-presented-frame", {
+                          projectId: state.project?.id ?? null,
+                          frameIndex: requestToPresent.frameTime.frameIndex,
+                          playbackState,
+                          currentPlaybackState: current.clock.state,
+                        });
                       }
                     }
                   })
@@ -1928,11 +1945,11 @@ export const NativeProgramPreview: React.FC = () => {
                       nativeContinuousBlockedRevision = nativeRevision;
                     }
                     nativeRetryAt = performance.now() + 250;
-                    if (nativeSurfaceShown) {
+                    if (isActive && nativeSurfaceShown) {
                       nativeSurfaceShown = false;
                       lastNativePlaybackRequestKey = "";
                       setNativeSurfacePresenting(false);
-                      void hideNativeSurface().catch(() => undefined);
+                      void hideNativeSurfaceWhenIdle().catch(() => undefined);
                     }
                   })
                   .finally(() => {
@@ -2225,6 +2242,12 @@ export const NativeProgramPreview: React.FC = () => {
         forceRenderNeeded = true;
         nativeRetryAt = performance.now() + 250;
       } finally {
+        traceSlowPlaybackStage("visible-render-loop", renderStartedAt, {
+          frameIndex: traceFrameIndex,
+          playbackState: renderStateRef.current.clock.state,
+          textLayerCount: traceTextLayerCount,
+          renderInFlightAtStart: true,
+        });
         renderInFlight = false;
         const latest = renderStateRef.current;
         const hasPendingVisualChange =
@@ -2262,22 +2285,24 @@ export const NativeProgramPreview: React.FC = () => {
         nativeBlockedKey = "";
         nativeFailureCount = 0;
         nativeRetryAt = 0;
-        if (newClockState.state === "playing") {
-          prefetchUpcomingNativeFrames(
-            getFrameIndexAtTime(newClockState.time, renderStateRef.current.clock.frameRate),
-          );
-        }
       }
       scheduleNextFrame();
     });
 
     scheduleNextFrame();
     return () => {
+      tracePlayback("playback-loop-stop", {
+        projectId: project.id,
+        sessionId: capturedSession.sessionId,
+        playbackState: clock.state,
+        surfaceReady: nativeSurfaceReadyRef.current,
+        surfacePresenting: nativeSurfaceShown,
+        renderInFlight,
+      });
       isActive = false;
       unsubscribeClock();
       unsubscribeSeekIntent?.();
       nativePreviewScheduler.dispose();
-      if (ownsNativeRasterBridge) nativeRasterBridge.dispose();
       if (nativeTextPrefetchTimer !== null) {
         window.clearTimeout(nativeTextPrefetchTimer);
         nativeTextPrefetchTimer = null;
@@ -2295,7 +2320,7 @@ export const NativeProgramPreview: React.FC = () => {
     // Audit 4.6 fix: nativeSurfaceReady removed from deps — it is now read from
     // nativeSurfaceReadyRef.current inside the loop, preventing the loop from restarting
     // (and emitting a blank frame) on every native surface probe and window resize.
-  }, [canvasEl, project?.id]);
+  }, [canvasEl, project?.id, projectInitializing]);
 
   // Wake the paused native renderer for timeline edits, text input, seeks,
   // and viewport changes. The loop itself decides whether one frame is
@@ -2349,22 +2374,18 @@ export const NativeProgramPreview: React.FC = () => {
       data-preview-space="program"
       className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3"
     >
-      <div className="flex items-center px-4 h-10 shrink-0 gap-2 overflow-hidden">
+      <div
+        data-preview-header
+        className="flex items-center px-4 h-10 shrink-0 gap-2 overflow-hidden"
+      >
         <span className="text-[13px] font-semibold text-text-primary tracking-tight leading-none">
-          {isTauriRuntime()
-            ? "Program Preview (Native)"
-            : "Program Preview (Desktop required)"}
+          Program Preview
         </span>
-        <span className="text-[13px] text-text-muted leading-none">
-          —{" "}
-          {isTauriRuntime()
-            ? nativeSurfacePresenting
-              ? "wgpu Surface"
-              : nativeSurfaceError
-                ? "wgpu Surface unavailable"
-                : "Preparing wgpu Surface"
-            : "Open the desktop runtime"}
-        </span>
+        {import.meta.env.DEV && nativeSurfaceError && (
+          <span className="text-[11px] text-danger leading-none truncate">
+            Preview surface unavailable
+          </span>
+        )}
         <button
           onClick={() => setShowTelemetry((s) => !s)}
           className={cn(
