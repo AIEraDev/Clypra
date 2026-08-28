@@ -281,13 +281,19 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       // flat/nested representation.
       if ((effectDef as any).scene?.effectLayers) {
         const canonicalScene = JSON.parse(JSON.stringify((effectDef as any).scene));
+        const authoredWidth = Math.max(1, Math.ceil(Number(canonicalScene.canvas?.width) || 800));
+        const authoredHeight = Math.max(1, Math.ceil(Number(canonicalScene.canvas?.height) || 200));
         canonicalScene.text.content = layer.text;
         canonicalScene.text.fontSize = unscaledFontSize;
         canonicalScene.text.fontFamily = layer.fontFamily || canonicalScene.text.fontFamily;
         canonicalScene.text.textPosX = layer.textAlign || canonicalScene.text.textPosX;
         canonicalScene.text.textPosY = layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || canonicalScene.text.textPosY;
-        canonicalScene.canvas.width = unscaledOffW;
-        canonicalScene.canvas.height = unscaledOffH;
+        // Evaluate on the Studio-authored effect canvas. Resizing the scene
+        // before evaluation changes safe-area margins and internal layout,
+        // which makes the same text effect appear larger or clipped after it
+        // is inserted into a timeline clip.
+        canonicalScene.canvas.width = authoredWidth;
+        canonicalScene.canvas.height = authoredHeight;
         traceTextRenderScene(canonicalScene, {
           path: "program-preview",
           assetId: layer.styleId,
@@ -301,22 +307,25 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
         // translated to the layer center (native preview does; other callers
         // do not), which caused the effect to shift and clip in Program
         // Preview.
-        const offscreen = CanvasDevice.acquire(unscaledOffW, unscaledOffH);
+        const offscreen = CanvasDevice.acquire(authoredWidth, authoredHeight);
         const offCtx = offscreen.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
         if (offCtx) {
           offCtx.setTransform(1, 0, 0, 1, 0, 0);
-          offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+          offCtx.clearRect(0, 0, authoredWidth, authoredHeight);
           engineEvaluateScene(canonicalScene, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
+          const fitScale = Math.min(width / authoredWidth, height / authoredHeight);
+          const fittedWidth = authoredWidth * fitScale;
+          const fittedHeight = authoredHeight * fitScale;
           ctx.drawImage(
             offscreen,
             0,
             0,
-            unscaledOffW,
-            unscaledOffH,
-            -width / 2 - effectPaddingX,
-            -height / 2 - effectPaddingY,
-            offW,
-            offH,
+            authoredWidth,
+            authoredHeight,
+            -width / 2 + (width - fittedWidth) / 2,
+            -height / 2 + (height - fittedHeight) / 2,
+            fittedWidth,
+            fittedHeight,
           );
         }
         Promise.resolve().then(() => CanvasDevice.release(offscreen));
