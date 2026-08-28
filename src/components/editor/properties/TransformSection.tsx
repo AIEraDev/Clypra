@@ -414,6 +414,21 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
             }
           />
 
+          {/* Blend Mode */}
+          <PropertySelect
+            label="Blend Mode"
+            value={selectedClip.blendMode || "normal"}
+            options={[
+              { value: "normal", label: "Normal" },
+              { value: "screen", label: "Screen (Light / Flares)" },
+              { value: "multiply", label: "Multiply (Shadows / Burn)" },
+              { value: "overlay", label: "Overlay (Contrast)" },
+              { value: "additive", label: "Additive (Glow)" },
+              { value: "difference", label: "Difference (Inversion)" },
+            ]}
+            onChange={(v) => handleUpdate("blendMode", v)}
+          />
+
           {/* Flip buttons */}
           <div>
             <span className="text-[10px] font-medium text-text-muted select-none block mb-1.5">
