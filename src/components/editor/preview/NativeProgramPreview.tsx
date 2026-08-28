@@ -256,6 +256,9 @@ export const NativeProgramPreview: React.FC = () => {
     inFlight: new Map<string, Promise<void>>(),
     completed: new Set<string>(),
     failedAt: new Map<string, number>(),
+    textInFlight: new Map<string, Promise<void>>(),
+    textCompleted: new Set<string>(),
+    textFailedAt: new Map<string, number>(),
   });
   const qualityManagerSigRef = useRef<string>("");
   const telemetryRef = useRef(telemetryStats);
@@ -859,6 +862,13 @@ export const NativeProgramPreview: React.FC = () => {
     const nativePrefetchInFlight = nativePrefetchStateRef.current.inFlight;
     const nativePrefetchCompleted = nativePrefetchStateRef.current.completed;
     const nativePrefetchFailedAt = nativePrefetchStateRef.current.failedAt;
+    const nativeTextPrefetchInFlight =
+      nativePrefetchStateRef.current.textInFlight;
+    const nativeTextPrefetchCompleted =
+      nativePrefetchStateRef.current.textCompleted;
+    const nativeTextPrefetchFailedAt =
+      nativePrefetchStateRef.current.textFailedAt;
+    let nativeTextPrefetchTimer: number | null = null;
 
     let nativeSurfaceShown = false;
     let lastNativePlaybackRequestKey = "";
@@ -869,7 +879,9 @@ export const NativeProgramPreview: React.FC = () => {
       seekController?.getCurrent() ?? null;
     let visibleRequestGeneration = seekController?.getGeneration() ?? 0;
     let transportRevision = 0;
-    const nativeRasterBridge = new NativeRasterBridge();
+    const sessionNativeRasterBridge = getActiveSessionOrNull()?.nativeRasterBridge;
+    const nativeRasterBridge = sessionNativeRasterBridge ?? new NativeRasterBridge();
+    const ownsNativeRasterBridge = !sessionNativeRasterBridge;
     const nativeBodyMaskInFlight = new Map<
       string,
       Promise<NativeRasterLayerSnapshot | null>
@@ -1300,6 +1312,127 @@ export const NativeProgramPreview: React.FC = () => {
       nativePrefetchInFlight.set(key, task);
     };
 
+    /**
+     * Text has a distinct first-use cost: browser font loading, effect
+     * rasterization, and (when needed) native font registration. Warm only
+     * that path several seconds before a text boundary so it never competes
+     * with the first visible text frame.
+     */
+    const prefetchUpcomingNativeText = (currentFrame: number): void => {
+      const state = renderStateRef.current;
+      const project = state.project;
+      if (!project || state.clock.state !== "playing" || !isTauriRuntime()) {
+        return;
+      }
+
+      const frameRate = Math.max(1, project.frameRate ?? 30);
+      const currentTime = getFrameStartTime(currentFrame / frameRate, frameRate);
+      const durationFrames = Math.max(
+        1,
+        Math.ceil(state.clock.duration * frameRate),
+      );
+      const horizonTime = currentTime + 8;
+      const upcomingTextClip = state.clips
+        .filter(
+          (clip) =>
+            clip.kind === "text" &&
+            clip.startTime > currentTime &&
+            clip.startTime <= horizonTime,
+        )
+        .sort((left, right) => left.startTime - right.startTime)[0];
+      if (!upcomingTextClip) return;
+
+      const targetFrame = Math.min(
+        durationFrames - 1,
+        Math.max(currentFrame + 1, Math.ceil(upcomingTextClip.startTime * frameRate)),
+      );
+      const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
+      const key = `${revision}:${targetFrame}`;
+      if (
+        nativeTextPrefetchCompleted.has(key) ||
+        nativeTextPrefetchInFlight.has(key)
+      ) {
+        return;
+      }
+      const previousFailureAt = nativeTextPrefetchFailedAt.get(key) ?? 0;
+      if (performance.now() - previousFailureAt < 1000) return;
+
+      const task = (async () => {
+        const time = getFrameStartTime(targetFrame / frameRate, frameRate);
+        const scene = evaluateTimelineSceneCached(
+          time,
+          state.clips,
+          state.tracks,
+          state.mediaAssets,
+          project,
+          state.epoch,
+          state.transitions,
+          state.sceneVersions,
+        );
+        const textLayers = scene.visualLayers.filter(
+          (layer) => layer.layerType === "text",
+        );
+        if (textLayers.length === 0) return;
+
+        await Promise.all([
+          nativeRasterBridge.prewarmTextAssets(scene),
+          ensureNativeFontsRegistered(
+            textLayers.map((layer) => layer.fontFamily),
+          ),
+        ]);
+
+        const current = renderStateRef.current;
+        if (
+          !isActive ||
+          current.project?.id !== project.id ||
+          current.epoch !== state.epoch ||
+          current.clock.state !== "playing"
+        ) {
+          return;
+        }
+        nativeTextPrefetchCompleted.add(key);
+        while (nativeTextPrefetchCompleted.size > 128) {
+          const oldestKey = nativeTextPrefetchCompleted.values().next().value;
+          if (oldestKey === undefined) break;
+          nativeTextPrefetchCompleted.delete(oldestKey);
+        }
+        nativeTextPrefetchFailedAt.delete(key);
+      })()
+        .catch((error) => {
+          nativeTextPrefetchFailedAt.set(key, performance.now());
+          console.error("[native-preview] text-prefetch-failed", {
+            frameIndex: targetFrame,
+            revision,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          nativeTextPrefetchInFlight.delete(key);
+        });
+
+      nativeTextPrefetchInFlight.set(key, task);
+    };
+
+    // Never start text preparation in the same turn as the first play intent.
+    // Canvas rasterization can occupy the WebView thread even though the
+    // function is async; give the first native frame and audio clock a head
+    // start, then warm the next text boundary from an idle timer.
+    const scheduleUpcomingNativeTextPrefetch = (): void => {
+      if (nativeTextPrefetchTimer !== null) return;
+      nativeTextPrefetchTimer = window.setTimeout(() => {
+        nativeTextPrefetchTimer = null;
+        const current = renderStateRef.current;
+        if (current.clock.state !== "playing") return;
+        if (renderInFlight || nativePlaybackInFlight) {
+          scheduleUpcomingNativeTextPrefetch();
+          return;
+        }
+        prefetchUpcomingNativeText(
+          getFrameIndexAtTime(current.clock.time, current.clock.frameRate),
+        );
+      }, 250);
+    };
+
     const prefetchUpcomingNativeFrames = (currentFrame: number): void => {
       const state = renderStateRef.current;
       if (!state.project || state.clock.state !== "playing") return;
@@ -1513,6 +1646,7 @@ export const NativeProgramPreview: React.FC = () => {
           });
         }
         if (isPlaying) prefetchUpcomingNativeFrames(frameIndex);
+        if (isPlaying) scheduleUpcomingNativeTextPrefetch();
         // Present the frame that was actually evaluated. Building a second
         // look-ahead scene here doubles WebView rasterization and IPC exactly
         // when the renderer is already behind. Native queue/prefetch remains
@@ -2143,7 +2277,11 @@ export const NativeProgramPreview: React.FC = () => {
       unsubscribeClock();
       unsubscribeSeekIntent?.();
       nativePreviewScheduler.dispose();
-      nativeRasterBridge.dispose();
+      if (ownsNativeRasterBridge) nativeRasterBridge.dispose();
+      if (nativeTextPrefetchTimer !== null) {
+        window.clearTimeout(nativeTextPrefetchTimer);
+        nativeTextPrefetchTimer = null;
+      }
       if (wakeNativeRenderLoopRef.current === scheduleNextFrame) {
         wakeNativeRenderLoopRef.current = null;
       }
