@@ -1,10 +1,11 @@
 import type { EvaluatedTextLayer } from "../evaluation/types";
-import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, defaultConfig as engineDefaultConfig, _buildConfig } from "@clypra-studio/engine";
+import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, defaultConfig as engineDefaultConfig, _buildConfig, normalizeTextTemplate } from "@clypra-studio/engine";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
 import { effectBleed, resolveTextEffectDefinition } from "../../lib/text/textClip";
 import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
+import { traceTextRenderScene } from "./textRenderTrace";
 
 
 
@@ -72,12 +73,27 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       }
     }
     const rawTemplate = templates.find((t) => t.id === layer.templateId);
-    let template = rawTemplate?.templateData || rawTemplate?.lottieData;
+    // Existing timeline instances are immutable snapshots. Resolve them
+    // before consulting the live catalog so a Studio republish cannot change
+    // the appearance of an already-created clip.
+    let template = (layer.templateSnapshot?.layers?.length || (layer.templateSnapshot as any)?.elements?.length)
+      ? layer.templateSnapshot
+      : undefined;
+
+    const requestedRevisionId = layer.templateRevisionId;
+    const catalogRevisionId = (rawTemplate as any)?.revisionId ?? (rawTemplate as any)?.revision?.revisionId;
+    if (!template && rawTemplate && (!requestedRevisionId || requestedRevisionId === catalogRevisionId)) {
+      template = rawTemplate.templateData || rawTemplate.lottieData;
+    }
 
     if (rawTemplate && !template) {
       try {
         const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
-        const templateData = await TextEffectsApi.getTemplateData(rawTemplate.category, rawTemplate.id);
+        const templateData = await TextEffectsApi.getTemplateData(
+          rawTemplate.category,
+          rawTemplate.id,
+          requestedRevisionId ? { revisionId: requestedRevisionId } : {},
+        );
         useTemplateStore.setState((state) => ({
           templates: state.templates.map((t) => (t.id === rawTemplate.id ? { ...t, templateData, lottieData: templateData } : t)),
         }));
@@ -89,7 +105,12 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       }
     }
 
-    if (template && template.layers) {
+    if (template && (template.layers?.length || (template as any).elements?.length)) {
+      // Normalize element-based Studio payloads once before rendering. This
+      // also makes the pinned snapshot path use the exact same layer model as
+      // the live API/template preview path.
+      const activeTemplate = normalizeTextTemplate(template) as any;
+      template = activeTemplate;
       const customization = layer.customization || {
         primaryText: layer.text || "",
         secondaryText: "",
@@ -99,10 +120,10 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       };
 
       const { TemplateRenderer } = await import("@clypra-studio/engine");
-      const renderer = new TemplateRenderer(template);
+      const renderer = new TemplateRenderer(activeTemplate);
 
       // Apply customization overrides to the renderer
-      for (const tLayer of template.layers) {
+      for (const tLayer of activeTemplate.layers) {
         if (tLayer.kind === "text") {
           const changes: any = {};
 
@@ -159,9 +180,9 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       const localTime = layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0;
 
       // Get the bounds of the actual template content to scale it relative to the content rather than the empty canvas
-      const tempCanvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(template.canvasWidth, template.canvasHeight) : document.createElement("canvas");
-      tempCanvas.width = template.canvasWidth;
-      tempCanvas.height = template.canvasHeight;
+      const tempCanvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(activeTemplate.canvasWidth, activeTemplate.canvasHeight) : document.createElement("canvas");
+      tempCanvas.width = activeTemplate.canvasWidth;
+      tempCanvas.height = activeTemplate.canvasHeight;
       const tempCtx = tempCanvas.getContext("2d");
       if (tempCtx) {
         renderer.drawFrame(tempCtx, localTime, { skipClear: true });
@@ -185,8 +206,8 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
         ctx.scale(scale, scale);
         ctx.translate(-bounds.x + offsetX / scale, -bounds.y + offsetY / scale);
       } else {
-        const sX = width / template.canvasWidth;
-        const sY = height / template.canvasHeight;
+        const sX = width / activeTemplate.canvasWidth;
+        const sY = height / activeTemplate.canvasHeight;
         ctx.scale(sX, sY);
       }
 
@@ -203,10 +224,15 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
   // text renders at wrong size after resize operations.
   // We DO apply scale to geometric properties (bleed, stroke, shadow) for quality independence.
   const fontSize = layer.fontSize; // Use fontSize directly from layer state
-  const effectDef = resolveTextEffectDefinition(
+  const resolvedEffectDef = resolveTextEffectDefinition(
     layer.styleId,
     layer.styleDefinition,
+    layer.styleRevisionId,
+    layer.styleContentHash,
   );
+  const effectDef = resolvedEffectDef && layer.styleSnapshot
+    ? ({ ...resolvedEffectDef, scene: layer.styleSnapshot } as any)
+    : resolvedEffectDef;
   const declaredBleed = effectBleed({
     styleId: layer.styleId,
     effectDefinition: effectDef,
@@ -262,7 +288,38 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
         canonicalScene.text.textPosY = layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || canonicalScene.text.textPosY;
         canonicalScene.canvas.width = unscaledOffW;
         canonicalScene.canvas.height = unscaledOffH;
-        engineEvaluateScene(canonicalScene, layer.time ?? 0, ctx);
+        traceTextRenderScene(canonicalScene, {
+          path: "program-preview",
+          assetId: layer.styleId,
+          revisionId: (effectDef as any).revisionId,
+          contentHash: (effectDef as any).contentHash,
+          time: layer.time ?? 0,
+        });
+        // Render canonical scenes into an isolated raster just like the
+        // compatibility path below. Directly evaluating into the caller's
+        // context makes placement depend on whether the caller has already
+        // translated to the layer center (native preview does; other callers
+        // do not), which caused the effect to shift and clip in Program
+        // Preview.
+        const offscreen = CanvasDevice.acquire(unscaledOffW, unscaledOffH);
+        const offCtx = offscreen.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
+        if (offCtx) {
+          offCtx.setTransform(1, 0, 0, 1, 0, 0);
+          offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
+          engineEvaluateScene(canonicalScene, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
+          ctx.drawImage(
+            offscreen,
+            0,
+            0,
+            unscaledOffW,
+            unscaledOffH,
+            -width / 2 - effectPaddingX,
+            -height / 2 - effectPaddingY,
+            offW,
+            offH,
+          );
+        }
+        Promise.resolve().then(() => CanvasDevice.release(offscreen));
         return;
       }
 
@@ -336,6 +393,13 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
   }
 
   const sceneDoc = textEffectConfigToScene(engineConfig);
+  traceTextRenderScene(sceneDoc, {
+    path: "program-preview",
+    assetId: layer.styleId,
+    revisionId: (effectDef as any)?.revisionId,
+    contentHash: (effectDef as any)?.contentHash,
+    time: layer.time ?? 0,
+  });
 
   // Acquire canvas context from the unified CanvasDevice pool
   // CRITICAL: Use UNSCALED dimensions for text rendering to ensure consistent layout
