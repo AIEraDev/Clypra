@@ -22,6 +22,7 @@ import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPrev
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { UpdateBanner } from "@/components/ui/UpdateBanner";
 import { Toaster } from "sonner";
+import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -642,6 +643,8 @@ const App = () => {
       {isRecording ? <FloatingWidget onProjectCreate={handleCreateProject} /> : <TooltipProvider delayDuration={0}>{project ? <EditorScreen onRequestClose={handleCloseProject} /> : <LaunchScreen onProjectCreate={handleCreateProject} onProjectOpen={handleOpenProject} />}</TooltipProvider>}
       <SettingsModal isOpen={showSettingsModal} onClose={toggleSettingsModal} />
       <ScreenRecordingPreviewModal isOpen={!!previewRecording} onClose={() => setPreviewRecording(null)} onProjectCreate={handleCreateProject} />
+
+      <ProjectLoadingModal />
 
       {/* ── Closing Project Modal ────────────────────────────────────────── */}
       <ClosingProjectModal
