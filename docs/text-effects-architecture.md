@@ -123,6 +123,16 @@ Project JSON, templates, and imported clips come from external/untrusted sources
 4. **Finite Float & Clamping**: Non-finite numbers (`NaN`, $+\infty$, $-\infty$) are replaced with defaults; numbers are clamped strictly to `[range.min, range.max]`.
 5. **Resolution Precedence**: `ParamSpec.default` $\to$ `PrimitivePass.param_bindings` $\to$ `TextEffectInstance.parameter_overrides` (sanitized).
 
+### 1.4 Known typography limitation: RTL/BiDi text
+
+The current text pipeline is LTR-only. Arabic, Hebrew, mixed-direction text,
+and other right-to-left/BiDi layout cases are not yet a supported authoring or
+export feature. The UI and export surfaces must not imply RTL parity until the
+native and Studio shaping paths share direction-aware glyph ordering,
+alignment, cursor/layout behavior, and regression coverage. Treat RTL/BiDi
+input as a documented limitation rather than relying on accidental behavior
+from an individual font or runtime.
+
 ---
 
 ## 2. Core Rendering Pipeline & Native Integration

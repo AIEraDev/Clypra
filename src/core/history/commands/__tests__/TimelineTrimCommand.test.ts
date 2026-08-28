@@ -75,4 +75,23 @@ describe("TimelineTrimCommand", () => {
     expect(trimmed.clips.map((item) => item.startTime)).toEqual([2, 12]);
     expect(command.invert().apply(trimmed).clips).toEqual(beforeClips);
   });
+
+  it("deeply snapshots nested text and audio metadata", () => {
+    const before = clip("nested", 0, 10);
+    before.kind = "compound";
+    before.compoundChildren = [
+      { ...clip("text-child", 0, 10), kind: "text", styleDefinition: { id: "title", version: "2" } } as any,
+      { ...clip("audio-child", 0, 10), kind: "audio", audio: { gainDb: -4 } } as any,
+    ];
+    const after = [{ ...before, duration: 8, trimOut: 8 }];
+    const command = new TimelineTrimCommand([before], after, [], []);
+    const trimmed = command.apply({ clips: [before], gaps: [], epoch: 0 });
+    (trimmed.clips[0].compoundChildren![0] as any).styleDefinition.version = "mutated";
+    (trimmed.clips[0].compoundChildren![1] as any).audio.gainDb = 12;
+
+    const restored = command.invert().apply(trimmed);
+    const restoredChildren = restored.clips[0].compoundChildren!;
+    expect((restoredChildren[0] as any).styleDefinition).toEqual({ id: "title", version: "2" });
+    expect((restoredChildren[1] as any).audio.gainDb).toBe(-4);
+  });
 });

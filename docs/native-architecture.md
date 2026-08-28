@@ -54,6 +54,21 @@ non-silent frame counts, and output-device status. This identifies the owning
 boundary—clip discovery/install, timeline activation, decode/envelope/mixing,
 callback handoff, or device routing—without creating a second playback graph.
 
+### Native Audio Verification & Host Diagnostic Trace
+
+The native desktop playback pipeline (clip discovery → FFmpeg-to-f32 PCM decoder → bounded multi-clip mixer → CPAL hardware callback → output device) is verified with 33/33 passing unit/integration tests in Rust:
+```bash
+cargo test --lib audio
+```
+This suite verifies:
+- Preroll trimming to source start and microsecond time base accuracy.
+- Materially short decode rejection before mixer installation.
+- Constant-power panning invariants and gain automation.
+- Sample-domain ramp after transport discontinuity (preventing pops/clicks).
+- Pitch-preservation during transport speed changes.
+- Mixer zero-filling on starvation without affecting concurrent tracks.
+- Live telemetry via `get_native_audio_diagnostics` reporting `installed_clips`, `active_clip_ids`, `mixer_peak`, and `non_silent_frames`.
+
 ### Export audio routing
 
 The native cut-only export path is eligible only for video-only timeline

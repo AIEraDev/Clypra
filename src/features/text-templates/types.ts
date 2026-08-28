@@ -43,6 +43,15 @@ export interface TemplateTextProperties {
   styleId?: string; // Reference to EffectDefinition ID
   styleVersion?: number;
   parameterOverrides?: Record<string, any>;
+  /** Optional embedded definition used to keep instantiated clips reproducible. */
+  styleDefinition?: import("@clypra-studio/engine").TextEffectDefinition;
+  styleRef?: {
+    effectId: string;
+    revisionId: string;
+    contentHash: string;
+    snapshot?: import("@clypra-studio/engine").SceneDocument;
+    parameterOverrides?: Record<string, unknown>;
+  };
   animation?: {
     preset: "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "scale" | "zoom" | "none";
     duration: number;
@@ -76,6 +85,7 @@ export interface TemplateElement {
 
 export interface TemplateDefinition {
   id: string;
+  schemaVersion?: number;
   version?: number;
   displayName?: string;
   category: TemplateCategory;
@@ -100,6 +110,12 @@ export interface TemplateDefinition {
   lottieData?: any;
   tags?: string[];
   fps?: number;
+  dependencies?: Array<{
+    effectId: string;
+    revisionId: string;
+    contentHash: string;
+    snapshot?: import("@clypra-studio/engine").SceneDocument;
+  }>;
   width?: number;
   height?: number;
   textLayers?: any[];

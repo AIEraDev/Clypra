@@ -12,6 +12,7 @@
 
 import type { Clip, TextClip } from "@/types";
 import { generateId } from "@/lib/utils/id";
+import { resolveTextEffectDefinition } from "@/lib/text/textClip";
 import type { TemplateDefinition, TemplateCustomization, TemplateElement } from "./types";
 
 export interface InstantiateTemplateOptions {
@@ -38,6 +39,13 @@ export function instantiateTemplate(
   const duration = template.defaultDuration || template.duration || 4.0;
   const canvasWidth = options.canvasWidth || template.canvasWidth || 1920;
   const canvasHeight = options.canvasHeight || template.canvasHeight || 1080;
+  const revision = (template as any).revision;
+  const templateRevisionId = (template as any).revisionId ?? revision?.revisionId;
+  const templateContentHash = (template as any).contentHash ?? revision?.contentHash;
+  const templateSnapshot = cloneSerializable(template);
+  const templateDependencies = Array.isArray((template as any).dependencies)
+    ? cloneSerializable((template as any).dependencies)
+    : undefined;
 
   // Build child clips for each template element
   const elements = template.elements && template.elements.length > 0
@@ -56,6 +64,8 @@ export function instantiateTemplate(
       customization: options.customization,
       index,
       textIndex: currentTextIndex,
+      templateId: template.id,
+      templateVersion: template.version ?? 1,
     });
   });
 
@@ -75,6 +85,12 @@ export function instantiateTemplate(
     opacity: 1,
     rotation: 0,
     mediaId: `compound-${compoundId}`,
+    templateId: template.id,
+    templateVersion: template.version ?? 1,
+    templateRevisionId,
+    templateContentHash,
+    templateSnapshot: templateSnapshot as any,
+    templateDependencies,
     compoundChildren: children,
     compoundPreview: template.thumbnailUrl || template.thumbnail,
   };
@@ -96,9 +112,27 @@ export function instantiateTemplateElement(
     customization?: TemplateCustomization;
     index: number;
     textIndex?: number;
+    templateId: string;
+    templateVersion: number;
+    templateRevisionId?: string;
+    templateContentHash?: string;
+    templateSnapshot?: TemplateDefinition;
+    templateDependencies?: any[];
   }
 ): Clip {
-  const { trackId, duration, customization, index, textIndex = 0 } = context;
+  const {
+    trackId,
+    duration,
+    customization,
+    index,
+    textIndex = 0,
+    templateId,
+    templateVersion,
+    templateRevisionId,
+    templateContentHash,
+    templateSnapshot,
+    templateDependencies,
+  } = context;
 
   if (element.kind === "text") {
     const textProps = element.textProperties || {
@@ -107,6 +141,10 @@ export function instantiateTemplateElement(
       fontSize: 48,
       color: "#FFFFFF",
     };
+    const pinnedStyleDefinition = resolveTextEffectDefinition(
+      textProps.styleId,
+      textProps.styleDefinition,
+    );
 
     // Apply any customized text overrides
     let finalText = textProps.text;
@@ -143,6 +181,20 @@ export function instantiateTemplateElement(
       letterSpacing: textProps.letterSpacing ?? 0,
       lineHeight: textProps.lineHeight ?? 1.2,
       styleId: textProps.styleId,
+      styleVersion:
+        textProps.styleVersion ?? (Number(pinnedStyleDefinition?.version) || 1),
+      parameterOverrides: textProps.parameterOverrides
+        ? cloneSerializable(textProps.parameterOverrides)
+        : undefined,
+      styleDefinition: pinnedStyleDefinition
+        ? cloneSerializable(pinnedStyleDefinition)
+        : undefined,
+      templateId,
+      templateVersion,
+      templateRevisionId,
+      templateContentHash,
+      templateSnapshot: templateSnapshot as any,
+      templateDependencies,
       x: element.relativePosition.x,
       y: element.relativePosition.y,
       width: element.width,
@@ -172,6 +224,8 @@ export function instantiateTemplateElement(
       trimIn: 0,
       trimOut: 0,
       mediaId: `solid-${generateId("media")}`,
+      templateId,
+      templateVersion,
       opacity: solidProps.opacity ?? 1,
       x: element.relativePosition.x,
       y: element.relativePosition.y,
@@ -195,6 +249,9 @@ export function instantiateTemplateElement(
     trimIn: 0,
     trimOut: 0,
     mediaId: element.imageProperties?.assetId || `image-${generateId("media")}`,
+    mediaUrl: element.imageProperties?.url,
+    templateId,
+    templateVersion,
     x: element.relativePosition.x,
     y: element.relativePosition.y,
     width: element.width,
@@ -205,6 +262,10 @@ export function instantiateTemplateElement(
   };
 
   return imageClip;
+}
+
+function cloneSerializable<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 /**
@@ -230,6 +291,10 @@ export function applyTemplateStyle(
     fontSize: 48,
     color: "#FFFFFF",
   };
+  const pinnedStyleDefinition = resolveTextEffectDefinition(
+    textProps.styleId,
+    textProps.styleDefinition,
+  );
 
   return {
     ...targetClip,
@@ -244,6 +309,17 @@ export function applyTemplateStyle(
     letterSpacing: textProps.letterSpacing ?? targetClip.letterSpacing,
     lineHeight: textProps.lineHeight ?? targetClip.lineHeight,
     styleId: textProps.styleId,
+    styleVersion:
+      textProps.styleVersion ?? (Number(pinnedStyleDefinition?.version) || 1),
+    parameterOverrides: textProps.parameterOverrides
+      ? cloneSerializable(textProps.parameterOverrides)
+      : undefined,
+      styleDefinition: pinnedStyleDefinition
+        ? cloneSerializable(pinnedStyleDefinition)
+        : undefined,
+      styleRevisionId: textProps.styleRef?.revisionId ?? (textProps as any).styleRevisionId,
+      styleContentHash: textProps.styleRef?.contentHash ?? (textProps as any).styleContentHash,
+      styleSnapshot: textProps.styleRef?.snapshot ?? (textProps as any).styleSnapshot,
   };
 }
 

@@ -7,6 +7,8 @@ import type {
 } from "@/types";
 import { toNativePath } from "@/lib/platform/pathConversion";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
+import { evaluateEffectiveAudioState } from "@/core/audio/effectiveAudioState";
+import { getClipAudioProperties } from "@/types/audio";
 
 export interface NativeTimelineClipPlan {
   path: string;
@@ -122,6 +124,9 @@ export function analyzeNativeTimelineExport(
   const activeVideoAssetClips = activeClips.filter((clip) =>
     videoAssetIds.has(clip.mediaId),
   );
+  const activeTextClips = activeClips.filter(
+    (clip) => clip.kind === "text" || (clip as Clip & { layerType?: string }).layerType === "text",
+  );
   const standaloneAudioClips = activeClips.filter((clip) => {
     const asset = input.assets.find((candidate) => candidate.id === clip.mediaId);
     const directAudioPath = (clip as Clip & { audioPath?: string }).audioPath;
@@ -138,6 +143,13 @@ export function analyzeNativeTimelineExport(
   // FFmpeg mix instead of silently dropping standalone audio.
   if (standaloneAudioClips.length > 0) {
     reasons.push("Standalone timeline audio requires the audio-mix export path");
+  }
+
+  // Text is compositor content, not a property of the source video. The
+  // cut-only native plan has no text-layer payload, so allowing a text clip
+  // here would silently produce a video-only export and bypass text preflight.
+  if (activeTextClips.length > 0) {
+    reasons.push("Text clips require compositor export");
   }
 
   const videoClips = activeVideoAssetClips.filter(
@@ -181,6 +193,22 @@ export function analyzeNativeTimelineExport(
     ) {
       reasons.push(`Clip ${clip.id} uses compositor-only visual settings`);
     }
+
+    const audio = getClipAudioProperties(clip);
+    const hasAudioEffects = Boolean(audio.effects && Object.keys(audio.effects).length > 0);
+    const hasUnsupportedAudioSettings =
+      audio.pan !== 0 ||
+      audio.volumeKeyframes.length > 0 ||
+      audio.fadeIn.duration > 0 ||
+      audio.fadeOut.duration > 0 ||
+      hasAudioEffects ||
+      audio.speed.preservePitch ||
+      audio.channelConfig.mode !== "auto" ||
+      audio.channelConfig.downmix !== "auto" ||
+      Boolean(audio.channelConfig.channelMap?.length);
+    if (hasUnsupportedAudioSettings) {
+      reasons.push(`Clip ${clip.id} uses audio features that require the audio-mix export path`);
+    }
   }
 
   if (reasons.length > 0) {
@@ -199,9 +227,10 @@ export function analyzeNativeTimelineExport(
     const endFrame = Math.round((overlapEnd - startTime) * input.frameRate);
 
     const track = input.tracks.find((candidate) => candidate.id === clip.trackId);
-    const clipVolume = clip.volume ?? 1.0;
-    const trackVolume = track?.volume ?? 1.0;
-    const volume = Math.max(0, Math.min(3.0, clipVolume * trackVolume));
+    const effectiveAudio = evaluateEffectiveAudioState(clip, track, clip.startTime, {
+      tracks: input.tracks,
+    });
+    const volume = Math.max(0, Math.min(3.0, effectiveAudio.staticGain));
 
     return {
       path: toNativePath(asset.path),

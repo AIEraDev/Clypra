@@ -16,7 +16,10 @@ import type { EffectFullDefinition } from "../types/types";
 const DB_NAME = "clypra_text_effects";
 const DB_VERSION = 1;
 const STORE_NAME = "definitions";
-const CACHE_VERSION = "v1"; // Increment to invalidate all cached effects
+// Published definitions can change while an effect id stays the same. Bump
+// this whenever the definition contract changes so older serialized defaults
+// cannot survive an editor upgrade and reintroduce stale visual properties.
+const CACHE_VERSION = "v2";
 
 interface CachedEffect {
   id: string;
@@ -78,6 +81,7 @@ class TextEffectPersistentCache {
 
       const cached = await this.getFromIndexedDB(id);
       if (cached && cached.cacheVersion === CACHE_VERSION) {
+        console.log("Text Effect Cache ", cached);
         // Warm memory cache
         this.memoryCache.set(id, cached.definition);
         return cached.definition;
@@ -164,7 +168,11 @@ class TextEffectPersistentCache {
   /**
    * Get cache statistics
    */
-  async getStats(): Promise<{ memoryCount: number; diskCount: number; totalSizeMB: number }> {
+  async getStats(): Promise<{
+    memoryCount: number;
+    diskCount: number;
+    totalSizeMB: number;
+  }> {
     const memoryCount = this.memoryCache.size;
 
     try {
@@ -240,7 +248,10 @@ class TextEffectPersistentCache {
     });
   }
 
-  private async setInIndexedDB(id: string, definition: EffectFullDefinition): Promise<void> {
+  private async setInIndexedDB(
+    id: string,
+    definition: EffectFullDefinition,
+  ): Promise<void> {
     if (!this.db) return;
 
     const cached: CachedEffect = {

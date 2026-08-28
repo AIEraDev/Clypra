@@ -71,7 +71,8 @@ function normalizeNativeTextEffect(
 
   return {
     effectId: layer.styleId ?? definition?.id ?? "native-text-effect",
-    effectVersion: definition?.version ?? 1,
+    effectVersion: layer.styleVersion ?? (Number(definition?.version) || 1),
+    parameterOverrides: layer.parameterOverrides,
     ...(definition?.passes
       ? {
           definition: {
@@ -134,6 +135,17 @@ function hasNativeImageRasterAsset(
   // shared identity helper above.
   return asset.assetId === buildNativeImageAssetId(layer.sourcePath, layer.width, layer.height)
     || asset.assetId.startsWith(`native-image:${layer.layerId}:`);
+}
+
+function hasNativeTextRasterAsset(
+  layer: EvaluatedTextLayer,
+  rasterLayers: NativeRasterLayerSnapshot[],
+): boolean {
+  return rasterLayers.some(
+    (asset) =>
+      !asset.isMask &&
+      asset.assetId.startsWith(`native-text:${layer.layerId}:`),
+  );
 }
 
 function getNativeTransitionSnapshot(
@@ -1048,64 +1060,68 @@ export function buildNativeVideoProjectRequest(
     return null;
   }
 
-  const nativeTextLayers = textLayers.map((layer) => {
-    const color = parseColorToRgba(layer.color || "#ffffff");
-    const effect = normalizeNativeTextEffect(layer);
-    return {
-      text: layer.text || "",
-      fontId: layer.fontFamily || "default",
-      fontSize: layer.fontSize,
-      fontWeight: typeof layer.fontWeight === "number" ? String(layer.fontWeight) : layer.fontWeight,
-      fontStyle: layer.fontStyle,
-      letterSpacing: layer.letterSpacing ?? 0,
-      lineHeight: layer.lineHeight ?? 1.2,
-      color,
-      textAlign: layer.textAlign || "left",
-      verticalAlign: layer.verticalAlign || "middle",
-      runs: layer.runs?.map((run) => ({
-        text: run.text,
-        ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
-        highlighted: run.highlighted === true,
-      })),
-      ...(layer.templateId ? { templateId: layer.templateId, templateData: layer.customization } : {}),
-      x: layer.x,
-      y: layer.y,
-      boxWidth: layer.width,
-      boxHeight: layer.height,
-      rotation: layer.rotation ?? 0,
-      opacity: layer.opacity ?? 1,
-      zIndex: layer.zIndex ?? 0,
-      blendMode: layer.blendMode || "normal",
-      ...(layer.stroke ? {
-        strokeColor: parseColorToRgba(layer.stroke.color),
-        strokeWidth: layer.stroke.width,
-      } : {}),
-      ...(layer.shadow ? {
-        shadowColor: parseColorToRgba(layer.shadow.color),
-        shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
-        shadowBlur: layer.shadow.blur,
-      } : {}),
-      ...(layer.background ? {
-        background: {
-          color: parseColorToRgba(layer.background.color),
-          padding: layer.background.padding,
-          borderRadius: layer.background.borderRadius,
-        },
-      } : {}),
-      ...(effect ? { effect } : {}),
-    };
-  });
+  // A text raster is the exact shared Studio-engine output. Send those pixels
+  // as a native raster layer so the compositor cannot replace a gradient,
+  // bevel, stack, glow, or custom renderer with plain SDF text. Keep the
+  // native text snapshot only for legacy callers that did not produce a raster.
+  const nativeTextLayers = textLayers
+    .filter((layer) => !hasNativeTextRasterAsset(layer, rasterLayers))
+    .map((layer) => {
+      const color = parseColorToRgba(layer.color || "#ffffff");
+      const effect = normalizeNativeTextEffect(layer);
+      return {
+        text: layer.text || "",
+        fontId: layer.fontFamily || "default",
+        fontSize: layer.fontSize,
+        fontWeight: typeof layer.fontWeight === "number" ? String(layer.fontWeight) : layer.fontWeight,
+        fontStyle: layer.fontStyle,
+        letterSpacing: layer.letterSpacing ?? 0,
+        lineHeight: layer.lineHeight ?? 1.2,
+        color,
+        textAlign: layer.textAlign || "left",
+        verticalAlign: layer.verticalAlign || "middle",
+        runs: layer.runs?.map((run) => ({
+          text: run.text,
+          ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
+          highlighted: run.highlighted === true,
+        })),
+        ...(layer.templateId ? { templateId: layer.templateId, templateData: layer.customization } : {}),
+        x: layer.x,
+        y: layer.y,
+        boxWidth: layer.width,
+        boxHeight: layer.height,
+        rotation: layer.rotation ?? 0,
+        opacity: layer.opacity ?? 1,
+        zIndex: layer.zIndex ?? 0,
+        blendMode: layer.blendMode || "normal",
+        ...(layer.stroke ? {
+          strokeColor: parseColorToRgba(layer.stroke.color),
+          strokeWidth: layer.stroke.width,
+        } : {}),
+        ...(layer.shadow ? {
+          shadowColor: parseColorToRgba(layer.shadow.color),
+          shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
+          shadowBlur: layer.shadow.blur,
+        } : {}),
+        ...(layer.background ? {
+          background: {
+            color: parseColorToRgba(layer.background.color),
+            padding: layer.background.padding,
+            borderRadius: layer.background.borderRadius,
+          },
+        } : {}),
+        ...(effect ? { effect } : {}),
+      };
+    });
 
-  const nonTextRasterLayers = rasterLayers.filter(
-    (layer) => !layer.isText && !layer.assetId.startsWith("native-text:")
-  );
+  const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
 
   return {
     canvasWidth: scene.metadata.canvasWidth || 1920,
     canvasHeight: scene.metadata.canvasHeight || 1080,
     clearColor,
     layers,
-    ...(nonTextRasterLayers.length > 0 ? { rasterLayers: nonTextRasterLayers } : {}),
+    ...(visibleRasterLayers.length > 0 ? { rasterLayers: visibleRasterLayers } : {}),
     ...(nativeTextLayers.length > 0 ? { textLayers: nativeTextLayers } : {}),
     ...(transition ? { transition } : {}),
   };
@@ -1283,60 +1299,11 @@ export function buildNativeFrameRequest(
     });
   }
 
-  const textLayers = scene.visualLayers
-    .filter((layer): layer is EvaluatedTextLayer => layer.layerType === "text")
-    .map((layer) => {
-      const color = parseColorToRgba(layer.color || "#ffffff");
-      return {
-        text: layer.text || "",
-        fontId: layer.fontFamily || "default",
-        fontSize: layer.fontSize,
-        fontWeight: typeof layer.fontWeight === "number" ? String(layer.fontWeight) : layer.fontWeight,
-        fontStyle: layer.fontStyle,
-        letterSpacing: layer.letterSpacing ?? 0,
-        lineHeight: layer.lineHeight ?? 1.2,
-        color,
-        textAlign: layer.textAlign || "left",
-        verticalAlign: layer.verticalAlign || "middle",
-        x: layer.x,
-        y: layer.y,
-        boxWidth: layer.width,
-        boxHeight: layer.height,
-        rotation: layer.rotation ?? 0,
-        opacity: layer.opacity ?? 1,
-        zIndex: layer.zIndex ?? 0,
-        blendMode: layer.blendMode || "normal",
-        ...(layer.stroke ? {
-          strokeColor: parseColorToRgba(layer.stroke.color),
-          strokeWidth: layer.stroke.width,
-        } : {}),
-        ...(layer.shadow ? {
-          shadowColor: parseColorToRgba(layer.shadow.color),
-          shadowOffset: [layer.shadow.offsetX, layer.shadow.offsetY] as [number, number],
-          shadowBlur: layer.shadow.blur,
-        } : {}),
-        ...(layer.background ? {
-          background: {
-            color: parseColorToRgba(layer.background.color),
-            padding: layer.background.padding,
-            borderRadius: layer.background.borderRadius,
-          },
-        } : {}),
-        ...(layer.runs ? {
-          runs: layer.runs.map((run) => ({
-            text: run.text,
-            ...(run.color ? { color: parseColorToRgba(run.color) } : {}),
-            highlighted: run.highlighted === true,
-          })),
-        } : {}),
-        ...(layer.templateId ? { templateId: layer.templateId, templateData: layer.customization } : {}),
-        ...(normalizeNativeTextEffect(layer) ? { effect: normalizeNativeTextEffect(layer) } : {}),
-      };
-    });
-
-  const nonTextRasterLayers = rasterLayers.filter(
-    (layer) => !layer.isText && !layer.assetId.startsWith("native-text:")
-  );
+  // `buildNativeVideoProjectRequest` is the canonical text mapping above.
+  // Reusing it here is important: remapping the scene would reintroduce all
+  // text layers after the raster/native partitioning decision.
+  const textLayers = request.textLayers ?? [];
+  const visibleRasterLayers = rasterLayers.filter((layer) => !layer.isMask);
 
   return createNativeFrameRequest({
     requestId: `${projectRevision}:${frameIndex}:${outputWidth}x${outputHeight}`,
@@ -1349,7 +1316,7 @@ export function buildNativeFrameRequest(
       canvasHeight: request.canvasHeight,
       clearColor: request.clearColor ?? [0, 0, 0, 1],
       videoLayers,
-      ...(nonTextRasterLayers.length > 0 ? { rasterLayers: nonTextRasterLayers } : {}),
+      ...(visibleRasterLayers.length > 0 ? { rasterLayers: visibleRasterLayers } : {}),
       ...(textLayers.length > 0 ? { textLayers } : {}),
       ...(request.transition ? { transition: request.transition } : {}),
     },

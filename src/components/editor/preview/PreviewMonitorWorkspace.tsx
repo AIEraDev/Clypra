@@ -1,5 +1,6 @@
 import React from "react";
 import { useUIStore } from "@/store/uiStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { PreviewPanel } from "./PreviewPanel";
 import { SourcePreview } from "./SourcePreview";
 
@@ -7,19 +8,31 @@ export type PreviewMonitorOrientation = "row" | "column";
 
 interface PreviewMonitorWorkspaceProps {
   orientation: PreviewMonitorOrientation;
+  forceDual?: boolean;
 }
 
 /**
  * Owns the physical monitor split for layouts that can show a source asset
- * and the program output at the same time. PreviewPanel remains a single
- * monitor; this component is the only place that composes both monitors.
+ * and the program output at the same time.
+ * Only shows two preview containers when in dual-player layout (or forced).
+ * Otherwise renders a single preview at a time via PreviewPanel.
  */
 export const PreviewMonitorWorkspace: React.FC<PreviewMonitorWorkspaceProps> = ({
   orientation,
+  forceDual = false,
 }) => {
+  const layoutPreset = useSettingsStore((state) => state.layoutPreset);
   const sourceAsset = useUIStore((state) => state.sourceAsset);
   const sourceTextPreset = useUIStore((state) => state.sourceTextPreset);
   const hasSourcePreview = Boolean(sourceAsset || sourceTextPreset);
+
+  const isDualPlayer = forceDual || layoutPreset === "dual-player";
+
+  // Only show two preview containers if the layout is current Dual;
+  // otherwise show a single preview at a time.
+  if (!isDualPlayer) {
+    return <PreviewPanel />;
+  }
 
   if (!hasSourcePreview) {
     return <PreviewPanel mode="program" />;

@@ -30,6 +30,8 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
           fontWeight: 700,
           styleId: "neon-glow",
           styleVersion: 1,
+          parameterOverrides: { glowStrength: 0.75 },
+          styleDefinition: { id: "neon-glow", version: "4" } as any,
         },
       },
     ],
@@ -109,8 +111,34 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect(childText.fontFamily).toBe("Inter Variable");
     expect(childText.fontSize).toBe(64);
     expect(childText.styleId).toBe("neon-glow");
+    expect(childText.styleVersion).toBe(1);
+    expect(childText.parameterOverrides).toEqual({ glowStrength: 0.75 });
+    expect(childText.templateId).toBe("minimal-title-v1");
+    expect(childText.templateVersion).toBe(1);
+    expect(compoundClip.templateId).toBe("minimal-title-v1");
+    expect(compoundClip.templateVersion).toBe(1);
     expect(childText.startTime).toBe(0); // relative to parent
     expect(childText.duration).toBe(4.0);
+  });
+
+  it("derives a child style version from its pinned definition when omitted", () => {
+    const template: TemplateDefinition = {
+      ...singleElementTemplate,
+      id: "versioned-title",
+      elements: [
+        {
+          ...singleElementTemplate.elements![0],
+          textProperties: {
+            ...singleElementTemplate.elements![0].textProperties!,
+            styleVersion: undefined,
+            styleDefinition: { id: "neon-glow", version: 9 } as any,
+          },
+        },
+      ],
+    };
+
+    const compoundClip = instantiateTemplate(template, { trackId: "text-track", startTime: 0 });
+    expect((compoundClip.compoundChildren![0] as TextClip).styleVersion).toBe(9);
   });
 
   it("instantiates multi-element template (solid + multiple texts) with exact hierarchy and zIndex", () => {
@@ -139,6 +167,36 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect((roleChild as TextClip).kind).toBe("text");
     expect((roleChild as TextClip).text).toBe("Lead Developer"); // Applied secondary customization
     expect((roleChild as TextClip).fontSize).toBe(18);
+  });
+
+  it("retains template image URLs when no media-library asset ID is provided", () => {
+    const imageUrl = "https://cdn.example.com/brand-mark.png";
+    const compoundClip = instantiateTemplate(
+      {
+        id: "image-title-v1",
+        version: 2,
+        category: "title-card",
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        elements: [
+          {
+            id: "brand-mark",
+            kind: "image",
+            relativePosition: { x: 20, y: 20 },
+            width: 160,
+            height: 160,
+            imageProperties: { url: imageUrl },
+          },
+        ],
+      },
+      { trackId: "track-image", startTime: 0 },
+    );
+
+    expect(compoundClip.compoundChildren?.[0]).toMatchObject({
+      kind: "image",
+      mediaUrl: imageUrl,
+      templateVersion: 2,
+    });
   });
 
   it("seamlessly expands via standard expandCompoundClips without any custom composition layer (§2)", () => {
@@ -214,6 +272,9 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect(restyledClip.color).toBe("#FFFFFF");
     expect(restyledClip.styleId).toBe("neon-glow");
     expect(restyledClip.fontWeight).toBe(700);
+    expect(restyledClip.styleVersion).toBe(1);
+    expect(restyledClip.parameterOverrides).toEqual({ glowStrength: 0.75 });
+    expect(restyledClip.styleDefinition).toEqual({ id: "neon-glow", version: "4" });
   });
 
   it("preserves multi-line user text and existing clip IDs when applying a multi-element template style", () => {

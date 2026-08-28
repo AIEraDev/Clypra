@@ -9,24 +9,42 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
+function cloneTransitionSnapshot(transition: TransitionTimelineItem): TransitionTimelineItem {
+  if (typeof structuredClone === "function") return structuredClone(transition);
+  return JSON.parse(JSON.stringify(transition)) as TransitionTimelineItem;
+}
+
 class RestoreSwapCommand implements Command {
   readonly id = generateCommandId();
   readonly label = "Restore Swapped Clips";
   readonly timestamp = Date.now();
   readonly undoable = true;
 
+  private readonly clipA: Clip;
+  private readonly clipB: Clip;
+  private readonly transitions: TransitionTimelineItem[];
+
   constructor(
-    private readonly clipA: Clip,
-    private readonly clipB: Clip,
-    private readonly transitions: TransitionTimelineItem[],
+    clipA: Clip,
+    clipB: Clip,
+    transitions: TransitionTimelineItem[],
     private readonly forward: SwapClipsCommand,
-  ) {}
+  ) {
+    this.clipA = cloneClipSnapshot(clipA);
+    this.clipB = cloneClipSnapshot(clipB);
+    this.transitions = transitions.map(cloneTransitionSnapshot);
+  }
 
   apply(state: TimelineState): TimelineState {
     return {
       ...state,
-      clips: state.clips.map((clip) => (clip.id === this.clipA.id ? { ...this.clipA } : clip.id === this.clipB.id ? { ...this.clipB } : clip)),
-      transitions: this.transitions.map((transition) => ({ ...transition })),
+      clips: state.clips.map((clip) => (clip.id === this.clipA.id ? cloneClipSnapshot(this.clipA) : clip.id === this.clipB.id ? cloneClipSnapshot(this.clipB) : clip)),
+      transitions: this.transitions.map(cloneTransitionSnapshot),
       epoch: state.epoch + 1,
     };
   }
@@ -97,17 +115,17 @@ export class SwapClipsCommand implements Command {
 
     if (!clipA || !clipB) return state;
 
-    this.beforeA = { ...clipA };
-    this.beforeB = { ...clipB };
-    this.beforeTransitions = state.transitions.map((transition) => ({ ...transition }));
+    this.beforeA = cloneClipSnapshot(clipA);
+    this.beforeB = cloneClipSnapshot(clipB);
+    this.beforeTransitions = state.transitions.map(cloneTransitionSnapshot);
     this.error = null;
 
     const transitions = clipA.trackId === clipB.trackId
       ? state.transitions
       : state.transitions.filter((transition) => ![clipA.id, clipB.id].includes(transition.fromItemId) && ![clipA.id, clipB.id].includes(transition.toItemId));
     const clips = state.clips.map((clip) => {
-      if (clip.id === clipA.id) return { ...clip, startTime: clipB.startTime, trackId: clipB.trackId };
-      if (clip.id === clipB.id) return { ...clip, startTime: clipA.startTime, trackId: clipA.trackId };
+      if (clip.id === clipA.id) return { ...cloneClipSnapshot(clip), startTime: clipB.startTime, trackId: clipB.trackId };
+      if (clip.id === clipB.id) return { ...cloneClipSnapshot(clip), startTime: clipA.startTime, trackId: clipA.trackId };
       return clip;
     });
     return { ...state, clips, transitions, epoch: state.epoch + 1 };

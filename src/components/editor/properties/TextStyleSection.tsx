@@ -22,12 +22,16 @@ import { PropertySlider } from "./primitives/PropertySlider";
 import { PropertySection } from "./primitives/PropertySection";
 import { useTemplateStore } from "@/features/text-templates/templateStore";
 import { useTimelineStore } from "@/store/timelineStore";
+import { useProjectStore } from "@/store/projectStore";
+import { useHistoryStore } from "@/store/historyStore";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { EffectStylePanel } from "./EffectStylePanel";
 import { TemplateLayerEditor } from "./TemplateLayerEditor";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import { getBundledNativeFontIds } from "@/core/fonts/nativeFontRegistry";
+import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
+import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 
 // Extracted font list for maintainability
 const SYSTEM_FONTS = [
@@ -234,13 +238,20 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
           c.trackId === textClip.trackId && (c as any).textRole === "caption",
       );
 
-      originalHandleUpdate(key, value);
-
-      trackCaptions.forEach((c) => {
-        if (c.id !== textClip.id) {
-          useTimelineStore.getState().updateClip(c.id, { [key]: value });
-        }
-      });
+      const history = useHistoryStore.getState();
+      history.beginTransaction("Apply Caption Style to All");
+      try {
+        originalHandleUpdate(key, value);
+        trackCaptions.forEach((c) => {
+          if (c.id !== textClip.id) {
+            executeCaptionStyleUpdate(c as TextClip, { [key]: value });
+          }
+        });
+        history.commitTransaction();
+      } catch (error) {
+        history.rollbackTransaction();
+        throw error;
+      }
     } else {
       originalHandleUpdate(key, value);
     }
@@ -257,8 +268,6 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
           c.trackId === textClip.trackId && (c as any).textRole === "caption",
       );
 
-      originalHandleUpdateMultiple(fields);
-
       const styleFields: Record<string, any> = {};
       Object.entries(fields).forEach(([k, v]) => {
         if (CAPTION_STYLE_KEYS.includes(k)) {
@@ -266,15 +275,40 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
         }
       });
 
-      trackCaptions.forEach((c) => {
-        if (c.id !== textClip.id) {
-          useTimelineStore.getState().updateClip(c.id, styleFields);
-        }
-      });
+      const history = useHistoryStore.getState();
+      history.beginTransaction("Apply Caption Style to All");
+      try {
+        originalHandleUpdateMultiple(fields);
+        trackCaptions.forEach((c) => {
+          if (c.id !== textClip.id) {
+            executeCaptionStyleUpdate(c as TextClip, styleFields);
+          }
+        });
+        history.commitTransaction();
+      } catch (error) {
+        history.rollbackTransaction();
+        throw error;
+      }
     } else {
       originalHandleUpdateMultiple(fields);
     }
   };
+
+  function executeCaptionStyleUpdate(clip: TextClip, updates: Record<string, any>): void {
+    const project = useProjectStore.getState().project;
+    const resolvedUpdates = resolveTextClipStyleUpdate(
+      clip,
+      updates,
+      project?.canvasWidth ?? 1920,
+      project?.canvasHeight ?? 1080,
+    );
+    const oldProperties = Object.fromEntries(
+      Object.keys(resolvedUpdates).map((key) => [key, (clip as any)[key]]),
+    );
+    useHistoryStore.getState().execute(
+      new TransformClipCommand(clip.id, oldProperties, resolvedUpdates),
+    );
+  }
 
   const customization = textClip.customization || {
     primaryText: textClip.text || "",

@@ -167,6 +167,67 @@ const ClipInner: React.FC<ClipProps> = ({
     onContextMenu?.(e, clip.id);
   };
 
+  // Keyboard navigation & accessibility actions
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (locked) return;
+
+    // Selection & multi-selection
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        toggleClipSelection(clip.id);
+      } else {
+        selectClip(clip.id);
+      }
+      return;
+    }
+
+    // Deselection
+    if (e.key === "Escape") {
+      if (selected) {
+        e.preventDefault();
+        e.stopPropagation();
+        selectClip(null);
+      }
+      return;
+    }
+
+    // Keyboard-triggered context menu (ContextMenu key or Shift+F10)
+    if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const currentSelectedIds = useUIStore.getState().selectedClipIds;
+      if (!currentSelectedIds.includes(clip.id)) {
+        selectClip(clip.id);
+      }
+      const rect = clipRef.current?.getBoundingClientRect();
+      const clientX = rect ? rect.left + rect.width / 2 : 0;
+      const clientY = rect ? rect.top + rect.height / 2 : 0;
+      onContextMenu?.(
+        {
+          clientX,
+          clientY,
+          preventDefault: () => {},
+          stopPropagation: () => {},
+        } as unknown as React.MouseEvent,
+        clip.id,
+      );
+      return;
+    }
+
+    // Keyboard nudge with Alt/Option + Left/Right arrows
+    if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault();
+      e.stopPropagation();
+      const step = e.shiftKey ? 1.0 : (1 / 30); // 1 sec with Shift, 1 frame (1/30s) without
+      const delta = e.key === "ArrowRight" ? step : -step;
+      const newStartTime = Math.max(0, clip.startTime + delta);
+      updateClip(clip.id, { startTime: newStartTime });
+      return;
+    }
+  };
+
   // Handle pointer-based drag
   const handlePointerDown = (e: React.PointerEvent) => {
     // Ignore if locked, resizing, or not left button
@@ -678,13 +739,17 @@ const ClipInner: React.FC<ClipProps> = ({
     return "";
   };
 
-  const getClipBackgroundStyle = () => {
-    return {};
-  };
+  const clipAccessibleName = `${clip.name || inferredKind || "Clip"}, track ${clip.trackId || 0}, start ${clip.startTime.toFixed(2)} seconds, duration ${clip.duration.toFixed(2)} seconds${locked ? ", locked" : ""}${selected ? ", selected" : ""}${mediaAsset?.isMissing ? ", offline media" : ""}`;
 
   return (
     <div
       ref={clipRef}
+      tabIndex={locked ? -1 : 0}
+      role="button"
+      aria-label={clipAccessibleName}
+      aria-selected={selected ? "true" : "false"}
+      aria-disabled={locked ? "true" : "false"}
+      aria-haspopup="menu"
       data-timeline-interactive="true"
       data-testid={`clip-${clip.id}`}
       data-clip-id={clip.id}
@@ -699,7 +764,8 @@ const ClipInner: React.FC<ClipProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       onContextMenu={handleContextMenu}
-      className={`absolute rounded-[1px] h-full overflow-hidden border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
+      onKeyDown={handleKeyDown}
+      className={`absolute rounded-[1px] h-full overflow-hidden border ${trackToneClass} ${selected ? "border-accent-soft" : "border-transparent"} ${locked ? "cursor-not-allowed" : isDragging ? (isInvalidPosition ? "cursor-not-allowed" : "cursor-grabbing") : "cursor-default"} ${getClipStyle()} ${mediaAsset?.isMissing ? "ring-1 ring-red-500/80" : ""} ${isDragging || isResizing || isBeingShifted ? "transition-none" : "transition-[left] duration-150 ease-out"} focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:outline-none`}
       style={{
         left: `${displayLeft}px`,
         width: `${width}px`,
@@ -717,7 +783,6 @@ const ClipInner: React.FC<ClipProps> = ({
         border: isInvalidPosition
           ? "2px solid var(--clypra-clip-invalid)"
           : undefined,
-        ...getClipBackgroundStyle(),
       }}
     >
       {/* Left trim handle */}
@@ -836,6 +901,15 @@ const ClipInner: React.FC<ClipProps> = ({
             <div className="min-w-0 truncate text-[9px] font-semibold tracking-[0.01em] text-timeline-clip-text">
               {mediaAsset?.name || "Clip"}
             </div>
+            {mediaAsset?.isMissing && (
+              <span
+                data-testid="clip-offline-badge"
+                className="shrink-0 bg-red-600/90 text-white px-1 py-px rounded text-[7px] font-bold uppercase tracking-wider"
+                title="Source media file is missing or offline"
+              >
+                Offline
+              </span>
+            )}
             <div className="shrink-0 text-[9px] font-medium text-timeline-clip-duration">
               {formatDuration(clip.duration)}
             </div>

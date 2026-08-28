@@ -52,15 +52,51 @@ export const PRESET_BINDINGS: Record<ShortcutPreset, Record<string, KeyBinding>>
   clypra: {},
   premiere: {
     "split-at-playhead": { key: "c" },
+    "split-selected-at-playhead": { key: "k", ctrl: true },
+    "split-all-at-playhead": { key: "k", ctrl: true, shift: true },
     "delete-left-at-playhead": { key: "q" },
     "delete-right-at-playhead": { key: "w" },
+    "toggle-ripple-edit": { key: "b" },
+    "zoom-in": { key: "=" },
+    "zoom-out": { key: "-" },
+    "nudge-left": { key: "ArrowLeft", alt: true },
+    "nudge-right": { key: "ArrowRight", alt: true },
+    "nudge-left-10": { key: "ArrowLeft", alt: true, shift: true },
+    "nudge-right-10": { key: "ArrowRight", alt: true, shift: true },
+    "group-clips": { key: "g", ctrl: true },
+    "deselect-all": { key: "d", ctrl: true, shift: true },
   },
   finalcut: {
     "split-at-playhead": { key: "b" },
-    "undo": { key: "z", ctrl: true },
+    "split-selected-at-playhead": { key: "b", ctrl: true },
+    "split-all-at-playhead": { key: "b", ctrl: true, shift: true },
+    "delete-left-at-playhead": { key: "[", alt: true },
+    "delete-right-at-playhead": { key: "]", alt: true },
+    "toggle-ripple-edit": { key: "t" },
+    "nudge-left": { key: "," },
+    "nudge-right": { key: "." },
+    "nudge-left-10": { key: ",", shift: true },
+    "nudge-right-10": { key: ".", shift: true },
+    "group-clips": { key: "g", alt: true },
+    "deselect-all": { key: "a", ctrl: true, shift: true },
+    "zoom-in": { key: "=", ctrl: true },
+    "zoom-out": { key: "-", ctrl: true },
   },
   davinci: {
     "split-at-playhead": { key: "b" },
+    "split-selected-at-playhead": { key: "\\", ctrl: true },
+    "split-all-at-playhead": { key: "\\", ctrl: true, shift: true },
+    "delete-left-at-playhead": { key: "q" },
+    "delete-right-at-playhead": { key: "w" },
+    "toggle-ripple-edit": { key: "t" },
+    "nudge-left": { key: "," },
+    "nudge-right": { key: "." },
+    "nudge-left-10": { key: ",", shift: true },
+    "nudge-right-10": { key: ".", shift: true },
+    "group-clips": { key: "g", ctrl: true },
+    "deselect-all": { key: "a", ctrl: true, shift: true },
+    "zoom-in": { key: "=", ctrl: true },
+    "zoom-out": { key: "-", ctrl: true },
   },
 };
 
@@ -419,9 +455,10 @@ export const useShortcutStore = create<ShortcutStore>()(
     }),
     {
       name: "clypra-shortcuts",
-      // Only persist the binding overrides, not the full action metadata
+      // Persist activePreset and binding overrides, not full action metadata
       // This way new shortcuts added in future versions are always picked up
       partialize: (state) => ({
+        activePreset: state.activePreset,
         shortcuts: Object.fromEntries(
           Object.entries(state.shortcuts).map(([id, action]) => [
             id,
@@ -429,9 +466,16 @@ export const useShortcutStore = create<ShortcutStore>()(
           ])
         ),
       }),
-      // Merge persisted binding overrides back onto the full action list
+      // Merge persisted preset and binding overrides back onto the full action list
       merge: (persisted: any, current) => {
+        const activePreset: ShortcutPreset = persisted?.activePreset || "clypra";
         const base = buildInitialShortcuts();
+        const presetOverrides = PRESET_BINDINGS[activePreset] || {};
+        for (const [id, binding] of Object.entries(presetOverrides)) {
+          if (base[id]) {
+            base[id] = { ...base[id], binding };
+          }
+        }
         if (persisted?.shortcuts) {
           for (const [id, data] of Object.entries(persisted.shortcuts as Record<string, any>)) {
             if (base[id] && data?.binding) {
@@ -439,7 +483,7 @@ export const useShortcutStore = create<ShortcutStore>()(
             }
           }
         }
-        return { ...current, shortcuts: base };
+        return { ...current, activePreset, shortcuts: base };
       },
     }
   )

@@ -146,9 +146,16 @@ export class WebGLRasterSurface {
   private _atlasTexture: WebGLTexture;
   private _disposed = false;
 
+  /** True while the WebGL context is in the lost state (between contextlost and contextrestored). */
+  private _isContextLost = false;
+
   // Attribute locations
   private _aPos: number;
   private _aUv: number;
+
+  // Bound event handler references (stored so we can removeEventListener in dispose)
+  private readonly _boundHandleContextLost: (e: Event) => void;
+  private readonly _boundHandleContextRestored: () => void;
 
   constructor(canvas: HTMLCanvasElement, gl: WebGL2RenderingContext) {
     this._canvas = canvas;
@@ -171,6 +178,62 @@ export class WebGLRasterSurface {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // ── GPU Context Loss Recovery ──────────────────────────────────────────
+    // Calling e.preventDefault() on `webglcontextlost` instructs the browser NOT to
+    // permanently destroy the context. This enables the `webglcontextrestored` event
+    // to fire later (after OS/GPU scheduler reinstates the context), at which point
+    // we recompile shaders and re-allocate all GPU objects.
+    this._boundHandleContextLost = this._handleContextLost.bind(this);
+    this._boundHandleContextRestored = this._handleContextRestored.bind(this);
+    if (typeof canvas?.addEventListener === "function") {
+      canvas.addEventListener("webglcontextlost", this._boundHandleContextLost);
+      canvas.addEventListener("webglcontextrestored", this._boundHandleContextRestored);
+    }
+  }
+
+  // ── GPU Context Loss Handlers ────────────────────────────────────────────────
+
+  private _handleContextLost(e: Event): void {
+    // CRITICAL: calling preventDefault() prevents the browser from permanently
+    // destroying the context and allows webglcontextrestored to fire on recovery.
+    e.preventDefault();
+    this._isContextLost = true;
+    // Null out WebGL object references — they are invalid after context loss and
+    // any attempt to use them will silently produce GL_INVALID_OPERATION.
+    // We keep the TypeScript type non-null to avoid pervasive null-guards in the
+    // draw path; instead we guard at the top of drawFilmstrip via _isContextLost.
+  }
+
+  private _handleContextRestored(): void {
+    if (this._disposed) return;
+    try {
+      // Re-compile shaders and re-create GPU objects from scratch. All previous
+      // object handles (VAOs, VBOs, textures, programs) are invalid after context loss.
+      const gl = this._gl;
+
+      this._program = this._compileProgram();
+      this._aPos = gl.getAttribLocation(this._program, "a_pos");
+      this._aUv = gl.getAttribLocation(this._program, "a_uv");
+
+      this._vao = gl.createVertexArray()!;
+      this._vbo = gl.createBuffer()!;
+      this._atlasTexture = gl.createTexture()!;
+
+      gl.bindTexture(gl.TEXTURE_2D, this._atlasTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    } catch (err) {
+      // Restoration failed — surface remains in a degraded state and will be
+      // replaced on the next createRasterSurface() call (e.g. next clip mount).
+      console.warn("[WebGLRasterSurface] Context restoration failed:", err);
+      return;
+    }
+
+    // Clear the flag only after all GPU resources are successfully rebuilt.
+    this._isContextLost = false;
   }
 
   // ── Shader compilation ──────────────────────────────────────────────────────
@@ -203,10 +266,19 @@ export class WebGLRasterSurface {
   }
 
   drawFilmstrip(artifacts: readonly TransportArtifact[], layout: FilmstripLayout): void {
-    if (this._disposed) return;
+    // Guard against lost context or disposal — both produce invalid GL object handles.
+    if (this._disposed || this._isContextLost) return;
 
     const validArtifacts = artifacts.filter(isValidArtifact);
     const gl = this._gl;
+
+    // Secondary runtime check: if the browser lost the context mid-frame (e.g.
+    // during a long tile upload) gl.isContextLost() will return true.
+    if (Boolean(gl?.isContextLost?.())) {
+      this._isContextLost = true;
+      return;
+    }
+
     const { clipWidthPx, stripHeightPx, dpr, tileWidthPx: targetTileW = 60 } = layout;
 
     const safeClipWidth = Number.isFinite(clipWidthPx) && clipWidthPx > 0 ? clipWidthPx : 1;
@@ -225,85 +297,85 @@ export class WebGLRasterSurface {
     gl.clearColor(0.047, 0.153, 0.188, 1.0); // #0c2730
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    // ── Resolve per-slot items (exact vs pyramid fallback vs shimmer) ──────
-    const drawSlots: Array<{ item: AtlasItem; tileX: number; tileW: number }> = [];
+      // ── Resolve per-slot items (exact vs pyramid fallback vs shimmer) ──────
+      const drawSlots: Array<{ item: AtlasItem; tileX: number; tileW: number }> = [];
 
-    if (layout.tileAddresses && layout.trimIn !== undefined && layout.trimOut !== undefined) {
-      const artifactByTimestamp = new Map<number, TransportArtifact>();
-      for (const art of validArtifacts) {
-        artifactByTimestamp.set(Math.round(art.timestampMs), art);
-      }
+      if (layout.tileAddresses && layout.trimIn !== undefined && layout.trimOut !== undefined) {
+        const artifactByTimestamp = new Map<number, TransportArtifact>();
+        for (const art of validArtifacts) {
+          artifactByTimestamp.set(Math.round(art.timestampMs), art);
+        }
 
-      const slots = getFilmstripTileSlots({
-        addresses: layout.tileAddresses,
-        clipWidthPx: safeClipWidth,
-        trimIn: layout.trimIn,
-        trimOut: layout.trimOut,
-        tileWidthPx: targetTileW,
-        pixelsPerSecond: layout.pixelsPerSecond,
-        renderWindowLeftPx: layout.renderWindowLeftPx,
-        clipTrimIn: layout.clipTrimIn,
-      });
+        const slots = getFilmstripTileSlots({
+          addresses: layout.tileAddresses,
+          clipWidthPx: safeClipWidth,
+          trimIn: layout.trimIn,
+          trimOut: layout.trimOut,
+          tileWidthPx: targetTileW,
+          pixelsPerSecond: layout.pixelsPerSecond,
+          renderWindowLeftPx: layout.renderWindowLeftPx,
+          clipTrimIn: layout.clipTrimIn,
+        });
 
-      for (const slot of slots) {
-        const slotX = Math.round(slot.leftPx * safeDpr);
-        const slotW = Math.max(1, Math.round(slot.widthPx * safeDpr));
+        for (const slot of slots) {
+          const slotX = Math.round(slot.leftPx * safeDpr);
+          const slotW = Math.max(1, Math.round(slot.widthPx * safeDpr));
 
-        let art = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
-        if (!art && layout.tileCache) {
-          const exactTile = layout.tileCache.getTile(slot.address);
-          if (exactTile && isValidArtifact(exactTile.artifact)) {
-            art = exactTile.artifact;
-          } else if ((layout.clipId || layout.videoPath) && slot.address.zoomTier !== SpatialTier.L0) {
-            const fallbackEntry = layout.tileCache.findBestFallback(
-              layout.clipId ?? "",
-              slot.address.zoomTier,
-              slot.address.timestamp,
-              layout.videoPath,
-              6.0,
-              slot.address.effectGraphVersion,
-            );
-            if (fallbackEntry && isValidArtifact(fallbackEntry.artifact)) {
-              art = fallbackEntry.artifact;
+          let art = artifactByTimestamp.get(Math.round(slot.address.timestamp * 1000));
+          if (!art && layout.tileCache) {
+            const exactTile = layout.tileCache.getTile(slot.address);
+            if (exactTile && isValidArtifact(exactTile.artifact)) {
+              art = exactTile.artifact;
+            } else if ((layout.clipId || layout.videoPath) && slot.address.zoomTier !== SpatialTier.L0) {
+              const fallbackEntry = layout.tileCache.findBestFallback(
+                layout.clipId ?? "",
+                slot.address.zoomTier,
+                slot.address.timestamp,
+                layout.videoPath,
+                6.0,
+                slot.address.effectGraphVersion,
+              );
+              if (fallbackEntry && isValidArtifact(fallbackEntry.artifact)) {
+                art = fallbackEntry.artifact;
+              }
             }
           }
-        }
 
-        if (art && isValidArtifact(art)) {
-          drawSlots.push({
-            item: { key: art.frameId, width: art.width, height: art.height, bitmap: art.bitmap },
-            tileX: slotX,
-            tileW: slotW,
-          });
-        } else {
-          // Cold start / missing tile: draw stylized shimmer quad
-          drawSlots.push({
-            item: { key: "__shimmer__", width: SHIMMER_SIZE, height: SHIMMER_SIZE, isShimmer: true },
-            tileX: slotX,
-            tileW: slotW,
-          });
+          if (art && isValidArtifact(art)) {
+            drawSlots.push({
+              item: { key: art.frameId, width: art.width, height: art.height, bitmap: art.bitmap },
+              tileX: slotX,
+              tileW: slotW,
+            });
+          } else {
+            // Cold start / missing tile: draw stylized shimmer quad
+            drawSlots.push({
+              item: { key: "__shimmer__", width: SHIMMER_SIZE, height: SHIMMER_SIZE, isShimmer: true },
+              tileX: slotX,
+              tileW: slotW,
+            });
+          }
+        }
+      } else {
+        const tileCount = Math.max(1, Math.ceil(safeClipWidth / targetTileW));
+        const tileW = Math.round(targetTileW * safeDpr);
+        for (let i = 0; i < tileCount; i++) {
+          const art = validArtifacts[i];
+          if (art && isValidArtifact(art)) {
+            drawSlots.push({
+              item: { key: art.frameId, width: art.width, height: art.height, bitmap: art.bitmap },
+              tileX: i * tileW,
+              tileW,
+            });
+          } else {
+            drawSlots.push({
+              item: { key: "__shimmer__", width: SHIMMER_SIZE, height: SHIMMER_SIZE, isShimmer: true },
+              tileX: i * tileW,
+              tileW,
+            });
+          }
         }
       }
-    } else {
-      const tileCount = Math.max(1, Math.ceil(safeClipWidth / targetTileW));
-      const tileW = Math.round(targetTileW * safeDpr);
-      for (let i = 0; i < tileCount; i++) {
-        const art = validArtifacts[i];
-        if (art && isValidArtifact(art)) {
-          drawSlots.push({
-            item: { key: art.frameId, width: art.width, height: art.height, bitmap: art.bitmap },
-            tileX: i * tileW,
-            tileW,
-          });
-        } else {
-          drawSlots.push({
-            item: { key: "__shimmer__", width: SHIMMER_SIZE, height: SHIMMER_SIZE, isShimmer: true },
-            tileX: i * tileW,
-            tileW,
-          });
-        }
-      }
-    }
 
     if (drawSlots.length === 0) {
       return;
@@ -461,25 +533,32 @@ export class WebGLRasterSurface {
     }
 
     // ── Upload VBO and draw ─────────────────────────────────────────────────
-    gl.useProgram(this._program);
-    gl.bindVertexArray(this._vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, buf, gl.DYNAMIC_DRAW);
+    try {
+      gl.useProgram(this._program);
+      gl.bindVertexArray(this._vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this._vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, buf, gl.DYNAMIC_DRAW);
 
-    const stride = FLOATS_PER_VERTEX * 4;
-    gl.enableVertexAttribArray(this._aPos);
-    gl.vertexAttribPointer(this._aPos, 2, gl.FLOAT, false, stride, 0);
-    gl.enableVertexAttribArray(this._aUv);
-    gl.vertexAttribPointer(this._aUv, 2, gl.FLOAT, false, stride, 2 * 4);
+      const stride = FLOATS_PER_VERTEX * 4;
+      gl.enableVertexAttribArray(this._aPos);
+      gl.vertexAttribPointer(this._aPos, 2, gl.FLOAT, false, stride, 0);
+      gl.enableVertexAttribArray(this._aUv);
+      gl.vertexAttribPointer(this._aUv, 2, gl.FLOAT, false, stride, 2 * 4);
 
-    gl.uniform1i(gl.getUniformLocation(this._program, "u_atlas"), 0);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this._atlasTexture);
+      gl.uniform1i(gl.getUniformLocation(this._program, "u_atlas"), 0);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this._atlasTexture);
 
-    // Single draw call for ALL tiles
-    gl.drawArrays(gl.TRIANGLES, 0, rects.length * VERTS_PER_TILE);
+      // Single draw call for ALL tiles
+      gl.drawArrays(gl.TRIANGLES, 0, rects.length * VERTS_PER_TILE);
 
-    gl.bindVertexArray(null);
+      gl.bindVertexArray(null);
+    } catch (_e) {
+      // GL call failed mid-frame — likely context lost between the guard and draw
+      if (Boolean(this._gl?.isContextLost?.())) {
+        this._isContextLost = true;
+      }
+    }
   }
 
   drawPlaceholder(layout: FilmstripLayout): void {
@@ -487,6 +566,7 @@ export class WebGLRasterSurface {
   }
 
   private _clear(layout: FilmstripLayout): void {
+    if (this._disposed || this._isContextLost || Boolean(this._gl?.isContextLost?.())) return;
     const gl = this._gl;
     const { clipWidthPx, stripHeightPx, dpr } = layout;
     const safeClipWidth = Number.isFinite(clipWidthPx) && clipWidthPx > 0 ? clipWidthPx : 1;
@@ -507,15 +587,32 @@ export class WebGLRasterSurface {
   dispose(): void {
     if (this._disposed) return;
     this._disposed = true;
-    const gl = this._gl;
-    gl.deleteTexture(this._atlasTexture);
-    gl.deleteBuffer(this._vbo);
-    gl.deleteVertexArray(this._vao);
-    gl.deleteProgram(this._program);
+
+    // Remove context loss listeners so they don't fire after disposal
+    if (typeof this._canvas?.removeEventListener === "function") {
+      this._canvas.removeEventListener("webglcontextlost", this._boundHandleContextLost);
+      this._canvas.removeEventListener("webglcontextrestored", this._boundHandleContextRestored);
+    }
+
+    // Only delete GPU objects when the context is still valid — after context loss
+    // the object handles are already invalidated by the driver; calling deleteXxx
+    // on them is a no-op at best and a GL_INVALID_OPERATION at worst.
+    if (!this._isContextLost && !Boolean(this._gl?.isContextLost?.())) {
+      const gl = this._gl;
+      gl.deleteTexture(this._atlasTexture);
+      gl.deleteBuffer(this._vbo);
+      gl.deleteVertexArray(this._vao);
+      gl.deleteProgram(this._program);
+    }
   }
 
   get isDisposed(): boolean {
     return this._disposed;
+  }
+
+  /** Exposed for testing — do not call in production code. */
+  get isContextLost(): boolean {
+    return this._isContextLost;
   }
 }
 

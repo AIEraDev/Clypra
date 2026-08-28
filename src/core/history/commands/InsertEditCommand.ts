@@ -9,6 +9,15 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
+function cloneClips(clips: Clip[]): Clip[] {
+  return clips.map(cloneClipSnapshot);
+}
+
 /** Stable identities affected by a completed insert edit. */
 export interface InsertEditResult {
   insertedClipId: string;
@@ -23,11 +32,15 @@ class RestoreClipsCommand implements Command {
   readonly undoable = true;
   private replaced: Clip[] | null = null;
 
-  constructor(private readonly clips: Clip[]) {}
+  private readonly clips: Clip[];
+
+  constructor(clips: Clip[]) {
+    this.clips = cloneClips(clips);
+  }
 
   apply(state: TimelineState): TimelineState {
-    this.replaced = state.clips.map((clip) => ({ ...clip }));
-    return { ...state, clips: this.clips.map((clip) => ({ ...clip })), epoch: state.epoch + 1 };
+    this.replaced = cloneClips(state.clips);
+    return { ...state, clips: cloneClips(this.clips), epoch: state.epoch + 1 };
   }
 
   invert(): Command {
@@ -46,12 +59,15 @@ export class InsertEditCommand implements Command {
   private readonly leftClipId = generateId("clip");
   private readonly rightClipId = generateId("clip");
   private result: InsertEditResult | null = null;
+  private readonly insertedClip: Clip;
 
   constructor(
-    private readonly insertedClip: Clip,
+    insertedClip: Clip,
     private readonly insertionTime: number,
     private readonly splitClipId: string | null,
-  ) {}
+  ) {
+    this.insertedClip = cloneClipSnapshot(insertedClip);
+  }
 
   apply(state: TimelineState): TimelineState {
     const targetTrack = state.tracks.find((track) => track.id === this.insertedClip.trackId);
@@ -61,7 +77,7 @@ export class InsertEditCommand implements Command {
       return state;
     }
 
-    this.before = state.clips.map((clip) => ({ ...clip }));
+    this.before = cloneClips(state.clips);
     const duration = this.insertedClip.duration;
     const targetTrackId = this.insertedClip.trackId;
     const splitClip = this.splitClipId ? state.clips.find((clip) => clip.id === this.splitClipId) : null;
@@ -73,13 +89,13 @@ export class InsertEditCommand implements Command {
         const sourceOffset = this.insertionTime - clip.startTime;
         const sourceSplit = clip.trimIn + sourceOffset * speed;
         next.push({
-          ...clip,
+          ...cloneClipSnapshot(clip),
           id: this.leftClipId,
           duration: sourceOffset,
           trimOut: sourceSplit,
         });
         next.push({
-          ...clip,
+          ...cloneClipSnapshot(clip),
           id: this.rightClipId,
           startTime: this.insertionTime + duration,
           duration: clip.duration - sourceOffset,
@@ -89,13 +105,13 @@ export class InsertEditCommand implements Command {
       }
 
       if (clip.trackId === targetTrackId && clip.startTime >= this.insertionTime - 0.0005) {
-        next.push({ ...clip, startTime: clip.startTime + duration });
+        next.push({ ...cloneClipSnapshot(clip), startTime: clip.startTime + duration });
       } else {
-        next.push(clip);
+        next.push(cloneClipSnapshot(clip));
       }
     }
 
-    next.push({ ...this.insertedClip, startTime: this.insertionTime });
+    next.push({ ...cloneClipSnapshot(this.insertedClip), startTime: this.insertionTime });
     this.result = {
       insertedClipId: this.insertedClip.id,
       splitClipId: splitClip?.id ?? null,

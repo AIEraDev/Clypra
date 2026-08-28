@@ -1,4 +1,4 @@
-import type { TextEffectConfig } from "@clypra-studio/engine";
+import { _buildConfig, textEffectConfigToScene, type TextEffectConfig } from "@clypra-studio/engine";
 import type { EffectFullDefinition } from "../types/types";
 
 export type BoundingBoxSpec = {
@@ -13,6 +13,13 @@ export type EffectDefinitionWithBounds = EffectFullDefinition & {
 
 export function convertConfigToDefinition(preset: any): EffectDefinitionWithBounds {
   const cfg = preset.config;
+  const canonicalScene = (() => {
+    try {
+      return textEffectConfigToScene(cfg);
+    } catch {
+      return undefined;
+    }
+  })();
 
   const font = {
     family: cfg.fontFamily ?? "Poppins",
@@ -147,15 +154,43 @@ export function convertConfigToDefinition(preset: any): EffectDefinitionWithBoun
     glows,
     panel,
     stack,
+    schemaVersion: 2,
+    scene: canonicalScene,
   };
 }
 
 export function convertRawConfigToDefinition(rawConfig: any): EffectDefinitionWithBounds {
   if (rawConfig.font && Array.isArray(rawConfig.fills)) {
-    return rawConfig as EffectDefinitionWithBounds;
+    const scene = rawConfig.scene ?? (() => {
+      try {
+        return textEffectConfigToScene(_buildConfig(
+          rawConfig,
+          rawConfig.text || "CLYPRA",
+          rawConfig.fontSize || 100,
+          rawConfig.canvasWidth || 800,
+          rawConfig.canvasHeight || 200,
+        ));
+      } catch {
+        return undefined;
+      }
+    })();
+    return {
+      ...rawConfig,
+      schemaVersion: rawConfig.schemaVersion ?? scene?.schemaVersion ?? 2,
+      revisionId: rawConfig.revisionId ?? rawConfig.revision?.revisionId,
+      contentHash: rawConfig.contentHash ?? rawConfig.revision?.contentHash,
+      scene,
+    } as EffectDefinitionWithBounds;
   }
 
-  return convertConfigToDefinition({ ...rawConfig, config: rawConfig });
+  const definition = convertConfigToDefinition({ ...rawConfig, config: rawConfig });
+  return {
+    ...definition,
+    schemaVersion: rawConfig.schemaVersion ?? rawConfig.scene?.schemaVersion,
+    revisionId: rawConfig.revisionId ?? rawConfig.revision?.revisionId,
+    contentHash: rawConfig.contentHash ?? rawConfig.revision?.contentHash,
+    scene: rawConfig.scene ?? (definition as any).scene,
+  } as EffectDefinitionWithBounds;
 }
 
 /**

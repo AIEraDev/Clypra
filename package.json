@@ -43,7 +43,7 @@
     "@capacitor/share": "^8.0.1",
     "@clypra-studio/engine": "1.3.0",
     "@clypra-studio/shaders": "0.1.5",
-    "@clypra/ui-color-picker": "0.1.0",
+    "@clypra/ui-color-picker": "0.2.1",
     "@fontsource-variable/dancing-script": "^5.2.8",
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/inter": "^5.2.8",

@@ -20,7 +20,7 @@ import type { Track, TrackType } from "@/types";
 /**
  * Where a new track of this type is inserted in the timeline.
  * - "top"          → index 0 (above everything, including the main video track)
- * - "below-video"  → immediately after the first video track (e.g. audio)
+ * - "below-video"  → immediately after the first video track
  * - "bottom"       → appended after all existing tracks
  */
 export type TrackPlacement = "top" | "below-video" | "bottom";
@@ -89,7 +89,10 @@ export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
   },
   audio: {
     height: 60,
-    placement: "below-video",
+    // Audio is a bottom-of-timeline lane. Keeping it after every visual row
+    // makes the Main Track boundary deterministic even when overlays are
+    // added after audio has already been placed.
+    placement: "bottom",
     reuseStrategy: "per-clip",
     autoPrune: true,
     displayName: "Audio",
@@ -309,9 +312,10 @@ export function isTrackBelowMainVideo(
 }
 
 /**
- * Clamp a proposed insertion so only pure-audio tracks can be placed below
- * the main video track. This is the final ordering guard used by drop and
- * history paths, so UI hit-testing cannot bypass it.
+ * Clamp a proposed insertion so audio always lands at the bottom of the
+ * timeline and visual rows stay above the main video track. This is the final
+ * ordering guard used by drop and history paths, so UI hit-testing cannot
+ * bypass it.
  */
 export function getSafeTrackInsertionIndex(
   tracks: Array<Pick<Track, "id" | "type">>,
@@ -320,33 +324,34 @@ export function getSafeTrackInsertionIndex(
   mainVideoTrackId?: string | null,
 ): number {
   const clamped = Math.max(0, Math.min(proposedIndex, tracks.length));
-  if (trackType === "audio") return clamped;
+  if (trackType === "audio") return tracks.length;
 
   const mainIndex = getMainVideoTrackIndex(tracks, mainVideoTrackId);
   return mainIndex >= 0 ? Math.min(clamped, mainIndex) : clamped;
 }
 
 /**
- * Repairs legacy ordering in memory without moving audio rows. Non-audio rows
- * found below the main video row are moved immediately above it, preserving
- * their relative order. Callers can persist the normalized result normally.
+ * Repairs legacy ordering in memory. All non-audio rows are kept above the
+ * main video row and every audio row is moved to the bottom, preserving the
+ * relative order within each group. Callers can persist the normalized result
+ * normally.
  */
 export function normalizeTrackOrderForMainVideo<
   T extends Pick<Track, "id" | "type">,
 >(tracks: T[], mainVideoTrackId?: string | null): T[] {
+  const nonAudioTracks = tracks.filter((track) => track.type !== "audio");
+  const audioTracks = tracks.filter((track) => track.type === "audio");
   const mainIndex = getMainVideoTrackIndex(tracks, mainVideoTrackId);
-  if (mainIndex < 0) return tracks;
+  if (mainIndex < 0) return [...nonAudioTracks, ...audioTracks];
 
   const mainTrack = tracks[mainIndex];
-  const above = tracks.slice(0, mainIndex);
-  const below = tracks.slice(mainIndex + 1);
-  const nonAudioBelow = below.filter((track) => track.type !== "audio");
-  if (nonAudioBelow.length === 0) return tracks;
+  const nonAudioAboveMain = nonAudioTracks.filter(
+    (track) => track.id !== mainTrack.id,
+  );
 
   return [
-    ...above,
-    ...nonAudioBelow,
+    ...nonAudioAboveMain,
     mainTrack,
-    ...below.filter((track) => track.type === "audio"),
+    ...audioTracks,
   ];
 }

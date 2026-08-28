@@ -30,6 +30,8 @@ import { evaluateProperty } from "./animation";
 import { resolveClipSourceTime } from "../timeline/sourceTime";
 import { calculateTextAnimationState } from "@/lib/text/textAnimation";
 import { normalizeFilterIntensity } from "../render/filterIR";
+import { resolveTextEffectDefinition } from "@/lib/text/textClip";
+import { evaluateEffectiveAudioState } from "@/core/audio/effectiveAudioState";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
 import { compareCompositorClips } from "@/core/compositor/ordering";
@@ -130,7 +132,18 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       const textClip = clip as unknown as TextClip;
       const transitionState = evaluateTransitionState(clip, transitionWindows);
 
-      const styleDefinition = textClip.styleId ? (useEffectsStore.getState().definitions[textClip.styleId] ?? textClip.styleDefinition) : textClip.styleDefinition;
+      const catalogStyleDefinition = resolveTextEffectDefinition(
+        textClip.styleId,
+        textClip.styleDefinition,
+      );
+      const styleDefinition = catalogStyleDefinition || textClip.styleSnapshot
+        ? ({
+            ...(catalogStyleDefinition || {}),
+            id: textClip.styleId,
+            name: (catalogStyleDefinition as any)?.name || textClip.styleId || "Pinned Text Effect",
+            scene: textClip.styleSnapshot,
+          } as any)
+        : undefined;
 
       const evalFontSize = kf.fontSize !== undefined ? evaluateProperty(kf.fontSize, offset, clip.duration) : textClip.fontSize || 48;
       const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : textClip.color || "#ffffff";
@@ -198,6 +211,11 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         shadow: textClip.shadow,
         background: textClip.background,
         styleId: textClip.styleId,
+        styleVersion: textClip.styleVersion,
+        styleRevisionId: textClip.styleRevisionId,
+        styleContentHash: textClip.styleContentHash,
+        styleSnapshot: textClip.styleSnapshot,
+        parameterOverrides: textClip.parameterOverrides,
         styleDefinition,
         templateId: textClip.templateId,
         customization: textClip.customization,
@@ -221,6 +239,16 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         stickerFormat: clip.stickerFormat,
         stickerAnimationPath: clip.stickerAnimationPath,
         stickerSourceId: clip.stickerSourceId,
+      };
+    }
+    if (!asset && clip.kind === "image" && clip.mediaUrl) {
+      asset = {
+        id: clip.mediaId,
+        name: clip.name || "Template Image",
+        path: clip.mediaUrl,
+        type: "image",
+        duration: clip.duration,
+        size: 0,
       };
     }
     // Explicit audio clips can retain their source video asset so the audio
@@ -314,23 +342,30 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
   for (const clip of sortedClips) {
     const asset = assetMap.get(clip.mediaId);
     const track = trackMap.get(clip.trackId);
+    const directAudioPath = (clip as any).audioPath as string | undefined;
     // Audio layer creation:
     // - Explicit audio role clips always create audio
     // - Video assets with primary OR overlay role create audio (video tracks have audio)
-    const hasAudio = clip.role === "audio" || (asset?.type === "video" && (clip.role === "primary" || clip.role === "overlay"));
-    if (!hasAudio || !asset) continue;
-    if (track?.muted ?? false) continue;
+    const hasAudio =
+      clip.kind === "audio" ||
+      asset?.type === "audio" ||
+      asset?.type === "video" ||
+      Boolean(directAudioPath) ||
+      Boolean(clip.audio);
+    if (!hasAudio || (!asset && !directAudioPath)) continue;
 
     const sourceTime = resolveClipSourceTime(clip, evalTime, {
       clampToRange: true,
       frameRate: project?.frameRate ?? 30,
     }).sourceTime;
-    const sourcePath = asset.path ? (isExternalOrDataUrl(asset.path) ? asset.path : convertFileSrc(asset.path)) : "";
+    const rawAudioPath = directAudioPath || asset?.path || "";
+    const sourcePath = rawAudioPath
+      ? (isExternalOrDataUrl(rawAudioPath) ? rawAudioPath : convertFileSrc(rawAudioPath))
+      : "";
     if (!sourcePath) continue;
 
-    const clipVolume = clip.volume ?? 1.0;
-    const trackVolume = track?.volume ?? 1.0;
-    const effectiveVolume = Math.max(0, Math.min(3.0, clipVolume * trackVolume));
+    const effectiveAudio = evaluateEffectiveAudioState(clip, track, evalTime, { tracks });
+    const effectiveVolume = Math.max(0, Math.min(3.0, effectiveAudio.gain));
 
     audioLayers.push({
       layerId: `${clip.id}-audio`,
@@ -338,10 +373,10 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       mediaId: clip.mediaId,
       sourcePath,
       sourceTime,
-      pan: 0.0,
+      pan: effectiveAudio.pan,
       priority: clip.trackIndex,
       volume: effectiveVolume,
-      muted: track?.muted ?? false,
+      muted: effectiveAudio.muted,
     });
   }
 

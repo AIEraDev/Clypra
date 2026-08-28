@@ -134,13 +134,16 @@ describe("Mixed-Stack Export Parity (#1 Empirical Verification)", () => {
     expect(previewRequest?.layers).toHaveLength(1);
     expect(previewRequest?.layers[0].layerId).toBe("bg-video-1");
 
-    // Text layer is natively mapped to textLayers
-    expect(previewRequest?.textLayers).toHaveLength(1);
-    expect(previewRequest?.textLayers?.[0].text).toBe("Clypra Hardened Parity");
+    // Text effects stay as the exact Studio-engine raster; native textLayers
+    // is reserved for the compatibility fallback when no raster is available.
+    expect(previewRequest?.textLayers).toBeUndefined();
 
-    // Non-text raster layer (sticker) is in rasterLayers
-    expect(previewRequest?.rasterLayers).toHaveLength(1);
-    expect(previewRequest?.rasterLayers?.[0].assetId).toBe(stickerRasterAsset.assetId);
+    // Both the text effect and non-text sticker are composed as native rasters.
+    expect(previewRequest?.rasterLayers).toHaveLength(2);
+    expect(previewRequest?.rasterLayers?.map((layer) => layer.assetId)).toEqual([
+      stickerRasterAsset.assetId,
+      textRasterAsset.assetId,
+    ]);
   });
 
   it("strictly preserves track-order z-stacking (track 0 text over track 1 sticker over track 2 video)", () => {

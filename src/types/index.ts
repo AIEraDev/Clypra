@@ -222,6 +222,8 @@ export interface MediaAsset {
   stickerSourceId?: string;
   streams?: MediaStreamInfo[];
   derivedFrom?: DerivedMediaProvenance;
+  /** Whether the media asset file was detected as missing/offline on disk */
+  isMissing?: boolean;
 }
 
 /** Type guard to check if asset has visual dimensions */
@@ -298,6 +300,20 @@ export interface Clip {
   stickerImagePath?: string;
   /** Text template ID for text clips */
   templateId?: string;
+  /** Template catalog version captured when this clip was created. */
+  templateVersion?: number;
+  /** Immutable template revision captured when this clip was created. */
+  templateRevisionId?: string;
+  templateContentHash?: string;
+  templateSnapshot?: import("@clypra-studio/engine").TextTemplate;
+  templateDependencies?: Array<{
+    effectId: string;
+    revisionId: string;
+    contentHash: string;
+    snapshot?: import("@clypra-studio/engine").SceneDocument;
+  }>;
+  /** Direct visual URL retained by template image children when no media asset exists. */
+  mediaUrl?: string;
   adjustments?: import("@clypra-studio/engine").ColorAdjustments;
   /** GPU UltraKey Chroma Key configuration */
   chromaKey?: import("./compositor").ChromaKeyConfig;
@@ -469,6 +485,14 @@ export interface TextClip extends Clip {
   paddingX: number;
   paddingY: number;
   styleId?: string;
+  /** Effect catalog version captured when this clip was created. */
+  styleVersion?: number;
+  /** Immutable effect revision captured when this clip was created. */
+  styleRevisionId?: string;
+  styleContentHash?: string;
+  styleSnapshot?: import("@clypra-studio/engine").SceneDocument;
+  /** Effect parameters captured when this clip was created. */
+  parameterOverrides?: Record<string, any>;
   templateId?: string;
   customization?: any;
   /** Role of the text clip: caption for subtitles, title for decorative text/graphics */

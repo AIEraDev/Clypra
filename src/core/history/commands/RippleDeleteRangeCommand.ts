@@ -13,10 +13,15 @@ interface TimelineState {
 
 type TimelineSnapshot = Pick<TimelineState, "tracks" | "clips" | "gaps">;
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 function cloneSnapshot(state: Partial<TimelineState>): TimelineSnapshot {
   return {
     tracks: (state.tracks ?? []).map((track) => ({ ...track })),
-    clips: (state.clips ?? []).map((clip) => ({ ...clip })),
+    clips: (state.clips ?? []).map(cloneClipSnapshot),
     gaps: (state.gaps ?? []).map((gap) => ({ ...gap, metadata: gap.metadata ? { ...gap.metadata } : gap.metadata })),
   };
 }
@@ -28,7 +33,11 @@ class RestoreTimelineSnapshotCommand implements Command {
   readonly undoable = true;
   private replaced: TimelineSnapshot | null = null;
 
-  constructor(private readonly snapshot: TimelineSnapshot) {}
+  private readonly snapshot: TimelineSnapshot;
+
+  constructor(snapshot: TimelineSnapshot) {
+    this.snapshot = cloneSnapshot(snapshot);
+  }
 
   apply(state: TimelineState): TimelineState {
     this.replaced = cloneSnapshot(state);
@@ -79,14 +88,16 @@ export class RippleDeleteRangeCommand implements Command {
       .filter((clip) => !actuallyDeleted.has(clip.id))
       .map((clip) => {
         const removed = deletedByTrack.get(clip.trackId);
-        if (!removed) return clip;
+        if (!removed) return cloneClipSnapshot(clip);
         const lastProtectedBarrier = state.gaps
           .filter((gap) => gap.trackId === clip.trackId && gap.protected && gap.startTime + gap.duration <= clip.startTime + 0.0005)
           .reduce((latest, gap) => Math.max(latest, gap.startTime + gap.duration), 0);
         const shift = removed
           .filter((deletedClip) => deletedClip.startTime < clip.startTime && deletedClip.startTime >= lastProtectedBarrier - 0.0005)
           .reduce((sum, deletedClip) => sum + deletedClip.duration, 0);
-        return shift > 0 ? { ...clip, startTime: Math.max(0, clip.startTime - shift) } : clip;
+        return shift > 0
+          ? { ...cloneClipSnapshot(clip), startTime: Math.max(0, clip.startTime - shift) }
+          : cloneClipSnapshot(clip);
       });
 
     const occupiedTrackIds = new Set(clips.map((clip) => clip.trackId));

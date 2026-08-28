@@ -32,7 +32,7 @@ import { toRustProject, type ProjectPersistenceSnapshot } from "@/types/serializ
 import { generateId } from "@/lib/utils/id";
 import { convertRawConfigToDefinition } from "@/features/text-effects/lib/definitionConversion";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
-import { calculateTextClipSize } from "@/lib/text/textClip";
+import { calculateTextClipSize, resolveTextEffectDefinition } from "@/lib/text/textClip";
 import { useSettingsStore } from "./settingsStore";
 import { saveSnapshot, clearSnapshot } from "@/core/runtime/CrashRecoveryService";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
@@ -69,6 +69,9 @@ interface ProjectStore {
   addMediaAsset: (asset: MediaAsset) => void;
   updateMediaAsset: (assetId: string, updates: Partial<MediaAsset>) => void;
   removeMediaAsset: (assetId: string) => void;
+  checkMissingMedia: () => Promise<string[]>;
+  relinkMediaAsset: (assetId: string, newPath: string) => Promise<{ success: boolean; relinkedOtherCount: number }>;
+  promptRelinkMedia: (assetId: string) => Promise<boolean>;
   updateProject: (updates: Partial<Project>) => void;
   setProjectThumbnail: (thumbnail: string) => void;
   setRecentProjects: (projects: RecentProjectEntry[]) => void;
@@ -78,6 +81,10 @@ interface ProjectStore {
   /** Persist the current project immediately and verify the storage result. */
   saveCurrentProject: () => Promise<ProjectSaveResult | null>;
   scheduleAutoSave: () => void;
+  isDirty: boolean;
+  setIsDirty: (isDirty: boolean) => void;
+  hasUnsavedChanges: () => boolean;
+  flushCrashRecovery: () => Promise<void>;
 }
 
 const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
@@ -121,6 +128,11 @@ const getAspectRatioDimensions = (ratio: string): { width: number; height: numbe
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTO_SAVE_DELAY = 500; // ms
 let saveInProgress: Promise<ProjectSaveResult> | null = null;
+
+let crashRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+let crashRecoveryFirstMutation: number | null = null;
+const CRASH_RECOVERY_DELAY = 250; // ms
+const CRASH_RECOVERY_MAX_WAIT = 1000; // ms
 
 async function captureCurrentProjectSnapshot(): Promise<ProjectPersistenceSnapshot | null> {
   const { project, mediaAssets } = useProjectStore.getState();
@@ -174,6 +186,92 @@ async function persistCurrentProjectSnapshot(snapshot: ProjectPersistenceSnapsho
   return persistProjectPayload(JSON.stringify(snapshot.rustProject));
 }
 
+let crashRecoveryPromise: Promise<void> | null = null;
+
+async function flushCrashRecoverySnapshot(scheduledProjectId: string): Promise<void> {
+  const promise = (async () => {
+    const state = useProjectStore.getState();
+    const { project } = state;
+    if (!project || project.id !== scheduledProjectId) return;
+
+    try {
+      const snapshot = await captureCurrentProjectSnapshot();
+      if (!snapshot || snapshot.project.id !== scheduledProjectId) return;
+
+      lifecycleMonitor.record("AUTO_SAVE_SNAPSHOT_SAVED", { projectId: snapshot.project.id });
+      await saveSnapshot({
+        savedAt: new Date().toISOString(),
+        project: snapshot.project,
+        mediaAssets: snapshot.mediaAssets,
+        tracks: snapshot.tracks,
+        clips: snapshot.clips,
+        transitions: snapshot.transitions,
+        gaps: snapshot.gaps,
+        markers: snapshot.markers,
+        timelineSchemaVersion: snapshot.project.timelineSchemaVersion ?? 1,
+      });
+    } catch (_snapshotError) {
+      // Non-fatal - snapshot failures are handled gracefully
+    }
+  })();
+
+  crashRecoveryPromise = promise;
+  try {
+    await promise;
+  } finally {
+    if (crashRecoveryPromise === promise) {
+      crashRecoveryPromise = null;
+    }
+  }
+}
+
+function scheduleCrashRecoverySnapshot(): void {
+  const scheduledProjectId = useProjectStore.getState().project?.id;
+  if (!scheduledProjectId) return;
+
+  const now = Date.now();
+  if (crashRecoveryFirstMutation === null) {
+    crashRecoveryFirstMutation = now;
+  }
+
+  const elapsed = now - crashRecoveryFirstMutation;
+  if (elapsed >= CRASH_RECOVERY_MAX_WAIT) {
+    if (crashRecoveryTimer) {
+      clearTimeout(crashRecoveryTimer);
+      crashRecoveryTimer = null;
+    }
+    crashRecoveryFirstMutation = null;
+    void flushCrashRecoverySnapshot(scheduledProjectId);
+    return;
+  }
+
+  if (crashRecoveryTimer) {
+    clearTimeout(crashRecoveryTimer);
+  }
+
+  crashRecoveryTimer = setTimeout(() => {
+    crashRecoveryTimer = null;
+    crashRecoveryFirstMutation = null;
+    void flushCrashRecoverySnapshot(scheduledProjectId);
+  }, CRASH_RECOVERY_DELAY);
+}
+
+function getFileName(filePath: string): string {
+  return filePath.split(/[/\\]/).pop() || filePath;
+}
+
+function getDirectoryPath(filePath: string): string {
+  const lastSlash = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+  return lastSlash > 0 ? filePath.substring(0, lastSlash) : "";
+}
+
+function joinPath(dir: string, file: string): string {
+  if (dir.includes("\\")) {
+    return `${dir}\\${file}`;
+  }
+  return `${dir}/${file}`;
+}
+
 // Wire up ResourceTracker's active project ID resolver after the module is fully evaluated.
 // queueMicrotask ensures this runs after all static imports are resolved (avoids TDZ issues).
 // The resolver lets findLeaks() classify which tracked resources belong to a stale project.
@@ -183,11 +281,26 @@ queueMicrotask(() => {
   });
 });
 
-async function preloadTextEffectDefinitionsFromClips(clips: any[] | undefined): Promise<void> {
-  if (!clips?.length) return;
+function flattenClips(clips: any[] | undefined): any[] {
+  if (!clips?.length) return [];
+  const result: any[] = [];
+  for (const clip of clips) {
+    if (!clip) continue;
+    result.push(clip);
+    const rawChildren = clip.compoundChildren ?? clip.compound_children;
+    if (Array.isArray(rawChildren) && rawChildren.length > 0) {
+      result.push(...flattenClips(rawChildren));
+    }
+  }
+  return result;
+}
 
-  const styleIds = Array.from(new Set(clips.map((clip) => clip?.styleId).filter((id): id is string => typeof id === "string" && id.length > 0)));
-  const embeddedDefinitions = clips.map((clip) => clip?.styleDefinition ?? clip?.style_definition).filter((definition) => definition && typeof definition.id === "string");
+async function preloadTextEffectDefinitionsFromClips(clips: any[] | undefined): Promise<void> {
+  const allClips = flattenClips(clips);
+  if (!allClips.length) return;
+
+  const styleIds = Array.from(new Set(allClips.map((clip) => clip?.styleId).filter((id): id is string => typeof id === "string" && id.length > 0)));
+  const embeddedDefinitions = allClips.map((clip) => clip?.styleDefinition ?? clip?.style_definition).filter((definition) => definition && typeof definition.id === "string");
 
   if (styleIds.length === 0 && embeddedDefinitions.length === 0) return;
 
@@ -218,12 +331,22 @@ function normalizeLoadedTextEffectClipBounds(clips: any[] | undefined, project: 
   if (!clips?.length) return clips ?? [];
 
   try {
-    const definitions = useEffectsStore.getState().definitions;
+    return clips.map((rawClip) => {
+      let clip = rawClip;
+      const rawChildren = clip?.compoundChildren ?? clip?.compound_children;
+      if (Array.isArray(rawChildren) && rawChildren.length > 0) {
+        clip = {
+          ...clip,
+          compoundChildren: normalizeLoadedTextEffectClipBounds(rawChildren, project),
+        };
+      }
 
-    return clips.map((clip) => {
       if (clip?.kind !== "text" || !clip.styleId) return clip;
 
-      const effectDefinition = definitions[clip.styleId] ?? clip.styleDefinition;
+      const effectDefinition = resolveTextEffectDefinition(
+        clip.styleId,
+        clip.styleDefinition,
+      );
       if (!effectDefinition) return clip;
 
       const nativeDefinition = effectDefinition as any;
@@ -275,6 +398,19 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   recentProjects: [],
   toastMessage: null,
   toastVariant: "success" as const,
+  isDirty: false,
+  setIsDirty: (isDirty) => set({ isDirty }),
+  hasUnsavedChanges: () => get().isDirty || autoSaveTimer !== null || crashRecoveryTimer !== null,
+  flushCrashRecovery: async () => {
+    const currentProjectId = get().project?.id;
+    if (!currentProjectId) return;
+    if (crashRecoveryTimer) {
+      clearTimeout(crashRecoveryTimer);
+      crashRecoveryTimer = null;
+    }
+    crashRecoveryFirstMutation = null;
+    await flushCrashRecoverySnapshot(currentProjectId);
+  },
 
   setToastMessage: (message, variant) => set({ toastMessage: message, ...(variant ? { toastVariant: variant } : {}) }),
 
@@ -321,7 +457,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       audioModelVersion: AUDIO_MODEL_VERSION,
     };
 
-    set({ project, mediaAssets: [] });
+    set({ project, mediaAssets: [], isDirty: false });
 
     // Let timelineStore reset its own state
     try {
@@ -427,7 +563,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // ═══════════════════════════════════════════════════════════════════════════════
         set({ project, mediaAssets: payload?.mediaAssets ?? [] });
 
-        await preloadTextEffectDefinitionsFromClips(payload?.clips);
+        const allPayloadClips = flattenClips(payload?.clips);
+        await preloadTextEffectDefinitionsFromClips(allPayloadClips);
         if (currentLoadId !== loadId) return;
 
         // Preload filters from clips
@@ -435,7 +572,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           const { filterCacheManager } = await import("@/features/filters/cache/filterCache");
           await filterCacheManager.initialize();
 
-          const filterClips = (payload?.clips ?? []).filter((clip: any) => clip.kind === "filter" && clip.mediaId);
+          const filterClips = allPayloadClips.filter((clip: any) => clip.kind === "filter" && clip.mediaId);
 
           if (filterClips.length > 0) {
             for (const clip of filterClips) {
@@ -470,7 +607,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         // Preload text templates and their fonts with persistent caching
         try {
           const { useTemplateStore } = await import("@/features/text-templates/templateStore");
-          await useTemplateStore.getState().preloadTemplatesAndFontsForClips(payload?.clips ?? []);
+          await useTemplateStore.getState().preloadTemplatesAndFontsForClips(allPayloadClips);
         } catch (err) {
           // Preload failed silently
         }
@@ -500,6 +637,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         await createProjectSession(project.id);
 
         if (currentLoadId !== loadId) return;
+        set({ isDirty: false });
 
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 5: Prewarm Video Decoders (Background)
@@ -523,6 +661,25 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         } catch (err) {
           // Prewarming failed silently - graceful degradation
         }
+
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // PHASE 6: Verify Media Files on Disk
+        // ═══════════════════════════════════════════════════════════════════════════════
+        const loadedProjectId = project.id;
+        get()
+          .checkMissingMedia()
+          .then((missingIds) => {
+            const currentProject = get().project;
+            if (!currentProject || currentProject.id !== loadedProjectId) return;
+            if (missingIds.length > 0) {
+              get().showToast(
+                `${missingIds.length} media file${missingIds.length > 1 ? "s are" : " is"} missing or offline. Use Relink Media to locate.`,
+                "warning",
+                5000,
+              );
+            }
+          })
+          .catch(() => {});
       } catch (error) {
         // A failed hydration/session transition must not leave an empty or
         // half-loaded project visible. Rebuild the previous active state.
@@ -594,6 +751,239 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       mediaAssets: state.mediaAssets.filter((a) => a.id !== assetId),
     }));
     get().scheduleAutoSave();
+  },
+
+  checkMissingMedia: async () => {
+    const assets = get().mediaAssets;
+    if (!assets.length) return [];
+
+    const missingIds: string[] = [];
+    const updatedAssets = await Promise.all(
+      assets.map(async (asset) => {
+        if (
+          !asset.path ||
+          asset.path.startsWith("data:") ||
+          asset.path.startsWith("http:") ||
+          asset.path.startsWith("https:") ||
+          asset.path.startsWith("asset://")
+        ) {
+          return asset.isMissing ? { ...asset, isMissing: false } : asset;
+        }
+
+        try {
+          const exists = await platform.fileExists(asset.path);
+          if (!exists) {
+            missingIds.push(asset.id);
+            return { ...asset, isMissing: true };
+          } else if (asset.isMissing) {
+            return { ...asset, isMissing: false };
+          }
+          return asset;
+        } catch {
+          missingIds.push(asset.id);
+          return { ...asset, isMissing: true };
+        }
+      }),
+    );
+
+    const hasChanges = updatedAssets.some((a, i) => a.isMissing !== assets[i].isMissing);
+    if (hasChanges) {
+      set({ mediaAssets: updatedAssets });
+    }
+
+    return missingIds;
+  },
+
+  relinkMediaAsset: async (assetId, newPath) => {
+    const currentAssets = get().mediaAssets;
+    const targetAsset = currentAssets.find((a) => a.id === assetId);
+    if (!targetAsset) return { success: false, relinkedOtherCount: 0 };
+
+    try {
+      // 1. Probe new file metadata
+      const filename = getFileName(newPath);
+      let metadata: any = {
+        duration: targetAsset.duration,
+        width: targetAsset.width,
+        height: targetAsset.height,
+      };
+      try {
+        metadata = await platform.getMediaMetadata(newPath);
+      } catch (e) {
+        console.warn("[projectStore] Metadata probe fallback during relink:", e);
+      }
+
+      // 2. Extract new poster frame if video
+      let newPosterFrame = targetAsset.posterFrame;
+      if (targetAsset.type === "video") {
+        try {
+          newPosterFrame = await platform.extractPosterFrame(
+            newPath,
+            metadata.duration || targetAsset.duration || 1,
+            window.devicePixelRatio || 1.0,
+          );
+        } catch (e) {
+          console.warn("[projectStore] Poster frame extraction fallback during relink:", e);
+        }
+      } else if (targetAsset.type === "image") {
+        newPosterFrame = platform.convertFileSrc(newPath);
+      }
+
+      const updatedTargetAsset: MediaAsset = {
+        ...targetAsset,
+        path: newPath,
+        name: filename,
+        duration: metadata.duration || targetAsset.duration,
+        width: metadata.width || targetAsset.width,
+        height: metadata.height || targetAsset.height,
+        posterFrame: newPosterFrame,
+        isMissing: false,
+      };
+
+      // 3. Scan same directory for other missing assets (automatic sibling relinking)
+      const newDir = getDirectoryPath(newPath);
+      let relinkedOtherCount = 0;
+      const otherUpdatedAssets: MediaAsset[] = [];
+
+      for (const asset of currentAssets) {
+        if (asset.id === assetId) continue;
+        if (asset.isMissing && newDir) {
+          const siblingFileName = getFileName(asset.path);
+          const candidatePath = joinPath(newDir, siblingFileName);
+          try {
+            const exists = await platform.fileExists(candidatePath);
+            if (exists) {
+              let sibMeta: any = {
+                duration: asset.duration,
+                width: asset.width,
+                height: asset.height,
+              };
+              try {
+                sibMeta = await platform.getMediaMetadata(candidatePath);
+              } catch {}
+              let sibPoster = asset.posterFrame;
+              if (asset.type === "video") {
+                try {
+                  sibPoster = await platform.extractPosterFrame(
+                    candidatePath,
+                    sibMeta.duration || asset.duration || 1,
+                    window.devicePixelRatio || 1.0,
+                  );
+                } catch {}
+              } else if (asset.type === "image") {
+                sibPoster = platform.convertFileSrc(candidatePath);
+              }
+              otherUpdatedAssets.push({
+                ...asset,
+                path: candidatePath,
+                name: siblingFileName,
+                duration: sibMeta.duration || asset.duration,
+                width: sibMeta.width || asset.width,
+                height: sibMeta.height || asset.height,
+                posterFrame: sibPoster,
+                isMissing: false,
+              });
+              relinkedOtherCount++;
+              continue;
+            }
+          } catch {}
+        }
+        otherUpdatedAssets.push(asset);
+      }
+
+      // Update media assets in store
+      const allUpdatedAssets = otherUpdatedAssets.map((a) =>
+        a.id === assetId ? updatedTargetAsset : a,
+      );
+      const finalAssets = allUpdatedAssets.some((a) => a.id === assetId)
+        ? allUpdatedAssets
+        : [...allUpdatedAssets, updatedTargetAsset];
+      set({ mediaAssets: finalAssets });
+
+      // 4. Update timeline clips referencing relinked assets
+      try {
+        const { useTimelineStore } = await import("./timelineStore");
+        const timelineState = useTimelineStore.getState();
+        const relinkedMap = new Map<string, MediaAsset>();
+        finalAssets.forEach((a) => {
+          if (a.isMissing === false) relinkedMap.set(a.id, a);
+        });
+
+        const updatedClips = timelineState.clips.map((clip) => {
+          const relinked = relinkedMap.get(clip.mediaId);
+          if (!relinked) return clip;
+          if (typeof relinked.duration === "number" && relinked.duration > 0 && clip.trimOut > relinked.duration) {
+            const nextTrimOut = relinked.duration;
+            const nextDuration = Math.max(0.1, nextTrimOut - clip.trimIn);
+            return {
+              ...clip,
+              trimOut: nextTrimOut,
+              duration: nextDuration,
+            };
+          }
+          return clip;
+        });
+
+        useTimelineStore.setState({ clips: updatedClips });
+      } catch (err) {
+        console.warn("[projectStore] Failed to update timeline clips during relink:", err);
+      }
+
+      // 5. Invalidate waveform cache
+      try {
+        const { clearWaveformServiceCache } = await import("@/core/audio/waveformService");
+        clearWaveformServiceCache();
+      } catch {}
+
+      // 6. Schedule auto-save
+      get().scheduleAutoSave();
+      return { success: true, relinkedOtherCount };
+    } catch (error) {
+      console.error("[projectStore] Failed to relink media asset:", error);
+      return { success: false, relinkedOtherCount: 0 };
+    }
+  },
+
+  promptRelinkMedia: async (assetId) => {
+    const asset = get().mediaAssets.find((a) => a.id === assetId);
+    if (!asset) return false;
+
+    const filters =
+      asset.type === "audio"
+        ? [{ name: "Audio Files", extensions: ["mp3", "wav", "aac", "flac", "m4a", "ogg"] }]
+        : asset.type === "image"
+          ? [{ name: "Image Files", extensions: ["png", "jpg", "jpeg", "webp", "svg", "gif"] }]
+          : [{ name: "Media Files", extensions: ["mp4", "mov", "mkv", "webm", "flv", "avi"] }];
+
+    try {
+      const selected = await platform.openFileDialog({
+        multiple: false,
+        filters,
+      });
+
+      if (!selected || !selected.length || !selected[0].path) {
+        return false;
+      }
+
+      const newPath = selected[0].path;
+      const { success, relinkedOtherCount } = await get().relinkMediaAsset(assetId, newPath);
+
+      if (success) {
+        if (relinkedOtherCount > 0) {
+          get().showToast(`Relinked ${asset.name} and ${relinkedOtherCount} other missing file(s)`);
+        } else {
+          get().showToast(`Relinked ${asset.name} successfully`);
+        }
+        return true;
+      } else {
+        get().showToast(`Failed to relink ${asset.name}`, "error");
+        return false;
+      }
+    } catch (err) {
+      console.error("[projectStore] promptRelinkMedia error:", err);
+      get().showToast(`Failed to relink media`, "error");
+      return false;
+    }
   },
 
   updateProject: (updates) => {
@@ -707,7 +1097,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // PHASE 3: Clear ProjectStore State
     // ═══════════════════════════════════════════════════════════════════════════════
     const closedProjectId = get().project?.id;
-    set({ project: null, mediaAssets: [] });
+    set({ project: null, mediaAssets: [], isDirty: false });
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // PHASE 4: Reset Timeline State
@@ -721,8 +1111,18 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     // ═══════════════════════════════════════════════════════════════════════════════
     // PHASE 5: Clear Crash-Recovery Snapshot & Thumbnail State
     // ═══════════════════════════════════════════════════════════════════════════════
-    // On a clean close, remove the IndexedDB snapshot so we don't prompt for
-    // recovery the next time the user opens the application.
+    // On a clean close, cancel any pending timers and remove the IndexedDB snapshot
+    // so we don't prompt for recovery the next time the user opens the application.
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
+    if (crashRecoveryTimer) {
+      clearTimeout(crashRecoveryTimer);
+      crashRecoveryTimer = null;
+    }
+    crashRecoveryFirstMutation = null;
+
     lifecycleMonitor.record("PROJECT_DISPOSE", { projectId: closedProjectId });
     clearSnapshot().catch(() => {});
     try {
@@ -739,15 +1139,29 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
     const snapshot = await captureCurrentProjectSnapshot();
     if (!snapshot) return null;
-    return persistCurrentProjectSnapshot(snapshot);
+    const result = await persistCurrentProjectSnapshot(snapshot);
+    if (result?.verified) {
+      set({ isDirty: false });
+    }
+    const currentProjectId = get().project?.id;
+    if (currentProjectId) {
+      void flushCrashRecoverySnapshot(currentProjectId);
+    }
+    return result;
   },
 
   scheduleAutoSave: () => {
+    set({ isDirty: true });
+
+    // Independent crash recovery: ALWAYS maintains IndexedDB safety snapshot
+    // even if the user has disabled automatic filesystem writes (autoSave: false).
+    scheduleCrashRecoverySnapshot();
+
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
     }
 
-    // Respect the auto-save toggle from settings
+    // Respect the auto-save toggle from settings for writing to the filesystem
     if (!useSettingsStore.getState().autoSave) return;
 
     // ✅ FIX-001: Capture project ID at schedule time to prevent cross-project corruption
@@ -769,7 +1183,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         const snapshot = await captureCurrentProjectSnapshot();
         if (!snapshot || snapshot.project.id !== scheduledProjectId) return;
 
-        await persistCurrentProjectSnapshot(snapshot);
+        const result = await persistCurrentProjectSnapshot(snapshot);
+        if (result?.verified) {
+          set({ isDirty: false });
+        }
         get().showToast("Project saved");
 
         // ── Canonical Project Thumbnail Generation ───────────────────────
@@ -790,27 +1207,6 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           );
         } catch (_thumbError) {
           // Non-fatal background task
-        }
-
-        // ── Crash recovery snapshot ──────────────────────────────────────
-        // Persist a recovery snapshot so the user can restore their work if
-        // the application crashes or the browser refreshes unexpectedly.
-        try {
-          lifecycleMonitor.record("AUTO_SAVE_SNAPSHOT_SAVED", { projectId: snapshot.project.id });
-          // Fire-and-forget — we never want snapshot writes to block the UI
-          saveSnapshot({
-            savedAt: new Date().toISOString(),
-            project: snapshot.project,
-            mediaAssets: snapshot.mediaAssets,
-            tracks: snapshot.tracks,
-            clips: snapshot.clips,
-            transitions: snapshot.transitions,
-            gaps: snapshot.gaps,
-            markers: snapshot.markers,
-            timelineSchemaVersion: snapshot.project.timelineSchemaVersion ?? 1,
-          }).catch(() => {});
-        } catch (_snapshotError) {
-          // Ignore — snapshot failures are non-fatal
         }
       } catch (error) {
         // Background operation — silent fail

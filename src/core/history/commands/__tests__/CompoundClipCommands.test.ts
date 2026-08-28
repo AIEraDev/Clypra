@@ -63,6 +63,53 @@ describe("CompoundClipCommands", () => {
     ]);
   });
 
+  it("deeply snapshots mixed text and audio child metadata for undo", () => {
+    const text = {
+      ...makeClip("text", 0, 2),
+      kind: "text",
+      styleDefinition: { id: "pinned-title", version: "2" },
+      parameterOverrides: { glowRadius: 0.4 },
+    } as any as Clip;
+    const audio = {
+      ...makeClip("audio", 0, 2),
+      kind: "audio",
+      audioPath: "/media/voiceover.wav",
+      audio: {
+        audioModelVersion: 1,
+        origin: "standalone",
+        linkState: "linked",
+        gainDb: -6,
+        pan: 0.25,
+        muted: false,
+        volumeKeyframes: [],
+        fadeIn: { duration: 0, curve: "linear" },
+        fadeOut: { duration: 0, curve: "linear" },
+        channelConfig: { mode: "auto", downmix: "auto" },
+        speed: { preservePitch: false },
+      },
+    } as any as Clip;
+    const command = new GroupClipsCommand(
+      [text.id, audio.id],
+      [text, audio],
+      [track],
+    );
+    const grouped = command.apply({ tracks: [track], clips: [text, audio], epoch: 0 });
+    const parent = grouped.clips[0];
+    const groupedText = parent.compoundChildren!.find((child) => child.id === text.id)! as any;
+    const groupedAudio = parent.compoundChildren!.find((child) => child.id === audio.id)! as any;
+
+    groupedText.styleDefinition.version = "mutated";
+    groupedText.parameterOverrides.glowRadius = 1;
+    groupedAudio.audio.gainDb = 12;
+
+    const restored = command.invert().apply(grouped);
+    const restoredText = restored.clips.find((clip) => clip.id === text.id)! as any;
+    const restoredAudio = restored.clips.find((clip) => clip.id === audio.id)! as any;
+    expect(restoredText.styleDefinition).toEqual({ id: "pinned-title", version: "2" });
+    expect(restoredText.parameterOverrides).toEqual({ glowRadius: 0.4 });
+    expect(restoredAudio.audio.gainDb).toBe(-6);
+  });
+
   it("rejects locked and transition-linked selections", () => {
     const a = makeClip("a", 0, 1);
     expect(validateGroupSelection([a.id, a.id], [a], [track]).valid).toBe(false);

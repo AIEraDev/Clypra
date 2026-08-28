@@ -7,6 +7,7 @@ import {
   isUiTheme,
 } from "./themeRegistry";
 import type { SettingsStore, Theme } from "./settingsTypes";
+import { telemetryCollector } from "@/services/telemetryCollector";
 
 export type {
   ClipPalette,
@@ -35,6 +36,7 @@ export const useSettingsStore = create<SettingsStore>()(
       // Performance
       proxyEditingEnabled: false,
       autoClearCacheOnProjectClose: false,
+      performanceTelemetryEnabled: true,
       // Layout — read legacy localStorage on first load, fall back to defaults
       layoutPreset: "default",
       sidebarWidth: (() => {
@@ -114,6 +116,13 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ proxyEditingEnabled }),
       setAutoClearCacheOnProjectClose: (autoClearCacheOnProjectClose) =>
         set({ autoClearCacheOnProjectClose }),
+      setPerformanceTelemetryEnabled: (performanceTelemetryEnabled) => {
+        set({ performanceTelemetryEnabled });
+        telemetryCollector.setEnabled(performanceTelemetryEnabled);
+        if (!performanceTelemetryEnabled) {
+          telemetryCollector.clearQueue();
+        }
+      },
       setLayoutPreset: (layoutPreset) => set({ layoutPreset }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
       setPropertiesPanelWidth: (propertiesPanelWidth) =>
@@ -150,6 +159,7 @@ export const useSettingsStore = create<SettingsStore>()(
         if (state) {
           applyTheme(state.theme, state.clipPalette, state.customTheme);
           applyFontFamily(state.fontFamily);
+          telemetryCollector.setEnabled(state.performanceTelemetryEnabled ?? true);
         }
       },
     },
@@ -160,4 +170,5 @@ export function initSettings() {
   const state = useSettingsStore.getState();
   applyTheme(state.theme, state.clipPalette, state.customTheme);
   applyFontFamily(state.fontFamily);
+  telemetryCollector.setEnabled(state.performanceTelemetryEnabled ?? true);
 }

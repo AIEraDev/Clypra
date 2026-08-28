@@ -3,7 +3,6 @@ import { TopBar } from "./TopBar";
 import { Sidebar as EnhancedMediaPanel } from "./sidebar";
 import { PreviewPanel } from "./preview/PreviewPanel";
 import { SourcePreview } from "./preview/SourcePreview";
-import { PreviewMonitorWorkspace } from "./preview/PreviewMonitorWorkspace";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { Timeline } from "./timeline/Timeline";
 import { FilmstripMetricsOverlay } from "./timeline/FilmstripMetricsOverlay";
@@ -12,6 +11,37 @@ import { MobileEditorLayout } from "./MobileEditorLayout";
 import { useAddToTimeline } from "@/hooks/useAddToTimeline";
 import { usePanelResize } from "@/hooks/usePanelResize";
 import { useSettingsStore } from "@/store/settingsStore";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+const SafeMediaPanel: React.FC<React.ComponentProps<typeof EnhancedMediaPanel>> = (props) => (
+  <ErrorBoundary name="Media Library">
+    <EnhancedMediaPanel {...props} />
+  </ErrorBoundary>
+);
+
+const SafePropertiesPanel: React.FC<React.ComponentProps<typeof PropertiesPanel>> = (props) => (
+  <ErrorBoundary name="Properties Inspector">
+    <PropertiesPanel {...props} />
+  </ErrorBoundary>
+);
+
+const SafePreviewPanel: React.FC<React.ComponentProps<typeof PreviewPanel>> = (props) => (
+  <ErrorBoundary name="Program Preview">
+    <PreviewPanel {...props} />
+  </ErrorBoundary>
+);
+
+const SafeSourcePreview: React.FC<React.ComponentProps<typeof SourcePreview>> = (props) => (
+  <ErrorBoundary name="Source Preview">
+    <SourcePreview {...props} />
+  </ErrorBoundary>
+);
+
+const SafeTimeline: React.FC = () => (
+  <ErrorBoundary name="Timeline">
+    <Timeline />
+  </ErrorBoundary>
+);
 
 interface EditorLayoutProps {
   onRequestClose?: () => void;
@@ -149,7 +179,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
             {/* Top row: Media & Properties */}
             <div className="flex-1 min-h-0 flex overflow-hidden relative">
-              <EnhancedMediaPanel
+              <SafeMediaPanel
                 onAddToTimeline={handleAddToTimeline}
                 width={
                   sidebarCollapsed
@@ -177,7 +207,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
               )}
 
               {/* Properties panel */}
-              <PropertiesPanel
+              <SafePropertiesPanel
                 fillWidth={!propertiesPanelCollapsed}
                 width={propertiesPanelCollapsed ? 44 : undefined}
                 collapsed={propertiesPanelCollapsed}
@@ -205,7 +235,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
               className="panel-shell overflow-hidden flex-shrink-0"
               style={{ height: `${timelineH}px` }}
             >
-              <Timeline />
+              <SafeTimeline />
             </div>
           </div>
 
@@ -227,7 +257,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell flex flex-col overflow-hidden shrink-0"
             style={{ width: `${tallPlayerW}px` }}
           >
-            <PreviewMonitorWorkspace orientation="column" />
+            <SafePreviewPanel />
           </div>
 
           {/* Live Dimension HUDs */}
@@ -278,7 +308,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell flex flex-col overflow-hidden shrink-0"
             style={{ width: `${tallPlayerW}px` }}
           >
-            <PreviewMonitorWorkspace orientation="column" />
+            <SafePreviewPanel />
           </div>
 
           {/* Horizontal Resizer */}
@@ -298,7 +328,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
             {/* Top row: Media & Properties */}
             <div className="flex-1 min-h-0 flex overflow-hidden relative">
-              <EnhancedMediaPanel
+              <SafeMediaPanel
                 onAddToTimeline={handleAddToTimeline}
                 width={
                   sidebarCollapsed
@@ -325,7 +355,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 />
               )}
 
-              <PropertiesPanel
+              <SafePropertiesPanel
                 fillWidth={!propertiesPanelCollapsed}
                 width={propertiesPanelCollapsed ? 44 : undefined}
                 collapsed={propertiesPanelCollapsed}
@@ -353,7 +383,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
               className="panel-shell overflow-hidden flex-shrink-0"
               style={{ height: `${timelineH}px` }}
             >
-              <Timeline />
+              <SafeTimeline />
             </div>
           </div>
 
@@ -389,7 +419,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
           <div className="flex-1 min-h-0 flex overflow-hidden relative">
             {/* Left Media Sidebar */}
-            <EnhancedMediaPanel
+            <SafeMediaPanel
               onAddToTimeline={handleAddToTimeline}
               width={sidebarCollapsed ? 44 : sidebarW}
               collapsed={sidebarCollapsed}
@@ -419,7 +449,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 </span>
               </div>
               <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                <SourcePreview claimTransportOnMount={false} />
+                <SafeSourcePreview claimTransportOnMount={false} />
               </div>
             </div>
 
@@ -435,7 +465,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
                 </span>
               </div>
               <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                <PreviewPanel mode="program" />
+                <SafePreviewPanel mode="program" />
               </div>
             </div>
 
@@ -454,7 +484,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             )}
 
             {/* Right Properties Panel */}
-            <PropertiesPanel
+            <SafePropertiesPanel
               width={propertiesPanelCollapsed ? 44 : propertiesW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
@@ -481,7 +511,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell overflow-hidden flex-shrink-0"
             style={{ height: `${timelineH}px` }}
           >
-            <Timeline />
+            <SafeTimeline />
           </div>
         </div>
       </div>
@@ -498,7 +528,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
           <div className="flex-1 min-h-0 flex overflow-hidden relative">
             {/* Collapsed/Compact Media Sidebar */}
-            <EnhancedMediaPanel
+            <SafeMediaPanel
               onAddToTimeline={handleAddToTimeline}
               width={sidebarCollapsed ? 44 : sidebarW}
               collapsed={sidebarCollapsed}
@@ -521,7 +551,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Giant Center Preview Monitor */}
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell shadow-2xl">
-              <PreviewMonitorWorkspace orientation="row" />
+              <SafePreviewPanel />
             </div>
 
             {!propertiesPanelCollapsed && (
@@ -539,7 +569,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             )}
 
             {/* Collapsed/Compact Properties */}
-            <PropertiesPanel
+            <SafePropertiesPanel
               width={propertiesPanelCollapsed ? 44 : propertiesW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
@@ -566,7 +596,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell overflow-hidden flex-shrink-0"
             style={{ height: `${cinemaTimelineH}px` }}
           >
-            <Timeline />
+            <SafeTimeline />
           </div>
         </div>
       </div>
@@ -582,7 +612,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
           <div className="flex-1 min-h-0 flex overflow-hidden relative">
             {/* Left Media & Stickers & Audio */}
-            <EnhancedMediaPanel
+            <SafeMediaPanel
               onAddToTimeline={handleAddToTimeline}
               width={sidebarCollapsed ? 44 : sidebarW}
               collapsed={sidebarCollapsed}
@@ -606,7 +636,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             {/* Centered 9:16 Portrait Preview Monitor */}
             <div className="flex-1 min-w-0 flex items-center justify-center overflow-hidden panel-shell bg-surface/30">
               <div className="w-full h-full max-w-[460px] flex flex-col overflow-hidden">
-                <PreviewMonitorWorkspace orientation="column" />
+                <SafePreviewPanel />
               </div>
             </div>
 
@@ -625,7 +655,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             )}
 
             {/* Right Text & Captions Properties */}
-            <PropertiesPanel
+            <SafePropertiesPanel
               width={propertiesPanelCollapsed ? 44 : propertiesW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
@@ -652,7 +682,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell overflow-hidden flex-shrink-0"
             style={{ height: `${timelineH}px` }}
           >
-            <Timeline />
+            <SafeTimeline />
           </div>
         </div>
       </div>
@@ -669,7 +699,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
           <div className="flex-1 min-h-0 flex overflow-hidden relative">
             {/* Left Media Rail */}
-            <EnhancedMediaPanel
+            <SafeMediaPanel
               onAddToTimeline={handleAddToTimeline}
               width={sidebarCollapsed ? 44 : sidebarW}
               collapsed={sidebarCollapsed}
@@ -692,7 +722,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
             {/* Preview Monitor */}
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
-              <PreviewMonitorWorkspace orientation="row" />
+              <SafePreviewPanel />
             </div>
 
             {!propertiesPanelCollapsed && (
@@ -710,7 +740,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             )}
 
             {/* Dominant Wide Properties Inspector */}
-            <PropertiesPanel
+            <SafePropertiesPanel
               width={propertiesPanelCollapsed ? 44 : wideInspectorW}
               collapsed={propertiesPanelCollapsed}
               onToggleCollapse={() =>
@@ -737,7 +767,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
             className="panel-shell overflow-hidden flex-shrink-0"
             style={{ height: `${timelineH}px` }}
           >
-            <Timeline />
+            <SafeTimeline />
           </div>
         </div>
       </div>
@@ -752,7 +782,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-1 relative">
         <div className="flex-1 min-h-0 flex overflow-hidden relative">
           {/* Left Media Sidebar */}
-          <EnhancedMediaPanel
+          <SafeMediaPanel
             onAddToTimeline={handleAddToTimeline}
             width={sidebarCollapsed ? 44 : sidebarW}
             collapsed={sidebarCollapsed}
@@ -795,7 +825,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
           {/* Center Preview Panel */}
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden panel-shell">
-            <PreviewMonitorWorkspace orientation="row" />
+            <SafePreviewPanel />
           </div>
 
           {/* Properties Dimension HUD */}
@@ -833,7 +863,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           )}
 
           {/* Right Properties Panel */}
-          <PropertiesPanel
+          <SafePropertiesPanel
             width={propertiesPanelCollapsed ? 44 : propertiesW}
             collapsed={propertiesPanelCollapsed}
             onToggleCollapse={() =>
@@ -879,7 +909,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
           className="panel-shell overflow-hidden flex-shrink-0"
           style={{ height: `${timelineH}px` }}
         >
-          <Timeline />
+          <SafeTimeline />
         </div>
       </div>
       <FilmstripMetricsOverlay />

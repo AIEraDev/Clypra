@@ -93,4 +93,70 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(success).toBe(true);
     expect(telemetryCollector.getQueueLength()).toBe(0);
   });
+
+  it("records an export span with accurate RTF and throughput", () => {
+    telemetryCollector.recordExportSpan({
+      exportDurationMs: 4500,
+      mediaDurationMs: 9000,
+      totalFrames: 270,
+      exportFps: 60.0,
+      realTimeFactor: 0.5,
+      renderTimeUs: 2700000,
+      encodeTimeUs: 1800000,
+      peakRamMb: 1024,
+      success: true,
+      videoProfile: { width: 3840, height: 2160, nominalFps: 60, codec: "hevc" },
+    });
+
+    expect(telemetryCollector.getQueueLength()).toBe(1);
+  });
+
+  it("records AI inference tasks like whisper and auto-reframe", () => {
+    telemetryCollector.recordAIInferenceSpan("whisper-captions", 320, 0, 0.25, true);
+    expect(telemetryCollector.getQueueLength()).toBe(1);
+  });
+
+  it("updates hardware context from native Tauri GPU status", () => {
+    telemetryCollector.updateFromNativeGpu({
+      adapterName: "Apple M3 Max",
+      backend: "Metal",
+      deviceType: "IntegratedGpu",
+    });
+
+    const hw = telemetryCollector.initHardwareContext();
+    expect(hw.gpuVendor).toBe("apple");
+    expect(hw.gpuModel).toBe("Apple M3 Max");
+    expect(hw.graphicsBackend).toBe("metal");
+  });
+
+  it("sanitizes video profile to coarse buckets without leaking file paths or user titles", () => {
+    const sanitized = telemetryCollector.sanitizeVideoProfile({
+      width: 3840,
+      height: 2160,
+      codec: "hevc",
+    });
+
+    expect(sanitized.resolutionBucket).toBe("4k");
+    expect(sanitized.codec).toBe("hevc");
+    expect((sanitized as any).filePath).toBeUndefined();
+    expect((sanitized as any).projectTitle).toBeUndefined();
+  });
+
+  it("emits session rollup after accumulating continuous frame activity", () => {
+    // Record multiple smooth frames
+    for (let i = 0; i < 5; i++) {
+      telemetryCollector.recordRenderSpan(
+        { totalTimeUs: 14000, decodeUs: 5000, composeUs: 4000 },
+        0,
+        60,
+        { resolutionBucket: "4k", codec: "hevc" },
+        "playback",
+        2.5
+      );
+    }
+
+    // Force rollup flush
+    telemetryCollector.flushRollupIfPending();
+    expect(telemetryCollector.getQueueLength()).toBeGreaterThanOrEqual(1);
+  });
 });

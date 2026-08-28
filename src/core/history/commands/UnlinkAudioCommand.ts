@@ -11,6 +11,11 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 /**
  * Creates a reversible J/L-cut audio companion. Unlike detach, the companion
  * retains a link to its source video and can be re-linked without media work.
@@ -25,7 +30,7 @@ export class UnlinkAudioCommand implements Command {
   private readonly sourceClip: Clip;
 
   constructor(sourceClip: Clip, sourcePath: string, tracks: Track[]) {
-    this.sourceClip = { ...sourceClip };
+    this.sourceClip = cloneClipSnapshot(sourceClip);
     const reusable = tracks.find((track) => track.type === "audio" && !track.locked);
     const trackId = reusable?.id ?? generateId("track");
     this.generatedTrack = reusable ? null : {
@@ -34,7 +39,7 @@ export class UnlinkAudioCommand implements Command {
     };
     const sourceAudio = getClipAudioProperties(sourceClip);
     this.audioClip = {
-      ...sourceClip,
+      ...cloneClipSnapshot(this.sourceClip),
       id: generateId("clip"),
       name: `${sourceClip.name || "Video"} Audio`,
       trackId,
@@ -61,7 +66,7 @@ export class UnlinkAudioCommand implements Command {
         ...state.clips.map((clip) => clip.id === this.sourceClip.id
           ? { ...clip, ...synchronizeClipAudioProperties(clip, { volume: 0, audio: { linkState: "unlinked" } }) }
           : clip),
-        this.audioClip,
+        cloneClipSnapshot(this.audioClip),
       ],
       epoch: state.epoch + 1,
     };
@@ -81,19 +86,28 @@ class RestoreUnlinkedAudioCommand implements Command {
   readonly label = "Relink Audio";
   readonly timestamp = Date.now();
   readonly undoable = true;
+  private readonly original: UnlinkAudioCommand;
+  private readonly sourceClip: Clip;
+  private readonly audioClip: Clip;
+  private readonly generatedTrackId: string | null;
 
   constructor(
-    private readonly original: UnlinkAudioCommand,
-    private readonly sourceClip: Clip,
-    private readonly audioClip: Clip,
-    private readonly generatedTrackId: string | null,
-  ) {}
+    original: UnlinkAudioCommand,
+    sourceClip: Clip,
+    audioClip: Clip,
+    generatedTrackId: string | null,
+  ) {
+    this.original = original;
+    this.sourceClip = cloneClipSnapshot(sourceClip);
+    this.audioClip = cloneClipSnapshot(audioClip);
+    this.generatedTrackId = generatedTrackId;
+  }
 
   apply(state: TimelineState): TimelineState {
     if (!state.clips.some((clip) => clip.id === this.audioClip.id)) return state;
     const clips = state.clips
       .filter((clip) => clip.id !== this.audioClip.id)
-      .map((clip) => clip.id === this.sourceClip.id ? this.sourceClip : clip);
+      .map((clip) => clip.id === this.sourceClip.id ? cloneClipSnapshot(this.sourceClip) : clip);
     const tracks = this.generatedTrackId && !clips.some((clip) => clip.trackId === this.generatedTrackId)
       ? state.tracks.filter((track) => track.id !== this.generatedTrackId)
       : state.tracks;
@@ -112,12 +126,16 @@ export class RelinkAudioCommand implements Command {
   readonly timestamp = Date.now();
   readonly undoable = true;
   private readonly sourceBefore: Clip;
+  private readonly sourceClip: Clip;
+  private readonly audioClip: Clip;
   private readonly sourceRestored: Clip;
 
-  constructor(private readonly sourceClip: Clip, private readonly audioClip: Clip) {
-    this.sourceBefore = { ...sourceClip };
-    const companionAudio = getClipAudioProperties(audioClip);
-    const restored = synchronizeClipAudioProperties(sourceClip, {
+  constructor(sourceClip: Clip, audioClip: Clip) {
+    this.sourceClip = cloneClipSnapshot(sourceClip);
+    this.audioClip = cloneClipSnapshot(audioClip);
+    this.sourceBefore = cloneClipSnapshot(sourceClip);
+    const companionAudio = getClipAudioProperties(this.audioClip);
+    const restored = synchronizeClipAudioProperties(this.sourceClip, {
       volume: companionAudio.muted ? 0 : Math.pow(10, companionAudio.gainDb / 20),
       audio: {
         ...companionAudio,
@@ -126,7 +144,7 @@ export class RelinkAudioCommand implements Command {
         linkOffsetSeconds: undefined,
       },
     });
-    this.sourceRestored = { ...sourceClip, ...restored } as Clip;
+    this.sourceRestored = cloneClipSnapshot({ ...this.sourceClip, ...restored } as Clip);
   }
 
   apply(state: TimelineState): TimelineState {
@@ -135,7 +153,7 @@ export class RelinkAudioCommand implements Command {
       ...state,
       clips: state.clips
         .filter((clip) => clip.id !== this.audioClip.id)
-        .map((clip) => clip.id === this.sourceClip.id ? this.sourceRestored : clip),
+        .map((clip) => clip.id === this.sourceClip.id ? cloneClipSnapshot(this.sourceRestored) : clip),
       epoch: state.epoch + 1,
     };
   }
@@ -151,13 +169,28 @@ class RestoreRelinkAudioCommand implements Command {
   readonly timestamp = Date.now();
   readonly undoable = true;
 
-  constructor(private readonly original: RelinkAudioCommand, private readonly sourceBefore: Clip, private readonly audioClip: Clip) {}
+  constructor(
+    private readonly original: RelinkAudioCommand,
+    sourceBefore: Clip,
+    audioClip: Clip,
+  ) {
+    this.sourceBefore = cloneClipSnapshot(sourceBefore);
+    this.audioClip = cloneClipSnapshot(audioClip);
+  }
+
+  private readonly sourceBefore: Clip;
+  private readonly audioClip: Clip;
 
   apply(state: TimelineState): TimelineState {
     if (state.clips.some((clip) => clip.id === this.audioClip.id)) return state;
     return {
       ...state,
-      clips: [...state.clips.map((clip) => clip.id === this.sourceBefore.id ? this.sourceBefore : clip), this.audioClip],
+      clips: [
+        ...state.clips.map((clip) =>
+          clip.id === this.sourceBefore.id ? cloneClipSnapshot(this.sourceBefore) : clip,
+        ),
+        cloneClipSnapshot(this.audioClip),
+      ],
       epoch: state.epoch + 1,
     };
   }

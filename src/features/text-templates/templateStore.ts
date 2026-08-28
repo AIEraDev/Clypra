@@ -82,7 +82,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
     const templateData = loadedTemplate.templateData || loadedTemplate.lottieData;
     if (!templateData) {
       // Try to load from unified cache first
-      const cacheKey = `text-templates:${loadedTemplate.category}:${loadedTemplate.id}` as const;
+      const cacheKey = `text-templates:${loadedTemplate.category}:${loadedTemplate.id}:${(loadedTemplate as any).revisionId || "latest"}` as const;
       const cachedData = getCached<any>(cacheKey);
 
       if (cachedData) {
@@ -97,7 +97,10 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
         // Cache miss - fetch from API
         try {
           set({ isLoading: true });
-          const data = await TextEffectsApi.getTemplateData(loadedTemplate.category, loadedTemplate.id);
+          const revisionId = (loadedTemplate as any).revisionId;
+          const data = revisionId
+            ? await TextEffectsApi.getTemplateData(loadedTemplate.category, loadedTemplate.id, { revisionId })
+            : await TextEffectsApi.getTemplateData(loadedTemplate.category, loadedTemplate.id);
           loadedTemplate.templateData = data;
           loadedTemplate.lottieData = data;
 
@@ -235,7 +238,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
 
           if (!templateData) {
             // Try unified cache first
-            const cacheKey = `text-templates:${rawTemplate.category}:${id}` as const;
+            const cacheKey = `text-templates:${rawTemplate.category}:${id}:${(rawTemplate as any).revisionId || "latest"}` as const;
             const cachedData = getCached<any>(cacheKey);
 
             if (cachedData) {
@@ -248,7 +251,10 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
             } else {
               // Cache miss - fetch from API
               try {
-                templateData = await TextEffectsApi.getTemplateData(rawTemplate.category, rawTemplate.id);
+                const revisionId = (rawTemplate as any).revisionId;
+                templateData = revisionId
+                  ? await TextEffectsApi.getTemplateData(rawTemplate.category, rawTemplate.id, { revisionId })
+                  : await TextEffectsApi.getTemplateData(rawTemplate.category, rawTemplate.id);
 
                 // Cache the fetched data
                 setCached(cacheKey, templateData);

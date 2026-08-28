@@ -3,7 +3,7 @@ import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type Tex
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
-import { effectBleed } from "../../lib/text/textClip";
+import { effectBleed, resolveTextEffectDefinition } from "../../lib/text/textClip";
 import { getTextRenderMetrics, normalizeFontSize } from "../../lib/utils/fixedSizing";
 
 
@@ -203,7 +203,10 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
   // text renders at wrong size after resize operations.
   // We DO apply scale to geometric properties (bleed, stroke, shadow) for quality independence.
   const fontSize = layer.fontSize; // Use fontSize directly from layer state
-  const effectDef = layer.styleId ? (useEffectsStore.getState().definitions[layer.styleId] ?? layer.styleDefinition) : layer.styleDefinition;
+  const effectDef = resolveTextEffectDefinition(
+    layer.styleId,
+    layer.styleDefinition,
+  );
   const declaredBleed = effectBleed({
     styleId: layer.styleId,
     effectDefinition: effectDef,
@@ -247,6 +250,22 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
 
   if (layer.styleId) {
     if (effectDef) {
+      // New published effects carry the canonical scene snapshot. Render it
+      // directly so the editor never reconstructs visual state from a second
+      // flat/nested representation.
+      if ((effectDef as any).scene?.effectLayers) {
+        const canonicalScene = JSON.parse(JSON.stringify((effectDef as any).scene));
+        canonicalScene.text.content = layer.text;
+        canonicalScene.text.fontSize = unscaledFontSize;
+        canonicalScene.text.fontFamily = layer.fontFamily || canonicalScene.text.fontFamily;
+        canonicalScene.text.textPosX = layer.textAlign || canonicalScene.text.textPosX;
+        canonicalScene.text.textPosY = layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || canonicalScene.text.textPosY;
+        canonicalScene.canvas.width = unscaledOffW;
+        canonicalScene.canvas.height = unscaledOffH;
+        engineEvaluateScene(canonicalScene, layer.time ?? 0, ctx);
+        return;
+      }
+
       // Use _buildConfig (single source of truth) instead of TextEffectBuilder
       // This properly handles effect native dimensions and scales all effect
       // parameters (stroke width, glow blur, bevel depth) correctly.

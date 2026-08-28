@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { MoveClipCommand } from "../MoveClipCommand";
 import { AddTrackCommand, DeleteTrackCommand, ToggleTrackPropertyCommand } from "../TrackCommands";
 import { TransformClipCommand } from "../TransformCommand";
+import { UpdateClipCommand } from "../UpdateClipCommand";
 import type { Track, Clip } from "@/types";
 
 describe("History Commands Suite", () => {
@@ -128,6 +129,65 @@ describe("History Commands Suite", () => {
       const state3 = merged!.apply(state);
       expect(state3.clips[0].x).toBe(30);
       expect((state3.clips[0] as any).scale).toBe(2.0);
+    });
+
+    it("restores the complete clip snapshot across undo and redo", () => {
+      const clip = {
+        id: "clip-1",
+        x: 0,
+        y: 0,
+        scale: 1,
+        audio: {
+          linkState: "unlinked",
+          linkedClipId: "source-1",
+          linkOffsetSeconds: 0.25,
+          volume: 0.8,
+        },
+        styleDefinition: { id: "pinned-neon", version: 4 },
+        futureField: { preserved: true },
+      } as any;
+      const state = { clips: [clip], epoch: 0 };
+      const command = new TransformClipCommand(
+        clip.id,
+        { x: clip.x },
+        { x: 80 },
+      );
+
+      const transformed = command.apply(state);
+      expect(transformed.clips[0].x).toBe(80);
+      expect((transformed.clips[0] as any).futureField).toEqual({ preserved: true });
+
+      const restored = command.invert().apply(transformed);
+      expect(restored.clips[0]).toEqual(clip);
+
+      const redone = command.apply(restored);
+      expect(redone.clips[0]).toEqual(transformed.clips[0]);
+    });
+  });
+
+  describe("UpdateClipCommand", () => {
+    it("restores complete clip state when updating a partial property set", () => {
+      const clip = {
+        id: "clip-update",
+        name: "Before",
+        audio: { volume: 0.7, linkState: "linked" },
+        styleDefinition: { id: "pinned-title", version: 2 },
+        futureField: { preserved: true },
+      } as any;
+      const state = { clips: [clip], epoch: 0 };
+      const command = new UpdateClipCommand(
+        clip.id,
+        { name: clip.name },
+        { name: "After" },
+      );
+
+      const updated = command.apply(state);
+      expect(updated.clips[0].name).toBe("After");
+      expect((updated.clips[0] as any).futureField).toEqual({ preserved: true });
+
+      const restored = command.invert().apply(updated);
+      expect(restored.clips[0]).toEqual(clip);
+      expect(command.apply(restored).clips[0]).toEqual(updated.clips[0]);
     });
   });
 });

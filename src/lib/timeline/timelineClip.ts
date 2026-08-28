@@ -16,7 +16,8 @@ export const resolveClipDuration = (asset: MediaAsset): number => {
 export function getClipVisibleDuration(clip: Pick<Clip, "trimIn" | "trimOut">): number {
   const trimIn = typeof clip.trimIn === "number" && !isNaN(clip.trimIn) ? clip.trimIn : 0;
   const trimOut = typeof clip.trimOut === "number" && !isNaN(clip.trimOut) ? clip.trimOut : 0;
-  return Math.max(0, trimOut - trimIn);
+  const diff = trimOut - trimIn;
+  return isNaN(diff) || diff < 0 ? 0 : diff;
 }
 
 export function normalizeClipTiming(clip: Clip, asset?: MediaAsset): Clip {

@@ -10,12 +10,18 @@ import type { TextEffectDefinition } from "../../types/types";
 // Mock TextEffectsApi
 vi.mock("../../api/textEffectsApi", () => ({
   TEXT_EFFECT_CATEGORIES: [
-    "3d",
-    "neon",
     "essentials",
+    "neon",
+    "3d",
     "glitch",
     "gradient",
-    "outline"
+    "outline",
+    "cinematic",
+    "retro",
+    "minimal",
+    "grunge",
+    "metallic",
+    "handwritten",
   ] as const,
   TextEffectsApi: {
     getFullEffect: vi.fn(),
@@ -44,6 +50,14 @@ describe("EffectGrid Component", () => {
     // Reset stores
     useEffectsStore.setState({
       index: {
+        essentials: [
+          {
+            id: "bold-clean",
+            name: "Bold Clean",
+            category: "essentials",
+            thumbnail: "http://example.com/bold-clean.png",
+          },
+        ],
         "3d": [
           {
             id: "classic-3d",
@@ -71,7 +85,7 @@ describe("EffectGrid Component", () => {
     });
 
     useFavoritesStore.setState({
-      favorites: ["classic-3d"],
+      favorites: ["bold-clean"],
       downloadedEffects: [],
       downloadedTemplates: [],
       downloadingIds: [],
@@ -82,11 +96,12 @@ describe("EffectGrid Component", () => {
     render(<EffectGrid />);
 
     // Check if category button exists
+    expect(screen.getByText("essentials")).toBeInTheDocument();
     expect(screen.getByText("3d")).toBeInTheDocument();
     expect(screen.getByText("neon")).toBeInTheDocument();
 
-    // Classic 3D belongs to '3d' category which is active by default
-    expect(screen.getByText("Classic 3D")).toBeInTheDocument();
+    // Bold Clean belongs to 'essentials' category which is active by default
+    expect(screen.getByText("Bold Clean")).toBeInTheDocument();
   });
 
   it("switches categories and fetches new index on category button click", async () => {
@@ -100,24 +115,24 @@ describe("EffectGrid Component", () => {
 
     expect(loadCategorySpy).toHaveBeenCalledWith("neon");
     expect(screen.getByText("Neon Glow")).toBeInTheDocument();
-    expect(screen.queryByText("Classic 3D")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bold Clean")).not.toBeInTheDocument();
   });
 
   it("filters items by name based on searchQuery prop", () => {
-    // Populate index with multiple 3d effects
+    // Populate index with multiple essentials effects
     useEffectsStore.setState({
       index: {
-        "3d": [
-          { id: "3d-a", name: "Alpha 3D", category: "3d" },
-          { id: "3d-b", name: "Beta 3D", category: "3d" },
+        essentials: [
+          { id: "essential-a", name: "Alpha Essential", category: "essentials" },
+          { id: "essential-b", name: "Beta Essential", category: "essentials" },
         ],
       },
     });
 
     render(<EffectGrid searchQuery="beta" />);
 
-    expect(screen.getByText("Beta 3D")).toBeInTheDocument();
-    expect(screen.queryByText("Alpha 3D")).not.toBeInTheDocument();
+    expect(screen.getByText("Beta Essential")).toBeInTheDocument();
+    expect(screen.queryByText("Alpha Essential")).not.toBeInTheDocument();
   });
 
   it("integrates with useFavoritesStore to toggle favorites status", () => {
@@ -126,22 +141,22 @@ describe("EffectGrid Component", () => {
     render(<EffectGrid />);
 
     // Get the card container and query buttons inside it
-    const card = screen.getByText("Classic 3D").closest(".group");
+    const card = screen.getByText("Bold Clean").closest(".group");
     expect(card).toBeDefined();
     const buttons = card!.querySelectorAll("button");
     const favBtn = buttons[0];
     fireEvent.click(favBtn);
 
-    expect(toggleFavoriteSpy).toHaveBeenCalledWith("classic-3d");
+    expect(toggleFavoriteSpy).toHaveBeenCalledWith("bold-clean");
   });
 
   it("calls startDownload and completeDownload during apply download triggers", async () => {
     const fullEffectMock: TextEffectDefinition = {
-      id: "classic-3d",
-      name: "Classic 3D",
-      category: "3d",
-      description: "Classic 3D text style",
-      tags: ["3d", "classic"],
+      id: "bold-clean",
+      name: "Bold Clean",
+      category: "essentials",
+      description: "Bold clean text style",
+      tags: ["essentials", "clean"],
       font: { family: "Inter", weight: 700, style: "normal", letterSpacing: 0, lineHeight: 1.2 },
       fills: [{ type: "solid", color: "#FFE259" }],
       strokes: [],
@@ -157,14 +172,14 @@ describe("EffectGrid Component", () => {
     render(<EffectGrid onAddToTimeline={onAddToTimeline} />);
 
     // Get the card container and query buttons inside it
-    const card = screen.getByText("Classic 3D").closest(".group");
+    const card = screen.getByText("Bold Clean").closest(".group");
     expect(card).toBeDefined();
     const buttons = card!.querySelectorAll("button");
     const applyBtn = buttons[1];
     fireEvent.click(applyBtn);
 
-    expect(startDownloadSpy).toHaveBeenCalledWith("classic-3d");
-    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledWith("3d", "classic-3d");
+    expect(startDownloadSpy).toHaveBeenCalledWith("bold-clean");
+    expect(TextEffectsApi.getFullEffect).toHaveBeenCalledWith("essentials", "bold-clean", { forceRefresh: true });
 
     // Flush promise microtasks to schedule setTimeout
     await Promise.resolve();
@@ -175,9 +190,9 @@ describe("EffectGrid Component", () => {
       vi.advanceTimersByTime(900);
     });
 
-    expect(completeDownloadSpy).toHaveBeenCalledWith("classic-3d", "effect");
+    expect(completeDownloadSpy).toHaveBeenCalledWith("bold-clean", "effect");
     expect(onAddToTimeline).toHaveBeenCalledWith(expect.objectContaining({
-      styleId: "classic-3d",
+      styleId: "bold-clean",
       effectDefinition: fullEffectMock,
     }), "text");
     vi.useRealTimers();
@@ -185,11 +200,11 @@ describe("EffectGrid Component", () => {
 
   it("shows download spinner immediately on card click for preview, and projects preview only on completion", async () => {
     const fullEffectMock: TextEffectDefinition = {
-      id: "classic-3d",
-      name: "Classic 3D",
-      category: "3d",
-      description: "Classic 3D text style",
-      tags: ["3d", "classic"],
+      id: "bold-clean",
+      name: "Bold Clean",
+      category: "essentials",
+      description: "Bold clean text style",
+      tags: ["essentials", "clean"],
       font: { family: "Inter", weight: 700, style: "normal", letterSpacing: 0, lineHeight: 1.2 },
       fills: [{ type: "solid", color: "#FFE259" }],
       strokes: [],
@@ -204,20 +219,20 @@ describe("EffectGrid Component", () => {
 
     render(<EffectGrid />);
 
-    // Click the card (the element containing the text "Classic 3D")
-    const cardText = screen.getByText("Classic 3D");
+    // Click the card (the element containing the text "Bold Clean")
+    const cardText = screen.getByText("Bold Clean");
     fireEvent.click(cardText);
 
     // 1. Immediately sets previewMediaId in useUIStore and calls startDownload
-    expect(useUIStore.getState().previewMediaId).toBe("classic-3d");
-    expect(startDownloadSpy).toHaveBeenCalledWith("classic-3d");
+    expect(useUIStore.getState().previewMediaId).toBe("bold-clean");
+    expect(startDownloadSpy).toHaveBeenCalledWith("bold-clean");
 
     // 2. Before download finishes, it should NOT have projected the preview
     expect(previewTextPresetSpy).not.toHaveBeenCalled();
 
     // 3. Wait for the async download promise to resolve and preview to project
     await waitFor(() => {
-      expect(completeDownloadSpy).toHaveBeenCalledWith("classic-3d", "effect");
+      expect(completeDownloadSpy).toHaveBeenCalledWith("bold-clean", "effect");
       expect(previewTextPresetSpy).toHaveBeenCalledWith(fullEffectMock, "effect");
     });
   });
@@ -233,12 +248,12 @@ describe("EffectGrid Component", () => {
       resolveB = resolve;
     });
 
-    const classic3dMock: TextEffectDefinition = {
-      id: "classic-3d",
-      name: "Classic 3D",
-      category: "3d",
-      description: "Classic 3D text style",
-      tags: ["3d", "classic"],
+    const boldCleanMock: TextEffectDefinition = {
+      id: "bold-clean",
+      name: "Bold Clean",
+      category: "essentials",
+      description: "Bold clean text style",
+      tags: ["essentials", "clean"],
       font: { family: "Inter", weight: 700, style: "normal", letterSpacing: 0, lineHeight: 1.2 },
       fills: [{ type: "solid", color: "#FFE259" }],
       strokes: [],
@@ -258,7 +273,7 @@ describe("EffectGrid Component", () => {
     };
 
     vi.mocked(TextEffectsApi.getFullEffect).mockImplementation((category, id) => {
-      if (id === "classic-3d") return promiseA;
+      if (id === "bold-clean") return promiseA;
       if (id === "neon-glow") return promiseB;
       return Promise.reject(new Error("Unknown ID"));
     });
@@ -268,9 +283,9 @@ describe("EffectGrid Component", () => {
 
     render(<EffectGrid />);
 
-    // 1. Click card A (classic-3d)
-    fireEvent.click(screen.getByText("Classic 3D"));
-    expect(useUIStore.getState().previewMediaId).toBe("classic-3d");
+    // 1. Click card A (bold-clean in essentials category)
+    fireEvent.click(screen.getByText("Bold Clean"));
+    expect(useUIStore.getState().previewMediaId).toBe("bold-clean");
 
     // 2. Click card B (neon-glow in neon category)
     // First switch to neon category
@@ -290,9 +305,9 @@ describe("EffectGrid Component", () => {
     });
     previewTextPresetSpy.mockClear();
 
-    // 4. Resolve A (classic-3d) later
+    // 4. Resolve A (bold-clean) later
     await act(async () => {
-      resolveA(classic3dMock);
+      resolveA(boldCleanMock);
       await promiseA;
     });
 

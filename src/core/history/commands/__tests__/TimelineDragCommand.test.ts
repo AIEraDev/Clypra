@@ -90,6 +90,44 @@ describe("TimelineDragCommand", () => {
     expect(replayed.clips).toEqual(moved.clips);
   });
 
+  it("deeply snapshots nested metadata across drag undo", () => {
+    const source = track("source");
+    const middle = {
+      ...clip("middle", "source", 2, 2),
+      kind: "compound",
+      compoundChildren: [
+        { ...clip("text-child", "source", 2, 2), kind: "text", styleDefinition: { id: "title", version: "2" } } as any,
+        { ...clip("audio-child", "source", 2, 2), kind: "audio", audio: { gainDb: -5 } } as any,
+      ],
+    } as any as Clip;
+    const state = {
+      tracks: [source],
+      clips: [middle],
+      gaps: [] as Gap[],
+      mainVideoTrackId: "source",
+      epoch: 0,
+    };
+    const command = buildTimelineDragCommand({
+      state,
+      drag: drag(),
+      clip: middle,
+      trackType: "video",
+      snapEnabled: false,
+      currentTime: 0,
+      pixelsPerSecond: 100,
+      newTrackInsertIndex: 0,
+    })!;
+    const moved = command.apply(state);
+    const movedClip = moved.clips.find((item) => item.id === "middle")!;
+    (movedClip.compoundChildren![0] as any).styleDefinition.version = "mutated";
+    (movedClip.compoundChildren![1] as any).audio.gainDb = 12;
+
+    const restored = command.invert().apply(moved);
+    const restoredChildren = restored.clips[0].compoundChildren!;
+    expect((restoredChildren[0] as any).styleDefinition).toEqual({ id: "title", version: "2" });
+    expect((restoredChildren[1] as any).audio.gainDb).toBe(-5);
+  });
+
   it("serializes and deserializes the exact reversible patch", () => {
     const source = track("source");
     const middle = clip("middle", "source", 2, 2);

@@ -7,6 +7,7 @@
 
 import type { AudioFadeCurve, AudioKeyframe, Clip, Track } from "@/types";
 import { dbToLinearGain, getClipAudioProperties } from "@/types/audio";
+import { evaluateNumericKeyframes } from "@/core/evaluation/animation";
 
 export interface EffectiveAudioState {
   muted: boolean;
@@ -31,26 +32,20 @@ export function evaluateAudioKeyframes(
   defaultGain = 1,
   presorted = false,
 ): number {
-  if (!keyframes?.length) return defaultGain;
-  const sorted = presorted ? keyframes : [...keyframes].sort((a, b) => a.time - b.time);
-  if (time <= sorted[0].time) return sorted[0].gain;
-  if (time >= sorted[sorted.length - 1].time) return sorted[sorted.length - 1].gain;
-
-  for (let index = 0; index < sorted.length - 1; index += 1) {
-    const from = sorted[index];
-    const to = sorted[index + 1];
-    if (time < from.time || time > to.time) continue;
-    const span = to.time - from.time;
-    const t = span <= 0.0001 ? 1 : clamp((time - from.time) / span, 0, 1);
-    if (to.easing === "exponential") {
-      const start = Math.max(0.0001, from.gain);
-      const end = Math.max(0.0001, to.gain);
-      return start * Math.pow(end / start, t);
-    }
-    const eased = to.easing === "bezier" ? t * t * (3 - 2 * t) : t;
-    return from.gain + (to.gain - from.gain) * eased;
-  }
-  return defaultGain;
+  return evaluateNumericKeyframes(
+    keyframes?.map((keyframe) => ({
+      time: keyframe.time,
+      value: keyframe.gain,
+      easing: keyframe.easing,
+    })),
+    time,
+    defaultGain,
+    {
+      presorted,
+      easingSide: "right",
+      bezierFallback: "smoothstep",
+    },
+  );
 }
 
 export function evaluateFadeCurve(progress: number, curve: AudioFadeCurve): number {

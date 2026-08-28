@@ -30,14 +30,29 @@ describe("track visual roles", () => {
     });
   });
 
-  it("keeps non-audio rows above main while allowing audio below", () => {
-    const tracks = [track("main", "video"), track("audio", "audio"), track("old-overlay", "video")];
+  it("keeps non-audio rows above main and all audio rows at the bottom", () => {
+    const tracks = [
+      track("audio-above", "audio"),
+      track("main", "video"),
+      track("audio-below", "audio"),
+      track("old-overlay", "video"),
+    ];
 
-    expect(getSafeTrackInsertionIndex(tracks, "video", tracks.length, "main")).toBe(0);
-    expect(getSafeTrackInsertionIndex(tracks, "audio", tracks.length, "main")).toBe(3);
+    expect(getSafeTrackInsertionIndex(tracks, "video", tracks.length, "main")).toBe(1);
+    expect(getSafeTrackInsertionIndex(tracks, "audio", 0, "main")).toBe(4);
     expect(normalizeTrackOrderForMainVideo(tracks, "main").map((item) => item.id)).toEqual([
       "old-overlay",
       "main",
+      "audio-above",
+      "audio-below",
+    ]);
+  });
+
+  it("moves audio to the bottom even when there is no main video row", () => {
+    const tracks = [track("audio", "audio"), track("text", "text")];
+
+    expect(normalizeTrackOrderForMainVideo(tracks).map((item) => item.id)).toEqual([
+      "text",
       "audio",
     ]);
   });

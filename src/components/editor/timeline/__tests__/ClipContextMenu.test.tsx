@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { ClipContextMenu } from "../ClipContextMenu";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
+import { useProjectStore } from "@/store/projectStore";
 import { clipboardService } from "@/core/clipboard/clipboardService";
 
 vi.mock("@/lib/toast", () => ({
@@ -120,5 +121,26 @@ describe("ClipContextMenu component", () => {
 
     expect(clipboardService.hasClips()).toBe(true);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("renders Relink Media... item and executes promptRelinkMedia on click", () => {
+    const onClose = vi.fn();
+    const promptRelinkSpy = vi.fn().mockResolvedValue(true);
+    (useProjectStore as any).setState({ promptRelinkMedia: promptRelinkSpy });
+
+    render(
+      <ClipContextMenu
+        clickedClipId="clip-1"
+        clickedTrackId="track-1"
+        position={{ x: 100, y: 100 }}
+        onClose={onClose}
+      />,
+    );
+
+    const relinkBtn = screen.getByRole("button", { name: /relink media/i });
+    expect(relinkBtn).toBeDefined();
+    fireEvent.click(relinkBtn);
+
+    expect(promptRelinkSpy).toHaveBeenCalledWith("asset-1");
   });
 });

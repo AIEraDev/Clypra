@@ -347,7 +347,7 @@ describe("Z-Order and Track Compositing", () => {
       const detachedAudio = {
         ...createVideoClip("audio", "t1", "v1"),
         kind: "audio",
-        audioPath: "/path/to/video.mp4",
+        audioPath: "/path/to/detached-audio.wav",
         detachedFromClipId: "video",
         role: "audio",
       } as Clip;
@@ -357,6 +357,53 @@ describe("Z-Order and Track Compositing", () => {
       expect(scene.visualLayers).toHaveLength(0);
       expect(scene.audioLayers).toHaveLength(1);
       expect(scene.audioLayers[0].clipId).toBe("audio");
+      expect(scene.audioLayers[0].sourcePath).toBe("asset://localhost//path/to/detached-audio.wav");
+    });
+
+    it("evaluates audio gain, automation, fades, pan, and mute state canonically", () => {
+      const tracks = [createTrack("audio-track", "audio")];
+      const assets = [{
+        id: "voiceover",
+        name: "voiceover.mp3",
+        path: "/path/to/voiceover.mp3",
+        type: "audio" as const,
+        duration: 10,
+        size: 1000,
+      }];
+      const clip = {
+        ...createVideoClip("voiceover-clip", "audio-track", "voiceover"),
+        kind: "audio",
+        role: "audio",
+        volume: 0.5,
+        fadeIn: 4,
+        audioFX: { pan: 0.25 },
+        volumeKeyframes: [
+          { id: "start", time: 0, gain: 1, easing: "linear" as const },
+          { id: "end", time: 10, gain: 0, easing: "linear" as const },
+        ],
+      } as Clip;
+
+      const scene = evaluateScene(2, [clip], tracks, assets, project);
+      const layer = scene.audioLayers[0];
+
+      // 0.5 static gain × 0.8 automation × 0.5 fade-in = 0.2.
+      expect(layer.volume).toBeCloseTo(0.2, 6);
+      expect(layer.pan).toBe(0.25);
+      expect(layer.muted).toBe(false);
+    });
+
+    it("includes an audio path attached to a text clip in the evaluated audio scene", () => {
+      const tracks = [createTrack("text-track", "text")];
+      const textWithVoiceover = {
+        ...createTextClip("text-with-voiceover", "text-track", "Narrated title"),
+        audioPath: "/path/to/narration.wav",
+      } as Clip;
+
+      const scene = evaluateScene(2, [textWithVoiceover], tracks, [], project);
+
+      expect(scene.visualLayers.some((layer) => layer.clipId === textWithVoiceover.id)).toBe(true);
+      expect(scene.audioLayers).toHaveLength(1);
+      expect(scene.audioLayers[0].sourcePath).toBe("asset://localhost//path/to/narration.wav");
     });
 
     it("maintains order regardless of opacity", () => {

@@ -144,7 +144,21 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
             useTemplateStore.getState().templates.find((t) => t.id === item.templateId);
 
           if (templateDef) {
-            const compoundClip = instantiateTemplate(templateDef, {
+            let resolvedTemplate = templateDef;
+            if (!resolvedTemplate.layers?.length && item.templateId) {
+              try {
+                const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
+                const templateData = await TextEffectsApi.getTemplateData(
+                  resolvedTemplate.category,
+                  resolvedTemplate.id,
+                  { revisionId: (resolvedTemplate as any).revisionId },
+                );
+                resolvedTemplate = { ...resolvedTemplate, ...templateData };
+              } catch (error) {
+                console.warn("[Clypra:AddToTimeline] Failed to resolve template revision:", error);
+              }
+            }
+            const compoundClip = instantiateTemplate(resolvedTemplate, {
               trackId: targetTrackId,
               startTime: placement.startTime,
               canvasWidth: project?.canvasWidth || 1920,
@@ -174,6 +188,9 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
           shadow: item.shadow,
           background: item.background,
           styleId: item.styleId,
+          styleRevisionId: item.styleRevisionId ?? effectDefinition?.revisionId ?? effectDefinition?.revision?.revisionId,
+          styleContentHash: item.styleContentHash ?? effectDefinition?.contentHash ?? effectDefinition?.revision?.contentHash,
+          styleSnapshot: item.styleSnapshot ?? effectDefinition?.scene,
           effectDefinition,
           templateId: item.templateId,
           customization: item.customization,

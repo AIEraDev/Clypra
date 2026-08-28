@@ -85,6 +85,24 @@ describe("InsertGapCommand", () => {
     expect(clip2!.startTime).toBe(10);
   });
 
+  it("does not share nested clip metadata with the gap-insert result", () => {
+    const state = createTestState();
+    state.clips[1].kind = "compound";
+    state.clips[1].compoundChildren = [
+      { ...state.clips[1], id: "text-child", kind: "text", styleDefinition: { id: "title", version: "2" } } as any,
+      { ...state.clips[1], id: "audio-child", kind: "audio", audio: { gainDb: -5 } } as any,
+    ];
+    const command = new InsertGapCommand("track1", 7, 3);
+    const shifted = command.apply(state);
+    const shiftedClip = shifted.clips.find((clip) => clip.id === "clip2")!;
+    (shiftedClip.compoundChildren![0] as any).styleDefinition.version = "mutated";
+    (shiftedClip.compoundChildren![1] as any).audio.gainDb = 12;
+
+    const originalChildren = state.clips[1].compoundChildren!;
+    expect((originalChildren[0] as any).styleDefinition).toEqual({ id: "title", version: "2" });
+    expect((originalChildren[1] as any).audio.gainDb).toBe(-5);
+  });
+
   it("should handle insertion at start", () => {
     const state = createTestState();
     const command = new InsertGapCommand("track1", 0, 2);

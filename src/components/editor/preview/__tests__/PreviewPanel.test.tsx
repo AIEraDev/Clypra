@@ -5,6 +5,7 @@ import { PreviewMonitorWorkspace } from "../PreviewMonitorWorkspace";
 import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -139,7 +140,8 @@ describe("PreviewPanel timeline rendering", () => {
     expect(screen.getByTestId("program-preview-canvas")).toBeInTheDocument();
   });
 
-  it("keeps Source and Program in separate monitor spaces when source media is active", () => {
+  it("keeps Source and Program in separate monitor spaces when source media is active in dual-player layout", () => {
+    useSettingsStore.setState({ layoutPreset: "dual-player" });
     useUIStore.setState({
       previewMode: "source",
       sourceAsset: {
@@ -158,5 +160,28 @@ describe("PreviewPanel timeline rendering", () => {
     expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
     expect(document.querySelector('[data-preview-monitor="source"]')).toBeInTheDocument();
     expect(document.querySelector('[data-preview-monitor="program"]')).toBeInTheDocument();
+  });
+
+  it("renders a single preview monitor at a time when source media is active in non-dual layout", () => {
+    useSettingsStore.setState({ layoutPreset: "default" });
+    useUIStore.setState({
+      previewMode: "source",
+      sourceAsset: {
+        id: "source-1",
+        name: "Source",
+        type: "video",
+        path: "/source.mp4",
+        duration: 10,
+        size: 1,
+      },
+    });
+
+    render(<PreviewMonitorWorkspace orientation="row" />);
+
+    // Should NOT render dual-monitor split
+    expect(document.querySelector('[data-preview-workspace="source-program"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-preview-monitor="program"]')).not.toBeInTheDocument();
+    // Should render single source preview
+    expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
   });
 });

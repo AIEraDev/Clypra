@@ -33,6 +33,28 @@ describe("SwapClipsCommand", () => {
     expect(restored.clips.find((clip: Clip) => clip.id === "b")?.startTime).toBe(10);
   });
 
+  it("deeply snapshots nested metadata for undo", () => {
+    const a = {
+      ...makeClip("a", 0, 5),
+      kind: "compound",
+      compoundChildren: [
+        { ...makeClip("text-child", 0, 5), kind: "text", styleDefinition: { id: "title", version: "2" } } as any,
+        { ...makeClip("audio-child", 0, 5), kind: "audio", audio: { gainDb: -5 } } as any,
+      ],
+    } as any as Clip;
+    const b = makeClip("b", 10, 5);
+    const state: { tracks: Track[]; clips: Clip[]; transitions: []; epoch: number } = { tracks: [track], clips: [a, b], transitions: [], epoch: 0 };
+    const command = new SwapClipsCommand("a", "b");
+    const swapped = command.apply(state);
+    (swapped.clips.find((clip: Clip) => clip.id === "a")!.compoundChildren![0] as any).styleDefinition.version = "mutated";
+    (swapped.clips.find((clip: Clip) => clip.id === "a")!.compoundChildren![1] as any).audio.gainDb = 12;
+
+    const restored = command.invert().apply(swapped);
+    const restoredChildren = restored.clips.find((clip: Clip) => clip.id === "a")!.compoundChildren!;
+    expect((restoredChildren[0] as any).styleDefinition).toEqual({ id: "title", version: "2" });
+    expect((restoredChildren[1] as any).audio.gainDb).toBe(-5);
+  });
+
   it("rejects a swap that would overlap a third clip", () => {
     const state: { tracks: Track[]; clips: Clip[]; transitions: []; epoch: number } = { tracks: [track], clips: [makeClip("a", 0, 2), makeClip("b", 12, 10), makeClip("c", 2, 10)], transitions: [], epoch: 0 };
     expect(SwapClipsCommand.validate(state, "a", "b")).toContain("overlap");

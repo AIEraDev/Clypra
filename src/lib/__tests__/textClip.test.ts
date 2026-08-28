@@ -5,6 +5,7 @@ import type { TextClip } from "../../types";
 
 const inkGlowEffect = {
   id: "neon-crimson",
+  version: "7",
   name: "Neon Crimson",
   category: "built-in",
   description: "",
@@ -124,6 +125,7 @@ describe("calculateTextClipSize", () => {
     expect(clip.fontStyle).toBe("italic");
     expect(clip.lineHeight).toBe(1.2);
     expect(clip.letterSpacing).toBe(8);
+    expect(clip.styleVersion).toBe(7);
     expect(clip.styleDefinition).toBe(inkGlowEffect);
   });
 

@@ -341,11 +341,13 @@ export function fromRustClip(rust: RustClip): Clip {
   let kind: Clip["kind"] = rust.kind as any;
   if (!kind) {
     // Legacy migration: infer kind from patterns
-    if ("text" in rust || rust.id.startsWith("text-clip-")) {
+    if ((rust as any).isCompound || (rust as any).is_compound) {
+      kind = "compound" as any;
+    } else if ("text" in rust || rust.id?.startsWith("text-clip-")) {
       kind = "text";
-    } else if (rust.mediaId.startsWith("sticker-")) {
+    } else if (rust.mediaId?.startsWith("sticker-")) {
       kind = "sticker";
-    } else if (rust.id.startsWith("filter-clip-") || rust.kind === "filter") {
+    } else if (rust.id?.startsWith("filter-clip-") || rust.kind === "filter") {
       kind = "filter";
     } else {
       // Default to video for unknown legacy clips
@@ -407,6 +409,13 @@ export function fromRustClip(rust: RustClip): Clip {
     clip.styleDefinition = rust.style_definition;
     delete clip.style_definition;
   }
+
+  const rawChildren = (rust as any).compoundChildren ?? (rust as any).compound_children;
+  if (Array.isArray(rawChildren)) {
+    clip.compoundChildren = rawChildren.map((child: RustClip) => fromRustClip(child));
+    delete clip.compound_children;
+  }
+
   return clip as Clip;
 }
 
@@ -581,6 +590,13 @@ export function toRustClip(frontend: Clip): RustClip {
     rust.style_definition = fAny.styleDefinition;
     delete rust.styleDefinition;
   }
+
+  const rawChildren = fAny.compoundChildren ?? fAny.compound_children;
+  if (Array.isArray(rawChildren)) {
+    rust.compoundChildren = rawChildren.map((child: Clip) => toRustClip(child));
+    delete rust.compound_children;
+  }
+
   return rust as RustClip;
 }
 

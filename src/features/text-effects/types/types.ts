@@ -5,4 +5,19 @@
  */
 
 // Re-export types from @clypra-studio/engine for consistency across the codebase
-export type { EffectIndexItem, EffectFullDefinition, TextEffectDefinition } from "@clypra-studio/engine";
+export type { EffectIndexItem, EffectFullDefinition } from "@clypra-studio/engine";
+import type { SceneDocument } from "@clypra-studio/engine";
+import type { TextEffectDefinition as EngineTextEffectDefinition } from "@clypra-studio/engine";
+
+/**
+ * Editor-facing definition. The legacy effect fields remain readable, while
+ * published effects may also carry the canonical shared scene snapshot.
+ */
+export type TextEffectDefinition = EngineTextEffectDefinition & {
+  schemaVersion?: number;
+  revisionId?: string;
+  contentHash?: string;
+  rendererVersion?: string;
+  revision?: Record<string, unknown>;
+  scene?: SceneDocument;
+};

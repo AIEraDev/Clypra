@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from "react";
-import { CloudUpload } from "lucide-react";
+import { CloudUpload, AlertTriangle } from "lucide-react";
 import { platform } from "@/core/platform";
 
 import { Button } from "@/components/ui/Button";
@@ -32,6 +32,10 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
   const usedMediaIds = useMemo(() => {
     return new Set(clips.map((clip) => clip.mediaId));
   }, [clips]);
+
+  const missingAssets = useMemo(() => {
+    return mediaAssets.filter((a) => a.isMissing);
+  }, [mediaAssets]);
 
   const getMediaType = (path: string): "video" | "audio" | "image" => {
     const lower = path.toLowerCase();
@@ -134,6 +138,29 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
         </Button>
       </div>
 
+      {missingAssets.length > 0 && (
+        <div data-testid="missing-media-banner" className="m-1.5 p-2 bg-red-950/40 border border-red-500/30 rounded-lg flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs text-red-300">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+            <span className="font-medium">
+              {missingAssets.length} offline file{missingAssets.length > 1 ? "s" : ""}
+            </span>
+          </div>
+          <Button
+            variant="secondary"
+            size="xs"
+            className="text-[10px] h-6 px-2 border-red-500/40 text-red-200 hover:bg-red-500/20 cursor-pointer"
+            onClick={() => {
+              if (missingAssets[0]) {
+                void useProjectStore.getState().promptRelinkMedia(missingAssets[0].id);
+              }
+            }}
+          >
+            Relink...
+          </Button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {mediaAssets.length === 0 ? (
           <EmptyState icon={CloudUpload} title="No media imported" description="Import videos, audio, or images to get started" />
@@ -160,6 +187,14 @@ export const MediaTab: React.FC<MediaTabProps> = ({ onAddToTimeline }) => {
       {contextMenu && (
         <ContextMenu
           items={[
+            {
+              label: "Relink Media...",
+              onClick: () => {
+                const targetMediaId = contextMenu.mediaId;
+                setContextMenu(null);
+                void useProjectStore.getState().promptRelinkMedia(targetMediaId);
+              },
+            },
             usedMediaIds.has(contextMenu.mediaId)
               ? {
                   label: "Remove from Timeline",

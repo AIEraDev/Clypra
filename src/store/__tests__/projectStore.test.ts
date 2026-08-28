@@ -231,4 +231,75 @@ describe("projectStore", () => {
     expect(cached.strokes[0]).toMatchObject({ color: "#ffffff", width: 10 });
     expect(cached.glows?.[0]).toMatchObject({ color: "#ff1744", blur: 32 });
   });
+
+  it("preloads embedded text effect definitions nested inside compoundChildren", async () => {
+    const project: Project = {
+      id: "project-compound-test",
+      name: "Compound Preload Project",
+      createdAt: 1000,
+      updatedAt: 2000,
+      aspectRatio: "16:9" as any,
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      frameRate: 30,
+      duration: 10,
+      timelineSchemaVersion: 1,
+      audioModelVersion: 1,
+    };
+
+    const tracks: Track[] = [
+      { id: "track-1", type: "video", name: "Video 1", locked: false, muted: false, solo: false, visible: true, height: 60 },
+    ];
+
+    const compoundClip = {
+      id: "compound-parent",
+      kind: "compound",
+      trackId: "track-1",
+      mediaId: "media-compound",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+      compoundChildren: [
+        {
+          id: "nested-text-clip",
+          kind: "text",
+          trackId: "track-1",
+          mediaId: "media-nested-text",
+          startTime: 0,
+          duration: 3,
+          trimIn: 0,
+          trimOut: 3,
+          text: "COMPOUND TEXT",
+          fontSize: 72,
+          styleId: "nested-cyber-neon",
+          styleDefinition: {
+            id: "nested-cyber-neon",
+            name: "Nested Cyber Neon",
+            category: "neon",
+            font: { family: "Roboto", weight: 900 },
+            fills: [{ type: "solid", color: "#00ffcc" }],
+            strokes: [],
+            glows: [],
+            shadows: [],
+          },
+        },
+      ],
+    };
+
+    await useProjectStore
+      .getState()
+      .loadProject(project, { tracks, clips: [compoundClip as any], mediaAssets: [] });
+
+    const cached = useEffectsStore.getState().definitions["nested-cyber-neon"];
+    expect(cached).toBeDefined();
+    expect(cached.name).toBe("Nested Cyber Neon");
+    expect(cached.font.family).toBe("Roboto");
+  });
 });

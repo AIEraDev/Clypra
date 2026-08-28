@@ -75,6 +75,11 @@ function equalClip(a: Clip | undefined, b: Clip | undefined): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 function syncGapsForTracks(state: TimelineDragState, afterClips: Clip[], afterTracks: Track[], trackIds: Set<string>): Gap[] {
   const processed = new Set(afterTracks.filter((track) => trackIds.has(track.id)).map((track) => track.id));
   let nextGaps = state.gaps.filter((gap) => !trackIds.has(gap.trackId));
@@ -104,7 +109,7 @@ function syncGapsForTracks(state: TimelineDragState, afterClips: Clip[], afterTr
 function applyClipUpdates(clips: Clip[], updates: Map<string, Partial<Clip>>): Clip[] {
   return clips.map((clip) => {
     const update = updates.get(clip.id);
-    return update ? { ...clip, ...update } : clip;
+    return update ? { ...cloneClipSnapshot(clip), ...update } : cloneClipSnapshot(clip);
   });
 }
 
@@ -252,8 +257,8 @@ export function buildTimelineDragResult(input: BuildTimelineDragResultInput): Ti
   }
 
   return {
-    beforeClips: state.clips.filter((item) => affectedClipIds.has(item.id)),
-    afterClips: afterClips.filter((item) => affectedClipIds.has(item.id)),
+    beforeClips: state.clips.filter((item) => affectedClipIds.has(item.id)).map(cloneClipSnapshot),
+    afterClips: afterClips.filter((item) => affectedClipIds.has(item.id)).map(cloneClipSnapshot),
     beforeTracks,
     afterTracks: afterAffectedTracks,
     beforeTrackIndices: beforeTracks.map((track) => state.tracks.findIndex((item) => item.id === track.id)),
@@ -275,7 +280,10 @@ function applyPatch(state: TimelineDragState, patch: TimelineDragResult, undo: b
   const clipMap = new Map(clips.map((clip) => [clip.id, clip]));
   const trackIds = new Set(patch.affectedTrackIds);
   const gapIds = new Set(patch.beforeGaps.map((gap) => gap.id).concat(patch.afterGaps.map((gap) => gap.id)));
-  const nextClips = state.clips.map((clip) => clipMap.get(clip.id) ?? clip);
+  const nextClips = state.clips.map((clip) => {
+    const replacement = clipMap.get(clip.id);
+    return replacement ? cloneClipSnapshot(replacement) : clip;
+  });
   const nextTracks = [...state.tracks.filter((track) => !trackIds.has(track.id))];
   const indices = undo ? patch.beforeTrackIndices : patch.afterTrackIndices;
   tracks.forEach((track, index) => {
@@ -304,10 +312,17 @@ export class TimelineDragCommand implements Command {
   readonly timestamp: number;
   readonly undoable = true;
 
-  constructor(private readonly patch: TimelineDragResult, label = "Move Clips") {
+  private readonly patch: TimelineDragResult;
+
+  constructor(patch: TimelineDragResult, label = "Move Clips") {
     this.id = generateCommandId();
     this.label = label;
     this.timestamp = Date.now();
+    this.patch = {
+      ...patch,
+      beforeClips: patch.beforeClips.map(cloneClipSnapshot),
+      afterClips: patch.afterClips.map(cloneClipSnapshot),
+    };
   }
 
   apply(state: TimelineDragState): TimelineDragState {

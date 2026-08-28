@@ -72,6 +72,20 @@ export class CapacitorPlatformAdapter implements PlatformInterface {
     return paths.filter(Boolean).join("/");
   }
 
+  async fileExists(path: string): Promise<boolean> {
+    if (!path) return false;
+    if (path.startsWith("data:") || path.startsWith("http:") || path.startsWith("https:") || path.startsWith("blob:")) {
+      return true;
+    }
+    try {
+      const { Filesystem } = await import("@capacitor/filesystem");
+      await Filesystem.stat({ path });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async openFileDialog(options: { multiple?: boolean; directory?: boolean; filters?: { name: string; extensions: string[] }[] }): Promise<SelectedFile[] | null> {
     return new Promise((resolve) => {
       const input = document.createElement("input");

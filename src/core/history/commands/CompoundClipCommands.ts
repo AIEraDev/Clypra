@@ -13,6 +13,11 @@ interface TimelineState {
   epoch: number;
 }
 
+function cloneClipSnapshot(clip: Clip): Clip {
+  if (typeof structuredClone === "function") return structuredClone(clip);
+  return JSON.parse(JSON.stringify(clip)) as Clip;
+}
+
 export type GroupValidation = { valid: true } | { valid: false; reason: string };
 
 export function validateGroupSelection(clipIds: string[], clips: Clip[], tracks: Track[], transitions: TransitionTimelineItem[] = []): GroupValidation {
@@ -42,7 +47,7 @@ export class GroupClipsCommand implements Command {
     if (!validation.valid) throw new Error(validation.reason);
     const trackIndex = new Map(tracks.map((track, index) => [track.id, index]));
     this.originalClips = [...new Set(clipIds)]
-      .map((id) => clips.find((clip) => clip.id === id)!)
+      .map((id) => cloneClipSnapshot(clips.find((clip) => clip.id === id)!))
       .sort((a, b) =>
         a.startTime - b.startTime ||
         (trackIndex.get(a.trackId) ?? Number.MAX_SAFE_INTEGER) - (trackIndex.get(b.trackId) ?? Number.MAX_SAFE_INTEGER) ||
@@ -64,7 +69,10 @@ export class GroupClipsCommand implements Command {
       trimIn: 0,
       trimOut: endTime - startTime,
       kind: "compound",
-      compoundChildren: this.originalClips.map((clip) => ({ ...clip, startTime: clip.startTime - startTime })),
+      compoundChildren: this.originalClips.map((clip) => ({
+        ...cloneClipSnapshot(clip),
+        startTime: clip.startTime - startTime,
+      })),
       compoundPreview: preview,
       x: this.originalClips[0].x,
       y: this.originalClips[0].y,
@@ -85,7 +93,7 @@ export class GroupClipsCommand implements Command {
     })) ?? null;
     const remaining = state.clips.filter((clip) => !selectedIds.has(clip.id));
     const insertIndex = Math.max(0, Math.min(this.originalIndex, remaining.length));
-    remaining.splice(insertIndex, 0, this.parent);
+    remaining.splice(insertIndex, 0, cloneClipSnapshot(this.parent));
     const groupEnd = this.parent.startTime + this.parent.duration;
     const groupedTrackIds = new Set(this.originalClips.map((clip) => clip.trackId));
     const gaps = state.gaps?.filter((gap) => {
@@ -123,7 +131,7 @@ export class UngroupClipsCommand implements Command {
     const parentIndex = state.clips.findIndex((clip) => clip.id === this.parent.id);
     if (parentIndex < 0 || this.parent.kind !== "compound") return state;
     const children = this.originalChildren.map((child) => ({
-      ...child,
+      ...cloneClipSnapshot(child),
       startTime: this.parent.startTime + child.startTime,
     }));
     const clips = [...state.clips.filter((clip) => clip.id !== this.parent.id)];

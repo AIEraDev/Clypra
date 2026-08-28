@@ -23,6 +23,7 @@ interface TextureMetadata {
 
 export class GPUTextureCache {
   private gl: WebGL2RenderingContext;
+  private canvas!: HTMLCanvasElement;
   private textures: Map<string, WebGLTexture>;
   private textureMetadata: Map<string, TextureMetadata>;
   private program: WebGLProgram | null = null;
@@ -37,6 +38,11 @@ export class GPUTextureCache {
   private hueRotateLocation: WebGLUniformLocation | null = null;
   private memoryBudgetBytes: number;
   private currentMemoryBytes: number = 0;
+
+  /** True while the WebGL context is in the lost state. */
+  private isContextLost: boolean = false;
+  private readonly boundHandleContextLost!: (e: Event) => void;
+  private readonly boundHandleContextRestored!: () => void;
 
   constructor(canvas: HTMLCanvasElement, memoryBudgetMB: number = 128) {
     const gl = canvas.getContext("webgl2", {
@@ -53,6 +59,7 @@ export class GPUTextureCache {
     }
 
     this.gl = gl;
+    this.canvas = canvas;
     this.textures = new Map();
     this.textureMetadata = new Map();
     this.memoryBudgetBytes = memoryBudgetMB * 1024 * 1024;
@@ -65,6 +72,14 @@ export class GPUTextureCache {
       this.initializeWebGL();
     } catch (err) {
       throw err;
+    }
+
+    // ── GPU Context Loss Recovery ──────────────────────────────────────────
+    this.boundHandleContextLost = this.handleContextLost.bind(this);
+    this.boundHandleContextRestored = this.handleContextRestored.bind(this);
+    if (typeof canvas?.addEventListener === "function") {
+      canvas.addEventListener("webglcontextlost", this.boundHandleContextLost);
+      canvas.addEventListener("webglcontextrestored", this.boundHandleContextRestored);
     }
   }
 
@@ -84,11 +99,53 @@ export class GPUTextureCache {
     this.hueRotateLocation = this.gl.getUniformLocation(this.program, "u_hueRotate");
   }
 
+  // ── GPU Context Loss Handlers ────────────────────────────────────────────────
+
+  private handleContextLost(e: Event): void {
+    // CRITICAL: prevents permanent context destruction and allows webglcontextrestored.
+    e.preventDefault();
+    this.isContextLost = true;
+    // Purge all texture references — handles are invalid after context loss.
+    // Callers will need to re-upload textures after restoration.
+    this.textures.clear();
+    this.textureMetadata.clear();
+    this.currentMemoryBytes = 0;
+  }
+
+  private handleContextRestored(): void {
+    try {
+      this.initializeWebGL();
+    } catch (err) {
+      console.warn("[GPUTextureCache] Context restoration failed:", err);
+      return;
+    }
+    this.isContextLost = false;
+  }
+
+  dispose(): void {
+    if (typeof this.canvas?.removeEventListener === "function") {
+      this.canvas.removeEventListener("webglcontextlost", this.boundHandleContextLost);
+      this.canvas.removeEventListener("webglcontextrestored", this.boundHandleContextRestored);
+    }
+    if (!this.isContextLost && !Boolean(this.gl?.isContextLost?.())) {
+      this.textures.forEach((tex) => this.gl.deleteTexture(tex));
+      if (this.vertexBuffer) this.gl.deleteBuffer(this.vertexBuffer);
+      if (this.program) this.gl.deleteProgram(this.program);
+    }
+    this.textures.clear();
+    this.textureMetadata.clear();
+    this.currentMemoryBytes = 0;
+  }
+
   /**
    * Upload RGBA bytes to GPU texture (once)
    * Returns texture key for reuse
    */
   uploadTexture(key: string, source: Uint8Array | ImageBitmap | ImageData | HTMLVideoElement | HTMLCanvasElement, width: number, height: number): string {
+    // Bail out if the context is lost — texture handles are invalid and createTexture
+    // will return null, causing silent rendering failures.
+    if (this.isContextLost || Boolean(this.gl?.isContextLost?.())) return key;
+
     // Check if texture already exists
     if (this.textures.has(key)) {
       return key;
@@ -161,6 +218,9 @@ export class GPUTextureCache {
    * Handles letterboxing by drawing a quad that only covers the given rectangle.
    */
   renderTexture(key: string, x: number, y: number, width: number, height: number, filter?: FilterIR) {
+    // Bail out if the context is lost — all texture and program handles are invalid.
+    if (this.isContextLost || Boolean(this.gl?.isContextLost?.())) return;
+
     const texture = this.textures.get(key);
     if (!texture) {
       console.warn(`[GPUTextureCache] Texture ${key} not found`);
@@ -340,18 +400,6 @@ export class GPUTextureCache {
     this.currentMemoryBytes = 0;
   }
 
-  /**
-   * Dispose of GPU resources
-   */
-  dispose() {
-    this.clearAll();
-    if (this.program) {
-      this.gl.deleteProgram(this.program);
-    }
-    if (this.vertexBuffer) {
-      this.gl.deleteBuffer(this.vertexBuffer);
-    }
-  }
 
   private createShaderProgram(): WebGLProgram {
     const vertexShaderSource = `#version 300 es
