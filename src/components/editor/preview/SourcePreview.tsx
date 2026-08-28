@@ -336,7 +336,10 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
 
       // Verify effect definition is loaded before creating clip
       // Get the effect definition for accurate bounding box calculation
-      const effectDefinition = resolveTextEffectDefinition(styleId);
+      const effectDefinition = resolveTextEffectDefinition(
+        styleId,
+        (preset as any).effectDefinition || (preset as any),
+      );
 
       // If styleId is present but definition is missing, show error
       if (styleId && !effectDefinition) {
@@ -345,14 +348,9 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
         return;
       }
 
-      // When adding a text effect, we should NOT override individual properties
-      // because the rasterizer uses TextEffectBuilder.fromDefinition() which
-      // reads all styling from the cached effect definition.
-      // However, if individual properties (stroke, shadow, background) are explicitly
-      // set to undefined/null, the rasterizer DISABLES them (see lines 395-416 in rasterizer.ts).
-      //
-      // Solution: Only pass properties that are truly user overrides, not properties
-      // extracted from the effect definition itself.
+      // A text effect is inserted as a pinned canonical definition. Do not
+      // project duplicate flat font/effect fields into the clip; the scene
+      // snapshot is the single source of truth for rendering.
       const textClip = createTextClip({
         trackId: targetTrackId,
         startTime,
@@ -360,13 +358,11 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
         text: preset.text || "CLYPRA",
         canvasWidth: project?.canvasWidth || 1920,
         canvasHeight: project?.canvasHeight || 1080,
-        // When styleId is present, the engine will use the effect definition for ALL styling
-        // Do NOT pass fontFamily, color, fontSize, fontWeight, fontStyle, stroke, shadow, background
-        // from the preset - let the definition be the source of truth
         styleId,
+        styleRevisionId: preset.revisionId ?? preset.revision?.revisionId,
+        styleContentHash: preset.contentHash ?? preset.revision?.contentHash,
+        styleSnapshot: preset.scene,
         templateId: preset.presetType === "template" ? preset.id : undefined,
-        // Only fontSize is needed to calculate the text bounding box
-        fontSize: preset.fontSize || (styleId ? 96 : 48),
         // Pass the effect definition for accurate bounding box calculation
         effectDefinition,
       });
