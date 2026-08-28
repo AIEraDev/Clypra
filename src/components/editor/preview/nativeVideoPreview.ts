@@ -367,8 +367,11 @@ function getNativeColorGrade(
   mpgStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>,
 ): NativeColorGradeSnapshot | null | undefined {
   const grade = colorGrade as Record<string, unknown> | undefined;
-  const hasLut = grade?.hasLut === 1;
   const activeFilter = filter && filter.intensity > 0.001 ? filter : undefined;
+  const filterLutId = (activeFilter as any)?.lutId || (activeFilter as any)?.lut;
+  const hasLut = grade?.hasLut === 1 || Boolean(filterLutId);
+  const effectiveLutId = (typeof grade?.lutId === "string" && grade.lutId.trim() ? grade.lutId.trim() : undefined)
+    ?? (typeof filterLutId === "string" && filterLutId.trim() ? filterLutId.trim() : undefined);
   const preset = activeFilter?.gradingParams as Record<string, unknown> | undefined;
   const presetIntensity = activeFilter?.intensity ?? 0;
   const layerMpgStack = (filter as (typeof filter & {
@@ -379,7 +382,7 @@ function getNativeColorGrade(
   let filterIR: FilterIR = {};
   if (activeFilter) {
     filterIR = resolveFilterToIR(activeFilter.id, activeFilter.intensity);
-    if (Object.keys(filterIR).length === 0 && !preset && !mpgGrade) return null;
+    if (Object.keys(filterIR).length === 0 && !preset && !mpgGrade && !effectiveLutId) return null;
   }
   const hasGradeValues = Boolean(grade && (
     grade.exposure !== 0 || grade.contrast !== 1 || grade.saturation !== 1 ||
@@ -388,7 +391,7 @@ function getNativeColorGrade(
   )) || Boolean(preset && Object.keys(preset).length > 0) || Boolean(mpgGrade);
   const activeEffects = (effects ?? []).filter((effect) => effect.intensity > 0.001);
   if (!hasMeaningfulObject(adjustments) && !hasGradeValues && !activeFilter && activeEffects.length === 0) return undefined;
-  if (hasLut && (typeof grade?.lutId !== "string" || !grade.lutId.trim())) return null;
+  if (hasLut && !effectiveLutId) return null;
   const values = adjustments as Record<string, unknown> | undefined;
   const readNumber = (value: unknown): number | null | undefined => {
     if (value === undefined) return undefined;
@@ -790,8 +793,10 @@ function getNativeColorGrade(
     grainIntensity,
     grainSize,
     ...(hasLut ? {
-      lutId: typeof grade?.lutId === "string" && grade.lutId.trim() ? grade.lutId : undefined,
-      lutIntensity: typeof grade?.lutIntensity === "number" && Number.isFinite(grade.lutIntensity) ? grade.lutIntensity : 1,
+      lutId: effectiveLutId,
+      lutIntensity: typeof grade?.lutIntensity === "number" && Number.isFinite(grade.lutIntensity)
+        ? grade.lutIntensity
+        : (activeFilter?.intensity ?? 1),
       lutSize: typeof grade?.lutSize === "number" && Number.isFinite(grade.lutSize) ? grade.lutSize : 33,
     } : { lutIntensity: 1, lutSize: 33 }),
     blurStrength: blurRadius > 0 ? 1 : 0,
