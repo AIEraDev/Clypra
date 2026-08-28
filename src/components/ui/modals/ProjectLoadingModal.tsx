@@ -8,6 +8,7 @@ const phases: Array<{ id: ProjectInitializationPhase; label: string }> = [
   { id: "hydrating-timeline", label: "Build timeline" },
   { id: "warming-text", label: "Prepare text and fonts" },
   { id: "starting-preview", label: "Start preview runtime" },
+  { id: "verifying-media", label: "Verify project media" },
 ];
 
 const phaseIndex = (phase: ProjectInitializationPhase): number => {
