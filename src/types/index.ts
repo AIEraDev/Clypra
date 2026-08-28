@@ -256,6 +256,8 @@ export interface Clip {
   height: number;
   opacity: number;
   rotation: number;
+  /** Compositor layer blend mode (e.g. normal, multiply, screen, overlay, additive, difference) */
+  blendMode?: BlendMode;
   // Transform constraints
   aspectRatioLocked?: boolean; // Default true for video/images
   sourceAspectRatio?: number; // Original aspect ratio (width/height)
@@ -300,6 +302,7 @@ export interface Clip {
   stickerAnimationPath?: string;
   stickerSourceId?: string;
   stickerImagePath?: string;
+  stickerSettings?: StickerSettings;
   /** Text template ID for text clips */
   templateId?: string;
   /** Template catalog version captured when this clip was created. */
@@ -332,6 +335,11 @@ export interface Clip {
   compoundChildren?: Clip[];
   /** Optional preview image used by the compact parent timeline block. */
   compoundPreview?: string;
+}
+
+export interface StickerSettings {
+  speed: number;
+  loop: boolean;
 }
 
 import type { Keyframe, KeyframeEasing } from "./keyframes";
