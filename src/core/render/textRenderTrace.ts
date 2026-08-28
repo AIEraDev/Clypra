@@ -40,11 +40,21 @@ export interface TextRenderTraceContext {
   time?: number;
 }
 
+export type TextRenderTracePhase =
+  | "session-prewarm"
+  | "text-prefetch"
+  | "visible-playback";
+
 const loggedKeys = new Set<string>();
 const loggedGeometryKeys = new Set<string>();
 
 function isTraceEnabled(): boolean {
-  return import.meta.env.DEV || import.meta.env.VITE_CLYPRA_TEXT_RENDER_TRACE === "1";
+  if (import.meta.env.DEV || import.meta.env.VITE_CLYPRA_TEXT_RENDER_TRACE === "1") return true;
+  try {
+    return localStorage.getItem("clypra:debug:text-render") === "1";
+  } catch {
+    return false;
+  }
 }
 
 function layerState(layer: TextRenderTraceLayer) {
@@ -132,4 +142,27 @@ export function traceTextRenderGeometry(input: {
   console.log("render", input.render);
   console.log("authored effect canvas", input.authoredCanvas ?? null);
   console.groupEnd();
+}
+
+/**
+ * Record the expensive part of native text preparation without logging every
+ * cheap cached lookup. The phase identifies whether the work raced playback.
+ */
+export function traceTextRenderTiming(input: {
+  phase: TextRenderTracePhase;
+  assetId?: string;
+  layerId?: string;
+  fontFamily?: string;
+  fontWaitMs: number;
+  rasterMs: number;
+  totalMs: number;
+}): void {
+  if (!isTraceEnabled()) return;
+  if (input.totalMs < 8 && input.phase !== "session-prewarm") return;
+  console.debug("[Clypra:text-render] timing", {
+    ...input,
+    totalMs: Number(input.totalMs.toFixed(2)),
+    fontWaitMs: Number(input.fontWaitMs.toFixed(2)),
+    rasterMs: Number(input.rasterMs.toFixed(2)),
+  });
 }
