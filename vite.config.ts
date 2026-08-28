@@ -35,6 +35,11 @@ const workspaceAlias = hasWorkspace
         workspacePackagesDir,
         "clypra-engine/src/index.ts",
       ),
+      // Shared engine transitions must resolve to the package's transitions module
+      "@clypra-studio/engine/transitions": path.resolve(
+        workspacePackagesDir,
+        "clypra-engine/src/transitions/index.ts",
+      ),
       // Text effects must use the same sibling shared-engine source in local
       // development as Studio; otherwise the editor silently tests the stale
       // npm package and can diverge on contributor state/rendering.
