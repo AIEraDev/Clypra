@@ -167,6 +167,9 @@ fn configure_surface(
         .decorations(false)
         .transparent(true)
         .shadow(false)
+        // The preview is a retained child surface over the WebView canvas.
+        // Keep it above the parent window while preserving the parent
+        // relationship so the native frame is visible in the editor.
         .always_on_top(true)
         .skip_taskbar(true)
         .focusable(false)
