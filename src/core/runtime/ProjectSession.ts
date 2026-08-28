@@ -72,6 +72,7 @@ export type SessionState = "initializing" | "active" | "disposing" | "disposed";
 export type SessionEventType = "initialized" | "disposed" | "error";
 export type SessionEventListener = (event: { type: SessionEventType; session: ProjectSession; error?: Error }) => void;
 type SessionRegistryListener = (session: ProjectSession | null) => void;
+export type SessionInitializationProgress = (progress: number, message: string) => void;
 
 export class ProjectSession {
   // Session identity
@@ -87,6 +88,7 @@ export class ProjectSession {
   private _programContext: ProgramPlaybackContext | null = null;
   private _sourceContext: SourcePlaybackContext | null = null;
   private _nativeRasterBridge: import("@/core/render/nativeRasterBridge").NativeRasterBridge | null = null;
+  private readonly _onInitializationProgress?: SessionInitializationProgress;
 
   // Lifecycle tracking
   private _initializePromise: Promise<void> | null = null;
@@ -98,9 +100,10 @@ export class ProjectSession {
   private _asyncTasks = new Set<AbortController>();
   private _rafIds = new Set<number>();
 
-  constructor(projectId: string) {
+  constructor(projectId: string, onInitializationProgress?: SessionInitializationProgress) {
     this.projectId = projectId;
     this.sessionId = `session-${projectId}-${Date.now()}`;
+    this._onInitializationProgress = onInitializationProgress;
   }
 
   // ─── Getters ────────────────────────────────────────────────────────────
@@ -171,6 +174,7 @@ export class ProjectSession {
     }
 
     try {
+      this._onInitializationProgress?.(0.05, "Creating playback session…");
       // Use global singletons (single clock/scheduler ensures no divergence)
       this._playback = getPlaybackClock();
       // Browser program preview uses the shared Web Audio engine. Tauri
@@ -202,15 +206,19 @@ export class ProjectSession {
 
       // Initialize stores (timeline, UI)
       await this._initializeStores();
+      this._onInitializationProgress?.(0.35, "Initializing preview runtime…");
 
       // Warm existing text boundaries before the session becomes active. The
       // bridge is shared with NativeProgramPreview so first play does not
       // repeat font/effect rasterization on the transport path.
       if (isTauriRuntime()) {
+        this._onInitializationProgress?.(0.55, "Prewarming text and fonts…");
         const { NativeRasterBridge } = await import("@/core/render/nativeRasterBridge");
         this._nativeRasterBridge = new NativeRasterBridge();
         await this._prewarmNativeTextAssets(5000);
       }
+
+      this._onInitializationProgress?.(0.95, "Finalizing preview session…");
 
       this._state = "active";
 
@@ -716,7 +724,10 @@ export function subscribeToSessionChanges(listener: () => void): () => void {
  * Create and activate new project session.
  * Automatically disposes previous session if exists.
  */
-export async function createProjectSession(projectId: string): Promise<ProjectSession> {
+export async function createProjectSession(
+  projectId: string,
+  options: { onProgress?: SessionInitializationProgress } = {},
+): Promise<ProjectSession> {
   // Install diagnostics on first session creation (idempotent)
   installDiagnostics();
   // Also attach lifecycle log to the diagnostics surface
@@ -729,7 +740,7 @@ export async function createProjectSession(projectId: string): Promise<ProjectSe
 
   sessionRegistry.setTargetProjectId(projectId);
 
-  const session = new ProjectSession(projectId);
+  const session = new ProjectSession(projectId, options.onProgress);
   try {
     await session.initialize();
   } catch (err) {

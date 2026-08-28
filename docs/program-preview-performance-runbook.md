@@ -244,6 +244,12 @@ The permanent playback contract is:
 - The visible playback loop builds one scene and one request per tick. It does
   not render a second look-ahead scene. Native queue/prefetch is the only
   bounded decode warm-up mechanism.
+- Existing text boundaries are prewarmed during native session initialization,
+  with a five-second budget. Browser font loading, native font registration,
+  and text-effect rasterization therefore finish before first play whenever
+  possible. Newly inserted text uses a deferred look-ahead prewarm of up to
+  eight seconds; neither path may decode a second visible video frame or block
+  transport controls.
 - Static raster inputs use content/configuration-based asset identities and
   may be reused across frames. Time-dependent inputs, such as shaders, remain
   frame-addressed until they have a native procedural implementation.
