@@ -43,7 +43,7 @@ Timeline input
   -> SeekController (requestId + generation + mode)
   -> PlaybackClock / NativeProgramPreview render loop
        |
-       | playback / lookahead
+       | playback / bounded prefetch
        v
   queue_native_frame
     -> decoder + decoder mutex
@@ -53,7 +53,7 @@ Timeline input
     -> native compositor
     -> native surface acquire
     -> queue submit / surface present
-    -> retained native surface
+  -> retained native surface
 
        |
        | paused seek / scrub / frame step
@@ -220,6 +220,56 @@ Permanent rule:
 - Native-surface sample recording uses a non-blocking service-mutex attempt.
 - A missed diagnostic sample is preferable to delaying frame presentation.
 - Never stream one JSON log line per frame during a benchmark.
+
+### 11. The playback loop must not render the same timeline twice
+
+The mixed timeline in the incident exposed a compounded frontend cost: the
+quality manager selected a tier but the native request still used the full
+sequence dimensions; every playback tick awaited WebView rasterization for
+text, images, masks, and smart overlays; and the loop could then build a second
+look-ahead scene before presenting anything. When one frame fell behind, the
+second scene increased the backlog instead of helping it. This also explains
+why pause/play felt blocked: the control was responsive, but the render loop
+continued expensive work before the next visible state settled.
+
+The permanent playback contract is:
+
+- `PreviewQualityManager` is the single policy for native output dimensions.
+  Playback uses the selected Full/High/Med/Proxy tier; interaction uses the
+  lower interaction tier; export keeps its own export profile. Output width,
+  height, and quality are part of the native request identity.
+- Playback is a latest-frame stream. After each awaited WebView raster stage,
+  compare project, epoch, transport state, and frame index. If the clock moved,
+  abandon the obsolete work and schedule the current frame.
+- The visible playback loop builds one scene and one request per tick. It does
+  not render a second look-ahead scene. Native queue/prefetch is the only
+  bounded decode warm-up mechanism.
+- Static raster inputs use content/configuration-based asset identities and
+  may be reused across frames. Time-dependent inputs, such as shaders, remain
+  frame-addressed until they have a native procedural implementation.
+- The retained native surface is the playback target. RGBA readback and canvas
+  painting are for paused seek/scrub fallback only.
+
+The 2026-08-28 fix applied these rules in `NativeProgramPreview` and
+`NativeRasterBridge`. It does not claim a hardware frame-rate result by itself;
+the benchmark below must be run on representative mixed timelines to establish
+the baseline.
+
+### 12. Regression acceptance criteria for future integrations
+
+Before merging a new clip type, renderer, effect, or preview integration:
+
+- [ ] A 60-second mixed timeline remains responsive while playing, scrubbing,
+      and pausing; controls must not await preview completion.
+- [ ] A slow frame cannot present after a newer frame, seek generation, or
+      project epoch becomes current.
+- [ ] Playback requests report the selected output dimensions and quality;
+      they do not silently fall back to sequence-sized full output.
+- [ ] The integration has an explicit static/time-dependent cache policy and a
+      bounded byte/entry budget.
+- [ ] The benchmark table below includes warm/cold state, output dimensions,
+      quality, native-surface readiness, and stale/dropped counts.
+- [ ] The focused scheduler/quality tests and the native Rust checks pass.
 
 ## Required investigation procedure
 
