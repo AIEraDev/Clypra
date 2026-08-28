@@ -61,7 +61,6 @@ import {
 import type { SeekIntent } from "@/core/playback/seekController";
 import {
   getNativePreviewSurfaceGeometry,
-  hideNativeSurface,
   cancelNativePreviewRequests,
   isTauriRuntime,
   onNativePreviewWindowMoved,
@@ -70,9 +69,7 @@ import {
   getNativeSyncMetricsSnapshot,
   getNativeGpuStatus,
   registerNativeRasterAsset,
-  probeNativeSurface,
   renderNativeFrame,
-  resizeNativeSurface,
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
@@ -111,10 +108,13 @@ import {
 } from "@/lib/platform/nativeCore";
 import {
   claimNativeSurfaceReadiness,
-  enqueueNativeSurfaceOperation,
+  configureNativeSurface,
   failNativeSurfaceReadiness,
   hideNativeSurfaceWhenIdle,
+  isNativeSurfaceRequestSuperseded,
   markNativeSurfaceReady,
+  presentOnNativeSurface,
+  releaseNativeSurface,
   releaseNativeSurfaceReadiness,
 } from "@/core/runtime/nativeSurfaceLifecycle";
 
@@ -567,24 +567,13 @@ export const NativeProgramPreview: React.FC = () => {
             )
               continue;
 
-            // Do not keep presenting into the old child-window position while
-            // the DOM viewport is moving. Complete the hide before resizing so
-            // an older hide cannot race a later native presentation.
-            nativeSurfaceGeometrySettledRef.current = false;
-            setNativeSurfacePresenting(false);
-            await enqueueNativeSurfaceOperation(async () => {
-              if (!active) return;
-              await hideNativeSurface().catch(() => undefined);
-              if (!active) return;
-
-              if (nativeSurfaceConfiguredRef.current) {
-                await resizeNativeSurface(geometry);
-              } else {
-                await probeNativeSurface(geometry);
-                nativeSurfaceConfiguredRef.current = true;
-              }
-            });
+            // Geometry changes are handled as a non-destructive transaction by
+            // the shared surface coordinator. Keep the retained native frame
+            // visible while the child window moves; hiding here exposes an
+            // empty DOM canvas and causes the resize blank-frame regression.
+            await configureNativeSurface(project.id, geometry);
             if (!active) break;
+            nativeSurfaceConfiguredRef.current = true;
             appliedGeometryKey = nextGeometryKey;
             nativeSurfaceGeometrySettledRef.current = true;
             if (active) {
@@ -593,9 +582,20 @@ export const NativeProgramPreview: React.FC = () => {
               setNativeSurfaceError(null);
               setNativeSurfaceReady(true);
               markNativeSurfaceReady(readinessToken);
+              // Resizing intentionally hides the retained child surface. The
+              // paused renderer is otherwise event-driven, so without an
+              // explicit wake it can leave the DOM fallback canvas visible
+              // and blank after a window resize. Request a fresh frame after
+              // the new native surface geometry is fully configured.
+              wakeNativeRenderLoopRef.current?.();
             }
           }
         } catch (error) {
+          if (isNativeSurfaceRequestSuperseded(error)) {
+            // A newer geometry or project transaction owns the coordinator.
+            // This request is obsolete, not a surface failure.
+            return;
+          }
           nativeSurfaceConfiguredRef.current = false;
           nativeSurfaceGeometrySettledRef.current = false;
           if (active) {
@@ -650,9 +650,7 @@ export const NativeProgramPreview: React.FC = () => {
       setNativeSurfaceReady(false);
       setNativeSurfacePresenting(false);
       releaseNativeSurfaceReadiness(readinessToken);
-      void enqueueNativeSurfaceOperation(() => hideNativeSurface()).catch(
-        () => undefined,
-      );
+      void releaseNativeSurface(project.id).catch(() => undefined);
     };
     // The boolean viewport dependency retries setup when the initial layout
     // changes from zero-sized placeholder to a real preview. It remains stable
@@ -1235,10 +1233,10 @@ export const NativeProgramPreview: React.FC = () => {
         // reconfigured by the lifecycle effect. Keep presentation in the same
         // operation lane as hide/resize so a stale cleanup cannot hide the
         // surface immediately after this frame is submitted.
-        return await enqueueNativeSurfaceOperation(present);
+        return await presentOnNativeSurface(project.id, present);
       } catch (error) {
         if (!(await reRegisterTextAssetsForRequest(request))) throw error;
-        return enqueueNativeSurfaceOperation(present);
+        return presentOnNativeSurface(project.id, present);
       } finally {
         traceSlowPlaybackStage("native-present", startedAt, {
           frameIndex: request.frameTime.frameIndex,
