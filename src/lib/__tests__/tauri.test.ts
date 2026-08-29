@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { normalizePathForTauriInvoke, decodeFrame, decodeFramesStreaming, releaseVideoDecoder, streamTimelineFramesBinary, prewarmDecoders, getVideoRenderMetadata, renderNativePreviewFrame, renderNativeProjectFrame, renderNativeVideoProjectFrame } from "../platform/tauri";
+import { normalizePathForTauriInvoke, decodeFrame, decodeFramesStreaming, releaseVideoDecoder, streamTimelineFramesBinary, prewarmDecoders, getVideoRenderMetadata, renderNativePreviewFrame, renderNativeProjectFrame, renderNativeVideoProjectFrame, getNativePreviewSurfaceGeometry } from "../platform/tauri";
 import { DensityLevel } from "@/types";
 
 // Stub Tauri internals globally for this test suite
@@ -22,16 +22,26 @@ Object.defineProperty(window, "__TAURI_INTERNALS__", {
 
 // vi.mock factories are hoisted — define the Channel class via vi.hoisted() so
 // it is available inside the factory.
-const { MockChannelClass } = vi.hoisted(() => {
+const { MockChannelClass, mockInnerPosition, mockOuterPosition } = vi.hoisted(() => {
   class MockChannelClass {
     onmessage: ((msg: unknown) => void) | null = null;
   }
-  return { MockChannelClass };
+  const mockInnerPosition = vi.fn().mockResolvedValue({ x: 100, y: 50 });
+  const mockOuterPosition = vi.fn().mockResolvedValue({ x: 100, y: 22 });
+  return { MockChannelClass, mockInnerPosition, mockOuterPosition };
 });
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
   Channel: MockChannelClass,
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    innerPosition: mockInnerPosition,
+    outerPosition: mockOuterPosition,
+    onMoved: vi.fn().mockResolvedValue(() => {}),
+  }),
 }));
 
 // ─── normalizePathForTauriInvoke ──────────────────────────────────────────────
@@ -420,5 +430,37 @@ describe("prewarmDecoders", () => {
     vi.mocked(invoke).mockRejectedValueOnce(new Error("Channel closed"));
     const result = await prewarmDecoders(["/test/video.mp4"]);
     expect(result).toBe(0);
+  });
+});
+
+// ─── getNativePreviewSurfaceGeometry ────────────────────────────────────────
+
+describe("getNativePreviewSurfaceGeometry", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("calculates physical coordinates relative to innerPosition on all platforms", async () => {
+    mockInnerPosition.mockResolvedValueOnce({ x: 200, y: 150 });
+    const mockElement = {
+      getBoundingClientRect: () => ({
+        left: 40,
+        top: 60,
+        width: 800,
+        height: 450,
+      }),
+    } as unknown as HTMLElement;
+
+    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+
+    const geometry = await getNativePreviewSurfaceGeometry(mockElement);
+
+    expect(geometry).toEqual({
+      xPhysical: 280, // 200 + 40 * 2
+      yPhysical: 270, // 150 + 60 * 2
+      widthPhysical: 1600, // 800 * 2
+      heightPhysical: 900, // 450 * 2
+      devicePixelRatio: 2,
+    });
+    expect(mockInnerPosition).toHaveBeenCalled();
   });
 });
