@@ -21,6 +21,7 @@ pub struct NativeSurfaceRuntime {
     configuration: Option<wgpu::SurfaceConfiguration>,
     configured_format: Option<wgpu::TextureFormat>,
     last_presentation_sequence: u64,
+    runtime_epoch: u64,
 }
 
 impl NativeSurfaceRuntime {
@@ -32,6 +33,7 @@ impl NativeSurfaceRuntime {
             configuration: None,
             configured_format: None,
             last_presentation_sequence: 0,
+            runtime_epoch: 0,
         }
     }
 
@@ -83,6 +85,10 @@ impl NativeSurfaceRuntime {
         true
     }
 
+    pub(crate) fn runtime_epoch(&self) -> u64 {
+        self.runtime_epoch
+    }
+
     pub(crate) fn show_surface(&self) -> Result<(), String> {
         self.surface_window
             .as_ref()
@@ -102,10 +108,21 @@ impl NativeSurfaceRuntime {
 
     pub(crate) fn reset(&mut self) {
         let _ = self.hide_surface();
+        // The child window and wgpu surface belong to one preview session. Do
+        // not retain either across project close: a hidden child window can
+        // keep platform-specific parent/coordinate state, and an in-flight
+        // presentation from the old session must never be able to show it
+        // after the next session has started.
+        self.surface = None;
+        let surface_window = self.surface_window.take();
         self.probe = None;
         self.configuration = None;
         self.configured_format = None;
         self.last_presentation_sequence = 0;
+        self.runtime_epoch = self.runtime_epoch.wrapping_add(1);
+        if let Some(window) = surface_window {
+            let _ = window.close();
+        }
     }
 }
 
@@ -396,6 +413,16 @@ mod tests {
     #[test]
     fn runtime_starts_without_a_surface() {
         assert!(NativeSurfaceRuntime::new().probe().is_none());
+    }
+
+    #[test]
+    fn reset_advances_runtime_epoch() {
+        let mut runtime = NativeSurfaceRuntime::new();
+        let initial_epoch = runtime.runtime_epoch();
+
+        runtime.reset();
+
+        assert_ne!(runtime.runtime_epoch(), initial_epoch);
     }
 
     #[test]
