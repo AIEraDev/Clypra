@@ -1048,12 +1048,21 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         }
       }
 
-      // Optimistic preview: update clip for visual feedback during drag
-      // Skip epoch increment to avoid cache thrashing during high-frequency updates
-      // The overlay reads from selectedClip (timeline store) for handle positioning
-      updateClip(activeTransform.clipId, { ...newTransform, _skipEpochIncrement: true } as any);
+      // Two-Speed Architecture: publish geometry to the fast-path signal plane.
+      // TransformPreviewLayer receives this synchronously and applies a CSS matrix
+      // preview at 60Hz+ without touching React state, Zustand, or Tauri IPC.
+      // The store is NEVER written during drag — only on mouseup via historyStore.execute().
+      transformController.updateDragGeometry({
+        x: newTransform.x ?? selectedClip.x,
+        y: newTransform.y ?? selectedClip.y,
+        width: newTransform.width ?? selectedClip.width,
+        height: newTransform.height ?? selectedClip.height,
+        rotation: newTransform.rotation ?? selectedClip.rotation ?? 0,
+        fontSize: (newTransform as any).fontSize,
+        conform: (newTransform as any).conform ?? selectedClip.conform,
+      });
     },
-    [isDragging, activeTransform, selectedClip, scale, viewport, canvasWidth, canvasHeight, updateClip, transformController, clips, currentTime],
+    [isDragging, activeTransform, selectedClip, scale, viewport, canvasWidth, canvasHeight, transformController, clips, currentTime],
   );
 
   // Pointer events can arrive considerably faster than the native preview can
@@ -1114,30 +1123,32 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       dragCursorRef.current = null;
     }
 
-    // Read final clip state from store for history
-    const finalClip = useTimelineStore.getState().clips.find((c) => c.id === activeTransform.clipId);
-    if (!finalClip) {
+    // Read final geometry from TransformController (the signal plane).
+    // The store is NOT read here because we never wrote to it during drag.
+    const finalGeometry = transformController.getCurrentDragGeometry();
+    if (!finalGeometry) {
       transformController.endTransform();
       return;
     }
 
-    // Commit to history
+    // Commit to history — this is the single store write for the entire drag.
+    // historyStore.execute() calls updateClip internally with epoch increment.
     const oldTransform: Record<string, any> = { ...activeTransform.startTransform };
     const newTransform: Record<string, any> = {
-      x: finalClip.x,
-      y: finalClip.y,
-      width: finalClip.width,
-      height: finalClip.height,
-      rotation: finalClip.rotation,
+      x: finalGeometry.x,
+      y: finalGeometry.y,
+      width: finalGeometry.width,
+      height: finalGeometry.height,
+      rotation: finalGeometry.rotation,
     };
 
-    if (finalClip.conform) {
-      newTransform.conform = { ...finalClip.conform };
+    if (finalGeometry.conform) {
+      newTransform.conform = { ...finalGeometry.conform };
     }
 
     if (startFontSizeRef.current !== undefined) {
       oldTransform.fontSize = startFontSizeRef.current;
-      newTransform.fontSize = (finalClip as any).fontSize;
+      newTransform.fontSize = finalGeometry.fontSize;
     }
 
     // Only create command if something actually changed
