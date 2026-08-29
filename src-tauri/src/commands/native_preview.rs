@@ -1828,15 +1828,23 @@ pub async fn register_native_image_asset(
         return Err("Native image dimensions are outside the native limit".to_string());
     }
 
+    let preview_state = app
+        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
+        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
+
+    {
+        let mut session = preview_state.lock().await;
+        if session.has_rgba_layer(&asset_id, width, height) {
+            return Ok(());
+        }
+    }
+
     let rgba = tauri::async_runtime::spawn_blocking(move || {
         crate::commands::media::decode_image_rgba_bytes(&path, width, height)
     })
     .await
     .map_err(|error| format!("Native image decode task failed: {}", error))??;
 
-    let preview_state = app
-        .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
-        .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
     let mut session = preview_state.lock().await;
     session
         .get_or_upload_rgba_layer_to_texture(&asset_id, width, height, Some(&rgba))
