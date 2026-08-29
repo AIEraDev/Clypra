@@ -1189,6 +1189,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     return (
       <div
         ref={overlayRef}
+        data-transform-overlay="true"
         className="absolute inset-0 pointer-events-auto z-50"
         style={{
           width: displayWidth,
@@ -1265,6 +1266,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   return (
     <div
       ref={overlayRef}
+      data-transform-overlay="true"
       className="absolute inset-0 pointer-events-auto z-50"
       onContextMenu={handleContextMenu}
       style={{
