@@ -1,7 +1,7 @@
+use crossbeam::channel::bounded;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use crossbeam::channel::bounded;
 
 // Import internal ring buffer module from tauri_app_lib
 use tauri_app_lib::wgpu_compositor::texture_pool::{
@@ -104,11 +104,8 @@ async fn test_stress_rapid_4k_scrubbing_wraparound() {
 
     for i in 0..total_frames {
         ring.upload_frame(
-            &ctx.queue,
-            &y_plane,
-            &uv_plane,
-            width,     // Stride Y = 3840
-            width,     // Stride UV = 3840
+            &ctx.queue, &y_plane, &uv_plane, width, // Stride Y = 3840
+            width, // Stride UV = 3840
         );
 
         // Assert BindGroup is valid and active
@@ -134,7 +131,6 @@ async fn test_stress_rapid_4k_scrubbing_wraparound() {
         "Throughput dropped below acceptable DMA threshold: {:.1} FPS",
         fps
     );
-
 }
 
 /// Stress Test 2: Dynamic Resolution & Aspect-Ratio Thrashing
@@ -351,7 +347,10 @@ async fn test_stress_vram_leak_soak() {
     let uv_plane = vec![192u8; (width * height / 2) as usize];
 
     let soak_frames = 2_000;
-    println!("\n🌊 [Soak Test] Starting {} frame allocation soak...", soak_frames);
+    println!(
+        "\n🌊 [Soak Test] Starting {} frame allocation soak...",
+        soak_frames
+    );
 
     let start = Instant::now();
     for i in 1..=soak_frames {
@@ -363,7 +362,6 @@ async fn test_stress_vram_leak_soak() {
             print!(".");
         }
     }
-
 
     ctx.device.poll(wgpu::Maintain::Wait);
     println!(
