@@ -65,6 +65,7 @@ import {
   isTauriRuntime,
   onNativePreviewWindowMoved,
   presentNativeFrame,
+  queueNativeFrame,
   getNativeFrameServiceStats,
   getNativeSyncMetricsSnapshot,
   getNativeGpuStatus,
@@ -884,6 +885,9 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeFailureCount = 0;
     let nativeBlockedKey = "";
     let nativePlaybackInFlight: Promise<void> | null = null;
+    let nativePlaybackQueueInFlight: Promise<void> | null = null;
+    let nativePlaybackQueuedKey = "";
+    let nativePlaybackQueuedReady = false;
     let nativeContinuousFailureStreak = 0;
     let nativeDroppedFrameCount = 0;
     let nativeContinuousBlockedRevision = "";
@@ -1387,6 +1391,75 @@ export const NativeProgramPreview: React.FC = () => {
     };
     wakeNativeRenderLoopRef.current = scheduleNextFrame;
 
+    /**
+     * Pipeline decode of the next already-evaluated playback frame behind the
+     * current surface presentation. The previous implementation serialized
+     * decode and composition in one request, so a normal FFmpeg seek/decode
+     * delay directly became a visible frame gap. This bounded one-item queue
+     * overlaps decode with the current GPU submission without allowing an
+     * unbounded speculative backlog.
+     */
+    const scheduleNativePlaybackLookahead = (
+      request: NativeFrameRequest,
+    ): void => {
+      if (
+        !isActive ||
+        renderStateRef.current.clock.state !== "playing" ||
+        !nativeSurfaceReadyRef.current
+      ) return;
+      const requestKey = getNativeFrameRequestKey(request);
+      if (
+        requestKey === lastNativePlaybackRequestKey ||
+        requestKey === nativePlaybackQueuedKey ||
+        nativePlaybackQueueInFlight
+      ) {
+        return;
+      }
+
+      nativePlaybackQueuedKey = requestKey;
+      nativePlaybackQueuedReady = false;
+      tracePlayback("lookahead-queue-start", {
+        projectId: project.id,
+        sessionId: capturedSession.sessionId,
+        frameIndex: request.frameTime.frameIndex,
+        mode: "playback-lookahead",
+      });
+      const task = ensureNativeRequestFonts(request)
+        .then(() =>
+          queueNativeFrame({
+            ...request,
+            mode: "playback-lookahead",
+          }),
+        )
+        .then(() => {
+          if (nativePlaybackQueuedKey !== requestKey) return;
+          nativePlaybackQueuedReady = true;
+          nativePlaybackQueueInFlight = null;
+          tracePlayback("lookahead-queue-ready", {
+            projectId: project.id,
+            sessionId: capturedSession.sessionId,
+            frameIndex: request.frameTime.frameIndex,
+            mode: "playback-lookahead",
+          });
+          scheduleNextFrame();
+        })
+        .catch((error) => {
+          if (nativePlaybackQueuedKey === requestKey) {
+            nativePlaybackQueuedKey = "";
+            nativePlaybackQueuedReady = false;
+          }
+          nativePlaybackQueueInFlight = null;
+          if (!isExpectedStaleNativePreviewError(error)) {
+            console.warn("[native-preview] playback-lookahead-failed", {
+              frameIndex: request.frameTime.frameIndex,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+          scheduleNextFrame();
+        });
+      nativePlaybackQueueInFlight = task;
+    };
+
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
       renderInFlight = true;
@@ -1762,6 +1835,19 @@ export const NativeProgramPreview: React.FC = () => {
           );
         };
 
+        // Once a surface frame is being presented, use the next completed
+        // scene request as a single decode-ahead item. Decode and composition
+        // then overlap instead of forcing the audio-master clock to wait for
+        // both stages serially.
+        if (
+          isPlaying &&
+          nativeSurfaceUsable &&
+          nativePlaybackInFlight &&
+          nativePlaybackRequest
+        ) {
+          scheduleNativePlaybackLookahead(nativePlaybackRequest);
+        }
+
         // Continuous native presentation is intentionally non-blocking. The
         // render loop keeps the last accepted native frame while one request is
         // in flight, preventing native decode latency from stalling playback.
@@ -1771,7 +1857,14 @@ export const NativeProgramPreview: React.FC = () => {
           (isPlaying ? !cachedNativeFrame : true) &&
           nativeBlockedKey !== nativeRequestKey &&
           performance.now() >= nativeRetryAt &&
-          !nativePlaybackInFlight
+          !nativePlaybackInFlight &&
+          !(
+            isPlaying &&
+            nativePlaybackRequest &&
+            getNativeFrameRequestKey(nativePlaybackRequest) ===
+              nativePlaybackQueuedKey &&
+            !nativePlaybackQueuedReady
+          )
         ) {
           const requestToPresent =
             isPlaying
@@ -1780,6 +1873,14 @@ export const NativeProgramPreview: React.FC = () => {
           if (requestToPresent) {
             const requestKey = getNativeFrameRequestKey(requestToPresent);
             if (requestKey !== lastNativePlaybackRequestKey) {
+              if (
+                isPlaying &&
+                requestKey === nativePlaybackQueuedKey &&
+                nativePlaybackQueuedReady
+              ) {
+                nativePlaybackQueuedKey = "";
+                nativePlaybackQueuedReady = false;
+              }
               lastNativePlaybackRequestKey = requestKey;
               const requestSource: NativePreviewRequestSource = {
                 requestKey,
