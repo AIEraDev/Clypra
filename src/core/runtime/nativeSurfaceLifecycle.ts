@@ -309,3 +309,25 @@ export function clearNativeSurfaceReadiness(projectId: string): void {
   surfaceReadiness.delete(projectId);
   tracePlayback("surface-cleared", { projectId });
 }
+
+/**
+ * Reset all process-global native surface coordinator state.
+ * Called on project close to ensure the next opened project undergoes a
+ * completely clean surface configuration transaction.
+ */
+export function resetGlobalNativeSurfaceCoordinator(): void {
+  nativeSurfaceOwner = null;
+  nativeSurfaceGeometryKey = "";
+  nativeSurfaceConfigured = false;
+  nativeSurfaceRevision = 0;
+  nativeSurfaceProbe = null;
+  for (const [projectId, state] of surfaceReadiness.entries()) {
+    if (!state.settled) {
+      state.settled = true;
+      state.reject(new Error("Native preview surface coordinator was reset"));
+    }
+  }
+  surfaceReadiness.clear();
+  tracePlayback("surface-coordinator-reset", {});
+}
+
