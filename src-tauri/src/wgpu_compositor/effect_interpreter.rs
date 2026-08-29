@@ -12,9 +12,9 @@
 // - All parameter values are sanitized: NaN/Inf rejected, floats clamped to
 //   declared [min, max] ranges, unexpected keys discarded.
 
+use clypra_native_core::contracts::TextParamValue;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use clypra_native_core::contracts::{TextParamValue};
 
 // ── Effect Definition (pure data, never ship with the binary) ─────────────────
 
@@ -45,20 +45,20 @@ pub enum PrimitiveKind {
 #[serde(rename_all = "snake_case")]
 pub enum ParamType {
     Float,
-    Color,  // [r, g, b, a] f32 linear sRGB
-    Vec2,   // [x, y] f32
+    Color, // [r, g, b, a] f32 linear sRGB
+    Vec2,  // [x, y] f32
 }
 
 /// Declares a single parameter slot with its name, type, and allowed range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParamSpec {
-    pub name:     String,
-    pub ty:       ParamType,
-    pub default:  TextParamValue,
+    pub name: String,
+    pub ty: ParamType,
+    pub default: TextParamValue,
     /// Inclusive min/max for Float and per-channel for Color/Vec2.
-    pub min:      Option<f32>,
-    pub max:      Option<f32>,
+    pub min: Option<f32>,
+    pub max: Option<f32>,
 }
 
 /// A single pass in the ordered pass-chain.
@@ -66,9 +66,9 @@ pub struct ParamSpec {
 #[serde(rename_all = "camelCase")]
 pub struct PrimitivePass {
     pub primitive: PrimitiveKind,
-    pub tier:      ResolutionTier,
+    pub tier: ResolutionTier,
     /// Parameter values for this pass (before override application).
-    pub params:    HashMap<String, TextParamValue>,
+    pub params: HashMap<String, TextParamValue>,
 }
 
 /// Complete effect definition — the data document fetched from the API.
@@ -76,13 +76,13 @@ pub struct PrimitivePass {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EffectDefinition {
-    pub effect_id:   String,
-    pub version:     u32,
+    pub effect_id: String,
+    pub version: u32,
     pub display_name: String,
     /// Ordered parameter schema (used for zero-trust validation of overrides).
     pub param_specs: Vec<ParamSpec>,
     /// Ordered pass-chain.
-    pub passes:      Vec<PrimitivePass>,
+    pub passes: Vec<PrimitivePass>,
 }
 
 // ── Zero-Trust Parameter Sanitization ─────────────────────────────────────────
@@ -119,7 +119,11 @@ pub fn sanitize_parameter_overrides(
         let value = match spec.ty {
             ParamType::Float => {
                 if let TextParamValue::Float(v) = raw {
-                    let default_val = if let TextParamValue::Float(d) = &spec.default { *d } else { 0.0 };
+                    let default_val = if let TextParamValue::Float(d) = &spec.default {
+                        *d
+                    } else {
+                        0.0
+                    };
                     let v = sanitize_f32(*v, spec.min, spec.max).unwrap_or(default_val);
                     TextParamValue::Float(v)
                 } else {
@@ -128,7 +132,11 @@ pub fn sanitize_parameter_overrides(
             }
             ParamType::Color => {
                 if let TextParamValue::Color(channels) = raw {
-                    let d = if let TextParamValue::Color(dc) = &spec.default { *dc } else { [0.0; 4] };
+                    let d = if let TextParamValue::Color(dc) = &spec.default {
+                        *dc
+                    } else {
+                        [0.0; 4]
+                    };
                     TextParamValue::Color([
                         sanitize_f32(channels[0], Some(0.0), Some(1.0)).unwrap_or(d[0]),
                         sanitize_f32(channels[1], Some(0.0), Some(1.0)).unwrap_or(d[1]),
@@ -141,7 +149,11 @@ pub fn sanitize_parameter_overrides(
             }
             ParamType::Vec2 => {
                 if let TextParamValue::Vec2(v) = raw {
-                    let d = if let TextParamValue::Vec2(dv) = &spec.default { *dv } else { [0.0; 2] };
+                    let d = if let TextParamValue::Vec2(dv) = &spec.default {
+                        *dv
+                    } else {
+                        [0.0; 2]
+                    };
                     TextParamValue::Vec2([
                         sanitize_f32(v[0], spec.min, spec.max).unwrap_or(d[0]),
                         sanitize_f32(v[1], spec.min, spec.max).unwrap_or(d[1]),
@@ -166,9 +178,9 @@ fn sanitize_f32(v: f32, min: Option<f32>, max: Option<f32>) -> Option<f32> {
     }
     let v = match (min, max) {
         (Some(lo), Some(hi)) => v.clamp(lo, hi),
-        (Some(lo), None)     => v.max(lo),
-        (None, Some(hi))     => v.min(hi),
-        (None, None)         => v,
+        (Some(lo), None) => v.max(lo),
+        (None, Some(hi)) => v.min(hi),
+        (None, None) => v,
     };
     Some(v)
 }
@@ -182,7 +194,8 @@ pub fn validate_effect_definition(def: &EffectDefinition) -> Result<(), EffectVa
     if def.passes.len() > 16 {
         return Err(EffectValidationError(format!(
             "Effect '{}' has {} passes; maximum is 16",
-            def.effect_id, def.passes.len()
+            def.effect_id,
+            def.passes.len()
         )));
     }
 
@@ -231,8 +244,8 @@ pub fn validate_effect_definition(def: &EffectDefinition) -> Result<(), EffectVa
 #[derive(Debug, Clone)]
 pub struct ResolvedPass {
     pub primitive: PrimitiveKind,
-    pub tier:      ResolutionTier,
-    pub params:    HashMap<String, TextParamValue>,
+    pub tier: ResolutionTier,
+    pub params: HashMap<String, TextParamValue>,
 }
 
 /// Resolve an `EffectDefinition` against a set of project-file parameter
@@ -260,7 +273,7 @@ pub fn resolve_passes(
             let params = sanitize_parameter_overrides(&params, &def.param_specs);
             ResolvedPass {
                 primitive: pass.primitive,
-                tier:      pass.tier,
+                tier: pass.tier,
                 params,
             }
         })
@@ -335,7 +348,10 @@ mod tests {
                         let mut m = HashMap::new();
                         m.insert("threshold".to_string(), TextParamValue::Float(0.502));
                         m.insert("glow_radius".to_string(), TextParamValue::Float(0.2));
-                        m.insert("glow_color".to_string(), TextParamValue::Color([0.2, 0.6, 1.0, 1.0]));
+                        m.insert(
+                            "glow_color".to_string(),
+                            TextParamValue::Color([0.2, 0.6, 1.0, 1.0]),
+                        );
                         m
                     },
                 },
@@ -402,14 +418,26 @@ mod tests {
         let mut overrides = HashMap::new();
         overrides.insert("glow_radius".to_string(), TextParamValue::Float(50.0)); // > max(1.0) -> clamps to 1.0
         overrides.insert("threshold".to_string(), TextParamValue::Float(-5.0)); // < min(0.0) -> clamps to 0.0
-        overrides.insert("injected_malicious_key".to_string(), TextParamValue::Float(999.0)); // unknown -> discarded
+        overrides.insert(
+            "injected_malicious_key".to_string(),
+            TextParamValue::Float(999.0),
+        ); // unknown -> discarded
 
         let sanitized = sanitize_parameter_overrides(&overrides, &def.param_specs);
-        assert_eq!(sanitized.get("glow_radius"), Some(&TextParamValue::Float(1.0)));
-        assert_eq!(sanitized.get("threshold"), Some(&TextParamValue::Float(0.0)));
+        assert_eq!(
+            sanitized.get("glow_radius"),
+            Some(&TextParamValue::Float(1.0))
+        );
+        assert_eq!(
+            sanitized.get("threshold"),
+            Some(&TextParamValue::Float(0.0))
+        );
         assert_eq!(sanitized.get("injected_malicious_key"), None);
         // Default filled for missing spec:
-        assert_eq!(sanitized.get("glow_color"), Some(&TextParamValue::Color([0.2, 0.6, 1.0, 1.0])));
+        assert_eq!(
+            sanitized.get("glow_color"),
+            Some(&TextParamValue::Color([0.2, 0.6, 1.0, 1.0]))
+        );
     }
 
     #[test]
@@ -417,11 +445,20 @@ mod tests {
         let def = sample_effect_definition();
         let mut overrides = HashMap::new();
         overrides.insert("glow_radius".to_string(), TextParamValue::Float(f32::NAN));
-        overrides.insert("threshold".to_string(), TextParamValue::Float(f32::INFINITY));
+        overrides.insert(
+            "threshold".to_string(),
+            TextParamValue::Float(f32::INFINITY),
+        );
 
         let sanitized = sanitize_parameter_overrides(&overrides, &def.param_specs);
-        assert_eq!(sanitized.get("glow_radius"), Some(&TextParamValue::Float(0.2))); // spec default
-        assert_eq!(sanitized.get("threshold"), Some(&TextParamValue::Float(0.502))); // spec default
+        assert_eq!(
+            sanitized.get("glow_radius"),
+            Some(&TextParamValue::Float(0.2))
+        ); // spec default
+        assert_eq!(
+            sanitized.get("threshold"),
+            Some(&TextParamValue::Float(0.502))
+        ); // spec default
     }
 
     #[test]
@@ -432,7 +469,10 @@ mod tests {
 
         let resolved = resolve_passes(&def, &overrides).unwrap();
         assert_eq!(resolved.len(), 2);
-        assert_eq!(resolved[0].params.get("glow_radius"), Some(&TextParamValue::Float(0.8)));
+        assert_eq!(
+            resolved[0].params.get("glow_radius"),
+            Some(&TextParamValue::Float(0.8))
+        );
     }
 
     #[test]
@@ -452,7 +492,10 @@ mod tests {
         }"#;
 
         let result: Result<EffectDefinition, _> = serde_json::from_str(malformed_json);
-        assert!(result.is_err(), "unknown primitive 'outlin' must be rejected during deserialization");
+        assert!(
+            result.is_err(),
+            "unknown primitive 'outlin' must be rejected during deserialization"
+        );
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("unknown variant") || err_msg.contains("outlin"));
     }
