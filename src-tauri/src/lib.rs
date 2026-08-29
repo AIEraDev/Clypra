@@ -47,6 +47,11 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
     Ok(())
 }
 
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle, code: Option<i32>) {
+    app.exit(code.unwrap_or(0));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -299,15 +304,18 @@ pub fn run() {
             // Screen recording & native smoke test commands
             trim_video,
             set_menu_language,
+            exit_app,
             run_wgpu_smoke_test,
             run_native_document_wgpu_export,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Prevent immediate OS destruction so the webview can perform
-                // unsaved-changes dirty checks, user prompt, and clean shutdown.
-                api.prevent_close();
-                let _ = window.emit("clypra://close-requested", ());
+                if window.label() == "main" {
+                    // Prevent immediate OS destruction so the webview can perform
+                    // unsaved-changes dirty checks, user prompt, and clean shutdown.
+                    api.prevent_close();
+                    let _ = window.emit("clypra://close-requested", ());
+                }
             }
         })
         .run(tauri::generate_context!())

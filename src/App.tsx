@@ -522,8 +522,16 @@ const App = () => {
 
   const exitApp = async () => {
     try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("exit_app");
+      return;
+    } catch (invokeErr) {
+      console.warn("[App] Native exit_app invoke failed, falling back:", invokeErr);
+    }
+    try {
       const { exit } = await import("@tauri-apps/plugin-process");
       await exit(0);
+      return;
     } catch {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -552,7 +560,10 @@ const App = () => {
     // Clean project: close smoothly and exit
     closingWindowRef.current = true;
     try {
-      await handleCloseProject();
+      const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
+      await disposeActiveSession().catch(() => {});
+      const { clearSnapshot } = await import("@/core/runtime/CrashRecoveryService");
+      await clearSnapshot().catch(() => {});
       await exitApp();
     } catch (err) {
       console.error("[App] Failed to cleanly exit app:", err);
@@ -560,7 +571,7 @@ const App = () => {
     } finally {
       closingWindowRef.current = false;
     }
-  }, [handleCloseProject]);
+  }, []);
 
   const handleSaveAndExit = async () => {
     setIsSavingBeforeClose(true);
@@ -568,7 +579,10 @@ const App = () => {
     try {
       const { saveCurrentProject } = useProjectStore.getState();
       await saveCurrentProject();
-      await handleCloseProject();
+      const { disposeActiveSession } = await import("@/core/runtime/ProjectSession");
+      await disposeActiveSession().catch(() => {});
+      const { clearSnapshot } = await import("@/core/runtime/CrashRecoveryService");
+      await clearSnapshot().catch(() => {});
       await exitApp();
     } catch (err) {
       console.error("[App] Failed to save and exit:", err);
