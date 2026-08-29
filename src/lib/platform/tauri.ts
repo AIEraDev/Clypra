@@ -468,21 +468,12 @@ export async function getNativePreviewSurfaceGeometry(
   const rect = element.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const currentWindow = getCurrentWindow();
-  // On macOS with `titleBarStyle: "Overlay"`, WKWebView coordinates start at
-  // the window's outer origin while `innerPosition()` refers to the client
-  // area. The native child uses `set_position`, which sets its outer position.
-  // Mixing those coordinate spaces moves the surface vertically by the native
-  // title-bar inset and makes it cover the preview header. Use the same outer
-  // coordinate space on macOS; retain client-area coordinates elsewhere.
-  const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
-  const windowPosition = isMac
-    ? await currentWindow.outerPosition()
-    : await currentWindow.innerPosition();
-  // `element` is the actual centered program viewport. Do not clamp its top
-  // to the toolbar or subtract a fixed header clearance here: that changes
-  // the native surface aspect ratio and top-aligns the frame, which leaves a
-  // black strip at the bottom when the viewport is letterboxed. The header is
-  // already outside this element in the flex layout.
+  // `innerPosition()` returns the screen coordinates of the webview viewport's top-left
+  // (client area). `rect` is measured relative to that same viewport origin.
+  // The child surface window is undecorated, so its physical position corresponds
+  // directly to client-area screen coordinates. Using `innerPosition()` ensures exact
+  // alignment with the DOM canvas on all platforms (including macOS with titleBarStyle: "Overlay").
+  const windowPosition = await currentWindow.innerPosition();
   const geometry = {
     xPhysical: windowPosition.x + Math.round(rect.left * dpr),
     yPhysical: windowPosition.y + Math.round(rect.top * dpr),
