@@ -1,0 +1,27 @@
+# Dependency Review blocks pull requests that introduce dependencies with
+# known vulnerabilities or disallowed licenses, before they are merged.
+# Docs: https://docs.github.com/code-security/supply-chain-security/understanding-your-software-supply-chain/about-dependency-review
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [master, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          # Fail the PR on high-severity (or worse) vulnerable dependencies.
+          fail-on-severity: high
+          # Summarize findings directly in the PR conversation.
+          comment-summary-in-pr: on-failure
