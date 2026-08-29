@@ -285,6 +285,15 @@ impl NativePreviewFrameQueue {
         self.order.retain(|entry| entry != key);
         Some(decoded)
     }
+
+    /// Reset all queued frames and generation counter. Call on project close so
+    /// the next project's generation 0 is accepted immediately.
+    pub fn reset(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+        self.pending.clear();
+        self.latest_generation.store(0, Ordering::Release);
+    }
 }
 
 fn default_clear_color() -> [f32; 4] {
@@ -2499,6 +2508,53 @@ pub async fn get_native_frame_service_stats(
     };
     let stats = service.lock().await.stats();
     Ok(stats)
+}
+
+/// Reset all per-project native preview state on project close.
+///
+/// This atomically:
+/// 1. Resets the frame queue generation counter to 0 so the next project's
+///    seek controller (which starts at generation 0) is never stale-rejected.
+/// 2. Drains all queued and pending decode frames from the previous project.
+/// 3. Clears the readback frame cache and performance window samples.
+/// 4. Clears the presentation sequence on the native surface so out-of-order
+///    frame rejection does not carry over to the next project.
+/// 5. Stops and resets the native audio clock clip state.
+/// 6. Stops and resets the native playback session.
+#[tauri::command]
+pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    // 1+2. Reset the frame queue generation and drain pending/queued frames.
+    if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
+        queue.inner().clone().lock().await.reset();
+    }
+
+    // 3. Clear the readback frame cache.
+    if let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() {
+        service.lock().await.reset();
+    }
+
+    // 4. Reset the surface presentation sequence.
+    if let Some(surface) = app.try_state::<Arc<std::sync::Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>() {
+        if let Ok(mut s) = surface.inner().clone().lock() {
+            s.reset();
+        }
+    }
+
+    // 5. Stop native audio and clear clip state.
+    if let Some(clock) = app.try_state::<Arc<std::sync::Mutex<crate::native_audio::NativeAudioClock>>>() {
+        if let Ok(mut c) = clock.inner().clone().lock() {
+            c.stop();
+        }
+    }
+
+    // 6. Reset the native playback session.
+    if let Some(playback) = app.try_state::<Arc<std::sync::Mutex<crate::commands::native_playback::NativePlaybackRuntime>>>() {
+        if let Ok(mut p) = playback.inner().clone().lock() {
+            p.reset();
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
