@@ -1,5 +1,6 @@
 use crate::commands::lut::LutCache;
 use crate::commands::native_surface::NativeSurfaceRuntime;
+use crate::diagnostics;
 use crate::native_audio::NativeAudioClock;
 use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
 use crate::native_core::{
@@ -39,18 +40,12 @@ pub fn register_native_font(font_id: String, path: String) -> Result<u64, String
     }
     let bytes = std::fs::read(path).map_err(|error| {
         let message = format!("Unable to read native font '{}': {error}", path.display());
-        eprintln!(
-            "[native-font][rust] register-failed id={} reason={}",
-            font_id, message
-        );
+        diagnostics::error("native-font", "register-read-failed", message.clone());
         message
     })?;
     if bytes.len() > 32 * 1024 * 1024 {
         let message = "Native font exceeds the 32 MiB registration limit".to_string();
-        eprintln!(
-            "[native-font][rust] register-failed id={} reason={}",
-            font_id, message
-        );
+        diagnostics::error("native-font", "register-size-limit", message.clone());
         return Err(message);
     }
     register_native_font_bytes(font_id, bytes)
@@ -73,31 +68,10 @@ pub fn register_native_font_bytes(font_id: String, bytes: Vec<u8>) -> Result<u64
         ));
     }
 
-    eprintln!(
-        "[native-font][rust] register-start id={} bytes={} format={}",
-        font_id,
-        bytes.len(),
-        if woff2::decode::is_woff2(&bytes) {
-            "woff2"
-        } else {
-            "sfnt"
-        }
-    );
     let result =
         clypra_native_core::font_registry::global_font_registry().register_font(&font_id, &bytes);
-    match &result {
-        Ok(hash) => eprintln!(
-            "[native-font][rust] register-ok id={} hash={} registered_count={}",
-            font_id,
-            hash,
-            clypra_native_core::font_registry::global_font_registry()
-                .list_fonts()
-                .len()
-        ),
-        Err(error) => eprintln!(
-            "[native-font][rust] register-failed id={} reason={}",
-            font_id, error
-        ),
+    if let Err(error) = &result {
+        diagnostics::error("native-font", "register-failed", format!("{font_id}: {error}"));
     }
     result
 }
