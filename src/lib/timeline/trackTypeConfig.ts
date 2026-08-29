@@ -206,12 +206,22 @@ export function getTrackVisualSpec(
 export function shouldAutoPruneTrack(
   track: { id: string; type: string },
   tracksOrPrimaryId?: Track[] | string | null,
+  mainVideoTrackId?: string | null,
 ): boolean {
   let primaryId: string | null = null;
-  if (Array.isArray(tracksOrPrimaryId)) {
-    primaryId = tracksOrPrimaryId.find((t) => t.type === "video")?.id ?? null;
-  } else if (typeof tracksOrPrimaryId === "string") {
+  if (typeof tracksOrPrimaryId === "string") {
     primaryId = tracksOrPrimaryId;
+  } else if (typeof mainVideoTrackId === "string") {
+    primaryId = mainVideoTrackId;
+  } else if (Array.isArray(tracksOrPrimaryId)) {
+    const videoTracks = tracksOrPrimaryId.filter((t) => t.type === "video");
+    if (videoTracks.length === 1) {
+      primaryId = videoTracks[0].id;
+    } else if (videoTracks.length > 1) {
+      // In top-insertion order, overlay tracks are inserted at the top (index 0).
+      // The primary / main video track is the bottommost video track before audio.
+      primaryId = videoTracks[videoTracks.length - 1].id;
+    }
   }
 
   if (primaryId && track.id === primaryId) {
