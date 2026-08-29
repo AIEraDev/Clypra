@@ -26,6 +26,10 @@ import { ContextMenu } from "@/components/ui/ContextMenu";
 import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import { resolveConform } from "@clypra-studio/engine";
+import { compareCompositorClips } from "@/core/compositor/ordering";
+import { toCompositorClip } from "@/core/timeline/adapter";
+import { tracePlayback } from "@/core/playback/playbackTrace";
+import type { CompositorClip } from "@/core/compositor/types";
 
 export function shouldScaleTextFontForHandle(handle: TransformHandle): boolean {
   return handle !== "move" && handle !== "rotate";
@@ -172,7 +176,19 @@ function mouseToCanvas(clientX: number, clientY: number, overlayRect: DOMRect, v
  * latter otherwise intercepts every click inside the selected video and makes
  * text/image layers impossible to select.
  */
-export function getHitTestCandidates(
+export interface HitTestCandidateDiagnostic {
+  clip: Clip;
+  index: number;
+  trackIndex: number;
+  role: string | undefined;
+  zIndex: number;
+  evaluationPriority: number;
+  compositorClip: CompositorClip;
+  bounds: { x: number; y: number; width: number; height: number; rotation: number };
+  hit: boolean;
+}
+
+export function getHitTestCandidateDiagnostics(
   clips: readonly Clip[],
   tracks: readonly Track[],
   currentTime: number,
@@ -180,14 +196,17 @@ export function getHitTestCandidates(
   canvasY: number,
   canvasWidth?: number,
   canvasHeight?: number,
-): Clip[] {
-  const trackIndexMap = new Map(tracks.map((track, index) => [track.id, index]));
+): HitTestCandidateDiagnostic[] {
   const visibleTrackIds = new Set(
     tracks.filter((track) => track.visible !== false).map((track) => track.id),
   );
 
   return clips
-    .map((clip, index) => ({ clip, index }))
+    .map((clip, index) => ({
+      clip,
+      index,
+      compositorClip: toCompositorClip(clip, tracks),
+    }))
     .filter(({ clip }) => {
       if (!visibleTrackIds.has(clip.trackId)) return false;
       if (
@@ -200,7 +219,7 @@ export function getHitTestCandidates(
       }
       return isClipActiveAtTime(clip, currentTime);
     })
-    .filter(({ clip }) => {
+    .map(({ clip, index, compositorClip }) => {
       let x = clip.x;
       let y = clip.y;
       let width = clip.width;
@@ -229,15 +248,58 @@ export function getHitTestCandidates(
           height = resolved.height;
         }
       }
-      if (!(width > 0 && height > 0)) return false;
-      return hitTestClip(canvasX, canvasY, { x, y, width, height, rotation: clip.rotation });
+      const bounds = {
+        x,
+        y,
+        width,
+        height,
+        rotation: clip.rotation ?? 0,
+      };
+      return {
+        clip,
+        index,
+        trackIndex: compositorClip.trackIndex,
+        role: compositorClip.role,
+        zIndex: compositorClip.zIndex,
+        evaluationPriority: compositorClip.evaluationPriority,
+        compositorClip,
+        bounds,
+        hit: width > 0 && height > 0 && hitTestClip(canvasX, canvasY, bounds),
+      };
     })
     .sort((a, b) => {
-      const trackA = trackIndexMap.get(a.clip.trackId) ?? Number.MAX_SAFE_INTEGER;
-      const trackB = trackIndexMap.get(b.clip.trackId) ?? Number.MAX_SAFE_INTEGER;
-      if (trackA !== trackB) return trackA - trackB;
+      // The compositor is the authority for visual stacking. Hit testing
+      // must inspect the same foreground-first order as the rendered frame;
+      // a second track-index-only ordering drifts when zIndex or semantic
+      // compositor metadata is present.
+      const compositorOrder = compareCompositorClips(
+        b.compositorClip,
+        a.compositorClip,
+      );
+      if (compositorOrder !== 0) return compositorOrder;
       return b.index - a.index;
-    })
+    });
+}
+
+export function getHitTestCandidates(
+  clips: readonly Clip[],
+  tracks: readonly Track[],
+  currentTime: number,
+  canvasX: number,
+  canvasY: number,
+  canvasWidth?: number,
+  canvasHeight?: number,
+): Clip[] {
+  return getHitTestCandidateDiagnostics(
+    clips,
+    tracks,
+    currentTime,
+    canvasX,
+    canvasY,
+    canvasWidth,
+    canvasHeight,
+  )
+    .filter(({ hit }) => hit)
     .map(({ clip }) => clip);
 }
 
@@ -351,6 +413,44 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         canvasWidth,
         canvasHeight,
       );
+      const hitDiagnostics = getHitTestCandidateDiagnostics(
+        clips,
+        tracks,
+        currentTime,
+        canvasCoords.x,
+        canvasCoords.y,
+        canvasWidth,
+        canvasHeight,
+      );
+      tracePlayback("preview-hit-test", {
+        source: "canvas-capture",
+        pointer: { clientX: e.clientX, clientY: e.clientY },
+        overlayRect: {
+          left: Number(rect.left.toFixed(2)),
+          top: Number(rect.top.toFixed(2)),
+          width: Number(rect.width.toFixed(2)),
+          height: Number(rect.height.toFixed(2)),
+        },
+        canvasPoint: {
+          x: Number(canvasCoords.x.toFixed(2)),
+          y: Number(canvasCoords.y.toFixed(2)),
+        },
+        currentTime: Number(currentTime.toFixed(3)),
+        selectedClipId: selectedClip?.id ?? null,
+        modifiers: { shift: e.shiftKey, meta: e.metaKey, ctrl: e.ctrlKey },
+        candidates: hitDiagnostics.map((candidate) => ({
+          id: candidate.clip.id,
+          kind: candidate.clip.kind,
+          trackId: candidate.clip.trackId,
+          trackIndex: candidate.trackIndex,
+          role: candidate.role,
+          zIndex: candidate.zIndex,
+          evaluationPriority: candidate.evaluationPriority,
+          bounds: candidate.bounds,
+          hit: candidate.hit,
+        })),
+        hitCandidateIds: hitCandidates.map((candidate) => candidate.id),
+      });
 
       if (hitCandidates.length > 0) {
         // Multi-select modifier: toggle topmost hit only.
@@ -512,7 +612,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           canvasHeight,
           scale,
         );
-        const topmostClip = getHitTestCandidates(
+        const hitDiagnostics = getHitTestCandidateDiagnostics(
           clips,
           tracks,
           currentTime,
@@ -520,7 +620,29 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           canvasCoords.y,
           canvasWidth,
           canvasHeight,
-        )[0];
+        );
+        const topmostClip = hitDiagnostics.find(({ hit }) => hit)?.clip;
+        tracePlayback("preview-hit-test", {
+          source: "selected-move-surface",
+          pointer: { clientX: e.clientX, clientY: e.clientY },
+          canvasPoint: {
+            x: Number(canvasCoords.x.toFixed(2)),
+            y: Number(canvasCoords.y.toFixed(2)),
+          },
+          currentTime: Number(currentTime.toFixed(3)),
+          selectedClipId: selectedClip.id,
+          candidates: hitDiagnostics.map((candidate) => ({
+            id: candidate.clip.id,
+            kind: candidate.clip.kind,
+            trackId: candidate.clip.trackId,
+            trackIndex: candidate.trackIndex,
+            role: candidate.role,
+            zIndex: candidate.zIndex,
+            bounds: candidate.bounds,
+            hit: candidate.hit,
+          })),
+          resolvedTopmostClipId: topmostClip?.id ?? null,
+        });
 
         if (topmostClip && topmostClip.id !== selectedClip.id) {
           e.preventDefault();

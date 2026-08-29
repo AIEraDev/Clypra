@@ -17,7 +17,7 @@ import { expandCompoundClips } from "./compoundClips";
  * @param tracks - All tracks (for index lookup)
  * @returns CompositorClip with inferred metadata
  */
-export function toCompositorClip(clip: Clip, tracks: Track[]): CompositorClip {
+export function toCompositorClip(clip: Clip, tracks: readonly Track[]): CompositorClip {
   const track = tracks.find((t) => t.id === clip.trackId);
 
   // Get track index (for compositing order)
@@ -91,7 +91,7 @@ function inferRoleFromTrack(track: Track | undefined): ClipRole {
  * The "primary" role should be reserved for explicit background plates
  * or generated mattes that must always sit below everything else.
  */
-export function inferRoleFromTrackPosition(track: Track | undefined, trackIndex: number, tracks: Track[]): ClipRole {
+export function inferRoleFromTrackPosition(track: Track | undefined, trackIndex: number, tracks: readonly Track[]): ClipRole {
   if (!track) return "overlay";
 
   if (track.type === "audio") return "audio";

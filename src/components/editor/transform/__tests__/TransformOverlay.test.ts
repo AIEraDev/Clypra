@@ -158,6 +158,21 @@ describe("TransformOverlay hit testing", () => {
     expect(candidates.map((candidate) => candidate.id)).toEqual(["text", "image"]);
   });
 
+  it("follows persisted compositor z-order within one track", () => {
+    const candidates = getHitTestCandidates(
+      [
+        { ...clip("front", "text-track"), zIndex: 1 },
+        { ...clip("back", "text-track"), zIndex: 0 },
+      ],
+      tracks,
+      5,
+      50,
+      50,
+    );
+
+    expect(candidates.map((candidate) => candidate.id)).toEqual(["front", "back"]);
+  });
+
   it("resolves conformed clip bounds accurately during hit testing", () => {
     const conformedImage = {
       ...clip("image-conformed", "image-track"),
