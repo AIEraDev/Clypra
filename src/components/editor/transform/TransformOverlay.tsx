@@ -178,6 +178,8 @@ export function getHitTestCandidates(
   currentTime: number,
   canvasX: number,
   canvasY: number,
+  canvasWidth?: number,
+  canvasHeight?: number,
 ): Clip[] {
   const trackIndexMap = new Map(tracks.map((track, index) => [track.id, index]));
   const visibleTrackIds = new Set(
@@ -188,10 +190,48 @@ export function getHitTestCandidates(
     .map((clip, index) => ({ clip, index }))
     .filter(({ clip }) => {
       if (!visibleTrackIds.has(clip.trackId)) return false;
-      if (!(clip.width > 0 && clip.height > 0)) return false;
+      if (
+        clip.kind === "audio" ||
+        clip.kind === "filter" ||
+        clip.kind === "video-effect" ||
+        clip.kind === "body-effect"
+      ) {
+        return false;
+      }
       return isClipActiveAtTime(clip, currentTime);
     })
-    .filter(({ clip }) => hitTestClip(canvasX, canvasY, clip))
+    .filter(({ clip }) => {
+      let x = clip.x;
+      let y = clip.y;
+      let width = clip.width;
+      let height = clip.height;
+      if (
+        canvasWidth &&
+        canvasHeight &&
+        clip.conform &&
+        clip.conform.sourceWidth &&
+        clip.conform.sourceHeight
+      ) {
+        const resolved = resolveConform(
+          {
+            ...clip.conform,
+            userScale: clip.conform.userScale ?? 1,
+            userOffsetX: clip.conform.userOffsetX ?? 0,
+            userOffsetY: clip.conform.userOffsetY ?? 0,
+          },
+          canvasWidth,
+          canvasHeight,
+        );
+        if (resolved) {
+          x = resolved.x;
+          y = resolved.y;
+          width = resolved.width;
+          height = resolved.height;
+        }
+      }
+      if (!(width > 0 && height > 0)) return false;
+      return hitTestClip(canvasX, canvasY, { x, y, width, height, rotation: clip.rotation });
+    })
     .sort((a, b) => {
       const trackA = trackIndexMap.get(a.clip.trackId) ?? Number.MAX_SAFE_INTEGER;
       const trackB = trackIndexMap.get(b.clip.trackId) ?? Number.MAX_SAFE_INTEGER;
@@ -308,6 +348,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         currentTime,
         canvasCoords.x,
         canvasCoords.y,
+        canvasWidth,
+        canvasHeight,
       );
 
       if (hitCandidates.length > 0) {
@@ -317,14 +359,22 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           return;
         }
 
-        // Single-click cycling through overlapping clips:
-        // repeated clicks at same overlap set iterate through stack.
-        const signature = hitCandidates.map((c) => c.id).join("|");
+        // If the currently selected clip is already in the hit candidates under the cursor,
+        // clicking again cycles/drills-down to the next clip behind it.
+        // Otherwise, always select the topmost clip under the cursor immediately.
+        const currentHitIndex = selectedClip
+          ? hitCandidates.findIndex((c) => c.id === selectedClip.id)
+          : -1;
+
         let nextIndex = 0;
-        if (clickCycleRef.current.signature === signature) {
-          nextIndex = (clickCycleRef.current.index + 1) % hitCandidates.length;
+        if (currentHitIndex !== -1) {
+          nextIndex = (currentHitIndex + 1) % hitCandidates.length;
         }
-        clickCycleRef.current = { signature, index: nextIndex };
+
+        clickCycleRef.current = {
+          signature: hitCandidates.map((c) => c.id).join("|"),
+          index: nextIndex,
+        };
         selectClip(hitCandidates[nextIndex].id);
       } else {
         // Clicked on empty area - deselect
@@ -468,6 +518,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           currentTime,
           canvasCoords.x,
           canvasCoords.y,
+          canvasWidth,
+          canvasHeight,
         )[0];
 
         if (topmostClip && topmostClip.id !== selectedClip.id) {
