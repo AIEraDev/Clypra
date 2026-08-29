@@ -249,7 +249,10 @@ mod tests {
         // Assert that TICKS_PER_SECOND in captions matches native_audio::TICKS_PER_SECOND
         // and native_core::contracts::DEFAULT_TIME_SCALE exactly (1MHz).
         assert_eq!(TICKS_PER_SECOND, crate::native_audio::TICKS_PER_SECOND);
-        assert_eq!(TICKS_PER_SECOND as u32, crate::native_core::contracts::DEFAULT_TIME_SCALE);
+        assert_eq!(
+            TICKS_PER_SECOND as u32,
+            crate::native_core::contracts::DEFAULT_TIME_SCALE
+        );
         assert_eq!(TICKS_PER_SECOND, 1_000_000);
 
         // 1 second (100 centiseconds in Whisper) must equal 1,000,000 ticks directly
@@ -260,7 +263,10 @@ mod tests {
         // 1 second of 16kHz audio (16,000 samples) must equal 1,000,000 ticks directly
         let ticks_from_16k_samples = audio_16k_samples_to_ticks(16_000);
         assert_eq!(ticks_from_16k_samples, 1_000_000);
-        assert_eq!(ticks_from_16k_samples, crate::native_audio::TICKS_PER_SECOND);
+        assert_eq!(
+            ticks_from_16k_samples,
+            crate::native_audio::TICKS_PER_SECOND
+        );
     }
 
     #[test]
