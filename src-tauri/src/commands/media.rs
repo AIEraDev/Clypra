@@ -85,7 +85,7 @@ pub(crate) fn decode_image_rgba_bytes(
     let resized = if image.width() == width && image.height() == height {
         image
     } else {
-        image::imageops::resize(&image, width, height, image::imageops::FilterType::Lanczos3)
+        image::imageops::resize(&image, width, height, image::imageops::FilterType::Triangle)
     };
     Ok(resized.into_raw())
 }
