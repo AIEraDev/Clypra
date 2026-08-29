@@ -946,6 +946,15 @@ class TelemetryCollector {
   private async flushQueued(): Promise<boolean> {
     if (this.queue.length === 0) return true;
 
+    // Back off when remote endpoint fails repeatedly to prevent event-loop congestion
+    if (
+      this.transportStatus.consecutiveFailures >= 3 &&
+      this.transportStatus.lastFailureAtMs &&
+      Date.now() - this.transportStatus.lastFailureAtMs < 60_000
+    ) {
+      return false;
+    }
+
     const eventsToFlush = [...this.queue];
     this.queue = [];
 
@@ -971,7 +980,6 @@ class TelemetryCollector {
             "X-Clypra-Client": "tauri-desktop",
           },
           body: JSON.stringify(payload),
-          keepalive: true,
         });
 
         if (res.ok) {
@@ -1043,7 +1051,6 @@ class TelemetryCollector {
             "X-Clypra-Client": "tauri-desktop",
           },
           body: JSON.stringify(batch),
-          keepalive: true,
         }).catch(() => {});
       }
     } catch {
