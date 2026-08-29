@@ -133,7 +133,9 @@ function hasNativeImageRasterAsset(
   // Accept the old layer-scoped identity while projects/frames transition to
   // the deterministic source-scoped identity. New producers must use the
   // shared identity helper above.
-  return asset.assetId === buildNativeImageAssetId(layer.sourcePath, layer.width, layer.height)
+  const sourceWidth = layer.sourceWidth ?? layer.width;
+  const sourceHeight = layer.sourceHeight ?? layer.height;
+  return asset.assetId === buildNativeImageAssetId(layer.sourcePath, sourceWidth, sourceHeight)
     || asset.assetId.startsWith(`native-image:${layer.layerId}:`);
 }
 
