@@ -22,8 +22,6 @@ import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
-import { TransformPreviewLayer } from "./TransformPreviewLayer";
-import { getTransformController } from "@/core/interactions";
 import { SafeOverlay } from "../viewport/SafeOverlay";
 import {
   useViewportKeyboardShortcuts,
@@ -548,12 +546,6 @@ export const NativeProgramPreview: React.FC = () => {
         cacheMisses: nativeRender
           ? nativeRender.cacheMisses
           : snapshot.cacheMisses,
-        transformDragPacingAvgMs: frontendSync.transform_drag_pacing.n > 0
-          ? frontendSync.transform_drag_pacing.avg
-          : undefined,
-        transformDragPacingMaxMs: frontendSync.transform_drag_pacing.n > 0
-          ? frontendSync.transform_drag_pacing.maxAbs
-          : undefined,
       };
       telemetryRef.current = next;
       setTelemetryStats(next);
@@ -1634,12 +1626,6 @@ export const NativeProgramPreview: React.FC = () => {
 
         if (!mightNeedRender) return;
 
-        // Two-Speed Architecture: skip native IPC dispatch during active transform drag.
-        // TransformPreviewLayer provides a 0ms CSS matrix preview while dragging.
-        // The authoritative frame is requested on mouseup (epoch increment triggers
-        // the next renderLoop naturally). This prevents 60Hz GPU readback during drag.
-        if (!isPlaying && getTransformController().isDragging()) return;
-
         const evaluationStartedAt = performance.now();
         const scene = evaluateTimelineSceneCached(
           frameStartTime,
@@ -2682,14 +2668,6 @@ export const NativeProgramPreview: React.FC = () => {
                   displayHeight={displayHeight}
                   currentTime={playbackClockState.time}
                   visible={playbackClockState.state !== "playing"}
-                />
-                <TransformPreviewLayer
-                  canvasWidth={canvasWidth}
-                  canvasHeight={canvasHeight}
-                  displayWidth={displayWidth}
-                  displayHeight={displayHeight}
-                  scale={scale}
-                  viewport={viewport}
                 />
                 <SafeOverlay
                   visible={showSafeOverlay}
