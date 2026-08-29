@@ -67,6 +67,18 @@ impl NativeFrameService {
         (self.cache.len(), self.cache.current_bytes())
     }
 
+    /// Discard all cached frames and reset per-session counters. Called on
+    /// project close so the next project starts with a clean frame cache and
+    /// fresh performance telemetry. The cache budget (max_bytes) is unchanged.
+    pub fn reset(&mut self) {
+        self.cache.clear();
+        self.total_requests = 0;
+        self.cache_hits = 0;
+        self.cache_misses = 0;
+        self.last_sample = None;
+        self.window_samples.clear();
+    }
+
     pub fn record_sample(&mut self, sample: PerformanceSample) {
         let now = now_ms();
         self.last_sample = Some(sample);
