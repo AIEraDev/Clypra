@@ -286,14 +286,17 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
         canonicalScene.text.content = layer.text;
         canonicalScene.text.fontSize = unscaledFontSize;
         canonicalScene.text.fontFamily = layer.fontFamily || canonicalScene.text.fontFamily;
+        canonicalScene.text.fontWeight = layer.fontWeight ?? canonicalScene.text.fontWeight;
+        canonicalScene.text.fontStyle = layer.fontStyle ?? canonicalScene.text.fontStyle;
+        canonicalScene.text.letterSpacing = layer.letterSpacing ?? canonicalScene.text.letterSpacing;
+        canonicalScene.text.lineHeight = layer.lineHeight ?? canonicalScene.text.lineHeight;
         canonicalScene.text.textPosX = layer.textAlign || canonicalScene.text.textPosX;
         canonicalScene.text.textPosY = layer.verticalAlign === "middle" ? "middle" : layer.verticalAlign || canonicalScene.text.textPosY;
-        // Evaluate on the Studio-authored effect canvas. Resizing the scene
-        // before evaluation changes safe-area margins and internal layout,
-        // which makes the same text effect appear larger or clipped after it
-        // is inserted into a timeline clip.
-        canonicalScene.canvas.width = authoredWidth;
-        canonicalScene.canvas.height = authoredHeight;
+
+        const evalWidth = Math.max(authoredWidth, Math.ceil(width + 200));
+        const evalHeight = Math.max(authoredHeight, Math.ceil(height + 100));
+        canonicalScene.canvas.width = evalWidth;
+        canonicalScene.canvas.height = evalHeight;
         traceTextRenderScene(canonicalScene, {
           path: "program-preview",
           assetId: layer.styleId,
@@ -301,31 +304,17 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
           contentHash: (effectDef as any).contentHash,
           time: layer.time ?? 0,
         });
-        // Render canonical scenes into an isolated raster just like the
-        // compatibility path below. Directly evaluating into the caller's
-        // context makes placement depend on whether the caller has already
-        // translated to the layer center (native preview does; other callers
-        // do not), which caused the effect to shift and clip in Program
-        // Preview.
-        const offscreen = CanvasDevice.acquire(authoredWidth, authoredHeight);
+
+        const offscreen = CanvasDevice.acquire(evalWidth, evalHeight);
         const offCtx = offscreen.getContext("2d", { alpha: true }) as OffscreenCanvasRenderingContext2D | null;
         if (offCtx) {
           offCtx.setTransform(1, 0, 0, 1, 0, 0);
-          offCtx.clearRect(0, 0, authoredWidth, authoredHeight);
+          offCtx.clearRect(0, 0, evalWidth, evalHeight);
           engineEvaluateScene(canonicalScene, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
-          const fitScale = Math.min(width / authoredWidth, height / authoredHeight);
-          const fittedWidth = authoredWidth * fitScale;
-          const fittedHeight = authoredHeight * fitScale;
           ctx.drawImage(
             offscreen,
-            0,
-            0,
-            authoredWidth,
-            authoredHeight,
-            -width / 2 + (width - fittedWidth) / 2,
-            -height / 2 + (height - fittedHeight) / 2,
-            fittedWidth,
-            fittedHeight,
+            -evalWidth / 2,
+            -evalHeight / 2,
           );
         }
         Promise.resolve().then(() => CanvasDevice.release(offscreen));
