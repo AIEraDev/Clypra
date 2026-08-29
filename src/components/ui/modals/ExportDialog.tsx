@@ -63,8 +63,6 @@ import {
   resolveExportDimensions,
 } from "@/lib/export/exportDimensions";
 import { PRESET_CONFIGS, PRESET_ORDER } from "@/lib/export/exportPresets";
-import { getPlaybackClock } from "@/core/playback/PlaybackClock";
-import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 
 // Lazy load video export functionality (code splitting)
 const exportVideoModule = () => import("@/lib/export/videoExport");
@@ -178,15 +176,6 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   // FFmpeg session is started. Calling it kills the backend process and stops the
   // frame loop — previously the cancel button only reset the UI without stopping FFmpeg.
   const cancelExportFnRef = useRef<(() => Promise<void>) | null>(null);
-
-  useEffect(() => {
-    if (isOpen) {
-      try {
-        getPlaybackClock().pause();
-      } catch {}
-      void hideNativeSurfaceWhenIdle().catch(() => undefined);
-    }
-  }, [isOpen]);
 
   const selectedPreset = PRESET_CONFIGS[preset];
   const recentProjectExports = exportHistory
