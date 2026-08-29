@@ -8,6 +8,8 @@
  * - Strict Zero PII: Zero video frames, media assets, project titles, or user identities are ever collected.
  */
 
+import { getApiBaseUrl, getApiHeaders } from "@/lib/api/apiUtils";
+
 export interface TelemetryHardwareContext {
   osFamily: "macos" | "windows" | "linux" | "ios" | "android" | "web";
   osVersion: string;
@@ -130,13 +132,24 @@ export interface TelemetryEvent {
   timestampMs: number;
 }
 
-const DEFAULT_API_INGEST_URL = "https://clypra-worker-api.abdulkabirmusa.com/performance/telemetry/ingest/batch";
+const DEFAULT_API_INGEST_URL = `${getApiBaseUrl()}/performance/telemetry/ingest/batch`;
 const MAX_QUEUE_SIZE = 100;
 const MAX_OFFLINE_BATCHES = 50;
 const FLUSH_INTERVAL_MS = 15000;
 const NOMINAL_SAMPLE_RATE = 0.01; // 1% sample rate for smooth 60fps frames
-const ROLLUP_WINDOW_MS = 30000; // 30s session rollup window
+const ROLLUP_WINDOW_MS = import.meta.env.DEV ? 5000 : 30000;
 const SLEEP_DISCONTINUITY_THRESHOLD_MS = 1500; // Discard time gaps > 1.5s as sleep/backgrounding
+
+export interface TelemetryTransportStatus {
+  endpoint: string;
+  pendingEvents: number;
+  lastBatchId: string | null;
+  lastBatchEventCount: number;
+  lastAttemptAtMs: number | null;
+  lastSuccessAtMs: number | null;
+  lastFailureAtMs: number | null;
+  consecutiveFailures: number;
+}
 
 /**
  * Continuous Session Rollup Accumulator.
@@ -321,10 +334,21 @@ class SessionRollupAccumulator {
 class TelemetryCollector {
   private queue: TelemetryEvent[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private flushInFlight: Promise<boolean> | null = null;
   private cachedHardware: TelemetryHardwareContext | null = null;
   private isEnabled: boolean = true;
   private appVersion: string = "1.4.5";
   private rollupAccumulator = new SessionRollupAccumulator();
+  private transportStatus: TelemetryTransportStatus = {
+    endpoint: DEFAULT_API_INGEST_URL,
+    pendingEvents: 0,
+    lastBatchId: null,
+    lastBatchEventCount: 0,
+    lastAttemptAtMs: null,
+    lastSuccessAtMs: null,
+    lastFailureAtMs: null,
+    consecutiveFailures: 0,
+  };
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -339,6 +363,22 @@ class TelemetryCollector {
       window.addEventListener("online", () => {
         this.drainOfflineQueue();
       });
+
+      // Pull-based inspection is available in every environment for the
+      // current performance qualification period. It exposes transport state
+      // without reintroducing console logging into the render loop.
+      (window as Window & {
+        __CLYPRA_PERF_TELEMETRY__?: {
+          getStatus: () => TelemetryTransportStatus;
+          flush: () => Promise<boolean>;
+        };
+      }).__CLYPRA_PERF_TELEMETRY__ = {
+        getStatus: () => this.getTransportStatus(),
+        flush: () => {
+          this.flushRollupIfPending();
+          return this.flush();
+        },
+      };
     }
   }
 
@@ -356,6 +396,13 @@ class TelemetryCollector {
 
   public getQueueLength(): number {
     return this.queue.length;
+  }
+
+  public getTransportStatus(): TelemetryTransportStatus {
+    return {
+      ...this.transportStatus,
+      pendingEvents: this.queue.length,
+    };
   }
 
   public clearQueue(): void {
@@ -538,8 +585,8 @@ class TelemetryCollector {
     const event: TelemetryEvent = {
       eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       appVersion: this.appVersion,
-      appBuildNumber: "prod",
-      appEnvironment: "production",
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
       device: hardware,
       video: fullVideoProfile,
       workload: {
@@ -586,8 +633,8 @@ class TelemetryCollector {
     const event: TelemetryEvent = {
       eventId: `evt_seek_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       appVersion: this.appVersion,
-      appBuildNumber: "prod",
-      appEnvironment: "production",
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
       device: hardware,
       video: fullVideoProfile,
       workload: {
@@ -627,8 +674,8 @@ class TelemetryCollector {
     const event: TelemetryEvent = {
       eventId: `evt_export_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       appVersion: this.appVersion,
-      appBuildNumber: "prod",
-      appEnvironment: "production",
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
       device: hardware,
       video: fullVideoProfile,
       workload: {
@@ -685,8 +732,8 @@ class TelemetryCollector {
     const event: TelemetryEvent = {
       eventId: `evt_ai_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       appVersion: this.appVersion,
-      appBuildNumber: "prod",
-      appEnvironment: "production",
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
       device: hardware,
       video: this.sanitizeVideoProfile(),
       workload: {
@@ -733,8 +780,8 @@ class TelemetryCollector {
     const event: TelemetryEvent = {
       eventId: `evt_fallback_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       appVersion: this.appVersion,
-      appBuildNumber: "prod",
-      appEnvironment: "production",
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
       device: hardware,
       video: this.sanitizeVideoProfile(),
       workload: {
@@ -832,8 +879,8 @@ class TelemetryCollector {
     const event: TelemetryEvent = {
       eventId: `evt_rollup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       appVersion: this.appVersion,
-      appBuildNumber: "prod",
-      appEnvironment: "production",
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
       device: hardware,
       video: fullVideoProfile,
       workload: {
@@ -885,7 +932,18 @@ class TelemetryCollector {
   /**
    * Flushes queued telemetry events asynchronously via non-blocking batch POST.
    */
-  public async flush(): Promise<boolean> {
+  public flush(): Promise<boolean> {
+    if (this.flushInFlight) return this.flushInFlight;
+    if (this.queue.length === 0) return Promise.resolve(true);
+
+    this.flushInFlight = this.flushQueued();
+    void this.flushInFlight.finally(() => {
+      this.flushInFlight = null;
+    });
+    return this.flushInFlight;
+  }
+
+  private async flushQueued(): Promise<boolean> {
     if (this.queue.length === 0) return true;
 
     const eventsToFlush = [...this.queue];
@@ -896,13 +954,20 @@ class TelemetryCollector {
       sentAtMs: Date.now(),
       events: eventsToFlush,
     };
+    this.transportStatus = {
+      ...this.transportStatus,
+      lastBatchId: payload.batchId,
+      lastBatchEventCount: payload.events.length,
+      lastAttemptAtMs: payload.sentAtMs,
+      pendingEvents: this.queue.length,
+    };
 
     try {
       if (typeof navigator !== "undefined" && typeof fetch === "function") {
         const res = await fetch(DEFAULT_API_INGEST_URL, {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            ...getApiHeaders(),
             "X-Clypra-Client": "tauri-desktop",
           },
           body: JSON.stringify(payload),
@@ -911,9 +976,22 @@ class TelemetryCollector {
 
         if (res.ok) {
           this.drainOfflineQueue();
+          this.transportStatus = {
+            ...this.transportStatus,
+            lastSuccessAtMs: Date.now(),
+            lastFailureAtMs: null,
+            consecutiveFailures: 0,
+            pendingEvents: this.queue.length,
+          };
           return true;
         } else {
           this.saveToOfflineStorage(payload);
+          this.transportStatus = {
+            ...this.transportStatus,
+            lastFailureAtMs: Date.now(),
+            consecutiveFailures: this.transportStatus.consecutiveFailures + 1,
+            pendingEvents: this.queue.length,
+          };
           return false;
         }
       }
@@ -921,6 +999,12 @@ class TelemetryCollector {
     } catch {
       // Offline fallback: save batch to offline storage with bounded capacity
       this.saveToOfflineStorage(payload);
+      this.transportStatus = {
+        ...this.transportStatus,
+        lastFailureAtMs: Date.now(),
+        consecutiveFailures: this.transportStatus.consecutiveFailures + 1,
+        pendingEvents: this.queue.length,
+      };
       return false;
     }
   }
@@ -955,7 +1039,7 @@ class TelemetryCollector {
         await fetch(DEFAULT_API_INGEST_URL, {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            ...getApiHeaders(),
             "X-Clypra-Client": "tauri-desktop",
           },
           body: JSON.stringify(batch),
