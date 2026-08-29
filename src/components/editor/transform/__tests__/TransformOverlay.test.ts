@@ -157,6 +157,61 @@ describe("TransformOverlay hit testing", () => {
 
     expect(candidates.map((candidate) => candidate.id)).toEqual(["text", "image"]);
   });
+
+  it("resolves conformed clip bounds accurately during hit testing", () => {
+    const conformedImage = {
+      ...clip("image-conformed", "image-track"),
+      conform: {
+        mode: "fit" as const,
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+      },
+    };
+    const textOnTop = {
+      ...clip("text-top", "text-track"),
+      x: 100,
+      y: 100,
+      width: 400,
+      height: 200,
+    };
+
+    const candidates = getHitTestCandidates(
+      [conformedImage, textOnTop],
+      tracks,
+      5,
+      200,
+      150,
+      1920,
+      1080,
+    );
+
+    expect(candidates.map((c) => c.id)).toEqual(["text-top", "image-conformed"]);
+  });
+
+  it("filters out audio and effect clips from hit testing", () => {
+    const audioClip = {
+      ...clip("audio", "text-track"),
+      kind: "audio",
+    };
+    const filterClip = {
+      ...clip("filter", "text-track"),
+      kind: "filter",
+    };
+    const textClip = {
+      ...clip("text", "text-track"),
+      kind: "text",
+    };
+
+    const candidates = getHitTestCandidates(
+      [audioClip, filterClip, textClip],
+      tracks,
+      5,
+      50,
+      50,
+    );
+
+    expect(candidates.map((c) => c.id)).toEqual(["text"]);
+  });
 });
 
 describe("getUpdatedConformForClipBounds", () => {
