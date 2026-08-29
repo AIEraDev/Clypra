@@ -21,6 +21,7 @@ pub mod thumbnail_engine;
 pub mod wgpu_compositor;
 
 use commands::*;
+use diagnostics::crash_handler::{get_unreported_crashes, mark_crash_reported, purge_crash_reports};
 use thumbnail_engine::init_thumbnail_engine;
 
 #[tauri::command]
@@ -60,7 +61,7 @@ pub fn run() {
         if std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_err() {
             std::env::set_var(
                 "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-                "--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy --allow-file-access-from-files",
+                "--enable-gpu-rasterization --allow-file-access-from-files",
             );
         }
     }
@@ -310,6 +311,10 @@ pub fn run() {
             exit_app,
             run_wgpu_smoke_test,
             run_native_document_wgpu_export,
+            // Native crash diagnostic commands
+            get_unreported_crashes,
+            mark_crash_reported,
+            purge_crash_reports,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
