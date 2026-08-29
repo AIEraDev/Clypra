@@ -407,8 +407,12 @@ export interface NativeRasterLayerSnapshot {
   assetId: string;
   /** RGBA8 bytes, omitted after native asset registration. */
   rgba?: number[];
+  /** Dimensions of the immutable uploaded texture. */
   width: number;
   height: number;
+  /** Placement dimensions. Defaults to the texture dimensions for legacy callers. */
+  displayWidth?: number;
+  displayHeight?: number;
   x: number;
   y: number;
   rotation: number;
