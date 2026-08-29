@@ -87,62 +87,6 @@ export const uiPlayheadDrift = new RollingDriftStats();
 export const playheadPaintJitter = new RollingDriftStats();
 export const seekUserLatency = new RollingDriftStats();
 
-// ─── Transform Drag Metrics (Two-Speed Architecture) ───────────────────────
-
-/**
- * Latency from transformController.updateDragGeometry() call to the CSS matrix
- * being applied by TransformPreviewLayer. In the two-speed architecture this is
- * always 0–1ms (same synchronous RAF callback). Records inter-frame intervals
- * during an active drag to detect any missed frames.
- */
-export const transformDragLatency = new RollingDriftStats();
-
-/**
- * Inter-presentation intervals during an active transform drag.
- * Healthy value: ≤16.7ms (60fps). Values >33ms indicate dropped preview frames.
- */
-export const transformDragPacing = new RollingDriftStats();
-
-let lastTransformPresentedMs: number | null = null;
-let lastTransformSessionId: number = -1;
-
-/**
- * Record a transform geometry update dispatched by the TransformController.
- */
-export function recordTransformDragMove(_sessionId: number, _revision: number): void {
-  // Currently a no-op counter hook; metrics are recorded on presentation.
-}
-
-/**
- * Record a transform preview frame being presented (CSS matrix applied).
- * Tracks inter-presentation pacing and per-frame latency.
- */
-export function recordTransformDragPresented(sessionId: number, _revision: number, timestampMs = nowMs()): void {
-  if (sessionId !== lastTransformSessionId) {
-    // New drag session — reset pacing baseline
-    lastTransformSessionId = sessionId;
-    lastTransformPresentedMs = null;
-  }
-  if (lastTransformPresentedMs !== null) {
-    const intervalMs = timestampMs - lastTransformPresentedMs;
-    transformDragPacing.record(intervalMs);
-    transformDragLatency.record(intervalMs);
-  }
-  lastTransformPresentedMs = timestampMs;
-}
-
-/**
- * Reset transform drag metrics (for drag session end or tests).
- */
-export function resetTransformDragMetrics(): void {
-  transformDragLatency.takeAndReset();
-  transformDragPacing.takeAndReset();
-  lastTransformPresentedMs = null;
-  lastTransformSessionId = -1;
-}
-
-// ─── End Transform Drag Metrics ─────────────────────────────────────────────
-
 let lastPlayheadPaintMs: number | null = null;
 let nextSeekHandle = 1;
 const pendingSeeks = new Map<number, number>();
@@ -190,8 +134,6 @@ export interface FrontendSyncMetricsSnapshot {
   ui_playhead_drift: RollingDriftSnapshot;
   playhead_paint_jitter: RollingDriftSnapshot;
   seek_user_latency: RollingDriftSnapshot;
-  transform_drag_latency: RollingDriftSnapshot;
-  transform_drag_pacing: RollingDriftSnapshot;
 }
 
 export function getSyncMetricsSnapshot(): FrontendSyncMetricsSnapshot {
@@ -199,8 +141,6 @@ export function getSyncMetricsSnapshot(): FrontendSyncMetricsSnapshot {
     ui_playhead_drift: uiPlayheadDrift.snapshot(),
     playhead_paint_jitter: playheadPaintJitter.snapshot(),
     seek_user_latency: seekUserLatency.snapshot(),
-    transform_drag_latency: transformDragLatency.snapshot(),
-    transform_drag_pacing: transformDragPacing.snapshot(),
   };
 }
 
@@ -209,7 +149,6 @@ export function resetSyncMetricsForTests(): void {
   uiPlayheadDrift.takeAndReset();
   playheadPaintJitter.takeAndReset();
   seekUserLatency.takeAndReset();
-  resetTransformDragMetrics();
   lastPlayheadPaintMs = null;
   pendingSeeks.clear();
   nextSeekHandle = 1;

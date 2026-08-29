@@ -44,8 +44,6 @@ describe("frontend sync metric collection", () => {
       ui_playhead_drift: { n: 2, avg: -0.5, maxAbs: 4 },
       playhead_paint_jitter: { n: 2, avg: 16.5, maxAbs: 17 },
       seek_user_latency: { n: 0, avg: 0, maxAbs: 0 },
-      transform_drag_latency: { n: 0, avg: 0, maxAbs: 0 },
-      transform_drag_pacing: { n: 0, avg: 0, maxAbs: 0 },
     });
   });
 
