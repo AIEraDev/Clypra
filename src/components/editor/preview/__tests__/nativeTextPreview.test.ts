@@ -48,6 +48,19 @@ describe("native text raster compatibility", () => {
     );
   });
 
+  it("does not invalidate immutable pixels for compositor-only movement", () => {
+    const layer = makeTextLayer();
+    expect(buildNativeTextRasterKey(layer)).toBe(
+      buildNativeTextRasterKey({
+        ...layer,
+        x: 420,
+        y: 240,
+        rotation: 0.25,
+        opacity: 0.4,
+      }),
+    );
+  });
+
   it("invalidates the raster asset when animated time changes", () => {
     const animated = { animation: { type: "pulse" } } as never;
     expect(buildNativeTextRasterKey(makeTextLayer({ styleDefinition: animated, time: 0 }))).not.toBe(
