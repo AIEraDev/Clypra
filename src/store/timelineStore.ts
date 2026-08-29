@@ -768,7 +768,7 @@ export const useTimelineStore = create<TimelineStore>(
           const track = state.tracks.find((t) => t.id === trackId);
           const hasOtherClips = remainingClips.some((c) => c.trackId === trackId);
 
-          if (track && !hasOtherClips && shouldAutoPruneTrack(track, state.mainVideoTrackId || state.tracks)) {
+          if (track && !hasOtherClips && shouldAutoPruneTrack(track, state.tracks, state.mainVideoTrackId)) {
             tracksToKeep = state.tracks.filter((t) => t.id !== trackId);
             gapsToKeep = state.gaps.filter((g) => g.trackId !== trackId);
             removedTrackIdForCleanup = trackId;
@@ -1337,7 +1337,10 @@ export const useTimelineStore = create<TimelineStore>(
 
     removeEmptyNonMainTracks: (candidateTrackIds) => {
       set((state) => {
-        const mainVideoTrackId = state.mainVideoTrackId ?? state.tracks.find((t) => t.type === "video")?.id ?? null;
+        const videoTracks = state.tracks.filter((t) => t.type === "video");
+        const mainVideoTrackId = state.mainVideoTrackId ?? (
+          videoTracks.length === 1 ? videoTracks[0].id : videoTracks[videoTracks.length - 1]?.id ?? null
+        );
         const candidateSet = candidateTrackIds ? new Set(candidateTrackIds) : null;
         const nextTracks = state.tracks.filter((track) => {
           if (track.id === mainVideoTrackId) return true;
