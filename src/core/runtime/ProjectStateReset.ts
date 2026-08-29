@@ -121,6 +121,26 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
     console.error("  ❌ GlobalAudioEngine reset failed:", error);
   }
 
+  // Reset the process-global native surface coordinator state in TypeScript
+  // and the native frame queue generation, cache, and playback session in Rust.
+  try {
+    const { resetGlobalNativeSurfaceCoordinator } = await import("@/core/runtime/nativeSurfaceLifecycle");
+    resetGlobalNativeSurfaceCoordinator();
+    resetSubsystems.push("NativeSurfaceCoordinator");
+  } catch (error) {
+    errors.push({ subsystem: "NativeSurfaceCoordinator", error: error as Error });
+    console.error("  ❌ NativeSurfaceCoordinator reset failed:", error);
+  }
+
+  try {
+    const { resetNativeRuntime } = await import("@/lib/platform/tauri");
+    await resetNativeRuntime();
+    resetSubsystems.push("NativePreviewRuntime");
+  } catch (error) {
+    errors.push({ subsystem: "NativePreviewRuntime", error: error as Error });
+    console.error("  ❌ NativePreviewRuntime reset failed:", error);
+  }
+
 
 
   // ═══════════════════════════════════════════════════════════════════════════════
