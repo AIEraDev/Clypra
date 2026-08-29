@@ -357,6 +357,11 @@ pub struct VideoDecoder {
     stream_metadata: VideoStreamMetadata,
     /// Decoder state for sequential optimization
     state: DecoderState,
+    /// The visible preview often renders the same first frame once while the
+    /// session is stopped and again when audio playback starts. Retain only
+    /// the last raw frame so that boundary does not force a second FFmpeg
+    /// seek/decode before playback has even begun.
+    last_raw_nv12: Option<(i64, Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata)>,
 }
 
 impl VideoDecoder {
@@ -522,6 +527,7 @@ impl VideoDecoder {
             rotation,
             stream_metadata,
             state: DecoderState::new(),
+            last_raw_nv12: None,
         })
     }
 
@@ -1336,6 +1342,11 @@ impl VideoDecoder {
         }
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        if let Some((cached_pts, y, uv, width, height, color)) = &self.last_raw_nv12 {
+            if *cached_pts == target_pts {
+                return Ok((y.clone(), uv.clone(), *width, *height, color.clone()));
+            }
+        }
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         self.state.update_sequential(target_pts);
 
@@ -1466,7 +1477,7 @@ impl VideoDecoder {
 
         let cpu_frame = self.to_cpu_frame(best_frame)?;
         let frame_color = self.frame_metadata(&cpu_frame).color;
-        if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
+        let result = if let Some(nv12) = self.extract_nv12_planes(&cpu_frame) {
             Ok((
                 nv12.0,
                 nv12.1,
@@ -1502,7 +1513,16 @@ impl VideoDecoder {
                     )
                 })
                 .ok_or_else(|| "Failed to extract converted NV12 planes".to_string())
-        }
+        }?;
+        self.last_raw_nv12 = Some((
+            target_pts,
+            result.0.clone(),
+            result.1.clone(),
+            result.2,
+            result.3,
+            result.4.clone(),
+        ));
+        Ok(result)
     }
 
     /// Scale YUV frame to RGBA
