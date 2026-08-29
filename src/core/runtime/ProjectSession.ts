@@ -208,18 +208,19 @@ export class ProjectSession {
       await this._initializeStores();
       this._onInitializationProgress?.(0.35, "Initializing preview runtime…");
 
-      // Warm existing text boundaries before the session becomes active. The
-      // bridge is shared with NativeProgramPreview so first play does not
-      // repeat font/effect rasterization on the transport path.
+      // Warm existing text/image boundaries before the session becomes active.
+      // The bridge is shared with NativeProgramPreview so first play does not
+      // repeat first-use rasterization or native image decoding on the
+      // transport path.
       if (isTauriRuntime()) {
-        this._onInitializationProgress?.(0.55, "Prewarming text and fonts…");
+        this._onInitializationProgress?.(0.55, "Prewarming text and images…");
         const { NativeRasterBridge } = await import("@/core/render/nativeRasterBridge");
         this._nativeRasterBridge = new NativeRasterBridge();
-        // Opening is not complete until every text boundary has been warmed.
-        // This is deliberately awaited: a background warmup can contend with
-        // the first transport frame and recreate the entry freeze we are
-        // eliminating.
-        await this._prewarmNativeTextAssets();
+        // Opening is not complete until every text/image boundary has been
+        // warmed. This is deliberately awaited: a background warmup can
+        // contend with the first transport frame and recreate the entry freeze
+        // we are eliminating.
+        await this._prewarmNativeRasterAssets();
       }
 
       this._onInitializationProgress?.(0.95, "Finalizing preview session…");
@@ -457,7 +458,7 @@ export class ProjectSession {
     getViewportController().reset();
   }
 
-  private async _prewarmNativeTextAssets(): Promise<void> {
+  private async _prewarmNativeRasterAssets(): Promise<void> {
     const bridge = this._nativeRasterBridge;
     if (!bridge || typeof document === "undefined") return;
 
@@ -472,13 +473,15 @@ export class ProjectSession {
 
     const { clips, tracks, transitions } = timelineStore.useTimelineStore.getState();
     const mediaAssets = projectStore.useProjectStore.getState().mediaAssets;
-    const textBoundaries = clips
-      .filter((clip) => clip.kind === "text")
+    const rasterBoundaries = clips
+      .filter((clip) =>
+        clip.kind === "text" || clip.kind === "image" || clip.kind === "sticker",
+      )
       .sort((left, right) => left.startTime - right.startTime);
-    if (textBoundaries.length === 0) return;
+    if (rasterBoundaries.length === 0) return;
 
     const frameRate = Math.max(1, project.frameRate ?? 30);
-    for (const clip of textBoundaries) {
+    for (const clip of rasterBoundaries) {
       const frameTime = getFrameStartTime(clip.startTime, frameRate);
       const scene = evaluator.evaluateTimelineScene(
         frameTime,
@@ -491,15 +494,29 @@ export class ProjectSession {
       const textLayers = scene.visualLayers.filter(
         (layer) => layer.layerType === "text",
       );
-      if (textLayers.length === 0) continue;
+      const imageLayers = scene.visualLayers.filter(
+        (layer) =>
+          layer.layerType === "media" &&
+          layer.mediaType === "image" &&
+          layer.stickerFormat !== "gif" &&
+          layer.stickerFormat !== "lottie",
+      );
+      if (textLayers.length === 0 && imageLayers.length === 0) continue;
 
       const warmup = Promise.all([
-        bridge.prewarmTextAssets(scene, "session-prewarm"),
-        fontRegistry.ensureNativeFontsRegistered(
-          textLayers.map((layer) => layer.fontFamily),
-        ),
+        textLayers.length > 0
+          ? bridge.prewarmTextAssets(scene, "session-prewarm")
+          : Promise.resolve(),
+        textLayers.length > 0
+          ? fontRegistry.ensureNativeFontsRegistered(
+              textLayers.map((layer) => layer.fontFamily),
+            )
+          : Promise.resolve(),
+        imageLayers.length > 0
+          ? bridge.prewarmImageAssets(scene)
+          : Promise.resolve(),
       ]).catch((error) => {
-        console.warn("[ProjectSession] Native text prewarm failed", {
+        console.warn("[ProjectSession] Native raster prewarm failed", {
           projectId: this.projectId,
           frameTime,
           error: error instanceof Error ? error.message : String(error),
