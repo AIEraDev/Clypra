@@ -15,6 +15,8 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { getVersion } from "@tauri-apps/api/app";
 import { ClypraColorPicker } from "@clypra/ui-color-picker";
 import { toast } from "@/lib/toast";
+import { getPlaybackClock } from "@/core/playback/PlaybackClock";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -894,6 +896,15 @@ function AboutTab() {
 // ─── Main Settings Modal ─────────────────────────────────────────────────
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<Tab>("appearance");
+
+  useEffect(() => {
+    if (isOpen) {
+      try {
+        getPlaybackClock().pause();
+      } catch {}
+      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    }
+  }, [isOpen]);
 
   const visibleTabs = TABS.filter((tab) => {
     if (platform.isCapacitor() && tab.id === "shortcuts") return false;
