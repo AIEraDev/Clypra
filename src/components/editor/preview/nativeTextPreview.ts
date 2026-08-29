@@ -21,6 +21,9 @@ export interface NativeTextRasterAsset {
   zIndex: number;
   blendMode: string;
   isText: true;
+  /** Internal geometry metadata; not part of the native wire snapshot. */
+  bleedX?: number;
+  bleedY?: number;
 }
 
 function hashTextRasterKey(value: string): string {
@@ -34,8 +37,9 @@ function hashTextRasterKey(value: string): string {
 
 /**
  * This key deliberately follows the inputs consumed by the Clypra Studio
- * text engine. It is used for native upload caching and must change whenever
- * the visible text, style, geometry, or animated time changes.
+ * text engine. It is used for native upload caching. Layout dimensions affect
+ * wrapping and therefore remain in the key; placement and presentation
+ * controls are compositor uniforms and deliberately do not.
  */
 export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
   const animation = layer.styleDefinition?.animation as { type?: string } | undefined;
@@ -47,12 +51,8 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
     layerId: layer.layerId,
     text: layer.text,
     time: timeDependent ? layer.time : undefined,
-    x: layer.x,
-    y: layer.y,
     width: layer.width,
     height: layer.height,
-    rotation: layer.rotation,
-    opacity: layer.opacity,
     fontFamily: layer.fontFamily,
     fontSize: layer.fontSize,
     fontWeight: layer.fontWeight,
@@ -207,5 +207,7 @@ export async function rasterizeTextLayerForNative(
     zIndex: layer.zIndex,
     blendMode: layer.blendMode,
     isText: true,
+    bleedX,
+    bleedY,
   };
 }
