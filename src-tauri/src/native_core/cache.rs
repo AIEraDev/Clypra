@@ -87,6 +87,12 @@ impl FrameCache {
         self.order.retain(|item| item != key);
         self.order.push_back(key.to_string());
     }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+        self.current_bytes = 0;
+    }
 }
 
 #[cfg(test)]
