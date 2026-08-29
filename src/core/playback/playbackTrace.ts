@@ -2,6 +2,22 @@
  * Focused diagnostics for native preview audio & playback synchronization.
  */
 
+const PLAYBACK_CONSOLE_EVENTS = new Set([
+  "playback-state",
+  "native-present-start",
+  "native-present-result",
+  "native-present-stages",
+  "slow-stage",
+  "pause-surface-handoff",
+  "surface-ready",
+  "surface-error",
+  "audio-ready",
+  "audio-status",
+  "audio-audibility",
+  "native-frame-dropped",
+  "native-frame-stale",
+]);
+
 export function tracePlayback(
   event: string,
   details: Record<string, unknown> = {},
@@ -111,26 +127,11 @@ class PlaybackMetricsCollector {
   }
 
   shouldLogEvent(event: string): boolean {
-    return (
-      event.includes("seek") ||
-      event.includes("stale") ||
-      event.includes("drop") ||
-      event.includes("error") ||
-      // These are low-frequency, boundary-level native audio evidence. They
-      // must remain visible when audio debugging is enabled; otherwise a
-      // silent device/mixer failure is recorded but cannot be diagnosed from
-      // the desktop runtime that produced it.
-      event.includes("timeline-ready") ||
-      event.includes("audio-ready") ||
-      event.includes("audio-status") ||
-      event.includes("audio-audibility") ||
-      event.includes("lifecycle") ||
-      event.includes("surface") ||
-      event.includes("playback") ||
-      event.includes("pause") ||
-      event.includes("present") ||
-      event.includes("slow")
-    );
+    // Keep the console focused on the playback critical path. All events are
+    // still retained by the collector; this allowlist only controls developer
+    // console output so lifecycle, geometry, and integration traces do not
+    // hide the evidence needed to diagnose A/V stalls.
+    return PLAYBACK_CONSOLE_EVENTS.has(event);
   }
 
   snapshot(): PlaybackMetricsSnapshot {
