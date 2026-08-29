@@ -1943,6 +1943,13 @@ pub async fn present_native_frame(
     }
     let legacy_request = to_video_project_request(&request)?;
     validate_video_project_request(&legacy_request)?;
+    let surface_state = app
+        .try_state::<Arc<std::sync::Mutex<NativeSurfaceRuntime>>>()
+        .ok_or_else(|| "Native surface runtime is unavailable".to_string())?;
+    let presentation_epoch = surface_state
+        .lock()
+        .map_err(|_| "Native surface runtime lock is poisoned".to_string())?
+        .runtime_epoch();
     let queued_key = request.cache_key().map_err(|error| error.to_string())?;
     let queued_frame =
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
@@ -2000,9 +2007,6 @@ pub async fn present_native_frame(
     let preview_state = app
         .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
         .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
-    let surface_state = app
-        .try_state::<Arc<std::sync::Mutex<NativeSurfaceRuntime>>>()
-        .ok_or_else(|| "Native surface runtime is unavailable".to_string())?;
     let lut_cache = app
         .try_state::<Arc<LutCache>>()
         .map(|state| state.inner().clone());
@@ -2012,6 +2016,9 @@ pub async fn present_native_frame(
     let mut surface = surface_state
         .lock()
         .map_err(|_| "Native surface runtime lock is poisoned".to_string())?;
+    if surface.runtime_epoch() != presentation_epoch {
+        return Err("Native preview frame request is stale".to_string());
+    }
     let target_format = surface
         .configured_format()
         .ok_or_else(|| "Native surface has not been configured".to_string())?;
