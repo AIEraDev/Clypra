@@ -2,6 +2,7 @@ import { TextEffectDefinition } from "../types/types";
 import { TemplateDefinition } from "@/features/text-templates/types";
 import { getApiHeaders, getApiBaseUrl } from "@/lib/api";
 import { convertRawConfigToDefinition } from "../lib/definitionConversion";
+import type { TextTemplateArtifact } from "@clypra-studio/engine";
 
 export interface TextEffectSummary {
   id: string;
@@ -34,6 +35,7 @@ export const TextEffectsApi = {
   // In-memory cache map to avoid duplicate network calls when users toggle effects
   _effectsCache: new Map<string, TextEffectDefinition>(),
   _templateCache: new Map<string, any>(),
+  _templateEtags: new Map<string, string>(),
 
   // 0. Checks if the API is online by hitting the health endpoint
   async checkApiHealth(): Promise<boolean> {
@@ -209,6 +211,39 @@ export const TextEffectsApi = {
     return data;
   },
 
+  /** Load the canonical artifact by exact revision for immutable timeline instances. */
+  async getTemplateArtifact(category: string, id: string, revisionId?: string): Promise<TextTemplateArtifact> {
+    const cacheKey = `${category}:${id}:${revisionId || "latest"}`;
+    const endpoint = revisionId
+      ? `${BASE}/text-templates/${category}/${id}/revisions/${revisionId}`
+      : `${BASE}/text-templates/${category}/${id}`;
+    const headers = { ...getApiHeaders() } as Record<string, string>;
+    const etag = this._templateEtags.get(cacheKey);
+    if (etag) headers["If-None-Match"] = etag;
+    const response = await fetch(endpoint, { headers });
+    if (response.status === 304) {
+      const cached = this._templateCache.get(cacheKey);
+      if (cached?.kind === "text-template") return cached as TextTemplateArtifact;
+    }
+    if (!response.ok) throw new Error(`Failed to load template artifact: ${id}`);
+    const artifact = await response.json() as TextTemplateArtifact;
+    const responseEtag = response.headers.get("ETag");
+    if (responseEtag) this._templateEtags.set(cacheKey, responseEtag);
+    this._templateCache.set(cacheKey, artifact);
+    return artifact;
+  },
+
+  async submitTextTemplate(artifact: TextTemplateArtifact, media: { thumbnailDataUrl?: string; previewDataUrl?: string } = {}): Promise<any> {
+    const idempotencyKey = `template-submit:${artifact.metadata.id}:${artifact.revision.contentHash}:${Date.now()}`;
+    const response = await fetch(`${BASE}/text-templates/submissions`, {
+      method: "POST",
+      headers: { ...getApiHeaders(), "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({ artifact, ...media }),
+    });
+    if (!response.ok) throw new Error(`Template submission failed: ${response.status}`);
+    return response.json();
+  },
+
   // Cache Management Methods
 
   /**
@@ -217,6 +252,7 @@ export const TextEffectsApi = {
   clearLocalCache(): void {
     this._effectsCache.clear();
     this._templateCache.clear();
+    this._templateEtags.clear();
   },
 
   /**
