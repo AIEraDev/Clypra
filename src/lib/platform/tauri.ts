@@ -398,6 +398,17 @@ export async function cancelNativePreviewRequests(generation: number): Promise<v
   await invoke("cancel_native_preview_requests", { generation });
 }
 
+/**
+ * Reset all per-project Rust native preview state on project close.
+ * Resets the frame queue generation counter, frame cache, surface presentation
+ * sequence, native audio clock, and native playback session so the next project
+ * starts completely clean.
+ */
+export async function resetNativeRuntime(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("reset_native_preview_runtime");
+}
+
 /** Upload immutable raster pixels once so frame requests can reference them by id. */
 export async function registerNativeRasterAsset(
   asset: NativeRasterLayerSnapshot & { rgba: number[] },
