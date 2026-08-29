@@ -59,12 +59,17 @@ function openDatabase(): Promise<IDBDatabase> {
       }
     };
 
-    request.onsuccess = (event) => resolve((event.target as IDBOpenDBRequest).result);
-    request.onerror = (event) => reject((event.target as IDBOpenDBRequest).error);
+    request.onsuccess = (event) =>
+      resolve((event.target as IDBOpenDBRequest).result);
+    request.onerror = (event) =>
+      reject((event.target as IDBOpenDBRequest).error);
   });
 }
 
-function withStore<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+function withStore<T>(
+  mode: IDBTransactionMode,
+  fn: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
   return openDatabase().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
@@ -90,8 +95,9 @@ function withStore<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => I
  */
 export async function saveSnapshot(snapshot: RecoverySnapshot): Promise<void> {
   try {
-    await withStore<IDBValidKey>("readwrite", (store) => store.put(snapshot, SNAPSHOT_KEY));
-    console.debug("[CrashRecovery] Snapshot saved:", snapshot.savedAt);
+    await withStore<IDBValidKey>("readwrite", (store) =>
+      store.put(snapshot, SNAPSHOT_KEY),
+    );
   } catch (error) {
     // Non-fatal – just log. We never want crash-recovery writes to block the main flow.
     console.warn("[CrashRecovery] Failed to save snapshot:", error);
@@ -104,7 +110,10 @@ export async function saveSnapshot(snapshot: RecoverySnapshot): Promise<void> {
  */
 export async function getSnapshot(): Promise<RecoverySnapshot | null> {
   try {
-    const result = await withStore<RecoverySnapshot | undefined>("readonly", (store) => store.get(SNAPSHOT_KEY));
+    const result = await withStore<RecoverySnapshot | undefined>(
+      "readonly",
+      (store) => store.get(SNAPSHOT_KEY),
+    );
     return result ?? null;
   } catch (error) {
     console.warn("[CrashRecovery] Failed to read snapshot:", error);
@@ -119,7 +128,9 @@ export async function getSnapshot(): Promise<RecoverySnapshot | null> {
  */
 export async function clearSnapshot(): Promise<void> {
   try {
-    await withStore<undefined>("readwrite", (store) => store.delete(SNAPSHOT_KEY));
+    await withStore<undefined>("readwrite", (store) =>
+      store.delete(SNAPSHOT_KEY),
+    );
     console.debug("[CrashRecovery] Snapshot cleared.");
   } catch (error) {
     console.warn("[CrashRecovery] Failed to clear snapshot:", error);
