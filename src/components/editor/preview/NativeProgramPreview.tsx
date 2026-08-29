@@ -774,6 +774,8 @@ export const NativeProgramPreview: React.FC = () => {
       if (!target) return;
       if (target.closest("[data-transform-handle]")) return;
       if (target.closest("[data-playhead]")) return;
+      if (target.closest("[data-transform-overlay]")) return;
+      if (target.closest("[data-testid='program-preview-viewport']")) return;
       clearSelection();
     },
     [clearSelection, isPanning, spacePressed],
@@ -1769,24 +1771,24 @@ export const NativeProgramPreview: React.FC = () => {
           nativeContinuousBlockedRevision !== nativeRevision;
         const nativeSurfaceOwnsCurrentFrame =
           nativeSurfaceShown &&
+          isPlaying &&
           lastNativePlaybackRequestKey === nativePlaybackRequestKey &&
-          (!isPlaying || nativeAudioClockReady) &&
+          nativeAudioClockReady &&
           nativeSurfaceUsable;
         const nativeDirectSurfacePath =
           nativeSurfaceUsable &&
           Boolean(nativeRequest) &&
-          (nativePlaybackPath || nativePausedPath);
+          (nativePlaybackPath || (nativeOnlyMode && nativePausedPath));
         const nativeReadbackFallbackPath =
           isPlaying && nativePlaybackPath && !nativeSurfaceUsable;
-        // Do not hide a valid native frame merely because the next request is
-        // waiting for the audio clock, a seek, or a new scene to finish. The
-        // retained surface is the visual continuity buffer; hiding it here
-        // creates a black flash before the replacement frame is presented.
-        // Geometry changes, hard render failures, and project cleanup still
-        // hide it through their dedicated lifecycle/error paths below.
+        // The child surface is playback-only on desktop. Paused and seeking
+        // frames must be committed to the DOM canvas so they share the exact
+        // same placement and layering as the editor overlays (TransformOverlay,
+        // SafeOverlay, captions).
         const nativeSurfaceNeedsHide =
           nativeSurfaceShown &&
-          (!nativeSurfaceUsable ||
+          (!nativeDirectSurfacePath ||
+            !nativeSurfaceUsable ||
             (!nativeRequest && !nativeSurfaceOwnsCurrentFrame));
         if (nativeSurfaceNeedsHide) {
           tracePlayback("surface-hide-for-recovery", {
@@ -1993,7 +1995,8 @@ export const NativeProgramPreview: React.FC = () => {
                         isActive &&
                         nativeSurfaceGeometrySettledRef.current &&
                         current.project?.id === state.project?.id &&
-                        current.epoch === state.epoch;
+                        current.epoch === state.epoch &&
+                        (isPlaying || nativeOnlyMode);
                       if (
                         canRetainPresentedSurface &&
                         currentRequestIsStillAuthoritative
