@@ -402,6 +402,13 @@ impl NativePreviewSession {
         Ok(texture)
     }
 
+    pub fn has_rgba_layer(&mut self, asset_id: &str, width: u32, height: u32) -> bool {
+        if asset_id.trim().is_empty() {
+            return false;
+        }
+        self.rgba_layers.get(asset_id, width, height).is_some()
+    }
+
     /// Retrieve a cached text layer GPU texture or render it via the SDF pipeline.
     /// Returns (texture, view, width, height).
     pub fn get_or_render_text_layer(
