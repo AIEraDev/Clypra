@@ -14,6 +14,7 @@ import type { Clip, TextClip } from "@/types";
 import { generateId } from "@/lib/utils/id";
 import { resolveTextEffectDefinition } from "@/lib/text/textClip";
 import type { TemplateDefinition, TemplateCustomization, TemplateElement } from "./types";
+import type { TextTemplateArtifact } from "@clypra-studio/engine";
 
 export interface InstantiateTemplateOptions {
   /** Target timeline track ID */
@@ -35,6 +36,9 @@ export function instantiateTemplate(
   template: TemplateDefinition,
   options: InstantiateTemplateOptions
 ): Clip {
+  if ((template as any).kind === "text-template" && (template as any).document) {
+    return instantiateTextTemplateArtifact(template as any, options);
+  }
   const compoundId = generateId("compound");
   const duration = template.defaultDuration || template.duration || 4.0;
   const canvasWidth = options.canvasWidth || template.canvasWidth || 1920;
@@ -100,6 +104,51 @@ export function instantiateTemplate(
   };
 
   return compoundClip;
+}
+
+/**
+ * Creates a first-class template instance. The artifact is pinned on the clip
+ * and materialized only by the timeline evaluator, so catalog republishing
+ * cannot mutate an existing edit.
+ */
+export function instantiateTextTemplateArtifact(
+  artifact: TextTemplateArtifact,
+  options: InstantiateTemplateOptions & { controlValues?: Record<string, unknown> },
+): Clip {
+  const duration = options.controlValues && artifact.timing.durationPolicy === "fixed"
+    ? artifact.timing.duration
+    : artifact.timing.duration;
+  return {
+    id: generateId("text-template"),
+    name: artifact.metadata.label,
+    kind: "text-template",
+    trackId: options.trackId,
+    startTime: options.startTime,
+    duration,
+    trimIn: 0,
+    trimOut: 0,
+    x: 0,
+    y: 0,
+    width: options.canvasWidth || artifact.document.canvas.width,
+    height: options.canvasHeight || artifact.document.canvas.height,
+    opacity: 1,
+    rotation: 0,
+    mediaId: `text-template-${artifact.metadata.id}`,
+    role: "text",
+    templateId: artifact.metadata.id,
+    templateVersion: artifact.document.templateVersion,
+    templateRevisionId: artifact.revision.revisionId,
+    templateContentHash: artifact.revision.contentHash,
+    templateSnapshot: cloneSerializable(artifact),
+    templateControlValues: cloneSerializable(options.controlValues || {}),
+    templateDependencies: artifact.dependencies.textEffects.map((dependency) => ({
+      effectId: dependency.effectId,
+      revisionId: dependency.revisionId,
+      contentHash: dependency.contentHash,
+      snapshot: dependency.snapshot as any,
+    })),
+    compoundPreview: artifact.previews?.thumbnailUrl,
+  } as Clip;
 }
 
 /**
