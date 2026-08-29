@@ -49,7 +49,7 @@ const loggedKeys = new Set<string>();
 const loggedGeometryKeys = new Set<string>();
 
 function isTraceEnabled(): boolean {
-  if (import.meta.env.DEV || import.meta.env.VITE_CLYPRA_TEXT_RENDER_TRACE === "1") return true;
+  if (import.meta.env.VITE_CLYPRA_TEXT_RENDER_TRACE === "1") return true;
   try {
     return localStorage.getItem("clypra:debug:text-render") === "1";
   } catch {
