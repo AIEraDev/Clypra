@@ -19,6 +19,7 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { getTransformController, type DragGeometry } from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
@@ -34,7 +35,7 @@ import {
   PreviewQualityTier,
 } from "./PreviewQualityManager";
 import { cn } from "@/lib/utils";
-import { AspectRatio } from "@/types";
+import { AspectRatio, type Clip } from "@/types";
 import { formatTime } from "@/lib/utils/timeFormatting";
 import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
@@ -1540,6 +1541,59 @@ export const NativeProgramPreview: React.FC = () => {
     };
     wakeNativeRenderLoopRef.current = scheduleNextFrame;
 
+    // Transform feedback is an ephemeral render concern. Keep it outside
+    // renderStateRef and Zustand so a pointer drag cannot invalidate every
+    // editor subscriber. The active geometry is merged into a private clip
+    // snapshot only at the native scene boundary below.
+    const transformController = getTransformController();
+    let dragPreviewClipId: string | null = null;
+    let dragPreviewSessionId = 0;
+    let dragPreviewRevision = 0;
+    let dragPreviewGeometry: DragGeometry | null = null;
+    let dragPreviewPendingCommit = false;
+
+    const getRenderClips = (baseClips: Clip[]): {
+      clips: Clip[];
+      previewRevision: number;
+    } => {
+      if (!dragPreviewClipId || !dragPreviewGeometry) {
+        return { clips: baseClips, previewRevision: 0 };
+      }
+
+      const previewGeometry = dragPreviewGeometry;
+      const previewClipId = dragPreviewClipId;
+      const previewRevision = dragPreviewRevision;
+      const previewClips = baseClips.map((clip) =>
+        clip.id === previewClipId
+          ? ({
+              ...clip,
+              x: previewGeometry.x,
+              y: previewGeometry.y,
+              width: previewGeometry.width,
+              height: previewGeometry.height,
+              rotation: previewGeometry.rotation,
+              ...(previewGeometry.fontSize !== undefined
+                ? { fontSize: previewGeometry.fontSize }
+                : {}),
+              ...(previewGeometry.conform
+                ? { conform: previewGeometry.conform }
+                : {}),
+            } as Clip)
+          : clip,
+      );
+
+      // The final command is written synchronously, but React may publish its
+      // new timeline snapshot on the next commit. Retain the final geometry
+      // for that handoff, then release the ephemeral override after one render.
+      if (dragPreviewPendingCommit) {
+        dragPreviewPendingCommit = false;
+        dragPreviewClipId = null;
+        dragPreviewGeometry = null;
+      }
+
+      return { clips: previewClips, previewRevision };
+    };
+
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
       renderInFlight = true;
@@ -1626,16 +1680,26 @@ export const NativeProgramPreview: React.FC = () => {
 
         if (!mightNeedRender) return;
 
+        const { clips: renderClips, previewRevision } = getRenderClips(state.clips);
+        const dragPreviewRevisionAtStart = dragPreviewRevision;
+        const renderSceneVersions =
+          previewRevision > 0
+            ? {
+                ...state.sceneVersions,
+                clipVersion: `${state.sceneVersions.clipVersion}:drag:${dragPreviewSessionId}:${previewRevision}`,
+              }
+            : state.sceneVersions;
+
         const evaluationStartedAt = performance.now();
         const scene = evaluateTimelineSceneCached(
           frameStartTime,
-          state.clips,
+          renderClips,
           state.tracks,
           state.mediaAssets,
           state.project,
           state.epoch,
           state.transitions,
-          state.sceneVersions,
+          renderSceneVersions,
         );
         traceTextLayerCount = scene.visualLayers.filter(
           (layer) => layer.layerType === "text",
@@ -1668,11 +1732,12 @@ export const NativeProgramPreview: React.FC = () => {
         const playbackTargetStillCurrent = () => {
           const current = renderStateRef.current;
           return (
-            !isPlaying ||
-            (current.project?.id === state.project?.id &&
-              current.epoch === state.epoch &&
-              current.clock.state === "playing" &&
-              getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex)
+            dragPreviewRevision === dragPreviewRevisionAtStart &&
+            (!isPlaying ||
+              (current.project?.id === state.project?.id &&
+                current.epoch === state.epoch &&
+                current.clock.state === "playing" &&
+                getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex))
           );
         };
         if (!playbackTargetStillCurrent()) {
@@ -1688,7 +1753,7 @@ export const NativeProgramPreview: React.FC = () => {
           frameIndex,
           bodyMaskCount: nativeBodyMasks.length,
         });
-        const nativeActiveSmartClips = state.clips.filter(
+        const nativeActiveSmartClips = renderClips.filter(
           (clip): clip is SmartOverlayClip =>
             clip.kind === "smart-overlay" &&
             frameStartTime >= clip.startTime &&
@@ -1908,6 +1973,7 @@ export const NativeProgramPreview: React.FC = () => {
             current.project?.id === state.project?.id &&
             current.epoch === state.epoch &&
             current.clock.state === playbackState &&
+            dragPreviewRevision === dragPreviewRevisionAtStart &&
             (!requireExactFrame ||
               getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex)
           );
@@ -2453,6 +2519,31 @@ export const NativeProgramPreview: React.FC = () => {
       }
     };
 
+    const unsubscribeTransformGeometry = transformController.onDragGeometry(
+      (geometry, sessionId, revision) => {
+        const active = transformController.getActiveTransform();
+        if (!active) return;
+
+        dragPreviewClipId = active.clipId;
+        dragPreviewSessionId = sessionId;
+        dragPreviewRevision = revision;
+        dragPreviewGeometry = geometry;
+        dragPreviewPendingCommit = false;
+        forceRenderNeeded = true;
+        scheduleNextFrame();
+      },
+    );
+    const unsubscribeTransformEnd = transformController.onDragEnd(
+      (sessionId, finalGeometry) => {
+        dragPreviewSessionId = sessionId;
+        dragPreviewRevision += 1;
+        dragPreviewGeometry = finalGeometry;
+        dragPreviewPendingCommit = true;
+        forceRenderNeeded = true;
+        scheduleNextFrame();
+      },
+    );
+
     let lastSubscriberClockState: "playing" | "paused" | "stopped" =
       clock.state;
     const unsubscribeClock = clock.subscribe((newClockState) => {
@@ -2495,6 +2586,8 @@ export const NativeProgramPreview: React.FC = () => {
       isActive = false;
       unsubscribeClock();
       unsubscribeSeekIntent?.();
+      unsubscribeTransformGeometry();
+      unsubscribeTransformEnd();
       nativePreviewScheduler.dispose();
       if (nativeTextPrefetchTimer !== null) {
         window.clearTimeout(nativeTextPrefetchTimer);
