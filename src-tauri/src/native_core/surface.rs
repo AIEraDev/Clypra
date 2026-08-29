@@ -145,6 +145,25 @@ pub struct NativeSurfacePresentation {
     pub stale: bool,
     #[serde(default)]
     pub cancelled: bool,
+    /// Optional stage timings for playback diagnosis. These are attached only
+    /// to successful surface submissions so the acknowledgement stays small on
+    /// the common path while exposing which native stage misses the frame
+    /// budget when a request is slow.
+    #[serde(default)]
+    pub timings: Option<NativeSurfacePresentationTimings>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeSurfacePresentationTimings {
+    pub total_us: u64,
+    pub decode_us: u32,
+    pub decoder_mutex_wait_us: u64,
+    pub conversion_upload_us: u64,
+    pub compose_us: u64,
+    pub surface_acquire_us: u64,
+    pub submit_present_us: u64,
+    pub queue_hit: bool,
 }
 
 #[cfg(test)]
