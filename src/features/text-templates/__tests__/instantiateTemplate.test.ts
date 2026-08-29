@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { instantiateTemplate, applyTemplateStyle } from "../instantiateTemplate";
 import { expandCompoundClips } from "@/core/timeline/compoundClips";
+import { normalizeTextTemplateArtifact } from "@clypra-studio/engine";
 import type { TemplateDefinition } from "../types";
 import type { TextClip } from "@/types";
 
@@ -341,5 +342,19 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect(restyled.color).toBe("#FFFFFF");
     expect(restyled.fontWeight).toBe(700);
     expect(restyled.align).toBe("left");
+  });
+
+  it("keeps canonical template instances as one pinned clip until runtime expansion", () => {
+    const artifact = normalizeTextTemplateArtifact({
+      id: "canonical-title",
+      label: "Canonical Title",
+      category: "title-card",
+      duration: 3,
+      nodes: [{ id: "headline", name: "Headline", type: "text", x: 0, y: 0, width: 800, height: 120, text: "Hello", style: { fontFamily: "Inter", fontSize: 64, textColor: "#fff" } }],
+    });
+    const clip = instantiateTemplate(artifact as any, { trackId: "track-1", startTime: 0 });
+    expect(clip.kind).toBe("text-template");
+    expect(clip.compoundChildren).toBeUndefined();
+    expect(expandCompoundClips([clip])[0]).toMatchObject({ kind: "text", templateId: "canonical-title", text: "Hello" });
   });
 });
