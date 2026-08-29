@@ -99,6 +99,14 @@ impl NativeSurfaceRuntime {
         }
         Ok(())
     }
+
+    pub(crate) fn reset(&mut self) {
+        let _ = self.hide_surface();
+        self.probe = None;
+        self.configuration = None;
+        self.configured_format = None;
+        self.last_presentation_sequence = 0;
+    }
 }
 
 #[tauri::command]
