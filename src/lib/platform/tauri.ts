@@ -480,21 +480,6 @@ export async function getNativePreviewSurfaceGeometry(
     devicePixelRatio: dpr,
   };
 
-  if (import.meta.env.DEV) {
-    console.debug("[native-preview] surface-geometry", {
-      rect: {
-        left: Number(rect.left.toFixed(2)),
-        top: Number(rect.top.toFixed(2)),
-        width: Number(rect.width.toFixed(2)),
-        height: Number(rect.height.toFixed(2)),
-      },
-      dpr,
-      positionSpace: isMac ? "outer" : "inner",
-      windowPosition,
-      geometry,
-    });
-  }
-
   return geometry;
 }
 
