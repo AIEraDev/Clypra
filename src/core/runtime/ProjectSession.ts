@@ -473,10 +473,14 @@ export class ProjectSession {
 
     const { clips, tracks, transitions } = timelineStore.useTimelineStore.getState();
     const mediaAssets = projectStore.useProjectStore.getState().mediaAssets;
+    const assetMap = new Map(mediaAssets.map((a) => [a.id, a]));
+    const isRasterClip = (clip: (typeof clips)[number]) => {
+      if (clip.kind === "text" || clip.kind === "image" || clip.kind === "sticker") return true;
+      const asset = assetMap.get(clip.mediaId);
+      return asset?.type === "image" || (clip.mediaId && clip.mediaId.startsWith("sticker-"));
+    };
     const rasterBoundaries = clips
-      .filter((clip) =>
-        clip.kind === "text" || clip.kind === "image" || clip.kind === "sticker",
-      )
+      .filter(isRasterClip)
       .sort((left, right) => left.startTime - right.startTime);
     if (rasterBoundaries.length === 0) return;
 

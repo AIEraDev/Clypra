@@ -1963,6 +1963,11 @@ pub async fn present_native_frame(
         .ok_or_else(|| "Native surface lost its readiness probe".to_string())?;
     let (audio_position_ticks, frame_age_ticks, late_for_audio) =
         native_presentation_timing(&app, request.frame_time.ticks, request.frame_time.timescale);
+    // Non-video frames (still images, text, stickers, canvas backgrounds) have 0
+    // video decoder streams and compose on the GPU in ~0.05ms. Dropping them
+    // for being "late for audio" causes multi-second freezes of the previous frame.
+    // Only frames containing video decoding layers apply late_for_audio drops.
+    let late_for_audio = late_for_audio && !legacy_request.layers.is_empty();
     if !surface.accept_presentation(presentation_sequence) {
         SYNC_METRICS.record_dropped_frame();
         drop(surface);

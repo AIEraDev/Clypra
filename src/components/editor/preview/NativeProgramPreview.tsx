@@ -1342,10 +1342,16 @@ export const NativeProgramPreview: React.FC = () => {
         Math.ceil(state.clock.duration * frameRate),
       );
       const horizonTime = currentTime + 8;
+      const assetMap = new Map(state.mediaAssets.map((a) => [a.id, a]));
+      const isRasterClip = (clip: (typeof state.clips)[number]) => {
+        if (clip.kind === "text" || clip.kind === "image" || clip.kind === "sticker") return true;
+        const asset = assetMap.get(clip.mediaId);
+        return asset?.type === "image" || (clip.mediaId && clip.mediaId.startsWith("sticker-"));
+      };
       const upcomingRasterClip = state.clips
         .filter(
           (clip) =>
-            (clip.kind === "text" || clip.kind === "image" || clip.kind === "sticker") &&
+            isRasterClip(clip) &&
             clip.startTime > currentTime &&
             clip.startTime <= horizonTime,
         )
@@ -1447,14 +1453,10 @@ export const NativeProgramPreview: React.FC = () => {
         nativeTextPrefetchTimer = null;
         const current = renderStateRef.current;
         if (current.clock.state !== "playing") return;
-        if (renderInFlight || nativePlaybackInFlight) {
-          scheduleUpcomingNativeTextPrefetch();
-          return;
-        }
         prefetchUpcomingNativeText(
           getFrameIndexAtTime(current.clock.time, current.clock.frameRate),
         );
-      }, 250);
+      }, 100);
     };
 
     const scheduleNextFrame = () => {
@@ -1964,6 +1966,18 @@ export const NativeProgramPreview: React.FC = () => {
                       lastNativePlaybackRequestKey = "";
                       if (presentation.dropped) {
                         nativeDroppedFrameCount += 1;
+                        if (
+                          isPlaying &&
+                          typeof presentation.audioPositionTicks === "number" &&
+                          presentation.audioPositionTicks > 0 &&
+                          typeof presentation.frameAgeTicks === "number" &&
+                          presentation.frameAgeTicks > 60_000
+                        ) {
+                          clock.setNativeClockPosition(
+                            presentation.audioPositionTicks / 1_000_000,
+                            clock.speed,
+                          );
+                        }
                       }
                     } else {
                       frontendSpan?.finish();
@@ -2367,6 +2381,9 @@ export const NativeProgramPreview: React.FC = () => {
         nativeBlockedKey = "";
         nativeFailureCount = 0;
         nativeRetryAt = 0;
+        if (newClockState.state === "playing") {
+          scheduleUpcomingNativeTextPrefetch();
+        }
       }
       scheduleNextFrame();
     });
