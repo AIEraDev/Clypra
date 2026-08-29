@@ -2,7 +2,6 @@ use bytemuck::cast_slice;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use tauri::Manager;
-use tokio::process::Command;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::commands::whisper::resolve_model_file_path;
@@ -95,8 +94,7 @@ pub async fn generate_auto_captions(
     );
 
     // 2. Extract 16kHz Mono f32 PCM via FFmpeg stdout with augmented PATH
-    let child = Command::new("ffmpeg")
-        .env("PATH", crate::commands::export::augmented_path())
+    let child = crate::commands::binary_resolver::create_async_command("ffmpeg")
         .args([
             "-i",
             &video_path,
