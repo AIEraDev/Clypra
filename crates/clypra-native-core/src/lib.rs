@@ -65,7 +65,8 @@ pub mod native_core {
     pub use crate::session::PlaybackSession;
     pub use crate::surface::{
         NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry,
-        NativeSurfacePresentation, NativeSurfaceProbe, NativeSurfaceStatus,
+        NativeSurfacePresentation, NativeSurfacePresentationTimings, NativeSurfaceProbe,
+        NativeSurfaceStatus,
     };
 }
 
@@ -91,5 +92,6 @@ pub use service::NativeFrameService;
 pub use session::PlaybackSession;
 pub use surface::{
     NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry,
-    NativeSurfacePresentation, NativeSurfaceProbe, NativeSurfaceStatus,
+    NativeSurfacePresentation, NativeSurfacePresentationTimings, NativeSurfaceProbe,
+    NativeSurfaceStatus,
 };
