@@ -12,8 +12,7 @@ use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
 use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
 use crate::wgpu_compositor::{
     BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms,
-    CompositeLayer, CropMargins, LayerTransform, MultiTrackCompositor, NativePreviewSession,
-    NativeWgpuRenderer,
+    CompositeLayer, CropMargins, LayerTransform, NativePreviewSession, NativeWgpuRenderer,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -39,12 +38,18 @@ pub fn register_native_font(font_id: String, path: String) -> Result<u64, String
     }
     let bytes = std::fs::read(path).map_err(|error| {
         let message = format!("Unable to read native font '{}': {error}", path.display());
-        eprintln!("[native-font][rust] register-failed id={} reason={}", font_id, message);
+        eprintln!(
+            "[native-font][rust] register-failed id={} reason={}",
+            font_id, message
+        );
         message
     })?;
     if bytes.len() > 32 * 1024 * 1024 {
         let message = "Native font exceeds the 32 MiB registration limit".to_string();
-        eprintln!("[native-font][rust] register-failed id={} reason={}", font_id, message);
+        eprintln!(
+            "[native-font][rust] register-failed id={} reason={}",
+            font_id, message
+        );
         return Err(message);
     }
     register_native_font_bytes(font_id, bytes)
@@ -71,10 +76,14 @@ pub fn register_native_font_bytes(font_id: String, bytes: Vec<u8>) -> Result<u64
         "[native-font][rust] register-start id={} bytes={} format={}",
         font_id,
         bytes.len(),
-        if woff2::decode::is_woff2(&bytes) { "woff2" } else { "sfnt" }
+        if woff2::decode::is_woff2(&bytes) {
+            "woff2"
+        } else {
+            "sfnt"
+        }
     );
-    let result = clypra_native_core::font_registry::global_font_registry()
-        .register_font(&font_id, &bytes);
+    let result =
+        clypra_native_core::font_registry::global_font_registry().register_font(&font_id, &bytes);
     match &result {
         Ok(hash) => eprintln!(
             "[native-font][rust] register-ok id={} hash={} registered_count={}",
@@ -86,8 +95,7 @@ pub fn register_native_font_bytes(font_id: String, bytes: Vec<u8>) -> Result<u64
         ),
         Err(error) => eprintln!(
             "[native-font][rust] register-failed id={} reason={}",
-            font_id,
-            error
+            font_id, error
         ),
     }
     result
@@ -750,22 +758,23 @@ fn compute_text_layer_placement(
     shaped_w: f32,
     shaped_h: f32,
 ) -> (f32, f32) {
-    let (unrotated_center_x, unrotated_center_y) = match (text_layer.box_width, text_layer.box_height) {
-        (Some(box_w), Some(box_h)) if box_w > 0.0 && box_h > 0.0 => {
-            let cx = match text_layer.text_align.to_ascii_lowercase().as_str() {
-                "left" => text_layer.x + shaped_w * 0.5,
-                "right" => text_layer.x + box_w - shaped_w * 0.5,
-                _ => text_layer.x + box_w * 0.5, // "center" is default
-            };
-            let cy = match text_layer.vertical_align.to_ascii_lowercase().as_str() {
-                "top" => text_layer.y + shaped_h * 0.5,
-                "bottom" => text_layer.y + box_h - shaped_h * 0.5,
-                _ => text_layer.y + box_h * 0.5,
-            };
-            (cx, cy)
-        }
-        _ => (text_layer.x + shaped_w * 0.5, text_layer.y + shaped_h * 0.5),
-    };
+    let (unrotated_center_x, unrotated_center_y) =
+        match (text_layer.box_width, text_layer.box_height) {
+            (Some(box_w), Some(box_h)) if box_w > 0.0 && box_h > 0.0 => {
+                let cx = match text_layer.text_align.to_ascii_lowercase().as_str() {
+                    "left" => text_layer.x + shaped_w * 0.5,
+                    "right" => text_layer.x + box_w - shaped_w * 0.5,
+                    _ => text_layer.x + box_w * 0.5, // "center" is default
+                };
+                let cy = match text_layer.vertical_align.to_ascii_lowercase().as_str() {
+                    "top" => text_layer.y + shaped_h * 0.5,
+                    "bottom" => text_layer.y + box_h - shaped_h * 0.5,
+                    _ => text_layer.y + box_h * 0.5,
+                };
+                (cx, cy)
+            }
+            _ => (text_layer.x + shaped_w * 0.5, text_layer.y + shaped_h * 0.5),
+        };
 
     let (final_center_x, final_center_y) = match (text_layer.box_width, text_layer.box_height) {
         (Some(box_w), Some(box_h)) if box_w > 0.0 && box_h > 0.0 && text_layer.rotation != 0.0 => {
@@ -781,7 +790,10 @@ fn compute_text_layer_placement(
         _ => (unrotated_center_x, unrotated_center_y),
     };
 
-    (final_center_x - shaped_w * 0.5, final_center_y - shaped_h * 0.5)
+    (
+        final_center_x - shaped_w * 0.5,
+        final_center_y - shaped_h * 0.5,
+    )
 }
 
 /// Fit the native text texture inside the editor's text box.
@@ -790,11 +802,7 @@ fn compute_text_layer_placement(
 /// wider than the browser's estimate (emoji fallback and synthetic italic are
 /// the most common examples).  The text box remains the authoritative layout
 /// constraint; scale only when the native texture would otherwise overflow it.
-fn compute_text_layer_scale(
-    text_layer: &TextLayerSnapshot,
-    shaped_w: f32,
-    shaped_h: f32,
-) -> f32 {
+fn compute_text_layer_scale(text_layer: &TextLayerSnapshot, shaped_w: f32, shaped_h: f32) -> f32 {
     let (Some(box_w), Some(box_h)) = (text_layer.box_width, text_layer.box_height) else {
         return 1.0;
     };
@@ -1286,11 +1294,15 @@ pub async fn render_native_project_frame(
     let state = app
         .try_state::<Arc<tokio::sync::Mutex<NativePreviewSession>>>()
         .ok_or_else(|| "Native preview GPU session is unavailable".to_string())?;
-    let session = state.lock().await;
-    let device = &session.gpu.device;
-    let queue = &session.gpu.queue;
-    let compositor =
-        MultiTrackCompositor::new(device, queue, request.canvas_width, request.canvas_height);
+    let mut session = state.lock().await;
+    let gpu = Arc::clone(&session.gpu);
+    let compositor = session.get_or_create_compositor(
+        request.canvas_width,
+        request.canvas_height,
+        wgpu::TextureFormat::Rgba8Unorm,
+    );
+    let device = &gpu.device;
+    let queue = &gpu.queue;
 
     let mut textures = Vec::with_capacity(request.layers.len());
     let mut views = Vec::with_capacity(request.layers.len());
@@ -1425,8 +1437,11 @@ async fn render_native_video_project_frame_bytes_timed(
     let decode_time_us = decode_timings.decode_time_us;
 
     let mut session = state.lock().await;
+    let gpu = Arc::clone(&session.gpu);
     let conversion_started = Instant::now();
-    let mut textures = Vec::with_capacity(request.layers.len() + request.raster_layers.len() + request.text_layers.len());
+    let mut textures = Vec::with_capacity(
+        request.layers.len() + request.raster_layers.len() + request.text_layers.len(),
+    );
     let mut views = Vec::with_capacity(request.layers.len() + request.raster_layers.len());
     for (layer, (y_plane, uv_plane, width, height, color)) in
         request.layers.iter().zip(decoded_frames.iter())
@@ -1467,14 +1482,14 @@ async fn render_native_video_project_frame_bytes_timed(
         .as_micros()
         .min(u32::MAX as u128) as u32;
 
-    let compositor = MultiTrackCompositor::new_with_target_format(
-        &session.gpu.device,
-        &session.gpu.queue,
+    let compositor = session.get_or_create_compositor(
         request.canvas_width,
         request.canvas_height,
         wgpu::TextureFormat::Rgba8UnormSrgb,
     );
-    let mut specs = Vec::with_capacity(request.layers.len() + request.raster_layers.len() + request.text_layers.len());
+    let mut specs = Vec::with_capacity(
+        request.layers.len() + request.raster_layers.len() + request.text_layers.len(),
+    );
     let mask_views: HashMap<&str, &wgpu::TextureView> = request
         .raster_layers
         .iter()
@@ -1567,14 +1582,14 @@ async fn render_native_video_project_frame_bytes_timed(
         if let Some(transition) = request.transition.as_ref() {
             let (from_layer, to_layer) = build_transition_sources(&request, &layers)?;
             let from_texture = create_transition_source_texture(
-                &session.gpu.device,
+                &gpu.device,
                 request.canvas_width,
                 request.canvas_height,
                 wgpu::TextureFormat::Rgba8UnormSrgb,
                 "Native Transition From Texture",
             );
             let to_texture = create_transition_source_texture(
-                &session.gpu.device,
+                &gpu.device,
                 request.canvas_width,
                 request.canvas_height,
                 wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -1583,15 +1598,15 @@ async fn render_native_video_project_frame_bytes_timed(
             let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
             let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
             compositor.composite_layers(
-                &session.gpu.device,
-                &session.gpu.queue,
+                &gpu.device,
+                &gpu.queue,
                 &from_view,
                 std::slice::from_ref(&from_layer),
                 Some(clear_color),
             )?;
             compositor.composite_layers(
-                &session.gpu.device,
-                &session.gpu.queue,
+                &gpu.device,
+                &gpu.queue,
                 &to_view,
                 std::slice::from_ref(&to_layer),
                 Some(clear_color),
@@ -1599,8 +1614,8 @@ async fn render_native_video_project_frame_bytes_timed(
             let overlays = if layers.len() > 2 { &layers[2..] } else { &[] };
             let (rgba, compositor_compose_us, readback_us) = compositor
                 .render_transition_with_overlays_to_rgba_bytes_timed(
-                    &session.gpu.device,
-                    &session.gpu.queue,
+                    &gpu.device,
+                    &gpu.queue,
                     request.canvas_width,
                     request.canvas_height,
                     &from_view,
@@ -1614,8 +1629,8 @@ async fn render_native_video_project_frame_bytes_timed(
         } else {
             compositor
                 .render_to_rgba_bytes_with_size_timed(
-                    &session.gpu.device,
-                    &session.gpu.queue,
+                    &gpu.device,
+                    &gpu.queue,
                     request.canvas_width,
                     request.canvas_height,
                     &layers,
@@ -1968,6 +1983,7 @@ pub async fn present_native_frame(
         .map(|state| state.inner().clone());
 
     let mut session = preview_state.lock().await;
+    let gpu = Arc::clone(&session.gpu);
     let mut surface = surface_state
         .lock()
         .map_err(|_| "Native surface runtime lock is poisoned".to_string())?;
@@ -2054,7 +2070,7 @@ pub async fn present_native_frame(
         ));
     }
     let surface_acquire_started = Instant::now();
-    let surface_texture = surface.acquire_current_texture(&session.gpu.device)?;
+    let surface_texture = surface.acquire_current_texture(&gpu.device)?;
     let surface_acquire_us = surface_acquire_started.elapsed().as_micros() as u64;
     let target_view = surface_texture
         .texture
@@ -2104,15 +2120,16 @@ pub async fn present_native_frame(
 
     let conversion_upload_us = conversion_started.elapsed().as_micros() as u64;
     let compose_started = Instant::now();
-    let compositor = MultiTrackCompositor::new_with_target_format(
-        &session.gpu.device,
-        &session.gpu.queue,
+    let compositor = session.get_or_create_compositor(
         legacy_request.canvas_width,
         legacy_request.canvas_height,
         target_format,
     );
-    let mut specs =
-        Vec::with_capacity(legacy_request.layers.len() + legacy_request.raster_layers.len() + legacy_request.text_layers.len());
+    let mut specs = Vec::with_capacity(
+        legacy_request.layers.len()
+            + legacy_request.raster_layers.len()
+            + legacy_request.text_layers.len(),
+    );
     let mask_views: HashMap<&str, &wgpu::TextureView> = legacy_request
         .raster_layers
         .iter()
@@ -2202,14 +2219,14 @@ pub async fn present_native_frame(
     if let Some(transition) = legacy_request.transition.as_ref() {
         let (from_layer, to_layer) = build_transition_sources(&legacy_request, &layers)?;
         let from_texture = create_transition_source_texture(
-            &session.gpu.device,
+            &gpu.device,
             legacy_request.canvas_width,
             legacy_request.canvas_height,
             target_format,
             "Native Surface Transition From Texture",
         );
         let to_texture = create_transition_source_texture(
-            &session.gpu.device,
+            &gpu.device,
             legacy_request.canvas_width,
             legacy_request.canvas_height,
             target_format,
@@ -2218,22 +2235,22 @@ pub async fn present_native_frame(
         let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
         compositor.composite_layers(
-            &session.gpu.device,
-            &session.gpu.queue,
+            &gpu.device,
+            &gpu.queue,
             &from_view,
             std::slice::from_ref(&from_layer),
             Some(clear_color),
         )?;
         compositor.composite_layers(
-            &session.gpu.device,
-            &session.gpu.queue,
+            &gpu.device,
+            &gpu.queue,
             &to_view,
             std::slice::from_ref(&to_layer),
             Some(clear_color),
         )?;
         compositor.composite_transition(
-            &session.gpu.device,
-            &session.gpu.queue,
+            &gpu.device,
+            &gpu.queue,
             &target_view,
             &from_view,
             &to_view,
@@ -2242,8 +2259,8 @@ pub async fn present_native_frame(
         )?;
     } else {
         compositor.composite_layers(
-            &session.gpu.device,
-            &session.gpu.queue,
+            &gpu.device,
+            &gpu.queue,
             &target_view,
             &layers,
             Some(clear_color),
