@@ -1019,7 +1019,7 @@ impl NativeAudioClock {
         self.inner
             .mixer
             .write()
-            .expect("native audio mixer lock poisoned")
+            .map_err(|_| "native audio mixer lock poisoned".to_string())?
             .install_clip(clip)
     }
 
