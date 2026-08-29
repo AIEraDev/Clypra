@@ -189,67 +189,68 @@ interface ConnectedProgramTransportProps {
   setScopesOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> = React.memo((props) => {
-  const clockState = usePlaybackClock();
-  return (
-    <PreviewTransport
-      currentTime={clockState.time}
-      duration={props.duration || clockState.duration}
-      isPlaying={clockState.state === "playing"}
-      disabled={props.disabled}
-      onPlayPause={props.onPlayPause}
-      onSeek={props.onSeek}
-      formatTime={props.formatTime}
-      onStepBack={() => props.onStepBack(clockState.time)}
-      onStepForward={() => props.onStepForward(clockState.time)}
-      leftActions={
-        <div className="relative" ref={props.speedMenuRef}>
-          <PlaybackSpeedSelector
-            playbackSpeed={clockState.speed}
-            speedMenuOpen={props.speedMenuOpen}
-            setSpeedMenuOpen={props.setSpeedMenuOpen}
-            setSpeed={props.transportSetSpeed}
-          />
-        </div>
-      }
-      rightActions={
-        <>
-          <button
-            type="button"
-            onClick={() => props.setScopesOpen((prev) => !prev)}
-            title="Toggle Video Scopes (Waveform, Parade, Vectorscope, Histogram)"
-            className={`p-1.5 rounded-lg transition-colors flex items-center justify-center ${
-              props.scopesOpen
-                ? "bg-accent text-white shadow-sm"
-                : "text-text-muted hover:text-text-primary hover:bg-white/5"
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="relative shrink-0" ref={props.aspectMenuRef}>
-            <AspectSelector
-              aspectMenuOpen={props.aspectMenuOpen}
-              setAspectMenuOpen={props.setAspectMenuOpen}
-              previewAspectPreset={props.previewAspectPreset}
-              selectAspectPreset={props.selectAspectPreset}
-              canvasWidth={props.canvasWidth}
-              canvasHeight={props.canvasHeight}
+const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
+  React.memo((props) => {
+    const clockState = usePlaybackClock();
+    return (
+      <PreviewTransport
+        currentTime={clockState.time}
+        duration={props.duration || clockState.duration}
+        isPlaying={clockState.state === "playing"}
+        disabled={props.disabled}
+        onPlayPause={props.onPlayPause}
+        onSeek={props.onSeek}
+        formatTime={props.formatTime}
+        onStepBack={() => props.onStepBack(clockState.time)}
+        onStepForward={() => props.onStepForward(clockState.time)}
+        leftActions={
+          <div className="relative" ref={props.speedMenuRef}>
+            <PlaybackSpeedSelector
+              playbackSpeed={clockState.speed}
+              speedMenuOpen={props.speedMenuOpen}
+              setSpeedMenuOpen={props.setSpeedMenuOpen}
+              setSpeed={props.transportSetSpeed}
             />
           </div>
+        }
+        rightActions={
+          <>
+            <button
+              type="button"
+              onClick={() => props.setScopesOpen((prev) => !prev)}
+              title="Toggle Video Scopes (Waveform, Parade, Vectorscope, Histogram)"
+              className={`p-1.5 rounded-lg transition-colors flex items-center justify-center ${
+                props.scopesOpen
+                  ? "bg-accent text-white shadow-sm"
+                  : "text-text-muted hover:text-text-primary hover:bg-white/5"
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5" />
+            </button>
 
-          <div className="hidden @[360px]:block w-px h-4 bg-white/10 mx-0.5" />
-          <VolumeControl
-            isMuted={props.isMuted}
-            setIsMuted={props.setIsMuted}
-            volume={props.volume}
-            setVolume={props.setVolume}
-          />
-        </>
-      }
-    />
-  );
-});
+            <div className="relative shrink-0" ref={props.aspectMenuRef}>
+              <AspectSelector
+                aspectMenuOpen={props.aspectMenuOpen}
+                setAspectMenuOpen={props.setAspectMenuOpen}
+                previewAspectPreset={props.previewAspectPreset}
+                selectAspectPreset={props.selectAspectPreset}
+                canvasWidth={props.canvasWidth}
+                canvasHeight={props.canvasHeight}
+              />
+            </div>
+
+            <div className="hidden @[360px]:block w-px h-4 bg-white/10 mx-0.5" />
+            <VolumeControl
+              isMuted={props.isMuted}
+              setIsMuted={props.setIsMuted}
+              volume={props.volume}
+              setVolume={props.setVolume}
+            />
+          </>
+        }
+      />
+    );
+  });
 
 export const NativeProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
@@ -323,6 +324,10 @@ export const NativeProgramPreview: React.FC = () => {
     (node: HTMLDivElement | null) => {
       previewContainerRef.current = node;
       setContainerEl(node);
+      // Measurement belongs to the mounted container. Clear it when the
+      // project view leaves the tree so a later session cannot configure the
+      // native child surface from a previous session's rectangle.
+      if (!node) setDimensions({ width: 0, height: 0 });
     },
     [],
   );
@@ -453,9 +458,13 @@ export const NativeProgramPreview: React.FC = () => {
 
       const profile = {
         width:
-          videoAsset?.width || renderStateRef.current.project?.canvasWidth || 3840,
+          videoAsset?.width ||
+          renderStateRef.current.project?.canvasWidth ||
+          3840,
         height:
-          videoAsset?.height || renderStateRef.current.project?.canvasHeight || 2160,
+          videoAsset?.height ||
+          renderStateRef.current.project?.canvasHeight ||
+          2160,
         nominalFps: renderStateRef.current.project?.frameRate || 60,
       };
 
@@ -692,7 +701,8 @@ export const NativeProgramPreview: React.FC = () => {
           nativeSurfaceConfiguredRef.current = false;
           nativeSurfaceGeometrySettledRef.current = false;
           if (active) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+              error instanceof Error ? error.message : String(error);
             nativeSurfaceErrorRef.current = message;
             setNativeSurfaceError(message);
             nativeSurfaceReadyRef.current = false;
@@ -955,7 +965,8 @@ export const NativeProgramPreview: React.FC = () => {
     // loading modal can render its progress. Do not start the visible RAF loop
     // in that gap: it would create an unowned bridge and can issue a long
     // stopped-state render while session prewarming is still in progress.
-    if (!canvasEl || !project || !isTauriRuntime() || projectInitializing) return;
+    if (!canvasEl || !project || !isTauriRuntime() || projectInitializing)
+      return;
 
     const capturedSession = getActiveSessionOrNull();
     if (!capturedSession) return;
@@ -1008,7 +1019,9 @@ export const NativeProgramPreview: React.FC = () => {
     let transportRevision = 0;
     const sessionNativeRasterBridge = capturedSession?.nativeRasterBridge;
     if (!sessionNativeRasterBridge) {
-      console.warn("[native-preview] active session has no native raster bridge");
+      console.warn(
+        "[native-preview] active session has no native raster bridge",
+      );
       return;
     }
     const nativeRasterBridge = sessionNativeRasterBridge;
@@ -1032,9 +1045,12 @@ export const NativeProgramPreview: React.FC = () => {
 
     const getNativeRenderTarget = (
       state: typeof renderStateRef.current,
-      isPlaying: boolean,
       isInteracting: boolean,
-    ): { width: number; height: number; quality: NativeFrameRequest["quality"] } => {
+    ): {
+      width: number;
+      height: number;
+      quality: NativeFrameRequest["quality"];
+    } => {
       const manager = qualityManagerRef.current;
       if (!manager) {
         return {
@@ -1044,10 +1060,8 @@ export const NativeProgramPreview: React.FC = () => {
         };
       }
 
-      const tier = manager.selectTierForInteraction(
-        isPlaying,
+      const tier = manager.selectTierForPreview(
         isInteracting,
-        false,
         state.previewQuality,
       );
       const profile = manager.getRenderProfile(tier);
@@ -1355,7 +1369,10 @@ export const NativeProgramPreview: React.FC = () => {
       }
 
       const frameRate = Math.max(1, project.frameRate ?? 30);
-      const currentTime = getFrameStartTime(currentFrame / frameRate, frameRate);
+      const currentTime = getFrameStartTime(
+        currentFrame / frameRate,
+        frameRate,
+      );
       const durationFrames = Math.max(
         1,
         Math.ceil(state.clock.duration * frameRate),
@@ -1363,9 +1380,17 @@ export const NativeProgramPreview: React.FC = () => {
       const horizonTime = currentTime + 8;
       const assetMap = new Map(state.mediaAssets.map((a) => [a.id, a]));
       const isRasterClip = (clip: (typeof state.clips)[number]) => {
-        if (clip.kind === "text" || clip.kind === "image" || clip.kind === "sticker") return true;
+        if (
+          clip.kind === "text" ||
+          clip.kind === "image" ||
+          clip.kind === "sticker"
+        )
+          return true;
         const asset = assetMap.get(clip.mediaId);
-        return asset?.type === "image" || (clip.mediaId && clip.mediaId.startsWith("sticker-"));
+        return (
+          asset?.type === "image" ||
+          (clip.mediaId && clip.mediaId.startsWith("sticker-"))
+        );
       };
       const upcomingRasterClip = state.clips
         .filter(
@@ -1379,7 +1404,10 @@ export const NativeProgramPreview: React.FC = () => {
 
       const targetFrame = Math.min(
         durationFrames - 1,
-        Math.max(currentFrame + 1, Math.ceil(upcomingRasterClip.startTime * frameRate)),
+        Math.max(
+          currentFrame + 1,
+          Math.ceil(upcomingRasterClip.startTime * frameRate),
+        ),
       );
       const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
       const key = `${revision}:${targetFrame}`;
@@ -1521,7 +1549,6 @@ export const NativeProgramPreview: React.FC = () => {
         const frameStartTime = getFrameStartTime(timeToRender, frameRate);
         const renderTarget = getNativeRenderTarget(
           state,
-          isPlaying,
           !isPlaying && clock.isSeeking,
         );
         const requestIntent = latestSeekIntent
@@ -1555,7 +1582,8 @@ export const NativeProgramPreview: React.FC = () => {
           state.transitions !== lastRenderedTransitions;
         const projectChanged = state.project !== lastRenderedProject;
 
-        const mediaReadyRevision = capturedSession.getPreviewMediaReadyRevision();
+        const mediaReadyRevision =
+          capturedSession.getPreviewMediaReadyRevision();
         const mediaReadyChanged =
           mediaReadyRevision !== lastRenderedMediaReadyRevision;
 
@@ -1585,12 +1613,18 @@ export const NativeProgramPreview: React.FC = () => {
           state.transitions,
           state.sceneVersions,
         );
-        traceTextLayerCount = scene.visualLayers.filter((layer) => layer.layerType === "text").length;
-        traceSlowPlaybackStage("visible-scene-evaluation", evaluationStartedAt, {
-          frameIndex,
-          playbackState,
-          textLayerCount: traceTextLayerCount,
-        });
+        traceTextLayerCount = scene.visualLayers.filter(
+          (layer) => layer.layerType === "text",
+        ).length;
+        traceSlowPlaybackStage(
+          "visible-scene-evaluation",
+          evaluationStartedAt,
+          {
+            frameIndex,
+            playbackState,
+            textLayerCount: traceTextLayerCount,
+          },
+        );
         const bridgeStartedAt = performance.now();
         const nativeBridgeRasters = await nativeRasterBridge.rasterize(scene, {
           frameKey: frameIndex,
@@ -1647,10 +1681,14 @@ export const NativeProgramPreview: React.FC = () => {
             renderTarget.height,
             { frameKey: frameIndex },
           );
-        traceSlowPlaybackStage("visible-smart-overlays", smartOverlayStartedAt, {
-          frameIndex,
-          smartOverlayCount: nativeSmartOverlays.length,
-        });
+        traceSlowPlaybackStage(
+          "visible-smart-overlays",
+          smartOverlayStartedAt,
+          {
+            frameIndex,
+            smartOverlayCount: nativeSmartOverlays.length,
+          },
+        );
         if (!playbackTargetStillCurrent()) {
           forceRenderNeeded = true;
           return;
@@ -1764,10 +1802,10 @@ export const NativeProgramPreview: React.FC = () => {
           if (nativeOnlyBlockersKeyRef.current !== blockerKey) {
             nativeOnlyBlockersKeyRef.current = blockerKey;
             if (blockers.length > 0) {
-              toast.error(
-                ["Native-only preview", ...blockers].join("\n"),
-                { id: "native-only-preview-blocked", duration: 6000 },
-              );
+              toast.error(["Native-only preview", ...blockers].join("\n"), {
+                id: "native-only-preview-blocked",
+                duration: 6000,
+              });
             } else {
               toast.dismiss("native-only-preview-blocked");
             }
@@ -1793,9 +1831,7 @@ export const NativeProgramPreview: React.FC = () => {
           nativeAudioClockReady &&
           nativeSurfaceUsable;
         const nativeDirectSurfacePath =
-          nativeSurfaceUsable &&
-          Boolean(nativeRequest) &&
-          nativePlaybackPath;
+          nativeSurfaceUsable && Boolean(nativeRequest) && nativePlaybackPath;
         const nativeReadbackFallbackPath =
           isPlaying && nativePlaybackPath && !nativeSurfaceUsable;
         // The child surface is playback-only on desktop. Paused and seeking
@@ -1859,10 +1895,9 @@ export const NativeProgramPreview: React.FC = () => {
           performance.now() >= nativeRetryAt &&
           !nativePlaybackInFlight
         ) {
-          const requestToPresent =
-            isPlaying
-              ? nativePlaybackRequest ?? nativeRequest
-              : nativeRequest;
+          const requestToPresent = isPlaying
+            ? (nativePlaybackRequest ?? nativeRequest)
+            : nativeRequest;
           if (requestToPresent) {
             const requestKey = getNativeFrameRequestKey(requestToPresent);
             if (requestKey !== lastNativePlaybackRequestKey) {
@@ -1900,10 +1935,7 @@ export const NativeProgramPreview: React.FC = () => {
                   .then((presentation) => {
                     frontendSpan?.markIpcFinished();
                     const timings = presentation.timings;
-                    if (
-                      timings &&
-                      timings.totalUs >= 16_667
-                    ) {
+                    if (timings && timings.totalUs >= 16_667) {
                       tracePlayback("native-present-stages", {
                         projectId: state.project?.id ?? null,
                         sessionId: capturedSession.sessionId,
@@ -1916,7 +1948,9 @@ export const NativeProgramPreview: React.FC = () => {
                         conversionUploadMs: Number(
                           (timings.conversionUploadUs / 1000).toFixed(2),
                         ),
-                        composeMs: Number((timings.composeUs / 1000).toFixed(2)),
+                        composeMs: Number(
+                          (timings.composeUs / 1000).toFixed(2),
+                        ),
                         surfaceAcquireMs: Number(
                           (timings.surfaceAcquireUs / 1000).toFixed(2),
                         ),
@@ -2022,7 +2056,10 @@ export const NativeProgramPreview: React.FC = () => {
                         if (nativeSurfaceReadyRef.current) {
                           setNativeSurfacePresenting(true);
                         }
-                      } else if (canRetainPresentedSurface && presentation.presented) {
+                      } else if (
+                        canRetainPresentedSurface &&
+                        presentation.presented
+                      ) {
                         // The request may have become non-authoritative while
                         // it was in flight, but its frame is still valid visual
                         // continuity. Leave the retained surface visible until
@@ -2051,7 +2088,8 @@ export const NativeProgramPreview: React.FC = () => {
                       frameIndex: requestToPresent.frameTime.frameIndex,
                       requestKey,
                       textLayers: nativeTextDebugSummary(requestToPresent),
-                      error: error instanceof Error ? error.message : String(error),
+                      error:
+                        error instanceof Error ? error.message : String(error),
                     });
                     frontendSpan?.markIpcFinished();
                     frontendSpan?.finish({ dropped: true });
@@ -2334,7 +2372,9 @@ export const NativeProgramPreview: React.FC = () => {
             console.error("[native-preview] paused-frame-failed", {
               frameIndex,
               requestKey: nativeRequestKey,
-              textLayers: nativeRequest ? nativeTextDebugSummary(nativeRequest) : [],
+              textLayers: nativeRequest
+                ? nativeTextDebugSummary(nativeRequest)
+                : [],
               error: error instanceof Error ? error.message : String(error),
             });
           }
@@ -2464,7 +2504,9 @@ export const NativeProgramPreview: React.FC = () => {
   useEffect(() => {
     setActiveContext("program");
     if (typeof window !== "undefined") {
-      (window as unknown as { __CLYPRA_PREVIEW_DEBUG__?: unknown }).__CLYPRA_PREVIEW_DEBUG__ = {
+      (
+        window as unknown as { __CLYPRA_PREVIEW_DEBUG__?: unknown }
+      ).__CLYPRA_PREVIEW_DEBUG__ = {
         getPlaybackState: () => clock.getState(),
         getPlaybackMetrics: () => getPlaybackMetricsSnapshot(),
         getSyncMetrics: () => getSyncMetricsSnapshot(),
@@ -2473,21 +2515,6 @@ export const NativeProgramPreview: React.FC = () => {
   }, [setActiveContext, clock]);
 
   if (!project) return null;
-
-  if (dimensions.width === 0 || dimensions.height === 0) {
-    return (
-      <div className="flex-1 bg-bg flex flex-col min-h-0 border-l border-t border-white/3">
-        <div className="flex-1 flex items-center justify-center p-4 md:p-6 overflow-hidden relative bg-[#06080a]">
-          <div
-            ref={previewContainerCallback}
-            className="w-full h-full flex items-center justify-center"
-          >
-            <div className="text-text-muted">Loading preview...</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   const duration = playbackStatus.duration || project.duration || 0;
   const isPlaying = playbackStatus.isPlaying;
@@ -2549,73 +2576,77 @@ export const NativeProgramPreview: React.FC = () => {
             spacePressed && !isPanning && "cursor-grab",
           )}
         >
-          <div
-            ref={nativeSurfaceTargetRef}
-            data-testid="program-preview-viewport"
-            className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]"
-            style={{ width: displayWidth, height: displayHeight }}
-          >
-            <>
-              {previewBackgroundLayer && (
-                <div
-                  data-testid="program-preview-background"
-                  className={cn(
-                    "absolute inset-0 z-0 pointer-events-none overflow-hidden",
-                    previewBackgroundLayer.className,
-                  )}
-                  style={previewBackgroundLayer.style}
+          {dimensions.width > 0 && dimensions.height > 0 ? (
+            <div
+              ref={nativeSurfaceTargetRef}
+              data-testid="program-preview-viewport"
+              className="relative flex shrink-0 items-center justify-center overflow-visible shadow-[0_0_40px_rgba(0,0,0,0.36)]"
+              style={{ width: displayWidth, height: displayHeight }}
+            >
+              <>
+                {previewBackgroundLayer && (
+                  <div
+                    data-testid="program-preview-background"
+                    className={cn(
+                      "absolute inset-0 z-0 pointer-events-none overflow-hidden",
+                      previewBackgroundLayer.className,
+                    )}
+                    style={previewBackgroundLayer.style}
+                  />
+                )}
+                <canvas
+                  ref={canvasRef}
+                  data-testid="program-preview-canvas"
+                  style={{
+                    position: "relative",
+                    zIndex: 1,
+                    width: displayWidth,
+                    height: displayHeight,
+                    imageRendering: "auto",
+                    background: "transparent",
+                    visibility: nativeSurfacePresenting ? "hidden" : "visible",
+                  }}
                 />
-              )}
-              <canvas
-                ref={canvasRef}
-                data-testid="program-preview-canvas"
-                style={{
-                  position: "relative",
-                  zIndex: 1,
-                  width: displayWidth,
-                  height: displayHeight,
-                  imageRendering: "auto",
-                  background: "transparent",
-                  visibility: nativeSurfacePresenting ? "hidden" : "visible",
-                }}
-              />
-              <canvas
-                ref={smartOverlayCanvasRef}
-                data-testid="program-preview-smart-overlay-canvas"
-                width={displayWidth}
-                height={displayHeight}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  zIndex: 2,
-                  pointerEvents: "none",
-                  width: displayWidth,
-                  height: displayHeight,
-                  background: "transparent",
-                  visibility: nativeSurfacePresenting ? "hidden" : "visible",
-                }}
-              />
+                <canvas
+                  ref={smartOverlayCanvasRef}
+                  data-testid="program-preview-smart-overlay-canvas"
+                  width={displayWidth}
+                  height={displayHeight}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 2,
+                    pointerEvents: "none",
+                    width: displayWidth,
+                    height: displayHeight,
+                    background: "transparent",
+                    visibility: nativeSurfacePresenting ? "hidden" : "visible",
+                  }}
+                />
 
-              <TransformOverlay
-                canvasWidth={canvasWidth}
-                canvasHeight={canvasHeight}
-                scale={scale}
-                viewport={viewport}
-                displayOffset={{ x: offsetX, y: offsetY }}
-                displayWidth={displayWidth}
-                displayHeight={displayHeight}
-                currentTime={clock.time}
-                visible={!isPlaying}
-              />
-              <SafeOverlay
-                visible={showSafeOverlay}
-                displayWidth={displayWidth}
-                displayHeight={displayHeight}
-                displayOffset={{ x: offsetX, y: offsetY }}
-              />
-              {karaokeOverlayEnabled && <KaraokeCaptions />}
-            </>
-          </div>
+                <TransformOverlay
+                  canvasWidth={canvasWidth}
+                  canvasHeight={canvasHeight}
+                  scale={scale}
+                  viewport={viewport}
+                  displayOffset={{ x: offsetX, y: offsetY }}
+                  displayWidth={displayWidth}
+                  displayHeight={displayHeight}
+                  currentTime={clock.time}
+                  visible={!isPlaying}
+                />
+                <SafeOverlay
+                  visible={showSafeOverlay}
+                  displayWidth={displayWidth}
+                  displayHeight={displayHeight}
+                  displayOffset={{ x: offsetX, y: offsetY }}
+                />
+                {karaokeOverlayEnabled && <KaraokeCaptions />}
+              </>
+            </div>
+          ) : (
+            <div className="text-text-muted">Loading preview...</div>
+          )}
         </div>
 
         {clips.length === 0 && (
@@ -2687,7 +2718,10 @@ export const NativeProgramPreview: React.FC = () => {
         setScopesOpen={setScopesOpen}
       />
 
-      <VideoScopesModal isOpen={scopesOpen} onClose={() => setScopesOpen(false)} />
+      <VideoScopesModal
+        isOpen={scopesOpen}
+        onClose={() => setScopesOpen(false)}
+      />
     </div>
   );
 };
