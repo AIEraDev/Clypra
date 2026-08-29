@@ -702,7 +702,6 @@ pub async fn get_render_artifacts_batch(
     use crate::thumbnail_engine::atlas::get_atlas_manager;
 
     let req_id = request_id.as_deref().unwrap_or("unknown");
-    crate::thumbnail_engine::metrics::ensure_metrics_flush_loop();
     let video_id = format!("{:x}", md5::compute(&video_path));
 
     let tiers: Vec<SpatialTier> = spatial_tiers
