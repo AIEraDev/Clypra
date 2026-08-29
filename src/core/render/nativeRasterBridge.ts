@@ -80,15 +80,28 @@ export class NativeRasterBridge {
   async rasterize(scene: EvaluatedScene, options: NativeRasterBridgeOptions): Promise<NativeRasterLayerSnapshot[]> {
     if (!isTauriRuntime()) return [];
 
+    const hasVisualLayers = Array.isArray(scene.visualLayers) && scene.visualLayers.length > 0;
+    const bg = scene.metadata?.canvasBackground;
+    const hasComplexBg = Boolean(
+      bg &&
+      !bg.isTransparent &&
+      bg.type !== "solid" &&
+      (bg.type === "gradient" || bg.type === "shader"),
+    );
+
+    if (!hasVisualLayers && !hasComplexBg) {
+      return [];
+    }
+
     // Studio text effects are authored and evaluated by the shared Canvas engine.
     // Keep those pixels intact and let native own only final composition; the
     // native SDF path remains a compatibility fallback for frames that cannot
     // be rasterized in the WebView.
     const [text, background, animatedStickers, images] = await Promise.all([
-      this.rasterizeText(scene, options.phase ?? "visible-playback"),
-      this.rasterizeBackground(scene, options.frameKey),
-      this.rasterizeAnimatedStickers(scene),
-      this.rasterizeImages(scene),
+      hasVisualLayers ? this.rasterizeText(scene, options.phase ?? "visible-playback") : Promise.resolve([]),
+      hasComplexBg ? this.rasterizeBackground(scene, options.frameKey) : Promise.resolve([]),
+      hasVisualLayers ? this.rasterizeAnimatedStickers(scene) : Promise.resolve([]),
+      hasVisualLayers ? this.rasterizeImages(scene) : Promise.resolve([]),
     ]);
     return [...background, ...text, ...animatedStickers, ...images];
   }
@@ -210,6 +223,7 @@ export class NativeRasterBridge {
     phase: TextRenderTracePhase,
   ): Promise<NativeRasterLayerSnapshot[]> {
     const layers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+    if (layers.length === 0) return [];
     const pendingAssets = layers.map(async (layer) => {
       const key = buildNativeTextRasterKey(layer);
       let raster = this.textCache.get(key);
@@ -260,6 +274,7 @@ export class NativeRasterBridge {
       (layer): layer is EvaluatedMediaLayer =>
         layer.layerType === "media" && layer.clipKind === "sticker" && layer.stickerFormat === "lottie",
     );
+    if (layers.length === 0) return [];
     const assets = await Promise.all(layers.map((layer) => this.animatedStickerRenderer.render(layer)));
     const resolved = assets.filter((asset): asset is NativeAnimatedStickerRaster => asset !== null);
     await Promise.all(resolved.map((asset) => this.register(asset)));
@@ -279,6 +294,7 @@ export class NativeRasterBridge {
         layer.stickerFormat !== "gif" &&
         layer.stickerFormat !== "lottie",
     );
+    if (layers.length === 0) return [];
     const assets = await Promise.all(layers.map((layer) => {
       const width = Math.max(1, Math.round(layer.width));
       const height = Math.max(1, Math.round(layer.height));
