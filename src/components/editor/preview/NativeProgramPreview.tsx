@@ -9,7 +9,6 @@ import { Expand, Shrink, Activity } from "lucide-react";
 import { VideoScopesModal } from "../scopes/VideoScopesModal";
 import {
   usePlaybackClock,
-  usePlaybackStatus,
   usePlaybackControls,
   useTransportControls,
   getPlaybackClock,
@@ -253,6 +252,31 @@ const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
     );
   });
 
+interface ConnectedTransformOverlayProps
+  extends Omit<
+    React.ComponentProps<typeof TransformOverlay>,
+    "currentTime" | "visible"
+  > {}
+
+/**
+ * Playback is a leaf concern for the transform overlay. Keeping this clock
+ * subscription here prevents playhead ticks from re-rendering the preview
+ * container, canvas host, and native-surface coordination tree.
+ */
+const ConnectedTransformOverlay = React.memo(
+  (props: ConnectedTransformOverlayProps) => {
+    const clockState = usePlaybackClock();
+
+    return (
+      <TransformOverlay
+        {...props}
+        currentTime={clockState.time}
+        visible={clockState.state !== "playing"}
+      />
+    );
+  },
+);
+
 export const NativeProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
   const project = useProjectStore((s) => s.project);
@@ -272,12 +296,6 @@ export const NativeProgramPreview: React.FC = () => {
   const previewQuality = useSettingsStore((s) => s.previewQuality);
   const setPreviewQuality = useSettingsStore((s) => s.setPreviewQuality);
 
-  const playbackStatus = usePlaybackStatus();
-  // The render loop reads the clock imperatively, but the interactive preview
-  // surface needs a reactive time snapshot. Without this subscription,
-  // TransformOverlay can keep hit-testing the initial time while the visible
-  // frame and pointer diagnostics are already at a later seek position.
-  const playbackClockState = usePlaybackClock();
   const clock = getPlaybackClock();
   const { setDuration, setFrameRate } = usePlaybackControls();
   const {
@@ -318,7 +336,6 @@ export const NativeProgramPreview: React.FC = () => {
   // on every native surface probe and window resize.
   const nativeSurfaceReadyRef = useRef(false);
   const nativeSurfaceErrorRef = useRef<string | null>(null);
-  const [nativeSurfacePresenting, setNativeSurfacePresenting] = useState(false);
   const nativeOnlyBlockersKeyRef = useRef("");
 
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -757,7 +774,6 @@ export const NativeProgramPreview: React.FC = () => {
       nativeSurfaceErrorRef.current = null;
       setNativeSurfaceError(null);
       setNativeSurfaceReady(false);
-      setNativeSurfacePresenting(false);
       releaseNativeSurfaceReadiness(readinessToken);
       void releaseNativeSurface(project.id).catch(() => undefined);
     };
@@ -766,20 +782,6 @@ export const NativeProgramPreview: React.FC = () => {
     // during ordinary resize events, which keeps this effect from remounting on
     // every pixel change; ResizeObserver handles those through syncSurface().
   }, [project?.id, nativeSurfaceViewportReady]);
-
-  // Keep paused/seeking frames on the DOM canvas. The native surface is a
-  // separate child window, so the handoff must complete before editor
-  // overlays become visible over the exact paused frame.
-  useEffect(() => {
-    if (!nativeSurfaceReady || playbackStatus.state === "playing") return;
-
-    tracePlayback("pause-surface-handoff", {
-      projectId: project?.id ?? null,
-      nativeSurfaceReady,
-      nativeSurfacePresenting,
-      time: Number(clock.time.toFixed(3)),
-    });
-  }, [playbackStatus.state, nativeSurfaceReady]);
 
   const previewBackgroundLayer = useMemo(() => {
     return getCanvasBackgroundLayer(project?.canvasBackground);
@@ -810,10 +812,9 @@ export const NativeProgramPreview: React.FC = () => {
           transformOverlay: Boolean(target.closest("[data-transform-overlay]")),
           viewport: Boolean(target.closest("[data-testid='program-preview-viewport']")),
         },
-        playbackState: playbackStatus.state,
+        playbackState: clock.state,
         currentTime: Number(clock.time.toFixed(3)),
         nativeSurfaceReady,
-        nativeSurfacePresenting,
         selectedClipIds: useUIStore.getState().selectedClipIds,
       });
       if (target.closest("[data-transform-handle]")) return;
@@ -826,10 +827,8 @@ export const NativeProgramPreview: React.FC = () => {
       clearSelection,
       isPanning,
       spacePressed,
-      playbackStatus.state,
       clock,
       nativeSurfaceReady,
-      nativeSurfacePresenting,
     ],
   );
 
@@ -1944,13 +1943,7 @@ export const NativeProgramPreview: React.FC = () => {
           });
           nativeSurfaceShown = false;
           lastNativePlaybackRequestKey = "";
-          void hideNativeSurfaceWhenIdle()
-            .then(() => {
-              if (isActive) setNativeSurfacePresenting(false);
-            })
-            .catch(() => {
-              if (isActive) setNativeSurfacePresenting(false);
-            });
+          void hideNativeSurfaceWhenIdle().catch(() => undefined);
         }
         const cachedNativeFrame =
           nativeRequestKey !== ""
@@ -2148,9 +2141,6 @@ export const NativeProgramPreview: React.FC = () => {
                         currentRequestIsStillAuthoritative
                       ) {
                         nativeSurfaceShown = true;
-                        if (nativeSurfaceReadyRef.current) {
-                          setNativeSurfacePresenting(true);
-                        }
                       } else if (
                         canRetainPresentedSurface &&
                         presentation.presented
@@ -2197,13 +2187,7 @@ export const NativeProgramPreview: React.FC = () => {
                     if (isActive && nativeSurfaceShown) {
                       nativeSurfaceShown = false;
                       lastNativePlaybackRequestKey = "";
-                      void hideNativeSurfaceWhenIdle()
-                        .then(() => {
-                          if (isActive) setNativeSurfacePresenting(false);
-                        })
-                        .catch(() => {
-                          if (isActive) setNativeSurfacePresenting(false);
-                        });
+                      void hideNativeSurfaceWhenIdle().catch(() => undefined);
                     }
                   })
                   .finally(() => {
@@ -2612,7 +2596,7 @@ export const NativeProgramPreview: React.FC = () => {
   // and viewport changes. When actively playing, the RAF loop runs continuously;
   // do not trigger wake loops on every clock tick.
   useEffect(() => {
-    if (playbackStatus.state !== "playing") {
+    if (clock.state !== "playing") {
       wakeNativeRenderLoopRef.current?.();
     }
   }, [
@@ -2621,7 +2605,6 @@ export const NativeProgramPreview: React.FC = () => {
     transitions,
     mediaAssets,
     epoch,
-    playbackStatus.state,
     dimensions.width,
     dimensions.height,
     previewQuality,
@@ -2643,8 +2626,7 @@ export const NativeProgramPreview: React.FC = () => {
 
   if (!project) return null;
 
-  const duration = playbackStatus.duration || project.duration || 0;
-  const isPlaying = playbackStatus.isPlaying;
+  const duration = project.duration || 0;
   const frameRate = project.frameRate ?? 30;
   const step = 1 / Math.max(1, frameRate);
 
@@ -2731,7 +2713,6 @@ export const NativeProgramPreview: React.FC = () => {
                     height: displayHeight,
                     imageRendering: "auto",
                     background: "transparent",
-                    visibility: nativeSurfacePresenting ? "hidden" : "visible",
                   }}
                 />
                 <canvas
@@ -2747,11 +2728,10 @@ export const NativeProgramPreview: React.FC = () => {
                     width: displayWidth,
                     height: displayHeight,
                     background: "transparent",
-                    visibility: nativeSurfacePresenting ? "hidden" : "visible",
                   }}
                 />
 
-                <TransformOverlay
+                <ConnectedTransformOverlay
                   canvasWidth={canvasWidth}
                   canvasHeight={canvasHeight}
                   scale={scale}
@@ -2759,8 +2739,6 @@ export const NativeProgramPreview: React.FC = () => {
                   displayOffset={{ x: offsetX, y: offsetY }}
                   displayWidth={displayWidth}
                   displayHeight={displayHeight}
-                  currentTime={playbackClockState.time}
-                  visible={playbackClockState.state !== "playing"}
                 />
                 <SafeOverlay
                   visible={showSafeOverlay}
@@ -2803,7 +2781,7 @@ export const NativeProgramPreview: React.FC = () => {
         onPlayPause={() => {
           if (clips.length === 0) return;
           setActiveContext?.("program");
-          isPlaying ? transportPause() : transportPlay();
+          clock.state === "playing" ? transportPause() : transportPlay();
         }}
         onSeek={(time) => {
           if (clips.length === 0) return;
