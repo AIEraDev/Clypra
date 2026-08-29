@@ -122,4 +122,116 @@ describe("Overlay track auto-prune via EditingActions (full history path)", () =
     expect(state.tracks.find((t) => t.id === "overlay-track-2")).toBeUndefined();
     expect(state.tracks.find((t) => t.id === "v1-main")).toBeDefined();
   });
+
+  it("removes top video overlay track when its last image/video clip is deleted (reproducing user case)", () => {
+    // Top overlay video track at index 0, main video track at index 1
+    const overlayVideoTrack: Track = {
+      id: "overlay-video-track",
+      name: "Overlay Video",
+      type: "video",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 60,
+    };
+
+    const mainVideoTrack: Track = {
+      id: "v1-main",
+      name: "Main Video Track",
+      type: "video",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 80,
+    };
+
+    const audioTrack: Track = {
+      id: "a1-main",
+      name: "Audio Track",
+      type: "audio",
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 60,
+    };
+
+    const imageClip = {
+      id: "clip-image-1",
+      trackId: "overlay-video-track",
+      mediaId: "m-image",
+      name: "favicon.png",
+      kind: "video" as const,
+      startTime: 2,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+    };
+
+    const mainClip = {
+      id: "clip-main-1",
+      trackId: "v1-main",
+      mediaId: "m-video",
+      name: "Antler.mp4",
+      kind: "video" as const,
+      startTime: 0,
+      duration: 89,
+      trimIn: 0,
+      trimOut: 89,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+    };
+
+    const audioClip = {
+      id: "clip-audio-1",
+      trackId: "a1-main",
+      mediaId: "m-audio",
+      name: "voice.mp3",
+      kind: "audio" as const,
+      startTime: 0,
+      duration: 85,
+      trimIn: 0,
+      trimOut: 85,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      opacity: 1,
+      rotation: 0,
+    };
+
+    useTimelineStore.setState({
+      tracks: [overlayVideoTrack, mainVideoTrack, audioTrack],
+      clips: [imageClip, mainClip, audioClip],
+      gaps: [],
+      transitions: [],
+      mainVideoTrackId: "v1-main",
+      epoch: 0,
+    });
+
+    expect(useTimelineStore.getState().tracks).toHaveLength(3);
+
+    // Delete the image clip on the top overlay video track
+    EditingActions.deleteSelection(["clip-image-1"], false);
+
+    const state = useTimelineStore.getState();
+    expect(state.clips.find((c) => c.id === "clip-image-1")).toBeUndefined();
+    // Top overlay video track MUST be auto-pruned
+    expect(state.tracks.find((t) => t.id === "overlay-video-track")).toBeUndefined();
+    // Main video track and audio track MUST remain
+    expect(state.tracks.find((t) => t.id === "v1-main")).toBeDefined();
+    expect(state.tracks.find((t) => t.id === "a1-main")).toBeDefined();
+    expect(state.tracks).toHaveLength(2);
+    expect(state.mainVideoTrackId).toBe("v1-main");
+  });
 });
+
