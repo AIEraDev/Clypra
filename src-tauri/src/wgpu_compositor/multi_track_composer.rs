@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
+use web_time::Instant;
 use wgpu::util::DeviceExt;
 
 use crate::wgpu_compositor::chroma_key::ChromaKeyUniforms;
@@ -1112,10 +1113,10 @@ impl MultiTrackCompositor {
         let target_texture = device.create_texture(&texture_desc);
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let compose_started = std::time::Instant::now();
+        let compose_started = Instant::now();
         self.composite_layers(device, queue, &target_view, layers, clear_color)?;
         let compose_us = compose_started.elapsed().as_micros() as u64;
-        let readback_started = std::time::Instant::now();
+        let readback_started = Instant::now();
 
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
@@ -1429,7 +1430,7 @@ impl MultiTrackCompositor {
         let target_texture = device.create_texture(&texture_desc);
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let compose_started = std::time::Instant::now();
+        let compose_started = Instant::now();
         self.composite_transition(
             device,
             queue,
@@ -1444,7 +1445,7 @@ impl MultiTrackCompositor {
             self.composite_layers(device, queue, &target_view, overlays, None)?;
         }
         let compose_us = compose_started.elapsed().as_micros() as u64;
-        let readback_started = std::time::Instant::now();
+        let readback_started = Instant::now();
 
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
