@@ -1404,6 +1404,21 @@ pub async fn render_native_project_frame(
     Ok(tauri::ipc::Response::new(rgba))
 }
 
+#[tauri::command]
+pub async fn get_video_scopes(
+    app: tauri::AppHandle,
+    request: NativeVideoProjectFrameRequest,
+    scope_type: Option<crate::wgpu_compositor::scopes::ScopeType>,
+) -> Result<crate::wgpu_compositor::scopes::VideoScopePayload, String> {
+    let rgba = render_native_video_project_frame_bytes(app, request.clone()).await?;
+    crate::wgpu_compositor::scopes::compute_video_scopes(
+        &rgba,
+        request.canvas_width,
+        request.canvas_height,
+        scope_type.unwrap_or(crate::wgpu_compositor::scopes::ScopeType::All),
+    )
+}
+
 /// Decode, color-convert, and composite real video layers in native Rust/wgpu.
 /// This internal function returns bytes so versioned frame-service commands can
 /// add caching and stale-request handling without duplicating the renderer.
