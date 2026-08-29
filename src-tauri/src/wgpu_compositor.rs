@@ -5,11 +5,11 @@
  * Headless Instance -> Adapter (Metal/Vulkan/DirectX) -> Device/Queue -> Texture Render Pass -> Buffer Readback
  */
 
+use clypra_native_core::contracts::TextLayerSnapshot;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
-use clypra_native_core::contracts::TextLayerSnapshot;
 
 pub mod texture_pool;
 pub use texture_pool::{
@@ -57,9 +57,9 @@ pub use text_effect_pipeline::{
 
 pub mod effect_interpreter;
 pub use effect_interpreter::{
-    validate_effect_definition, resolve_passes, sanitize_parameter_overrides,
-    EffectDefinition, EffectValidationError, ParamSpec, ParamType, PrimitiveKind,
-    PrimitivePass, ResolutionTier, ResolvedPass, param_color, param_f32, param_vec2,
+    param_color, param_f32, param_vec2, resolve_passes, sanitize_parameter_overrides,
+    validate_effect_definition, EffectDefinition, EffectValidationError, ParamSpec, ParamType,
+    PrimitiveKind, PrimitivePass, ResolutionTier, ResolvedPass,
 };
 
 pub mod text_layer_cache;
@@ -87,6 +87,14 @@ pub struct NativePreviewSession {
     rgba_layers: RgbaLayerTextureCache,
     pub text_cache: TextLayerCache,
     pub text_pipeline: TextEffectPipeline,
+    compositors: Vec<CachedCompositor>,
+}
+
+struct CachedCompositor {
+    width: u32,
+    height: u32,
+    target_format: wgpu::TextureFormat,
+    compositor: MultiTrackCompositor,
 }
 
 const RGBA_LAYER_CACHE_BYTES: usize = 128 * 1024 * 1024;
@@ -179,7 +187,8 @@ impl NativePreviewSession {
             &yuv_layout,
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
-        let text_pipeline = TextEffectPipeline::new(&gpu.device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let text_pipeline =
+            TextEffectPipeline::new(&gpu.device, wgpu::TextureFormat::Rgba8UnormSrgb);
         let text_cache = TextLayerCache::new(TEXT_LAYER_CACHE_BYTES);
 
         Self {
@@ -191,7 +200,49 @@ impl NativePreviewSession {
             rgba_layers: RgbaLayerTextureCache::new(),
             text_cache,
             text_pipeline,
+            compositors: Vec::new(),
         }
+    }
+
+    /// Return the persistent compositor for a render target configuration.
+    ///
+    /// Pipeline creation is expensive on Metal and must not happen on the
+    /// playback critical path. A session can use more than one output size
+    /// (for example, the monitor and a diagnostic/readback target), so retain
+    /// a small keyed set instead of rebuilding the graph for every request.
+    pub fn get_or_create_compositor(
+        &mut self,
+        width: u32,
+        height: u32,
+        target_format: wgpu::TextureFormat,
+    ) -> &MultiTrackCompositor {
+        if let Some(index) = self.compositors.iter().position(|entry| {
+            entry.width == width && entry.height == height && entry.target_format == target_format
+        }) {
+            return &self.compositors[index].compositor;
+        }
+
+        self.compositors.push(CachedCompositor {
+            width,
+            height,
+            target_format,
+            compositor: MultiTrackCompositor::new_with_target_format(
+                &self.gpu.device,
+                &self.gpu.queue,
+                width,
+                height,
+                target_format,
+            ),
+        });
+
+        // Keep the session bounded when a window is resized repeatedly or a
+        // diagnostic target changes dimensions. The newest entry is the one
+        // currently used by the caller; old GPU graphs can be released.
+        const MAX_CACHED_COMPOSITORS: usize = 3;
+        if self.compositors.len() > MAX_CACHED_COMPOSITORS {
+            self.compositors.remove(0);
+        }
+        &self.compositors[self.compositors.len().saturating_sub(1)].compositor
     }
 
     /// Convert one decoded NV12 frame into a GPU texture for timeline compositing.
@@ -357,14 +408,24 @@ impl NativePreviewSession {
         &mut self,
         layer: &TextLayerSnapshot,
     ) -> Result<(Arc<wgpu::Texture>, Arc<wgpu::TextureView>, u32, u32), String> {
-        if let Some(definition) = layer.effect.as_ref().and_then(|effect| effect.definition.as_ref()) {
+        if let Some(definition) = layer
+            .effect
+            .as_ref()
+            .and_then(|effect| effect.definition.as_ref())
+        {
             for pass in &definition.passes {
                 let primitive = pass.primitive.to_ascii_lowercase();
                 if !matches!(
                     primitive.as_str(),
-                    "distance_threshold" | "distance-threshold" | "fill"
-                        | "outline" | "stroke" | "glow"
-                        | "drop_shadow" | "drop-shadow" | "shadow"
+                    "distance_threshold"
+                        | "distance-threshold"
+                        | "fill"
+                        | "outline"
+                        | "stroke"
+                        | "glow"
+                        | "drop_shadow"
+                        | "drop-shadow"
+                        | "shadow"
                 ) {
                     return Err(format!(
                         "Native text effect primitive '{}' is not implemented by this renderer",
@@ -373,8 +434,7 @@ impl NativePreviewSession {
                 }
             }
         }
-        let params_json = serde_json::to_string(&layer.effect)
-            .unwrap_or_else(|_| "{}".to_string());
+        let params_json = serde_json::to_string(&layer.effect).unwrap_or_else(|_| "{}".to_string());
         let color_hash = u64::from_le_bytes([
             (layer.color[0] * 255.0) as u8,
             (layer.color[1] * 255.0) as u8,
@@ -385,7 +445,11 @@ impl NativePreviewSession {
             (layer.line_height * 10.0) as u8,
             0,
         ]);
-        let effect_id = layer.effect.as_ref().map(|e| e.effect_id.as_str()).unwrap_or("raw_text");
+        let effect_id = layer
+            .effect
+            .as_ref()
+            .map(|e| e.effect_id.as_str())
+            .unwrap_or("raw_text");
         let effect_version = layer.effect.as_ref().map(|e| e.effect_version).unwrap_or(1);
         let key = text_layer_cache_key(
             &layer.text,
@@ -450,28 +514,33 @@ impl NativePreviewSession {
             value => value.parse::<u16>().unwrap_or(400).clamp(100, 900),
         };
         let italic = layer.font_style.eq_ignore_ascii_case("italic");
-        let shaped = clypra_native_core::glyph_cache::global_glyph_cache().render_text_sdf_aligned_with_fallback_styled(
-            &font,
-            font_hash,
-            emoji_fallback
-                .as_ref()
-                .map(|(font, hash)| (font.as_ref(), *hash)),
-            &layer.text,
-            layer.font_size,
-            font_weight,
-            italic,
-            layer.letter_spacing,
-            layer.line_height,
-            align,
-            8.0,
-            4,
-        );
+        let shaped = clypra_native_core::glyph_cache::global_glyph_cache()
+            .render_text_sdf_aligned_with_fallback_styled(
+                &font,
+                font_hash,
+                emoji_fallback
+                    .as_ref()
+                    .map(|(font, hash)| (font.as_ref(), *hash)),
+                &layer.text,
+                layer.font_size,
+                font_weight,
+                italic,
+                layer.letter_spacing,
+                layer.line_height,
+                align,
+                8.0,
+                4,
+            );
 
         if shaped.width == 0 || shaped.height == 0 {
             // Empty text — 1x1 transparent dummy texture
             let texture = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Empty Text Layer"),
-                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -520,17 +589,18 @@ impl NativePreviewSession {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         }));
-        let target_view = Arc::new(target_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        let target_view =
+            Arc::new(target_texture.create_view(&wgpu::TextureViewDescriptor::default()));
 
         // The text effect passes use LoadOp::Load to accumulate shadow, glow,
         // outline, and fill. Explicitly initialize the first pass target so a
         // newly activated text layer cannot inherit undefined GPU contents.
-        let mut clear_encoder = self
-            .gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Clear Text Layer Target"),
-            });
+        let mut clear_encoder =
+            self.gpu
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Clear Text Layer Target"),
+                });
         {
             let _clear_pass = clear_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Clear Text Layer Target Pass"),
@@ -577,7 +647,13 @@ impl NativePreviewSession {
             let overrides = &resolved_overrides;
 
             // 1. Drop shadow pass (if applicable)
-            if layer.shadow_color.is_some() || effect_id.contains("shadow") || effect_id.contains("3d") || effect_id.contains("glitch") || overrides.contains_key("shadow_color") || overrides.contains_key("shadowColor") {
+            if layer.shadow_color.is_some()
+                || effect_id.contains("shadow")
+                || effect_id.contains("3d")
+                || effect_id.contains("glitch")
+                || overrides.contains_key("shadow_color")
+                || overrides.contains_key("shadowColor")
+            {
                 let mut shadow_params = DropShadowParams::default();
                 if let Some(color) = layer.shadow_color {
                     shadow_params.color = color;
@@ -589,13 +665,23 @@ impl NativePreviewSession {
                     shadow_params.offset_x = offset[0] / 256.0;
                     shadow_params.offset_y = offset[1] / 256.0;
                 }
-                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("shadow_color").or_else(|| overrides.get("shadowColor")) {
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides
+                    .get("shadow_color")
+                    .or_else(|| overrides.get("shadowColor"))
+                {
                     shadow_params.color = *c;
                 }
-                if let Some(clypra_native_core::contracts::TextParamValue::Float(r)) = overrides.get("shadow_radius").or_else(|| overrides.get("shadowBlur")).or_else(|| overrides.get("radius")) {
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(r)) = overrides
+                    .get("shadow_radius")
+                    .or_else(|| overrides.get("shadowBlur"))
+                    .or_else(|| overrides.get("radius"))
+                {
                     shadow_params.radius = *r;
                 }
-                if let Some(clypra_native_core::contracts::TextParamValue::Vec2(off)) = overrides.get("shadow_offset").or_else(|| overrides.get("offset")) {
+                if let Some(clypra_native_core::contracts::TextParamValue::Vec2(off)) = overrides
+                    .get("shadow_offset")
+                    .or_else(|| overrides.get("offset"))
+                {
                     shadow_params.offset_x = off[0];
                     shadow_params.offset_y = off[1];
                 }
@@ -608,15 +694,29 @@ impl NativePreviewSession {
             }
 
             // 2. Glow pass (if applicable)
-            if effect_id.contains("glow") || effect_id.contains("neon") || overrides.contains_key("glow_color") || overrides.contains_key("glowColor") {
+            if effect_id.contains("glow")
+                || effect_id.contains("neon")
+                || overrides.contains_key("glow_color")
+                || overrides.contains_key("glowColor")
+            {
                 let mut glow_params = GlowParams::default();
-                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("glow_color").or_else(|| overrides.get("glowColor")) {
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides
+                    .get("glow_color")
+                    .or_else(|| overrides.get("glowColor"))
+                {
                     glow_params.color = *c;
                 }
-                if let Some(clypra_native_core::contracts::TextParamValue::Float(r)) = overrides.get("glow_radius").or_else(|| overrides.get("glowRadius")).or_else(|| overrides.get("radius")) {
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(r)) = overrides
+                    .get("glow_radius")
+                    .or_else(|| overrides.get("glowRadius"))
+                    .or_else(|| overrides.get("radius"))
+                {
                     glow_params.radius = *r;
                 }
-                if let Some(clypra_native_core::contracts::TextParamValue::Float(i)) = overrides.get("glow_intensity").or_else(|| overrides.get("intensity")) {
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(i)) = overrides
+                    .get("glow_intensity")
+                    .or_else(|| overrides.get("intensity"))
+                {
                     glow_params.intensity = *i;
                 }
                 commands.push(self.text_pipeline.render_glow(
@@ -628,7 +728,12 @@ impl NativePreviewSession {
             }
 
             // 3. Outline pass (if applicable)
-            if layer.stroke_color.is_some() || effect_id.contains("outline") || effect_id.contains("stroke") || overrides.contains_key("outline_color") || overrides.contains_key("outlineColor") {
+            if layer.stroke_color.is_some()
+                || effect_id.contains("outline")
+                || effect_id.contains("stroke")
+                || overrides.contains_key("outline_color")
+                || overrides.contains_key("outlineColor")
+            {
                 let mut outline_params = OutlineParams::default();
                 if let Some(color) = layer.stroke_color {
                     outline_params.color = color;
@@ -636,10 +741,17 @@ impl NativePreviewSession {
                 if let Some(width) = layer.stroke_width {
                     outline_params.width = width / 64.0;
                 }
-                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides.get("outline_color").or_else(|| overrides.get("outlineColor")) {
+                if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = overrides
+                    .get("outline_color")
+                    .or_else(|| overrides.get("outlineColor"))
+                {
                     outline_params.color = *c;
                 }
-                if let Some(clypra_native_core::contracts::TextParamValue::Float(w)) = overrides.get("outline_width").or_else(|| overrides.get("strokeWidth")).or_else(|| overrides.get("width")) {
+                if let Some(clypra_native_core::contracts::TextParamValue::Float(w)) = overrides
+                    .get("outline_width")
+                    .or_else(|| overrides.get("strokeWidth"))
+                    .or_else(|| overrides.get("width"))
+                {
                     outline_params.width = *w;
                 }
                 commands.push(self.text_pipeline.render_outline(
@@ -653,7 +765,12 @@ impl NativePreviewSession {
 
         // Always execute core fill pass (DistanceThreshold)
         let fill_color = if let Some(effect) = &layer.effect {
-            if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = effect.parameter_overrides.get("text_color").or_else(|| effect.parameter_overrides.get("fillColor")).or_else(|| effect.parameter_overrides.get("color")) {
+            if let Some(clypra_native_core::contracts::TextParamValue::Color(c)) = effect
+                .parameter_overrides
+                .get("text_color")
+                .or_else(|| effect.parameter_overrides.get("fillColor"))
+                .or_else(|| effect.parameter_overrides.get("color"))
+            {
                 *c
             } else {
                 layer.color
@@ -689,7 +806,13 @@ impl NativePreviewSession {
 
         self.gpu.queue.submit(commands);
 
-        self.text_cache.insert(key, Arc::clone(&target_texture), Arc::clone(&target_view), shaped.width, shaped.height);
+        self.text_cache.insert(
+            key,
+            Arc::clone(&target_texture),
+            Arc::clone(&target_view),
+            shaped.width,
+            shaped.height,
+        );
 
         Ok((target_texture, target_view, shaped.width, shaped.height))
     }
