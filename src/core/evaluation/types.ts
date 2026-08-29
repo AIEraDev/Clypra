@@ -242,7 +242,8 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   readonly templateId?: string;
   readonly templateRevisionId?: string;
   readonly templateContentHash?: string;
-  readonly templateSnapshot?: import("@clypra-studio/engine").TextTemplate;
+  readonly templateSnapshot?: import("@clypra-studio/engine").TextTemplate | import("@clypra-studio/engine").TextTemplateArtifact;
+  readonly templateControlValues?: Record<string, unknown>;
   readonly templateDependencies?: ReadonlyArray<{
     effectId: string;
     revisionId: string;
