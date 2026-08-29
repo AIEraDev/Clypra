@@ -35,6 +35,18 @@ function hashTextRasterKey(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+const objectKeyCache = new WeakMap<object, string>();
+function getObjectKey(obj: unknown): string | undefined {
+  if (obj === null || obj === undefined) return undefined;
+  if (typeof obj !== "object") return String(obj);
+  let key = objectKeyCache.get(obj);
+  if (!key) {
+    key = JSON.stringify(obj);
+    objectKeyCache.set(obj, key);
+  }
+  return key;
+}
+
 /**
  * This key deliberately follows the inputs consumed by the Clypra Studio
  * text engine. It is used for native upload caching. Layout dimensions affect
@@ -63,13 +75,13 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
     letterSpacing: layer.letterSpacing,
     styleId: layer.styleId,
     styleVersion: layer.styleVersion,
-    parameterOverrides: layer.parameterOverrides,
+    parameterOverrides: getObjectKey(layer.parameterOverrides),
     templateId: layer.templateId,
-    customization: layer.customization,
-    stroke: layer.stroke,
-    shadow: layer.shadow,
-    background: layer.background,
-    styleDefinition: layer.styleDefinition,
+    customization: getObjectKey(layer.customization),
+    stroke: getObjectKey(layer.stroke),
+    shadow: getObjectKey(layer.shadow),
+    background: getObjectKey(layer.background),
+    styleDefinition: getObjectKey(layer.styleDefinition),
   });
 }
 
