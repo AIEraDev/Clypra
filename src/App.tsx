@@ -23,6 +23,7 @@ import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { UpdateBanner } from "@/components/ui/UpdateBanner";
 import { Toaster } from "sonner";
 import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
+import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -33,6 +34,24 @@ const App = () => {
   const [pendingRecovery, setPendingRecovery] = useState<RecoverySnapshot | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isClosingProject, setIsClosingProject] = useState(false);
+
+  useEffect(() => {
+    if (!platform.isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void installNativeDiagnostics()
+      .then((cleanup) => {
+        if (disposed) cleanup();
+        else unlisten = cleanup;
+      })
+      .catch(() => {
+        // Diagnostics must never affect application startup.
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   const [projectNameBeforeClose, setProjectNameBeforeClose] = useState<string>("");
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [isSavingBeforeClose, setIsSavingBeforeClose] = useState(false);
