@@ -27,7 +27,12 @@ import {
   type NativeAnimatedStickerRaster,
 } from "@/components/editor/preview/nativeStickerPreview";
 
-type UploadableNativeRaster = NativeRasterLayerSnapshot & { rgba: number[] };
+type UploadableNativeRaster = NativeRasterLayerSnapshot & {
+  rgba: number[];
+  /** Text-only metadata used to reapply current compositor placement. */
+  bleedX?: number;
+  bleedY?: number;
+};
 
 interface NativeRasterBridgeOptions {
   frameKey: number;
@@ -55,7 +60,7 @@ function stableSerialize(value: unknown): string {
 }
 
 function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
-  const { rgba: _rgba, ...reference } = asset;
+  const { rgba: _rgba, bleedX: _bleedX, bleedY: _bleedY, ...reference } = asset;
   return reference;
 }
 
@@ -195,7 +200,7 @@ export class NativeRasterBridge {
     phase: TextRenderTracePhase,
   ): Promise<NativeRasterLayerSnapshot[]> {
     const layers = scene.visualLayers.filter((layer) => layer.layerType === "text");
-    const pendingAssets = layers.map((layer) => {
+    const pendingAssets = layers.map(async (layer) => {
       const key = buildNativeTextRasterKey(layer);
       let raster = this.textCache.get(key);
       if (!raster) {
@@ -206,7 +211,19 @@ export class NativeRasterBridge {
           if (this.textCache.get(key) === raster) this.textCache.delete(key);
         });
       }
-      return raster;
+      const asset = await raster;
+      // Pixels are immutable; placement is not. Entry/leave motion and
+      // opacity must be expressed as native compositor uniforms instead of
+      // causing a new Canvas raster and GPU upload every frame.
+      return {
+        ...asset,
+        x: typeof layer.x === "number" ? layer.x - (asset.bleedX ?? 0) : asset.x,
+        y: typeof layer.y === "number" ? layer.y - (asset.bleedY ?? 0) : asset.y,
+        rotation: typeof layer.rotation === "number" ? layer.rotation : asset.rotation,
+        opacity: typeof layer.opacity === "number" ? layer.opacity : asset.opacity,
+        zIndex: typeof layer.zIndex === "number" ? layer.zIndex : asset.zIndex,
+        blendMode: typeof layer.blendMode === "string" ? layer.blendMode : asset.blendMode,
+      };
     });
 
     // Keep a single unsupported/malformed text layer from taking down the
