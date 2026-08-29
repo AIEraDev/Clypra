@@ -108,6 +108,16 @@ export class NativeRasterBridge {
   }
 
   /**
+   * Register still-image assets before they become visible. Image decoding is
+   * native-owned, so doing this during session initialization prevents the
+   * first image boundary from competing with the playback presenter.
+   */
+  async prewarmImageAssets(scene: EvaluatedScene): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await this.rasterizeImages(scene);
+  }
+
+  /**
    * Smart overlays are evaluated as timeline entities rather than visual scene
    * layers. Keep that distinction explicit while giving preview and export the
    * same native raster representation.
