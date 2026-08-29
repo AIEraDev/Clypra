@@ -1,7 +1,7 @@
 use super::{FrameTime, NativeCoreError, PlaybackPlan};
 
 pub const MAX_AV_DRIFT_TICKS_AT_1MHZ: i64 = 16_000;
-pub const VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ: i64 = 20_000;
+pub const VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ: i64 = 60_000;
 pub const MIN_AUDIO_BUFFER_TICKS_AT_1MHZ: i64 = 100_000;
 pub const MAX_VIDEO_LOOKAHEAD_TICKS_AT_1MHZ: i64 = 200_000;
 
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn marks_late_video_for_drop() {
         let audio = FrameTime::new(0, 100_000, 1_000_000).unwrap();
-        let frame = FrameTime::new(0, 70_000, 1_000_000).unwrap();
+        let frame = FrameTime::new(0, 30_000, 1_000_000).unwrap();
         assert!(is_video_late(audio, frame).unwrap());
     }
 }
