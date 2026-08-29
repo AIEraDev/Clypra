@@ -141,8 +141,12 @@ pub struct TransitionSnapshot {
     pub fade_color: Option<[f32; 4]>,
 }
 
-fn default_transition_feather() -> f32 { 0.1 }
-fn default_transition_intensity() -> f32 { 1.0 }
+fn default_transition_feather() -> f32 {
+    0.1
+}
+fn default_transition_intensity() -> f32 {
+    1.0
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -331,21 +335,51 @@ pub struct ColorGradeSnapshot {
     pub particle_time: f32,
 }
 
-fn default_color_grade_multiplier() -> f32 { 1.0 }
-fn default_color_grade_grain_size() -> f32 { 1.0 }
-fn default_color_grade_lut_intensity() -> f32 { 1.0 }
-fn default_color_grade_lut_size() -> f32 { 33.0 }
-fn default_vibrance_protected_hue_r() -> f32 { 0.91 }
-fn default_vibrance_protected_hue_g() -> f32 { 0.69 }
-fn default_vibrance_protected_hue_b() -> f32 { 0.55 }
-fn default_color_grade_neutral_channel() -> f32 { 1.0 }
-fn default_color_grade_split_balance() -> f32 { 0.5 }
-fn default_color_grade_light_leak_angle() -> f32 { 0.7853982 }
-fn default_color_grade_distortion_frequency() -> f32 { 6.0 }
-fn default_color_grade_fire_color_1() -> [f32; 4] { [1.0, 0.2705882353, 0.0, 0.0] }
-fn default_color_grade_fire_color_2() -> [f32; 4] { [1.0, 0.6470588235, 0.0, 0.0] }
-fn default_color_grade_fire_color_3() -> [f32; 4] { [1.0, 0.8431372549, 0.0, 0.0] }
-fn default_color_grade_particle_color() -> [f32; 4] { [1.0, 1.0, 1.0, 0.0] }
+fn default_color_grade_multiplier() -> f32 {
+    1.0
+}
+fn default_color_grade_grain_size() -> f32 {
+    1.0
+}
+fn default_color_grade_lut_intensity() -> f32 {
+    1.0
+}
+fn default_color_grade_lut_size() -> f32 {
+    33.0
+}
+fn default_vibrance_protected_hue_r() -> f32 {
+    0.91
+}
+fn default_vibrance_protected_hue_g() -> f32 {
+    0.69
+}
+fn default_vibrance_protected_hue_b() -> f32 {
+    0.55
+}
+fn default_color_grade_neutral_channel() -> f32 {
+    1.0
+}
+fn default_color_grade_split_balance() -> f32 {
+    0.5
+}
+fn default_color_grade_light_leak_angle() -> f32 {
+    0.7853982
+}
+fn default_color_grade_distortion_frequency() -> f32 {
+    6.0
+}
+fn default_color_grade_fire_color_1() -> [f32; 4] {
+    [1.0, 0.2705882353, 0.0, 0.0]
+}
+fn default_color_grade_fire_color_2() -> [f32; 4] {
+    [1.0, 0.6470588235, 0.0, 0.0]
+}
+fn default_color_grade_fire_color_3() -> [f32; 4] {
+    [1.0, 0.8431372549, 0.0, 0.0]
+}
+fn default_color_grade_particle_color() -> [f32; 4] {
+    [1.0, 1.0, 1.0, 0.0]
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -686,7 +720,10 @@ impl FrameRequest {
             ));
         }
         if let Some(mode) = self.mode.as_deref() {
-            if !matches!(mode, "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch") {
+            if !matches!(
+                mode,
+                "playback" | "playback-lookahead" | "scrub" | "seek" | "frameStep" | "prefetch"
+            ) {
                 return Err(NativeCoreError::InvalidContract(
                     "FrameRequest mode is not supported".to_string(),
                 ));
@@ -823,12 +860,30 @@ impl FrameRequest {
                     || !color_grade.distortion_strength.is_finite()
                     || !color_grade.distortion_time.is_finite()
                     || !color_grade.distortion_frequency.is_finite()
-                    || color_grade.fire_params.iter().any(|value| !value.is_finite())
-                    || color_grade.fire_color_1.iter().any(|value| !value.is_finite())
-                    || color_grade.fire_color_2.iter().any(|value| !value.is_finite())
-                    || color_grade.fire_color_3.iter().any(|value| !value.is_finite())
-                    || color_grade.particle_params.iter().any(|value| !value.is_finite())
-                    || color_grade.particle_color.iter().any(|value| !value.is_finite())
+                    || color_grade
+                        .fire_params
+                        .iter()
+                        .any(|value| !value.is_finite())
+                    || color_grade
+                        .fire_color_1
+                        .iter()
+                        .any(|value| !value.is_finite())
+                    || color_grade
+                        .fire_color_2
+                        .iter()
+                        .any(|value| !value.is_finite())
+                    || color_grade
+                        .fire_color_3
+                        .iter()
+                        .any(|value| !value.is_finite())
+                    || color_grade
+                        .particle_params
+                        .iter()
+                        .any(|value| !value.is_finite())
+                    || color_grade
+                        .particle_color
+                        .iter()
+                        .any(|value| !value.is_finite())
                     || !color_grade.particle_time.is_finite()
                     || color_grade.contrast < 0.0
                     || color_grade.saturation < 0.0
@@ -946,9 +1001,18 @@ impl FrameRequest {
                     || color_grade.fire_params[2] < 0.0
                     || color_grade.fire_params[2] > 1.0
                     || color_grade.fire_params[3] < 0.0
-                    || color_grade.fire_color_1.iter().any(|value| *value < 0.0 || *value > 1.0)
-                    || color_grade.fire_color_2.iter().any(|value| *value < 0.0 || *value > 1.0)
-                    || color_grade.fire_color_3.iter().any(|value| *value < 0.0 || *value > 1.0)
+                    || color_grade
+                        .fire_color_1
+                        .iter()
+                        .any(|value| *value < 0.0 || *value > 1.0)
+                    || color_grade
+                        .fire_color_2
+                        .iter()
+                        .any(|value| *value < 0.0 || *value > 1.0)
+                    || color_grade
+                        .fire_color_3
+                        .iter()
+                        .any(|value| *value < 0.0 || *value > 1.0)
                     || color_grade.particle_params[0] < 0.0
                     || color_grade.particle_params[0] > 128.0
                     || color_grade.particle_params[1] < 0.0
@@ -972,18 +1036,26 @@ impl FrameRequest {
             }
             if let Some(body_effect) = layer.body_effect.as_ref() {
                 if body_effect.mask_asset_id.trim().is_empty()
-                    || !matches!(body_effect.renderer.as_str(), "body_outline" | "body_glow" | "body_segmentation_glow" | "body_particles")
+                    || !matches!(
+                        body_effect.renderer.as_str(),
+                        "body_outline" | "body_glow" | "body_segmentation_glow" | "body_particles"
+                    )
                     || !body_effect.color_r.is_finite()
                     || !body_effect.color_g.is_finite()
                     || !body_effect.color_b.is_finite()
                     || !body_effect.strength.is_finite()
                     || !body_effect.radius.is_finite()
                     || !body_effect.time.is_finite()
-                    || body_effect.color_r < 0.0 || body_effect.color_r > 1.0
-                    || body_effect.color_g < 0.0 || body_effect.color_g > 1.0
-                    || body_effect.color_b < 0.0 || body_effect.color_b > 1.0
-                    || body_effect.strength < 0.0 || body_effect.strength > 1.0
-                    || body_effect.radius < 0.0 || body_effect.time < 0.0
+                    || body_effect.color_r < 0.0
+                    || body_effect.color_r > 1.0
+                    || body_effect.color_g < 0.0
+                    || body_effect.color_g > 1.0
+                    || body_effect.color_b < 0.0
+                    || body_effect.color_b > 1.0
+                    || body_effect.strength < 0.0
+                    || body_effect.strength > 1.0
+                    || body_effect.radius < 0.0
+                    || body_effect.time < 0.0
                 {
                     return Err(NativeCoreError::InvalidContract(
                         "VideoLayerSnapshot contains invalid body-effect data".to_string(),
@@ -1042,25 +1114,68 @@ impl FrameRequest {
                 || !layer.line_height.is_finite()
                 || layer.line_height <= 0.0
                 || layer.text.len() > 10_000
-                || !matches!(layer.font_weight.as_str(), "normal" | "bold" | "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900")
+                || !matches!(
+                    layer.font_weight.as_str(),
+                    "normal"
+                        | "bold"
+                        | "100"
+                        | "200"
+                        | "300"
+                        | "400"
+                        | "500"
+                        | "600"
+                        | "700"
+                        | "800"
+                        | "900"
+                )
                 || !matches!(layer.font_style.as_str(), "normal" | "italic")
-                || !matches!(layer.text_align.as_str(), "left" | "center" | "right" | "justify")
+                || !matches!(
+                    layer.text_align.as_str(),
+                    "left" | "center" | "right" | "justify"
+                )
                 || !matches!(layer.vertical_align.as_str(), "top" | "middle" | "bottom")
-                || layer.box_width.map(|value| !value.is_finite() || value <= 0.0).unwrap_or(false)
-                || layer.box_height.map(|value| !value.is_finite() || value <= 0.0).unwrap_or(false)
-                || layer.color.iter().any(|c| !c.is_finite() || *c < 0.0 || *c > 1.0)
-                || layer.stroke_width.map(|w| !w.is_finite() || w < 0.0).unwrap_or(false)
-                || layer.stroke_color.map(|c| c.iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1.0)).unwrap_or(false)
-                || layer.shadow_blur.map(|b| !b.is_finite() || b < 0.0).unwrap_or(false)
-                || layer.shadow_color.map(|c| c.iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1.0)).unwrap_or(false)
-                || layer.shadow_offset.map(|o| !o[0].is_finite() || !o[1].is_finite()).unwrap_or(false)
+                || layer
+                    .box_width
+                    .map(|value| !value.is_finite() || value <= 0.0)
+                    .unwrap_or(false)
+                || layer
+                    .box_height
+                    .map(|value| !value.is_finite() || value <= 0.0)
+                    .unwrap_or(false)
+                || layer
+                    .color
+                    .iter()
+                    .any(|c| !c.is_finite() || *c < 0.0 || *c > 1.0)
+                || layer
+                    .stroke_width
+                    .map(|w| !w.is_finite() || w < 0.0)
+                    .unwrap_or(false)
+                || layer
+                    .stroke_color
+                    .map(|c| c.iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1.0))
+                    .unwrap_or(false)
+                || layer
+                    .shadow_blur
+                    .map(|b| !b.is_finite() || b < 0.0)
+                    .unwrap_or(false)
+                || layer
+                    .shadow_color
+                    .map(|c| c.iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1.0))
+                    .unwrap_or(false)
+                || layer
+                    .shadow_offset
+                    .map(|o| !o[0].is_finite() || !o[1].is_finite())
+                    .unwrap_or(false)
             {
                 return Err(NativeCoreError::InvalidContract(
                     "ProjectSnapshot contains an invalid text layer".to_string(),
                 ));
             }
             if let Some(background) = layer.background.as_ref() {
-                if background.color.iter().any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)
+                if background
+                    .color
+                    .iter()
+                    .any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)
                     || !background.padding.is_finite()
                     || background.padding < 0.0
                     || !background.border_radius.is_finite()
@@ -1072,16 +1187,38 @@ impl FrameRequest {
                 }
             }
             let run_length: usize = layer.runs.iter().map(|run| run.text.len()).sum();
-            if layer.runs.len() > 512 || run_length > 10_000 || layer.runs.iter().any(|run| {
-                run.text.is_empty()
-                    || run.color.map(|color| color.iter().any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)).unwrap_or(false)
-            }) {
+            if layer.runs.len() > 512
+                || run_length > 10_000
+                || layer.runs.iter().any(|run| {
+                    run.text.is_empty()
+                        || run
+                            .color
+                            .map(|color| {
+                                color
+                                    .iter()
+                                    .any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)
+                            })
+                            .unwrap_or(false)
+                })
+            {
                 return Err(NativeCoreError::InvalidContract(
                     "ProjectSnapshot contains invalid text runs".to_string(),
                 ));
             }
-            if layer.template_id.as_ref().map(|id| id.trim().is_empty()).unwrap_or(false)
-                || layer.template_data.as_ref().map(|data| serde_json::to_vec(data).map(|bytes| bytes.len() > 256 * 1024).unwrap_or(true)).unwrap_or(false)
+            if layer
+                .template_id
+                .as_ref()
+                .map(|id| id.trim().is_empty())
+                .unwrap_or(false)
+                || layer
+                    .template_data
+                    .as_ref()
+                    .map(|data| {
+                        serde_json::to_vec(data)
+                            .map(|bytes| bytes.len() > 256 * 1024)
+                            .unwrap_or(true)
+                    })
+                    .unwrap_or(false)
             {
                 return Err(NativeCoreError::InvalidContract(
                     "ProjectSnapshot contains invalid text template data".to_string(),
@@ -1090,7 +1227,8 @@ impl FrameRequest {
             if let Some(effect) = &layer.effect {
                 if effect.effect_id.trim().is_empty() || effect.effect_version == 0 {
                     return Err(NativeCoreError::InvalidContract(
-                        "Text layer effect requires valid effect_id and non-zero version".to_string(),
+                        "Text layer effect requires valid effect_id and non-zero version"
+                            .to_string(),
                     ));
                 }
                 for (_, param_val) in &effect.parameter_overrides {
@@ -1144,13 +1282,18 @@ impl FrameRequest {
                         for value in pass.params.values() {
                             let is_finite = match value {
                                 TextParamValue::Float(value) => value.is_finite(),
-                                TextParamValue::Color(values) => values.iter().all(|value| value.is_finite()),
-                                TextParamValue::Vec2(values) => values.iter().all(|value| value.is_finite()),
+                                TextParamValue::Color(values) => {
+                                    values.iter().all(|value| value.is_finite())
+                                }
+                                TextParamValue::Vec2(values) => {
+                                    values.iter().all(|value| value.is_finite())
+                                }
                                 TextParamValue::String(_) => true,
                             };
                             if !is_finite {
                                 return Err(NativeCoreError::InvalidContract(
-                                    "Text effect definition contains a non-finite parameter".to_string(),
+                                    "Text effect definition contains a non-finite parameter"
+                                        .to_string(),
                                 ));
                             }
                         }
@@ -1160,7 +1303,12 @@ impl FrameRequest {
         }
         for video_layer in &self.project.video_layers {
             if let Some(body_effect) = video_layer.body_effect.as_ref() {
-                if !self.project.raster_layers.iter().any(|mask| mask.is_mask && mask.asset_id == body_effect.mask_asset_id) {
+                if !self
+                    .project
+                    .raster_layers
+                    .iter()
+                    .any(|mask| mask.is_mask && mask.asset_id == body_effect.mask_asset_id)
+                {
                     return Err(NativeCoreError::InvalidContract(
                         "Body effect references a missing mask asset".to_string(),
                     ));
@@ -1168,20 +1316,57 @@ impl FrameRequest {
             }
         }
         if let Some(transition) = self.project.transition.as_ref() {
-            let layer_ids: Vec<&str> = if self.project.video_layers.len() == 2 && self.project.raster_layers.is_empty() {
-                self.project.video_layers.iter().map(|layer| layer.layer_id.as_str()).collect()
-            } else if self.project.video_layers.is_empty() && self.project.raster_layers.len() == 2 {
-                self.project.raster_layers.iter().map(|layer| layer.asset_id.as_str()).collect()
+            let layer_ids: Vec<&str> = if self.project.video_layers.len() == 2
+                && self.project.raster_layers.is_empty()
+            {
+                self.project
+                    .video_layers
+                    .iter()
+                    .map(|layer| layer.layer_id.as_str())
+                    .collect()
+            } else if self.project.video_layers.is_empty() && self.project.raster_layers.len() == 2
+            {
+                self.project
+                    .raster_layers
+                    .iter()
+                    .map(|layer| layer.asset_id.as_str())
+                    .collect()
             } else {
                 Vec::new()
             };
             let supported = matches!(
                 transition.transition_type.as_str(),
-                "cross-dissolve" | "cross_dissolve" | "crossfade" | "fade" | "fade-through-color" | "directional-wipe" | "directional_wipe" | "wipe" | "wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "wipe-diagonal"
-                    | "wipe-clockwise" | "circle-wipe" | "diamond-wipe" | "rectangle-wipe"
-                    | "slide-left" | "slide-right" | "slide-up" | "slide-down"
-                    | "zoom-blur" | "zoom-in" | "zoom-out" | "blur-fade"
-                    | "glitch" | "rgb-split" | "chromatic" | "film-burn" | "light-leak" | "whip-pan"
+                "cross-dissolve"
+                    | "cross_dissolve"
+                    | "crossfade"
+                    | "fade"
+                    | "fade-through-color"
+                    | "directional-wipe"
+                    | "directional_wipe"
+                    | "wipe"
+                    | "wipe-left"
+                    | "wipe-right"
+                    | "wipe-up"
+                    | "wipe-down"
+                    | "wipe-diagonal"
+                    | "wipe-clockwise"
+                    | "circle-wipe"
+                    | "diamond-wipe"
+                    | "rectangle-wipe"
+                    | "slide-left"
+                    | "slide-right"
+                    | "slide-up"
+                    | "slide-down"
+                    | "zoom-blur"
+                    | "zoom-in"
+                    | "zoom-out"
+                    | "blur-fade"
+                    | "glitch"
+                    | "rgb-split"
+                    | "chromatic"
+                    | "film-burn"
+                    | "light-leak"
+                    | "whip-pan"
                     | "iris-wipe"
             );
             if layer_ids.len() != 2
@@ -1196,7 +1381,14 @@ impl FrameRequest {
                 || !(0.0..=1.0).contains(&transition.progress)
                 || !(0.0..=1.0).contains(&transition.feather)
                 || transition.intensity < 0.0
-                || transition.fade_color.map(|color| color.iter().any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))).unwrap_or(false)
+                || transition
+                    .fade_color
+                    .map(|color| {
+                        color
+                            .iter()
+                            .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+                    })
+                    .unwrap_or(false)
                 || !supported
             {
                 return Err(NativeCoreError::UnsupportedFeature(
@@ -1396,7 +1588,10 @@ mod tests {
         let video_layer = video_at_limit.project.video_layers[0].clone();
         video_at_limit.project.video_layers = vec![video_layer; 256];
         assert!(video_at_limit.validate().is_ok());
-        video_at_limit.project.video_layers.push(video_at_limit.project.video_layers[0].clone());
+        video_at_limit
+            .project
+            .video_layers
+            .push(video_at_limit.project.video_layers[0].clone());
         assert!(video_at_limit
             .validate()
             .unwrap_err()
@@ -1421,7 +1616,10 @@ mod tests {
         };
         raster_at_limit.project.raster_layers = vec![raster_layer; 64];
         assert!(raster_at_limit.validate().is_ok());
-        raster_at_limit.project.raster_layers.push(raster_at_limit.project.raster_layers[0].clone());
+        raster_at_limit
+            .project
+            .raster_layers
+            .push(raster_at_limit.project.raster_layers[0].clone());
         assert!(raster_at_limit
             .validate()
             .unwrap_err()
@@ -1529,10 +1727,12 @@ mod tests {
 
         // NaN parameter override is rejected
         let mut nan_layer = valid_text_layer.clone();
-        nan_layer.effect.as_mut().unwrap().parameter_overrides.insert(
-            "radius".to_string(),
-            TextParamValue::Float(f32::NAN),
-        );
+        nan_layer
+            .effect
+            .as_mut()
+            .unwrap()
+            .parameter_overrides
+            .insert("radius".to_string(), TextParamValue::Float(f32::NAN));
         value.project.text_layers = vec![nan_layer];
         assert!(value
             .validate()
@@ -1589,7 +1789,8 @@ mod tests {
         };
 
         let json = serde_json::to_string(&track).expect("Serialization failed");
-        let deserialized: NativeCaptionTrack = serde_json::from_str(&json).expect("Deserialization failed");
+        let deserialized: NativeCaptionTrack =
+            serde_json::from_str(&json).expect("Deserialization failed");
         assert_eq!(track, deserialized);
         assert_eq!(deserialized.cues[0].start_ticks, 500_000);
         assert_eq!(deserialized.cues[0].end_ticks, 2_500_000);
