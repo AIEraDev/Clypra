@@ -253,6 +253,11 @@ The permanent playback contract is:
   inserted text uses a deferred look-ahead prewarm of up to eight seconds;
   neither path may decode a second visible video frame or block transport
   controls.
+- The interactive decoder owns the sequential playback stream and retains its
+  last raw NV12 frame. Re-presenting the initial frame at the stopped-to-playing
+  boundary must be a cache reuse, not a second FFmpeg seek. Any future decode
+  ahead must live inside this native owner; a second WebView IPC command must
+  never contend for the same decoder mutex.
 - Project creation, project opening, and crash-session recovery are gated by a
   blocking initialization modal. The modal is driven by the project-store
   lifecycle state, reports the active phase, and remains visible until the
@@ -314,7 +319,35 @@ The 2026-08-28 fix applied these rules in `NativeProgramPreview` and
 the benchmark below must be run on representative mixed timelines to establish
 the baseline.
 
-### 12. Regression acceptance criteria for future integrations
+### 13. Playback render graph ownership and frame budget
+
+The native playback path is a real-time frame stream. Its critical path is
+
+`audio clock → scene snapshot → immutable asset references → native decode →
+GPU conversion/composition → surface present`.
+
+The following are session resources and must be created during session setup or
+on a controlled configuration change, never while presenting a frame:
+
+- compositor shader modules, pipelines, bind-group layouts, samplers, LUT, and
+  default mask;
+- dynamic layer-uniform storage and its bind group;
+- native text/image asset registrations and decoder warm-up.
+
+Per-frame work is limited to advancing the clock, decoding the needed source
+frame, updating dynamic uniforms, and submitting the current surface frame.
+Text/image pixels are immutable assets. Position, opacity, rotation, z-order,
+and blend mode are per-frame compositor values; changing them must not trigger
+Canvas rasterization, font shaping, or a new native asset upload. Time-varying
+effects are the explicit exception and must use a bounded latest-frame policy.
+
+The retained surface is the visual continuity buffer. The playback scheduler
+may drop obsolete frame requests, but it must never allow an older request to
+overwrite a newer generation or block the audio clock behind speculative
+readback work. Readback remains an interaction/export path, not the playback
+path.
+
+### 14. Regression acceptance criteria for future integrations
 
 Before merging a new clip type, renderer, effect, or preview integration:
 
