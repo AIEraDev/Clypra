@@ -60,4 +60,27 @@ describe("PreviewQualityManager", () => {
 
     expect(manager.getSafeMaxDimensions()).toEqual({ width: 1, height: 1 });
   });
+
+  it("keeps play and pause on the same configured preview tier", () => {
+    const manager = new PreviewQualityManager({
+      sequenceWidth: 1920,
+      sequenceHeight: 1080,
+      viewportWidth: 1200,
+      viewportHeight: 700,
+      dpr: 2,
+    });
+
+    expect(manager.selectTierForPreview(false, "high")).toBe(
+      PreviewQualityTier.PlaybackHigh,
+    );
+    expect(manager.selectTierForPreview(false, "medium")).toBe(
+      PreviewQualityTier.Playback,
+    );
+    expect(manager.selectTierForPreview(false, "full")).toBe(
+      PreviewQualityTier.Idle,
+    );
+    expect(manager.selectTierForPreview(true, "high")).toBe(
+      PreviewQualityTier.Interaction,
+    );
+  });
 });
