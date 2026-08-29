@@ -233,7 +233,7 @@ export function hasVisualDimensions(asset: MediaAsset): asset is MediaAsset & { 
   return (asset.type === "video" || asset.type === "image") && asset.width !== undefined && asset.height !== undefined;
 }
 
-export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay" | "compound";
+export type ClipKind = "video" | "audio" | "image" | "sticker" | "text" | "text-template" | "filter" | "video-effect" | "body-effect" | "animated-overlay" | "smart-overlay" | "compound";
 /** Semantic participation of a clip in the compositor. */
 export type ClipRole = "primary" | "overlay" | "text" | "effect" | "background" | "audio";
 export type { SmartOverlayClip, SmartOverlayType, SmartOverlayContentUnion, SmartOverlayStyle, SmartOverlayPreset } from "./smartOverlay";
@@ -310,7 +310,8 @@ export interface Clip {
   /** Immutable template revision captured when this clip was created. */
   templateRevisionId?: string;
   templateContentHash?: string;
-  templateSnapshot?: import("@clypra-studio/engine").TextTemplate;
+  templateSnapshot?: import("@clypra-studio/engine").TextTemplate | import("@clypra-studio/engine").TextTemplateArtifact;
+  templateControlValues?: Record<string, unknown>;
   templateDependencies?: Array<{
     effectId: string;
     revisionId: string;
