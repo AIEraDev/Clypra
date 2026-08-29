@@ -103,6 +103,12 @@ impl NativePlaybackRuntime {
             })?
             .tick(clock)
     }
+
+    /// Drop the session from the previous project so the next project starts
+    /// clean. Called as part of project-close runtime reset.
+    pub fn reset(&mut self) {
+        self.session = None;
+    }
 }
 
 fn runtime(app: &AppHandle) -> Result<Arc<Mutex<NativePlaybackRuntime>>, String> {
