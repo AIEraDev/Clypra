@@ -7,8 +7,6 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { platform } from "@/core/platform";
 import { isMacOSPlatform, WindowControls, WindowDragRegion } from "../ui/WindowControls";
 import { LayoutPresetMenu } from "./layout/LayoutPresetMenu";
-import { getPlaybackClock } from "@/core/playback/PlaybackClock";
-import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 
 // Lazy load ExportDialog
 const ExportDialog = lazy(() => import("../ui/ExportDialog").then((m) => ({ default: m.ExportDialog })));
@@ -84,23 +82,11 @@ const TopBarComponent: React.FC<TopBarProps> = ({ onRequestClose }) => {
 
           <LayoutPresetMenu />
 
-          <Button variant="ghost" size="icon-sm" onClick={() => {
-            try {
-              getPlaybackClock().pause();
-            } catch {}
-            void hideNativeSurfaceWhenIdle().catch(() => undefined);
-            toggleSettingsModal();
-          }} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
+          <Button variant="ghost" size="icon-sm" onClick={toggleSettingsModal} title="Settings" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
             <Settings className="w-3.5 h-3.5" />
           </Button>
 
-          <Button variant="default" size="sm" onClick={() => {
-            try {
-              getPlaybackClock().pause();
-            } catch {}
-            void hideNativeSurfaceWhenIdle().catch(() => undefined);
-            setShowExportDialog(true);
-          }} className="text-xs h-6 px-2.5" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
+          <Button variant="default" size="sm" onClick={() => setShowExportDialog(true)} className="text-xs h-6 px-2.5" style={{ WebkitAppRegion: "no-drag", cursor: "pointer" } as React.CSSProperties}>
             <Upload className="w-3.5 h-3.5 mr-1" />
             Export
           </Button>
