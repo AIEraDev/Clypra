@@ -4,7 +4,8 @@ use tauri_app_lib::wgpu_compositor::chroma_key::ChromaKeyUniforms;
 use tauri_app_lib::wgpu_compositor::lut_parser::ParsedLut3D;
 use tauri_app_lib::wgpu_compositor::lut_texture::GpuLut3D;
 use tauri_app_lib::wgpu_compositor::multi_track_composer::{
-    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform, MultiTrackCompositor,
+    BlendMode, BodyEffectUniforms, ColorGradeUniforms, CompositeLayer, CropMargins, LayerTransform,
+    MultiTrackCompositor,
 };
 
 /// Headless GPU context for CI & testing
@@ -232,7 +233,12 @@ async fn test_premultiplied_alpha_opacity_blend() {
 
     // Expected: R = 255 * 0.5 = 128, G = 0, B = 255 * 0.5 = 128, A = 255
     let sample = get_pixel(&output_bytes, width, 128, 128);
-    assert_pixel_near(sample, [128, 0, 128, 255], 3, "50% Opacity Alpha-Over blend");
+    assert_pixel_near(
+        sample,
+        [128, 0, 128, 255],
+        3,
+        "50% Opacity Alpha-Over blend",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -288,7 +294,129 @@ async fn test_additive_blend_mode() {
 
     // Expected: R = 200 + 0 = 200, G = 0 + 200 = 200, B = 0, A = 255
     let sample = get_pixel(&output_bytes, width, 128, 128);
-    assert_pixel_near(sample, [200, 200, 0, 255], 2, "Additive blend mode accumulation");
+    assert_pixel_near(
+        sample,
+        [200, 200, 0, 255],
+        2,
+        "Additive blend mode accumulation",
+    );
+}
+
+// -----------------------------------------------------------------------------
+#[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
+async fn test_multiply_blend_mode() {
+    let ctx = HeadlessGpuContext::new().await;
+    let width = 256;
+    let height = 256;
+
+    let compositor = MultiTrackCompositor::new(&ctx.device, &ctx.queue, width, height);
+
+    // Layer 1: Solid White [255, 255, 255, 255]
+    // Layer 2: Solid Red [200, 0, 0, 255] with Multiply Blend
+    let (_t1, view_white) = ctx.create_solid_texture(width, height, [255, 255, 255, 255]);
+    let (_t2, view_red) = ctx.create_solid_texture(width, height, [200, 0, 0, 255]);
+
+    let layers = vec![
+        CompositeLayer {
+            texture_view: &view_white,
+            lut: None,
+            z_index: 0,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            transform: LayerTransform::default(),
+            crop: CropMargins::default(),
+            color_grade: ColorGradeUniforms::default(),
+            chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+        },
+        CompositeLayer {
+            texture_view: &view_red,
+            lut: None,
+            z_index: 1,
+            opacity: 1.0,
+            blend_mode: BlendMode::Multiply,
+            transform: LayerTransform::default(),
+            crop: CropMargins::default(),
+            color_grade: ColorGradeUniforms::default(),
+            chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+        },
+    ];
+
+    let output_bytes = compositor
+        .render_to_rgba_bytes(&ctx.device, &ctx.queue, &layers)
+        .await
+        .expect("Multiply render pass failed");
+
+    let sample = get_pixel(&output_bytes, width, 128, 128);
+    assert_pixel_near(
+        sample,
+        [200, 0, 0, 255],
+        3,
+        "Multiply blend mode attenuation",
+    );
+}
+
+// -----------------------------------------------------------------------------
+#[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
+async fn test_screen_blend_mode() {
+    let ctx = HeadlessGpuContext::new().await;
+    let width = 256;
+    let height = 256;
+
+    let compositor = MultiTrackCompositor::new(&ctx.device, &ctx.queue, width, height);
+
+    // Layer 1: Solid Red [128, 0, 0, 255]
+    // Layer 2: Solid Green [0, 128, 0, 255] with Screen Blend
+    let (_t1, view_red) = ctx.create_solid_texture(width, height, [128, 0, 0, 255]);
+    let (_t2, view_green) = ctx.create_solid_texture(width, height, [0, 128, 0, 255]);
+
+    let layers = vec![
+        CompositeLayer {
+            texture_view: &view_red,
+            lut: None,
+            z_index: 0,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            transform: LayerTransform::default(),
+            crop: CropMargins::default(),
+            color_grade: ColorGradeUniforms::default(),
+            chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+        },
+        CompositeLayer {
+            texture_view: &view_green,
+            lut: None,
+            z_index: 1,
+            opacity: 1.0,
+            blend_mode: BlendMode::Screen,
+            transform: LayerTransform::default(),
+            crop: CropMargins::default(),
+            color_grade: ColorGradeUniforms::default(),
+            chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+        },
+    ];
+
+    let output_bytes = compositor
+        .render_to_rgba_bytes(&ctx.device, &ctx.queue, &layers)
+        .await
+        .expect("Screen render pass failed");
+
+    let sample = get_pixel(&output_bytes, width, 128, 128);
+    // Screen: 1 - (1 - 0.5)*(1 - 0) = 0.5 -> ~128 for Red, 128 for Green
+    assert_pixel_near(
+        sample,
+        [128, 128, 0, 255],
+        4,
+        "Screen blend mode combination",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -354,7 +482,12 @@ async fn test_crop_margins_clipping() {
 
     // Right side (x = 200) must be visible (shows White foreground)
     let right_sample = get_pixel(&output_bytes, width, 200, 128);
-    assert_pixel_near(right_sample, [255, 255, 255, 255], 1, "Right side visible inside crop");
+    assert_pixel_near(
+        right_sample,
+        [255, 255, 255, 255],
+        1,
+        "Right side visible inside crop",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -421,7 +554,12 @@ async fn test_affine_transform_pip_placement() {
 
     // Bottom-Right Quadrant (x = 192, y = 192) -> Should show Red PiP layer
     let bottom_right = get_pixel(&output_bytes, width, 192, 192);
-    assert_pixel_near(bottom_right, [255, 0, 0, 255], 1, "Bottom-right shows scaled PiP layer");
+    assert_pixel_near(
+        bottom_right,
+        [255, 0, 0, 255],
+        1,
+        "Bottom-right shows scaled PiP layer",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -470,7 +608,10 @@ async fn test_24_track_density_stress() {
         .expect("24-track composite failed");
 
     let elapsed = start.elapsed();
-    println!("\n🚀 Composited 24 simultaneous 1080p video tracks in {:.2?}", elapsed);
+    println!(
+        "\n🚀 Composited 24 simultaneous 1080p video tracks in {:.2?}",
+        elapsed
+    );
 
     assert_eq!(output_bytes.len(), (width * height * 4) as usize);
 }
@@ -566,8 +707,8 @@ async fn test_exposure_ev_adjustments() {
             ..Default::default()
         },
         chroma_key: ChromaKeyUniforms::default(),
-            mask_view: None,
-            body_effect: BodyEffectUniforms::default(),
+        mask_view: None,
+        body_effect: BodyEffectUniforms::default(),
     }];
 
     let out_plus = compositor
@@ -576,7 +717,12 @@ async fn test_exposure_ev_adjustments() {
         .expect("Render +1.0 EV failed");
 
     let sample_plus = get_pixel(&out_plus, width, width / 2, height / 2);
-    assert_pixel_near(sample_plus, [200, 200, 200, 255], 3, "+1.0 EV Exposure doubling");
+    assert_pixel_near(
+        sample_plus,
+        [200, 200, 200, 255],
+        3,
+        "+1.0 EV Exposure doubling",
+    );
 
     // 2. -1.0 EV (Half intensity: 100 / 2 = 50)
     let layer_minus_1 = vec![CompositeLayer {
@@ -592,8 +738,8 @@ async fn test_exposure_ev_adjustments() {
             ..Default::default()
         },
         chroma_key: ChromaKeyUniforms::default(),
-            mask_view: None,
-            body_effect: BodyEffectUniforms::default(),
+        mask_view: None,
+        body_effect: BodyEffectUniforms::default(),
     }];
 
     let out_minus = compositor
@@ -602,7 +748,12 @@ async fn test_exposure_ev_adjustments() {
         .expect("Render -1.0 EV failed");
 
     let sample_minus = get_pixel(&out_minus, width, width / 2, height / 2);
-    assert_pixel_near(sample_minus, [50, 50, 50, 255], 3, "-1.0 EV Exposure halving");
+    assert_pixel_near(
+        sample_minus,
+        [50, 50, 50, 255],
+        3,
+        "-1.0 EV Exposure halving",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -615,7 +766,8 @@ async fn test_body_glow_mask_binding() {
     let width = 64;
     let height = 64;
     let compositor = MultiTrackCompositor::new(&ctx.device, &ctx.queue, width, height);
-    let (_source_texture, source_view) = ctx.create_solid_texture(width, height, [100, 100, 100, 255]);
+    let (_source_texture, source_view) =
+        ctx.create_solid_texture(width, height, [100, 100, 100, 255]);
     let (_mask_texture, mask_view) = ctx.create_solid_texture(width, height, [255, 255, 255, 255]);
 
     let layers = vec![CompositeLayer {
@@ -640,7 +792,10 @@ async fn test_body_glow_mask_binding() {
         .await
         .expect("Body mask glow render failed");
     let sample = get_pixel(&output, width, width / 2, height / 2);
-    assert!(sample[0] > sample[1], "body glow should add the configured red channel");
+    assert!(
+        sample[0] > sample[1],
+        "body glow should add the configured red channel"
+    );
 
     let particle_layers = vec![CompositeLayer {
         texture_view: &source_view,
@@ -662,10 +817,12 @@ async fn test_body_glow_mask_binding() {
         .render_to_rgba_bytes(&ctx.device, &ctx.queue, &particle_layers)
         .await
         .expect("Body particle render failed");
-    assert!(particle_output
-        .chunks_exact(4)
-        .any(|pixel| pixel[0] > pixel[1] && pixel[1] > 100),
-        "body particles should add a visible configured orange particle");
+    assert!(
+        particle_output
+            .chunks_exact(4)
+            .any(|pixel| pixel[0] > pixel[1] && pixel[1] > 100),
+        "body particles should add a visible configured orange particle"
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -719,8 +876,8 @@ DOMAIN_MAX 1.0 1.0 1.0
             ..Default::default()
         },
         chroma_key: ChromaKeyUniforms::default(),
-            mask_view: None,
-            body_effect: BodyEffectUniforms::default(),
+        mask_view: None,
+        body_effect: BodyEffectUniforms::default(),
     }];
 
     let out_full = compositor
@@ -729,7 +886,12 @@ DOMAIN_MAX 1.0 1.0 1.0
         .expect("Full LUT render failed");
 
     let sample_full = get_pixel(&out_full, width, width / 2, height / 2);
-    assert_pixel_near(sample_full, [0, 255, 255, 255], 3, "Inversion LUT 100% intensity (Red -> Cyan)");
+    assert_pixel_near(
+        sample_full,
+        [0, 255, 255, 255],
+        3,
+        "Inversion LUT 100% intensity (Red -> Cyan)",
+    );
 
     // Test at 50% intensity (Red [255, 0, 0] mix Cyan [0, 255, 255] = Gray [128, 128, 128])
     let layers_half = vec![CompositeLayer {
@@ -747,8 +909,8 @@ DOMAIN_MAX 1.0 1.0 1.0
             ..Default::default()
         },
         chroma_key: ChromaKeyUniforms::default(),
-            mask_view: None,
-            body_effect: BodyEffectUniforms::default(),
+        mask_view: None,
+        body_effect: BodyEffectUniforms::default(),
     }];
 
     let out_half = compositor
@@ -757,7 +919,12 @@ DOMAIN_MAX 1.0 1.0 1.0
         .expect("Half LUT render failed");
 
     let sample_half = get_pixel(&out_half, width, width / 2, height / 2);
-    assert_pixel_near(sample_half, [128, 128, 128, 255], 4, "Inversion LUT 50% intensity (Red + Cyan blend)");
+    assert_pixel_near(
+        sample_half,
+        [128, 128, 128, 255],
+        4,
+        "Inversion LUT 50% intensity (Red + Cyan blend)",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -824,7 +991,12 @@ async fn test_chroma_key_green_screen_removal() {
 
     // Since the top green screen is keyed out, the bottom Blue background should show through completely
     let sample = get_pixel(&output_bytes, width, width / 2, height / 2);
-    assert_pixel_near(sample, [0, 0, 255, 255], 2, "Green screen keyed out revealing Blue background");
+    assert_pixel_near(
+        sample,
+        [0, 0, 255, 255],
+        2,
+        "Green screen keyed out revealing Blue background",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -891,5 +1063,10 @@ async fn test_chroma_key_subject_retention() {
 
     // Red subject must remain 100% opaque
     let sample = get_pixel(&output_bytes, width, width / 2, height / 2);
-    assert_pixel_near(sample, [255, 0, 0, 255], 2, "Red subject remains solid over blue background");
+    assert_pixel_near(
+        sample,
+        [255, 0, 0, 255],
+        2,
+        "Red subject remains solid over blue background",
+    );
 }
