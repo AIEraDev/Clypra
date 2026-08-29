@@ -296,8 +296,14 @@ export class NativeRasterBridge {
     );
     if (layers.length === 0) return [];
     const assets = await Promise.all(layers.map((layer) => {
-      const width = Math.max(1, Math.round(layer.width));
-      const height = Math.max(1, Math.round(layer.height));
+      // Placement changes on every transform frame; the source texture does
+      // not. Registering by display dimensions caused a fresh decode/upload
+      // for every resize. Keep the immutable source resource keyed by source
+      // dimensions and send placement dimensions separately to the compositor.
+      const width = Math.max(1, Math.round(layer.sourceWidth ?? layer.width));
+      const height = Math.max(1, Math.round(layer.sourceHeight ?? layer.height));
+      const displayWidth = Math.max(1, layer.width);
+      const displayHeight = Math.max(1, layer.height);
       const assetId = buildNativeImageAssetId(layer.sourcePath, width, height);
       this.imageSourcesById.set(assetId, { sourcePath: layer.sourcePath, width, height });
       let registration = this.imageCache.get(assetId);
@@ -320,6 +326,8 @@ export class NativeRasterBridge {
         assetId,
         width,
         height,
+        ...(displayWidth !== width ? { displayWidth } : {}),
+        ...(displayHeight !== height ? { displayHeight } : {}),
         x: layer.x,
         y: layer.y,
         rotation: layer.rotation,
