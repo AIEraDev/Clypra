@@ -230,6 +230,7 @@ pub fn run() {
             register_native_image_asset,
             present_native_frame,
             get_native_frame_service_stats,
+            reset_native_preview_runtime,
             get_native_gpu_status,
             probe_native_surface,
             resize_native_surface,
