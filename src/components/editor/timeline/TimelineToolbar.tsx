@@ -244,7 +244,7 @@ const TimelineToolbarComponent: React.FC = () => {
             {showQualityMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowQualityMenu(false)} />
-                <div className="absolute bottom-full right-0 mb-1.5 z-50 bg-surface-floating border border-border rounded-lg shadow-xl overflow-hidden min-w-32 py-1">
+                <div className="absolute top-full right-0 mt-1.5 z-[220] bg-surface-floating border border-border rounded-lg shadow-xl overflow-hidden min-w-32 py-1">
                   {([
                     { value: "full" as PreviewQuality, label: "Full 4K" },
                     { value: "high" as PreviewQuality, label: "High 1080p" },
