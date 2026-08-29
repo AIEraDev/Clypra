@@ -4,8 +4,9 @@ use crate::native_audio::NativeAudioClock;
 use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
 use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
-    NativeFrameService, NativeFrameServiceStats, NativeSurfacePresentation, PerformanceSample,
-    PixelFormat, PreviewMode, TextLayerSnapshot, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
+    NativeFrameService, NativeFrameServiceStats, NativeSurfacePresentation,
+    NativeSurfacePresentationTimings, PerformanceSample, PixelFormat, PreviewMode,
+    TextLayerSnapshot, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
 use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
@@ -145,14 +146,6 @@ fn native_presentation_timing(
     SYNC_METRICS
         .av_drift
         .record(frame_position_ticks.saturating_sub(status.audio_position_ticks as i64));
-    crate::sync_metrics::trace_event(
-        "av_drift",
-        format_args!(
-            "video_pts_ticks={frame_position_ticks} audio_position_ticks={} drift_ticks={}",
-            status.audio_position_ticks,
-            frame_position_ticks.saturating_sub(status.audio_position_ticks as i64),
-        ),
-    );
     let age = status.audio_position_ticks as i128 - frame_position_ticks as i128;
     let frame_age_ticks = age.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
     (
@@ -1686,13 +1679,6 @@ async fn decode_native_video_layers(
                 .saturating_add(decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32);
             decoded
         };
-        crate::sync_metrics::trace_event(
-            "preview_decode",
-            format_args!(
-                "time_secs={:.3} width={} height={}",
-                layer.time_secs, width, height
-            ),
-        );
         decoded_frames.push((y_plane, uv_plane, width, height, color));
     }
     Ok((decoded_frames, timings))
@@ -2026,6 +2012,7 @@ pub async fn present_native_frame(
             mode: request.mode.clone(),
             stale: false,
             cancelled: false,
+            timings: None,
         });
     }
     if late_for_audio {
@@ -2059,6 +2046,7 @@ pub async fn present_native_frame(
             mode: request.mode.clone(),
             stale: false,
             cancelled: false,
+            timings: None,
         });
     }
     if !matches!(
@@ -2315,6 +2303,16 @@ pub async fn present_native_frame(
         mode: request.mode,
         stale: false,
         cancelled: false,
+        timings: Some(NativeSurfacePresentationTimings {
+            total_us: request_started_at.elapsed().as_micros() as u64,
+            decode_us: decode_timings.decode_time_us,
+            decoder_mutex_wait_us: decode_timings.decoder_mutex_wait_us,
+            conversion_upload_us,
+            compose_us,
+            surface_acquire_us,
+            submit_present_us,
+            queue_hit,
+        }),
     })
 }
 
