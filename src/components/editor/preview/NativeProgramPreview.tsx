@@ -272,6 +272,11 @@ export const NativeProgramPreview: React.FC = () => {
   const setPreviewQuality = useSettingsStore((s) => s.setPreviewQuality);
 
   const playbackStatus = usePlaybackStatus();
+  // The render loop reads the clock imperatively, but the interactive preview
+  // surface needs a reactive time snapshot. Without this subscription,
+  // TransformOverlay can keep hit-testing the initial time while the visible
+  // frame and pointer diagnostics are already at a later seek position.
+  const playbackClockState = usePlaybackClock();
   const clock = getPlaybackClock();
   const { setDuration, setFrameRate } = usePlaybackControls();
   const {
@@ -762,15 +767,11 @@ export const NativeProgramPreview: React.FC = () => {
   }, [project?.id, nativeSurfaceViewportReady]);
 
   // Keep paused/seeking frames on the DOM canvas. The native surface is a
-  // separate child window, so leaving it visible after a pause can make the
-  // same frame appear at stale coordinates while the canvas is laid out in
-  // the current preview viewport.
+  // separate child window, so the handoff must complete before editor
+  // overlays become visible over the exact paused frame.
   useEffect(() => {
     if (!nativeSurfaceReady || playbackStatus.state === "playing") return;
 
-    // Native playback is the authoritative desktop preview path. Do not hide
-    // it merely because the clock paused: the DOM readback canvas may not have
-    // an exact frame yet, and hiding here turns a valid paused frame into black.
     tracePlayback("pause-surface-handoff", {
       projectId: project?.id ?? null,
       nativeSurfaceReady,
@@ -799,13 +800,36 @@ export const NativeProgramPreview: React.FC = () => {
       if (isPanning || spacePressed) return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
+      tracePlayback("preview-pointer-capture", {
+        pointer: { clientX: e.clientX, clientY: e.clientY },
+        target: {
+          tagName: target.tagName,
+          id: target.id || null,
+          testId: target.getAttribute("data-testid"),
+          transformOverlay: Boolean(target.closest("[data-transform-overlay]")),
+          viewport: Boolean(target.closest("[data-testid='program-preview-viewport']")),
+        },
+        playbackState: playbackStatus.state,
+        currentTime: Number(clock.time.toFixed(3)),
+        nativeSurfaceReady,
+        nativeSurfacePresenting,
+        selectedClipIds: useUIStore.getState().selectedClipIds,
+      });
       if (target.closest("[data-transform-handle]")) return;
       if (target.closest("[data-playhead]")) return;
       if (target.closest("[data-transform-overlay]")) return;
       if (target.closest("[data-testid='program-preview-viewport']")) return;
       clearSelection();
     },
-    [clearSelection, isPanning, spacePressed],
+    [
+      clearSelection,
+      isPanning,
+      spacePressed,
+      playbackStatus.state,
+      clock,
+      nativeSurfaceReady,
+      nativeSurfacePresenting,
+    ],
   );
 
   const selectAspectPreset = useCallback(
@@ -1855,8 +1879,13 @@ export const NativeProgramPreview: React.FC = () => {
           });
           nativeSurfaceShown = false;
           lastNativePlaybackRequestKey = "";
-          setNativeSurfacePresenting(false);
-          void hideNativeSurfaceWhenIdle().catch(() => undefined);
+          void hideNativeSurfaceWhenIdle()
+            .then(() => {
+              if (isActive) setNativeSurfacePresenting(false);
+            })
+            .catch(() => {
+              if (isActive) setNativeSurfacePresenting(false);
+            });
         }
         const cachedNativeFrame =
           nativeRequestKey !== ""
@@ -2102,8 +2131,13 @@ export const NativeProgramPreview: React.FC = () => {
                     if (isActive && nativeSurfaceShown) {
                       nativeSurfaceShown = false;
                       lastNativePlaybackRequestKey = "";
-                      setNativeSurfacePresenting(false);
-                      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+                      void hideNativeSurfaceWhenIdle()
+                        .then(() => {
+                          if (isActive) setNativeSurfacePresenting(false);
+                        })
+                        .catch(() => {
+                          if (isActive) setNativeSurfacePresenting(false);
+                        });
                     }
                   })
                   .finally(() => {
@@ -2632,8 +2666,8 @@ export const NativeProgramPreview: React.FC = () => {
                   displayOffset={{ x: offsetX, y: offsetY }}
                   displayWidth={displayWidth}
                   displayHeight={displayHeight}
-                  currentTime={clock.time}
-                  visible={!isPlaying}
+                  currentTime={playbackClockState.time}
+                  visible={playbackClockState.state !== "playing"}
                 />
                 <SafeOverlay
                   visible={showSafeOverlay}

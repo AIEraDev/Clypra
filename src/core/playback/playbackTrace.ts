@@ -16,6 +16,8 @@ const PLAYBACK_CONSOLE_EVENTS = new Set([
   "audio-audibility",
   "native-frame-dropped",
   "native-frame-stale",
+  "preview-pointer-capture",
+  "preview-hit-test",
 ]);
 
 export function tracePlayback(
