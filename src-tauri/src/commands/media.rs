@@ -613,11 +613,6 @@ pub async fn extract_waveform_data(
 ) -> Result<Vec<WaveformBucket>, String> {
     use std::process::Command;
 
-    eprintln!(
-        "🦀 [extract_waveform_data] Extracting {} buckets from: {}",
-        num_buckets, path
-    );
-
     // Use ffmpeg to decode audio to raw PCM samples (mono, 16kHz for efficiency)
     let mut cmd = Command::new("ffmpeg");
     cmd.env("PATH", augmented_path());
@@ -650,18 +645,8 @@ pub async fn extract_waveform_data(
         return Err("No audio samples extracted".to_string());
     }
 
-    eprintln!(
-        "🦀 [extract_waveform_data] Decoded {} samples",
-        samples.len()
-    );
-
     // Compute peak and RMS for each bucket in parallel
     let buckets = compute_waveform_buckets(samples, num_buckets);
-
-    eprintln!(
-        "🦀 [extract_waveform_data] Computed {} buckets",
-        buckets.len()
-    );
     Ok(buckets)
 }
 
