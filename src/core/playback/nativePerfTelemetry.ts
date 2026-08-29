@@ -1,4 +1,6 @@
 import type { NativeFrameRequest, NativePreviewMode } from "@/lib/platform/nativeCore";
+import { telemetryCollector } from "@/services/telemetryCollector";
+import type { TelemetryOperationMode } from "@/services/telemetryCollector";
 
 export interface NativeFrontendPerfSample {
   requestId: string;
@@ -120,7 +122,10 @@ export class NativePerfSpan {
 
 class NativePerfCollector {
   private readonly samples = new Map<NativePreviewMode, NativeFrontendPerfSample[]>();
-  private enabled = readTraceFlag();
+  // Keep the frontend/native boundary observable in every build for now. The
+  // collector is bounded and forwards through the existing batched transport;
+  // the user telemetry setting can still disable it intentionally.
+  private enabled = true;
 
   constructor() {
     for (const mode of [
@@ -154,6 +159,21 @@ class NativePerfCollector {
     if (!bucket) return;
     bucket.push(sample);
     if (bucket.length > RING_CAPACITY) bucket.shift();
+
+    telemetryCollector.recordRenderSpan(
+      {
+        schedulerWaitUs: Math.round(sample.dispatchMs * 1000),
+        ipcWaitUs: Math.round(sample.ipcMs * 1000),
+        totalTimeUs: Math.round(sample.totalMs * 1000),
+      },
+      sample.dropped ? 1 : 0,
+      1,
+      {},
+      toTelemetryMode(sample.mode),
+      undefined,
+      sample.stale ? 1 : 0,
+      sample.cancelled ? 1 : 0,
+    );
   }
 
   statsFor(mode: NativePreviewMode): NativeFrontendModeStats {
@@ -194,6 +214,12 @@ class NativePerfCollector {
 function normalizeMode(mode: NativeFrameRequest["mode"]): NativePreviewMode {
   if (mode === "frameStep") return "frame-step";
   return mode ?? "seek";
+}
+
+function toTelemetryMode(mode: NativePreviewMode): TelemetryOperationMode {
+  if (mode === "seek") return "seek-cold";
+  if (mode === "prefetch") return "playback-lookahead";
+  return mode;
 }
 
 export const nativePerfCollector = new NativePerfCollector();
