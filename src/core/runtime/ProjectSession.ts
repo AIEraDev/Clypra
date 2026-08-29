@@ -51,14 +51,27 @@ import { ProgramPlaybackContext } from "../playback/ProgramPlaybackContext";
 import { SourcePlaybackContext } from "../playback/SourcePlaybackContext";
 
 import { RenderEngine } from "@/lib/renderEngine/renderEngine";
-import { QualityPreset, RendererMode, type SrpConfig } from "@/lib/renderEngine/types";
-import { PreviewMediaPool, type PreviewSyncState } from "../resources/PreviewMediaPool";
+import {
+  QualityPreset,
+  RendererMode,
+  type SrpConfig,
+} from "@/lib/renderEngine/types";
+import {
+  PreviewMediaPool,
+  type PreviewSyncState,
+} from "../resources/PreviewMediaPool";
 import { AudioEngine } from "../audio/AudioEngine";
-import { getSharedAudioEngine, stopSharedAudioEngine } from "../audio/audioRuntime";
+import {
+  getSharedAudioEngine,
+  stopSharedAudioEngine,
+} from "../audio/audioRuntime";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import type { Clip, MediaAsset } from "@/types";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
-import { resourceTracker, installDiagnostics } from "@/core/monitoring/ResourceTracker";
+import {
+  resourceTracker,
+  installDiagnostics,
+} from "@/core/monitoring/ResourceTracker";
 import { getFrameStartTime } from "@/lib/utils/frameTime";
 
 /**
@@ -70,9 +83,16 @@ export type SessionState = "initializing" | "active" | "disposing" | "disposed";
  * Session lifecycle events
  */
 export type SessionEventType = "initialized" | "disposed" | "error";
-export type SessionEventListener = (event: { type: SessionEventType; session: ProjectSession; error?: Error }) => void;
+export type SessionEventListener = (event: {
+  type: SessionEventType;
+  session: ProjectSession;
+  error?: Error;
+}) => void;
 type SessionRegistryListener = (session: ProjectSession | null) => void;
-export type SessionInitializationProgress = (progress: number, message: string) => void;
+export type SessionInitializationProgress = (
+  progress: number,
+  message: string,
+) => void;
 
 export class ProjectSession {
   // Session identity
@@ -87,7 +107,9 @@ export class ProjectSession {
   private _transportAuthority: TransportAuthority | null = null;
   private _programContext: ProgramPlaybackContext | null = null;
   private _sourceContext: SourcePlaybackContext | null = null;
-  private _nativeRasterBridge: import("@/core/render/nativeRasterBridge").NativeRasterBridge | null = null;
+  private _nativeRasterBridge:
+    | import("@/core/render/nativeRasterBridge").NativeRasterBridge
+    | null = null;
   private readonly _onInitializationProgress?: SessionInitializationProgress;
 
   // Lifecycle tracking
@@ -100,7 +122,10 @@ export class ProjectSession {
   private _asyncTasks = new Set<AbortController>();
   private _rafIds = new Set<number>();
 
-  constructor(projectId: string, onInitializationProgress?: SessionInitializationProgress) {
+  constructor(
+    projectId: string,
+    onInitializationProgress?: SessionInitializationProgress,
+  ) {
     this.projectId = projectId;
     this.sessionId = `session-${projectId}-${Date.now()}`;
     this._onInitializationProgress = onInitializationProgress;
@@ -114,16 +139,18 @@ export class ProjectSession {
 
   get playback(): PlaybackClock {
     if (!this._playback) {
-      throw new Error(`[ProjectSession] Playback not initialized. Call initialize() first.`);
+      throw new Error(
+        `[ProjectSession] Playback not initialized. Call initialize() first.`,
+      );
     }
     return this._playback;
   }
 
-
-
   get renderRuntime(): RenderEngine {
     if (!this._renderRuntime) {
-      throw new Error(`[ProjectSession] RenderEngine not initialized. Call initialize() first.`);
+      throw new Error(
+        `[ProjectSession] RenderEngine not initialized. Call initialize() first.`,
+      );
     }
     return this._renderRuntime;
   }
@@ -149,7 +176,9 @@ export class ProjectSession {
   }
 
   /** Shared native preview asset bridge for session initialization and playback. */
-  get nativeRasterBridge(): import("@/core/render/nativeRasterBridge").NativeRasterBridge | null {
+  get nativeRasterBridge():
+    | import("@/core/render/nativeRasterBridge").NativeRasterBridge
+    | null {
     return this._nativeRasterBridge;
   }
 
@@ -170,7 +199,9 @@ export class ProjectSession {
 
   private async _doInitialize(): Promise<void> {
     if (this._state !== "initializing") {
-      throw new Error(`[ProjectSession] Cannot initialize from state: ${this._state}`);
+      throw new Error(
+        `[ProjectSession] Cannot initialize from state: ${this._state}`,
+      );
     }
 
     try {
@@ -200,9 +231,13 @@ export class ProjectSession {
 
       // Keep the hidden video pool for native frame extraction, but never let
       // it create a second audible HTML-media path in Tauri.
-      this._previewMediaPool = new PreviewMediaPool(this.projectId, this.sessionId, {
-        audioEnabled: !isTauriRuntime(),
-      });
+      this._previewMediaPool = new PreviewMediaPool(
+        this.projectId,
+        this.sessionId,
+        {
+          audioEnabled: !isTauriRuntime(),
+        },
+      );
 
       // Initialize stores (timeline, UI)
       await this._initializeStores();
@@ -214,7 +249,8 @@ export class ProjectSession {
       // transport path.
       if (isTauriRuntime()) {
         this._onInitializationProgress?.(0.55, "Prewarming text and images…");
-        const { NativeRasterBridge } = await import("@/core/render/nativeRasterBridge");
+        const { NativeRasterBridge } =
+          await import("@/core/render/nativeRasterBridge");
         this._nativeRasterBridge = new NativeRasterBridge();
         // Opening is not complete until every text/image boundary has been
         // warmed. This is deliberately awaited: a background warmup can
@@ -242,7 +278,11 @@ export class ProjectSession {
       this._notifyListeners({ type: "initialized", session: this });
     } catch (error) {
       this._state = "disposed";
-      this._notifyListeners({ type: "error", session: this, error: error as Error });
+      this._notifyListeners({
+        type: "error",
+        session: this,
+        error: error as Error,
+      });
       throw error;
     }
   }
@@ -309,7 +349,6 @@ export class ProjectSession {
       // 8. Release references to global singletons (actual disposal handled by destroyRuntime)
       this._playback = null;
 
-
       // 9. Reset stores
       await this._resetStores();
 
@@ -333,7 +372,11 @@ export class ProjectSession {
         detail: { error: String(error) },
       });
       resourceTracker.release(this.sessionId);
-      this._notifyListeners({ type: "error", session: this, error: error as Error });
+      this._notifyListeners({
+        type: "error",
+        session: this,
+        error: error as Error,
+      });
     }
   }
 
@@ -343,7 +386,12 @@ export class ProjectSession {
    * Synchronize preview media elements with timeline state.
    * Creates/destroys headless video/audio elements as needed.
    */
-  syncPreviewMedia(clips: Clip[], assets: MediaAsset[], tracks: Array<{ id: string; type: string }>, syncState: PreviewSyncState): void {
+  syncPreviewMedia(
+    clips: Clip[],
+    assets: MediaAsset[],
+    tracks: Array<{ id: string; type: string }>,
+    syncState: PreviewSyncState,
+  ): void {
     if (this._state !== "active") {
       return;
     }
@@ -462,22 +510,32 @@ export class ProjectSession {
     const bridge = this._nativeRasterBridge;
     if (!bridge || typeof document === "undefined") return;
 
-    const [projectStore, timelineStore, evaluator, fontRegistry] = await Promise.all([
-      import("@/store/projectStore"),
-      import("@/store/timelineStore"),
-      import("@/core/evaluation/evaluator"),
-      import("@/core/fonts/nativeFontRegistry"),
-    ]);
+    const [projectStore, timelineStore, evaluator, fontRegistry] =
+      await Promise.all([
+        import("@/store/projectStore"),
+        import("@/store/timelineStore"),
+        import("@/core/evaluation/evaluator"),
+        import("@/core/fonts/nativeFontRegistry"),
+      ]);
     const project = projectStore.useProjectStore.getState().project;
     if (!project || project.id !== this.projectId) return;
 
-    const { clips, tracks, transitions } = timelineStore.useTimelineStore.getState();
+    const { clips, tracks, transitions } =
+      timelineStore.useTimelineStore.getState();
     const mediaAssets = projectStore.useProjectStore.getState().mediaAssets;
     const assetMap = new Map(mediaAssets.map((a) => [a.id, a]));
     const isRasterClip = (clip: (typeof clips)[number]) => {
-      if (clip.kind === "text" || clip.kind === "image" || clip.kind === "sticker") return true;
+      if (
+        clip.kind === "text" ||
+        clip.kind === "image" ||
+        clip.kind === "sticker"
+      )
+        return true;
       const asset = assetMap.get(clip.mediaId);
-      return asset?.type === "image" || (clip.mediaId && clip.mediaId.startsWith("sticker-"));
+      return (
+        asset?.type === "image" ||
+        (clip.mediaId && clip.mediaId.startsWith("sticker-"))
+      );
     };
     const rasterBoundaries = clips
       .filter(isRasterClip)
@@ -569,7 +627,11 @@ export class ProjectSession {
     return () => this._listeners.delete(listener);
   }
 
-  private _notifyListeners(event: { type: SessionEventType; session: ProjectSession; error?: Error }): void {
+  private _notifyListeners(event: {
+    type: SessionEventType;
+    session: ProjectSession;
+    error?: Error;
+  }): void {
     this._listeners.forEach((listener) => {
       try {
         listener(event);
@@ -600,7 +662,9 @@ export class ProjectSession {
       state: this._state,
       playbackState: this._playback?.state ?? null,
       pendingJobs: 0,
-      videoElements: this._previewMediaPool ? this._previewMediaPool.getVideoElements().size : 0,
+      videoElements: this._previewMediaPool
+        ? this._previewMediaPool.getVideoElements().size
+        : 0,
       asyncTasks: this._asyncTasks.size,
       rafLoops: this._rafIds.size,
     };
@@ -646,7 +710,9 @@ class SessionRegistry {
     const requestId = ++this._currentRequestId;
 
     if (session && session.projectId !== this._targetProjectId) {
-      console.warn(`[SessionRegistry] Session switch discarded: session project ${session.projectId} does not match target project ${this._targetProjectId}. Disposing session.`);
+      console.warn(
+        `[SessionRegistry] Session switch discarded: session project ${session.projectId} does not match target project ${this._targetProjectId}. Disposing session.`,
+      );
       await session.dispose();
       return;
     }
@@ -669,7 +735,9 @@ class SessionRegistry {
       }
       this._notifyListeners();
     } else {
-      console.warn(`[SessionRegistry] Session switch superceded (request ${requestId} vs current ${this._currentRequestId}). Disposing orphaned session.`);
+      console.warn(
+        `[SessionRegistry] Session switch superceded (request ${requestId} vs current ${this._currentRequestId}). Disposing orphaned session.`,
+      );
       if (session) {
         await session.dispose();
       }
@@ -693,7 +761,10 @@ class SessionRegistry {
       try {
         listener(this._activeSession);
       } catch (error) {
-        console.error(`[ProjectSession] Session registry listener error:`, error);
+        console.error(
+          `[ProjectSession] Session registry listener error:`,
+          error,
+        );
       }
     });
   }
@@ -709,7 +780,9 @@ const sessionRegistry = new SessionRegistry();
 export function getActiveSession(): ProjectSession {
   const session = sessionRegistry.getActiveSession();
   if (!session) {
-    throw new Error(`[ProjectSession] No active session. Create and initialize a session first.`);
+    throw new Error(
+      `[ProjectSession] No active session. Create and initialize a session first.`,
+    );
   }
   return session;
 }
@@ -747,7 +820,10 @@ export async function createProjectSession(
   // Also attach lifecycle log to the diagnostics surface
   if (typeof window !== "undefined") {
     const diag = (window as any).__clypra_diagnostics ?? {};
-    (window as any).__clypra_diagnostics = { ...diag, lifecycle: lifecycleMonitor };
+    (window as any).__clypra_diagnostics = {
+      ...diag,
+      lifecycle: lifecycleMonitor,
+    };
   }
 
   lifecycleMonitor.record("PROJECT_LOAD_START", { projectId });
@@ -765,7 +841,10 @@ export async function createProjectSession(
   }
   await sessionRegistry.setActiveSession(session);
 
-  lifecycleMonitor.record("PROJECT_LOAD_COMPLETE", { projectId, sessionId: session.sessionId });
+  lifecycleMonitor.record("PROJECT_LOAD_COMPLETE", {
+    projectId,
+    sessionId: session.sessionId,
+  });
 
   return session;
 }
