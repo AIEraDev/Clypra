@@ -1,5 +1,5 @@
 import type { EvaluatedTextLayer } from "../evaluation/types";
-import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, defaultConfig as engineDefaultConfig, _buildConfig, normalizeTextTemplate } from "@clypra-studio/engine";
+import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, defaultConfig as engineDefaultConfig, _buildConfig, normalizeTextTemplate, compileTextTemplate, normalizeTextTemplateArtifact } from "@clypra-studio/engine";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
@@ -62,6 +62,39 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
  */
 export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layer: EvaluatedTextLayer, width: number, height: number, scaleX: number, scaleY: number): Promise<void> {
   if (layer.templateId) {
+    const pinnedArtifact = layer.templateSnapshot as any;
+    if (pinnedArtifact?.kind === "text-template" && pinnedArtifact.document) {
+      const values: Record<string, unknown> = { ...(layer as any).templateControlValues, ...(layer.customization?.layerTexts || {}) };
+      const compiled = compileTextTemplate(normalizeTextTemplateArtifact(pinnedArtifact), {
+        target: "editor",
+        time: layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0,
+        controlValues: values,
+      });
+      ctx.save();
+      ctx.translate(-width / 2, -height / 2);
+      const scaleXTemplate = width / compiled.width;
+      const scaleYTemplate = height / compiled.height;
+      ctx.scale(scaleXTemplate, scaleYTemplate);
+      for (const renderLayer of compiled.layers) {
+        if (!renderLayer.visible || renderLayer.opacity <= 0) continue;
+        ctx.save();
+        ctx.globalAlpha = renderLayer.opacity;
+        if (renderLayer.type === "shape") {
+          ctx.fillStyle = String(renderLayer.style?.fillColor || "#000000");
+          ctx.fillRect(renderLayer.x, renderLayer.y, renderLayer.width, renderLayer.height);
+        } else if (renderLayer.type === "text" || renderLayer.type === "rich-text") {
+          const style = renderLayer.style || {};
+          ctx.fillStyle = String(style.textColor || "#FFFFFF");
+          ctx.font = `${style.fontWeight || 400} ${Number(style.fontSize || 48)}px ${String(style.fontFamily || "Inter Variable")}`;
+          ctx.textAlign = (style.textAlign as CanvasTextAlign) || "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(renderLayer.text || "", renderLayer.x + renderLayer.width / 2, renderLayer.y + renderLayer.height / 2, renderLayer.width);
+        }
+        ctx.restore();
+      }
+      ctx.restore();
+      return;
+    }
     const { useTemplateStore } = await import("@/features/text-templates/templateStore");
     let templates = useTemplateStore.getState().templates;
     if (templates.length === 0) {
@@ -76,7 +109,7 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
     // Existing timeline instances are immutable snapshots. Resolve them
     // before consulting the live catalog so a Studio republish cannot change
     // the appearance of an already-created clip.
-    let template = (layer.templateSnapshot?.layers?.length || (layer.templateSnapshot as any)?.elements?.length)
+    let template = ((layer.templateSnapshot as any)?.layers?.length || (layer.templateSnapshot as any)?.elements?.length)
       ? layer.templateSnapshot
       : undefined;
 
@@ -105,7 +138,7 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       }
     }
 
-    if (template && (template.layers?.length || (template as any).elements?.length)) {
+    if (template && ((template as any).layers?.length || (template as any).elements?.length)) {
       // Normalize element-based Studio payloads once before rendering. This
       // also makes the pinned snapshot path use the exact same layer model as
       // the live API/template preview path.
@@ -123,7 +156,7 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       const renderer = new TemplateRenderer(activeTemplate);
 
       // Apply customization overrides to the renderer
-      for (const tLayer of activeTemplate.layers) {
+      for (const tLayer of (activeTemplate as any).layers) {
         if (tLayer.kind === "text") {
           const changes: any = {};
 
