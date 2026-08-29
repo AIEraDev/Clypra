@@ -209,11 +209,9 @@ pub struct SyncMetricsRegistry {
 
 impl SyncMetricsRegistry {
     pub fn record_dropped_frame(&self) {
-        let dropped_frames = self.dropped_frames.fetch_add(1, Ordering::Relaxed) + 1;
-        trace_event(
-            "frame_dropped",
-            format_args!("dropped_frames={dropped_frames}"),
-        );
+        // This is a realtime hot path. Keep the counter lock-free and emit the
+        // result only from the bounded periodic aggregate below.
+        self.dropped_frames.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_seek_requested(&self, requested_ticks: i64) {
@@ -263,12 +261,6 @@ impl SyncMetricsRegistry {
             // that would turn a normal pause into seconds of fake jank.
             self.frame_pacing.reset_last_frame();
         }
-        trace_event(
-            "frame_presented",
-            format_args!(
-                "presented_ticks={presented_ticks} target_interval_micros={target_interval_micros} measure_pacing={measure_pacing} resolve_seek={resolve_seek}"
-            ),
-        );
         if !resolve_seek {
             return;
         }
