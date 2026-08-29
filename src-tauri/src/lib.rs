@@ -75,7 +75,9 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 window
                     .set_title_bar_style(tauri::TitleBarStyle::Overlay)
-                    .map_err(|error| format!("failed to enable macOS title bar overlay: {error}"))?;
+                    .map_err(|error| {
+                        format!("failed to enable macOS title bar overlay: {error}")
+                    })?;
             }
 
             #[cfg(not(target_os = "macos"))]
@@ -135,9 +137,11 @@ pub fn run() {
                     .get_webview_window("main")
                     .and_then(|window| instance.create_surface(window).ok());
                 let surface_available = surface.is_some();
-                let gpu_result =
-                    crate::wgpu_compositor::GpuContext::select_best_gpu(&instance, surface.as_ref())
-                        .await;
+                let gpu_result = crate::wgpu_compositor::GpuContext::select_best_gpu(
+                    &instance,
+                    surface.as_ref(),
+                )
+                .await;
                 (gpu_result, surface_available)
             });
 
@@ -171,7 +175,8 @@ pub fn run() {
                 Err(error) => {
                     log::error!("Native GPU initialization failed: {error}");
                     if let Ok(mut status) = native_gpu_status.lock() {
-                        *status = native_core::NativeGpuRuntimeStatus::failed(error, surface_available);
+                        *status =
+                            native_core::NativeGpuRuntimeStatus::failed(error, surface_available);
                     }
                 }
             }
