@@ -10,6 +10,7 @@ use tauri::{Emitter, Manager};
 pub mod ai;
 pub mod audio;
 pub mod commands;
+pub mod diagnostics;
 pub mod models;
 pub mod native_audio;
 pub mod native_core;
@@ -67,6 +68,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            diagnostics::initialize(app.handle());
             // macOS uses the real traffic lights and native window corner
             // treatment with an overlay title bar. Windows/Linux switch to
             // borderless mode so the shared custom controls stay integrated
@@ -94,8 +96,6 @@ pub fn run() {
                     let _ = init_thumbnail_engine(dir).await;
                 }
             });
-            sync_metrics::ensure_metrics_flush_loop();
-
             // Initialize Whisper download state
             app.manage(whisper::init_download_state());
 
