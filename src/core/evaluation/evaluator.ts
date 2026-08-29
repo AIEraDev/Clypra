@@ -286,6 +286,8 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
       mediaType: asset.type === "video" ? "video" : "image",
       sourcePath,
       posterFrame: asset.posterFrame,
+      sourceWidth: asset.width,
+      sourceHeight: asset.height,
       sourceTime,
       sourceRotation: asset.rotation,
       conform: (clip as any).conform,
