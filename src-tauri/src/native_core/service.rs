@@ -19,7 +19,6 @@ pub struct NativeFrameService {
     cache_misses: u64,
     last_sample: Option<PerformanceSample>,
     window_samples: VecDeque<(u64, PerformanceSample)>,
-    last_window_log_ms: u64,
 }
 
 impl NativeFrameService {
@@ -31,7 +30,6 @@ impl NativeFrameService {
             cache_misses: 0,
             last_sample: None,
             window_samples: VecDeque::new(),
-            last_window_log_ms: 0,
         })
     }
 
@@ -80,62 +78,6 @@ impl NativeFrameService {
             .is_some_and(|(timestamp, _)| now.saturating_sub(*timestamp) > 5_000)
         {
             self.window_samples.pop_front();
-        }
-        if now.saturating_sub(self.last_window_log_ms) >= 5_000 {
-            self.last_window_log_ms = now;
-            let request_count = self.window_samples.len();
-            let cache_hits = self
-                .window_samples
-                .iter()
-                .filter(|(_, item)| item.cache_hit)
-                .count();
-            let dropped = self
-                .window_samples
-                .iter()
-                .filter(|(_, item)| item.dropped)
-                .count();
-            let stale = self
-                .window_samples
-                .iter()
-                .filter(|(_, item)| item.stale)
-                .count();
-            let cancelled = self
-                .window_samples
-                .iter()
-                .filter(|(_, item)| item.cancelled)
-                .count();
-            let playback_samples: Vec<PerformanceSample> = self
-                .window_samples
-                .iter()
-                .filter(|(_, item)| item.mode == Some(PreviewMode::Playback))
-                .map(|(_, item)| item.clone())
-                .collect();
-            let stage = |pick: fn(&PerformanceSample) -> Option<u64>| {
-                optional_stage_percentiles(&playback_samples, pick)
-            };
-            let decode = stage(|sample| sample.decode_us);
-            let conversion = stage(|sample| sample.conversion_upload_us);
-            let compose = stage(|sample| sample.compose_us);
-            let present = stage(|sample| sample.present_us);
-            let decoder_wait = stage(|sample| sample.decoder_mutex_wait_us);
-            eprintln!(
-                "[playback:5s] {{\"requests\":{},\"playbackSamples\":{},\"cacheHitRate\":{:.3},\"dropped\":{},\"stale\":{},\"cancelled\":{},\"decodeP50Ms\":{},\"decodeP95Ms\":{},\"conversionP50Ms\":{},\"conversionP95Ms\":{},\"composeP50Ms\":{},\"composeP95Ms\":{},\"presentP50Ms\":{},\"presentP95Ms\":{},\"decoderWaitP95Ms\":{}}}",
-                request_count,
-                playback_samples.len(),
-                if request_count == 0 { 0.0 } else { cache_hits as f64 / request_count as f64 },
-                dropped,
-                stale,
-                cancelled,
-                decode.p50.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-                decode.p95.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-                conversion.p50.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-                conversion.p95.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-                compose.p50.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-                compose.p95.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-                present.p50.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-                present.p95.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-                decoder_wait.p95.map(|value| value as f64 / 1000.0).unwrap_or(0.0),
-            );
         }
     }
 
