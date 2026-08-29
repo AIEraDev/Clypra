@@ -65,7 +65,6 @@ import {
   isTauriRuntime,
   onNativePreviewWindowMoved,
   presentNativeFrame,
-  queueNativeFrame,
   getNativeFrameServiceStats,
   getNativeSyncMetricsSnapshot,
   getNativeGpuStatus,
@@ -885,9 +884,6 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeFailureCount = 0;
     let nativeBlockedKey = "";
     let nativePlaybackInFlight: Promise<void> | null = null;
-    let nativePlaybackQueueInFlight: Promise<void> | null = null;
-    let nativePlaybackQueuedKey = "";
-    let nativePlaybackQueuedReady = false;
     let nativeContinuousFailureStreak = 0;
     let nativeDroppedFrameCount = 0;
     let nativeContinuousBlockedRevision = "";
@@ -896,9 +892,7 @@ export const NativeProgramPreview: React.FC = () => {
     let lastTracedPlaybackState: string | null = null;
     let frameScheduled = false;
     let lastRenderLoopError = "";
-    let lastLoggedTextSignature = "";
     let lastLoggedMissingTextSignature = "";
-    let lastLoggedTextPresentationSignature = "";
     let lastLoggedTextDropSignature = "";
     const nativeTextPrefetchInFlight =
       nativePrefetchStateRef.current.textInFlight;
@@ -918,14 +912,6 @@ export const NativeProgramPreview: React.FC = () => {
     let visibleRequestGeneration = seekController?.getGeneration() ?? 0;
     let transportRevision = 0;
     const sessionNativeRasterBridge = capturedSession?.nativeRasterBridge;
-    if (import.meta.env.DEV) {
-      console.debug("[native-preview] raster-bridge-owner", {
-        projectId: project.id,
-        sessionId: capturedSession?.sessionId ?? null,
-        sessionState: capturedSession?.state ?? null,
-        sharedSessionBridge: Boolean(sessionNativeRasterBridge),
-      });
-    }
     if (!sessionNativeRasterBridge) {
       console.warn("[native-preview] active session has no native raster bridge");
       return;
@@ -1245,7 +1231,7 @@ export const NativeProgramPreview: React.FC = () => {
         traceSlowPlaybackStage("native-present", startedAt, {
           frameIndex: request.frameTime.frameIndex,
           textLayerCount: request.project.textLayers?.length ?? 0,
-          requestKey: getNativeFrameRequestKey(request),
+          mode: request.mode,
         });
       }
     };
@@ -1390,75 +1376,6 @@ export const NativeProgramPreview: React.FC = () => {
       });
     };
     wakeNativeRenderLoopRef.current = scheduleNextFrame;
-
-    /**
-     * Pipeline decode of the next already-evaluated playback frame behind the
-     * current surface presentation. The previous implementation serialized
-     * decode and composition in one request, so a normal FFmpeg seek/decode
-     * delay directly became a visible frame gap. This bounded one-item queue
-     * overlaps decode with the current GPU submission without allowing an
-     * unbounded speculative backlog.
-     */
-    const scheduleNativePlaybackLookahead = (
-      request: NativeFrameRequest,
-    ): void => {
-      if (
-        !isActive ||
-        renderStateRef.current.clock.state !== "playing" ||
-        !nativeSurfaceReadyRef.current
-      ) return;
-      const requestKey = getNativeFrameRequestKey(request);
-      if (
-        requestKey === lastNativePlaybackRequestKey ||
-        requestKey === nativePlaybackQueuedKey ||
-        nativePlaybackQueueInFlight
-      ) {
-        return;
-      }
-
-      nativePlaybackQueuedKey = requestKey;
-      nativePlaybackQueuedReady = false;
-      tracePlayback("lookahead-queue-start", {
-        projectId: project.id,
-        sessionId: capturedSession.sessionId,
-        frameIndex: request.frameTime.frameIndex,
-        mode: "playback-lookahead",
-      });
-      const task = ensureNativeRequestFonts(request)
-        .then(() =>
-          queueNativeFrame({
-            ...request,
-            mode: "playback-lookahead",
-          }),
-        )
-        .then(() => {
-          if (nativePlaybackQueuedKey !== requestKey) return;
-          nativePlaybackQueuedReady = true;
-          nativePlaybackQueueInFlight = null;
-          tracePlayback("lookahead-queue-ready", {
-            projectId: project.id,
-            sessionId: capturedSession.sessionId,
-            frameIndex: request.frameTime.frameIndex,
-            mode: "playback-lookahead",
-          });
-          scheduleNextFrame();
-        })
-        .catch((error) => {
-          if (nativePlaybackQueuedKey === requestKey) {
-            nativePlaybackQueuedKey = "";
-            nativePlaybackQueuedReady = false;
-          }
-          nativePlaybackQueueInFlight = null;
-          if (!isExpectedStaleNativePreviewError(error)) {
-            console.warn("[native-preview] playback-lookahead-failed", {
-              frameIndex: request.frameTime.frameIndex,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-          scheduleNextFrame();
-        });
-      nativePlaybackQueueInFlight = task;
-    };
 
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
@@ -1642,18 +1559,11 @@ export const NativeProgramPreview: React.FC = () => {
           nativeRasterLayers,
           requestIntent,
         );
-        const textLayers = nativeRequest?.project.textLayers ?? [];
         const sceneTextLayers = scene.visualLayers.filter(
           (layer) => layer.layerType === "text",
         );
         const missingTextSignature = sceneTextLayers
           .map((layer) => `${layer.layerId}|${layer.text}`)
-          .join("\u001f");
-        const textSignature = textLayers
-          .map(
-            (layer) =>
-              `${layer.text}|${layer.fontId}|${layer.fontWeight ?? ""}|${layer.fontStyle ?? ""}|${layer.effect?.effectId ?? ""}`,
-          )
           .join("\u001f");
         if (
           !nativeRequest &&
@@ -1665,14 +1575,6 @@ export const NativeProgramPreview: React.FC = () => {
             frameIndex,
             textLayerCount: sceneTextLayers.length,
             blockers: getNativePreviewBlockers(scene, nativeRasterLayers),
-          });
-        }
-        if (textLayers.length > 0 && textSignature !== lastLoggedTextSignature) {
-          lastLoggedTextSignature = textSignature;
-          console.debug("[native-preview] text-request-ready", {
-            frameIndex,
-            textLayerCount: textLayers.length,
-            textLayers: nativeTextDebugSummary(nativeRequest!),
           });
         }
         // Do not queue a speculative native video frame from the visible RAF.
@@ -1835,19 +1737,6 @@ export const NativeProgramPreview: React.FC = () => {
           );
         };
 
-        // Once a surface frame is being presented, use the next completed
-        // scene request as a single decode-ahead item. Decode and composition
-        // then overlap instead of forcing the audio-master clock to wait for
-        // both stages serially.
-        if (
-          isPlaying &&
-          nativeSurfaceUsable &&
-          nativePlaybackInFlight &&
-          nativePlaybackRequest
-        ) {
-          scheduleNativePlaybackLookahead(nativePlaybackRequest);
-        }
-
         // Continuous native presentation is intentionally non-blocking. The
         // render loop keeps the last accepted native frame while one request is
         // in flight, preventing native decode latency from stalling playback.
@@ -1857,14 +1746,7 @@ export const NativeProgramPreview: React.FC = () => {
           (isPlaying ? !cachedNativeFrame : true) &&
           nativeBlockedKey !== nativeRequestKey &&
           performance.now() >= nativeRetryAt &&
-          !nativePlaybackInFlight &&
-          !(
-            isPlaying &&
-            nativePlaybackRequest &&
-            getNativeFrameRequestKey(nativePlaybackRequest) ===
-              nativePlaybackQueuedKey &&
-            !nativePlaybackQueuedReady
-          )
+          !nativePlaybackInFlight
         ) {
           const requestToPresent =
             isPlaying
@@ -1873,14 +1755,6 @@ export const NativeProgramPreview: React.FC = () => {
           if (requestToPresent) {
             const requestKey = getNativeFrameRequestKey(requestToPresent);
             if (requestKey !== lastNativePlaybackRequestKey) {
-              if (
-                isPlaying &&
-                requestKey === nativePlaybackQueuedKey &&
-                nativePlaybackQueuedReady
-              ) {
-                nativePlaybackQueuedKey = "";
-                nativePlaybackQueuedReady = false;
-              }
               lastNativePlaybackRequestKey = requestKey;
               const requestSource: NativePreviewRequestSource = {
                 requestKey,
@@ -1914,6 +1788,33 @@ export const NativeProgramPreview: React.FC = () => {
                 )
                   .then((presentation) => {
                     frontendSpan?.markIpcFinished();
+                    const timings = presentation.timings;
+                    if (
+                      timings &&
+                      timings.totalUs >= 16_667
+                    ) {
+                      tracePlayback("native-present-stages", {
+                        projectId: state.project?.id ?? null,
+                        sessionId: capturedSession.sessionId,
+                        frameIndex: requestToPresent.frameTime.frameIndex,
+                        totalMs: Number((timings.totalUs / 1000).toFixed(2)),
+                        decodeMs: Number((timings.decodeUs / 1000).toFixed(2)),
+                        decoderWaitMs: Number(
+                          (timings.decoderMutexWaitUs / 1000).toFixed(2),
+                        ),
+                        conversionUploadMs: Number(
+                          (timings.conversionUploadUs / 1000).toFixed(2),
+                        ),
+                        composeMs: Number((timings.composeUs / 1000).toFixed(2)),
+                        surfaceAcquireMs: Number(
+                          (timings.surfaceAcquireUs / 1000).toFixed(2),
+                        ),
+                        submitPresentMs: Number(
+                          (timings.submitPresentUs / 1000).toFixed(2),
+                        ),
+                        queueHit: timings.queueHit,
+                      });
+                    }
                     if (tracePresentation) {
                       tracePlayback("native-present-result", {
                         projectId: state.project?.id ?? null,
@@ -1929,6 +1830,21 @@ export const NativeProgramPreview: React.FC = () => {
                       });
                     }
                     if (!presentation.presented) {
+                      tracePlayback(
+                        presentation.stale
+                          ? "native-frame-stale"
+                          : "native-frame-dropped",
+                        {
+                          projectId: state.project?.id ?? null,
+                          sessionId: capturedSession.sessionId,
+                          frameIndex: requestToPresent.frameTime.frameIndex,
+                          playbackState,
+                          dropped: presentation.dropped,
+                          stale: presentation.stale,
+                          frameAgeTicks: presentation.frameAgeTicks,
+                          audioPositionTicks: presentation.audioPositionTicks,
+                        },
+                      );
                       const droppedTextLayers =
                         requestToPresent.project.textLayers ?? [];
                       const droppedTextSignature = droppedTextLayers
@@ -1978,29 +1894,6 @@ export const NativeProgramPreview: React.FC = () => {
                         canRetainPresentedSurface &&
                         currentRequestIsStillAuthoritative
                       ) {
-                        const presentedTextLayers =
-                          requestToPresent.project.textLayers ?? [];
-                        const presentationTextSignature = presentedTextLayers
-                          .map(
-                            (layer) =>
-                              `${layer.text}|${layer.fontId}|${layer.fontWeight ?? ""}|${layer.effect?.effectId ?? ""}`,
-                          )
-                          .join("\u001f");
-                        if (
-                          presentedTextLayers.length > 0 &&
-                          presentationTextSignature !==
-                            lastLoggedTextPresentationSignature
-                        ) {
-                          lastLoggedTextPresentationSignature =
-                            presentationTextSignature;
-                          console.debug("[native-preview] text-surface-presented", {
-                            frameIndex: requestToPresent.frameTime.frameIndex,
-                            textLayers: nativeTextDebugSummary(requestToPresent),
-                            presented: presentation.presented,
-                            dropped: presentation.dropped,
-                            stale: presentation.stale,
-                          });
-                        }
                         nativeSurfaceShown = true;
                         if (nativeSurfaceReadyRef.current) {
                           setNativeSurfacePresenting(true);
