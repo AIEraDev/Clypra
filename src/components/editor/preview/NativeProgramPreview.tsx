@@ -8,6 +8,7 @@ import React, {
 import { Expand, Shrink } from "lucide-react";
 import {
   usePlaybackClock,
+  usePlaybackStatus,
   usePlaybackControls,
   useTransportControls,
   getPlaybackClock,
@@ -159,6 +160,81 @@ function drawNativeFrameToCanvas(
   return true;
 }
 
+interface ConnectedProgramTransportProps {
+  duration: number;
+  frameRate: number;
+  disabled: boolean;
+  onPlayPause: () => void;
+  onSeek: (time: number) => void;
+  formatTime: (seconds: number) => string;
+  onStepBack: (currentTime: number) => void;
+  onStepForward: (currentTime: number) => void;
+  speedMenuRef: React.RefObject<HTMLDivElement | null>;
+  speedMenuOpen: boolean;
+  setSpeedMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  transportSetSpeed: (speed: number) => void;
+  aspectMenuRef: React.RefObject<HTMLDivElement | null>;
+  aspectMenuOpen: boolean;
+  setAspectMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  previewAspectPreset: AspectRatio;
+  selectAspectPreset: (preset: AspectRatio) => void;
+  canvasWidth: number;
+  canvasHeight: number;
+  isMuted: boolean;
+  setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
+  volume: number;
+  setVolume: React.Dispatch<React.SetStateAction<number>>;
+}
+
+const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> = React.memo((props) => {
+  const clockState = usePlaybackClock();
+  return (
+    <PreviewTransport
+      currentTime={clockState.time}
+      duration={props.duration || clockState.duration}
+      isPlaying={clockState.state === "playing"}
+      disabled={props.disabled}
+      onPlayPause={props.onPlayPause}
+      onSeek={props.onSeek}
+      formatTime={props.formatTime}
+      onStepBack={() => props.onStepBack(clockState.time)}
+      onStepForward={() => props.onStepForward(clockState.time)}
+      leftActions={
+        <div className="relative" ref={props.speedMenuRef}>
+          <PlaybackSpeedSelector
+            playbackSpeed={clockState.speed}
+            speedMenuOpen={props.speedMenuOpen}
+            setSpeedMenuOpen={props.setSpeedMenuOpen}
+            setSpeed={props.transportSetSpeed}
+          />
+        </div>
+      }
+      rightActions={
+        <>
+          <div className="relative shrink-0" ref={props.aspectMenuRef}>
+            <AspectSelector
+              aspectMenuOpen={props.aspectMenuOpen}
+              setAspectMenuOpen={props.setAspectMenuOpen}
+              previewAspectPreset={props.previewAspectPreset}
+              selectAspectPreset={props.selectAspectPreset}
+              canvasWidth={props.canvasWidth}
+              canvasHeight={props.canvasHeight}
+            />
+          </div>
+
+          <div className="hidden @[360px]:block w-px h-4 bg-white/10 mx-0.5" />
+          <VolumeControl
+            isMuted={props.isMuted}
+            setIsMuted={props.setIsMuted}
+            volume={props.volume}
+            setVolume={props.setVolume}
+          />
+        </>
+      }
+    />
+  );
+});
+
 export const NativeProgramPreview: React.FC = () => {
   const karaokeOverlayEnabled = useCaptionStore((s) => s.karaokeOverlayEnabled);
   const project = useProjectStore((s) => s.project);
@@ -178,7 +254,7 @@ export const NativeProgramPreview: React.FC = () => {
   const previewQuality = useSettingsStore((s) => s.previewQuality);
   const setPreviewQuality = useSettingsStore((s) => s.setPreviewQuality);
 
-  const clockState = usePlaybackClock();
+  const playbackStatus = usePlaybackStatus();
   const clock = getPlaybackClock();
   const { setDuration, setFrameRate } = usePlaybackControls();
   const {
@@ -296,7 +372,7 @@ export const NativeProgramPreview: React.FC = () => {
     project,
     epoch,
     clock,
-    clockState,
+    clockState: clock.getState(),
     canvasWidth: project?.canvasWidth ?? 1920,
     canvasHeight: project?.canvasHeight ?? 1080,
     displayWidth: 0,
@@ -462,7 +538,7 @@ export const NativeProgramPreview: React.FC = () => {
   renderStateRef.current.project = project;
   renderStateRef.current.epoch = epoch;
   renderStateRef.current.clock = clock;
-  renderStateRef.current.clockState = clockState;
+  renderStateRef.current.clockState = clock.getState();
   renderStateRef.current.dpr = window.devicePixelRatio || 1;
   renderStateRef.current.previewQuality = previewQuality;
   // Audit 1.3 fix: recompute version hashes here (React-render time) rather than in
@@ -663,7 +739,7 @@ export const NativeProgramPreview: React.FC = () => {
   // same frame appear at stale coordinates while the canvas is laid out in
   // the current preview viewport.
   useEffect(() => {
-    if (!nativeSurfaceReady || clockState.state === "playing") return;
+    if (!nativeSurfaceReady || playbackStatus.state === "playing") return;
 
     // Native playback is the authoritative desktop preview path. Do not hide
     // it merely because the clock paused: the DOM readback canvas may not have
@@ -672,9 +748,9 @@ export const NativeProgramPreview: React.FC = () => {
       projectId: project?.id ?? null,
       nativeSurfaceReady,
       nativeSurfacePresenting,
-      time: Number(clockState.time.toFixed(3)),
+      time: Number(clock.time.toFixed(3)),
     });
-  }, [clockState.state, nativeSurfaceReady]);
+  }, [playbackStatus.state, nativeSurfaceReady]);
 
   const previewBackgroundLayer = useMemo(() => {
     return getCanvasBackgroundLayer(project?.canvasBackground);
@@ -1266,19 +1342,19 @@ export const NativeProgramPreview: React.FC = () => {
         Math.ceil(state.clock.duration * frameRate),
       );
       const horizonTime = currentTime + 8;
-      const upcomingTextClip = state.clips
+      const upcomingRasterClip = state.clips
         .filter(
           (clip) =>
-            clip.kind === "text" &&
+            (clip.kind === "text" || clip.kind === "image" || clip.kind === "sticker") &&
             clip.startTime > currentTime &&
             clip.startTime <= horizonTime,
         )
         .sort((left, right) => left.startTime - right.startTime)[0];
-      if (!upcomingTextClip) return;
+      if (!upcomingRasterClip) return;
 
       const targetFrame = Math.min(
         durationFrames - 1,
-        Math.max(currentFrame + 1, Math.ceil(upcomingTextClip.startTime * frameRate)),
+        Math.max(currentFrame + 1, Math.ceil(upcomingRasterClip.startTime * frameRate)),
       );
       const revision = `${project.id ?? "unknown-project"}:${state.epoch}`;
       const key = `${revision}:${targetFrame}`;
@@ -1306,13 +1382,27 @@ export const NativeProgramPreview: React.FC = () => {
         const textLayers = scene.visualLayers.filter(
           (layer) => layer.layerType === "text",
         );
-        if (textLayers.length === 0) return;
+        const imageLayers = scene.visualLayers.filter(
+          (layer) =>
+            layer.layerType === "media" &&
+            layer.mediaType === "image" &&
+            layer.stickerFormat !== "gif" &&
+            layer.stickerFormat !== "lottie",
+        );
+        if (textLayers.length === 0 && imageLayers.length === 0) return;
 
         await Promise.all([
-          nativeRasterBridge.prewarmTextAssets(scene, "text-prefetch"),
-          ensureNativeFontsRegistered(
-            textLayers.map((layer) => layer.fontFamily),
-          ),
+          textLayers.length > 0
+            ? nativeRasterBridge.prewarmTextAssets(scene, "text-prefetch")
+            : Promise.resolve(),
+          textLayers.length > 0
+            ? ensureNativeFontsRegistered(
+                textLayers.map((layer) => layer.fontFamily),
+              )
+            : Promise.resolve(),
+          imageLayers.length > 0
+            ? nativeRasterBridge.prewarmImageAssets(scene)
+            : Promise.resolve(),
         ]);
 
         const current = renderStateRef.current;
@@ -2315,18 +2405,19 @@ export const NativeProgramPreview: React.FC = () => {
   }, [canvasEl, project?.id, projectInitializing]);
 
   // Wake the paused native renderer for timeline edits, text input, seeks,
-  // and viewport changes. The loop itself decides whether one frame is
-  // actually needed and then goes idle again.
+  // and viewport changes. When actively playing, the RAF loop runs continuously;
+  // do not trigger wake loops on every clock tick.
   useEffect(() => {
-    wakeNativeRenderLoopRef.current?.();
+    if (playbackStatus.state !== "playing") {
+      wakeNativeRenderLoopRef.current?.();
+    }
   }, [
     clips,
     tracks,
     transitions,
     mediaAssets,
     epoch,
-    clockState.state,
-    clockState.time,
+    playbackStatus.state,
     dimensions.width,
     dimensions.height,
     previewQuality,
@@ -2335,7 +2426,14 @@ export const NativeProgramPreview: React.FC = () => {
 
   useEffect(() => {
     setActiveContext("program");
-  }, [setActiveContext]);
+    if (typeof window !== "undefined") {
+      (window as unknown as { __CLYPRA_PREVIEW_DEBUG__?: unknown }).__CLYPRA_PREVIEW_DEBUG__ = {
+        getPlaybackState: () => clock.getState(),
+        getPlaybackMetrics: () => getPlaybackMetricsSnapshot(),
+        getSyncMetrics: () => getSyncMetricsSnapshot(),
+      };
+    }
+  }, [setActiveContext, clock]);
 
   if (!project) return null;
 
@@ -2354,11 +2452,9 @@ export const NativeProgramPreview: React.FC = () => {
     );
   }
 
-  const currentTime = clockState.time;
-  const duration = clockState.duration;
-  const isPlaying = clockState.state === "playing";
-  const playbackSpeed = clockState.speed;
-  const frameRate = clockState.frameRate;
+  const duration = playbackStatus.duration || project.duration || 0;
+  const isPlaying = playbackStatus.isPlaying;
+  const frameRate = project.frameRate ?? 30;
   const step = 1 / Math.max(1, frameRate);
 
   return (
@@ -2471,7 +2567,7 @@ export const NativeProgramPreview: React.FC = () => {
                 displayOffset={{ x: offsetX, y: offsetY }}
                 displayWidth={displayWidth}
                 displayHeight={displayHeight}
-                currentTime={currentTime}
+                currentTime={clock.time}
                 visible={!isPlaying}
               />
               <SafeOverlay
@@ -2505,10 +2601,9 @@ export const NativeProgramPreview: React.FC = () => {
         )}
       </div>
 
-      <PreviewTransport
-        currentTime={currentTime}
+      <ConnectedProgramTransport
         duration={duration}
-        isPlaying={isPlaying}
+        frameRate={frameRate}
         disabled={clips.length === 0}
         onPlayPause={() => {
           if (clips.length === 0) return;
@@ -2520,7 +2615,7 @@ export const NativeProgramPreview: React.FC = () => {
           transportSeek(clampAndSnapProgramTime(time, duration, frameRate));
         }}
         formatTime={formatTime}
-        onStepBack={() => {
+        onStepBack={(currentTime) => {
           if (clips.length === 0) return;
           const targetTime = Math.max(0, currentTime - step);
           transportSeek(
@@ -2528,7 +2623,7 @@ export const NativeProgramPreview: React.FC = () => {
             { mode: "frameStep", quality: "full" },
           );
         }}
-        onStepForward={() => {
+        onStepForward={(currentTime) => {
           if (clips.length === 0) return;
           const targetTime = Math.min(duration, currentTime + step);
           transportSeek(
@@ -2536,38 +2631,21 @@ export const NativeProgramPreview: React.FC = () => {
             { mode: "frameStep", quality: "full" },
           );
         }}
-        leftActions={
-          <div className="relative" ref={speedMenuRef}>
-            <PlaybackSpeedSelector
-              playbackSpeed={playbackSpeed}
-              speedMenuOpen={speedMenuOpen}
-              setSpeedMenuOpen={setSpeedMenuOpen}
-              setSpeed={transportSetSpeed}
-            />
-          </div>
-        }
-        rightActions={
-          <>
-            <div className="relative shrink-0" ref={aspectMenuRef}>
-              <AspectSelector
-                aspectMenuOpen={aspectMenuOpen}
-                setAspectMenuOpen={setAspectMenuOpen}
-                previewAspectPreset={previewAspectPreset}
-                selectAspectPreset={selectAspectPreset}
-                canvasWidth={canvasWidth}
-                canvasHeight={canvasHeight}
-              />
-            </div>
-
-            <div className="hidden @[360px]:block w-px h-4 bg-white/10 mx-0.5" />
-            <VolumeControl
-              isMuted={isMuted}
-              setIsMuted={setIsMuted}
-              volume={volume}
-              setVolume={setVolume}
-            />
-          </>
-        }
+        speedMenuRef={speedMenuRef}
+        speedMenuOpen={speedMenuOpen}
+        setSpeedMenuOpen={setSpeedMenuOpen}
+        transportSetSpeed={transportSetSpeed}
+        aspectMenuRef={aspectMenuRef}
+        aspectMenuOpen={aspectMenuOpen}
+        setAspectMenuOpen={setAspectMenuOpen}
+        previewAspectPreset={previewAspectPreset}
+        selectAspectPreset={selectAspectPreset}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
+        isMuted={isMuted}
+        setIsMuted={setIsMuted}
+        volume={volume}
+        setVolume={setVolume}
       />
     </div>
   );
