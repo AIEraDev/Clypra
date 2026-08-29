@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
-import { getTransformController } from "@/core/interactions";
+import { getTransformController, type DragGeometry } from "@/core/interactions";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import { calculateTransform, getDefaultConstraints, getCursorForHandle } from "./calculator";
 import { screenToCanvas, canvasToScreen, hitTestClip, type ViewportTransform } from "@/lib/utils/coordinateSystem";
@@ -168,6 +168,29 @@ function mouseToCanvas(clientX: number, clientY: number, overlayRect: DOMRect, v
   // Step 2: Overlay-local → canvas (the overlay sits at displayOffset=(0,0)
   // relative to itself, so pass zero offset)
   return screenToCanvas(localX, localY, viewport, { width: canvasWidth, height: canvasHeight }, scale, { x: 0, y: 0 });
+}
+
+/**
+ * Convert the controller's canvas-space geometry into an imperative transform
+ * for the already-mounted selection box. The box keeps its React-rendered
+ * starting bounds; only this CSS custom property changes during a drag.
+ */
+function getDragPreviewTransform(
+  geometry: DragGeometry,
+  startTransform: TransformState["startTransform"],
+  scale: number,
+  zoom: number,
+): string {
+  const startCenterX = startTransform.x + startTransform.width / 2;
+  const startCenterY = startTransform.y + startTransform.height / 2;
+  const nextCenterX = geometry.x + geometry.width / 2;
+  const nextCenterY = geometry.y + geometry.height / 2;
+  const translateX = (nextCenterX - startCenterX) * scale * zoom;
+  const translateY = (nextCenterY - startCenterY) * scale * zoom;
+  const scaleX = geometry.width / Math.max(1, startTransform.width);
+  const scaleY = geometry.height / Math.max(1, startTransform.height);
+
+  return `translate3d(${translateX}px, ${translateY}px, 0) rotate(${geometry.rotation}deg) scale(${scaleX}, ${scaleY})`;
 }
 
 /**
@@ -362,6 +385,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   const snapMouseBottomRef = useRef<number>(0);
 
   const overlayRef = useRef<HTMLDivElement>(null);
+  const transformContainerRef = useRef<HTMLDivElement>(null);
   const clickCycleRef = useRef<{ signature: string; index: number }>({ signature: "", index: -1 });
   const dragCursorRef = useRef<string | null>(null);
   /** Start angle (radians) for rotation drag — prevents initial snap */
@@ -374,6 +398,35 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
+
+  // The selection box is a signal-plane consumer. Its position and scale are
+  // updated directly by the controller so pointer feedback does not require a
+  // React render. React only owns the committed/base geometry.
+  useEffect(() => {
+    const container = transformContainerRef.current;
+    if (!container) return;
+
+    const clearPreviewTransform = () => {
+      container.style.removeProperty("--transform-overlay-drag-transform");
+    };
+
+    const unsubscribeGeometry = transformController.onDragGeometry((geometry) => {
+      const active = transformController.getActiveTransform();
+      if (!active || active.clipId !== selectedClip?.id) return;
+
+      container.style.setProperty(
+        "--transform-overlay-drag-transform",
+        getDragPreviewTransform(geometry, active.startTransform, scale, viewport.zoom),
+      );
+    });
+    const unsubscribeEnd = transformController.onDragEnd(clearPreviewTransform);
+
+    return () => {
+      unsubscribeGeometry();
+      unsubscribeEnd();
+      clearPreviewTransform();
+    };
+  }, [selectedClip?.id, scale, transformController, viewport.zoom]);
 
   useEffect(() => {
     if (!selectedClip || isDragging || !isClipActiveAtTime(selectedClip, currentTime) || !("text" in selectedClip)) return;
@@ -590,6 +643,19 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         aspectRatioLocked: selectedClip.aspectRatioLocked ?? true,
         sourceAspectRatio: selectedClip.sourceAspectRatio ?? (actualWidth / Math.max(1, actualHeight)),
       });
+      transformController.updateDragGeometry({
+        x: actualX,
+        y: actualY,
+        width: actualWidth,
+        height: actualHeight,
+        rotation: selectedClip.rotation ?? 0,
+        ...(startFontSizeRef.current !== undefined
+          ? { fontSize: startFontSizeRef.current }
+          : {}),
+        ...(selectedClip.conform
+          ? { conform: { ...selectedClip.conform } }
+          : {}),
+      });
     },
     [selectedClip, scale, viewport, canvasWidth, canvasHeight, transformController],
   );
@@ -675,7 +741,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   const applyMouseMove = useCallback(
     (e: MouseEvent) => {
-      if (!isDragging || !activeTransform) return;
+      const currentTransform = transformController.getActiveTransform();
+      if (!isDragging || !currentTransform) return;
 
       const rect = overlayRef.current?.getBoundingClientRect();
       if (!rect) return;
@@ -685,28 +752,28 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
       // Calculate new transform from the ORIGINAL start state (not current clip state)
       // This prevents transform drift / acceleration during drag.
-      const constraints = getDefaultConstraints(canvasWidth, canvasHeight, activeTransform.aspectRatioLocked);
+      const constraints = getDefaultConstraints(canvasWidth, canvasHeight, currentTransform.aspectRatioLocked);
 
       // Preserve text/media metadata while applying drag-start geometry so deltas
       // stay absolute without dropping type-specific resize behavior.
       if (!selectedClip) return;
-      const startClip = buildTransformStartClip(selectedClip, activeTransform);
+      const startClip = buildTransformStartClip(selectedClip, currentTransform);
 
-      const newTransform = calculateTransform(startClip, activeTransform.handle, activeTransform.startMousePos, canvasCoords, constraints, startAngleRef.current);
+      const newTransform = calculateTransform(startClip, currentTransform.handle, currentTransform.startMousePos, canvasCoords, constraints, startAngleRef.current);
 
       // Resize handles scale text size with the edited axis so the rendered text
       // tracks the visible transform box during drag.
-      if (startFontSizeRef.current !== undefined && shouldScaleTextFontForHandle(activeTransform.handle)) {
-        const newFontSize = calculateTextResizeFontSize(startFontSizeRef.current, activeTransform.handle, activeTransform.startTransform, newTransform);
+      if (startFontSizeRef.current !== undefined && shouldScaleTextFontForHandle(currentTransform.handle)) {
+        const newFontSize = calculateTextResizeFontSize(startFontSizeRef.current, currentTransform.handle, currentTransform.startTransform, newTransform);
         const textScale = newFontSize / Math.max(1, startFontSizeRef.current);
-        Object.assign(newTransform, calculateScaledTextTransform(activeTransform.handle, activeTransform.startTransform, newTransform, textScale), { fontSize: newFontSize });
+        Object.assign(newTransform, calculateScaledTextTransform(currentTransform.handle, currentTransform.startTransform, newTransform, textScale), { fontSize: newFontSize });
       }
 
       // Stateful magnetic center snapping (like CapCut):
       // - Snap-in when calculated center gets close to canvas center.
       // - Locked snap state with escape threshold: the user must drag their mouse past the escape threshold
       //   to release the magnetic snap lock, providing a tactile, sticky magnetic force feel.
-      if (activeTransform.handle !== "rotate") {
+      if (currentTransform.handle !== "rotate") {
         const nextX = newTransform.x ?? startClip.x;
         const nextY = newTransform.y ?? startClip.y;
         const nextW = newTransform.width ?? startClip.width;
@@ -720,7 +787,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         const ESCAPE_THRESHOLD = 20;
         const rotation = selectedClip.rotation ?? 0;
 
-        if (activeTransform.handle === "move") {
+        if (currentTransform.handle === "move") {
           const activeClips = clips.filter((c) => c.id !== selectedClip.id && isClipActiveAtTime(c, currentTime));
 
           // X Axis Snapping (Left, Right, Center)
@@ -880,7 +947,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           }
         } else {
           // Resize snapping
-          const handle = activeTransform.handle;
+          const handle = currentTransform.handle;
           const isLeftResize = handle === "w" || handle === "nw" || handle === "sw";
           const isRightResize = handle === "e" || handle === "ne" || handle === "se";
           const isTopResize = handle === "n" || handle === "nw" || handle === "ne";
@@ -899,7 +966,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 const newWidth = centerX * 2;
                 newTransform.x = 0;
                 newTransform.width = newWidth;
-                if (activeTransform.aspectRatioLocked) {
+                if (currentTransform.aspectRatioLocked) {
                   const aspectRatio = startClip.sourceAspectRatio ?? startClip.width / startClip.height;
                   const newHeight = newWidth / aspectRatio;
                   const centerY = startClip.y + startClip.height / 2;
@@ -918,7 +985,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 const newWidth = (canvasWidth - centerX) * 2;
                 newTransform.width = newWidth;
                 newTransform.x = centerX - newWidth / 2;
-                if (activeTransform.aspectRatioLocked) {
+                if (currentTransform.aspectRatioLocked) {
                   const aspectRatio = startClip.sourceAspectRatio ?? startClip.width / startClip.height;
                   const newHeight = newWidth / aspectRatio;
                   const centerY = startClip.y + startClip.height / 2;
@@ -938,7 +1005,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 const newHeight = centerY * 2;
                 newTransform.y = 0;
                 newTransform.height = newHeight;
-                if (activeTransform.aspectRatioLocked) {
+                if (currentTransform.aspectRatioLocked) {
                   const aspectRatio = startClip.sourceAspectRatio ?? startClip.width / startClip.height;
                   const newWidth = newHeight * aspectRatio;
                   const centerX = startClip.x + startClip.width / 2;
@@ -957,7 +1024,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 const newHeight = (canvasHeight - centerY) * 2;
                 newTransform.height = newHeight;
                 newTransform.y = centerY - newHeight / 2;
-                if (activeTransform.aspectRatioLocked) {
+                if (currentTransform.aspectRatioLocked) {
                   const aspectRatio = startClip.sourceAspectRatio ?? startClip.width / startClip.height;
                   const newWidth = newHeight * aspectRatio;
                   const centerX = startClip.x + startClip.width / 2;
@@ -1003,7 +1070,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
               }
             }
 
-            const canSnapVertical = !activeTransform.aspectRatioLocked || !horizontalSnapped;
+            const canSnapVertical = !currentTransform.aspectRatioLocked || !horizontalSnapped;
             if (canSnapVertical) {
               if (isTopResize) {
                 if (snappedTopRef.current) {
@@ -1048,11 +1115,26 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         }
       }
 
-      // Optimistic preview: update clip for live simultaneous visual feedback during drag.
-      // _skipEpochIncrement: true prevents cache thrashing and epoch advancement during continuous mouse movement.
-      updateClip(activeTransform.clipId, { ...newTransform, _skipEpochIncrement: true } as any);
+      // Publish only to the imperative signal plane. The preview renderer and
+      // selection box consume this without replacing the timeline array or
+      // notifying every Zustand subscriber on every pointer frame.
+      transformController.updateDragGeometry({
+        x: newTransform.x ?? startClip.x,
+        y: newTransform.y ?? startClip.y,
+        width: newTransform.width ?? startClip.width,
+        height: newTransform.height ?? startClip.height,
+        rotation: newTransform.rotation ?? startClip.rotation ?? 0,
+        ...((newTransform as Partial<TextClip>).fontSize !== undefined
+          ? { fontSize: (newTransform as Partial<TextClip>).fontSize }
+          : startFontSizeRef.current !== undefined
+            ? { fontSize: startFontSizeRef.current }
+            : {}),
+        ...(newTransform.conform
+          ? { conform: newTransform.conform as unknown as Record<string, unknown> }
+          : {}),
+      });
     },
-    [isDragging, activeTransform, selectedClip, scale, viewport, canvasWidth, canvasHeight, updateClip, clips, currentTime],
+    [isDragging, selectedClip, scale, viewport, canvasWidth, canvasHeight, transformController, clips, currentTime],
   );
 
   // Pointer events can arrive considerably faster than the native preview can
@@ -1075,7 +1157,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   );
 
   const handleMouseUp = useCallback(() => {
-    if (!isDragging || !activeTransform) return;
+    const currentTransform = transformController.getActiveTransform();
+    if (!isDragging || !currentTransform) return;
 
     // Do not commit a stale transform when mouseup lands before the queued RAF.
     if (mouseMoveRafRef.current !== null) {
@@ -1113,41 +1196,40 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       dragCursorRef.current = null;
     }
 
-    // Read final clip state from store for history commit
-    const finalClip = useTimelineStore.getState().clips.find((c) => c.id === activeTransform.clipId);
-    if (!finalClip) {
+    const finalGeometry = transformController.getCurrentDragGeometry();
+    if (!finalGeometry) {
       transformController.endTransform();
       return;
     }
 
     // Commit to history with epoch advancement
-    const oldTransform: Record<string, any> = { ...activeTransform.startTransform };
+    const oldTransform: Record<string, any> = { ...currentTransform.startTransform };
     const newTransform: Record<string, any> = {
-      x: finalClip.x,
-      y: finalClip.y,
-      width: finalClip.width,
-      height: finalClip.height,
-      rotation: finalClip.rotation,
+      x: finalGeometry.x,
+      y: finalGeometry.y,
+      width: finalGeometry.width,
+      height: finalGeometry.height,
+      rotation: finalGeometry.rotation,
     };
 
-    if (finalClip.conform) {
-      newTransform.conform = { ...finalClip.conform };
+    if (finalGeometry.conform) {
+      newTransform.conform = { ...finalGeometry.conform };
     }
 
     if (startFontSizeRef.current !== undefined) {
       oldTransform.fontSize = startFontSizeRef.current;
-      newTransform.fontSize = (finalClip as any).fontSize;
+      newTransform.fontSize = finalGeometry.fontSize ?? startFontSizeRef.current;
     }
 
     // Only create command if something actually changed
     const hasChanged = oldTransform.x !== newTransform.x || oldTransform.y !== newTransform.y || oldTransform.width !== newTransform.width || oldTransform.height !== newTransform.height || oldTransform.rotation !== newTransform.rotation || oldTransform.fontSize !== newTransform.fontSize || JSON.stringify(oldTransform.conform) !== JSON.stringify(newTransform.conform);
 
     if (hasChanged) {
-      execute(new TransformClipCommand(activeTransform.clipId, oldTransform, newTransform));
+      execute(new TransformClipCommand(currentTransform.clipId, oldTransform, newTransform));
     }
 
     transformController.endTransform();
-  }, [isDragging, activeTransform, execute, selectedClipIds, transformController, applyMouseMove]);
+  }, [isDragging, execute, transformController, applyMouseMove]);
 
   const getClipAspect = useCallback(() => {
     if (!selectedClip) return 16 / 9;
@@ -1466,13 +1548,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       {/* Rotated transform container - groups border, move surface, and all handles
           so they rotate together perfectly and stay aligned under rotation. */}
       <div
+        ref={transformContainerRef}
         style={{
           position: "absolute",
           left: handleDisplayX,
           top: handleDisplayY,
           width: handleDisplayWidth,
           height: handleDisplayHeight,
-          transform: `rotate(${rotation}deg)`,
+          transform: `var(--transform-overlay-drag-transform, rotate(${rotation}deg))`,
           transformOrigin: "center",
           zIndex: 10,
         }}
