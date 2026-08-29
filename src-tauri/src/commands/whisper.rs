@@ -69,7 +69,12 @@ pub fn is_valid_whisper_model_file(path: &std::path::Path) -> bool {
     if file.read_exact(&mut header).is_err() {
         return false;
     }
-    &header == b"ggml" || &header == b"ggmf" || &header == b"ggmv"
+    &header == b"ggml"
+        || &header == b"ggmf"
+        || &header == b"ggmv"
+        || &header == b"lmgg"
+        || &header == b"fmgg"
+        || &header == b"vmgg"
 }
 
 /// Resolves the file path for a Whisper model on disk.
