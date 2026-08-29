@@ -1778,7 +1778,7 @@ export const NativeProgramPreview: React.FC = () => {
         const nativeDirectSurfacePath =
           nativeSurfaceUsable &&
           Boolean(nativeRequest) &&
-          (nativePlaybackPath || (nativeOnlyMode && nativePausedPath));
+          nativePlaybackPath;
         const nativeReadbackFallbackPath =
           isPlaying && nativePlaybackPath && !nativeSurfaceUsable;
         // The child surface is playback-only on desktop. Paused and seeking
@@ -1996,7 +1996,7 @@ export const NativeProgramPreview: React.FC = () => {
                         nativeSurfaceGeometrySettledRef.current &&
                         current.project?.id === state.project?.id &&
                         current.epoch === state.epoch &&
-                        (isPlaying || nativeOnlyMode);
+                        isPlaying;
                       if (
                         canRetainPresentedSurface &&
                         currentRequestIsStillAuthoritative
