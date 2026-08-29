@@ -361,6 +361,7 @@ pub fn trace_event(_event: &str, _details: impl Display) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn drift_snapshot_reports_signed_average_and_percentiles() {
