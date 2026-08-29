@@ -29,6 +29,11 @@ export async function installNativeDiagnostics(): Promise<() => void> {
     (event) => {
       diagnostics.push(event.payload);
       if (diagnostics.length > MAX_DIAGNOSTICS) diagnostics.shift();
+      if (event.payload.level === "error") {
+        console.error(`[native-diagnostic] ${event.payload.source}: ${event.payload.code} - ${event.payload.message}`, event.payload);
+      } else {
+        console.warn(`[native-diagnostic] ${event.payload.source}: ${event.payload.code} - ${event.payload.message}`, event.payload);
+      }
     },
   );
 
