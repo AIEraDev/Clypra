@@ -2,42 +2,10 @@
  * Focused diagnostics for native preview audio & playback synchronization.
  */
 
-const PLAYBACK_CONSOLE_EVENTS = new Set([
-  "playback-state",
-  "native-present-start",
-  "native-present-result",
-  "native-present-stages",
-  "slow-stage",
-  "pause-surface-handoff",
-  "surface-ready",
-  "surface-error",
-  "audio-ready",
-  "audio-status",
-  "audio-audibility",
-  "native-frame-dropped",
-  "native-frame-stale",
-]);
-
 export function tracePlayback(
   event: string,
   details: Record<string, unknown> = {},
 ): void {
-  // Always log in DEV or when debug flag is active
-  const globalWithDebugFlag = globalThis as typeof globalThis & {
-    __CLYPRA_DEBUG_AUDIO__?: boolean;
-  };
-  let localStorageEnabled = false;
-  try {
-    localStorageEnabled =
-      localStorage.getItem("clypra:debug:audio") === "1" ||
-      localStorage.getItem("clypra:debug:playback") === "1";
-  } catch {}
-
-  const debugLoggingEnabled =
-    import.meta.env.DEV ||
-    globalWithDebugFlag.__CLYPRA_DEBUG_AUDIO__ === true ||
-    localStorageEnabled;
-
   const timeMs = performance.now();
   const payload: PlaybackTraceEvent = {
     category: "playback",
@@ -48,12 +16,6 @@ export function tracePlayback(
   };
 
   playbackMetrics.record(payload);
-
-  // Keep developer logs structured and cheap. Aggregates are emitted by the
-  // collector, so this path never floods the console on every RAF tick.
-  if (debugLoggingEnabled && playbackMetrics.shouldLogEvent(event)) {
-    console.debug("[av-sync][react][playback]", JSON.stringify(payload));
-  }
 }
 
 /** Log only render/playback stages that exceed one frame budget. */
@@ -124,14 +86,6 @@ class PlaybackMetricsCollector {
     ) {
       this.lastAggregateLogMs = now;
     }
-  }
-
-  shouldLogEvent(event: string): boolean {
-    // Keep the console focused on the playback critical path. All events are
-    // still retained by the collector; this allowlist only controls developer
-    // console output so lifecycle, geometry, and integration traces do not
-    // hide the evidence needed to diagnose A/V stalls.
-    return PLAYBACK_CONSOLE_EVENTS.has(event);
   }
 
   snapshot(): PlaybackMetricsSnapshot {
