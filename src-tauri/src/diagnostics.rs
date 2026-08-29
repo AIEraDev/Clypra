@@ -1,7 +1,11 @@
+pub mod crash_handler;
+
+pub use crash_handler::NativeCrashReport;
+
 use serde::Serialize;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const EVENT_NAME: &str = "clypra://native-diagnostic";
 
@@ -19,9 +23,17 @@ static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 pub fn initialize(app: &AppHandle) {
     let _ = APP_HANDLE.set(app.clone());
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        crash_handler::install_panic_hook(app_data_dir);
+    }
 }
 
-pub fn report(level: &'static str, source: &'static str, code: &'static str, message: impl Into<String>) {
+pub fn report(
+    level: &'static str,
+    source: &'static str,
+    code: &'static str,
+    message: impl Into<String>,
+) {
     let Some(app) = APP_HANDLE.get() else {
         return;
     };
