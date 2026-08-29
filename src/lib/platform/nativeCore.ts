@@ -213,6 +213,16 @@ export interface NativeSurfacePresentation {
   mode?: "playback" | "scrub" | "seek" | "frameStep";
   stale?: boolean;
   cancelled?: boolean;
+  timings?: {
+    totalUs: number;
+    decodeUs: number;
+    decoderMutexWaitUs: number;
+    conversionUploadUs: number;
+    composeUs: number;
+    surfaceAcquireUs: number;
+    submitPresentUs: number;
+    queueHit: boolean;
+  };
 }
 
 export interface NativeSyncDriftSnapshot {
