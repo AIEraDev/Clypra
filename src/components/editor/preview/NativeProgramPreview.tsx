@@ -5,7 +5,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Expand, Shrink } from "lucide-react";
+import { Expand, Shrink, Activity } from "lucide-react";
+import { VideoScopesModal } from "../scopes/VideoScopesModal";
 import {
   usePlaybackClock,
   usePlaybackStatus,
@@ -184,6 +185,8 @@ interface ConnectedProgramTransportProps {
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   volume: number;
   setVolume: React.Dispatch<React.SetStateAction<number>>;
+  scopesOpen: boolean;
+  setScopesOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> = React.memo((props) => {
@@ -211,6 +214,19 @@ const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> = Reac
       }
       rightActions={
         <>
+          <button
+            type="button"
+            onClick={() => props.setScopesOpen((prev) => !prev)}
+            title="Toggle Video Scopes (Waveform, Parade, Vectorscope, Histogram)"
+            className={`p-1.5 rounded-lg transition-colors flex items-center justify-center ${
+              props.scopesOpen
+                ? "bg-accent text-white shadow-sm"
+                : "text-text-muted hover:text-text-primary hover:bg-white/5"
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
+          </button>
+
           <div className="relative shrink-0" ref={props.aspectMenuRef}>
             <AspectSelector
               aspectMenuOpen={props.aspectMenuOpen}
@@ -281,6 +297,7 @@ export const NativeProgramPreview: React.FC = () => {
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const [showTelemetry, setShowTelemetry] = useState(false);
   const [showSafeOverlay, setShowSafeOverlay] = useState(false);
+  const [scopesOpen, setScopesOpen] = useState(false);
   const [telemetryStats, setTelemetryStats] = useState<TelemetryStats | null>(
     null,
   );
@@ -2666,7 +2683,11 @@ export const NativeProgramPreview: React.FC = () => {
         setIsMuted={setIsMuted}
         volume={volume}
         setVolume={setVolume}
+        scopesOpen={scopesOpen}
+        setScopesOpen={setScopesOpen}
       />
+
+      <VideoScopesModal isOpen={scopesOpen} onClose={() => setScopesOpen(false)} />
     </div>
   );
 };
