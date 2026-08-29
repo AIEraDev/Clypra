@@ -82,6 +82,77 @@ impl HeadlessGpuContext {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         (texture, view)
     }
+
+    /// Read raw RGBA bytes back from any 2D texture
+    pub async fn read_texture_bytes(
+        &self,
+        texture: &wgpu::Texture,
+        width: u32,
+        height: u32,
+    ) -> Vec<u8> {
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
+        let output_buffer_size = (padded_bytes_per_row * height) as wgpu::BufferAddress;
+
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Test Texture Readback Buffer"),
+            size: output_buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Test Readback Copy Encoder"),
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = output_buffer.slice(..);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
+        });
+
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.await.expect("Channel dropped").expect("Buffer map failed");
+
+        let mapped = buffer_slice.get_mapped_range();
+        let mut unpadded = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
+
+        for row in 0..height {
+            let start = (row * padded_bytes_per_row) as usize;
+            let end = start + unpadded_bytes_per_row as usize;
+            unpadded.extend_from_slice(&mapped[start..end]);
+        }
+
+        drop(mapped);
+        output_buffer.unmap();
+        unpadded
+    }
 }
 
 /// Sample a single pixel at (x, y) from the raw RGBA frame buffer
@@ -1070,3 +1141,176 @@ async fn test_chroma_key_subject_retention() {
         "Red subject remains solid over blue background",
     );
 }
+
+// -----------------------------------------------------------------------------
+// Test 15: Burned-in Caption Preview vs Export Pixel Parity
+// -----------------------------------------------------------------------------
+#[tokio::test]
+#[ignore = "requires GPU hardware — run with cargo test -- --ignored"]
+async fn test_burned_in_caption_preview_vs_export_pixel_parity() {
+    let ctx = HeadlessGpuContext::new().await;
+    let width = 640;
+    let height = 360;
+
+    let compositor = MultiTrackCompositor::new(&ctx.device, &ctx.queue, width, height);
+
+    // 1. Background video layer (dark teal background simulating video footage)
+    let (_bg_tex, bg_view) = ctx.create_solid_texture(width, height, [20, 35, 45, 255]);
+
+    // 2. Caption layer texture (white text on transparent background, simulating rendered text glyphs)
+    let caption_w = 320;
+    let caption_h = 48;
+    let mut caption_data = Vec::with_capacity((caption_w * caption_h * 4) as usize);
+    for y in 0..caption_h {
+        for x in 0..caption_w {
+            // Emulate text glyphs: bright white inside margin, alpha falloff at edge
+            if x >= 10 && x < caption_w - 10 && y >= 8 && y < caption_h - 8 {
+                caption_data.extend_from_slice(&[255, 255, 255, 240]);
+            } else {
+                caption_data.extend_from_slice(&[0, 0, 0, 0]);
+            }
+        }
+    }
+    use wgpu::util::DeviceExt;
+    let caption_tex = ctx.device.create_texture_with_data(
+        &ctx.queue,
+        &wgpu::TextureDescriptor {
+            label: Some("Burned-in Caption Texture"),
+            size: wgpu::Extent3d {
+                width: caption_w,
+                height: caption_h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        &caption_data,
+    );
+    let caption_view = caption_tex.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Caption transform: lower-third centered placement
+    // x = (640 - 320)/2 = 160, y = 360 - 48 - 32 = 280
+    let caption_transform = LayerTransform {
+        translate_x: 0.0,
+        translate_y: -0.5,
+        scale_x: 0.5,
+        scale_y: 0.2,
+        rotation_rad: 0.0,
+    };
+
+    let layers = vec![
+        CompositeLayer {
+            texture_view: &bg_view,
+            lut: None,
+            z_index: 0,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            transform: LayerTransform::default(),
+            crop: CropMargins::default(),
+            color_grade: ColorGradeUniforms::default(),
+            chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+        },
+        CompositeLayer {
+            texture_view: &caption_view,
+            lut: None,
+            z_index: 10,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            transform: caption_transform,
+            crop: CropMargins::default(),
+            color_grade: ColorGradeUniforms::default(),
+            chroma_key: ChromaKeyUniforms::default(),
+            mask_view: None,
+            body_effect: BodyEffectUniforms::default(),
+        },
+    ];
+
+    // --- Path A: Native Preview Surface Path ---
+    // Composites directly into an output surface texture target
+    let preview_target = ctx.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Preview Target Surface Texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let preview_target_view = preview_target.create_view(&wgpu::TextureViewDescriptor::default());
+
+    compositor
+        .composite_layers(&ctx.device, &ctx.queue, &preview_target_view, &layers, None)
+        .expect("Preview composite_layers failed");
+
+    // Read back Path A from preview texture
+    let preview_bytes = ctx.read_texture_bytes(&preview_target, width, height).await;
+
+    // --- Path B: Native Export Readback Buffer Path ---
+    let export_bytes = compositor
+        .render_to_rgba_bytes(&ctx.device, &ctx.queue, &layers)
+        .await
+        .expect("Export render_to_rgba_bytes failed");
+
+    // --- Parity Comparison ---
+    assert_eq!(
+        preview_bytes.len(),
+        export_bytes.len(),
+        "Buffer lengths must match"
+    );
+
+    let mut max_diff: i16 = 0;
+    let mut caption_pixels_detected: usize = 0;
+
+    for y in 0..height {
+        for x in 0..width {
+            let p_preview = get_pixel(&preview_bytes, width, x, y);
+            let p_export = get_pixel(&export_bytes, width, x, y);
+
+            for c in 0..4 {
+                let diff = (p_preview[c] as i16 - p_export[c] as i16).abs();
+                if diff > max_diff {
+                    max_diff = diff;
+                }
+            }
+
+            // In the caption text area: x in [200, 440], y in [250, 290]
+            if x >= 200 && x < 440 && y >= 250 && y < 290 {
+                if p_export != [20, 35, 45, 255] {
+                    caption_pixels_detected += 1;
+                }
+            }
+        }
+    }
+
+    let center_caption_pixel = get_pixel(&export_bytes, width, width / 2, 270);
+    assert_ne!(
+        center_caption_pixel,
+        [20, 35, 45, 255],
+        "Center of burned-in caption must be rendered over background (got background color)"
+    );
+
+    println!(
+        "Verified {} caption pixels detected in bounding box. Maximum pixel delta between Preview and Export = {}",
+        caption_pixels_detected, max_diff
+    );
+    assert!(caption_pixels_detected > 1000, "Must detect substantial caption pixels");
+
+    assert_eq!(
+        max_diff, 0,
+        "Burned-in caption preview and export must have ZERO pixel difference (got max diff {})",
+        max_diff
+    );
+}
+
