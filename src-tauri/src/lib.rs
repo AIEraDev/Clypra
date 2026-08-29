@@ -15,6 +15,7 @@ pub mod models;
 pub mod native_audio;
 pub mod native_core;
 pub mod preview_golden;
+pub mod golden_harness;
 pub mod sync_metrics;
 pub mod thumbnail_engine;
 pub mod wgpu_compositor;
@@ -220,6 +221,7 @@ pub fn run() {
             render_native_preview_frame,
             render_native_project_frame,
             render_native_video_project_frame,
+            get_video_scopes,
             render_native_frame,
             register_native_font,
             register_native_font_bytes,
