@@ -88,7 +88,9 @@ impl FontRegistry {
         drop(read);
         {
             let mut warnings = self.missing_warnings.write();
-            let msg = format!("Requested font '{font_id}' is not installed; fell back to '{DEFAULT_FONT_ID}'");
+            let msg = format!(
+                "Requested font '{font_id}' is not installed; fell back to '{DEFAULT_FONT_ID}'"
+            );
             if !warnings.contains(&msg) {
                 warnings.push(msg);
             }
@@ -104,7 +106,9 @@ impl FontRegistry {
         // If even default was missing, re-register and return it
         let _ = self.register_font(DEFAULT_FONT_ID, DEFAULT_FONT_BYTES);
         let read = self.fonts.read();
-        let entry = read.get(DEFAULT_FONT_ID).expect("Default font must be registered");
+        let entry = read
+            .get(DEFAULT_FONT_ID)
+            .expect("Default font must be registered");
         (Arc::clone(&entry.0), entry.1, true)
     }
 
@@ -172,7 +176,8 @@ mod tests {
     fn unknown_font_falls_back_to_default_and_records_warning() {
         let reg = FontRegistry::new();
         let (default_font, default_hash) = reg.get_font("default");
-        let (fallback_font, fallback_hash, is_fallback) = reg.get_font_with_status("non-existent-font-1234");
+        let (fallback_font, fallback_hash, is_fallback) =
+            reg.get_font_with_status("non-existent-font-1234");
         assert_eq!(default_hash, fallback_hash);
         assert!(is_fallback);
         assert_eq!(default_font.glyph_count(), fallback_font.glyph_count());
@@ -185,7 +190,9 @@ mod tests {
     #[test]
     fn register_custom_font() {
         let reg = FontRegistry::new();
-        let hash = reg.register_font("inconsolata-custom", DEFAULT_FONT_BYTES).unwrap();
+        let hash = reg
+            .register_font("inconsolata-custom", DEFAULT_FONT_BYTES)
+            .unwrap();
         assert!(reg.has_font("inconsolata-custom"));
         let (_, fetched_hash, is_fallback) = reg.get_font_with_status("inconsolata-custom");
         assert_eq!(hash, fetched_hash);
