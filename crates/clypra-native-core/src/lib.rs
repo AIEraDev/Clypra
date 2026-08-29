@@ -47,11 +47,10 @@ pub mod native_core {
         BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime,
         NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState,
         ProjectSnapshot, QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot,
-        TemplateElementKind, TemplateElementSnapshot, TextBackgroundSnapshot, TextEffectDefinitionSnapshot,
-        TextEffectInstance, TextEffectPassSnapshot,
+        TemplateElementKind, TemplateElementSnapshot, TextBackgroundSnapshot,
+        TextEffectDefinitionSnapshot, TextEffectInstance, TextEffectPassSnapshot,
         TextLayerSnapshot, TextParamValue, TextRunSnapshot, TransitionSnapshot, VideoLayerSnapshot,
-        DEFAULT_TIME_SCALE,
-        NATIVE_CORE_CONTRACT_VERSION,
+        DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
     };
     pub use crate::font_registry::{global_font_registry, FontRegistry, DEFAULT_FONT_ID};
     pub use crate::glyph_cache::{
@@ -65,18 +64,18 @@ pub mod native_core {
     pub use crate::service::NativeFrameService;
     pub use crate::session::PlaybackSession;
     pub use crate::surface::{
-        NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry, NativeSurfaceProbe,
-        NativeSurfacePresentation, NativeSurfaceStatus,
+        NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry,
+        NativeSurfacePresentation, NativeSurfaceProbe, NativeSurfaceStatus,
     };
 }
 
 pub use cache::FrameCache;
 pub use contracts::{
     BodyEffectSnapshot, ColorGradeSnapshot, ColorPolicy, FramePacket, FrameRequest, FrameTime,
-    NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState, ProjectSnapshot,
-    QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot, TemplateElementKind,
-    TemplateElementSnapshot, TextBackgroundSnapshot, TextEffectDefinitionSnapshot,
-    TextEffectInstance, TextEffectPassSnapshot, TextLayerSnapshot,
+    NativeCoreError, PixelFormat, PlaybackClockStatus, PlaybackPlan, PlaybackState,
+    ProjectSnapshot, QualityTier, RasterLayerSnapshot, TemplateDefinitionSnapshot,
+    TemplateElementKind, TemplateElementSnapshot, TextBackgroundSnapshot,
+    TextEffectDefinitionSnapshot, TextEffectInstance, TextEffectPassSnapshot, TextLayerSnapshot,
     TextParamValue, TextRunSnapshot, TransitionSnapshot, VideoLayerSnapshot, DEFAULT_TIME_SCALE,
     NATIVE_CORE_CONTRACT_VERSION,
 };
@@ -91,6 +90,6 @@ pub use sdf::{generate_padded_sdf, generate_sdf};
 pub use service::NativeFrameService;
 pub use session::PlaybackSession;
 pub use surface::{
-    NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry, NativeSurfaceProbe,
-    NativeSurfacePresentation, NativeSurfaceStatus,
+    NativeGpuRuntimeState, NativeGpuRuntimeStatus, NativeSurfaceGeometry,
+    NativeSurfacePresentation, NativeSurfaceProbe, NativeSurfaceStatus,
 };
