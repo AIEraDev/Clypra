@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { crashReporter } from "@/core/telemetry";
 
 export interface NativeDiagnostic {
   level: "error" | "warning";
@@ -20,8 +21,10 @@ export function clearNativeDiagnostics(): void {
 }
 
 /**
- * Installs the native error bridge without printing to the browser console.
- * DevTools can inspect `window.__CLYPRA_NATIVE_DIAGNOSTICS__` when needed.
+ * Installs the native error bridge.
+ * - Logs native errors to the in-memory ring buffer.
+ * - Forwards error-level diagnostics to the crash reporting pipeline.
+ * - DevTools can inspect `window.__CLYPRA_NATIVE_DIAGNOSTICS__` when needed.
  */
 export async function installNativeDiagnostics(): Promise<() => void> {
   const unlisten = await listen<NativeDiagnostic>(
@@ -29,8 +32,20 @@ export async function installNativeDiagnostics(): Promise<() => void> {
     (event) => {
       diagnostics.push(event.payload);
       if (diagnostics.length > MAX_DIAGNOSTICS) diagnostics.shift();
+
       if (event.payload.level === "error") {
         console.error(`[native-diagnostic] ${event.payload.source}: ${event.payload.code} - ${event.payload.message}`, event.payload);
+
+        // Forward error-level native diagnostics to crash telemetry pipeline.
+        void crashReporter.reportCrash({
+          crashType: "GPU_INIT_FAILURE",
+          error: {
+            name: `NativeError:${event.payload.code}`,
+            message: event.payload.message,
+            code: event.payload.code,
+          },
+          subsystem: event.payload.source,
+        });
       } else {
         console.warn(`[native-diagnostic] ${event.payload.source}: ${event.payload.code} - ${event.payload.message}`, event.payload);
       }
