@@ -351,6 +351,10 @@ pub struct NativeProjectRasterLayer {
     pub rgba: Option<Vec<u8>>,
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
+    pub display_width: Option<f32>,
+    #[serde(default)]
+    pub display_height: Option<f32>,
     pub x: f32,
     pub y: f32,
     #[serde(default)]
@@ -365,6 +369,16 @@ pub struct NativeProjectRasterLayer {
     pub is_mask: bool,
     #[serde(default)]
     pub is_text: bool,
+}
+
+impl NativeProjectRasterLayer {
+    pub fn display_width(&self) -> f32 {
+        self.display_width.unwrap_or(self.width as f32)
+    }
+
+    pub fn display_height(&self) -> f32 {
+        self.display_height.unwrap_or(self.height as f32)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -682,6 +696,8 @@ fn to_video_project_request(
             rgba: layer.rgba.clone(),
             width: layer.width,
             height: layer.height,
+            display_width: Some(layer.width as f32 * scale_x),
+            display_height: Some(layer.height as f32 * scale_y),
             x: layer.x * scale_x,
             y: layer.y * scale_y,
             rotation: layer.rotation,
@@ -692,6 +708,23 @@ fn to_video_project_request(
             is_text: layer.is_text,
         })
         .collect();
+    let text_layers = request
+        .project
+        .text_layers
+        .iter()
+        .map(|layer| {
+            let mut l = layer.clone();
+            l.x *= scale_x;
+            l.y *= scale_y;
+            if let Some(bw) = l.box_width.as_mut() {
+                *bw *= scale_x;
+            }
+            if let Some(bh) = l.box_height.as_mut() {
+                *bh *= scale_y;
+            }
+            l
+        })
+        .collect();
 
     Ok(NativeVideoProjectFrameRequest {
         canvas_width: request.output_width,
@@ -699,7 +732,7 @@ fn to_video_project_request(
         clear_color: request.project.clear_color,
         layers,
         raster_layers,
-        text_layers: request.project.text_layers.clone(),
+        text_layers,
         transition: request.project.transition.clone(),
     })
 }
@@ -1496,8 +1529,8 @@ async fn render_native_video_project_frame_bytes_timed(
             view,
             x: layer.x,
             y: layer.y,
-            width: layer.width as f32,
-            height: layer.height as f32,
+            width: layer.display_width(),
+            height: layer.display_height(),
             rotation: layer.rotation,
             opacity: layer.opacity,
             z_index: layer.z_index,
@@ -2144,8 +2177,8 @@ pub async fn present_native_frame(
             view,
             x: layer.x,
             y: layer.y,
-            width: layer.width as f32,
-            height: layer.height as f32,
+            width: layer.display_width(),
+            height: layer.display_height(),
             rotation: layer.rotation,
             opacity: layer.opacity,
             z_index: layer.z_index,
@@ -2684,5 +2717,69 @@ mod tests {
         assert!(!queue.contains("frame-2"));
         assert!(queue.contains("frame-3"));
         assert!(queue.contains("frame-4"));
+    }
+
+    #[test]
+    fn to_video_project_request_scales_raster_layers_proportionally_to_output_resolution() {
+        use crate::native_core::contracts::{
+            ColorPolicy, FrameRequest, FrameTime, ProjectSnapshot, QualityTier,
+            RasterLayerSnapshot, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
+        };
+
+        let request = FrameRequest {
+            contract_version: NATIVE_CORE_CONTRACT_VERSION,
+            request_id: "test-raster-scale".to_string(),
+            frame_time: FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap(),
+            project: ProjectSnapshot {
+                schema_version: 1,
+                project_revision: "rev-1".to_string(),
+                frame_rate: 30,
+                canvas_width: 1920,
+                canvas_height: 1080,
+                clear_color: [0.0, 0.0, 0.0, 1.0],
+                video_layers: vec![],
+                raster_layers: vec![RasterLayerSnapshot {
+                    asset_id: "text-1".to_string(),
+                    rgba: None,
+                    width: 480,
+                    height: 120,
+                    x: 720.0,
+                    y: 480.0,
+                    rotation: 0.0,
+                    opacity: 1.0,
+                    z_index: 0,
+                    blend_mode: "normal".to_string(),
+                    color_grade: None,
+                    is_mask: false,
+                    is_text: true,
+                }],
+                text_layers: vec![],
+                transition: None,
+            },
+            output_width: 320,
+            output_height: 180,
+            quality: QualityTier::Half,
+            color_policy: ColorPolicy::default(),
+            render_graph_version: 1,
+            generation: None,
+            mode: None,
+            scrub_velocity_px_per_second: None,
+            requested_at_ms: None,
+        };
+
+        let legacy = super::to_video_project_request(&request).expect("request should convert");
+        assert_eq!(legacy.canvas_width, 320);
+        assert_eq!(legacy.canvas_height, 180);
+        assert_eq!(legacy.raster_layers.len(), 1);
+
+        let raster = &legacy.raster_layers[0];
+        // Raw texture pixel dimensions are preserved for GPU upload
+        assert_eq!(raster.width, 480);
+        assert_eq!(raster.height, 120);
+        // Position and display dimensions are scaled to the output surface coordinate system
+        assert_eq!(raster.x, 120.0);
+        assert_eq!(raster.y, 80.0);
+        assert_eq!(raster.display_width(), 80.0);
+        assert_eq!(raster.display_height(), 20.0);
     }
 }
