@@ -65,6 +65,15 @@ pub use effect_interpreter::{
 pub mod text_layer_cache;
 pub use text_layer_cache::{text_layer_cache_key, TextLayerCache};
 
+pub mod curves;
+pub use curves::{evaluate_monotone_spline, CurveLutTable, CurvePoint, CurvesData};
+
+pub mod scopes;
+pub use scopes::{
+    compute_video_scopes, HistogramData, RgbParadeData, ScopeGridData, ScopeType,
+    VideoScopePayload,
+};
+
 pub struct NativeWgpuRenderer {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
