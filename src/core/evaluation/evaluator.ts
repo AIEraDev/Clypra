@@ -226,6 +226,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         templateRevisionId: textClip.templateRevisionId,
         templateContentHash: textClip.templateContentHash,
         templateSnapshot: textClip.templateSnapshot,
+        templateControlValues: textClip.templateControlValues,
         templateDependencies: textClip.templateDependencies,
         customization: textClip.customization,
       };
