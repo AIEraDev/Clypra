@@ -286,7 +286,9 @@ async fn perform_download(
     // Validate completed file format and size
     if !is_valid_whisper_model_file(&part_path) {
         let _ = tokio::fs::remove_file(&part_path).await;
-        return Err("Downloaded file failed GGML model validation (corrupt or incomplete)".to_string());
+        return Err(
+            "Downloaded file failed GGML model validation (corrupt or incomplete)".to_string(),
+        );
     }
 
     tokio::fs::rename(&part_path, &file_path)
@@ -428,7 +430,11 @@ mod tests {
 
         // 2. 68-byte mock file (reproducing the exact mock found on disk)
         let mock_file = temp_dir.join("mock.bin");
-        std::fs::write(&mock_file, b"Downloaded at: SystemTime { tv_sec: 1781398073 }").unwrap();
+        std::fs::write(
+            &mock_file,
+            b"Downloaded at: SystemTime { tv_sec: 1781398073 }",
+        )
+        .unwrap();
         assert!(!is_valid_whisper_model_file(&mock_file));
 
         // 3. PyTorch file (.pt) rejected even if large
