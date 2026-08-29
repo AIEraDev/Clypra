@@ -477,12 +477,10 @@ impl NativePreviewSession {
         let (font, font_hash) = match font_registry.require_font(&layer.font_id) {
             Ok(font) => font,
             Err(error) => {
-                eprintln!(
-                    "[native-preview][rust] text-font-missing font_id={} registered_count={} registered_ids={:?} reason={}",
-                    layer.font_id,
-                    font_registry.list_fonts().len(),
-                    font_registry.list_fonts(),
-                    error
+                crate::diagnostics::error(
+                    "native-preview",
+                    "text-font-missing",
+                    format!("font_id={} reason={error}", layer.font_id),
                 );
                 return Err(error);
             }
@@ -490,17 +488,6 @@ impl NativePreviewSession {
         let emoji_fallback = font_registry
             .require_font(clypra_native_core::font_registry::EMOJI_FALLBACK_FONT_ID)
             .ok();
-        eprintln!(
-            "[native-preview][rust] text-cache-miss font_id={} text_len={} font_size={} effect_id={}",
-            layer.font_id,
-            layer.text.len(),
-            layer.font_size,
-            layer
-                .effect
-                .as_ref()
-                .map(|effect| effect.effect_id.as_str())
-                .unwrap_or("none")
-        );
         let align = clypra_native_core::glyph_cache::TextAlign::from_str_loose(&layer.text_align);
         let font_weight = match layer.font_weight.trim().to_ascii_lowercase().as_str() {
             "thin" => 100,
@@ -620,9 +607,13 @@ impl NativePreviewSession {
         self.gpu.queue.submit([clear_encoder.finish()]);
 
         if shaped.is_truncated {
-            eprintln!(
-                "[NativeCompositor] Warning: Text layer '{}' exceeded max canvas dimension and was safely truncated to ({}x{})",
-                layer.text, shaped.width, shaped.height
+            crate::diagnostics::warning(
+                "native-preview",
+                "text-canvas-truncated",
+                format!(
+                    "Text layer exceeded max canvas dimension and was truncated to ({}x{})",
+                    shaped.width, shaped.height
+                ),
             );
         }
 
