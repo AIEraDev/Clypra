@@ -1,4 +1,4 @@
-import { TemplateRenderer } from "@clypra-studio/engine";
+import { renderTextTemplateToCanvas, resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { TextTemplate, TemplateCustomization, RenderedFrameSequence } from "./types";
 
 /**
@@ -10,51 +10,46 @@ export async function renderToFrameSequence(
   customization: TemplateCustomization,
   onProgress?: (progress: number) => void
 ): Promise<RenderedFrameSequence> {
+  const artifact = resolveTextTemplateArtifact(template);
+  if (!artifact) throw new Error("Template does not contain a renderable text-template artifact");
+
   const canvas = document.createElement("canvas");
-  canvas.width = template.canvasWidth;
-  canvas.height = template.canvasHeight;
+  canvas.width = artifact.document.canvas.width;
+  canvas.height = artifact.document.canvas.height;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("Failed to get 2D context");
   }
 
-  const renderer = new TemplateRenderer(template as any);
-
-  // Apply customizations to the renderer's overrides
-  const layers = template.layers || [];
-  for (const layer of layers) {
-    if (layer.kind === "text") {
-      const changes: any = {};
-      if (layer.role === "primary") {
-        changes.content = customization.primaryText;
-        if (customization.primaryColor) changes.color = customization.primaryColor;
-      } else if (layer.role === "secondary") {
-        changes.content = customization.secondaryText ?? "";
-        if (customization.secondaryColor) changes.color = customization.secondaryColor;
-      } else if (layer.role === "accent") {
-        changes.content = customization.accentText ?? "";
-      }
-      renderer.updateLayer(layer.id, changes);
-    } else if (layer.kind === "shape") {
-      const colorOverride = layer.id === "primary-fill-layer" 
-        ? customization.primaryColor 
-        : layer.id === "secondary-fill-layer" 
-          ? customization.secondaryColor 
-          : undefined;
-      if (colorOverride) {
-        renderer.updateLayer(layer.id, { fill: colorOverride });
-      }
+  const controlValues: Record<string, unknown> = {};
+  for (const control of artifact.controls) {
+    let value: unknown = control.defaultValue;
+    const node = artifact.document.nodes.find((candidate) => candidate.id === control.target.nodeId) as any;
+    const role = node?.role || "";
+    if (control.type === "text") {
+      if (customization.layerTexts?.[control.target.nodeId] !== undefined) value = customization.layerTexts[control.target.nodeId];
+      else if (role === "primary" || control.label.toLowerCase().includes("primary")) value = customization.primaryText;
+      else if (role === "secondary" || control.label.toLowerCase().includes("secondary")) value = customization.secondaryText ?? "";
+      else if (role === "accent" || control.label.toLowerCase().includes("accent")) value = customization.accentText ?? "";
+    } else if (control.type === "color") {
+      value = customization.layerColors?.[control.target.nodeId] || (role === "secondary" ? customization.secondaryColor : customization.primaryColor) || value;
     }
+    controlValues[control.id] = value;
   }
 
   const frames: Blob[] = [];
-  const fps = 30; // standard output frame rate
-  const duration = template.defaultDuration ?? template.duration ?? 3.0;
+  const fps = artifact.timing.fps;
+  const duration = artifact.timing.duration;
   const totalFrames = Math.round(duration * fps);
 
   for (let f = 0; f < totalFrames; f++) {
     const time = f / fps;
-    renderer.drawFrame(ctx, time);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    renderTextTemplateToCanvas(ctx, {
+      artifact,
+      context: { environment: "export", time, width: canvas.width, height: canvas.height, controlValues },
+    });
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((b) => {
@@ -73,8 +68,8 @@ export async function renderToFrameSequence(
   return {
     frames,
     fps,
-    width: template.canvasWidth,
-    height: template.canvasHeight,
+    width: artifact.document.canvas.width,
+    height: artifact.document.canvas.height,
     durationFrames: totalFrames,
   };
 }
