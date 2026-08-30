@@ -1,5 +1,5 @@
 import type { EvaluatedTextLayer } from "../evaluation/types";
-import { evaluateScene as engineEvaluateScene, textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, defaultConfig as engineDefaultConfig, _buildConfig, normalizeTextTemplate, compileTextTemplate, normalizeTextTemplateArtifact } from "@clypra-studio/engine";
+import { textEffectConfigToScene, type TextEffectConfig, layerToTextEffectConfig, CanvasDevice, defaultConfig as engineDefaultConfig, _buildConfig, renderTextTemplateToCanvas, renderTextEffectToCanvas, resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { invalidateEvaluationCache } from "../evaluation/evaluator";
 import { useTimelineStore } from "../../store/timelineStore";
@@ -45,13 +45,64 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
   } as TextEffectConfig;
 }
 
+function templateControlValues(layer: EvaluatedTextLayer, artifact: ReturnType<typeof resolveTextTemplateArtifact>): Record<string, unknown> {
+  if (!artifact) return {};
+  const customization = layer.customization;
+  const values: Record<string, unknown> = { ...(layer.templateControlValues || {}) };
+  for (const control of artifact.controls) {
+    if (control.type !== "text" && control.type !== "color") continue;
+    const node = artifact.document.nodes.find((candidate: any) => candidate.id === control.target.nodeId) as any;
+    const role = node?.role || "";
+    if (control.type === "text") {
+      values[control.id] = customization?.layerTexts?.[control.target.nodeId]
+        ?? (role === "primary" ? customization?.primaryText : role === "secondary" ? customization?.secondaryText : role === "accent" ? customization?.accentText : undefined)
+        ?? values[control.id]
+        ?? control.defaultValue;
+    } else {
+      values[control.id] = customization?.layerColors?.[control.target.nodeId]
+        ?? (role === "secondary" ? customization?.secondaryColor : customization?.primaryColor)
+        ?? values[control.id]
+        ?? control.defaultValue;
+    }
+  }
+  return values;
+}
+
+function renderTemplateArtifact(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  layer: EvaluatedTextLayer,
+  artifact: ReturnType<typeof resolveTextTemplateArtifact>,
+  width: number,
+  height: number,
+): boolean {
+  if (!artifact) return false;
+  const localTime = layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0;
+  ctx.save();
+  // Native text raster assets are centered around the evaluated layer origin.
+  // The package renderer uses composition-space coordinates from (0, 0).
+  ctx.translate(-width / 2, -height / 2);
+  renderTextTemplateToCanvas(ctx, {
+    artifact,
+    context: {
+      environment: "editor",
+      time: localTime,
+      clipDuration: layer.clipDuration,
+      width,
+      height,
+      controlValues: templateControlValues(layer, artifact),
+    },
+  });
+  ctx.restore();
+  return true;
+}
+
 /**
  * Rasterize a text layer.
  *
  * CRITICAL: This is the canonical text rendering path.
  * Preview and export MUST use the same code path.
  *
- * Styled layers (styleId present) always go through engineEvaluateScene,
+ * Styled layers (styleId present) always go through the package effect facade,
  * which is the authoritative pipeline for stroke-blur, glow, bevel, and
  * all post-fx. When ctx.filter is unsupported (WKWebView on macOS),
  * rendering is routed through the native compositor so visual
@@ -62,39 +113,8 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
  */
 export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layer: EvaluatedTextLayer, width: number, height: number, scaleX: number, scaleY: number): Promise<void> {
   if (layer.templateId) {
-    const pinnedArtifact = layer.templateSnapshot as any;
-    if (pinnedArtifact?.kind === "text-template" && pinnedArtifact.document) {
-      const values: Record<string, unknown> = { ...(layer as any).templateControlValues, ...(layer.customization?.layerTexts || {}) };
-      const compiled = compileTextTemplate(normalizeTextTemplateArtifact(pinnedArtifact), {
-        target: "editor",
-        time: layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0,
-        controlValues: values,
-      });
-      ctx.save();
-      ctx.translate(-width / 2, -height / 2);
-      const scaleXTemplate = width / compiled.width;
-      const scaleYTemplate = height / compiled.height;
-      ctx.scale(scaleXTemplate, scaleYTemplate);
-      for (const renderLayer of compiled.layers) {
-        if (!renderLayer.visible || renderLayer.opacity <= 0) continue;
-        ctx.save();
-        ctx.globalAlpha = renderLayer.opacity;
-        if (renderLayer.type === "shape") {
-          ctx.fillStyle = String(renderLayer.style?.fillColor || "#000000");
-          ctx.fillRect(renderLayer.x, renderLayer.y, renderLayer.width, renderLayer.height);
-        } else if (renderLayer.type === "text" || renderLayer.type === "rich-text") {
-          const style = renderLayer.style || {};
-          ctx.fillStyle = String(style.textColor || "#FFFFFF");
-          ctx.font = `${style.fontWeight || 400} ${Number(style.fontSize || 48)}px ${String(style.fontFamily || "Inter Variable")}`;
-          ctx.textAlign = (style.textAlign as CanvasTextAlign) || "left";
-          ctx.textBaseline = "middle";
-          ctx.fillText(renderLayer.text || "", renderLayer.x + renderLayer.width / 2, renderLayer.y + renderLayer.height / 2, renderLayer.width);
-        }
-        ctx.restore();
-      }
-      ctx.restore();
-      return;
-    }
+    const pinnedArtifact = resolveTextTemplateArtifact(layer.templateSnapshot);
+    if (renderTemplateArtifact(ctx, layer, pinnedArtifact, width, height)) return;
     const { useTemplateStore } = await import("@/features/text-templates/templateStore");
     let templates = useTemplateStore.getState().templates;
     if (templates.length === 0) {
@@ -138,116 +158,29 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       }
     }
 
-    if (template && ((template as any).layers?.length || (template as any).elements?.length)) {
-      // Normalize element-based Studio payloads once before rendering. This
-      // also makes the pinned snapshot path use the exact same layer model as
-      // the live API/template preview path.
-      const activeTemplate = normalizeTextTemplate(template) as any;
-      template = activeTemplate;
-      const customization = layer.customization || {
-        primaryText: layer.text || "",
-        secondaryText: "",
-        accentText: "",
-        primaryColor: "#ffffff",
-        secondaryColor: "#ffffff",
-      };
+    const resolvedArtifact = resolveTextTemplateArtifact(template);
+    if (renderTemplateArtifact(ctx, layer, resolvedArtifact, width, height)) return;
 
-      const { TemplateRenderer } = await import("@clypra-studio/engine");
-      const renderer = new TemplateRenderer(activeTemplate);
-
-      // Apply customization overrides to the renderer
-      for (const tLayer of (activeTemplate as any).layers) {
-        if (tLayer.kind === "text") {
-          const changes: any = {};
-
-          // 1. Text content override or role-based default
-          if (customization.layerTexts && customization.layerTexts[tLayer.id] !== undefined) {
-            changes.content = customization.layerTexts[tLayer.id];
-          } else if (tLayer.role === "primary") {
-            changes.content = customization.primaryText;
-          } else if (tLayer.role === "secondary") {
-            changes.content = customization.secondaryText ?? "";
-          } else if (tLayer.role === "accent") {
-            changes.content = customization.accentText ?? "";
-          }
-
-          // 2. Color override or role-based default
-          if (customization.layerColors && customization.layerColors[tLayer.id] !== undefined) {
-            changes.color = customization.layerColors[tLayer.id];
-          } else if (tLayer.role === "primary" && customization.primaryColor) {
-            changes.color = customization.primaryColor;
-          } else if (tLayer.role === "secondary" && customization.secondaryColor) {
-            changes.color = customization.secondaryColor;
-          }
-
-          // 3. Font Size override
-          if (customization.layerFontSizes && customization.layerFontSizes[tLayer.id] !== undefined) {
-            changes.fontSize = customization.layerFontSizes[tLayer.id];
-          }
-
-          // 4. Font Weight override
-          if (customization.layerFontWeights && customization.layerFontWeights[tLayer.id] !== undefined) {
-            changes.fontWeight = customization.layerFontWeights[tLayer.id];
-          }
-
-          renderer.updateLayer(tLayer.id, changes);
-        } else if (tLayer.kind === "shape") {
-          const changes: any = {};
-
-          // Color override or role-based default
-          if (customization.layerColors && customization.layerColors[tLayer.id] !== undefined) {
-            changes.fill = customization.layerColors[tLayer.id];
-          } else {
-            const colorOverride = tLayer.id === "primary-fill-layer" ? customization.primaryColor : tLayer.id === "secondary-fill-layer" ? customization.secondaryColor : undefined;
-            if (colorOverride) {
-              changes.fill = colorOverride;
-            }
-          }
-
-          if (Object.keys(changes).length > 0) {
-            renderer.updateLayer(tLayer.id, changes);
-          }
-        }
-      }
-
-      const localTime = layer.time !== undefined && layer.clipStartTime !== undefined ? layer.time - layer.clipStartTime : 0;
-
-      // Get the bounds of the actual template content to scale it relative to the content rather than the empty canvas
-      const tempCanvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(activeTemplate.canvasWidth, activeTemplate.canvasHeight) : document.createElement("canvas");
-      tempCanvas.width = activeTemplate.canvasWidth;
-      tempCanvas.height = activeTemplate.canvasHeight;
-      const tempCtx = tempCanvas.getContext("2d");
-      if (tempCtx) {
-        renderer.drawFrame(tempCtx, localTime, { skipClear: true });
-      }
-      const bounds = renderer.getContentBounds();
-
+    if (layer.clipKind === "text-template") {
+      // A pinned revision is part of the clip contract. Never substitute a
+      // newer catalog revision or silently turn a missing template into plain
+      // text; show a deterministic, actionable placeholder instead.
       ctx.save();
-      // Translate from the center back to the top-left corner of the layer bounding box
       ctx.translate(-width / 2, -height / 2);
-
-      if (bounds && bounds.width > 0 && bounds.height > 0) {
-        // Map content bounds to layer box with uniform scaling to avoid distortion
-        const sX = width / bounds.width;
-        const sY = height / bounds.height;
-        const scale = Math.min(sX, sY);
-
-        // Center the content bounds within the layer bounding box
-        const offsetX = (width - bounds.width * scale) / 2;
-        const offsetY = (height - bounds.height * scale) / 2;
-
-        ctx.scale(scale, scale);
-        ctx.translate(-bounds.x + offsetX / scale, -bounds.y + offsetY / scale);
-      } else {
-        const sX = width / activeTemplate.canvasWidth;
-        const sY = height / activeTemplate.canvasHeight;
-        ctx.scale(sX, sY);
-      }
-
-      renderer.drawFrame(ctx as CanvasRenderingContext2D, localTime, { skipClear: true });
+      ctx.strokeStyle = "rgba(255, 92, 92, 0.95)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, Math.max(1, width - 2), Math.max(1, height - 2));
+      ctx.fillStyle = "rgba(255, 92, 92, 0.95)";
+      ctx.font = "600 16px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Template unavailable", width / 2, height / 2 - 10);
+      ctx.font = "12px sans-serif";
+      ctx.fillText(layer.templateRevisionId ? `Revision ${layer.templateRevisionId.slice(0, 12)}…` : "Pinned revision missing", width / 2, height / 2 + 14);
       ctx.restore();
       return;
     }
+
   }
 
   // CRITICAL: For text clips, fontSize is explicitly managed by the transform system
@@ -343,7 +276,10 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
         if (offCtx) {
           offCtx.setTransform(1, 0, 0, 1, 0, 0);
           offCtx.clearRect(0, 0, evalWidth, evalHeight);
-          engineEvaluateScene(canonicalScene, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
+          renderTextEffectToCanvas(offCtx, {
+            source: canonicalScene,
+            context: { environment: "editor", time: layer.time ?? 0, width: evalWidth, height: evalHeight },
+          });
           ctx.drawImage(
             offscreen,
             -evalWidth / 2,
@@ -444,7 +380,10 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
     // Force synchronous canvas clear before drawing
     offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
 
-    engineEvaluateScene(sceneDoc, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
+    renderTextEffectToCanvas(offCtx, {
+      source: sceneDoc,
+      context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+    });
 
     const visibleAlpha = hasVisibleAlpha(offCtx, unscaledOffW, unscaledOffH);
 
@@ -452,7 +391,10 @@ export async function rasterizeTextLayer(ctx: CanvasRenderingContext2D | Offscre
       const fallbackConfig = buildPlainTextEffectConfig(layer, unscaledOffW, unscaledOffH, unscaledFontSize, 1.0, 1.0);
       const fallbackSceneDoc = textEffectConfigToScene(fallbackConfig);
       offCtx.clearRect(0, 0, unscaledOffW, unscaledOffH);
-      engineEvaluateScene(fallbackSceneDoc, layer.time ?? 0, offCtx as unknown as CanvasRenderingContext2D);
+      renderTextEffectToCanvas(offCtx, {
+        source: fallbackSceneDoc,
+        context: { environment: "editor", time: layer.time ?? 0, width: unscaledOffW, height: unscaledOffH },
+      });
     }
     // Draw the unscaled offscreen canvas scaled down to the preview resolution.
     // Source rect: full unscaled canvas
