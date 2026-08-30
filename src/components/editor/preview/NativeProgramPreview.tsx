@@ -78,6 +78,7 @@ import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
 
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
+import { paintTextLayersToCanvas } from "./nativeTextPreview";
 import { useCaptionStore } from "@/store/captionStore";
 import type { EvaluatedScene } from "@/core/evaluation/types";
 import { makeBodyMaskCacheKey, segmentBodyMask } from "@/features/body-effects";
@@ -124,6 +125,21 @@ function isExpectedStaleNativePreviewError(error: unknown): boolean {
   return /native preview frame request is stale|request cancelled/i.test(
     error instanceof Error ? error.message : String(error),
   );
+}
+
+const FORCE_PLAYBACK_READBACK_STORAGE_KEY =
+  "clypra:debug:force-preview-readback";
+
+function isForcedPlaybackReadbackEnabled(): boolean {
+  if (!import.meta.env.DEV) return false;
+  try {
+    return (
+      typeof localStorage !== "undefined" &&
+      localStorage.getItem(FORCE_PLAYBACK_READBACK_STORAGE_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
 }
 
 const CANVAS_DIMENSIONS: Record<
@@ -639,6 +655,67 @@ export const NativeProgramPreview: React.FC = () => {
   const { scale, offsetX, offsetY, displayWidth, displayHeight } =
     displayTransform;
   const nativeSurfaceViewportReady = displayWidth > 0 && displayHeight > 0;
+
+  // Browser fallback for localhost/editor testing. Tauri continues through
+  // the native surface loop below; browser text uses the same timeline
+  // evaluator and package-owned renderer, instead of silently showing an
+  // empty canvas when no native surface exists.
+  useEffect(() => {
+    if (isTauriRuntime() || !canvasEl || !project || projectInitializing) return;
+
+    let disposed = false;
+    let rafId: number | null = null;
+    let renderInFlight = false;
+    let renderQueued = true;
+
+    const schedule = () => {
+      renderQueued = true;
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        void render();
+      });
+    };
+
+    const render = async () => {
+      if (disposed || renderInFlight) return;
+      renderInFlight = true;
+      renderQueued = false;
+      try {
+        const state = renderStateRef.current;
+        const scene = evaluateTimelineSceneCached(
+          state.clock.getState().time,
+          state.clips,
+          state.tracks,
+          state.mediaAssets,
+          state.project,
+          state.epoch,
+          state.transitions,
+          state.sceneVersions,
+        );
+        canvasEl.width = state.canvasWidth;
+        canvasEl.height = state.canvasHeight;
+        if (scene.visualLayers.some((layer) => layer.layerType === "text")) {
+          await paintTextLayersToCanvas(canvasEl, scene);
+        } else {
+          canvasEl.getContext("2d")?.clearRect(0, 0, canvasEl.width, canvasEl.height);
+        }
+      } catch (error) {
+        console.error("[browser-preview] text-render-failed", error);
+      } finally {
+        renderInFlight = false;
+        if (renderQueued && !disposed) schedule();
+      }
+    };
+
+    const unsubscribe = clock.subscribe(() => schedule());
+    schedule();
+    return () => {
+      disposed = true;
+      unsubscribe();
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+    };
+  }, [canvasEl, project?.id, projectInitializing, epoch]);
 
   // The native presenter is hosted in a transparent child surface positioned
   // over the displayed program viewport and configured only in Tauri.
@@ -1409,6 +1486,7 @@ export const NativeProgramPreview: React.FC = () => {
       const isRasterClip = (clip: (typeof state.clips)[number]) => {
         if (
           clip.kind === "text" ||
+          clip.kind === "text-template" ||
           clip.kind === "image" ||
           clip.kind === "sticker"
         )
@@ -1608,6 +1686,10 @@ export const NativeProgramPreview: React.FC = () => {
         const timeToRender = state.clock.time;
         const playbackState = state.clock.state;
         const isPlaying = playbackState === "playing";
+        // Development-only benchmark switch. It routes continuous playback
+        // through the existing native RGBA readback + DOM canvas path while
+        // leaving production/native-surface behavior untouched.
+        const forcePlaybackReadback = isForcedPlaybackReadbackEnabled();
 
         const frameRate = state.project?.frameRate ?? 30;
         const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
@@ -1924,7 +2006,9 @@ export const NativeProgramPreview: React.FC = () => {
         const nativeDirectSurfacePath =
           nativeSurfaceUsable && Boolean(nativeRequest) && nativePlaybackPath;
         const nativeReadbackFallbackPath =
-          isPlaying && nativePlaybackPath && !nativeSurfaceUsable;
+          isPlaying &&
+          nativePlaybackPath &&
+          (!nativeSurfaceUsable || forcePlaybackReadback);
         // The child surface is playback-only on desktop. Paused and seeking
         // frames must be committed to the DOM canvas so they share the exact
         // same placement and layering as the editor overlays (TransformOverlay,
@@ -2000,7 +2084,7 @@ export const NativeProgramPreview: React.FC = () => {
                 generation: targetGeneration,
               };
 
-              if (nativeSurfaceUsable) {
+              if (nativeSurfaceUsable && !forcePlaybackReadback) {
                 const tracePresentation = isFirstFrame || !isPlaying;
                 if (tracePresentation) {
                   tracePlayback("native-present-start", {
@@ -2419,6 +2503,14 @@ export const NativeProgramPreview: React.FC = () => {
               }
               canvasPaintMs = performance.now() - canvasPaintStarted;
             }
+            // Browser/local development has no retained native surface. Paint
+            // evaluated text layers through the same package-backed raster
+            // bridge so Program Preview is functional before Tauri starts.
+            if (!isTauriRuntime() && canvasEl && scene.visualLayers.some((layer) => layer.layerType === "text")) {
+              const browserPaintStarted = performance.now();
+              await paintTextLayersToCanvas(canvasEl, scene);
+              canvasPaintMs = performance.now() - browserPaintStarted;
+            }
             if (nativeFrame && canvasEl && exactNativeFrame !== null) {
               const frontendSpan =
                 nativeFrontendPerfSpans.get(nativeRequestKey);
@@ -2623,6 +2715,12 @@ export const NativeProgramPreview: React.FC = () => {
         getPlaybackState: () => clock.getState(),
         getPlaybackMetrics: () => getPlaybackMetricsSnapshot(),
         getSyncMetrics: () => getSyncMetricsSnapshot(),
+        getNativeSyncMetrics: () => getNativeSyncMetricsSnapshot(),
+        getNativePerfStats: () => nativePerfCollector.allStats(),
+        getPreviewOutputMode: () =>
+          isForcedPlaybackReadbackEnabled()
+            ? "dom-readback"
+            : "native-surface",
       };
     }
   }, [setActiveContext, clock]);
