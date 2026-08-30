@@ -152,6 +152,14 @@ interface TransformOverlayProps {
   currentTime: number;
   /** Whether the overlay should be visible (use visibility instead of unmounting) */
   visible?: boolean;
+  /**
+   * Preview interaction policy. During playback the overlay remains an
+   * invisible selection capture plane so a click can pause playback and
+   * select the clip without enabling transform handles on a moving frame.
+   */
+  interactionMode?: "editing" | "playing";
+  /** Pause the owning transport before handling a playback selection click. */
+  onPlaybackInteraction?: () => void;
 }
 
 /**
@@ -344,7 +352,7 @@ export function getUpdatedConformForClipBounds(clip: Clip, newX: number, newY: n
   return undefined;
 }
 
-export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth, canvasHeight, scale, viewport, displayOffset, displayWidth, displayHeight, currentTime, visible = true }) => {
+export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth, canvasHeight, scale, viewport, displayOffset, displayWidth, displayHeight, currentTime, visible = true, interactionMode = "editing", onPlaybackInteraction }) => {
   const { selectedClipIds, selectClip, toggleClipSelection } = useUIStore();
   const { clips, tracks, updateClip } = useTimelineStore();
   const { execute } = useHistoryStore();
@@ -398,6 +406,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
+  const isPlaybackInteraction = interactionMode === "playing";
+  const overlayInteractive = visible || isPlaybackInteraction;
 
   // The selection box is a signal-plane consumer. Its position and scale are
   // updated directly by the controller so pointer feedback does not require a
@@ -446,9 +456,19 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   // Using mousedown (instead of click) avoids click-tail races after drag.
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+
       // Don't handle if clicking on a handle or during drag
       if (isDragging || (e.target as HTMLElement).closest("[data-transform-handle]")) {
         return;
+      }
+
+      // CapCut-style interaction: a preview click while playing is an edit
+      // intent. Pause first, then run the same hit test against the now-still
+      // frame. The callback is transport-owned; this component only owns the
+      // selection decision.
+      if (isPlaybackInteraction) {
+        onPlaybackInteraction?.();
       }
 
       const rect = overlayRef.current?.getBoundingClientRect();
@@ -535,7 +555,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         selectClip(null);
       }
     },
-    [clips, tracks, currentTime, scale, viewport, canvasWidth, canvasHeight, isDragging, selectClip, toggleClipSelection, selectedClip, selectedClipIds],
+    [clips, tracks, currentTime, scale, viewport, canvasWidth, canvasHeight, isDragging, selectClip, toggleClipSelection, selectedClip, selectedClipIds, isPlaybackInteraction, onPlaybackInteraction],
   );
 
   const handleMouseDown = useCallback(
@@ -1449,8 +1469,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         style={{
           width: displayWidth,
           height: displayHeight,
-          visibility: visible ? "visible" : "hidden",
-          pointerEvents: visible ? "auto" : "none",
+          visibility: overlayInteractive ? "visible" : "hidden",
+          opacity: visible ? 1 : 0,
+          pointerEvents: overlayInteractive ? "auto" : "none",
         }}
       >
         {/* Click capture layer - always active for selection/deselection */}
@@ -1527,8 +1548,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       style={{
         width: displayWidth,
         height: displayHeight,
-        visibility: visible ? "visible" : "hidden",
-        pointerEvents: visible ? "auto" : "none",
+        visibility: overlayInteractive ? "visible" : "hidden",
+        opacity: visible ? 1 : 0,
+        pointerEvents: overlayInteractive ? "auto" : "none",
       }}
     >
       {/* Click capture layer - always active for selection/deselection.
@@ -1558,6 +1580,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           transform: `var(--transform-overlay-drag-transform, rotate(${rotation}deg))`,
           transformOrigin: "center",
           zIndex: 10,
+          // While playing, only the full-overlay capture plane is active.
+          // Handles and the move surface cannot begin an edit until the
+          // transport has reached the paused editing mode.
+          pointerEvents: isPlaybackInteraction ? "none" : "auto",
         }}
       >
         {/* Sleek, professional semi-transparent border, highlighted in red with a glow when snapped to center */}
