@@ -1,9 +1,10 @@
 import React, {
   useEffect, useRef, useImperativeHandle,
-  forwardRef, useState
+  forwardRef, useState, useMemo
 } from 'react';
-import { TemplateRenderer } from '@clypra-studio/engine';
+import { renderTextTemplateToCanvas, resolveTextTemplateArtifact } from '@clypra-studio/engine';
 import { getApiBaseUrl } from '@/lib/api';
+import { getFontLoader } from '@/core/fonts/FontLoader';
 
 export interface TemplatePreviewPlayerHandle {
   play:        () => void;
@@ -50,11 +51,13 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
     fitToContent = false,
   }, ref) => {
     const template = templateData || lottieData;
+    const artifact = useMemo(() => resolveTextTemplateArtifact(template), [template]);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
 
     const [isPlaying, setIsPlaying] = useState(autoplay);
     const [currentTime, setCurrentTime] = useState(0);
+    const [fontsReady, setFontsReady] = useState(!artifact);
 
     const requestRef = useRef<number | null>(null);
     const previousTimeRef = useRef<number | null>(null);
@@ -69,9 +72,36 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
       onFrameChangeRef.current = onFrameChange;
     });
 
+    // Canvas does not inherit loaded CSS fonts automatically. Load all
+    // authored template fonts before its first text measurement/draw.
+    useEffect(() => {
+      let cancelled = false;
+      const textNodes = artifact?.document.nodes.filter((node: any) => node.type === 'text') ?? [];
+      const descriptors = textNodes
+        .map((node: any) => ({
+          family: node.style?.fontFamily,
+          weight: node.style?.fontWeight ?? 400,
+          style: 'normal' as const,
+        }))
+        .filter((descriptor) => typeof descriptor.family === 'string' && descriptor.family.trim());
+
+      setFontsReady(descriptors.length === 0);
+      if (descriptors.length === 0) return () => { cancelled = true; };
+
+      getFontLoader().ensureFonts(descriptors).then(async () => {
+        await getFontLoader().waitForFontsReady();
+        if (!cancelled) setFontsReady(true);
+      }).catch((error) => {
+        console.warn('[TemplatePreviewPlayer] Font loading failed; using fallback fonts:', error);
+        if (!cancelled) setFontsReady(true);
+      });
+
+      return () => { cancelled = true; };
+    }, [artifact]);
+
     const resolvedMode = mode !== "auto"
       ? mode
-      : (template && (template.layers || template.assets || template.animation))
+      : (artifact || (template && (template.layers || template.assets || template.animation)))
         ? "canvas"
         : "video";
 
@@ -96,7 +126,7 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
       goToFrame: (frame: number) => {
         setIsPlaying(false);
         if (template) {
-          const fps = template.fps || 30;
+          const fps = artifact?.timing.fps || template.fps || 30;
           const targetTime = frame / fps;
           if (resolvedMode === "canvas") {
             setCurrentTime(targetTime);
@@ -108,44 +138,60 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
         }
       },
       getAnimation: () => ({
-        totalFrames: template ? Math.round((template.duration || 4) * (template.fps || 30)) : 0,
-        frameRate: template?.fps || 30,
-        isLoaded: !!template,
+        totalFrames: artifact ? Math.round(artifact.timing.duration * artifact.timing.fps) : template ? Math.round((template.duration || 4) * (template.fps || 30)) : 0,
+        frameRate: artifact?.timing.fps || template?.fps || 30,
+        isLoaded: !!artifact || !!template,
       }),
     }));
 
     // Trigger ready callback on mount if data is present
     useEffect(() => {
-      if (template && (resolvedMode === "canvas" || videoRef.current)) {
+      if (template && (resolvedMode === "canvas" ? fontsReady : videoRef.current)) {
         onReadyRef.current?.();
       }
-    }, [template, resolvedMode]);
+    }, [template, resolvedMode, fontsReady]);
 
     // ==========================================
     // CANVAS MODE EFFECTS
     // ==========================================
     useEffect(() => {
       if (resolvedMode !== "canvas" || !template || !canvasRef.current) return;
+      if (!fontsReady) return;
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const renderer = new TemplateRenderer(template);
-      renderer.drawFrame(ctx, currentTime, fitToContent);
+      const width = artifact?.document.canvas.width || template.canvasWidth || template.width || 800;
+      const height = artifact?.document.canvas.height || template.canvasHeight || template.height || 600;
+      canvas.width = width;
+      canvas.height = height;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      if (artifact) {
+        renderTextTemplateToCanvas(ctx, {
+          artifact,
+          context: {
+            environment: "preview",
+            time: currentTime,
+            width,
+            height,
+          },
+        });
+      }
 
       // Fire frame updates
-      const fps = template.fps || 30;
-      const totalFrames = Math.round((template.duration || 4) * fps);
+      const fps = artifact?.timing.fps || template.fps || 30;
+      const totalFrames = Math.round((artifact?.timing.duration || template.duration || 4) * fps);
       const currentFrame = Math.round(currentTime * fps);
       onFrameChangeRef.current?.(currentFrame, totalFrames);
-    }, [resolvedMode, template, currentTime, fitToContent]);
+    }, [resolvedMode, template, currentTime, fitToContent, fontsReady]);
 
     const tick = (timestamp: number) => {
       if (previousTimeRef.current !== null && template) {
         const elapsed = (timestamp - previousTimeRef.current) / 1000;
         const nextTime = currentTime + elapsed * speed;
         
-        if (nextTime >= (template.duration || 4)) {
+        if (nextTime >= (artifact?.timing.duration || template.duration || 4)) {
           if (loop) {
             setCurrentTime(0);
           } else {
@@ -178,7 +224,7 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
 
     useEffect(() => {
       if (resolvedMode === "canvas" && template && initialFrame !== undefined) {
-        const fps = template.fps || 30;
+        const fps = artifact?.timing.fps || template.fps || 30;
         setCurrentTime(initialFrame / fps);
       }
     }, [resolvedMode, template, initialFrame]);
@@ -208,7 +254,7 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
 
     useEffect(() => {
       if (resolvedMode === "video" && template && initialFrame !== undefined && videoRef.current) {
-        const fps = template.fps || 30;
+        const fps = artifact?.timing.fps || template.fps || 30;
         videoRef.current.currentTime = initialFrame / fps;
       }
     }, [resolvedMode, template, initialFrame]);
@@ -222,12 +268,19 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
     }
 
     if (resolvedMode === "canvas") {
+      if (!artifact) {
+        return (
+          <div className={className} style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fca5a5', fontSize: 12, textAlign: 'center', padding: 16 }}>
+            Template preview data is unavailable. Reload this template to fetch its renderable revision.
+          </div>
+        );
+      }
       return (
         <div className={className} style={{ position: 'relative', width, height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <canvas
             ref={canvasRef}
-            width={template.canvasWidth || template.width || 800}
-            height={template.canvasHeight || template.height || 600}
+            width={artifact?.document.canvas.width || template.canvasWidth || template.width || 800}
+            height={artifact?.document.canvas.height || template.canvasHeight || template.height || 600}
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
         </div>
