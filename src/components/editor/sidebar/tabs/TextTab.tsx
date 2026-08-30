@@ -397,12 +397,17 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         await selectTemplate(item);
         completeDownload(itemId, "template");
 
-        // Only project to the preview player if this item is still the active preview target
-        if (useUIStore.getState().previewMediaId === itemId) {
+          // Only project to the preview player if this item is still the active preview target
+          if (useUIStore.getState().previewMediaId === itemId) {
+          // TemplateGrid owns category summaries and does not necessarily
+          // populate templateStore.templates. selectTemplate resolves the
+          // full payload into selectedTemplate, so use that authoritative
+          // result instead of falling back to the summary object.
+          const templateState = useTemplateStore.getState();
           const updatedTemplate =
-            useTemplateStore
-              .getState()
-              .templates.find((t) => t.id === itemId) || item;
+            templateState.selectedTemplate?.id === itemId
+              ? templateState.selectedTemplate
+              : templateState.templates.find((t) => t.id === itemId) || item;
           useUIStore.getState().previewTextPreset(
             {
               ...updatedTemplate,
