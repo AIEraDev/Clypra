@@ -266,12 +266,15 @@ interface ConnectedTransformOverlayProps
 const ConnectedTransformOverlay = React.memo(
   (props: ConnectedTransformOverlayProps) => {
     const clockState = usePlaybackClock();
+    const { pause } = useTransportControls();
 
     return (
       <TransformOverlay
         {...props}
         currentTime={clockState.time}
         visible={clockState.state !== "playing"}
+        interactionMode={clockState.state === "playing" ? "playing" : "editing"}
+        onPlaybackInteraction={pause}
       />
     );
   },
