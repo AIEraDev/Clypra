@@ -23,6 +23,8 @@ import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { platform } from "@/core/platform";
 import { AddClipCommand, UpdateClipCommand, AddTransitionCommand } from "@/core/history/commands";
 import type { MediaAsset, TrackType } from "@/types";
+import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
+import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 
 export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
   const { selectedClipIds } = useUIStore();
@@ -99,18 +101,95 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
         execute(new AddClipCommand(newClip));
 
       } else if (type === "text") {
-        const placement = resolveAddToTimelinePlacement({
+        const isTemplate = item.presetType === "template" || Boolean(item.templateId);
+        let placement = resolveAddToTimelinePlacement({
           asset: { type: "video", id: item.id, trackType: "text" },
           tracks,
           clips,
           playheadTime: getPlaybackClock().time,
           sequenceEndTime: getTimelineEndTime(),
+          duration: isTemplate ? undefined : 5.0,
         });
         let targetTrackId = placement.targetTrackId;
+
+        // Template payloads are fetched before creating a track. This keeps a
+        // failed catalog/revision request from leaving an empty text lane.
+        if (isTemplate) {
+          const { useTemplateStore } = await import("@/features/text-templates/templateStore");
+          const { instantiateTemplate } = await import("@/features/text-templates/instantiateTemplate");
+          const store = useTemplateStore.getState();
+          const candidates = [
+            item.templateData,
+            item.injectedData,
+            item.templateDefinition?.templateData,
+            item.templateDefinition?.lottieData,
+            item.templateDefinition,
+            store.selectedTemplate?.id === item.templateId ? store.selectedTemplate : null,
+            store.templates.find((template) => template.id === item.templateId),
+          ].filter(Boolean);
+
+          let resolvedTemplate: any = candidates.find((candidate) => resolveTextTemplateArtifact(candidate));
+          const summary = item.templateDefinition || store.selectedTemplate || store.templates.find((template) => template.id === item.templateId);
+          if (!resolvedTemplate && summary?.category && item.templateId) {
+            try {
+              const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
+              // Exact revision pinning is mandatory for timeline instances.
+              resolvedTemplate = await TextEffectsApi.getTemplateArtifact(
+                summary.category,
+                item.templateId,
+                item.templateRevisionId ?? summary.revisionId ?? summary.revision?.revisionId,
+              );
+            } catch (error) {
+              console.error("[Clypra:AddToTimeline] Failed to fetch pinned text-template artifact:", error);
+            }
+          }
+
+          if (!resolvedTemplate) {
+            console.error("[Clypra:AddToTimeline] Refusing to insert template without a canonical artifact", {
+              templateId: item.templateId,
+              revisionId: item.templateRevisionId,
+            });
+            return;
+          }
+
+          const artifact = resolveTextTemplateArtifact(resolvedTemplate);
+          const duration = artifact?.timing.duration ?? resolvedTemplate.defaultDuration ?? resolvedTemplate.duration ?? 4;
+          const latest = useTimelineStore.getState();
+          placement = resolveAddToTimelinePlacement({
+            asset: { type: "video", id: item.templateId, trackType: "text" },
+            tracks: latest.tracks,
+            clips: latest.clips,
+            playheadTime: getPlaybackClock().time,
+            sequenceEndTime: getTimelineEndTime(),
+            duration,
+          });
+          targetTrackId = placement.targetTrackId;
+          if (placement.shouldCreateTrack || !targetTrackId) {
+            const latestTracks = useTimelineStore.getState().tracks;
+            targetTrackId = insertTrackAt("text", getInsertIndexForNewTrack(latestTracks, "text"));
+          }
+          if (!targetTrackId) return;
+
+          const templateClip = instantiateTemplate(resolvedTemplate, {
+            trackId: targetTrackId,
+            startTime: placement.startTime,
+            canvasWidth: project?.canvasWidth || 1920,
+            canvasHeight: project?.canvasHeight || 1080,
+            customization: item.customization,
+          });
+          execute(new AddClipCommand(templateClip));
+          // Session-owned bridge caches are warmed after insertion, outside
+          // the add command. Playback therefore consumes a registered native
+          // texture instead of uploading the template on its first frame.
+          void getActiveSessionOrNull()?.prewarmNativeRasterAssets().catch((error) => {
+            console.warn("[Clypra:AddToTimeline] Template prewarm failed", error);
+          });
+          return;
+        }
+
         if (placement.shouldCreateTrack || !targetTrackId) {
           const latestTracks = useTimelineStore.getState().tracks;
-          const insertIndex = getInsertIndexForNewTrack(latestTracks, "text");
-          targetTrackId = insertTrackAt("text", insertIndex);
+          targetTrackId = insertTrackAt("text", getInsertIndexForNewTrack(latestTracks, "text"));
         }
         if (!targetTrackId) return;
 
@@ -132,41 +211,6 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
             }
           } catch {
             // Continue without definition — will use fallback sizing
-          }
-        }
-
-        // ── Template Insertion via Compound Clip Reuse (§1, §2) ──
-        if (item.presetType === "template" || item.templateId) {
-          const { useTemplateStore } = await import("@/features/text-templates/templateStore");
-          const { instantiateTemplate } = await import("@/features/text-templates/instantiateTemplate");
-          const templateDef =
-            item.templateDefinition ||
-            useTemplateStore.getState().templates.find((t) => t.id === item.templateId);
-
-          if (templateDef) {
-            let resolvedTemplate = templateDef;
-            if (!resolvedTemplate.layers?.length && item.templateId) {
-              try {
-                const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
-                const templateData = await TextEffectsApi.getTemplateData(
-                  resolvedTemplate.category,
-                  resolvedTemplate.id,
-                  { revisionId: (resolvedTemplate as any).revisionId },
-                );
-                resolvedTemplate = { ...resolvedTemplate, ...templateData };
-              } catch (error) {
-                console.warn("[Clypra:AddToTimeline] Failed to resolve template revision:", error);
-              }
-            }
-            const compoundClip = instantiateTemplate(resolvedTemplate, {
-              trackId: targetTrackId,
-              startTime: placement.startTime,
-              canvasWidth: project?.canvasWidth || 1920,
-              canvasHeight: project?.canvasHeight || 1080,
-              customization: item.customization,
-            });
-            execute(new AddClipCommand(compoundClip));
-            return;
           }
         }
 
