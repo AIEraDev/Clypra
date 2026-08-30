@@ -14,7 +14,7 @@ import type { Clip, TextClip } from "@/types";
 import { generateId } from "@/lib/utils/id";
 import { resolveTextEffectDefinition } from "@/lib/text/textClip";
 import type { TemplateDefinition, TemplateCustomization, TemplateElement } from "./types";
-import type { TextTemplateArtifact } from "@clypra-studio/engine";
+import { resolveTextTemplateArtifact, type TextTemplateArtifact } from "@clypra-studio/engine";
 
 export interface InstantiateTemplateOptions {
   /** Target timeline track ID */
@@ -36,8 +36,11 @@ export function instantiateTemplate(
   template: TemplateDefinition,
   options: InstantiateTemplateOptions
 ): Clip {
-  if ((template as any).kind === "text-template" && (template as any).document) {
-    return instantiateTextTemplateArtifact(template as any, options);
+  // Legacy definitions still instantiate through the compatibility adapter;
+  // only a canonical artifact gets the first-class clip representation.
+  const artifact = resolveTextTemplateArtifact(template, { allowLegacy: false });
+  if (artifact) {
+    return instantiateTextTemplateArtifact(artifact, options);
   }
   const compoundId = generateId("compound");
   const duration = template.defaultDuration || template.duration || 4.0;
@@ -115,6 +118,23 @@ export function instantiateTextTemplateArtifact(
   artifact: TextTemplateArtifact,
   options: InstantiateTemplateOptions & { controlValues?: Record<string, unknown> },
 ): Clip {
+  const controlValues: Record<string, unknown> = { ...(options.controlValues || {}) };
+  const textNodes = artifact.document.nodes.filter((node: any) => node.type === "text") as any[];
+  for (const control of artifact.controls) {
+    const node = artifact.document.nodes.find((candidate: any) => candidate.id === control.target.nodeId) as any;
+    const role = node?.role || "";
+    const nodeIndex = textNodes.findIndex((candidate) => candidate.id === control.target.nodeId);
+    if (control.type === "text") {
+      const value = options.customization?.layerTexts?.[control.target.nodeId]
+        ?? (role === "primary" ? options.customization?.primaryText : role === "secondary" ? options.customization?.secondaryText : role === "accent" ? options.customization?.accentText : undefined)
+        ?? (nodeIndex === 0 ? options.customization?.primaryText : nodeIndex === 1 ? options.customization?.secondaryText : nodeIndex === 2 ? options.customization?.accentText : undefined);
+      if (value !== undefined) controlValues[control.id] = value;
+    } else if (control.type === "color") {
+      const value = options.customization?.layerColors?.[control.target.nodeId]
+        ?? (role === "secondary" ? options.customization?.secondaryColor : options.customization?.primaryColor);
+      if (value !== undefined) controlValues[control.id] = value;
+    }
+  }
   const duration = options.controlValues && artifact.timing.durationPolicy === "fixed"
     ? artifact.timing.duration
     : artifact.timing.duration;
@@ -140,7 +160,8 @@ export function instantiateTextTemplateArtifact(
     templateRevisionId: artifact.revision.revisionId,
     templateContentHash: artifact.revision.contentHash,
     templateSnapshot: cloneSerializable(artifact),
-    templateControlValues: cloneSerializable(options.controlValues || {}),
+    templateControlValues: cloneSerializable(controlValues),
+    templateDependencySnapshot: cloneSerializable(artifact.dependencies),
     templateDependencies: artifact.dependencies.textEffects.map((dependency) => ({
       effectId: dependency.effectId,
       revisionId: dependency.revisionId,
