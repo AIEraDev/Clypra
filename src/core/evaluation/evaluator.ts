@@ -22,7 +22,7 @@ import type { EvaluatedScene, EvaluatedVisualLayer, EvaluatedMediaLayer, Evaluat
 import { toCompositorClips } from "../timeline/adapter";
 import { getClipEndTime } from "@/lib/timeline/timelineClip";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { resolveConform } from "@clypra-studio/engine";
+import { resolveConform, resolveTextTemplateArtifact } from "@clypra-studio/engine";
 
 const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 import { getEvaluationCache, computeClipVersion, computeAssetsVersion, computeCanvasBackgroundVersion, computeEffectsStoreVersion } from "./cache";
@@ -126,10 +126,14 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
     const evalRot = kf.rotation !== undefined ? evaluateProperty(kf.rotation, offset, clip.duration) : clip.rotation;
     const evalOpacity = kf.opacity !== undefined ? evaluateProperty(kf.opacity, offset, clip.duration) : clip.opacity;
 
-    const isTextClip = clip.kind === "text";
+    const isTextClip = clip.kind === "text" || clip.kind === "text-template";
 
     if (isTextClip) {
       const textClip = clip as unknown as TextClip;
+      const templateArtifact = clip.kind === "text-template"
+        ? resolveTextTemplateArtifact((clip as any).templateSnapshot)
+        : null;
+      const templateTextNode = templateArtifact?.document.nodes.find((node: any) => node.type === "text") as any;
       const transitionState = evaluateTransitionState(clip, transitionWindows);
 
       const catalogStyleDefinition = resolveTextEffectDefinition(
@@ -147,13 +151,14 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
           } as any)
         : undefined;
       const styleTypography = resolveTextEffectTypography(styleDefinition);
+      const templateStyle = templateTextNode?.style || {};
 
       const evalFontSize = kf.fontSize !== undefined
         ? evaluateProperty(kf.fontSize, offset, clip.duration)
-        : textClip.fontSize || styleTypography.fontSize || 48;
-      const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : textClip.color || "#ffffff";
-      const evalLetterSpacing = kf.letterSpacing !== undefined ? evaluateProperty(kf.letterSpacing, offset, clip.duration) : (textClip.letterSpacing ?? styleTypography.letterSpacing ?? 0);
-      const evalLineHeight = kf.lineHeight !== undefined ? evaluateProperty(kf.lineHeight, offset, clip.duration) : (textClip.lineHeight ?? styleTypography.lineHeight ?? 1.2);
+        : (templateStyle.fontSize ?? textClip.fontSize ?? styleTypography.fontSize ?? 48);
+      const evalColor = kf.color !== undefined ? evaluateProperty(kf.color, offset, clip.duration) : templateStyle.textColor || textClip.color || "#ffffff";
+      const evalLetterSpacing = kf.letterSpacing !== undefined ? evaluateProperty(kf.letterSpacing, offset, clip.duration) : (templateStyle.letterSpacing ?? textClip.letterSpacing ?? styleTypography.letterSpacing ?? 0);
+      const evalLineHeight = kf.lineHeight !== undefined ? evaluateProperty(kf.lineHeight, offset, clip.duration) : (templateStyle.lineHeight ?? textClip.lineHeight ?? styleTypography.lineHeight ?? 1.2);
 
       // ── Calculate Text Animations ──────────────────────────────────────────
       const animationState = calculateTextAnimationState(evalTime, clip.startTime, clip.duration, textClip.entranceAnimation, textClip.exitAnimation);
@@ -201,14 +206,14 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         // An explicitly empty clip is intentionally invisible. "Text" is
         // only the creation-time default; it must not reappear during
         // evaluation after the user clears the editor field.
-        text: textClip.text ?? "",
-        fontFamily: normalizeFontFamily(textClip.fontFamily || styleTypography.fontFamily || "Inter Variable"),
+        text: templateTextNode?.text ?? textClip.text ?? "",
+        fontFamily: normalizeFontFamily(templateStyle.fontFamily || textClip.fontFamily || styleTypography.fontFamily || "Inter Variable"),
         fontSize: evalFontSize,
         color: evalColor,
-        fontWeight: (textClip.fontWeight ?? styleTypography.fontWeight ?? "normal") as "normal" | "bold" | number,
-        fontStyle: textClip.fontStyle || styleTypography.fontStyle || "normal",
-        textAlign: textClip.align || "center",
-        verticalAlign: textClip.valign || "middle",
+        fontWeight: (templateStyle.fontWeight ?? textClip.fontWeight ?? styleTypography.fontWeight ?? "normal") as "normal" | "bold" | number,
+        fontStyle: templateStyle.fontStyle || textClip.fontStyle || styleTypography.fontStyle || "normal",
+        textAlign: templateStyle.textAlign || textClip.align || "center",
+        verticalAlign: templateStyle.verticalAlign || textClip.valign || "middle",
         lineHeight: evalLineHeight,
         letterSpacing: evalLetterSpacing,
         ...(karaokeRuns ? { runs: karaokeRuns } : {}),
@@ -227,6 +232,7 @@ export function evaluateTimelineScene(time: number, clips: Clip[], tracks: Track
         templateContentHash: textClip.templateContentHash,
         templateSnapshot: textClip.templateSnapshot,
         templateControlValues: textClip.templateControlValues,
+        templateDependencySnapshot: textClip.templateDependencySnapshot,
         templateDependencies: textClip.templateDependencies,
         customization: textClip.customization,
       };
