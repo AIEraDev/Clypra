@@ -197,6 +197,16 @@ export class ProjectSession {
     return this._initializePromise;
   }
 
+  /**
+   * Warm raster assets after timeline mutations as well as during project
+   * opening. This is intentionally public so inserting a template cannot
+   * make the first program-preview frame pay the native upload cost.
+   */
+  async prewarmNativeRasterAssets(): Promise<void> {
+    if (!isTauriRuntime() || this._state !== "active") return;
+    await this._prewarmNativeRasterAssets();
+  }
+
   private async _doInitialize(): Promise<void> {
     if (this._state !== "initializing") {
       throw new Error(
@@ -527,6 +537,7 @@ export class ProjectSession {
     const isRasterClip = (clip: (typeof clips)[number]) => {
       if (
         clip.kind === "text" ||
+        clip.kind === "text-template" ||
         clip.kind === "image" ||
         clip.kind === "sticker"
       )
