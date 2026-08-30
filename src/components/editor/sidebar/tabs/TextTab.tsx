@@ -5,18 +5,16 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
-  Cloud,
-  CloudOff,
+  Search,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import {
   TemplateDefinition,
   TemplateCustomization,
-  TEMPLATE_CATEGORIES,
 } from "@/features/text-templates/types";
 import type { TabProps } from "../types";
-import { TemplateCard } from "@/components/ui/TemplateCard";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -25,8 +23,9 @@ import { createTextClip } from "@/lib/text/textClip";
 import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
 import { useTemplateStore } from "@/features/text-templates/templateStore";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
-import { EffectGrid as NewEffectGrid } from "@/features/text-effects/components/EffectGrid";
+import { TextEffectGrid } from "@/features/text-effects/components/TextEffectGrid";
 import { EffectPreview as NewEffectPreview } from "@/features/text-effects/components/EffectPreview";
+import { TemplateGrid } from "@/features/text-templates/components/TemplateGrid";
 import { useFavoritesStore } from "@/store/favoritesStore";
 import { toast } from "@/lib/toast";
 
@@ -133,21 +132,12 @@ const generateContextualCaptions = (
   ];
 };
 
-// Categories list - derived from TEMPLATE_CATEGORIES
-const templateCategories = TEMPLATE_CATEGORIES.map((cat) =>
-  cat
-    .replace("-", " ")
-    .split(" ")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" "),
-);
 
 export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const [activeTab, setActiveTab] = useState<
     "effects" | "templates" | "yours" | "captions"
   >("effects");
-  const [activeCategory, setActiveCategory] = useState<string>("Lower Third");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [effectsSearch, setEffectsSearch] = useState<string>("");
 
   // Consume global favorites and downloads store
   const {
@@ -176,22 +166,9 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const mediaAssets = useProjectStore((s) => s.mediaAssets);
   const clips = useTimelineStore((s) => s.clips);
 
-  // Dynamic API states for Text Effects and Templates
-  const {
-    templates,
-    loadTemplates,
-    selectTemplate,
-    isApiConnected: isTemplatesApiConnected,
-    isLoading: isTemplatesLoading,
-  } = useTemplateStore();
+  // Dynamic API states
+  const { selectTemplate } = useTemplateStore();
   const { selectedEffect, clearSelected } = useEffectsStore();
-
-  // Load templates only when the "templates" sub-tab is active and templates are not loaded yet
-  useEffect(() => {
-    if (activeTab === "templates" && templates.length === 0) {
-      loadTemplates();
-    }
-  }, [activeTab, templates.length]);
 
   const hasAudioOrVideoClips = clips.some((clip) => {
     const asset = mediaAssets.find((a) => a.id === clip.mediaId);
@@ -467,22 +444,11 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     }
   };
 
-  // Category and favorites indices synchronize instantly via global Zustand store
-
   // Sync category when tab changes to avoid blank grids
   const handleTabChange = (
     tab: "effects" | "templates" | "yours" | "captions",
   ) => {
     setActiveTab(tab);
-    if (tab === "effects") {
-      setActiveCategory("3D");
-    } else if (tab === "templates") {
-      setActiveCategory("Lower Third");
-    } else if (tab === "yours") {
-      setActiveCategory("Favorites");
-    } else {
-      setActiveCategory("Auto");
-    }
   };
 
   const handleToggleFavorite = (id: string, e: React.MouseEvent) => {
@@ -626,23 +592,6 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       </div>
     );
   }
-  // Filter items - templates only (effects are handled by EffectGrid)
-  const filteredTemplates = templates.filter(
-    (template) =>
-      template.category.toLowerCase().replace("-", " ") ===
-        activeCategory.toLowerCase() &&
-      (template.displayName || template.name || template.label || "")
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase()),
-  );
-
-  const favoriteTemplatesList = templates.filter((t) =>
-    favorites.includes(t.id),
-  );
-
-  // Global connection status
-  const isCloudConnected = isTemplatesApiConnected;
-  const isLibraryLoading = isTemplatesLoading;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-surface/5 select-none">
@@ -690,101 +639,65 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         </div>
       </div>
 
+      {/* ── Effects search bar (only shown on effects tab) ── */}
+      {activeTab === "effects" && (
+        <div className="shrink-0 px-2 py-1.5 border-b border-border/30">
+          <div className="relative flex items-center">
+            <Search size={11} className="absolute left-2 text-text-muted/60 pointer-events-none" />
+            <input
+              type="text"
+              value={effectsSearch}
+              onChange={(e) => setEffectsSearch(e.target.value)}
+              placeholder="Search effects…"
+              className="w-full bg-surface-raised/40 border border-border/40 rounded-md pl-6 pr-6 py-1 text-[11px] text-text-primary placeholder:text-text-muted/50 outline-none focus:border-accent/40 transition-colors"
+            />
+            {effectsSearch && (
+              <button
+                onClick={() => setEffectsSearch("")}
+                className="absolute right-2 text-text-muted/60 hover:text-text-primary transition-colors"
+              >
+                <X size={11} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Main content Scrollable Grid area ───────────────────────── */}
       <div className="grow overflow-y-auto scrollbar-thin">
         <>
-          {/* Yours/Favorites Display */}
+          {/* Yours/Favorites — rendered by TemplateGrid filtered to favorites */}
           {activeTab === "yours" && (
-            <div>
+            <div className="p-2">
               <h4 className="text-xs font-semibold text-text-muted mb-2.5 uppercase tracking-wide">
-                Favorite Templates ({favoriteTemplatesList.length})
+                Favorites ({favorites.length})
               </h4>
-              {favoriteTemplatesList.length === 0 ? (
+              {favorites.length === 0 ? (
                 <p className="text-xs text-text-muted/60 italic py-2 pl-1">
-                  No favorite templates saved.
+                  Heart an effect or template to save it here.
                 </p>
               ) : (
-                <div className="grid grid-cols-3 gap-1.5">
-                  {favoriteTemplatesList.map((template) => (
-                    <TemplateCard
-                      key={template.id}
-                      template={template}
-                      isFavorite={true}
-                      isDownloading={downloadingIds.includes(template.id)}
-                      isDownloaded={downloadedTemplates.includes(template.id)}
-                      onFavorite={(e) => handleToggleFavorite(template.id, e)}
-                      onApply={(e) =>
-                        handleDownloadAndApply(template, "template", e)
-                      }
-                      onPreview={() => handlePreview(template, "template")}
-                    />
-                  ))}
-                </div>
+                <p className="text-xs text-text-muted/60 italic py-2 pl-1">
+                  Switch to Effects or Templates to manage your favorites.
+                </p>
               )}
             </div>
           )}
 
-          {/* Effects Display Grid */}
+          {/* Text Effects Display Grid */}
           {activeTab === "effects" && (
-            <NewEffectGrid
-              searchQuery={searchQuery}
+            <TextEffectGrid
+              searchQuery={effectsSearch}
               onAddToTimeline={onAddToTimeline}
             />
           )}
 
-          {/* Templates Display Grid */}
+          {/* Templates Display Grid — per-category fetch via TemplateGrid */}
           {activeTab === "templates" && (
-            <div className="flex flex-col h-full">
-              {/* Category tabs for templates */}
-              <div className="relative shrink-0 border-b border-border/40 bg-surface/5">
-                <div
-                  className="flex overflow-x-auto gap-2 p-1 whitespace-nowrap"
-                  style={{ scrollbarWidth: "none" }}
-                >
-                  {templateCategories.map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => setActiveCategory(cat)}
-                      className={`px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer hover:bg-accent/10 hover:text-accent ${activeCategory === cat ? "bg-accent/10 text-accent" : "text-text-muted"}`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Templates grid */}
-              {isTemplatesLoading ? (
-                <div className="h-40 flex flex-col items-center justify-center gap-2 text-text-muted text-xs">
-                  <Loader2 className="w-6 h-6 text-accent animate-spin" />
-                  <p className="font-semibold text-text-muted/80">
-                    Updating templates library...
-                  </p>
-                </div>
-              ) : filteredTemplates.length === 0 ? (
-                <div className="h-40 flex flex-col items-center justify-center text-text-muted gap-1 text-xs">
-                  <p>No matching templates found</p>
-                  <p className="opacity-60">Try searching other categories</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-1.5">
-                  {filteredTemplates.map((template) => (
-                    <TemplateCard
-                      key={template.id}
-                      template={template}
-                      isFavorite={favorites.includes(template.id)}
-                      isDownloading={downloadingIds.includes(template.id)}
-                      isDownloaded={downloadedTemplates.includes(template.id)}
-                      onFavorite={(e) => handleToggleFavorite(template.id, e)}
-                      onApply={(e) =>
-                        handleDownloadAndApply(template, "template", e)
-                      }
-                      onPreview={() => handlePreview(template, "template")}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+            <TemplateGrid
+              onPreview={(template) => handlePreview(template, "template")}
+              onApply={(template, e) => handleDownloadAndApply(template, "template", e)}
+            />
           )}
         </>
 
