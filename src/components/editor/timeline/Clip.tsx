@@ -700,7 +700,10 @@ const ClipInner: React.FC<ClipProps> = ({
           : mediaAsset?.type);
 
   const isSticker = inferredKind === "sticker";
-  const isClipText = inferredKind === "text";
+  // Text templates are composition clips, but they belong to the same text
+  // track presentation as normal text and text effects. They must never fall
+  // through to the media branch, which expects a filmstrip asset.
+  const isClipText = inferredKind === "text" || inferredKind === "text-template";
   const isClipAudio = inferredKind === "audio";
   const isClipVideo = inferredKind === "video";
   const isClipImage = inferredKind === "image";
@@ -731,7 +734,9 @@ const ClipInner: React.FC<ClipProps> = ({
         ? "clip-kind-caption"
         : isTitle
           ? "clip-kind-title"
-          : "clip-kind-text";
+          : inferredKind === "text-template"
+            ? "clip-kind-title"
+            : "clip-kind-text";
     }
     if (isClipAudio) return "clip-kind-audio bg-timeline-clip-audio";
     if (isClipVideo) return "clip-kind-video bg-timeline-clip-video";
@@ -828,7 +833,7 @@ const ClipInner: React.FC<ClipProps> = ({
             {clip.compoundChildren?.length ?? 0}
           </div>
         </div>
-      ) : clip.kind === "text" ? (
+      ) : isClipText ? (
         <div className="relative flex h-full w-full items-center px-3">
           {/* Icon badge for text role differentiation */}
           {(isCaption || isTitle) && (
@@ -837,7 +842,9 @@ const ClipInner: React.FC<ClipProps> = ({
             </div>
           )}
           <div className="text-[12px] text-clypra-clip-fg font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">
-            {(clip as any).text || "Default text"}
+            {clip.kind === "text-template"
+              ? (clip.name || (clip as any).templateSnapshot?.metadata?.label || "Text Template")
+              : (clip as any).text || "Default text"}
           </div>
         </div>
       ) : isClipFilter ? (
@@ -1032,9 +1039,12 @@ const arePropsEqual = (prevProps: ClipProps, nextProps: ClipProps) => {
     prevProps.clip.trackId !== nextProps.clip.trackId ||
     prevProps.clip.kind !== nextProps.clip.kind ||
     prevProps.clip.name !== nextProps.clip.name ||
-    (prevProps.clip.kind === "text" &&
-      nextProps.clip.kind === "text" &&
-      (prevProps.clip as any).text !== (nextProps.clip as any).text)
+    ((prevProps.clip.kind === "text" || prevProps.clip.kind === "text-template") &&
+      (nextProps.clip.kind === "text" || nextProps.clip.kind === "text-template") &&
+      ((prevProps.clip as any).text !== (nextProps.clip as any).text ||
+        prevProps.clip.templateRevisionId !== nextProps.clip.templateRevisionId ||
+        prevProps.clip.templateContentHash !== nextProps.clip.templateContentHash ||
+        prevProps.clip.templateSnapshot !== nextProps.clip.templateSnapshot))
   ) {
     return false;
   }
