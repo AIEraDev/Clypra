@@ -3,7 +3,7 @@ import { TemplateDefinition, TemplateCustomization, TemplateCategory, RenderedFr
 import { renderToFrameSequence } from "./FrameRenderer";
 import { TextEffectsApi } from "@/features/text-effects/api/textEffectsApi";
 import { ALL_TEMPLATES } from "./templates/index";
-import { getCached, setCached, prefetchAndCache } from "@/lib/cache/apiCache";
+import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 
 interface TemplateState {
   templates: TemplateDefinition[];
@@ -49,8 +49,9 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      // Use unified cache with prefetch
-      const apiTemplates = await prefetchAndCache("text-templates:index", () => TextEffectsApi.getTemplatesIndex());
+      // The template API owns the revision-aware IndexedDB cache. Do not put
+      // the catalog through the generic localStorage API cache as well.
+      const apiTemplates = await TextEffectsApi.getTemplatesIndex();
 
       set({
         templates: apiTemplates,
@@ -79,63 +80,48 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
     let loadedTemplate = { ...template };
 
     // Check if template data is already loaded
-    const templateData = loadedTemplate.templateData || loadedTemplate.lottieData;
-    if (!templateData) {
-      // Try to load from unified cache first
-      const cacheKey = `text-templates:${loadedTemplate.category}:${loadedTemplate.id}:${(loadedTemplate as any).revisionId || "latest"}` as const;
-      const cachedData = getCached<any>(cacheKey);
+    const existingPayload = [loadedTemplate.templateData, loadedTemplate.lottieData, loadedTemplate]
+      .find((candidate) => Boolean(resolveTextTemplateArtifact(candidate)));
+    if (!existingPayload) {
+      try {
+        set({ isLoading: true });
+        const revisionId = (loadedTemplate as any).revisionId;
+        const data = revisionId
+          ? await TextEffectsApi.getTemplateData(loadedTemplate.category, loadedTemplate.id, { revisionId })
+          : await TextEffectsApi.getTemplateData(loadedTemplate.category, loadedTemplate.id);
+        loadedTemplate.templateData = data;
+        loadedTemplate.lottieData = data;
 
-      if (cachedData) {
-        loadedTemplate.templateData = cachedData;
-        loadedTemplate.lottieData = cachedData;
-
-        // Update store cache
+        // TextEffectsApi owns the revision-aware persistent cache. Keep only
+        // the resolved payload in the Zustand session store.
         set((state) => ({
-          templates: state.templates.map((t) => (t.id === loadedTemplate.id ? { ...t, templateData: cachedData, lottieData: cachedData } : t)),
+          templates: state.templates.map((t) => (t.id === loadedTemplate.id ? { ...t, templateData: data, lottieData: data } : t)),
+          isLoading: false,
         }));
-      } else {
-        // Cache miss - fetch from API
-        try {
-          set({ isLoading: true });
-          const revisionId = (loadedTemplate as any).revisionId;
-          const data = revisionId
-            ? await TextEffectsApi.getTemplateData(loadedTemplate.category, loadedTemplate.id, { revisionId })
-            : await TextEffectsApi.getTemplateData(loadedTemplate.category, loadedTemplate.id);
-          loadedTemplate.templateData = data;
-          loadedTemplate.lottieData = data;
+      } catch (err) {
+        console.error(`[Clypra:TemplateStore] Failed to load template data for template ${loadedTemplate.id}:`, err);
+        set({ isLoading: false });
 
-          // Cache the fetched data
-          setCached(cacheKey, data);
-
-          // Update store cache
-          set((state) => ({
-            templates: state.templates.map((t) => (t.id === loadedTemplate.id ? { ...t, templateData: data, lottieData: data } : t)),
-            isLoading: false,
-          }));
-        } catch (err) {
-          console.error(`[Clypra:TemplateStore] Failed to load template data for template ${loadedTemplate.id}:`, err);
-          set({ isLoading: false });
-
-          // Fallback to static templates
-          const fallback = ALL_TEMPLATES.find((t) => t.id === loadedTemplate.id);
-          const fallbackData = fallback?.templateData || fallback?.lottieData;
-          if (fallbackData) {
-            loadedTemplate.templateData = fallbackData;
-            loadedTemplate.lottieData = fallbackData;
-          } else {
-            loadedTemplate.templateData = {};
-            loadedTemplate.lottieData = {};
-          }
+        // Fallback to static templates
+        const fallback = ALL_TEMPLATES.find((t) => t.id === loadedTemplate.id);
+        const fallbackData = fallback?.templateData || fallback?.lottieData;
+        if (fallbackData) {
+          loadedTemplate.templateData = fallbackData;
+          loadedTemplate.lottieData = fallbackData;
+        } else {
+          loadedTemplate.templateData = {};
+          loadedTemplate.lottieData = {};
         }
       }
     }
 
     // Initialize customisation with defaults from the selected template
     const fullTemplate = loadedTemplate.templateData || loadedTemplate.lottieData || loadedTemplate;
-    const textLayers = (fullTemplate.layers || []).filter((l: any) => l.kind === "text") as any[];
-    const primary = textLayers.find((tl) => tl.role === "primary")?.content || "Clypra";
-    const secondary = textLayers.find((tl) => tl.role === "secondary")?.content || "";
-    const accent = textLayers.find((tl) => tl.role === "accent")?.content || "";
+    const artifact = resolveTextTemplateArtifact(fullTemplate);
+    const textLayers = (artifact?.document.nodes || []).filter((node: any) => node.type === "text") as any[];
+    const primary = textLayers.find((tl) => tl.role === "primary")?.text || textLayers[0]?.text || "Clypra";
+    const secondary = textLayers.find((tl) => tl.role === "secondary")?.text || "";
+    const accent = textLayers.find((tl) => tl.role === "accent")?.text || "";
 
     set({
       selectedTemplate: loadedTemplate,
@@ -179,7 +165,7 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
       let data = selected.templateData || selected.lottieData || selected;
 
       // Ensure template data is dynamically fetched if we bypass standard select
-      if (!data.layers || data.layers.length === 0) {
+      if (!resolveTextTemplateArtifact(data)) {
         try {
           data = await TextEffectsApi.getTemplateData(selected.category, selected.id);
         } catch (e) {
@@ -237,42 +223,24 @@ export const useTemplateStore = create<TemplateState>((set, get) => ({
           let templateData = rawTemplate.templateData || rawTemplate.lottieData;
 
           if (!templateData) {
-            // Try unified cache first
-            const cacheKey = `text-templates:${rawTemplate.category}:${id}:${(rawTemplate as any).revisionId || "latest"}` as const;
-            const cachedData = getCached<any>(cacheKey);
+            try {
+              const revisionId = (rawTemplate as any).revisionId;
+              templateData = revisionId
+                ? await TextEffectsApi.getTemplateData(rawTemplate.category, rawTemplate.id, { revisionId })
+                : await TextEffectsApi.getTemplateData(rawTemplate.category, rawTemplate.id);
 
-            if (cachedData) {
-              templateData = cachedData;
-
-              // Update store cache
               set((state) => ({
-                templates: state.templates.map((t) => (t.id === id ? { ...t, templateData: cachedData, lottieData: cachedData } : t)),
+                templates: state.templates.map((t) => (t.id === id ? { ...t, templateData, lottieData: templateData } : t)),
               }));
-            } else {
-              // Cache miss - fetch from API
-              try {
-                const revisionId = (rawTemplate as any).revisionId;
-                templateData = revisionId
-                  ? await TextEffectsApi.getTemplateData(rawTemplate.category, rawTemplate.id, { revisionId })
-                  : await TextEffectsApi.getTemplateData(rawTemplate.category, rawTemplate.id);
 
-                // Cache the fetched data
-                setCached(cacheKey, templateData);
-
-                // Update store cache
-                set((state) => ({
-                  templates: state.templates.map((t) => (t.id === id ? { ...t, templateData, lottieData: templateData } : t)),
-                }));
-
-                import("@/store/timelineStore")
-                  .then(({ useTimelineStore }) => {
-                    useTimelineStore.getState().incrementEpoch();
-                  })
-                  .catch(() => {});
-              } catch (err) {
-                console.error(`[Clypra:TemplateStore] Preload failed for template ${id}:`, err);
-                return;
-              }
+              import("@/store/timelineStore")
+                .then(({ useTimelineStore }) => {
+                  useTimelineStore.getState().incrementEpoch();
+                })
+                .catch(() => {});
+            } catch (err) {
+              console.error(`[Clypra:TemplateStore] Preload failed for template ${id}:`, err);
+              return;
             }
           }
 
