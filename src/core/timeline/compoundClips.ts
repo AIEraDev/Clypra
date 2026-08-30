@@ -5,23 +5,6 @@ export function isCompoundClip(clip: Clip): boolean {
   return clip.kind === "compound" && Array.isArray(clip.compoundChildren);
 }
 
-function materializeTextTemplateClip(clip: Clip): Clip {
-  const artifact = clip.templateSnapshot as any;
-  if (artifact?.kind !== "text-template" || !artifact.document) return clip;
-  const firstText = (artifact.document.nodes || []).find((node: any) => node.type === "text");
-  return {
-    ...clip,
-    kind: "text",
-    mediaId: `text-template-raster-${clip.id}`,
-    text: firstText?.text || artifact.metadata?.label || "Text Template",
-    fontFamily: firstText?.style?.fontFamily || "Inter Variable",
-    fontSize: Number(firstText?.style?.fontSize || 48),
-    color: firstText?.style?.textColor || "#FFFFFF",
-    align: firstText?.style?.textAlign || "center",
-    templateControlValues: clip.templateControlValues || {},
-  } as Clip;
-}
-
 /**
  * Expands nested compound parents into ordinary absolute-time clips.
  * The parent is intentionally omitted so every runtime consumer sees the
@@ -30,7 +13,11 @@ function materializeTextTemplateClip(clip: Clip): Clip {
 export function expandCompoundClips(clips: Clip[]): Clip[] {
   const expand = (clip: Clip, absoluteStart: number): Clip[] => {
     if (clip.kind === "text-template") {
-      return [{ ...materializeTextTemplateClip(clip), startTime: absoluteStart }];
+      // Canonical template clips remain first-class runtime entities. The
+      // evaluator owns their timeline geometry and the engine package owns
+      // their composition semantics; converting them to a legacy text clip
+      // here discarded nodes, panels, controls and timing.
+      return [{ ...clip, startTime: absoluteStart }];
     }
     if (!isCompoundClip(clip)) {
       return [{ ...clip, startTime: absoluteStart }];
