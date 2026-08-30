@@ -3,6 +3,7 @@ import { TemplateDefinition } from "@/features/text-templates/types";
 import { getApiHeaders, getApiBaseUrl } from "@/lib/api";
 import { convertRawConfigToDefinition } from "../lib/definitionConversion";
 import type { TextTemplateArtifact } from "@clypra-studio/engine";
+import { textTemplatePersistentCache } from "@/features/text-templates/cache/persistentCache";
 
 export interface TextEffectSummary {
   id: string;
@@ -165,19 +166,30 @@ export const TextEffectsApi = {
 
   // 3. Fetch summaries for template category tab picker UI
   async getTemplatesIndex(): Promise<TemplateDefinition[]> {
-    const res = await fetch(`${BASE}/text-templates`, {
-      headers: getApiHeaders(),
-    });
-    if (!res.ok) throw new Error("Failed to load templates index");
-    return res.json();
+    const cached = await textTemplatePersistentCache.get("__catalog__", "all");
+    if (Array.isArray(cached)) return cached as TemplateDefinition[];
+    // The API's canonical catalog is partitioned by category. Do not call a
+    // non-existent aggregate `/text-templates` route (which returned 404 and
+    // caused the editor to silently replace the remote catalog with static
+    // templates). Category requests also preserve each item's revision pin.
+    const categories = ["lower-third", "title-card", "caption", "callout", "social", "countdown"];
+    const responses = await Promise.all(
+      categories.map((category) => this.getTemplatesByCategory(category)),
+    );
+    const data = responses.flat();
+    await textTemplatePersistentCache.set("__catalog__", "all", data);
+    return data;
   },
 
   async getTemplatesByCategory(category: string): Promise<TemplateDefinition[]> {
+    const cached = await textTemplatePersistentCache.get("__catalog__", category);
+    if (Array.isArray(cached)) return cached as TemplateDefinition[];
     const res = await fetch(`${BASE}/text-templates/${category}`, {
       headers: getApiHeaders(),
     });
     if (!res.ok) throw new Error(`Failed to load templates for category: ${category}`);
     const data = await res.json() as TemplateDefinition[];
+    await textTemplatePersistentCache.set("__catalog__", category, data);
     for (const item of data as any[]) {
       const cacheKey = `${category}:${item.id}:latest`;
       const cached = this._templateCache.get(cacheKey);
@@ -193,6 +205,13 @@ export const TextEffectsApi = {
   // 5. LAZY-LOAD heavy canvas templates on-timeline placement with RAM caching
   async getTemplateData(category: string, id: string, options: { forceRefresh?: boolean; revisionId?: string } = {}): Promise<any> {
     const cacheKey = `${category}:${id}:${options.revisionId || "latest"}`;
+    if (!options.forceRefresh) {
+      const persistent = await textTemplatePersistentCache.get(category, id, options.revisionId);
+      if (persistent && !Array.isArray(persistent)) {
+        this._templateCache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
     if (!options.forceRefresh && this._templateCache.has(cacheKey)) {
       return this._templateCache.get(cacheKey)!;
     }
@@ -208,12 +227,24 @@ export const TextEffectsApi = {
 
     const data = await res.json();
     this._templateCache.set(cacheKey, data); // store in cache
+    await textTemplatePersistentCache.set(
+      category,
+      id,
+      data,
+      options.revisionId ?? data?.revisionId ?? data?.revision?.revisionId,
+      data?.contentHash ?? data?.revision?.contentHash,
+    );
     return data;
   },
 
   /** Load the canonical artifact by exact revision for immutable timeline instances. */
   async getTemplateArtifact(category: string, id: string, revisionId?: string): Promise<TextTemplateArtifact> {
     const cacheKey = `${category}:${id}:${revisionId || "latest"}`;
+    const persistent = await textTemplatePersistentCache.get(category, id, revisionId);
+    if (persistent && !Array.isArray(persistent) && (persistent as any).kind === "text-template") {
+      this._templateCache.set(cacheKey, persistent);
+      return persistent as TextTemplateArtifact;
+    }
     const endpoint = revisionId
       ? `${BASE}/text-templates/${category}/${id}/revisions/${revisionId}`
       : `${BASE}/text-templates/${category}/${id}`;
@@ -230,6 +261,7 @@ export const TextEffectsApi = {
     const responseEtag = response.headers.get("ETag");
     if (responseEtag) this._templateEtags.set(cacheKey, responseEtag);
     this._templateCache.set(cacheKey, artifact);
+    await textTemplatePersistentCache.set(category, id, artifact, revisionId ?? artifact.revision?.revisionId, artifact.revision?.contentHash);
     return artifact;
   },
 
@@ -251,6 +283,11 @@ export const TextEffectsApi = {
    */
   clearLocalCache(): void {
     this._effectsCache.clear();
+    this.clearTemplateCache();
+  },
+
+  /** Clear only the in-memory template payload and validator caches. */
+  clearTemplateCache(): void {
     this._templateCache.clear();
     this._templateEtags.clear();
   },
