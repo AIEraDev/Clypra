@@ -266,7 +266,7 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
     .map((c) =>
       [
         c.id,
-        "text" in c ? "text" : c.mediaId ? "media" : "unknown",
+        c.kind === "text-template" ? "text-template" : "text" in c ? "text" : c.mediaId ? "media" : "unknown",
         c.trackId,
         c.mediaId ?? "",
         Number(c.startTime ?? 0).toFixed(3),
@@ -286,6 +286,9 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
         c.templateId ?? "",
         c.templateRevisionId ?? "",
         c.templateContentHash ?? "",
+        JSON.stringify(c.templateControlValues ?? null),
+        JSON.stringify(c.templateDependencySnapshot ?? null),
+        JSON.stringify(c.templateSnapshot?.revision ?? null),
         c.styleDefinition?.id ?? "",
         c.fontFamily ?? "",
         c.fontSize ?? "",
