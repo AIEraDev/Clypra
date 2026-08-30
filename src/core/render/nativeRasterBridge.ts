@@ -32,6 +32,7 @@ type UploadableNativeRaster = NativeRasterLayerSnapshot & {
   /** Text-only metadata used to reapply current compositor placement. */
   bleedX?: number;
   bleedY?: number;
+  positionMode?: "centered" | "absolute";
 };
 
 interface NativeRasterBridgeOptions {
@@ -60,7 +61,7 @@ function stableSerialize(value: unknown): string {
 }
 
 function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
-  const { rgba: _rgba, bleedX: _bleedX, bleedY: _bleedY, ...reference } = asset;
+  const { rgba: _rgba, bleedX: _bleedX, bleedY: _bleedY, positionMode: _positionMode, ...reference } = asset;
   return reference;
 }
 
@@ -71,6 +72,9 @@ function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
  */
 export class NativeRasterBridge {
   private readonly textCache = new Map<string, Promise<NativeTextRasterAsset>>();
+  /** Last registered frame per layer, used as a non-blocking playback fallback. */
+  private readonly textSnapshotsByLayerId = new Map<string, NativeRasterLayerSnapshot>();
+  private readonly textSnapshotKeysByLayerId = new Map<string, string>();
   private readonly imageCache = new Map<string, Promise<void>>();
   private readonly imageSourcesById = new Map<string, { sourcePath: string; width: number; height: number }>();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
@@ -211,6 +215,8 @@ export class NativeRasterBridge {
 
   dispose(): void {
     this.textCache.clear();
+    this.textSnapshotsByLayerId.clear();
+    this.textSnapshotKeysByLayerId.clear();
     this.imageCache.clear();
     this.imageSourcesById.clear();
     this.assetsById.clear();
@@ -235,19 +241,50 @@ export class NativeRasterBridge {
           if (this.textCache.get(key) === raster) this.textCache.delete(key);
         });
       }
+      // During playback, never make the transport wait for a new animated
+      // texture upload. The previous frame is already registered with the
+      // native compositor and is a deterministic visual fallback while this
+      // timestamp's texture is rasterized/uploaded in the background. The
+      // first frame has no fallback and is awaited during session prewarm or
+      // the initial visible render.
+      const previous = this.textSnapshotsByLayerId.get(layer.layerId);
+      if (phase === "visible-playback" && previous && this.textSnapshotKeysByLayerId.get(layer.layerId) !== key) {
+        void raster
+          .then((asset) => this.register(asset).then(() => {
+            this.textSnapshotsByLayerId.set(layer.layerId, snapshot(asset));
+            this.textSnapshotKeysByLayerId.set(layer.layerId, key);
+          }))
+          .catch((error) => console.warn("[NativeRasterBridge] background text frame failed", {
+            layerId: layer.layerId,
+            templateId: layer.templateId,
+            revisionId: layer.templateRevisionId,
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        return previous;
+      }
+
       const asset = await raster;
       // Pixels are immutable; placement is not. Entry/leave motion and
       // opacity must be expressed as native compositor uniforms instead of
       // causing a new Canvas raster and GPU upload every frame.
-      return {
+      const positioned = {
         ...asset,
-        x: typeof layer.x === "number" ? layer.x - (asset.bleedX ?? 0) : asset.x,
-        y: typeof layer.y === "number" ? layer.y - (asset.bleedY ?? 0) : asset.y,
+        x: asset.positionMode === "absolute"
+          ? asset.x
+          : typeof layer.x === "number" ? layer.x - (asset.bleedX ?? 0) : asset.x,
+        y: asset.positionMode === "absolute"
+          ? asset.y
+          : typeof layer.y === "number" ? layer.y - (asset.bleedY ?? 0) : asset.y,
         rotation: typeof layer.rotation === "number" ? layer.rotation : asset.rotation,
         opacity: typeof layer.opacity === "number" ? layer.opacity : asset.opacity,
         zIndex: typeof layer.zIndex === "number" ? layer.zIndex : asset.zIndex,
         blendMode: typeof layer.blendMode === "string" ? layer.blendMode : asset.blendMode,
       };
+      await this.register(positioned);
+      const result = snapshot(positioned);
+      this.textSnapshotsByLayerId.set(layer.layerId, result);
+      this.textSnapshotKeysByLayerId.set(layer.layerId, key);
+      return positioned;
     });
 
     // Keep a single unsupported/malformed text layer from taking down the
@@ -255,18 +292,16 @@ export class NativeRasterBridge {
     // text snapshot fallback in buildNativeVideoProjectRequest.
     const rasterResults = await Promise.allSettled(pendingAssets);
     const assets = rasterResults
-      .filter((result): result is PromiseFulfilledResult<NativeTextRasterAsset> => result.status === "fulfilled")
+      .filter((result): result is PromiseFulfilledResult<NativeTextRasterAsset> => {
+        if (result.status === "rejected") {
+          console.error("[NativeRasterBridge] text-layer-raster-failed", result.reason);
+          return false;
+        }
+        return true;
+      })
       .map((result) => result.value);
 
-    const registrationResults = await Promise.allSettled(
-      assets.map(async (asset) => {
-        await this.register(asset);
-        return asset;
-      }),
-    );
-    return registrationResults
-      .filter((result): result is PromiseFulfilledResult<NativeTextRasterAsset> => result.status === "fulfilled")
-      .map((result) => snapshot(result.value));
+    return assets.map((asset) => snapshot(asset));
   }
 
   private async rasterizeAnimatedStickers(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
