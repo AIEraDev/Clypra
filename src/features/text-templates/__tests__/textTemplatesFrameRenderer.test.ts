@@ -2,12 +2,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToFrameSequence, renderFrameSequenceToTauri } from "../FrameRenderer";
 import type { TextTemplate, TemplateCustomization } from "../types";
 
-// Mock @clypra-studio/engine TemplateRenderer
+// Mock the package-owned canonical renderer facade.
 vi.mock("@clypra-studio/engine", () => ({
-  TemplateRenderer: class MockTemplateRenderer {
-    updateLayer = vi.fn();
-    drawFrame = vi.fn();
-  },
+  resolveTextTemplateArtifact: (input: any) => ({
+    kind: "text-template",
+    schemaVersion: 4,
+    metadata: { id: input.id, label: input.label || input.name || input.id, category: input.category, tags: [] },
+    document: { id: input.id, kind: "text-template", schemaVersion: 4, templateVersion: 1, canvas: { width: input.canvasWidth, height: input.canvasHeight }, nodes: [] },
+    controls: [],
+    timing: { duration: input.duration || input.defaultDuration || 0.1, fps: 30, durationPolicy: "fixed" },
+    dependencies: { assets: [], fonts: [], textEffects: [] },
+    revision: { revisionId: "test-revision", contentHash: "test-hash", schemaVersion: 4, rendererVersion: "1.5.0", createdAt: "2026-01-01" },
+  }),
+  renderTextTemplateToCanvas: vi.fn(),
 }));
 
 describe("Text Templates — Frame Renderer & Sequence Export Safety", () => {

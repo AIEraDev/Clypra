@@ -344,7 +344,7 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     expect(restyled.align).toBe("left");
   });
 
-  it("keeps canonical template instances as one pinned clip until runtime expansion", () => {
+  it("keeps canonical template instances as one pinned clip through runtime evaluation", () => {
     const artifact = normalizeTextTemplateArtifact({
       id: "canonical-title",
       label: "Canonical Title",
@@ -355,6 +355,6 @@ describe("Template Instantiation via Compound Clip Reuse (§1, §2, §3)", () =>
     const clip = instantiateTemplate(artifact as any, { trackId: "track-1", startTime: 0 });
     expect(clip.kind).toBe("text-template");
     expect(clip.compoundChildren).toBeUndefined();
-    expect(expandCompoundClips([clip])[0]).toMatchObject({ kind: "text", templateId: "canonical-title", text: "Hello" });
+    expect(expandCompoundClips([clip])[0]).toMatchObject({ kind: "text-template", templateId: "canonical-title" });
   });
 });
