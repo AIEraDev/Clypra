@@ -8,7 +8,8 @@ const name = "Musa";
 
 import type { TextClip } from "../../types";
 import {
-  TemplateRenderer,
+  renderTextTemplateToCanvas,
+  resolveTextTemplateArtifact,
   type TextEffectDefinition,
   type TextTemplate,
 } from "@clypra-studio/engine";
@@ -593,15 +594,16 @@ export interface TextTemplateContentSize {
 function resolveTextTemplateDefinition(
   templateId?: string,
   templateDefinition?: TextTemplate,
-): TextTemplate | undefined {
-  if (templateDefinition?.layers?.length) return templateDefinition;
+): unknown | undefined {
+  const direct = resolveTextTemplateArtifact(templateDefinition);
+  if (direct) return direct;
   if (!templateId) return undefined;
   const rawTemplate = useTemplateStore
     .getState()
     .templates.find((template) => template.id === templateId);
   const templateData = rawTemplate?.templateData || rawTemplate?.lottieData;
-  if (templateData?.layers?.length) return templateData as TextTemplate;
-  if (rawTemplate?.layers?.length) return rawTemplate as TextTemplate;
+  const loaded = resolveTextTemplateArtifact(templateData || rawTemplate);
+  if (loaded) return loaded;
   return undefined;
 }
 
@@ -624,45 +626,37 @@ function createMeasurementCanvas(
   return null;
 }
 
-function applyTemplateCustomization(
-  renderer: TemplateRenderer,
-  template: TextTemplate,
-  text: string,
-  customization?: any,
-): void {
-  for (const layer of template.layers ?? []) {
-    if (layer.kind !== "text" && layer.kind !== "shape") continue;
-    const changes: Record<string, unknown> = {};
-
-    if (layer.kind === "text") {
-      if (customization?.layerTexts?.[layer.id] !== undefined)
-        changes.content = customization.layerTexts[layer.id];
-      else if (layer.role === "primary")
-        changes.content = customization?.primaryText ?? text;
-      else if (layer.role === "secondary")
-        changes.content = customization?.secondaryText ?? "";
-      else if (layer.role === "accent")
-        changes.content = customization?.accentText ?? "";
-
-      if (customization?.layerColors?.[layer.id] !== undefined)
-        changes.color = customization.layerColors[layer.id];
-      else if (layer.role === "primary" && customization?.primaryColor)
-        changes.color = customization.primaryColor;
-      else if (layer.role === "secondary" && customization?.secondaryColor)
-        changes.color = customization.secondaryColor;
-
-      if (customization?.layerFontSizes?.[layer.id] !== undefined)
-        changes.fontSize = customization.layerFontSizes[layer.id];
-      if (customization?.layerFontWeights?.[layer.id] !== undefined)
-        changes.fontWeight = customization.layerFontWeights[layer.id];
-    } else if (customization?.layerColors?.[layer.id] !== undefined) {
-      changes.fill = customization.layerColors[layer.id];
-    }
-
-    if (Object.keys(changes).length > 0) {
-      renderer.updateLayer(layer.id, changes as any);
+function templateControlValues(artifact: ReturnType<typeof resolveTextTemplateArtifact>, text: string, customization?: any): Record<string, unknown> {
+  if (!artifact) return {};
+  const values: Record<string, unknown> = {};
+  for (const control of artifact.controls) {
+    const node = artifact.document.nodes.find((candidate: any) => candidate.id === control.target.nodeId) as any;
+    const role = node?.role || "";
+    if (control.type === "text") {
+      values[control.id] = customization?.layerTexts?.[control.target.nodeId]
+        ?? (role === "primary" ? customization?.primaryText : role === "secondary" ? customization?.secondaryText : role === "accent" ? customization?.accentText : undefined)
+        ?? (control.target.nodeId === artifact.document.nodes.find((candidate: any) => candidate.type === "text")?.id ? text : undefined)
+        ?? control.defaultValue;
+    } else if (control.type === "color") {
+      values[control.id] = customization?.layerColors?.[control.target.nodeId]
+        ?? (role === "secondary" ? customization?.secondaryColor : customization?.primaryColor)
+        ?? control.defaultValue;
     }
   }
+  return values;
+}
+
+function alphaBounds(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number) {
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (data[(y * width + x) * 4 + 3] <= 8) continue;
+      minX = Math.min(minX, x); minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+    }
+  }
+  return maxX < 0 ? null : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
 export function measureTextTemplateContentSize(options: {
@@ -675,7 +669,8 @@ export function measureTextTemplateContentSize(options: {
     options.templateId,
     options.templateDefinition,
   );
-  if (!template?.layers?.length) {
+  const artifact = resolveTextTemplateArtifact(template);
+  if (!artifact) {
     return null;
   }
 
@@ -685,11 +680,11 @@ export function measureTextTemplateContentSize(options: {
   };
   const templateWidth = Math.max(
     1,
-    Number(legacyTemplate.canvasWidth ?? legacyTemplate.width ?? 800),
+    Number(artifact.document.canvas.width ?? legacyTemplate.canvasWidth ?? legacyTemplate.width ?? 800),
   );
   const templateHeight = Math.max(
     1,
-    Number(legacyTemplate.canvasHeight ?? legacyTemplate.height ?? 450),
+    Number(artifact.document.canvas.height ?? legacyTemplate.canvasHeight ?? legacyTemplate.height ?? 450),
   );
   const fallbackAspect = templateWidth / templateHeight;
 
@@ -709,19 +704,18 @@ export function measureTextTemplateContentSize(options: {
       };
     }
 
-    const renderer = new TemplateRenderer(template);
-    applyTemplateCustomization(
-      renderer,
-      template,
-      options.text ?? "Text",
-      options.customization,
-    );
+    renderTextTemplateToCanvas(ctx, {
+      artifact,
+      context: {
+        environment: "editor",
+        time: 0,
+        width: templateWidth,
+        height: templateHeight,
+        controlValues: templateControlValues(artifact, options.text ?? "Text", options.customization),
+      },
+    });
 
-    const drawStart = performance.now();
-    renderer.drawFrame(ctx, 0, { skipClear: true });
-    const drawTime = performance.now() - drawStart;
-
-    const bounds = renderer.getContentBounds();
+    const bounds = alphaBounds(ctx, templateWidth, templateHeight);
 
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
       return {
