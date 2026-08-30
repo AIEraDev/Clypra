@@ -312,6 +312,8 @@ export interface Clip {
   templateContentHash?: string;
   templateSnapshot?: import("@clypra-studio/engine").TextTemplate | import("@clypra-studio/engine").TextTemplateArtifact;
   templateControlValues?: Record<string, unknown>;
+  /** Complete immutable dependency manifest for canonical template clips. */
+  templateDependencySnapshot?: import("@clypra-studio/engine").TemplateDependencyManifest;
   templateDependencies?: Array<{
     effectId: string;
     revisionId: string;
