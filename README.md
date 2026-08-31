@@ -79,6 +79,7 @@ Clypra is built with a native Rust/Tauri v2 core for hardware video operations, 
 ```
 
 For performance benchmarks and technical deep-dives, see the
+[Clypra Runtime Performance Architecture](docs/clypra-runtime-performance-architecture.md),
 [Native Performance Contract](docs/performance-contract.md), the
 [Performance Telemetry Specification](docs/performance-telemetry.md), and the
 [Program Preview Performance Runbook](docs/program-preview-performance-runbook.md).
