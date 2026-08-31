@@ -75,6 +75,7 @@ import {
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
+import type { TelemetryPreviewContext } from "@/services/telemetryCollector";
 
 import type { SmartOverlayClip } from "@/types/smartOverlay";
 import { KaraokeCaptions } from "@/components/captions/KaraokeCaptions";
@@ -125,21 +126,6 @@ function isExpectedStaleNativePreviewError(error: unknown): boolean {
   return /native preview frame request is stale|request cancelled/i.test(
     error instanceof Error ? error.message : String(error),
   );
-}
-
-const FORCE_PLAYBACK_READBACK_STORAGE_KEY =
-  "clypra:debug:force-preview-readback";
-
-function isForcedPlaybackReadbackEnabled(): boolean {
-  if (!import.meta.env.DEV) return false;
-  try {
-    return (
-      typeof localStorage !== "undefined" &&
-      localStorage.getItem(FORCE_PLAYBACK_READBACK_STORAGE_KEY) === "1"
-    );
-  } catch {
-    return false;
-  }
 }
 
 const CANVAS_DIMENSIONS: Record<
@@ -268,11 +254,10 @@ const ConnectedProgramTransport: React.FC<ConnectedProgramTransportProps> =
     );
   });
 
-interface ConnectedTransformOverlayProps
-  extends Omit<
-    React.ComponentProps<typeof TransformOverlay>,
-    "currentTime" | "visible"
-  > {}
+interface ConnectedTransformOverlayProps extends Omit<
+  React.ComponentProps<typeof TransformOverlay>,
+  "currentTime" | "visible"
+> {}
 
 /**
  * Playback is a leaf concern for the transform overlay. Keeping this clock
@@ -412,6 +397,15 @@ export const NativeProgramPreview: React.FC = () => {
   const qualityManagerSigRef = useRef<string>("");
   const telemetryRef = useRef(telemetryStats);
   const lastTelemetryFlushRef = useRef(0);
+  const previewTelemetryContextRef = useRef<TelemetryPreviewContext>({
+    view: "webview",
+    surface: "dom-canvas",
+    runtimeEnvironment: import.meta.env.DEV ? "development" : "production",
+  });
+  // Native stats are polled for the HUD, but `lastSample` is a snapshot, not
+  // a stream. Keep a cursor so polling an idle editor cannot create a new
+  // telemetry event for the same native frame over and over.
+  const lastReportedNativeSampleRef = useRef<string | null>(null);
   const showTelemetryRef = useRef(showTelemetry);
   const droppedFramesRef = useRef(0);
   const maxDriftRef = useRef(0);
@@ -510,12 +504,28 @@ export const NativeProgramPreview: React.FC = () => {
         nominalFps: renderStateRef.current.project?.frameRate || 60,
       };
 
-      // Feed production telemetry collector in background
-      telemetryCollector.recordNativeSyncSnapshot(
-        nativeSync,
-        nativeRender,
-        profile,
-      );
+      // Feed production telemetry only when native produced a new sample.
+      // The stats command intentionally returns the last sample so the HUD
+      // remains useful while paused; it must not be mistaken for a stream.
+      const lastNativeSample = nativeRender?.lastSample;
+      const nativeSampleCursor = lastNativeSample
+        ? nativeRender?.lastSampleSequence !== undefined
+          ? `sequence:${nativeRender.lastSampleSequence}:${lastNativeSample.requestId}:${lastNativeSample.frameIndex}`
+          : `frame:${lastNativeSample.requestId}:${lastNativeSample.frameIndex}`
+        : null;
+      if (
+        nativeSampleCursor &&
+        nativeSampleCursor !== lastReportedNativeSampleRef.current
+      ) {
+        lastReportedNativeSampleRef.current = nativeSampleCursor;
+        telemetryCollector.recordNativeSyncSnapshot(
+          nativeSync,
+          nativeRender,
+          profile,
+          previewTelemetryContextRef.current,
+          nativeSampleCursor,
+        );
+      }
 
       if (!showTelemetryRef.current) {
         setTelemetryStats(null);
@@ -597,6 +607,7 @@ export const NativeProgramPreview: React.FC = () => {
     return () => {
       active = false;
       window.clearInterval(interval);
+      lastReportedNativeSampleRef.current = null;
     };
   }, [showTelemetry]);
   renderStateRef.current.clips = clips;
@@ -661,7 +672,8 @@ export const NativeProgramPreview: React.FC = () => {
   // evaluator and package-owned renderer, instead of silently showing an
   // empty canvas when no native surface exists.
   useEffect(() => {
-    if (isTauriRuntime() || !canvasEl || !project || projectInitializing) return;
+    if (isTauriRuntime() || !canvasEl || !project || projectInitializing)
+      return;
 
     let disposed = false;
     let rafId: number | null = null;
@@ -698,7 +710,9 @@ export const NativeProgramPreview: React.FC = () => {
         if (scene.visualLayers.some((layer) => layer.layerType === "text")) {
           await paintTextLayersToCanvas(canvasEl, scene);
         } else {
-          canvasEl.getContext("2d")?.clearRect(0, 0, canvasEl.width, canvasEl.height);
+          canvasEl
+            .getContext("2d")
+            ?.clearRect(0, 0, canvasEl.width, canvasEl.height);
         }
       } catch (error) {
         console.error("[browser-preview] text-render-failed", error);
@@ -729,11 +743,11 @@ export const NativeProgramPreview: React.FC = () => {
       return;
     }
     const readinessToken = claimNativeSurfaceReadiness(project.id);
-    tracePlayback("surface-setup-start", {
-      projectId: project.id,
-      generation: readinessToken.generation,
-      viewport: `${Math.round(displayWidth)}x${Math.round(displayHeight)}`,
-    });
+    // tracePlayback("surface-setup-start", {
+    //   projectId: project.id,
+    //   generation: readinessToken.generation,
+    //   viewport: `${Math.round(displayWidth)}x${Math.round(displayHeight)}`,
+    // });
 
     let active = true;
     let syncInFlight = false;
@@ -883,33 +897,29 @@ export const NativeProgramPreview: React.FC = () => {
       if (isPanning || spacePressed) return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      tracePlayback("preview-pointer-capture", {
-        pointer: { clientX: e.clientX, clientY: e.clientY },
-        target: {
-          tagName: target.tagName,
-          id: target.id || null,
-          testId: target.getAttribute("data-testid"),
-          transformOverlay: Boolean(target.closest("[data-transform-overlay]")),
-          viewport: Boolean(target.closest("[data-testid='program-preview-viewport']")),
-        },
-        playbackState: clock.state,
-        currentTime: Number(clock.time.toFixed(3)),
-        nativeSurfaceReady,
-        selectedClipIds: useUIStore.getState().selectedClipIds,
-      });
+      // tracePlayback("preview-pointer-capture", {
+      //   pointer: { clientX: e.clientX, clientY: e.clientY },
+      //   target: {
+      //     tagName: target.tagName,
+      //     id: target.id || null,
+      //     testId: target.getAttribute("data-testid"),
+      //     transformOverlay: Boolean(target.closest("[data-transform-overlay]")),
+      //     viewport: Boolean(
+      //       target.closest("[data-testid='program-preview-viewport']"),
+      //     ),
+      //   },
+      //   playbackState: clock.state,
+      //   currentTime: Number(clock.time.toFixed(3)),
+      //   nativeSurfaceReady,
+      //   selectedClipIds: useUIStore.getState().selectedClipIds,
+      // });
       if (target.closest("[data-transform-handle]")) return;
       if (target.closest("[data-playhead]")) return;
       if (target.closest("[data-transform-overlay]")) return;
       if (target.closest("[data-testid='program-preview-viewport']")) return;
       clearSelection();
     },
-    [
-      clearSelection,
-      isPanning,
-      spacePressed,
-      clock,
-      nativeSurfaceReady,
-    ],
+    [clearSelection, isPanning, spacePressed, clock, nativeSurfaceReady],
   );
 
   const selectAspectPreset = useCallback(
@@ -1129,12 +1139,12 @@ export const NativeProgramPreview: React.FC = () => {
       return;
     }
     const nativeRasterBridge = sessionNativeRasterBridge;
-    tracePlayback("playback-loop-start", {
-      projectId: project.id,
-      sessionId: capturedSession.sessionId,
-      surfaceReady: nativeSurfaceReadyRef.current,
-      surfaceError: nativeSurfaceErrorRef.current,
-    });
+    // tracePlayback("playback-loop-start", {
+    //   projectId: project.id,
+    //   sessionId: capturedSession.sessionId,
+    //   surfaceReady: nativeSurfaceReadyRef.current,
+    //   surfaceError: nativeSurfaceErrorRef.current,
+    // });
     const nativeBodyMaskInFlight = new Map<
       string,
       Promise<NativeRasterLayerSnapshot | null>
@@ -1377,7 +1387,13 @@ export const NativeProgramPreview: React.FC = () => {
         }
         const requestKey = getNativeFrameRequestKey(request);
         const frontendSpan = nativePerfCollector.isEnabled()
-          ? nativePerfCollector.begin(request)
+          ? nativePerfCollector.begin(request, {
+              view: "webview",
+              surface: "dom-canvas",
+              runtimeEnvironment: import.meta.env.DEV
+                ? "development"
+                : "production",
+            })
           : null;
         frontendSpan?.markDispatchStarted();
         if (frontendSpan) nativeFrontendPerfSpans.set(requestKey, frontendSpan);
@@ -1632,7 +1648,9 @@ export const NativeProgramPreview: React.FC = () => {
     let dragPreviewGeometry: DragGeometry | null = null;
     let dragPreviewPendingCommit = false;
 
-    const getRenderClips = (baseClips: Clip[]): {
+    const getRenderClips = (
+      baseClips: Clip[],
+    ): {
       clips: Clip[];
       previewRevision: number;
     } => {
@@ -1686,26 +1704,21 @@ export const NativeProgramPreview: React.FC = () => {
         const timeToRender = state.clock.time;
         const playbackState = state.clock.state;
         const isPlaying = playbackState === "playing";
-        // Development-only benchmark switch. It routes continuous playback
-        // through the existing native RGBA readback + DOM canvas path while
-        // leaving production/native-surface behavior untouched.
-        const forcePlaybackReadback = isForcedPlaybackReadbackEnabled();
-
         const frameRate = state.project?.frameRate ?? 30;
         const frameIndex = getFrameIndexAtTime(timeToRender, frameRate);
         if (playbackState !== lastTracedPlaybackState) {
           lastTracedPlaybackState = playbackState;
-          tracePlayback("playback-state", {
-            projectId: state.project?.id ?? null,
-            sessionId: capturedSession.sessionId,
-            playbackState,
-            time: Number(timeToRender.toFixed(3)),
-            frameIndex,
-            nativeClockReady: state.clock.hasNativeClockPosition,
-            surfaceReady: nativeSurfaceReadyRef.current,
-            surfacePresenting: nativeSurfaceShown,
-            renderInFlight,
-          });
+          // tracePlayback("playback-state", {
+          //   projectId: state.project?.id ?? null,
+          //   sessionId: capturedSession.sessionId,
+          //   playbackState,
+          //   time: Number(timeToRender.toFixed(3)),
+          //   frameIndex,
+          //   nativeClockReady: state.clock.hasNativeClockPosition,
+          //   surfaceReady: nativeSurfaceReadyRef.current,
+          //   surfacePresenting: nativeSurfaceShown,
+          //   renderInFlight,
+          // });
         }
         traceFrameIndex = frameIndex;
         const frameStartTime = getFrameStartTime(timeToRender, frameRate);
@@ -1764,7 +1777,9 @@ export const NativeProgramPreview: React.FC = () => {
 
         if (!mightNeedRender) return;
 
-        const { clips: renderClips, previewRevision } = getRenderClips(state.clips);
+        const { clips: renderClips, previewRevision } = getRenderClips(
+          state.clips,
+        );
         const dragPreviewRevisionAtStart = dragPreviewRevision;
         const renderSceneVersions =
           previewRevision > 0
@@ -1821,7 +1836,8 @@ export const NativeProgramPreview: React.FC = () => {
               (current.project?.id === state.project?.id &&
                 current.epoch === state.epoch &&
                 current.clock.state === "playing" &&
-                getFrameIndexAtTime(current.clock.time, frameRate) === frameIndex))
+                getFrameIndexAtTime(current.clock.time, frameRate) ===
+                  frameIndex))
           );
         };
         if (!playbackTargetStillCurrent()) {
@@ -2008,7 +2024,22 @@ export const NativeProgramPreview: React.FC = () => {
         const nativeReadbackFallbackPath =
           isPlaying &&
           nativePlaybackPath &&
-          (!nativeSurfaceUsable || forcePlaybackReadback);
+          !nativeSurfaceUsable;
+        previewTelemetryContextRef.current = nativeDirectSurfacePath
+          ? {
+              view: "native",
+              surface: "native-surface",
+              runtimeEnvironment: import.meta.env.DEV
+                ? "development"
+                : "production",
+            }
+          : {
+              view: "webview",
+              surface: "dom-canvas",
+              runtimeEnvironment: import.meta.env.DEV
+                ? "development"
+                : "production",
+            };
         // The child surface is playback-only on desktop. Paused and seeking
         // frames must be committed to the DOM canvas so they share the exact
         // same placement and layering as the editor overlays (TransformOverlay,
@@ -2019,15 +2050,15 @@ export const NativeProgramPreview: React.FC = () => {
             !nativeSurfaceUsable ||
             (!nativeRequest && !nativeSurfaceOwnsCurrentFrame));
         if (nativeSurfaceNeedsHide) {
-          tracePlayback("surface-hide-for-recovery", {
-            projectId: state.project?.id ?? null,
-            playbackState,
-            frameIndex,
-            surfaceReady: nativeSurfaceReadyNow,
-            surfaceUsable: nativeSurfaceUsable,
-            hasNativeRequest: Boolean(nativeRequest),
-            surfaceOwnsCurrentFrame: nativeSurfaceOwnsCurrentFrame,
-          });
+          // tracePlayback("surface-hide-for-recovery", {
+          //   projectId: state.project?.id ?? null,
+          //   playbackState,
+          //   frameIndex,
+          //   surfaceReady: nativeSurfaceReadyNow,
+          //   surfaceUsable: nativeSurfaceUsable,
+          //   hasNativeRequest: Boolean(nativeRequest),
+          //   surfaceOwnsCurrentFrame: nativeSurfaceOwnsCurrentFrame,
+          // });
           nativeSurfaceShown = false;
           lastNativePlaybackRequestKey = "";
           void hideNativeSurfaceWhenIdle().catch(() => undefined);
@@ -2084,23 +2115,29 @@ export const NativeProgramPreview: React.FC = () => {
                 generation: targetGeneration,
               };
 
-              if (nativeSurfaceUsable && !forcePlaybackReadback) {
+              if (nativeSurfaceUsable) {
                 const tracePresentation = isFirstFrame || !isPlaying;
                 if (tracePresentation) {
-                  tracePlayback("native-present-start", {
-                    projectId: state.project?.id ?? null,
-                    sessionId: capturedSession.sessionId,
-                    frameIndex: requestToPresent.frameTime.frameIndex,
-                    requestKey,
-                    playbackState,
-                    audioClockReady: nativeAudioClockReady,
-                    surfaceReady: nativeSurfaceReadyNow,
-                    surfaceGeometrySettled:
-                      nativeSurfaceGeometrySettledRef.current,
-                  });
+                  // tracePlayback("native-present-start", {
+                  //   projectId: state.project?.id ?? null,
+                  //   sessionId: capturedSession.sessionId,
+                  //   frameIndex: requestToPresent.frameTime.frameIndex,
+                  //   requestKey,
+                  //   playbackState,
+                  //   audioClockReady: nativeAudioClockReady,
+                  //   surfaceReady: nativeSurfaceReadyNow,
+                  //   surfaceGeometrySettled:
+                  //     nativeSurfaceGeometrySettledRef.current,
+                  // });
                 }
                 const frontendSpan = nativePerfCollector.isEnabled()
-                  ? nativePerfCollector.begin(requestToPresent)
+                  ? nativePerfCollector.begin(requestToPresent, {
+                      view: "native",
+                      surface: "native-surface",
+                      runtimeEnvironment: import.meta.env.DEV
+                        ? "development"
+                        : "production",
+                    })
                   : null;
                 frontendSpan?.markDispatchStarted();
                 frontendSpan?.markIpcStarted();
@@ -2111,60 +2148,60 @@ export const NativeProgramPreview: React.FC = () => {
                     frontendSpan?.markIpcFinished();
                     const timings = presentation.timings;
                     if (timings && timings.totalUs >= 16_667) {
-                      tracePlayback("native-present-stages", {
-                        projectId: state.project?.id ?? null,
-                        sessionId: capturedSession.sessionId,
-                        frameIndex: requestToPresent.frameTime.frameIndex,
-                        totalMs: Number((timings.totalUs / 1000).toFixed(2)),
-                        decodeMs: Number((timings.decodeUs / 1000).toFixed(2)),
-                        decoderWaitMs: Number(
-                          (timings.decoderMutexWaitUs / 1000).toFixed(2),
-                        ),
-                        conversionUploadMs: Number(
-                          (timings.conversionUploadUs / 1000).toFixed(2),
-                        ),
-                        composeMs: Number(
-                          (timings.composeUs / 1000).toFixed(2),
-                        ),
-                        surfaceAcquireMs: Number(
-                          (timings.surfaceAcquireUs / 1000).toFixed(2),
-                        ),
-                        submitPresentMs: Number(
-                          (timings.submitPresentUs / 1000).toFixed(2),
-                        ),
-                        queueHit: timings.queueHit,
-                      });
+                      // tracePlayback("native-present-stages", {
+                      //   projectId: state.project?.id ?? null,
+                      //   sessionId: capturedSession.sessionId,
+                      //   frameIndex: requestToPresent.frameTime.frameIndex,
+                      //   totalMs: Number((timings.totalUs / 1000).toFixed(2)),
+                      //   decodeMs: Number((timings.decodeUs / 1000).toFixed(2)),
+                      //   decoderWaitMs: Number(
+                      //     (timings.decoderMutexWaitUs / 1000).toFixed(2),
+                      //   ),
+                      //   conversionUploadMs: Number(
+                      //     (timings.conversionUploadUs / 1000).toFixed(2),
+                      //   ),
+                      //   composeMs: Number(
+                      //     (timings.composeUs / 1000).toFixed(2),
+                      //   ),
+                      //   surfaceAcquireMs: Number(
+                      //     (timings.surfaceAcquireUs / 1000).toFixed(2),
+                      //   ),
+                      //   submitPresentMs: Number(
+                      //     (timings.submitPresentUs / 1000).toFixed(2),
+                      //   ),
+                      //   queueHit: timings.queueHit,
+                      // });
                     }
                     if (tracePresentation) {
-                      tracePlayback("native-present-result", {
-                        projectId: state.project?.id ?? null,
-                        sessionId: capturedSession.sessionId,
-                        frameIndex: requestToPresent.frameTime.frameIndex,
-                        requestKey,
-                        playbackState,
-                        presented: presentation.presented,
-                        dropped: presentation.dropped,
-                        stale: presentation.stale,
-                        frameAgeTicks: presentation.frameAgeTicks,
-                        audioPositionTicks: presentation.audioPositionTicks,
-                      });
+                      // tracePlayback("native-present-result", {
+                      //   projectId: state.project?.id ?? null,
+                      //   sessionId: capturedSession.sessionId,
+                      //   frameIndex: requestToPresent.frameTime.frameIndex,
+                      //   requestKey,
+                      //   playbackState,
+                      //   presented: presentation.presented,
+                      //   dropped: presentation.dropped,
+                      //   stale: presentation.stale,
+                      //   frameAgeTicks: presentation.frameAgeTicks,
+                      //   audioPositionTicks: presentation.audioPositionTicks,
+                      // });
                     }
                     if (!presentation.presented) {
-                      tracePlayback(
-                        presentation.stale
-                          ? "native-frame-stale"
-                          : "native-frame-dropped",
-                        {
-                          projectId: state.project?.id ?? null,
-                          sessionId: capturedSession.sessionId,
-                          frameIndex: requestToPresent.frameTime.frameIndex,
-                          playbackState,
-                          dropped: presentation.dropped,
-                          stale: presentation.stale,
-                          frameAgeTicks: presentation.frameAgeTicks,
-                          audioPositionTicks: presentation.audioPositionTicks,
-                        },
-                      );
+                      // tracePlayback(
+                      //   presentation.stale
+                      //     ? "native-frame-stale"
+                      //     : "native-frame-dropped",
+                      //   {
+                      //     projectId: state.project?.id ?? null,
+                      //     sessionId: capturedSession.sessionId,
+                      //     frameIndex: requestToPresent.frameTime.frameIndex,
+                      //     playbackState,
+                      //     dropped: presentation.dropped,
+                      //     stale: presentation.stale,
+                      //     frameAgeTicks: presentation.frameAgeTicks,
+                      //     audioPositionTicks: presentation.audioPositionTicks,
+                      //   },
+                      // );
                       const droppedTextLayers =
                         requestToPresent.project.textLayers ?? [];
                       const droppedTextSignature = droppedTextLayers
@@ -2236,12 +2273,12 @@ export const NativeProgramPreview: React.FC = () => {
                         // it was in flight, but its frame is still valid visual
                         // continuity. Leave the retained surface visible until
                         // the newer request is presented.
-                        tracePlayback("surface-retain-presented-frame", {
-                          projectId: state.project?.id ?? null,
-                          frameIndex: requestToPresent.frameTime.frameIndex,
-                          playbackState,
-                          currentPlaybackState: current.clock.state,
-                        });
+                        // tracePlayback("surface-retain-presented-frame", {
+                        //   projectId: state.project?.id ?? null,
+                        //   frameIndex: requestToPresent.frameTime.frameIndex,
+                        //   playbackState,
+                        //   currentPlaybackState: current.clock.state,
+                        // });
                       }
                     }
                   })
@@ -2281,8 +2318,8 @@ export const NativeProgramPreview: React.FC = () => {
                     nativePlaybackInFlight = null;
                   });
               } else {
-                // Non-authoritative diagnostic path retained for browser harnesses;
-                // Tauri never enters this branch because its preview is surface-only.
+                // Non-authoritative readback path used by native-surface
+                // recovery and by paused/seeking editor interaction.
                 nativePlaybackInFlight = nativePreviewScheduler
                   .requestVisible(requestSource)
                   .then((frame) => {
@@ -2368,9 +2405,9 @@ export const NativeProgramPreview: React.FC = () => {
           }
         }
 
-        // Native Tauri preview is a hard boundary. Readback is reserved for
-        // export/diagnostics; the desktop preview keeps the last surface frame
-        // while the retained surface recovers.
+        // Native Tauri preview normally uses the retained surface during
+        // playback. Readback is used automatically for paused/seeking editor
+        // interaction and whenever the native surface is unavailable.
         if (
           needsRender &&
           !nativeSurfaceShown &&
@@ -2506,7 +2543,11 @@ export const NativeProgramPreview: React.FC = () => {
             // Browser/local development has no retained native surface. Paint
             // evaluated text layers through the same package-backed raster
             // bridge so Program Preview is functional before Tauri starts.
-            if (!isTauriRuntime() && canvasEl && scene.visualLayers.some((layer) => layer.layerType === "text")) {
+            if (
+              !isTauriRuntime() &&
+              canvasEl &&
+              scene.visualLayers.some((layer) => layer.layerType === "text")
+            ) {
               const browserPaintStarted = performance.now();
               await paintTextLayersToCanvas(canvasEl, scene);
               canvasPaintMs = performance.now() - browserPaintStarted;
@@ -2654,14 +2695,14 @@ export const NativeProgramPreview: React.FC = () => {
 
     scheduleNextFrame();
     return () => {
-      tracePlayback("playback-loop-stop", {
-        projectId: project.id,
-        sessionId: capturedSession.sessionId,
-        playbackState: clock.state,
-        surfaceReady: nativeSurfaceReadyRef.current,
-        surfacePresenting: nativeSurfaceShown,
-        renderInFlight,
-      });
+      // tracePlayback("playback-loop-stop", {
+      //   projectId: project.id,
+      //   sessionId: capturedSession.sessionId,
+      //   playbackState: clock.state,
+      //   surfaceReady: nativeSurfaceReadyRef.current,
+      //   surfacePresenting: nativeSurfaceShown,
+      //   renderInFlight,
+      // });
       isActive = false;
       unsubscribeClock();
       unsubscribeSeekIntent?.();
@@ -2718,9 +2759,9 @@ export const NativeProgramPreview: React.FC = () => {
         getNativeSyncMetrics: () => getNativeSyncMetricsSnapshot(),
         getNativePerfStats: () => nativePerfCollector.allStats(),
         getPreviewOutputMode: () =>
-          isForcedPlaybackReadbackEnabled()
-            ? "dom-readback"
-            : "native-surface",
+          previewTelemetryContextRef.current.surface === "native-surface"
+            ? "native-surface"
+            : "dom-readback",
       };
     }
   }, [setActiveContext, clock]);
