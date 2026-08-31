@@ -151,6 +151,7 @@ export interface NativeFrameServiceStats {
   cachedEntries: number;
   cachedBytes: number;
   lastSample: NativePerformanceSample | null;
+  lastSampleSequence?: number;
   windowStartedAtMs?: number;
   windowRequestCount?: number;
   windowDroppedFrames?: number;
