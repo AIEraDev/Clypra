@@ -18,6 +18,7 @@ export interface NativeFrontendPerfSample {
   dropped: boolean;
   stale: boolean;
   cancelled: boolean;
+  dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed";
   previewContext?: TelemetryPreviewContext;
   stageTimings?: Partial<TelemetryStageTimings>;
 }
@@ -107,6 +108,7 @@ export class NativePerfSpan {
     dropped?: boolean;
     stale?: boolean;
     cancelled?: boolean;
+    dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed";
     stageTimings?: Partial<TelemetryStageTimings>;
   } = {}): void {
     if (this.finished) return;
@@ -124,6 +126,7 @@ export class NativePerfSpan {
       dropped: options.dropped === true,
       stale: options.stale === true,
       cancelled: options.cancelled === true,
+      dropReason: options.dropReason,
       previewContext: this.previewContext,
       stageTimings: options.stageTimings,
     });
@@ -203,11 +206,12 @@ class NativePerfCollector {
         frameSequence: sample.frameIndex,
         deadlineUs: 16_667,
         dropReason: sample.dropped
-          ? sample.cancelled
-            ? "cancelled"
-            : sample.stale
-              ? "stale"
-              : "present-failed"
+          ? sample.dropReason ??
+            (sample.cancelled
+              ? "cancelled"
+              : sample.stale
+                ? "stale"
+                : "present-failed")
           : undefined,
         forceSample: sample.previewContext?.scenario === "qualification",
       },
