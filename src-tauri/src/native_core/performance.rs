@@ -145,6 +145,11 @@ pub struct NativeFrameServiceStats {
     pub cached_entries: usize,
     pub cached_bytes: usize,
     pub last_sample: Option<PerformanceSample>,
+    /// Monotonically increases for every newly recorded sample. Consumers
+    /// polling stats can use this cursor to avoid reporting the same sample
+    /// repeatedly while the editor is idle.
+    #[serde(default)]
+    pub last_sample_sequence: u64,
     #[serde(default)]
     pub window_started_at_ms: u64,
     #[serde(default)]
