@@ -90,6 +90,94 @@ export type TelemetryOperationMode =
   | "ai-inference"
   | "filmstrip-extraction";
 
+export type TelemetrySubsystem = "preview" | "audio" | "text";
+
+export type TelemetryTextKind = "plain" | "effect" | "template";
+export type TelemetryTextRendererPath =
+  | "native-raster"
+  | "webview-canvas"
+  | "studio-preview";
+export type TelemetryTextPhase =
+  | "session-prewarm"
+  | "text-prefetch"
+  | "visible-playback"
+  | "interactive-preview";
+
+export interface TelemetryTextPercentiles {
+  p50: number;
+  p95: number;
+  p99: number;
+}
+
+export interface TelemetryTextStagePercentiles {
+  fontWaitUs?: TelemetryTextPercentiles;
+  compileUs?: TelemetryTextPercentiles;
+  rasterUs?: TelemetryTextPercentiles;
+  readbackUs?: TelemetryTextPercentiles;
+  transferUs?: TelemetryTextPercentiles;
+  paintUs?: TelemetryTextPercentiles;
+  totalTimeUs?: TelemetryTextPercentiles;
+}
+
+export interface TelemetryTextMetrics {
+  kind: TelemetryTextKind;
+  rendererPath: TelemetryTextRendererPath;
+  phase: TelemetryTextPhase;
+  runtimeEnvironment: "development" | "production";
+  windowDurationMs: number;
+  renderCount: number;
+  cacheHits: number;
+  cacheMisses: number;
+  cacheHitRatio: number;
+  layerCount: number;
+  outputPixels: number;
+  renderPercentiles: TelemetryTextPercentiles;
+  stagePercentiles: TelemetryTextStagePercentiles;
+}
+
+export type TelemetryAudioBackend = "native-cpal" | "web-audio";
+
+export interface TelemetryAudioStageTimings {
+  decodeUs?: number;
+  bufferWaitUs?: number;
+  mixerUs?: number;
+  callbackUs?: number;
+  outputUs?: number;
+  seekUs?: number;
+  clockPollUs?: number;
+  totalTimeUs: number;
+}
+
+/** One bounded, non-real-time audio health window. */
+export interface TelemetryAudioMetrics {
+  backend: TelemetryAudioBackend;
+  runtimeEnvironment: "development" | "production";
+  windowDurationMs: number;
+  sampleRate?: number;
+  channels?: number;
+  installedClipCount?: number;
+  activeClipCount?: number;
+  activeVoiceCount?: number;
+  syncCalls?: number;
+  playingSyncCalls?: number;
+  callbackCount?: number;
+  renderedFrames?: number;
+  nonSilentFrames?: number;
+  bufferHits?: number;
+  bufferMisses?: number;
+  bufferHitRatio?: number;
+  underruns?: number;
+  mixerLockMisses?: number;
+  callbackP95Us?: number;
+  callbackMaxUs?: number;
+  callbackOverBudgetCount?: number;
+  seekCount?: number;
+  seekP95Ms?: number;
+  clockDriftP95Ms?: number;
+  lastError?: string;
+  stageTimings: TelemetryAudioStageTimings;
+}
+
 export interface TelemetryExportMetrics {
   exportDurationMs: number;
   mediaDurationMs: number;
@@ -117,6 +205,7 @@ export interface TelemetryEvent {
   frameSequence?: number;
   dropReason?: string;
   deadlineUs?: number;
+  subsystem?: TelemetrySubsystem;
   forceSample?: boolean;
   appVersion: string;
   appBuildNumber: string;
@@ -162,6 +251,8 @@ export interface TelemetryEvent {
     realTimeFactor?: number;
     success: boolean;
   };
+  audioMetrics?: TelemetryAudioMetrics;
+  textMetrics?: TelemetryTextMetrics;
   fallbackEvent?: {
     triggered: boolean;
     fromBackend: string;
@@ -208,6 +299,29 @@ export interface TelemetryRenderOptions {
   cacheHit?: boolean;
   /** Native samples are stage evidence for a frontend frame, not a second frame. */
   includeInRollup?: boolean;
+}
+
+export interface TelemetryAudioSnapshotInput extends TelemetryAudioMetrics {
+  sessionId: string;
+  windowStartMs: number;
+  measurementId?: string;
+}
+
+export interface TelemetryTextRenderInput {
+  kind: TelemetryTextKind;
+  rendererPath: TelemetryTextRendererPath;
+  phase: TelemetryTextPhase;
+  sessionId?: string;
+  fontWaitUs?: number;
+  compileUs?: number;
+  rasterUs?: number;
+  readbackUs?: number;
+  transferUs?: number;
+  paintUs?: number;
+  totalTimeUs: number;
+  cacheHit?: boolean;
+  layerCount?: number;
+  outputPixels?: number;
 }
 
 const DEFAULT_API_INGEST_URL = `${getApiBaseUrl()}/performance/telemetry/ingest/batch`;
@@ -478,6 +592,86 @@ class SessionRollupAccumulator {
   }
 }
 
+class TextWindowAccumulator {
+  private windowStartMs = Date.now();
+  private totalTimeUs: number[] = [];
+  private stages = new Map<string, number[]>();
+  private renderCount = 0;
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  private layerCount = 0;
+  private outputPixels = 0;
+
+  record(input: TelemetryTextRenderInput): void {
+    this.renderCount += 1;
+    if (input.cacheHit) this.cacheHits += 1;
+    else this.cacheMisses += 1;
+    this.layerCount += Math.max(0, input.layerCount ?? 1);
+    this.outputPixels += Math.max(0, input.outputPixels ?? 0);
+    this.totalTimeUs.push(Math.max(0, input.totalTimeUs));
+    for (const [key, value] of Object.entries({
+      fontWaitUs: input.fontWaitUs,
+      compileUs: input.compileUs,
+      rasterUs: input.rasterUs,
+      readbackUs: input.readbackUs,
+      transferUs: input.transferUs,
+      paintUs: input.paintUs,
+      totalTimeUs: input.totalTimeUs,
+    })) {
+      if (typeof value !== "number") continue;
+      const values = this.stages.get(key) || [];
+      if (values.length < 1000) values.push(Math.max(0, value));
+      this.stages.set(key, values);
+    }
+  }
+
+  recordCacheHit(): void {
+    this.cacheHits += 1;
+  }
+
+  shouldEmit(): boolean {
+    return Date.now() - this.windowStartMs >= (import.meta.env.DEV ? 5000 : 30000) && this.renderCount > 0;
+  }
+
+  extract(): Omit<TelemetryTextMetrics, "kind" | "rendererPath" | "phase" | "runtimeEnvironment" | "windowDurationMs"> & { windowStartMs: number; windowDurationMs: number } | null {
+    if (this.renderCount === 0) {
+      this.windowStartMs = Date.now();
+      return null;
+    }
+    const percentile = (values: number[]): TelemetryTextPercentiles => {
+      if (values.length === 0) return { p50: 0, p95: 0, p99: 0 };
+      const sorted = [...values].sort((a, b) => a - b);
+      const at = (pct: number) => sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * pct))] ?? 0;
+      return { p50: at(0.5), p95: at(0.95), p99: at(0.99) };
+    };
+    const stagePercentiles: TelemetryTextStagePercentiles = {};
+    for (const [key, values] of this.stages) {
+      stagePercentiles[key as keyof TelemetryTextStagePercentiles] = percentile(values);
+    }
+    const result = {
+      windowStartMs: this.windowStartMs,
+      windowDurationMs: Math.max(1, Date.now() - this.windowStartMs),
+      renderCount: this.renderCount,
+      cacheHits: this.cacheHits,
+      cacheMisses: this.cacheMisses,
+      cacheHitRatio: Number((this.cacheHits / Math.max(1, this.cacheHits + this.cacheMisses)).toFixed(4)),
+      layerCount: this.layerCount,
+      outputPixels: this.outputPixels,
+      renderPercentiles: percentile(this.totalTimeUs),
+      stagePercentiles,
+    };
+    this.windowStartMs = Date.now();
+    this.totalTimeUs = [];
+    this.stages.clear();
+    this.renderCount = 0;
+    this.cacheHits = 0;
+    this.cacheMisses = 0;
+    this.layerCount = 0;
+    this.outputPixels = 0;
+    return result;
+  }
+}
+
 class TelemetryCollector {
   private queue: TelemetryEvent[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -487,6 +681,9 @@ class TelemetryCollector {
   private appVersion: string = "1.4.5";
   private rollupAccumulators = new Map<string, SessionRollupAccumulator>();
   private reportedNativeMeasurementIds = new Set<string>();
+  private reportedAudioMeasurementIds = new Set<string>();
+  private reportedTextMeasurementIds = new Set<string>();
+  private textAccumulators = new Map<string, TextWindowAccumulator>();
   private transportStatus: TelemetryTransportStatus = {
     endpoint: DEFAULT_API_INGEST_URL,
     pendingEvents: 0,
@@ -505,6 +702,7 @@ class TelemetryCollector {
       window.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") {
           this.flushRollupIfPending();
+          this.flushTextWindowsIfPending();
           this.flush();
         }
       });
@@ -524,6 +722,7 @@ class TelemetryCollector {
         getStatus: () => this.getTransportStatus(),
         flush: () => {
           this.flushRollupIfPending();
+          this.flushTextWindowsIfPending();
           return this.flush();
         },
       };
@@ -557,6 +756,9 @@ class TelemetryCollector {
     this.queue = [];
     this.clearOfflineQueue();
     this.reportedNativeMeasurementIds.clear();
+    this.reportedAudioMeasurementIds.clear();
+    this.reportedTextMeasurementIds.clear();
+    this.textAccumulators.clear();
   }
 
   /**
@@ -772,6 +974,166 @@ class TelemetryCollector {
     };
 
     this.enqueueEvent(event);
+  }
+
+  /**
+   * Records one bounded audio-health window. This is deliberately sampled
+   * outside the Web Audio/CPAL callback and is the only audio API emission
+   * primitive; individual callbacks never perform network or JSON work.
+   */
+  public recordAudioSnapshot(snapshot: TelemetryAudioSnapshotInput): void {
+    if (!this.isEnabled || snapshot.windowDurationMs <= 0) return;
+
+    const renderedFrames = Math.max(0, snapshot.renderedFrames ?? 0);
+    const underruns = Math.max(0, snapshot.underruns ?? 0);
+    const callbackP95Us = Math.max(0, snapshot.callbackP95Us ?? 0);
+    const measurementId =
+      snapshot.measurementId ??
+      `audio:${snapshot.sessionId}:${snapshot.backend}:${snapshot.windowStartMs}`;
+    if (this.reportedAudioMeasurementIds.has(measurementId)) return;
+    if (this.reportedAudioMeasurementIds.size >= 10000) {
+      const oldest = this.reportedAudioMeasurementIds.values().next().value;
+      if (oldest) this.reportedAudioMeasurementIds.delete(oldest);
+    }
+    this.reportedAudioMeasurementIds.add(measurementId);
+    const event: TelemetryEvent = {
+      eventId: `evt_audio_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      measurementId,
+      measurementSource: "session-rollup",
+      sampleKind: "window-rollup",
+      subsystem: "audio",
+      sessionId: snapshot.sessionId,
+      appVersion: this.appVersion,
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
+      device: this.initHardwareContext(),
+      video: this.sanitizeVideoProfile({ nominalFps: 60 }),
+      workload: {
+        mode: "playback",
+        durationMs: Math.round(snapshot.windowDurationMs),
+        targetFps: 60,
+        renderedFps: snapshot.windowDurationMs > 0
+          ? renderedFrames / (snapshot.windowDurationMs / 1000)
+          : 0,
+        totalFrames: renderedFrames,
+        droppedFrames: underruns,
+        droppedFramesRatio: Number(
+          (underruns / Math.max(1, snapshot.callbackCount ?? 0)).toFixed(4),
+        ),
+        staleFrames: 0,
+        cancelledFrames: 0,
+        avDriftMs: snapshot.clockDriftP95Ms,
+        peakRamMb: 0,
+        cacheHitRatio: snapshot.bufferHitRatio ?? 1,
+        stageTimings: {
+          totalTimeUs: Math.max(0, Math.round(snapshot.stageTimings.totalTimeUs)),
+        },
+        isSessionRollup: true,
+      },
+      audioMetrics: snapshot,
+      timestampMs: Date.now(),
+    };
+    this.enqueueEvent(event);
+  }
+
+  /**
+   * Records one text render into a bounded in-memory cohort window. Text
+   * rasterization can happen during prewarm, playback, or interaction; none
+   * of those hot paths performs network work or emits a console trace.
+   */
+  public recordTextRender(input: TelemetryTextRenderInput): void {
+    if (!this.isEnabled || input.totalTimeUs < 0) return;
+    const runtimeEnvironment = import.meta.env.DEV ? "development" : "production";
+    const key = JSON.stringify([
+      input.sessionId || "text-runtime",
+      input.kind,
+      input.rendererPath,
+      input.phase,
+      runtimeEnvironment,
+    ]);
+    let accumulator = this.textAccumulators.get(key);
+    if (!accumulator) {
+      accumulator = new TextWindowAccumulator();
+      this.textAccumulators.set(key, accumulator);
+    }
+    accumulator.record(input);
+    if (accumulator.shouldEmit()) this.flushTextWindowsIfPending();
+  }
+
+  public recordTextCacheHit(input: Pick<TelemetryTextRenderInput, "kind" | "rendererPath" | "phase" | "sessionId">): void {
+    if (!this.isEnabled) return;
+    const runtimeEnvironment = import.meta.env.DEV ? "development" : "production";
+    const key = JSON.stringify([input.sessionId || "text-runtime", input.kind, input.rendererPath, input.phase, runtimeEnvironment]);
+    let accumulator = this.textAccumulators.get(key);
+    if (!accumulator) {
+      accumulator = new TextWindowAccumulator();
+      this.textAccumulators.set(key, accumulator);
+    }
+    accumulator.recordCacheHit();
+  }
+
+  /** Emits only completed text windows; idle sessions create no rows. */
+  public flushTextWindowsIfPending(): void {
+    for (const [key, accumulator] of this.textAccumulators) {
+      if (!accumulator.shouldEmit()) continue;
+      const values = JSON.parse(key) as [string, TelemetryTextKind, TelemetryTextRendererPath, TelemetryTextPhase, "development" | "production"];
+      const [sessionId, kind, rendererPath, phase, runtimeEnvironment] = values;
+      const summary = accumulator.extract();
+      if (!summary) continue;
+      const measurementId = `text:${sessionId}:${kind}:${rendererPath}:${phase}:${summary.windowStartMs}`;
+      if (this.reportedTextMeasurementIds.has(measurementId)) continue;
+      if (this.reportedTextMeasurementIds.size >= 10000) {
+        const oldest = this.reportedTextMeasurementIds.values().next().value;
+        if (oldest) this.reportedTextMeasurementIds.delete(oldest);
+      }
+      this.reportedTextMeasurementIds.add(measurementId);
+      const totalTimeUs = summary.renderPercentiles.p95;
+      this.enqueueEvent({
+        eventId: `evt_text_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        measurementId,
+        measurementSource: "session-rollup",
+        sampleKind: "window-rollup",
+        subsystem: "text",
+        sessionId,
+        appVersion: this.appVersion,
+        appBuildNumber: import.meta.env.MODE || "prod",
+        appEnvironment: import.meta.env.DEV ? "beta" : "production",
+        device: this.initHardwareContext(),
+        video: this.sanitizeVideoProfile({ nominalFps: 60 }),
+        workload: {
+          mode: phase === "interactive-preview" ? "frame-step" : "playback",
+          durationMs: Math.round(summary.windowDurationMs),
+          targetFps: 60,
+          renderedFps: totalTimeUs > 0 ? Math.min(60, 1_000_000 / totalTimeUs) : 60,
+          totalFrames: summary.renderCount,
+          droppedFrames: 0,
+          droppedFramesRatio: 0,
+          staleFrames: 0,
+          cancelledFrames: 0,
+          peakRamMb: 0,
+          cacheHitRatio: summary.cacheHitRatio,
+          stageTimings: { totalTimeUs },
+          renderPercentiles: summary.renderPercentiles,
+          isSessionRollup: true,
+        },
+        textMetrics: {
+          kind,
+          rendererPath,
+          phase,
+          runtimeEnvironment,
+          windowDurationMs: summary.windowDurationMs,
+          renderCount: summary.renderCount,
+          cacheHits: summary.cacheHits,
+          cacheMisses: summary.cacheMisses,
+          cacheHitRatio: summary.cacheHitRatio,
+          layerCount: summary.layerCount,
+          outputPixels: summary.outputPixels,
+          renderPercentiles: summary.renderPercentiles,
+          stagePercentiles: summary.stagePercentiles,
+        },
+        timestampMs: Date.now(),
+      });
+    }
   }
 
   /**
@@ -1141,6 +1503,7 @@ class TelemetryCollector {
         timestampMs: Date.now(),
       });
     }
+    this.flushTextWindowsIfPending();
   }
 
   private getRollupAccumulator(previewContext?: TelemetryPreviewContext): SessionRollupAccumulator {
@@ -1169,6 +1532,7 @@ class TelemetryCollector {
     if (this.flushTimer) clearInterval(this.flushTimer);
     this.flushTimer = setInterval(() => {
       this.flushRollupIfPending();
+      this.flushTextWindowsIfPending();
       this.flush();
     }, FLUSH_INTERVAL_MS);
   }
