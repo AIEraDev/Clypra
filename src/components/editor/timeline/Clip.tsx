@@ -14,6 +14,10 @@ import { AudioEnvelopeEditor } from "./AudioEnvelopeEditor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useHistoryStore } from "@/store/historyStore";
 import { TimelineTrimCommand } from "@/core/history/commands/TimelineTrimCommand";
+import {
+  getPreviewInteractionCoordinator,
+  type PreviewInteractionToken,
+} from "@/core/interactions";
 
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
 
@@ -93,7 +97,9 @@ const ClipInner: React.FC<ClipProps> = ({
   const snapEnabled = useTimelineStore((s) => s.snapEnabled);
   const setSnapGuides = useTimelineStore((s) => s.setSnapGuides);
   const clearSnapGuides = useTimelineStore((s) => s.clearSnapGuides);
-  const { pause } = useTransportControls();
+  useTransportControls();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const previewInteractionRef = useRef<PreviewInteractionToken | null>(null);
 
   const [isResizing, setIsResizing] = useState<"left" | "right" | null>(null);
   const resizeStartRef = useRef<{
@@ -346,7 +352,8 @@ const ClipInner: React.FC<ClipProps> = ({
       return;
     }
 
-    pause();
+    previewInteractionRef.current =
+      previewInteractionCoordinator.begin("clip-trim");
 
     // Let's check if ripple mode is active (Shift key OR global ripple mode enabled)
     const isRipple = e.shiftKey || rippleEditEnabled;
@@ -683,6 +690,10 @@ const ClipInner: React.FC<ClipProps> = ({
             ),
           );
       }
+      if (previewInteractionRef.current) {
+        previewInteractionCoordinator.commit(previewInteractionRef.current);
+        previewInteractionRef.current = null;
+      }
     };
 
     const handlePointerUp = (e: PointerEvent) => {
@@ -717,6 +728,10 @@ const ClipInner: React.FC<ClipProps> = ({
       document.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("pointerup", handlePointerUp);
       document.removeEventListener("pointercancel", handlePointerCancel);
+      if (previewInteractionRef.current) {
+        previewInteractionCoordinator.cancel(previewInteractionRef.current);
+        previewInteractionRef.current = null;
+      }
     };
   }, [
     isResizing,
@@ -728,6 +743,7 @@ const ClipInner: React.FC<ClipProps> = ({
     snapEnabled,
     setSnapGuides,
     clearSnapGuides,
+    previewInteractionCoordinator,
     // NOTE: useHistoryStore is intentionally omitted — it is the stable Zustand
     // hook reference itself (never changes), so including it was misleading (BUG 8-D).
     // useHistoryStore.getState() is called imperatively inside finishResize.
