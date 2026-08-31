@@ -110,6 +110,17 @@ export interface NativePerformanceSample {
   gpuQueueWaitUs?: number;
   surfaceAcquireUs?: number;
   submitPresentUs?: number;
+  dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed" | string;
+}
+
+export interface NativePerformanceSampleBatch {
+  samples: NativePerformanceSample[];
+  firstSequence: number;
+  lastSequence: number;
+  nextSequence: number;
+  oldestSequence: number;
+  latestSequence: number;
+  truncated: boolean;
 }
 
 export type NativePreviewMode =
@@ -214,6 +225,7 @@ export interface NativeSurfacePresentation {
   mode?: "playback" | "scrub" | "seek" | "frameStep";
   stale?: boolean;
   cancelled?: boolean;
+  dropReason?: "stale" | "cancelled" | "late-for-audio" | "present-failed";
   timings?: {
     totalUs: number;
     decodeUs: number;
@@ -528,6 +540,77 @@ export interface NativePlaybackPlan {
   frameRate: number;
   durationFrames: number;
   audioTrackCount: number;
+}
+
+export interface NativePlaybackFrameDemand {
+  contractVersion: number;
+  requestId: string;
+  frameTime: NativeFrameTime;
+  generation?: number;
+  mode?: NativeFrameRequest["mode"];
+  videoLayers: Array<{
+    sourceTime: NativeFrameTime;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+    opacity: number;
+    zIndex: number;
+  }>;
+  rasterLayers: Array<{
+    x: number;
+    y: number;
+    rotation: number;
+    opacity: number;
+    zIndex: number;
+  }>;
+  textLayers: Array<{
+    x: number;
+    y: number;
+    rotation: number;
+    opacity: number;
+    zIndex: number;
+  }>;
+  transitionProgress?: number;
+}
+
+/** Build the compact per-frame update for the persistent Rust Native session. */
+export function createNativePlaybackFrameDemand(
+  request: NativeFrameRequest,
+): NativePlaybackFrameDemand {
+  return {
+    contractVersion: request.contractVersion,
+    requestId: request.requestId,
+    frameTime: request.frameTime,
+    generation: request.generation,
+    mode: request.mode,
+    videoLayers: request.project.videoLayers.map((layer) => ({
+      sourceTime: layer.sourceTime,
+      x: layer.x,
+      y: layer.y,
+      width: layer.width,
+      height: layer.height,
+      rotation: layer.rotation,
+      opacity: layer.opacity,
+      zIndex: layer.zIndex,
+    })),
+    rasterLayers: (request.project.rasterLayers ?? []).map((layer) => ({
+      x: layer.x,
+      y: layer.y,
+      rotation: layer.rotation ?? 0,
+      opacity: layer.opacity ?? 1,
+      zIndex: layer.zIndex ?? 0,
+    })),
+    textLayers: (request.project.textLayers ?? []).map((layer) => ({
+      x: layer.x,
+      y: layer.y,
+      rotation: layer.rotation ?? 0,
+      opacity: layer.opacity ?? 1,
+      zIndex: layer.zIndex ?? 0,
+    })),
+    transitionProgress: request.project.transition?.progress,
+  };
 }
 
 export interface NativePlaybackState {
