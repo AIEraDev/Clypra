@@ -63,6 +63,7 @@ import {
 import { AudioEngine } from "../audio/AudioEngine";
 import {
   getSharedAudioEngine,
+  prewarmSharedAudioBuffers,
   stopSharedAudioEngine,
 } from "../audio/audioRuntime";
 import { isTauriRuntime } from "@/lib/platform/tauri";
@@ -252,6 +253,14 @@ export class ProjectSession {
       // Initialize stores (timeline, UI)
       await this._initializeStores();
       this._onInitializationProgress?.(0.35, "Initializing preview runtime…");
+
+      // Browser audio is decoded before the session becomes active, matching
+      // the existing text/image session prewarm. Native CPAL already decodes
+      // the complete native graph in NativeAudioPreviewController.initialize.
+      if (!isTauriRuntime()) {
+        this._onInitializationProgress?.(0.45, "Prewarming audio…");
+        await this._prewarmAudioAssets();
+      }
 
       // Warm existing text/image boundaries before the session becomes active.
       // The bridge is shared with NativeProgramPreview so first play does not
@@ -596,6 +605,39 @@ export class ProjectSession {
         });
       });
       await warmup;
+    }
+  }
+
+  private async _prewarmAudioAssets(): Promise<void> {
+    const projectStore = await import("@/store/projectStore");
+    const timelineStore = await import("@/store/timelineStore");
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips, tracks } = timelineStore.useTimelineStore.getState();
+    const audioTrackIds = new Set(
+      tracks.filter((track) => track.type === "audio" && !track.muted).map((track) => track.id),
+    );
+    const assets = projectStore.useProjectStore.getState().mediaAssets;
+    const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
+    const items = clips
+      .filter((clip) => audioTrackIds.has(clip.trackId))
+      .map((clip) => {
+        const key = clip.mediaId || clip.audioPath || clip.id;
+        const source = clip.audioPath || (clip.mediaId ? assetsById.get(clip.mediaId)?.path : undefined);
+        return source ? { key, source } : null;
+      })
+      .filter((item): item is { key: string; source: string } => Boolean(item));
+
+    if (items.length === 0) return;
+    const result = await prewarmSharedAudioBuffers(items);
+    if (result.failed > 0) {
+      console.warn("[ProjectSession] Audio prewarm completed with failures", {
+        projectId: this.projectId,
+        requested: result.requested,
+        loaded: result.loaded,
+        failed: result.failed,
+      });
     }
   }
 
