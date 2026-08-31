@@ -345,4 +345,48 @@ describe("AudioEngine", () => {
     expect(mockCtx.createBufferSource).toHaveBeenCalled();
     expect(mockCtx.createGain).toHaveBeenCalled();
   });
+
+  it("exposes bounded playback telemetry without changing the audio graph", () => {
+    const buffer = createMockAudioBuffer(20);
+    mockBufferPool.set("media-1", buffer);
+    const clip: Clip = {
+      id: "telemetry-clip",
+      trackId: "track-1",
+      mediaId: "media-1",
+      startTime: 0,
+      duration: 10,
+      trimIn: 0,
+      trimOut: 10,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      opacity: 1,
+      rotation: 0,
+      volume: 1,
+    };
+    const track: Track = {
+      id: "track-1",
+      type: "audio",
+      name: "Audio",
+      volume: 1,
+      muted: false,
+      locked: false,
+      visible: true,
+      height: 52,
+    };
+
+    engine.syncPlayback([clip], [track], 1, true, 1, 100, false);
+    const snapshot = engine.takeTelemetrySnapshot();
+
+    expect(snapshot.syncCalls).toBe(1);
+    expect(snapshot.playingSyncCalls).toBe(1);
+    expect(snapshot.bufferHits).toBe(1);
+    expect(snapshot.bufferMisses).toBe(0);
+    expect(snapshot.stageTimings.totalTimeUs).toBeGreaterThanOrEqual(0);
+
+    const next = engine.takeTelemetrySnapshot();
+    expect(next.syncCalls).toBe(0);
+    expect(next.bufferHits).toBe(0);
+  });
 });
