@@ -47,6 +47,9 @@ export interface AnimationState {
   translateX: number;
   translateY: number;
   scale: number;
+  /** Which lifecycle segment caused the animated state. */
+  operation: "render" | "entrance" | "exit" | "animation";
+  animationType?: TextAnimationType;
 }
 
 /**
@@ -100,6 +103,7 @@ export function calculateTextAnimationState(currentTime: number, clipStartTime: 
     translateX: 0,
     translateY: 0,
     scale: 1.0,
+    operation: "render",
   };
 
   const relativeTime = currentTime - clipStartTime;
@@ -116,6 +120,8 @@ export function calculateTextAnimationState(currentTime: number, clipStartTime: 
     const easedProgress = applyEasing(entranceProgress, entranceAnimation.easing);
 
     if (easedProgress < 1.0) {
+      state.operation = "entrance";
+      state.animationType = entranceAnimation.type;
       applyAnimationType(state, entranceAnimation.type, 1.0 - easedProgress, true);
     }
   }
@@ -126,6 +132,8 @@ export function calculateTextAnimationState(currentTime: number, clipStartTime: 
     const easedProgress = applyEasing(exitProgress, exitAnimation.easing);
 
     if (easedProgress < 1.0) {
+      state.operation = "exit";
+      state.animationType = exitAnimation.type;
       applyAnimationType(state, exitAnimation.type, 1.0 - easedProgress, false);
     }
   }
