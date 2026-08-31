@@ -17,6 +17,7 @@ import {
   type TextRenderKind,
   type TextRenderPath,
   type TextRenderTracePhase,
+  type TextRenderOperation,
 } from "@/core/render/textRenderTrace";
 
 export interface NativeTextRasterAsset {
@@ -46,6 +47,11 @@ export interface NativeTextRasterAsset {
     readbackMs: number;
     totalMs: number;
     outputPixels: number;
+    operation?: TextRenderOperation;
+    contentLength?: number;
+    lineCount?: number;
+    layoutWidth?: number;
+    layoutHeight?: number;
   };
 }
 
@@ -58,6 +64,7 @@ export interface NativeTextRasterAsset {
 export async function paintTextLayersToCanvas(
   canvas: HTMLCanvasElement,
   scene: EvaluatedScene,
+  phase: TextRenderTracePhase = "visible-playback",
 ): Promise<void> {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -69,6 +76,13 @@ export async function paintTextLayersToCanvas(
         layer.layerType === "text" && layer.opacity > 0,
     )
     .sort((a, b) => a.zIndex - b.zIndex);
+  const activeLayerIds = new Set(layers.map((layer) => layer.layerId));
+  for (const layerId of browserTextAssetByLayerId.keys()) {
+    if (!activeLayerIds.has(layerId)) {
+      browserTextAssetByLayerId.delete(layerId);
+      browserTextAssetKeyByLayerId.delete(layerId);
+    }
+  }
 
   const rasterResults = await Promise.allSettled(
     layers.map(async (layer) => {
@@ -76,7 +90,7 @@ export async function paintTextLayersToCanvas(
       let rasterPromise = browserTextRasterCache.get(rasterKey);
       if (!rasterPromise) {
         rasterPromise = rasterizeTextLayerForNative(layer, {
-          phase: "visible-playback",
+          phase,
           rendererPath: "webview-canvas",
           deferTelemetry: true,
         });
@@ -93,9 +107,31 @@ export async function paintTextLayersToCanvas(
             browserTextRasterCache.delete(rasterKey);
         });
       } else {
-        traceTextRenderCacheHit({ kind: getTextRenderKind(layer), rendererPath: "webview-canvas", phase: "visible-playback" });
+        traceTextRenderCacheHit({ kind: getTextRenderKind(layer), rendererPath: "webview-canvas", phase });
       }
-      return { layer, asset: await rasterPromise };
+
+      const previous = browserTextAssetByLayerId.get(layer.layerId);
+      if (
+        phase === "visible-playback" &&
+        previous &&
+        browserTextAssetKeyByLayerId.get(layer.layerId) !== rasterKey
+      ) {
+        // A WebView playback frame is also latest-value work. Keep painting
+        // the last complete bitmap while a changed font/content/layout is
+        // rasterized, instead of blocking the visible loop on Canvas/font
+        // work. Paused/interactive renders remain strict below.
+        void rasterPromise
+          .then((asset) => {
+            browserTextAssetByLayerId.set(layer.layerId, asset);
+            browserTextAssetKeyByLayerId.set(layer.layerId, rasterKey);
+          })
+          .catch(() => undefined);
+        return { layer, asset: previous };
+      }
+      const asset = await rasterPromise;
+      browserTextAssetByLayerId.set(layer.layerId, asset);
+      browserTextAssetKeyByLayerId.set(layer.layerId, rasterKey);
+      return { layer, asset };
     }),
   );
 
@@ -156,6 +192,8 @@ const browserTextRasterCache = new Map<
   string,
   Promise<NativeTextRasterAsset>
 >();
+const browserTextAssetByLayerId = new Map<string, NativeTextRasterAsset>();
+const browserTextAssetKeyByLayerId = new Map<string, string>();
 
 /**
  * Preview rendering is a real-time stream. Font discovery is a preparation
@@ -214,6 +252,41 @@ function getObjectKey(obj: unknown): string | undefined {
   return key;
 }
 
+function getStyleRasterIdentity(layer: EvaluatedTextLayer): string | undefined {
+  const definition = layer.styleDefinition as
+    | (Record<string, unknown> & {
+        revisionId?: string;
+        contentHash?: string;
+        version?: number;
+        revision?: { revisionId?: string; contentHash?: string };
+      })
+    | undefined;
+  if (!definition) return undefined;
+
+  // Evaluating a timeline scene creates a small wrapper object for a style on
+  // every frame. Serializing that complete definition here made the cache-key
+  // path scale with the entire effect graph and could consume the playback
+  // budget. Published effects already have stable revision/content identity;
+  // retain a serialized fallback only for legacy definitions without one.
+  const revisionId =
+    layer.styleRevisionId ??
+    definition.revisionId ??
+    definition.revision?.revisionId;
+  const contentHash =
+    layer.styleContentHash ??
+    definition.contentHash ??
+    definition.revision?.contentHash;
+  if (revisionId || contentHash || definition.id || definition.version !== undefined) {
+    return JSON.stringify({
+      id: definition.id,
+      version: definition.version,
+      revisionId,
+      contentHash,
+    });
+  }
+  return getObjectKey(definition);
+}
+
 /**
  * This key deliberately follows the inputs consumed by the Clypra Studio
  * text engine. It is used for native upload caching. Layout dimensions affect
@@ -247,6 +320,8 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
   return JSON.stringify({
     layerId: layer.layerId,
     text: layer.text,
+    textRole: layer.textRole,
+    maxWidth: layer.maxWidth,
     time: timeDependent ? layer.time : undefined,
     width: layer.width,
     height: layer.height,
@@ -254,6 +329,7 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
     fontSize: layer.fontSize,
     fontWeight: layer.fontWeight,
     fontStyle: layer.fontStyle,
+    color: layer.color,
     textAlign: layer.textAlign,
     verticalAlign: layer.verticalAlign,
     lineHeight: layer.lineHeight,
@@ -267,10 +343,11 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
     templateControlValues: getObjectKey(layer.templateControlValues),
     templateDependencySnapshot: getObjectKey(layer.templateDependencySnapshot),
     customization: getObjectKey(layer.customization),
+    runs: getObjectKey(layer.runs),
     stroke: getObjectKey(layer.stroke),
     shadow: getObjectKey(layer.shadow),
     background: getObjectKey(layer.background),
-    styleDefinition: getObjectKey(layer.styleDefinition),
+    styleDefinition: getStyleRasterIdentity(layer),
   });
 }
 
@@ -473,6 +550,11 @@ export async function rasterizeTextLayerForNative(
     readbackMs: (options.rendererPath ?? "native-raster") === "webview-canvas" ? readbackMs : 0,
     outputPixels: width * height,
     totalMs: performance.now() - totalStartedAt,
+    operation: layer.animationOperation ?? (options.phase === "session-prewarm" || options.phase === "text-prefetch" ? "prefetch" : "render") as TextRenderOperation,
+    contentLength: layer.text.length,
+    lineCount: Math.max(1, layer.text.split("\n").length),
+    layoutWidth: layer.width,
+    layoutHeight: layer.height,
   };
   if (!options.deferTelemetry) traceTextRenderTiming(timing);
 
