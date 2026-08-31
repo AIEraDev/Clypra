@@ -15,6 +15,9 @@ export interface AudioBufferPoolStats {
   usedBytes: number;
   maxBytes: number;
   count: number;
+  hits: number;
+  misses: number;
+  inFlight: number;
 }
 
 interface CacheEntry {
@@ -30,6 +33,8 @@ export class AudioBufferPool {
   private totalByteSize = 0;
   private maxMemoryBytes: number;
   private audioContext: AudioContext | null = null;
+  private hits = 0;
+  private misses = 0;
 
   constructor(maxMemoryBytes: number = 256 * 1024 * 1024, audioContext?: AudioContext) {
     this.maxMemoryBytes = maxMemoryBytes;
@@ -63,7 +68,11 @@ export class AudioBufferPool {
    */
   public get(key: string): AudioBuffer | undefined {
     const entry = this.cache.get(key);
-    if (!entry) return undefined;
+    if (!entry) {
+      this.misses++;
+      return undefined;
+    }
+    this.hits++;
     entry.lastUsedAt = performance.now();
     return entry.buffer;
   }
@@ -171,6 +180,8 @@ export class AudioBufferPool {
     this.cache.clear();
     this.inFlightLoads.clear();
     this.totalByteSize = 0;
+    this.hits = 0;
+    this.misses = 0;
   }
 
   public getStats(): AudioBufferPoolStats {
@@ -178,7 +189,18 @@ export class AudioBufferPool {
       usedBytes: this.totalByteSize,
       maxBytes: this.maxMemoryBytes,
       count: this.cache.size,
+      hits: this.hits,
+      misses: this.misses,
+      inFlight: this.inFlightLoads.size,
     };
+  }
+
+  /** Consume only interval counters; cache contents and memory usage remain. */
+  public takeTelemetryStats(): Pick<AudioBufferPoolStats, "hits" | "misses" | "inFlight"> {
+    const stats = { hits: this.hits, misses: this.misses, inFlight: this.inFlightLoads.size };
+    this.hits = 0;
+    this.misses = 0;
+    return stats;
   }
 
   public setMaxMemoryBytes(maxBytes: number): void {
