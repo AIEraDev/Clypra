@@ -175,8 +175,8 @@ function measureTextInk(
   fontStyle: "normal" | "italic" = "normal",
   letterSpacing = 0,
   lineHeight = 1.2,
-): { width: number; height: number } {
-  if (!text) return { width: 0, height: 0 };
+): { width: number; height: number; lineWidths: number[] } {
+  if (!text) return { width: 0, height: 0, lineWidths: [0] };
 
   const resolvedWeight =
     typeof fontWeight === "number"
@@ -198,20 +198,24 @@ function measureTextInk(
         (longest, line) => Math.max(longest, line.length),
         0,
       );
+      const lineWidths = lines.map(
+        (line) => line.length * fontSize * 0.6 + Math.max(0, line.length - 1) * letterSpacing,
+      );
       return {
         width: longestLine * fontSize * 0.6 + Math.max(0, longestLine - 1) * letterSpacing,
         height: fallbackLineHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
+        lineWidths,
       };
     }
     ctx.font = `${fontStyle} ${resolvedWeight} ${fontSize}px ${fontFamily}`;
     let width = 0;
     let lineInkHeight = 0;
+    const lineWidths: number[] = [];
     for (const line of lines) {
       const metrics = ctx.measureText(line);
-      width = Math.max(
-        width,
-        Number(metrics.width ?? 0) + Math.max(0, line.length - 1) * letterSpacing,
-      );
+      const lineWidth = Number(metrics.width ?? 0) + Math.max(0, line.length - 1) * letterSpacing;
+      lineWidths.push(lineWidth);
+      width = Math.max(width, lineWidth);
       lineInkHeight = Math.max(
         lineInkHeight,
         Number(metrics.actualBoundingBoxAscent ?? 0) +
@@ -222,15 +226,20 @@ function measureTextInk(
     return {
       width,
       height: lineInkHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
+      lineWidths,
     };
   } catch (e) {
     const longestLine = lines.reduce(
       (longest, line) => Math.max(longest, line.length),
       0,
     );
+    const lineWidths = lines.map(
+      (line) => line.length * fontSize * 0.6 + Math.max(0, line.length - 1) * letterSpacing,
+    );
     return {
       width: longestLine * fontSize * 0.6 + Math.max(0, longestLine - 1) * letterSpacing,
       height: fallbackLineHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
+      lineWidths,
     };
   }
 }
@@ -488,10 +497,16 @@ export function measureTextEffectContentBounds(options: {
     1,
     width - contentPaddingX * 2 - selectionInset * 2,
   );
-  const explicitLineCount = Math.max(1, options.text.split("\n").length);
-  const wrappedLineCount = Math.max(
-    explicitLineCount,
-    Math.ceil(measured.width / contentInnerWidth),
+  // Match the renderer's paragraph-by-paragraph wrapping. Using the total
+  // measured width here under-counts/over-counts multiline text because it
+  // treats every explicit line as one long line. That makes the box height
+  // disagree with the actual raster and causes vertical alignment to drift
+  // when font, spacing, or content changes.
+  const explicitLines = options.text.split("\n");
+  const explicitLineCount = Math.max(1, explicitLines.length);
+  const wrappedLineCount = measured.lineWidths.reduce(
+    (count, lineWidth) => count + Math.max(1, Math.ceil(lineWidth / contentInnerWidth)),
+    0,
   );
   const textHeight =
     source === "panel"
@@ -1232,6 +1247,7 @@ function calculateTextClipContentTransform(
     stroke,
     shadow,
     background,
+    maxWidth: merged.maxWidth,
     canvasWidth,
     textRole: merged.textRole,
   });
