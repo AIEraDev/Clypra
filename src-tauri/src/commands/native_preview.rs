@@ -1831,6 +1831,11 @@ pub async fn cancel_native_preview_requests(
         .inner()
         .clone();
     queue.lock().await.observe_generation(generation);
+    if let Some(playback) = app.try_state::<Arc<std::sync::Mutex<crate::commands::native_playback::NativePlaybackRuntime>>>() {
+        if let Ok(runtime) = playback.inner().clone().lock() {
+            runtime.invalidate_render_generation(generation);
+        }
+    }
     Ok(())
 }
 
