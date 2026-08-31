@@ -20,7 +20,9 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
   onClose,
 }) => {
   const [activeScope, setActiveScope] = useState<ScopeType>("waveform");
-  const [telemetry, setTelemetry] = useState<VideoScopePayload | undefined>(undefined);
+  const [telemetry, setTelemetry] = useState<VideoScopePayload | undefined>(
+    undefined,
+  );
 
   const clock = usePlaybackClock();
   const tracks = useTimelineStore((s) => s.tracks);
@@ -107,7 +109,7 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
   return (
     <div className="fixed bottom-20 right-6 z-50 w-96 bg-[#121318]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden flex flex-col transition-all animate-in fade-in zoom-in-95">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-white/[0.02]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-white/2">
         <div className="flex items-center gap-2">
           <Activity className="w-3.5 h-3.5 text-accent" />
           <span className="text-xs font-semibold text-text-primary tracking-wide">
