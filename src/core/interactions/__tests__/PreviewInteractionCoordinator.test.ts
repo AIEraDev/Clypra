@@ -64,4 +64,36 @@ describe("PreviewInteractionCoordinator", () => {
     coordinator.cancel(token, "project-reset");
     expect(play).not.toHaveBeenCalled();
   });
+
+  it("pauses and invalidates playback when a blocking modal opens", () => {
+    const { coordinator, pause, play } = setup("playing");
+    const before = coordinator.getGeneration().revision;
+
+    coordinator.requestPause();
+
+    expect(pause).toHaveBeenCalledOnce();
+    expect(play).not.toHaveBeenCalled();
+    expect(coordinator.getGeneration().revision).toBeGreaterThan(before);
+    expect(coordinator.getSnapshot().active).toBeNull();
+  });
+
+  it("does not resume playback when the blocking modal closes", () => {
+    const { coordinator, pause, play } = setup("paused");
+
+    coordinator.requestPause();
+
+    expect(pause).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it("can commit a property edit without resuming playback", () => {
+    const { coordinator, pause, play } = setup("playing");
+    const token = coordinator.begin("property-edit");
+
+    expect(pause).toHaveBeenCalledOnce();
+    coordinator.commit(token, false);
+
+    expect(play).not.toHaveBeenCalled();
+    expect(coordinator.getSnapshot().active).toBeNull();
+  });
 });
