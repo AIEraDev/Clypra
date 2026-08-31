@@ -691,6 +691,71 @@ pub struct FrameRequest {
     pub requested_at_ms: Option<f64>,
 }
 
+/// Per-frame state for the persistent native playback renderer.
+///
+/// The render graph, asset paths, raster payloads, text definitions, and layer
+/// topology live in `FrameRequest` configured once per revision. Playback only
+/// sends these small ordinal updates, so a frame cannot re-transmit the full
+/// project over the Tauri boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackVideoLayerUpdate {
+    pub source_time: FrameTime,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub rotation: f32,
+    pub opacity: f32,
+    pub z_index: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackRasterLayerUpdate {
+    pub x: f32,
+    pub y: f32,
+    pub rotation: f32,
+    pub opacity: f32,
+    pub z_index: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackTextLayerUpdate {
+    pub x: f32,
+    pub y: f32,
+    pub rotation: f32,
+    pub opacity: f32,
+    pub z_index: i32,
+}
+
+/// Latest-value demand consumed by the Rust native render session.
+///
+/// This is intentionally not a Tauri streaming channel. The command replaces
+/// one bounded pending slot and returns immediately; the render worker owns
+/// decode/composition/presentation and the audio clock remains the only late
+/// frame authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackFrameDemand {
+    pub contract_version: u32,
+    pub request_id: String,
+    pub frame_time: FrameTime,
+    #[serde(default)]
+    pub generation: Option<u64>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub video_layers: Vec<NativePlaybackVideoLayerUpdate>,
+    #[serde(default)]
+    pub raster_layers: Vec<NativePlaybackRasterLayerUpdate>,
+    #[serde(default)]
+    pub text_layers: Vec<NativePlaybackTextLayerUpdate>,
+    #[serde(default)]
+    pub transition_progress: Option<f32>,
+}
+
 impl FrameRequest {
     pub fn validate(&self) -> Result<(), NativeCoreError> {
         if self.contract_version != NATIVE_CORE_CONTRACT_VERSION {
