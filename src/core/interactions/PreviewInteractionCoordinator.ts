@@ -140,9 +140,9 @@ export class PreviewInteractionCoordinator {
     return this.getGeneration();
   }
 
-  commit(token: PreviewInteractionToken): boolean {
+  commit(token: PreviewInteractionToken, resume = true): boolean {
     if (!this.isCurrent(token)) return false;
-    this.finishActive("pointer-cancel", true);
+    this.finishActive("pointer-cancel", resume);
     return true;
   }
 
@@ -169,6 +169,21 @@ export class PreviewInteractionCoordinator {
   notifyTransportBoundary(): void {
     previewQualificationController.cancel();
     this.cancelActive("transport", false);
+  }
+
+  /**
+   * Pause for a modal or other blocking editor surface.
+   *
+   * This is intentionally different from an interaction begin: opening a
+   * modal must cancel any active gesture and invalidate render work, but it
+   * must not remember a resume intent. The user can explicitly press Play
+   * after closing the modal.
+   */
+  requestPause(): void {
+    this.notifyTransportBoundary();
+    if (this.transport?.getState() === "playing") {
+      this.transport.pause();
+    }
   }
 
   dispose(): void {
