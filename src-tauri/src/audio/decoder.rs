@@ -54,10 +54,26 @@ fn decode_audio_clip_sync(
     target_sample_rate: u32,
     target_channels: u16,
 ) -> Result<DecodedAudioClip, String> {
+    // ffmpeg-next's format metadata APIs (including duration probing) require
+    // process initialization. The thumbnail decoder initializes its own path,
+    // but audio can be the first native media service used in a session.
+    // Initialize here so source-end classification does not incorrectly fall
+    // through to the CLI recovery path for every late MP3 segment.
+    let _ = ffmpeg::init();
+
     // Attempt FFmpeg in-process decode first
     match decode_with_ffmpeg_next(path, &config, target_sample_rate, target_channels) {
         Ok(clip) if !is_materially_truncated(&clip, &config) => Ok(clip),
         Ok(clip) => {
+            // A clip is allowed to end at the source boundary. In that case
+            // the requested timeline range can be longer than the remaining
+            // media, and a shorter decoded buffer is correct rather than a
+            // decoder failure. Only recover through the CLI when the source
+            // still contains enough media for the requested range.
+            if is_expected_source_end(path, &clip, &config) {
+                return Ok(clip);
+            }
+
             // A successful decode with far fewer samples than the requested
             // timeline range is not a usable result. Installing it lets the
             // mixer report an "active" clip that has no PCM after its short
@@ -97,6 +113,60 @@ fn is_materially_truncated(clip: &DecodedAudioClip, requested: &AudioClipConfig)
 fn decoded_duration_ticks(clip: &DecodedAudioClip) -> i64 {
     (clip.samples.len() as i64 / i64::from(clip.channels.max(1))).saturating_mul(TICKS_PER_SECOND)
         / i64::from(clip.sample_rate.max(1))
+}
+
+/// Return true when a short decode is explained by the source ending before
+/// the requested timeline range. This keeps normal end-of-file clips on the
+/// in-process path while preserving recovery for genuine early truncation.
+fn is_expected_source_end(
+    path: &Path,
+    clip: &DecodedAudioClip,
+    requested: &AudioClipConfig,
+) -> bool {
+    let Some(source_duration_ticks) = source_duration_ticks(path) else {
+        return false;
+    };
+
+    is_expected_source_end_for_duration(
+        decoded_duration_ticks(clip),
+        requested,
+        source_duration_ticks,
+    )
+}
+
+fn is_expected_source_end_for_duration(
+    decoded_ticks: i64,
+    requested: &AudioClipConfig,
+    source_duration_ticks: i64,
+) -> bool {
+    let source_start_ticks = requested.source_start_ticks.max(0);
+    let available_ticks = source_duration_ticks.saturating_sub(source_start_ticks);
+    let expected_ticks = requested.duration_ticks.max(0).min(available_ticks);
+    if expected_ticks <= 0 {
+        return false;
+    }
+
+    let tolerance_ticks = (expected_ticks / 50).max(250_000);
+    decoded_ticks >= expected_ticks.saturating_sub(tolerance_ticks)
+}
+
+/// Probe the container duration in FFmpeg's global microsecond time base.
+/// Format duration is preferred because it remains available for MP3 streams
+/// whose individual stream duration metadata is incomplete.
+fn source_duration_ticks(path: &Path) -> Option<i64> {
+    let ictx = ffmpeg::format::input(path).ok()?;
+    let duration = ictx.duration();
+    if duration > 0 {
+        return Some(duration);
+    }
+
+    let stream = ictx.streams().best(ffmpeg::media::Type::Audio)?;
+    let stream_duration = stream.duration();
+    if stream_duration <= 0 {
+        return None;
+    }
+
+    Some(stream_duration.rescale(stream.time_base(), (1, 1_000_000)))
 }
 
 /// In-process decoding via ffmpeg-next.
@@ -497,5 +567,55 @@ mod tests {
         };
 
         assert!(!is_materially_truncated(&complete, &config));
+    }
+
+    #[test]
+    fn short_decode_is_accepted_when_requested_range_reaches_source_end() {
+        let config = AudioClipConfig {
+            id: "mp3".to_string(),
+            path: "fixture.mp3".to_string(),
+            timeline_start_ticks: 0,
+            source_start_ticks: 274_200_000,
+            duration_ticks: 63_500_000,
+            gain: 1.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            track_id: None,
+        };
+        let clip = DecodedAudioClip {
+            config: config.clone(),
+            sample_rate: 44_100,
+            channels: 2,
+            // Approximately the 11.66 seconds remaining in a 285.86 second
+            // source after the requested source offset.
+            samples: vec![0.0; 44_100 * 2 * 11 + 29_106 * 2].into(),
+        };
+
+        assert!(is_expected_source_end_for_duration(
+            decoded_duration_ticks(&clip),
+            &config,
+            285_857_143,
+        ));
+    }
+
+    #[test]
+    fn short_decode_is_not_accepted_when_source_has_more_audio() {
+        let config = AudioClipConfig {
+            id: "mp3".to_string(),
+            path: "fixture.mp3".to_string(),
+            timeline_start_ticks: 0,
+            source_start_ticks: 0,
+            duration_ticks: 63_500_000,
+            gain: 1.0,
+            fade_in_ticks: 0,
+            fade_out_ticks: 0,
+            track_id: None,
+        };
+
+        assert!(!is_expected_source_end_for_duration(
+            11_663_673,
+            &config,
+            285_857_143,
+        ));
     }
 }
