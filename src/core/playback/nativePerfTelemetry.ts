@@ -1,6 +1,9 @@
 import type { NativeFrameRequest, NativePreviewMode } from "@/lib/platform/nativeCore";
 import { telemetryCollector } from "@/services/telemetryCollector";
-import type { TelemetryOperationMode } from "@/services/telemetryCollector";
+import type {
+  TelemetryOperationMode,
+  TelemetryPreviewContext,
+} from "@/services/telemetryCollector";
 
 export interface NativeFrontendPerfSample {
   requestId: string;
@@ -14,6 +17,7 @@ export interface NativeFrontendPerfSample {
   dropped: boolean;
   stale: boolean;
   cancelled: boolean;
+  previewContext?: TelemetryPreviewContext;
 }
 
 export interface NativeFrontendStagePercentiles {
@@ -77,6 +81,7 @@ export class NativePerfSpan {
     private readonly collector: NativePerfCollector,
     private readonly request: NativeFrameRequest,
     private readonly mode: NativePreviewMode,
+    private readonly previewContext?: TelemetryPreviewContext,
   ) {}
 
   markDispatchStarted(): void {
@@ -116,6 +121,7 @@ export class NativePerfSpan {
       dropped: options.dropped === true,
       stale: options.stale === true,
       cancelled: options.cancelled === true,
+      previewContext: this.previewContext,
     });
   }
 }
@@ -149,8 +155,8 @@ class NativePerfCollector {
     return this.enabled;
   }
 
-  begin(request: NativeFrameRequest): NativePerfSpan {
-    return new NativePerfSpan(this, request, normalizeMode(request.mode));
+  begin(request: NativeFrameRequest, previewContext?: TelemetryPreviewContext): NativePerfSpan {
+    return new NativePerfSpan(this, request, normalizeMode(request.mode), previewContext);
   }
 
   record(sample: NativeFrontendPerfSample): void {
@@ -173,6 +179,11 @@ class NativePerfCollector {
       undefined,
       sample.stale ? 1 : 0,
       sample.cancelled ? 1 : 0,
+      {
+        previewContext: sample.previewContext,
+        measurementId: `frontend:${sample.requestId}:${sample.frameIndex}`,
+        measurementSource: "frontend-span",
+      },
     );
   }
 
