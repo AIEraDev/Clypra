@@ -12,7 +12,13 @@
  *   - Keeps previous committed pixels visible during epoch transitions (zoom)
  */
 
-import { useEffect, useLayoutEffect, useRef, useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  useState,
+} from "react";
 import { platform } from "@/core/platform";
 import { cn } from "@/lib/utils";
 import {
@@ -21,7 +27,7 @@ import {
 } from "@/lib/renderEngine/webglRasterSurface";
 import { useFilmstrip } from "@/lib/filmstrip/useFilmstrip";
 import { useRenderRuntime } from "@/hooks/useRenderRuntime";
-import { usePlaybackClock } from "@/hooks/usePlaybackClock";
+import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import {
   getFilmstripRenderWindow,
   getFilmstripTileWidthForTier,
@@ -77,8 +83,9 @@ function resolveMediaSrc(path: string): string {
 function getRuntimeClipColor(variable: string): string {
   if (typeof document === "undefined") return "transparent";
   return (
-    getComputedStyle(document.documentElement).getPropertyValue(variable).trim() ||
-    "transparent"
+    getComputedStyle(document.documentElement)
+      .getPropertyValue(variable)
+      .trim() || "transparent"
   );
 }
 
@@ -91,7 +98,7 @@ export interface ClipFilmstripProps {
   className?: string;
 }
 
-export function ClipFilmstrip({
+export function ClipFilmstripInner({
   clip,
   mediaAsset,
   clipWidthPx,
@@ -136,8 +143,10 @@ export function ClipFilmstrip({
     isVideoSource && mediaAsset.path
       ? normalizePathForTauriInvoke(mediaAsset.path)
       : "";
-  const clockState = usePlaybackClock();
-  const currentTime = clockState.time;
+  // PERF (0-A Rank 1): Read clock time imperatively — no React subscription.
+  // playheadTime only hints which tile to prioritize for progressive rendering;
+  // re-rendering at 10fps during playback is unnecessary overhead.
+  const currentTime = getPlaybackClock().time;
   const clipLocalPlayheadTime = currentTime - clip.startTime + clip.trimIn;
   const playheadTime =
     clipLocalPlayheadTime >= clip.trimIn &&
@@ -612,3 +621,9 @@ export function ClipFilmstrip({
     />
   );
 }
+
+// PERF (0-A Rank 1 / 8-A): Wrap in React.memo so that parent re-renders (e.g. from
+// scroll-left changes in the Clip component) don't force ClipFilmstrip to re-render
+// when its own props haven't changed. The clock subscription was removed above, so
+// re-renders now only happen when clip geometry, mediaAsset, or viewport props change.
+export const ClipFilmstrip = React.memo(ClipFilmstripInner);
