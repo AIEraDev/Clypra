@@ -16,3 +16,23 @@ export {
 export { ViewportController, getViewportController, resetViewportController, type Viewport, type ViewportListener } from "./ViewportController";
 
 export { EditingActions } from "./EditingActions";
+
+export {
+  PreviewInteractionCoordinator,
+  getPreviewInteractionCoordinator,
+  resetPreviewInteractionCoordinator,
+  type PreviewGeneration,
+  type PreviewInteractionCancelReason,
+  type PreviewInteractionKind,
+  type PreviewInteractionOptions,
+  type PreviewInteractionSnapshot,
+  type PreviewInteractionToken,
+  type PreviewTransportBridge,
+} from "./PreviewInteractionCoordinator";
+
+export {
+  createLatestFrameQueue,
+  createCoalescedPointerDrag,
+  type CoalescedFrameQueue,
+  type CoalescedPointerDrag,
+} from "./coalescedPointerDrag";
