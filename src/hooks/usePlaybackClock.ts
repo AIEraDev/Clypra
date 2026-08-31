@@ -26,6 +26,7 @@ import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { resumeGlobalAudioEngine } from "@/hooks/useAudioSyncEngine";
 import { isTauriRuntime } from "@/lib/platform/tauri";
 import type { SeekIntentInput } from "@/core/playback/seekController";
+import { getPreviewInteractionCoordinator } from "@/core/interactions";
 
 /**
  * Hook for UI snapshots of playback state.
@@ -126,6 +127,16 @@ export function useTransport(): TransportAuthority | null {
  */
 export function useTransportControls() {
   const authority = useTransport();
+  const previewCoordinator = getPreviewInteractionCoordinator();
+
+  useEffect(() => {
+    if (!authority) return;
+    return previewCoordinator.registerTransport({
+      getState: () => authority.getState(),
+      pause: () => authority.pause(),
+      play: () => authority.play(),
+    });
+  }, [authority, previewCoordinator]);
 
   return useMemo(
     () => {
@@ -140,22 +151,43 @@ export function useTransportControls() {
 
       return {
         play: () => {
+          previewCoordinator.notifyTransportBoundary();
           prepareProgramPreviewAudio();
           authority?.play();
         },
         togglePlayback: () => {
+          previewCoordinator.notifyTransportBoundary();
           prepareProgramPreviewAudio();
           authority?.togglePlayback();
         },
-        pause: () => authority?.pause(),
-        stop: () => authority?.stop(),
-        seek: (time: number, intent?: Omit<SeekIntentInput, "time">) =>
-          authority?.seek(time, intent ?? { mode: "seek" }),
-        setSpeed: (speed: number) => authority?.setSpeed(speed),
+        pause: () => {
+          previewCoordinator.notifyTransportBoundary();
+          authority?.pause();
+        },
+        stop: () => {
+          previewCoordinator.notifyTransportBoundary();
+          authority?.stop();
+        },
+        seek: (time: number, intent?: Omit<SeekIntentInput, "time">) => {
+          // A scrub owns the pause boundary until pointer-up. Individual
+          // latest-wins seek requests must not cancel that interaction.
+          const activeInteraction = previewCoordinator.getSnapshot().active;
+          if (
+            intent?.mode !== "scrub" &&
+            activeInteraction?.kind !== "scrub"
+          ) {
+            previewCoordinator.notifyTransportBoundary();
+          }
+          authority?.seek(time, intent ?? { mode: "seek" });
+        },
+        setSpeed: (speed: number) => {
+          previewCoordinator.notifyTransportBoundary();
+          authority?.setSpeed(speed);
+        },
         setActiveContext: (type: "program" | "source") => authority?.setActiveContext(type),
       };
     },
-    [authority],
+    [authority, previewCoordinator],
   );
 }
 
