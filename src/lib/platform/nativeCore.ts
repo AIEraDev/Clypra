@@ -221,6 +221,7 @@ export interface NativeSurfacePresentation {
     conversionUploadUs: number;
     composeUs: number;
     surfaceAcquireUs: number;
+    gpuQueueWaitUs?: number;
     submitPresentUs: number;
     queueHit: boolean;
   };
