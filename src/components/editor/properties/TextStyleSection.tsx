@@ -144,10 +144,63 @@ interface TextStyleSectionProps {
   setNewPresetName: (name: string) => void;
   handleUpdate: (key: string, value: any) => void;
   handleUpdateMultiple: (fields: Record<string, any>) => void;
+  /** Immediate command path used when applying a caption style transaction. */
+  handleUpdateImmediate?: (key: string, value: any) => void;
+  handleUpdateMultipleImmediate?: (fields: Record<string, any>) => void;
   handleApplyPreset: (preset: any) => void;
   savePreset: (name: string, style: any) => void;
   deletePreset: (id: string) => void;
 }
+
+interface TextContentEditorProps {
+  value: string;
+  onChange: (value: string) => void;
+  mode: "plain" | "effect";
+}
+
+/**
+ * Keep text entry responsive while the timeline and preview catch up at RAF
+ * cadence. The timeline remains authoritative outside the focused editor,
+ * but React store renders must not replace a newer DOM input value while the
+ * user is typing.
+ */
+const TextContentEditor = React.memo<TextContentEditorProps>(
+  ({ value, onChange, mode }) => {
+    const [draft, setDraft] = React.useState(value);
+    const focusedRef = React.useRef(false);
+
+    React.useEffect(() => {
+      if (!focusedRef.current || value === draft) {
+        setDraft(value);
+      }
+    }, [value, draft]);
+
+    return (
+      <textarea
+        value={draft}
+        onFocus={() => {
+          focusedRef.current = true;
+        }}
+        onBlur={() => {
+          focusedRef.current = false;
+          // The parent normally commits through its debounce timer. This
+          // final notification also covers a blur that happens before the
+          // timer fires, without creating a second editor-side state.
+          if (draft !== value) onChange(draft);
+        }}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setDraft(nextValue);
+          onChange(nextValue);
+        }}
+        rows={3}
+        placeholder="CLYPRA"
+        aria-label={`${mode === "effect" ? "Effect" : "Plain"} text content`}
+        className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors"
+      />
+    );
+  },
+);
 
 export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   textClip,
@@ -156,6 +209,8 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
   setNewPresetName,
   handleUpdate: originalHandleUpdate,
   handleUpdateMultiple: originalHandleUpdateMultiple,
+  handleUpdateImmediate,
+  handleUpdateMultipleImmediate,
   handleApplyPreset,
   savePreset,
   deletePreset,
@@ -241,7 +296,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
       const history = useHistoryStore.getState();
       history.beginTransaction("Apply Caption Style to All");
       try {
-        originalHandleUpdate(key, value);
+        (handleUpdateImmediate ?? originalHandleUpdate)(key, value);
         trackCaptions.forEach((c) => {
           if (c.id !== textClip.id) {
             executeCaptionStyleUpdate(c as TextClip, { [key]: value });
@@ -278,7 +333,7 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
       const history = useHistoryStore.getState();
       history.beginTransaction("Apply Caption Style to All");
       try {
-        originalHandleUpdateMultiple(fields);
+        (handleUpdateMultipleImmediate ?? originalHandleUpdateMultiple)(fields);
         trackCaptions.forEach((c) => {
           if (c.id !== textClip.id) {
             executeCaptionStyleUpdate(c as TextClip, styleFields);
@@ -592,12 +647,11 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
             <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">
               Text Content
             </label>
-            <textarea
+            <TextContentEditor
+              key={`${textClip.id}-effect-content`}
               value={textClip.text || ""}
-              onChange={(e) => handleUpdate("text", e.target.value)}
-              rows={3}
-              placeholder="CLYPRA"
-              className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors"
+              onChange={(value) => handleUpdate("text", value)}
+              mode="effect"
             />
             {isTextExceedingMaxDimension && (
               <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
@@ -614,12 +668,11 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
           <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-1.5 select-none">
             Text Content
           </label>
-          <textarea
+          <TextContentEditor
+            key={`${textClip.id}-plain-content`}
             value={textClip.text || ""}
-            onChange={(e) => handleUpdate("text", e.target.value)}
-            rows={3}
-            placeholder="CLYPRA"
-            className="w-full bg-surface-raised border border-border/60 rounded-lg p-2.5 text-xs text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 resize-none selectable transition-colors"
+            onChange={(value) => handleUpdate("text", value)}
+            mode="plain"
           />
           {isTextExceedingMaxDimension && (
             <div className="mt-1.5 flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] leading-tight">
@@ -827,9 +880,6 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
                 <ClypraColorPicker
                   value={isGradient ? "#ffffff" : textClip.color || "#ffffff"}
                   onChange={(c: string) => handleCustomStyleUpdate("color", c)}
-                  onChangeComplete={(c: string) =>
-                    handleCustomStyleUpdate("color", c)
-                  }
                   format="hex"
                   availableModes={["solid", "wheel"]}
                   presetColors={COLOR_PALETTE.filter(
@@ -861,9 +911,6 @@ export const TextStyleSection: React.FC<TextStyleSectionProps> = ({
                       <ClypraColorPicker
                         value={stopColor}
                         onChange={(c: string) => handleStopChange(idx, c)}
-                        onChangeComplete={(c: string) =>
-                          handleStopChange(idx, c)
-                        }
                         format="hex"
                         availableModes={["solid", "wheel"]}
                         showAlpha={true}
