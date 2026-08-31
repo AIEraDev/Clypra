@@ -185,6 +185,21 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
     }
   }
 
+  try {
+    // Keep this import pointed at the coordinator's concrete module. The interactions
+    // barrel is intentionally mocked by several reset tests and by lightweight
+    // consumers; project reset must still invalidate the live coordinator in those
+    // environments instead of depending on an optional barrel export.
+    const { getPreviewInteractionCoordinator } = await import(
+      "@/core/interactions/PreviewInteractionCoordinator"
+    );
+    getPreviewInteractionCoordinator().cancelActive("project-reset", false);
+    resetSubsystems.push("PreviewInteractionCoordinator");
+  } catch (error) {
+    errors.push({ subsystem: "PreviewInteractionCoordinator", error: error as Error });
+    console.error("  ❌ PreviewInteractionCoordinator reset failed:", error);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════════
   // PHASE 3: Reset UI State
   // ═══════════════════════════════════════════════════════════════════════════════
