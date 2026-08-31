@@ -4,6 +4,10 @@ import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import type { Clip } from "@/types";
 import { timeToPixel, pixelToTime } from "@/lib/timeline/timelineViewport";
+import {
+  getPreviewInteractionCoordinator,
+  type PreviewInteractionToken,
+} from "@/core/interactions";
 
 interface AudioEnvelopeEditorProps {
   clip: Clip;
@@ -18,6 +22,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
 }) => {
   const updateClip = useTimelineStore((s) => s.updateClip);
   const { execute } = useHistoryStore();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const previewInteractionRef = useRef<PreviewInteractionToken | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const volumeLaneRef = useRef<HTMLDivElement>(null);
@@ -92,6 +98,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     e.preventDefault();
     const container = containerRef.current;
     if (!container) return;
+    previewInteractionRef.current =
+      previewInteractionCoordinator.begin("audio-envelope");
     const rect = container.getBoundingClientRect();
     const laneRect = volumeLaneRef.current?.getBoundingClientRect();
     const point = getTooltipPoint(
@@ -120,6 +128,8 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
     e.preventDefault();
     const initialFade = type === "fadeIn" ? fadeIn : fadeOut;
     fadeDragRef.current = { type, initialFade, pointerId: e.pointerId };
+    previewInteractionRef.current =
+      previewInteractionCoordinator.begin("audio-envelope");
     fadeDragTargetRef.current = e.currentTarget;
     fadeValueRef.current = initialFade;
     setActiveDrag(type);
@@ -196,6 +206,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
           { [field]: finalFade },
         ),
       );
+    }
+    if (previewInteractionRef.current) {
+      previewInteractionCoordinator.commit(previewInteractionRef.current);
+      previewInteractionRef.current = null;
     }
   };
 
@@ -289,6 +303,10 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
         ),
       );
     }
+    if (previewInteractionRef.current) {
+      previewInteractionCoordinator.commit(previewInteractionRef.current);
+      previewInteractionRef.current = null;
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -303,7 +321,9 @@ export const AudioEnvelopeEditor: React.FC<AudioEnvelopeEditorProps> = ({
   const handleVolumeDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (volume !== 1.0) {
+      const token = previewInteractionCoordinator.begin("property-edit");
       execute(new TransformClipCommand(clip.id, { volume }, { volume: 1.0 }));
+      previewInteractionCoordinator.commit(token);
     }
   };
 
