@@ -21,7 +21,7 @@ import {
   rasterizeTextLayerForNative,
   type NativeTextRasterAsset,
 } from "@/components/editor/preview/nativeTextPreview";
-import type { TextRenderTracePhase } from "@/core/render/textRenderTrace";
+import { traceTextRenderCacheHit, type TextRenderTracePhase } from "@/core/render/textRenderTrace";
 import {
   NativeAnimatedStickerRenderer,
   type NativeAnimatedStickerRaster,
@@ -33,6 +33,7 @@ type UploadableNativeRaster = NativeRasterLayerSnapshot & {
   bleedX?: number;
   bleedY?: number;
   positionMode?: "centered" | "absolute";
+  timing?: NativeTextRasterAsset["timing"];
 };
 
 interface NativeRasterBridgeOptions {
@@ -61,7 +62,7 @@ function stableSerialize(value: unknown): string {
 }
 
 function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
-  const { rgba: _rgba, bleedX: _bleedX, bleedY: _bleedY, positionMode: _positionMode, ...reference } = asset;
+  const { rgba: _rgba, bleedX: _bleedX, bleedY: _bleedY, positionMode: _positionMode, timing: _timing, ...reference } = asset;
   return reference;
 }
 
@@ -239,6 +240,12 @@ export class NativeRasterBridge {
         evictOldest(this.textCache, MAX_TEXT_CACHE_ENTRIES);
         void raster.catch(() => {
           if (this.textCache.get(key) === raster) this.textCache.delete(key);
+        });
+      } else {
+        traceTextRenderCacheHit({
+          kind: layer.templateId || layer.clipKind === "text-template" ? "template" : layer.styleId ? "effect" : "plain",
+          rendererPath: "native-raster",
+          phase,
         });
       }
       // During playback, never make the transport wait for a new animated
