@@ -32,6 +32,40 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(telemetryCollector.getQueueLength()).toBe(1);
   });
 
+  it("does not enqueue the same native stats sample twice", () => {
+    const nativeRender = {
+      lastSample: {
+        requestId: "request-1",
+        frameIndex: 42,
+        decodeTimeUs: 4000,
+        composeTimeUs: 3000,
+        readbackTimeUs: 1000,
+        presentTimeUs: 500,
+        totalTimeUs: 25000,
+      },
+      windowDroppedFrames: 0,
+      windowStaleFrames: 0,
+      windowCancelledFrames: 0,
+    };
+
+    telemetryCollector.recordNativeSyncSnapshot(
+      null,
+      nativeRender,
+      {},
+      { view: "native", surface: "native-surface", runtimeEnvironment: "development" },
+      "sequence:1:request-1:42",
+    );
+    telemetryCollector.recordNativeSyncSnapshot(
+      null,
+      nativeRender,
+      {},
+      { view: "native", surface: "native-surface", runtimeEnvironment: "development" },
+      "sequence:1:request-1:42",
+    );
+
+    expect(telemetryCollector.getQueueLength()).toBe(1);
+  });
+
   it("records a cold seek span and enqueues event", () => {
     telemetryCollector.recordSeekSpan(120.5, true, {
       codec: "hevc",
