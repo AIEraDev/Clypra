@@ -26,16 +26,20 @@ type CacheEntry = NativePreviewFrame & {
   lastUsed: number;
 };
 
-type PrefetchEntry = NativePreviewRequestSource & {
-  priority: number;
-  sequence: number;
-};
-
 type InFlightEntry = {
   promise: Promise<NativePreviewFrame>;
   controller: AbortController;
   source: NativePreviewRequestSource;
   visible: boolean;
+};
+
+type PendingEntry = NativePreviewRequestSource & {
+  priority: number;
+  sequence: number;
+  visible: boolean;
+  promise?: Promise<NativePreviewFrame>;
+  resolve?: (frame: NativePreviewFrame) => void;
+  reject?: (error: unknown) => void;
 };
 
 /**
@@ -46,10 +50,9 @@ type InFlightEntry = {
 export class NativePreviewFrameScheduler {
   private readonly load: NativePreviewFrameSchedulerOptions["load"];
   private readonly maxCacheEntries: number;
-  private readonly maxInFlight: number;
   private readonly cache = new Map<string, CacheEntry>();
-  private readonly inFlight = new Map<string, InFlightEntry>();
-  private queued: PrefetchEntry[] = [];
+  private inFlight: InFlightEntry | null = null;
+  private pending: PendingEntry | null = null;
   private sequence = 0;
   private disposed = false;
   private visibleGeneration = 0;
@@ -58,7 +61,6 @@ export class NativePreviewFrameScheduler {
   constructor(options: NativePreviewFrameSchedulerOptions) {
     this.load = options.load;
     this.maxCacheEntries = Math.max(1, Math.floor(options.maxCacheEntries ?? 12));
-    this.maxInFlight = Math.max(1, Math.floor(options.maxInFlight ?? 2));
   }
 
   getCached(requestKey: string): NativePreviewFrame | null {
@@ -73,9 +75,8 @@ export class NativePreviewFrameScheduler {
   }
 
   /**
-   * Visible work starts immediately and shares an existing request when one
-   * already exists. This is intentionally allowed to use one slot beyond the
-   * prefetch limit so seek latency is never controlled by lookahead work.
+   * Visible work always wins. There is one active load and one replaceable
+   * pending load; a newer visible request rejects the obsolete pending work.
    */
   requestVisible(source: NativePreviewRequestSource): Promise<NativePreviewFrame> {
     if (this.disposed) return Promise.reject(new Error("Native preview scheduler disposed"));
@@ -83,24 +84,37 @@ export class NativePreviewFrameScheduler {
     const cached = this.getCached(source.requestKey);
     if (cached) return Promise.resolve(cached);
 
-    const existing = this.inFlight.get(source.requestKey);
-    if (existing) return existing.promise;
+    if (this.inFlight?.source.requestKey === source.requestKey) return this.inFlight.promise;
+    if (this.pending?.requestKey === source.requestKey && this.pending.promise) return this.pending.promise;
 
     const generation = source.generation ?? this.visibleGeneration + 1;
     if (generation > this.visibleGeneration) {
       this.setVisibleGeneration(generation);
     }
 
-    // A newer visible request supersedes the previous one immediately. The
+    // A newer visible request supersedes both active and pending work. The
     // AbortSignal lets native callers stop at packet boundaries while the
-    // generation check below protects runtimes that cannot abort an IPC call.
-    if (this.visibleKey && this.visibleKey !== source.requestKey) {
-      this.cancelVisibleWork();
-    }
-
-    this.queued = this.queued.filter((entry) => entry.requestKey !== source.requestKey);
+    // generation check protects runtimes that cannot abort an IPC call.
+    this.cancelVisibleWork();
+    this.replacePending(null);
     this.visibleKey = source.requestKey;
-    return this.start(source, true);
+    let resolve!: (frame: NativePreviewFrame) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<NativePreviewFrame>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.pending = {
+      ...source,
+      priority: Number.MIN_SAFE_INTEGER,
+      sequence: ++this.sequence,
+      visible: true,
+      promise,
+      resolve,
+      reject,
+    };
+    this.pump();
+    return promise;
   }
 
   /**
@@ -111,24 +125,25 @@ export class NativePreviewFrameScheduler {
   prefetch(sources: readonly NativePreviewRequestSource[]): void {
     if (this.disposed) return;
 
-    for (const source of sources) {
-      if (this.cache.has(source.requestKey) || this.inFlight.has(source.requestKey)) continue;
-      if (this.queued.some((entry) => entry.requestKey === source.requestKey)) continue;
-      this.queued.push({
-        ...source,
-        priority: source.priority ?? 0,
-        sequence: ++this.sequence,
-      });
-    }
-
-    this.pumpPrefetch();
+    if (this.pending?.visible || this.inFlight?.visible) return;
+    const source = sources
+      .filter((entry) => !this.cache.has(entry.requestKey))
+      .sort((left, right) => (left.priority ?? 0) - (right.priority ?? 0))[0];
+    if (!source || this.pending) return;
+    this.pending = {
+      ...source,
+      priority: source.priority ?? 0,
+      sequence: ++this.sequence,
+      visible: false,
+    };
+    this.pump();
   }
 
   /** Invalidate queued lookahead work after a seek/project/timeline change. */
   setVisibleGeneration(generation = this.visibleGeneration + 1): void {
     if (generation < this.visibleGeneration) return;
     this.visibleGeneration = generation;
-    this.queued = [];
+    this.replacePending(null);
     this.cancelVisibleWork();
   }
 
@@ -138,50 +153,62 @@ export class NativePreviewFrameScheduler {
 
   clear(): void {
     this.cache.clear();
-    this.queued = [];
+    this.replacePending(null);
   }
 
   dispose(): void {
     this.disposed = true;
     this.cancelVisibleWork();
-    for (const entry of this.inFlight.values()) entry.controller.abort();
+    this.inFlight?.controller.abort();
+    this.replacePending(new Error("Native preview scheduler disposed"));
     this.clear();
   }
 
-  private start(source: NativePreviewRequestSource, visible = false): Promise<NativePreviewFrame> {
+  private start(entry: PendingEntry): void {
     const controller = new AbortController();
-    const generation = source.generation ?? this.visibleGeneration;
-    const promise = this.load(source.request, controller.signal)
+    const generation = entry.generation ?? this.visibleGeneration;
+    const promise = this.load(entry.request, controller.signal)
       .then((frame) => {
-        if (!this.disposed && (!visible || this.isCurrent(generation))) this.store(source, frame);
+        if (!this.disposed && (!entry.visible || this.isCurrent(generation))) this.store(entry, frame);
+        entry.resolve?.(frame);
         return frame;
       })
+      .catch((error) => {
+        entry.reject?.(error);
+        throw error;
+      })
       .finally(() => {
-        this.inFlight.delete(source.requestKey);
-        if (visible && this.visibleKey === source.requestKey) this.visibleKey = null;
-        this.pumpPrefetch();
+        if (this.inFlight?.source.requestKey === entry.requestKey) this.inFlight = null;
+        if (entry.visible && this.visibleKey === entry.requestKey) this.visibleKey = null;
+        this.pump();
       });
-
-    this.inFlight.set(source.requestKey, { promise, controller, source, visible });
-    return promise;
+    this.inFlight = { promise, controller, source: entry, visible: entry.visible };
+    if (!entry.visible) void promise.catch(() => undefined);
   }
 
-  private pumpPrefetch(): void {
+  private pump(): void {
     if (this.disposed) return;
-
-    this.queued.sort((left, right) => left.priority - right.priority || left.sequence - right.sequence);
-    while (this.inFlight.size < this.maxInFlight && this.queued.length > 0) {
-      const source = this.queued.shift();
-      if (!source || this.cache.has(source.requestKey) || this.inFlight.has(source.requestKey)) continue;
-      void this.start(source, false).catch(() => undefined);
+    if (this.inFlight || !this.pending) return;
+    const entry = this.pending;
+    this.pending = null;
+    if (this.cache.has(entry.requestKey)) {
+      entry.resolve?.(this.getCached(entry.requestKey)!);
+      return;
     }
+    this.start(entry);
   }
 
   private cancelVisibleWork(): void {
-    if (!this.visibleKey) return;
-    const entry = this.inFlight.get(this.visibleKey);
-    entry?.controller.abort();
+    if (this.visibleKey && this.inFlight?.source.requestKey === this.visibleKey) {
+      this.inFlight.controller.abort();
+    }
     this.visibleKey = null;
+  }
+
+  private replacePending(error: unknown): void {
+    if (!this.pending) return;
+    this.pending.reject?.(error || new DOMException("Native preview request superseded", "AbortError"));
+    this.pending = null;
   }
 
   private store(source: NativePreviewRequestSource, frame: NativePreviewFrame): void {
