@@ -3,6 +3,8 @@ import {
   type TelemetryTextKind,
   type TelemetryTextRendererPath,
   type TelemetryTextPhase,
+  type TelemetryTextOperation,
+  type TelemetryTextProperty,
 } from "@/services/telemetryCollector";
 
 export interface TextRenderTraceLayer {
@@ -47,9 +49,10 @@ export interface TextRenderTraceContext {
   time?: number;
 }
 
-export type TextRenderTracePhase = Exclude<TelemetryTextPhase, "interactive-preview">;
+export type TextRenderTracePhase = TelemetryTextPhase;
 export type TextRenderKind = TelemetryTextKind;
 export type TextRenderPath = TelemetryTextRendererPath;
+export type TextRenderOperation = TelemetryTextOperation;
 
 /**
  * Text diagnostics are intentionally silent. Text performance is captured by
@@ -96,12 +99,20 @@ export function traceTextRenderTiming(input: {
   outputPixels?: number;
   cacheHit?: boolean;
   totalMs: number;
+  operation?: TextRenderOperation;
+  property?: TelemetryTextProperty;
+  contentLength?: number;
+  lineCount?: number;
+  layoutWidth?: number;
+  layoutHeight?: number;
 }): void {
   const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
   telemetryCollector.recordTextRender({
     kind: input.kind,
     rendererPath: input.rendererPath,
     phase: input.phase,
+    operation: input.operation,
+    property: input.property,
     sessionId: activeSession?.sessionId,
     fontWaitUs: Math.round(Math.max(0, input.fontWaitMs) * 1000),
     rasterUs: Math.round(Math.max(0, input.rasterMs) * 1000),
@@ -111,6 +122,33 @@ export function traceTextRenderTiming(input: {
     outputPixels: input.outputPixels,
     cacheHit: input.cacheHit ?? false,
     totalTimeUs: Math.round(Math.max(0, input.totalMs) * 1000),
+    contentLength: input.contentLength,
+    lineCount: input.lineCount,
+    layoutWidth: input.layoutWidth,
+    layoutHeight: input.layoutHeight,
+  });
+}
+
+export function traceTextInteraction(input: {
+  kind?: TextRenderKind;
+  rendererPath?: TextRenderPath;
+  operation: Exclude<TextRenderOperation, "render" | "prefetch">;
+  property?: TelemetryTextProperty;
+  phase?: TextRenderTracePhase;
+  interactionId?: string;
+  durationMs: number;
+  inputToPreviewMs?: number;
+  contentLength?: number;
+  lineCount?: number;
+  layoutWidth?: number;
+  layoutHeight?: number;
+}): void {
+  const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
+  telemetryCollector.recordTextInteraction({
+    ...input,
+    sessionId: activeSession?.sessionId,
+    durationUs: Math.round(Math.max(0, input.durationMs) * 1000),
+    inputToPreviewUs: input.inputToPreviewMs === undefined ? undefined : Math.round(Math.max(0, input.inputToPreviewMs) * 1000),
   });
 }
 
