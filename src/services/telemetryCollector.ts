@@ -103,6 +103,33 @@ export type TelemetryTextPhase =
   | "visible-playback"
   | "interactive-preview";
 
+/** The work being measured, independent of where it was rendered. */
+export type TelemetryTextOperation =
+  | "render"
+  | "entrance"
+  | "exit"
+  | "animation"
+  | "content-edit"
+  | "property-edit"
+  | "transform"
+  | "resize"
+  | "prefetch";
+
+export type TelemetryTextProperty =
+  | "content"
+  | "color"
+  | "fontFamily"
+  | "fontSize"
+  | "fontWeight"
+  | "fontStyle"
+  | "lineHeight"
+  | "letterSpacing"
+  | "alignment"
+  | "effect"
+  | "template"
+  | "transform"
+  | "resize";
+
 export interface TelemetryTextPercentiles {
   p50: number;
   p95: number;
@@ -123,6 +150,8 @@ export interface TelemetryTextMetrics {
   kind: TelemetryTextKind;
   rendererPath: TelemetryTextRendererPath;
   phase: TelemetryTextPhase;
+  operation: TelemetryTextOperation;
+  property?: TelemetryTextProperty;
   runtimeEnvironment: "development" | "production";
   windowDurationMs: number;
   renderCount: number;
@@ -133,6 +162,13 @@ export interface TelemetryTextMetrics {
   outputPixels: number;
   renderPercentiles: TelemetryTextPercentiles;
   stagePercentiles: TelemetryTextStagePercentiles;
+  /** Present for completed editing/gesture events, not render windows. */
+  interactionDurationUs?: number;
+  inputToPreviewUs?: number;
+  contentLength?: number;
+  lineCount?: number;
+  layoutWidth?: number;
+  layoutHeight?: number;
 }
 
 export type TelemetryAudioBackend = "native-cpal" | "web-audio";
@@ -311,6 +347,9 @@ export interface TelemetryTextRenderInput {
   kind: TelemetryTextKind;
   rendererPath: TelemetryTextRendererPath;
   phase: TelemetryTextPhase;
+  operation?: TelemetryTextOperation;
+  property?: TelemetryTextProperty;
+  interactionId?: string;
   sessionId?: string;
   fontWaitUs?: number;
   compileUs?: number;
@@ -322,6 +361,26 @@ export interface TelemetryTextRenderInput {
   cacheHit?: boolean;
   layerCount?: number;
   outputPixels?: number;
+  contentLength?: number;
+  lineCount?: number;
+  layoutWidth?: number;
+  layoutHeight?: number;
+}
+
+export interface TelemetryTextInteractionInput {
+  kind?: TelemetryTextKind;
+  rendererPath?: TelemetryTextRendererPath;
+  operation: Exclude<TelemetryTextOperation, "render" | "prefetch">;
+  property?: TelemetryTextProperty;
+  phase?: TelemetryTextPhase;
+  sessionId?: string;
+  interactionId?: string;
+  durationUs: number;
+  inputToPreviewUs?: number;
+  contentLength?: number;
+  lineCount?: number;
+  layoutWidth?: number;
+  layoutHeight?: number;
 }
 
 const DEFAULT_API_INGEST_URL = `${getApiBaseUrl()}/performance/telemetry/ingest/batch`;
@@ -633,7 +692,7 @@ class TextWindowAccumulator {
     return Date.now() - this.windowStartMs >= (import.meta.env.DEV ? 5000 : 30000) && this.renderCount > 0;
   }
 
-  extract(): Omit<TelemetryTextMetrics, "kind" | "rendererPath" | "phase" | "runtimeEnvironment" | "windowDurationMs"> & { windowStartMs: number; windowDurationMs: number } | null {
+  extract(): Omit<TelemetryTextMetrics, "kind" | "rendererPath" | "phase" | "runtimeEnvironment" | "windowDurationMs" | "operation" | "property"> & { windowStartMs: number; windowDurationMs: number } | null {
     if (this.renderCount === 0) {
       this.windowStartMs = Date.now();
       return null;
@@ -1049,6 +1108,8 @@ class TelemetryCollector {
       input.kind,
       input.rendererPath,
       input.phase,
+      input.operation || "render",
+      input.property || "none",
       runtimeEnvironment,
     ]);
     let accumulator = this.textAccumulators.get(key);
@@ -1063,7 +1124,7 @@ class TelemetryCollector {
   public recordTextCacheHit(input: Pick<TelemetryTextRenderInput, "kind" | "rendererPath" | "phase" | "sessionId">): void {
     if (!this.isEnabled) return;
     const runtimeEnvironment = import.meta.env.DEV ? "development" : "production";
-    const key = JSON.stringify([input.sessionId || "text-runtime", input.kind, input.rendererPath, input.phase, runtimeEnvironment]);
+    const key = JSON.stringify([input.sessionId || "text-runtime", input.kind, input.rendererPath, input.phase, runtimeEnvironment, "render", "none"]);
     let accumulator = this.textAccumulators.get(key);
     if (!accumulator) {
       accumulator = new TextWindowAccumulator();
@@ -1076,11 +1137,11 @@ class TelemetryCollector {
   public flushTextWindowsIfPending(): void {
     for (const [key, accumulator] of this.textAccumulators) {
       if (!accumulator.shouldEmit()) continue;
-      const values = JSON.parse(key) as [string, TelemetryTextKind, TelemetryTextRendererPath, TelemetryTextPhase, "development" | "production"];
-      const [sessionId, kind, rendererPath, phase, runtimeEnvironment] = values;
+      const values = JSON.parse(key) as [string, TelemetryTextKind, TelemetryTextRendererPath, TelemetryTextPhase, TelemetryTextOperation, TelemetryTextProperty | "none", "development" | "production"];
+      const [sessionId, kind, rendererPath, phase, operation, property, runtimeEnvironment] = values;
       const summary = accumulator.extract();
       if (!summary) continue;
-      const measurementId = `text:${sessionId}:${kind}:${rendererPath}:${phase}:${summary.windowStartMs}`;
+      const measurementId = `text:${sessionId}:${kind}:${rendererPath}:${phase}:${operation}:${property}:${summary.windowStartMs}`;
       if (this.reportedTextMeasurementIds.has(measurementId)) continue;
       if (this.reportedTextMeasurementIds.size >= 10000) {
         const oldest = this.reportedTextMeasurementIds.values().next().value;
@@ -1120,6 +1181,8 @@ class TelemetryCollector {
           kind,
           rendererPath,
           phase,
+          operation,
+          ...(property !== "none" ? { property } : {}),
           runtimeEnvironment,
           windowDurationMs: summary.windowDurationMs,
           renderCount: summary.renderCount,
@@ -1134,6 +1197,78 @@ class TelemetryCollector {
         timestampMs: Date.now(),
       });
     }
+  }
+
+  /**
+   * Records one completed user interaction as a bounded text event. Pointer
+   * movement stays local; only the completed burst is sent to the API.
+   */
+  public recordTextInteraction(input: TelemetryTextInteractionInput): void {
+    if (!this.isEnabled || input.durationUs < 0) return;
+    const runtimeEnvironment = import.meta.env.DEV ? "development" : "production";
+    const phase = input.phase ?? "interactive-preview";
+    const sessionId = input.sessionId || "text-runtime";
+    const now = Date.now();
+    const percentile = { p50: Math.round(input.durationUs), p95: Math.round(input.durationUs), p99: Math.round(input.durationUs) };
+    const measurementId = `text-interaction:${sessionId}:${input.interactionId || `${input.operation}-${now}`}`;
+    if (this.reportedTextMeasurementIds.has(measurementId)) return;
+    if (this.reportedTextMeasurementIds.size >= 10000) {
+      const oldest = this.reportedTextMeasurementIds.values().next().value;
+      if (oldest) this.reportedTextMeasurementIds.delete(oldest);
+    }
+    this.reportedTextMeasurementIds.add(measurementId);
+    const operation = input.operation;
+    this.enqueueEvent({
+      eventId: `evt_text_interaction_${now}_${Math.random().toString(36).slice(2, 8)}`,
+      measurementId,
+      measurementSource: "frontend-span",
+      sampleKind: "interaction",
+      subsystem: "text",
+      sessionId: input.sessionId,
+      appVersion: this.appVersion,
+      appBuildNumber: import.meta.env.MODE || "prod",
+      appEnvironment: import.meta.env.DEV ? "beta" : "production",
+      device: this.initHardwareContext(),
+      video: this.sanitizeVideoProfile({ nominalFps: 60 }),
+      workload: {
+        mode: "frame-step",
+        durationMs: Math.max(1, Math.round(input.durationUs / 1000)),
+        targetFps: 60,
+        renderedFps: 0,
+        totalFrames: 1,
+        droppedFrames: 0,
+        droppedFramesRatio: 0,
+        staleFrames: 0,
+        cancelledFrames: 0,
+        peakRamMb: 0,
+        cacheHitRatio: 1,
+        stageTimings: { totalTimeUs: Math.round(input.durationUs) },
+      },
+      textMetrics: {
+        kind: input.kind ?? "plain",
+        rendererPath: input.rendererPath ?? "studio-preview",
+        phase,
+        operation,
+        ...(input.property ? { property: input.property } : {}),
+        runtimeEnvironment,
+        windowDurationMs: Math.max(1, Math.round(input.durationUs / 1000)),
+        renderCount: 1,
+        cacheHits: 0,
+        cacheMisses: 1,
+        cacheHitRatio: 0,
+        layerCount: 1,
+        outputPixels: Math.max(0, Math.round((input.layoutWidth || 0) * (input.layoutHeight || 0))),
+        renderPercentiles: percentile,
+        stagePercentiles: { totalTimeUs: percentile },
+        interactionDurationUs: Math.round(input.durationUs),
+        inputToPreviewUs: input.inputToPreviewUs,
+        contentLength: input.contentLength,
+        lineCount: input.lineCount,
+        layoutWidth: input.layoutWidth,
+        layoutHeight: input.layoutHeight,
+      },
+      timestampMs: now,
+    });
   }
 
   /**
