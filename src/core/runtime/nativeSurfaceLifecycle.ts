@@ -5,7 +5,10 @@ import {
   resizeNativeSurface,
 } from "@/lib/platform/tauri";
 import { tracePlayback } from "@/core/playback/playbackTrace";
-import type { NativeSurfaceGeometry, NativeSurfaceProbe } from "@/lib/platform/nativeCore";
+import type {
+  NativeSurfaceGeometry,
+  NativeSurfaceProbe,
+} from "@/lib/platform/nativeCore";
 
 // Native surface commands address one process-global child window in the Tauri
 // host. Keep lifecycle operations ordered across React mounts and project
@@ -95,7 +98,9 @@ export function configureNativeSurface(
   const requestedGeometryKey = getGeometryKey(geometry);
 
   if (!isTauriRuntime()) {
-    return Promise.reject(new Error("Native surface requires the Tauri runtime"));
+    return Promise.reject(
+      new Error("Native surface requires the Tauri runtime"),
+    );
   }
 
   return enqueueNativeSurfaceOperation(async () => {
@@ -126,21 +131,15 @@ export function configureNativeSurface(
     if (ownerChanged || !nativeSurfaceConfigured) {
       await hideNativeSurface().catch(() => undefined);
     }
-    const probe = nativeSurfaceConfigured && !ownerChanged
-      ? await resizeNativeSurface(geometry)
-      : await probeNativeSurface(geometry);
+    const probe =
+      nativeSurfaceConfigured && !ownerChanged
+        ? await resizeNativeSurface(geometry)
+        : await probeNativeSurface(geometry);
 
     nativeSurfaceOwner = ownerProjectId;
     nativeSurfaceGeometryKey = requestedGeometryKey;
     nativeSurfaceConfigured = true;
     nativeSurfaceProbe = probe;
-    tracePlayback("surface-configured", {
-      projectId: ownerProjectId,
-      revision: requestedRevision,
-      geometryKey: requestedGeometryKey,
-      width: probe.windowWidthPhysical,
-      height: probe.windowHeightPhysical,
-    });
 
     return {
       ownerProjectId,
@@ -158,7 +157,9 @@ export function presentOnNativeSurface<T>(
 ): Promise<T> {
   return enqueueNativeSurfaceOperation(async () => {
     if (!nativeSurfaceConfigured || nativeSurfaceOwner !== ownerProjectId) {
-      throw new Error("Native preview surface is not configured for this project");
+      throw new Error(
+        "Native preview surface is not configured for this project",
+      );
     }
     return operation();
   });
@@ -175,14 +176,15 @@ export function releaseNativeSurface(ownerProjectId: string): Promise<void> {
     nativeSurfaceGeometryKey = "";
     nativeSurfaceConfigured = false;
     nativeSurfaceProbe = null;
-    tracePlayback("surface-owner-released", { projectId: ownerProjectId });
   });
 }
 
 export function resetNativeSurfaceReadiness(projectId: string): void {
   const previous = surfaceReadiness.get(projectId);
   if (previous && !previous.settled) {
-    previous.reject(new Error("Native preview surface initialization was superseded"));
+    previous.reject(
+      new Error("Native preview surface initialization was superseded"),
+    );
   }
 
   let resolve!: () => void;
@@ -203,7 +205,6 @@ export function resetNativeSurfaceReadiness(projectId: string): void {
     settled: false,
     ready: false,
   });
-  tracePlayback("surface-readiness-reset", { projectId });
 }
 
 export function ensureNativeSurfaceReadiness(projectId: string): void {
@@ -254,10 +255,6 @@ export function markNativeSurfaceReady(
   state.settled = true;
   state.ready = true;
   state.resolve();
-  tracePlayback("surface-ready", {
-    projectId: token.projectId,
-    generation: token.generation,
-  });
 }
 
 export function failNativeSurfaceReadiness(
@@ -268,11 +265,6 @@ export function failNativeSurfaceReadiness(
   if (!state || state.settled) return;
   state.settled = true;
   state.reject(error);
-  tracePlayback("surface-error", {
-    projectId: token.projectId,
-    generation: token.generation,
-    error: error instanceof Error ? error.message : String(error),
-  });
 }
 
 export function invalidateNativeSurfaceReadiness(
@@ -294,10 +286,6 @@ export function releaseNativeSurfaceReadiness(
     state.reject(new Error("Native preview surface was released"));
   }
   surfaceReadiness.delete(token.projectId);
-  tracePlayback("surface-released", {
-    projectId: token.projectId,
-    generation: token.generation,
-  });
 }
 
 export function clearNativeSurfaceReadiness(projectId: string): void {
@@ -307,7 +295,6 @@ export function clearNativeSurfaceReadiness(projectId: string): void {
     state.reject(new Error("Native preview surface was closed"));
   }
   surfaceReadiness.delete(projectId);
-  tracePlayback("surface-cleared", { projectId });
 }
 
 /**
@@ -328,6 +315,4 @@ export function resetGlobalNativeSurfaceCoordinator(): void {
     }
   }
   surfaceReadiness.clear();
-  tracePlayback("surface-coordinator-reset", {});
 }
-
