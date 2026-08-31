@@ -28,6 +28,10 @@ function hasVisibleAlpha(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderin
 
 function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, offH: number, fontSize: number, scaleX: number, scaleY: number): TextEffectConfig {
   const plainConfig = layerToTextEffectConfig(layer);
+  const hasExplicitWidthConstraint =
+    typeof layer.maxWidth === "number" &&
+    Number.isFinite(layer.maxWidth) &&
+    layer.maxWidth > 0;
   return {
     ...plainConfig,
     canvasWidth: offW,
@@ -42,6 +46,9 @@ function buildPlainTextEffectConfig(layer: EvaluatedTextLayer, offW: number, off
     panelRadius: layer.background ? layer.background.borderRadius * scaleY : plainConfig.panelRadius * scaleY,
     panelPaddingX: layer.background ? layer.background.padding * scaleX : plainConfig.panelPaddingX * scaleX,
     panelPaddingY: layer.background ? layer.background.padding * scaleY : plainConfig.panelPaddingY * scaleY,
+    // Normal title text is point text: only authored newlines create lines.
+    // Captions and explicitly constrained text retain automatic wrapping.
+    wrapText: layer.textRole === "caption" || hasExplicitWidthConstraint,
   } as TextEffectConfig;
 }
 
