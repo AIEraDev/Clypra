@@ -86,6 +86,25 @@ impl NativeRenderSession {
         }
     }
 
+    /// Invalidate queued work without stopping the playback session. This is
+    /// used by seek/project-generation boundaries; an in-progress decoder may
+    /// finish, but it can never reach presentation afterward.
+    fn invalidate(&self, generation: u64) {
+        self.generation.fetch_max(generation, Ordering::AcqRel);
+        if let Ok(mut pending) = self.pending.lock() {
+            if pending
+                .value
+                .as_ref()
+                .and_then(|demand| demand.generation)
+                .map(|pending_generation| pending_generation < generation)
+                .unwrap_or(false)
+            {
+                pending.value = None;
+            }
+        }
+        self.notify.notify_one();
+    }
+
     fn submit(&self, demand: NativePlaybackFrameDemand) -> Result<(), String> {
         if demand.contract_version != NATIVE_CORE_CONTRACT_VERSION {
             return Err(format!(
@@ -304,6 +323,12 @@ impl NativePlaybackRuntime {
     pub fn stop_render(&self) {
         if let Some(session) = &self.render_session {
             session.stop();
+        }
+    }
+
+    pub fn invalidate_render_generation(&self, generation: u64) {
+        if let Some(session) = &self.render_session {
+            session.invalidate(generation);
         }
     }
 
