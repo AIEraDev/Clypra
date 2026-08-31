@@ -74,6 +74,12 @@ describe("native text raster compatibility", () => {
     );
   });
 
+  it("invalidates the raster asset when the text color changes", () => {
+    expect(buildNativeTextRasterKey(makeTextLayer({ color: "#ffffff" }))).not.toBe(
+      buildNativeTextRasterKey(makeTextLayer({ color: "#ff3366" })),
+    );
+  });
+
   it("keeps a pinned clip definition ahead of a newer live catalog definition", () => {
     const pinned = { id: "neon", version: 1 } as never;
     const live = { id: "neon", version: 2 } as never;
