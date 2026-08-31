@@ -39,6 +39,12 @@ type UploadableNativeRaster = NativeRasterLayerSnapshot & {
 interface NativeRasterBridgeOptions {
   frameKey: number;
   phase?: TextRenderTracePhase;
+  /**
+   * Playback is a real-time stream. Cold text assets must never make the
+   * visible frame wait for font loading, Canvas rasterization, or readback.
+   * Paused/seeked renders leave this false so the requested frame is exact.
+   */
+  nonBlockingText?: boolean;
 }
 
 const MAX_TEXT_CACHE_ENTRIES = 96;
@@ -103,7 +109,7 @@ export class NativeRasterBridge {
     // native SDF path remains a compatibility fallback for frames that cannot
     // be rasterized in the WebView.
     const [text, background, animatedStickers, images] = await Promise.all([
-      hasVisualLayers ? this.rasterizeText(scene, options.phase ?? "visible-playback") : Promise.resolve([]),
+      hasVisualLayers ? this.rasterizeText(scene, options.phase ?? "visible-playback", options.nonBlockingText === true) : Promise.resolve([]),
       hasComplexBg ? this.rasterizeBackground(scene, options.frameKey) : Promise.resolve([]),
       hasVisualLayers ? this.rasterizeAnimatedStickers(scene) : Promise.resolve([]),
       hasVisualLayers ? this.rasterizeImages(scene) : Promise.resolve([]),
@@ -122,7 +128,7 @@ export class NativeRasterBridge {
     phase: TextRenderTracePhase = "text-prefetch",
   ): Promise<void> {
     if (!isTauriRuntime()) return;
-    await this.rasterizeText(scene, phase);
+    await this.rasterizeText(scene, phase, false);
   }
 
   /**
@@ -228,6 +234,7 @@ export class NativeRasterBridge {
   private async rasterizeText(
     scene: EvaluatedScene,
     phase: TextRenderTracePhase,
+    nonBlocking: boolean,
   ): Promise<NativeRasterLayerSnapshot[]> {
     const layers = scene.visualLayers.filter((layer) => layer.layerType === "text");
     if (layers.length === 0) return [];
@@ -255,19 +262,23 @@ export class NativeRasterBridge {
       // first frame has no fallback and is awaited during session prewarm or
       // the initial visible render.
       const previous = this.textSnapshotsByLayerId.get(layer.layerId);
-      if (phase === "visible-playback" && previous && this.textSnapshotKeysByLayerId.get(layer.layerId) !== key) {
+      if (nonBlocking && phase === "visible-playback" && this.textSnapshotKeysByLayerId.get(layer.layerId) !== key) {
+        // Keep the old bitmap (when available) while the new one is prepared.
+        // Returning no raster is also valid: buildNativeVideoProjectRequest
+        // emits the native text fallback, which keeps playback moving and
+        // replaces itself on the next frame once the shared bitmap is ready.
         void raster
           .then((asset) => this.register(asset).then(() => {
             this.textSnapshotsByLayerId.set(layer.layerId, snapshot(asset));
             this.textSnapshotKeysByLayerId.set(layer.layerId, key);
           }))
-          .catch((error) => console.warn("[NativeRasterBridge] background text frame failed", {
+          .catch((error) => console.error("[NativeRasterBridge] background text frame failed", {
             layerId: layer.layerId,
             templateId: layer.templateId,
             revisionId: layer.templateRevisionId,
             error: error instanceof Error ? error.message : String(error),
           }));
-        return previous;
+        return previous ?? null;
       }
 
       const asset = await raster;
@@ -299,14 +310,15 @@ export class NativeRasterBridge {
     // text snapshot fallback in buildNativeVideoProjectRequest.
     const rasterResults = await Promise.allSettled(pendingAssets);
     const assets = rasterResults
-      .filter((result): result is PromiseFulfilledResult<NativeTextRasterAsset> => {
+      .filter((result): result is PromiseFulfilledResult<NativeTextRasterAsset | null> => {
         if (result.status === "rejected") {
           console.error("[NativeRasterBridge] text-layer-raster-failed", result.reason);
           return false;
         }
         return true;
       })
-      .map((result) => result.value);
+      .map((result) => result.value)
+      .filter((asset): asset is NativeTextRasterAsset => asset !== null);
 
     return assets.map((asset) => snapshot(asset));
   }
