@@ -24,6 +24,7 @@ import { UpdateBanner } from "@/components/ui/UpdateBanner";
 import { Toaster } from "sonner";
 import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
 import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
+import { getPreviewInteractionCoordinator } from "@/core/interactions";
 
 // const isExternalOrDataUrl = (value: string) => value.startsWith("data:") || value.startsWith("http") || value.startsWith("asset://");
 
@@ -31,6 +32,7 @@ const App = () => {
   const { project, createProject, loadProject, setRecentProjects } = useProjectStore();
   const [isLoading, setIsLoading] = useState(true);
   const { showSettingsModal, toggleSettingsModal } = useUIStore();
+  const settingsWasOpenRef = useRef(showSettingsModal);
   const [pendingRecovery, setPendingRecovery] = useState<RecoverySnapshot | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isClosingProject, setIsClosingProject] = useState(false);
@@ -59,6 +61,17 @@ const App = () => {
   const closingProjectRef = useRef(false);
   const { isRecording, previewRecording, setPreviewRecording } = useRecordingStore();
   const autoUpdater = useAutoUpdater();
+
+  useEffect(() => {
+    const opened = showSettingsModal && !settingsWasOpenRef.current;
+    settingsWasOpenRef.current = showSettingsModal;
+
+    // Settings is also available from the launch screen. Only an editor
+    // session owns playback, so opening Settings there must be a no-op.
+    if (opened && project) {
+      getPreviewInteractionCoordinator().requestPause();
+    }
+  }, [project, showSettingsModal]);
 
   useEffect(() => {
     const initializeApp = async () => {
