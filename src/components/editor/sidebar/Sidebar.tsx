@@ -97,7 +97,7 @@ const SidebarComponent: React.FC<SidebarProps> = ({
                       className={`flex items-center flex-col gap-0.5 px-2.5 py-1.5 text-[10px] font-medium transition-colors whitespace-nowrap cursor-pointer border-b-2 ${
                         isActive
                           ? "text-accent border-accent bg-accent/[0.04]"
-                          : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.02]"
+                          : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/2"
                       }`}
                     >
                       <Icon size={14} />
@@ -156,7 +156,9 @@ const SidebarComponent: React.FC<SidebarProps> = ({
           {activeTab === "audio" && (
             <AudioTab onAddToTimeline={onAddToTimeline} />
           )}
-          {activeTab === "text" && <TextTab onAddToTimeline={onAddToTimeline} />}
+          {activeTab === "text" && (
+            <TextTab onAddToTimeline={onAddToTimeline} />
+          )}
           {activeTab === "smart-overlays" && (
             <SmartOverlaysTab onAddToTimeline={onAddToTimeline} />
           )}
