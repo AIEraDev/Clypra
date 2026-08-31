@@ -40,7 +40,6 @@ import { refitClipsForCanvasChange } from "@/lib/timeline/refitClips";
 import { useAudioSyncEngine } from "@/hooks/useAudioSyncEngine";
 import { toast } from "@/lib/toast";
 
-import { TelemetryOverlay, type TelemetryStats } from "./TelemetryOverlay";
 import { AspectSelector } from "./AspectSelector";
 import { PlaybackSpeedSelector } from "./PlaybackSpeedSelector";
 import { VolumeControl } from "./VolumeControl";
@@ -48,14 +47,9 @@ import { getCanvasBackgroundLayer } from "./canvasBackground";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
 import { clampAndSnapProgramTime } from "@/lib/timeline/programTimelineBridge";
 import {
-  getPlaybackMetricsSnapshot,
   tracePlayback,
   traceSlowPlaybackStage,
 } from "@/core/playback/playbackTrace";
-import {
-  getSyncMetricsSnapshot,
-  startSyncMetricsFlushLoop,
-} from "@/lib/playback/syncMetrics";
 import {
   nativePerfCollector,
   type NativePerfSpan,
@@ -104,6 +98,13 @@ import {
   NativePreviewFrameScheduler,
   type NativePreviewRequestSource,
 } from "./nativePreviewScheduler";
+import {
+  previewQualificationController,
+} from "@/core/playback/previewPerformanceContract";
+import {
+  NativeSurfaceOutput,
+  WebViewCanvasOutput,
+} from "@/core/playback/previewOutputAdapters";
 import { ensureNativeFontsRegistered } from "@/core/fonts/nativeFontRegistry";
 import {
   NATIVE_PREVIEW_ONLY,
@@ -324,12 +325,8 @@ export const NativeProgramPreview: React.FC = () => {
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
-  const [showTelemetry, setShowTelemetry] = useState(false);
   const [showSafeOverlay, setShowSafeOverlay] = useState(false);
   const [scopesOpen, setScopesOpen] = useState(false);
-  const [telemetryStats, setTelemetryStats] = useState<TelemetryStats | null>(
-    null,
-  );
   const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
   const [nativeSurfaceError, setNativeSurfaceError] = useState<string | null>(
     null,
@@ -395,20 +392,15 @@ export const NativeProgramPreview: React.FC = () => {
     textFailedAt: new Map<string, number>(),
   });
   const qualityManagerSigRef = useRef<string>("");
-  const telemetryRef = useRef(telemetryStats);
-  const lastTelemetryFlushRef = useRef(0);
   const previewTelemetryContextRef = useRef<TelemetryPreviewContext>({
     view: "webview",
     surface: "dom-canvas",
     runtimeEnvironment: import.meta.env.DEV ? "development" : "production",
   });
-  // Native stats are polled for the HUD, but `lastSample` is a snapshot, not
-  // a stream. Keep a cursor so polling an idle editor cannot create a new
+  // Native stats are sampled for API telemetry, but `lastSample` is a snapshot,
+  // not a stream. Keep a cursor so polling an idle editor cannot create a new
   // telemetry event for the same native frame over and over.
   const lastReportedNativeSampleRef = useRef<string | null>(null);
-  const showTelemetryRef = useRef(showTelemetry);
-  const droppedFramesRef = useRef(0);
-  const maxDriftRef = useRef(0);
   const originalCanvasDimsRef = useRef<{
     projectId: string;
     width: number;
@@ -458,8 +450,6 @@ export const NativeProgramPreview: React.FC = () => {
   // an idle RAF loop alive.
   const wakeNativeRenderLoopRef = useRef<(() => void) | null>(null);
 
-  showTelemetryRef.current = showTelemetry;
-
   useEffect(() => {
     // Probe native GPU status for accurate hardware telemetry
     if (isTauriRuntime()) {
@@ -476,11 +466,8 @@ export const NativeProgramPreview: React.FC = () => {
         .catch(() => {});
     }
 
-    startSyncMetricsFlushLoop();
     let active = true;
     const flushMetrics = async () => {
-      const snapshot = getPlaybackMetricsSnapshot();
-      const frontendSync = getSyncMetricsSnapshot();
       const [nativeSync, nativeRender] = await Promise.all([
         getNativeSyncMetricsSnapshot().catch(() => null),
         getNativeFrameServiceStats().catch(() => null),
@@ -526,90 +513,19 @@ export const NativeProgramPreview: React.FC = () => {
           nativeSampleCursor,
         );
       }
-
-      if (!showTelemetryRef.current) {
-        setTelemetryStats(null);
-        return;
-      }
-
-      const hasNativeDrift = Boolean(nativeSync && nativeSync.av_drift.n > 0);
-      const hasNativeSeeks = Boolean(nativeSync && nativeSync.seeks.n > 0);
-      const lastRender = nativeRender?.lastSample;
-      const cacheTotal = snapshot.cacheHits + snapshot.cacheMisses;
-      const next: TelemetryStats = {
-        avgEvaluationTimeMs: lastRender ? lastRender.decodeTimeUs / 1000 : 0,
-        avgRasterTimeMs: lastRender
-          ? (lastRender.readbackTimeUs + (lastRender.presentTimeUs ?? 0)) / 1000
-          : 0,
-        avgTotalTimeMs: lastRender
-          ? lastRender.totalTimeUs / 1000
-          : (snapshot.seekP95Ms ?? 0),
-        cacheHitRate:
-          nativeRender?.windowCacheHitRate ??
-          (cacheTotal > 0 ? snapshot.cacheHits / cacheTotal : 0),
-        active: nativeRender?.windowRequestCount ?? 0,
-        droppedFrames: Math.max(
-          snapshot.droppedFrames,
-          nativeSync?.dropped_frames ?? 0,
-          nativeRender?.windowDroppedFrames ?? 0,
-        ),
-        driftMagnitude: hasNativeDrift
-          ? nativeSync!.av_drift.max_abs_micros / 1_000_000
-          : snapshot.maxDriftMs / 1000,
-        seekP50Ms:
-          nativeRender?.windowSeekP50Ms ??
-          (hasNativeSeeks
-            ? nativeSync!.seeks.avg_latency_micros / 1000
-            : snapshot.seekP50Ms),
-        seekP95Ms:
-          nativeRender?.windowSeekP95Ms ??
-          (hasNativeSeeks
-            ? nativeSync!.seeks.max_latency_micros / 1000
-            : snapshot.seekP95Ms),
-        seekP99Ms: snapshot.seekP99Ms,
-        avDriftP95Ms: hasNativeDrift
-          ? nativeSync!.av_drift.p95_abs_micros / 1000
-          : 0,
-        uiPlayheadDriftAvgMs: frontendSync.ui_playhead_drift.avg,
-        uiPlayheadDriftMaxMs: frontendSync.ui_playhead_drift.maxAbs,
-        paintIntervalAvgMs: frontendSync.playhead_paint_jitter.avg,
-        framePacingJank: nativeSync?.frame_pacing.jank_events ?? 0,
-        nativeSeekAvgMs: hasNativeSeeks
-          ? nativeSync!.seeks.avg_latency_micros / 1000
-          : null,
-        nativeSeekMaxMs: hasNativeSeeks
-          ? nativeSync!.seeks.max_latency_micros / 1000
-          : null,
-        nativeSeekCorrect: hasNativeSeeks ? nativeSync!.seeks.correct : 0,
-        nativeSeekCount: hasNativeSeeks ? nativeSync!.seeks.n : 0,
-        staleFrames: Math.max(
-          snapshot.staleFrames,
-          nativeRender?.windowStaleFrames ?? 0,
-        ),
-        cancelledFrames: Math.max(
-          snapshot.cancelledFrames,
-          nativeRender?.windowCancelledFrames ?? 0,
-        ),
-        cacheMisses: nativeRender
-          ? nativeRender.cacheMisses
-          : snapshot.cacheMisses,
-      };
-      telemetryRef.current = next;
-      setTelemetryStats(next);
     };
 
     void flushMetrics();
-    const pollIntervalMs = showTelemetry ? 250 : 1000;
     const interval = window.setInterval(
       () => void flushMetrics(),
-      pollIntervalMs,
+      1000,
     );
     return () => {
       active = false;
       window.clearInterval(interval);
       lastReportedNativeSampleRef.current = null;
     };
-  }, [showTelemetry]);
+  }, []);
   renderStateRef.current.clips = clips;
   renderStateRef.current.tracks = tracks;
   renderStateRef.current.transitions = transitions;
@@ -1377,7 +1293,7 @@ export const NativeProgramPreview: React.FC = () => {
 
     const nativePreviewScheduler = new NativePreviewFrameScheduler({
       maxCacheEntries: 12,
-      maxInFlight: 2,
+      maxInFlight: 1,
       load: async (request, signal) => {
         if (signal?.aborted) {
           throw new DOMException(
@@ -1393,6 +1309,19 @@ export const NativeProgramPreview: React.FC = () => {
               runtimeEnvironment: import.meta.env.DEV
                 ? "development"
                 : "production",
+              sessionId: capturedSession.sessionId,
+              qualificationRunId:
+                previewQualificationController.getState().runId ?? undefined,
+              scenario:
+                previewQualificationController.getState().status === "running"
+                  ? "qualification"
+                  : request.mode === "seek"
+                    ? "seek"
+                    : request.mode === "scrub"
+                      ? "scrub"
+                      : request.mode === "frameStep"
+                        ? "paused-interaction"
+                        : "playback",
             })
           : null;
         frontendSpan?.markDispatchStarted();
@@ -2013,6 +1942,9 @@ export const NativeProgramPreview: React.FC = () => {
           nativeSurfaceReadyNow &&
           nativeSurfaceGeometrySettledRef.current &&
           nativeContinuousBlockedRevision !== nativeRevision;
+        const qualification = previewQualificationController.getState();
+        const qualificationForcesWebView =
+          qualification.status === "running" && qualification.path === "webview";
         const nativeSurfaceOwnsCurrentFrame =
           nativeSurfaceShown &&
           isPlaying &&
@@ -2020,25 +1952,44 @@ export const NativeProgramPreview: React.FC = () => {
           nativeAudioClockReady &&
           nativeSurfaceUsable;
         const nativeDirectSurfacePath =
-          nativeSurfaceUsable && Boolean(nativeRequest) && nativePlaybackPath;
+          nativeSurfaceUsable &&
+          Boolean(nativeRequest) &&
+          nativePlaybackPath &&
+          !qualificationForcesWebView;
+        const outputAdapter = nativeDirectSurfacePath
+          ? NativeSurfaceOutput
+          : WebViewCanvasOutput;
         const nativeReadbackFallbackPath =
           isPlaying &&
           nativePlaybackPath &&
-          !nativeSurfaceUsable;
+          (!nativeSurfaceUsable || qualificationForcesWebView);
+        const telemetryScenario =
+          qualification.status === "running"
+            ? "qualification"
+            : isPlaying
+              ? "playback"
+              : clock.isSeeking
+                ? "seek"
+                : "paused-interaction";
+        const telemetryContextBase = {
+          sessionId: capturedSession.sessionId,
+          qualificationRunId:
+            qualification.status === "running" ? qualification.runId ?? undefined : undefined,
+          scenario: telemetryScenario as "playback" | "seek" | "paused-interaction" | "qualification",
+          runtimeEnvironment: import.meta.env.DEV
+            ? ("development" as const)
+            : ("production" as const),
+        };
         previewTelemetryContextRef.current = nativeDirectSurfacePath
           ? {
-              view: "native",
-              surface: "native-surface",
-              runtimeEnvironment: import.meta.env.DEV
-                ? "development"
-                : "production",
+              view: outputAdapter.path,
+              surface: outputAdapter.surface,
+              ...telemetryContextBase,
             }
           : {
-              view: "webview",
-              surface: "dom-canvas",
-              runtimeEnvironment: import.meta.env.DEV
-                ? "development"
-                : "production",
+              view: outputAdapter.path,
+              surface: outputAdapter.surface,
+              ...telemetryContextBase,
             };
         // The child surface is playback-only on desktop. Paused and seeking
         // frames must be committed to the DOM canvas so they share the exact
@@ -2115,7 +2066,7 @@ export const NativeProgramPreview: React.FC = () => {
                 generation: targetGeneration,
               };
 
-              if (nativeSurfaceUsable) {
+              if (nativeSurfaceUsable && !qualificationForcesWebView) {
                 const tracePresentation = isFirstFrame || !isPlaying;
                 if (tracePresentation) {
                   // tracePlayback("native-present-start", {
@@ -2137,6 +2088,14 @@ export const NativeProgramPreview: React.FC = () => {
                       runtimeEnvironment: import.meta.env.DEV
                         ? "development"
                         : "production",
+                      sessionId: capturedSession.sessionId,
+                      qualificationRunId:
+                        previewQualificationController.getState().runId ?? undefined,
+                      scenario:
+                        previewQualificationController.getState().status ===
+                        "running"
+                          ? "qualification"
+                          : "playback",
                     })
                   : null;
                 frontendSpan?.markDispatchStarted();
@@ -2245,7 +2204,19 @@ export const NativeProgramPreview: React.FC = () => {
                         }
                       }
                     } else {
-                      frontendSpan?.finish();
+                      frontendSpan?.finish({
+                    stageTimings: timings
+                      ? {
+                          decodeUs: timings.decodeUs,
+                          decoderMutexWaitUs: timings.decoderMutexWaitUs,
+                          conversionUploadUs: timings.conversionUploadUs,
+                          composeUs: timings.composeUs,
+                          surfaceAcquireUs: timings.surfaceAcquireUs,
+                          gpuQueueWaitUs: timings.gpuQueueWaitUs,
+                          submitPresentUs: timings.submitPresentUs,
+                        }
+                          : undefined,
+                      });
                       const current = renderStateRef.current;
                       const currentRequestIsStillAuthoritative =
                         requestKey === nativeRequestKey || isPlaying;
@@ -2754,10 +2725,6 @@ export const NativeProgramPreview: React.FC = () => {
         window as unknown as { __CLYPRA_PREVIEW_DEBUG__?: unknown }
       ).__CLYPRA_PREVIEW_DEBUG__ = {
         getPlaybackState: () => clock.getState(),
-        getPlaybackMetrics: () => getPlaybackMetricsSnapshot(),
-        getSyncMetrics: () => getSyncMetricsSnapshot(),
-        getNativeSyncMetrics: () => getNativeSyncMetricsSnapshot(),
-        getNativePerfStats: () => nativePerfCollector.allStats(),
         getPreviewOutputMode: () =>
           previewTelemetryContextRef.current.surface === "native-surface"
             ? "native-surface"
@@ -2790,20 +2757,9 @@ export const NativeProgramPreview: React.FC = () => {
           </span>
         )}
         <button
-          onClick={() => setShowTelemetry((s) => !s)}
-          className={cn(
-            "ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
-            showTelemetry
-              ? "bg-accent/20 text-accent"
-              : "text-text-muted hover:text-text-primary hover:bg-white/6",
-          )}
-        >
-          Metrics
-        </button>
-        <button
           onClick={() => setShowSafeOverlay((s) => !s)}
           className={cn(
-            "px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
+            "ml-auto px-2 h-6 rounded text-[10px] font-medium transition-colors cursor-pointer",
             showSafeOverlay
               ? "bg-accent/20 text-accent"
               : "text-text-muted hover:text-text-primary hover:bg-white/6",
@@ -2814,10 +2770,6 @@ export const NativeProgramPreview: React.FC = () => {
       </div>
 
       <div className="flex-1 flex items-center justify-center overflow-hidden bg-[#06080a] relative">
-        <TelemetryOverlay
-          showTelemetry={showTelemetry}
-          telemetryStats={telemetryStats}
-        />
         <div
           ref={previewContainerCallback}
           onPointerDownCapture={handlePreviewPointerDownCapture}
