@@ -34,6 +34,23 @@ export interface AudioEngineOptions {
   maxMemoryBytes?: number;
 }
 
+export interface AudioEngineTelemetrySnapshot {
+  windowDurationMs: number;
+  syncCalls: number;
+  playingSyncCalls: number;
+  syncTimeUs: number;
+  syncMaxTimeUs: number;
+  activeVoiceCount: number;
+  bufferHits: number;
+  bufferMisses: number;
+  bufferHitRatio: number;
+  stageTimings: {
+    mixerUs: number;
+    bufferWaitUs: number;
+    totalTimeUs: number;
+  };
+}
+
 export class AudioEngine {
   public readonly ctx: AudioContext;
   public readonly bufferPool: AudioBufferPool;
@@ -46,6 +63,13 @@ export class AudioEngine {
   private _masterVolume = 1.0; // 0.0 to 1.0
   private _playbackSpeed = 1.0;
   private _isDisposed = false;
+  private telemetryWindowStartedAt = performance.now();
+  private telemetrySyncCalls = 0;
+  private telemetryPlayingSyncCalls = 0;
+  private telemetrySyncTimeUs = 0;
+  private telemetrySyncMaxTimeUs = 0;
+  private telemetryBufferWaitUs = 0;
+  private telemetryBufferMisses = 0;
 
   constructor(options: AudioEngineOptions = {}) {
     if (options.audioContext) {
@@ -96,6 +120,9 @@ export class AudioEngine {
     muted: boolean = false,
   ): void {
     if (this._isDisposed) return;
+    const syncStartedAt = performance.now();
+    this.telemetrySyncCalls++;
+    if (isPlaying) this.telemetryPlayingSyncCalls++;
 
     this._isMuted = muted;
     this._masterVolume = Math.max(0, Math.min(1, volume / 100));
@@ -108,6 +135,7 @@ export class AudioEngine {
 
     if (!isPlaying || this.ctx.state !== "running") {
       this.stopAllVoices(true);
+      this.recordTelemetrySync(syncStartedAt);
       return;
     }
 
@@ -142,6 +170,7 @@ export class AudioEngine {
         this.killVoice(clipId, voice, true);
       }
     }
+    this.recordTelemetrySync(syncStartedAt);
   }
 
   /**
@@ -156,6 +185,7 @@ export class AudioEngine {
       // If source path exists, load asynchronously so subsequent ticks pick it up
       const sourceUrl = clip.audioPath || clip.mediaId;
       if (sourceUrl && (sourceUrl.startsWith("http") || sourceUrl.startsWith("blob:") || sourceUrl.startsWith("asset:"))) {
+        this.telemetryBufferMisses++;
         this.bufferPool.load(audioKey, sourceUrl).catch(() => {
           // Log or handle load error gracefully
         });
@@ -406,5 +436,40 @@ export class AudioEngine {
       this.masterGain.disconnect();
       this.masterLimiter.disconnect();
     } catch {}
+  }
+
+  private recordTelemetrySync(startedAt: number): void {
+    const elapsedUs = Math.max(0, Math.round((performance.now() - startedAt) * 1000));
+    this.telemetrySyncTimeUs += elapsedUs;
+    this.telemetrySyncMaxTimeUs = Math.max(this.telemetrySyncMaxTimeUs, elapsedUs);
+  }
+
+  public takeTelemetrySnapshot(): AudioEngineTelemetrySnapshot {
+    const now = performance.now();
+    const pool = this.bufferPool.takeTelemetryStats();
+    const snapshot: AudioEngineTelemetrySnapshot = {
+      windowDurationMs: Math.max(1, now - this.telemetryWindowStartedAt),
+      syncCalls: this.telemetrySyncCalls,
+      playingSyncCalls: this.telemetryPlayingSyncCalls,
+      syncTimeUs: this.telemetrySyncTimeUs,
+      syncMaxTimeUs: this.telemetrySyncMaxTimeUs,
+      activeVoiceCount: this.activeVoices.size,
+      bufferHits: pool.hits,
+      bufferMisses: Math.max(pool.misses, this.telemetryBufferMisses),
+      bufferHitRatio: pool.hits + pool.misses > 0 ? pool.hits / (pool.hits + pool.misses) : 1,
+      stageTimings: {
+        mixerUs: this.telemetryPlayingSyncCalls > 0 ? this.telemetrySyncTimeUs : 0,
+        bufferWaitUs: this.telemetryBufferWaitUs,
+        totalTimeUs: this.telemetrySyncTimeUs,
+      },
+    };
+    this.telemetryWindowStartedAt = now;
+    this.telemetrySyncCalls = 0;
+    this.telemetryPlayingSyncCalls = 0;
+    this.telemetrySyncTimeUs = 0;
+    this.telemetrySyncMaxTimeUs = 0;
+    this.telemetryBufferWaitUs = 0;
+    this.telemetryBufferMisses = 0;
+    return snapshot;
   }
 }
