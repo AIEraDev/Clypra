@@ -2,6 +2,7 @@ import type { NativeFrameRequest, NativePreviewMode } from "@/lib/platform/nativ
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type {
   TelemetryOperationMode,
+  TelemetryStageTimings,
   TelemetryPreviewContext,
 } from "@/services/telemetryCollector";
 
@@ -18,6 +19,7 @@ export interface NativeFrontendPerfSample {
   stale: boolean;
   cancelled: boolean;
   previewContext?: TelemetryPreviewContext;
+  stageTimings?: Partial<TelemetryStageTimings>;
 }
 
 export interface NativeFrontendStagePercentiles {
@@ -105,6 +107,7 @@ export class NativePerfSpan {
     dropped?: boolean;
     stale?: boolean;
     cancelled?: boolean;
+    stageTimings?: Partial<TelemetryStageTimings>;
   } = {}): void {
     if (this.finished) return;
     this.markIpcFinished();
@@ -122,6 +125,7 @@ export class NativePerfSpan {
       stale: options.stale === true,
       cancelled: options.cancelled === true,
       previewContext: this.previewContext,
+      stageTimings: options.stageTimings,
     });
   }
 }
@@ -168,8 +172,20 @@ class NativePerfCollector {
 
     telemetryCollector.recordRenderSpan(
       {
+        ...sample.stageTimings,
         schedulerWaitUs: Math.round(sample.dispatchMs * 1000),
         ipcWaitUs: Math.round(sample.ipcMs * 1000),
+      canvasPaintUs:
+        sample.canvasPaintMs !== undefined
+          ? Math.round(sample.canvasPaintMs * 1000)
+          : undefined,
+        // The native invoke boundary includes the RGBA payload transfer for
+        // WebView. Surface that measured bridge duration as transfer cost;
+        // native-sample readback remains the GPU/CPU readback measurement.
+        transferUs:
+          sample.previewContext?.view === "webview"
+            ? Math.round(sample.ipcMs * 1000)
+            : undefined,
         totalTimeUs: Math.round(sample.totalMs * 1000),
       },
       sample.dropped ? 1 : 0,
@@ -181,8 +197,19 @@ class NativePerfCollector {
       sample.cancelled ? 1 : 0,
       {
         previewContext: sample.previewContext,
-        measurementId: `frontend:${sample.requestId}:${sample.frameIndex}`,
+        measurementId: `frontend:${sample.previewContext?.view ?? "unknown"}:${sample.previewContext?.surface ?? "unknown"}:${sample.requestId}:${sample.frameIndex}`,
         measurementSource: "frontend-span",
+        sampleKind: "frame-anomaly",
+        frameSequence: sample.frameIndex,
+        deadlineUs: 16_667,
+        dropReason: sample.dropped
+          ? sample.cancelled
+            ? "cancelled"
+            : sample.stale
+              ? "stale"
+              : "present-failed"
+          : undefined,
+        forceSample: sample.previewContext?.scenario === "qualification",
       },
     );
   }
