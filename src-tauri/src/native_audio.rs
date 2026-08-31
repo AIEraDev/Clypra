@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
 
 pub const TICKS_PER_SECOND: i64 = 1_000_000;
 pub const MAX_PCM_BYTES: usize = 256 * 1024 * 1024;
@@ -34,6 +35,10 @@ pub struct NativeAudioStatus {
     pub speed: f32,
     pub volume: f32,
     pub muted: bool,
+    pub mixer_lock_misses: u64,
+    pub callback_time_us: u64,
+    pub callback_max_time_us: u64,
+    pub callback_over_budget_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -649,6 +654,10 @@ struct NativeAudioClockInner {
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
     transport_ramp_frames: Arc<AtomicU32>,
+    mixer_lock_misses: Arc<AtomicU64>,
+    callback_time_us: Arc<AtomicU64>,
+    callback_max_time_us: Arc<AtomicU64>,
+    callback_over_budget_count: Arc<AtomicU64>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
 }
@@ -676,6 +685,10 @@ impl NativeAudioClock {
                 volume_milli: Arc::new(AtomicU32::new(1_000)),
                 muted: Arc::new(AtomicBool::new(false)),
                 transport_ramp_frames: Arc::new(AtomicU32::new(0)),
+                mixer_lock_misses: Arc::new(AtomicU64::new(0)),
+                callback_time_us: Arc::new(AtomicU64::new(0)),
+                callback_max_time_us: Arc::new(AtomicU64::new(0)),
+                callback_over_budget_count: Arc::new(AtomicU64::new(0)),
                 mixer: Arc::new(RwLock::new(NativeAudioMixer::default())),
                 last_error: Arc::new(Mutex::new(None)),
             },
@@ -700,6 +713,10 @@ impl NativeAudioClock {
         self.inner.position_ticks.store(0, Ordering::Release);
         self.inner.playing.store(false, Ordering::Release);
         self.inner.transport_ramp_frames.store(0, Ordering::Release);
+        self.inner.mixer_lock_misses.store(0, Ordering::Release);
+        self.inner.callback_time_us.store(0, Ordering::Release);
+        self.inner.callback_max_time_us.store(0, Ordering::Release);
+        self.inner.callback_over_budget_count.store(0, Ordering::Release);
 
         let host = cpal::default_host();
         let host_name = format!("{:?}", host.id());
@@ -727,6 +744,10 @@ impl NativeAudioClock {
         let volume_milli = self.inner.volume_milli.clone();
         let muted = self.inner.muted.clone();
         let transport_ramp_frames = self.inner.transport_ramp_frames.clone();
+        let mixer_lock_misses = self.inner.mixer_lock_misses.clone();
+        let callback_time_us = self.inner.callback_time_us.clone();
+        let callback_max_time_us = self.inner.callback_max_time_us.clone();
+        let callback_over_budget_count = self.inner.callback_over_budget_count.clone();
         let mixer = self.inner.mixer.clone();
         let last_error = self.inner.last_error.clone();
 
@@ -745,6 +766,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -762,6 +787,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -779,6 +808,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -796,6 +829,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -813,6 +850,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -830,6 +871,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -847,6 +892,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -864,6 +913,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -881,6 +934,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -898,6 +955,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -915,6 +976,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames.clone(),
+                mixer_lock_misses.clone(),
+                callback_time_us.clone(),
+                callback_max_time_us.clone(),
+                callback_over_budget_count.clone(),
                 mixer,
                 last_error,
             ),
@@ -932,6 +997,10 @@ impl NativeAudioClock {
                 volume_milli,
                 muted,
                 transport_ramp_frames,
+                mixer_lock_misses,
+                callback_time_us,
+                callback_max_time_us,
+                callback_over_budget_count,
                 mixer,
                 last_error,
             ),
@@ -1107,6 +1176,13 @@ impl NativeAudioClock {
             speed: self.inner.speed_milli.load(Ordering::Acquire) as f32 / 1_000.0,
             volume: self.inner.volume_milli.load(Ordering::Acquire) as f32 / 1_000.0,
             muted: self.inner.muted.load(Ordering::Acquire),
+            mixer_lock_misses: self.inner.mixer_lock_misses.load(Ordering::Acquire),
+            callback_time_us: self.inner.callback_time_us.load(Ordering::Acquire),
+            callback_max_time_us: self.inner.callback_max_time_us.load(Ordering::Acquire),
+            callback_over_budget_count: self
+                .inner
+                .callback_over_budget_count
+                .load(Ordering::Acquire),
         }
     }
 
@@ -1160,6 +1236,10 @@ fn build_audio_stream<T>(
     volume_milli: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
     transport_ramp_frames: Arc<AtomicU32>,
+    mixer_lock_misses: Arc<AtomicU64>,
+    callback_time_us: Arc<AtomicU64>,
+    callback_max_time_us: Arc<AtomicU64>,
+    callback_over_budget_count: Arc<AtomicU64>,
     mixer: Arc<RwLock<NativeAudioMixer>>,
     last_error: Arc<Mutex<Option<String>>>,
 ) -> Result<cpal::Stream, cpal::Error>
@@ -1179,6 +1259,7 @@ where
             }
 
             let start_ticks = position_ticks.load(Ordering::Acquire);
+            let callback_started = Instant::now();
             let master_gain = volume_milli.load(Ordering::Acquire) as f32 / 1_000.0;
             let playback_speed = speed_milli.load(Ordering::Acquire) as f32 / 1_000.0;
             let frames = data.len() / usize::from(channels.max(1));
@@ -1207,9 +1288,24 @@ where
                 }
             } else {
                 // Lock contention fallback (render silence rather than block the audio thread)
+                mixer_lock_misses.fetch_add(1, Ordering::Relaxed);
                 for sample in data.iter_mut() {
                     *sample = T::EQUILIBRIUM;
                 }
+            }
+
+            let callback_elapsed_us = callback_started
+                .elapsed()
+                .as_micros()
+                .min(u64::MAX as u128) as u64;
+            callback_time_us.fetch_add(callback_elapsed_us, Ordering::Relaxed);
+            callback_max_time_us.fetch_max(callback_elapsed_us, Ordering::Relaxed);
+            let callback_budget_us = (frames as u64)
+                .saturating_mul(1_000_000)
+                .checked_div(u64::from(sample_rate.max(1)))
+                .unwrap_or(0);
+            if callback_elapsed_us > callback_budget_us {
+                callback_over_budget_count.fetch_add(1, Ordering::Relaxed);
             }
 
             played_frames.fetch_add(frames as u64, Ordering::Relaxed);
