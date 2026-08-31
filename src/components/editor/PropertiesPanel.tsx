@@ -19,8 +19,14 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
-import { RelinkAudioCommand, UnlinkAudioCommand } from "@/core/history/commands/UnlinkAudioCommand";
-import { calculateClipDimensions, type ClipFitModeExtended } from "@/lib/timeline/timelineClip";
+import {
+  RelinkAudioCommand,
+  UnlinkAudioCommand,
+} from "@/core/history/commands/UnlinkAudioCommand";
+import {
+  calculateClipDimensions,
+  type ClipFitModeExtended,
+} from "@/lib/timeline/timelineClip";
 import { resolveTextClipStyleUpdate } from "@/lib/text/textClip";
 import type { Clip, TextClip } from "@/types";
 import { usePresetStore } from "@/store/presetStore";
@@ -36,6 +42,7 @@ import { StickerSettingsSection } from "./properties/StickerSettingsSection";
 import { TimelineEffectSection } from "./properties/TimelineEffectSection";
 import { AdjustmentsSection } from "./properties/AdjustmentsSection";
 import { ChromaKeySection } from "./properties/ChromaKeySection";
+import { getPreviewInteractionCoordinator } from "@/core/interactions";
 
 export interface PropertiesPanelProps {
   width?: number;
@@ -45,12 +52,28 @@ export interface PropertiesPanelProps {
   className?: string;
 }
 
-export function buildClipPropertyTransform(clip: Clip, updates: Record<string, unknown>, canvasWidth: number, canvasHeight: number): { oldTransform: Record<string, unknown>; newTransform: Record<string, unknown> } {
+export function buildClipPropertyTransform(
+  clip: Clip,
+  updates: Record<string, unknown>,
+  canvasWidth: number,
+  canvasHeight: number,
+): {
+  oldTransform: Record<string, unknown>;
+  newTransform: Record<string, unknown>;
+} {
   let newTransform = { ...updates };
 
   if ("trimIn" in newTransform || "trimOut" in newTransform) {
-    const nextTrimIn = typeof newTransform.trimIn === "number" && Number.isFinite(newTransform.trimIn) ? newTransform.trimIn : clip.trimIn;
-    const nextTrimOut = typeof newTransform.trimOut === "number" && Number.isFinite(newTransform.trimOut) ? newTransform.trimOut : clip.trimOut;
+    const nextTrimIn =
+      typeof newTransform.trimIn === "number" &&
+      Number.isFinite(newTransform.trimIn)
+        ? newTransform.trimIn
+        : clip.trimIn;
+    const nextTrimOut =
+      typeof newTransform.trimOut === "number" &&
+      Number.isFinite(newTransform.trimOut)
+        ? newTransform.trimOut
+        : clip.trimOut;
     newTransform = {
       ...newTransform,
       duration: Math.max(0, nextTrimOut - nextTrimIn),
@@ -58,7 +81,12 @@ export function buildClipPropertyTransform(clip: Clip, updates: Record<string, u
   }
 
   if ("text" in clip) {
-    newTransform = resolveTextClipStyleUpdate(clip as TextClip, newTransform as Partial<TextClip>, canvasWidth, canvasHeight) as Record<string, unknown>;
+    newTransform = resolveTextClipStyleUpdate(
+      clip as TextClip,
+      newTransform as Partial<TextClip>,
+      canvasWidth,
+      canvasHeight,
+    ) as Record<string, unknown>;
   }
 
   const oldTransform: Record<string, unknown> = {};
@@ -67,26 +95,49 @@ export function buildClipPropertyTransform(clip: Clip, updates: Record<string, u
   }
 
   if ("adjustments" in newTransform) {
-    oldTransform.adjustments = clip.adjustments ? JSON.parse(JSON.stringify(clip.adjustments)) : undefined;
-    newTransform.adjustments = newTransform.adjustments ? JSON.parse(JSON.stringify(newTransform.adjustments)) : undefined;
+    oldTransform.adjustments = clip.adjustments
+      ? JSON.parse(JSON.stringify(clip.adjustments))
+      : undefined;
+    newTransform.adjustments = newTransform.adjustments
+      ? JSON.parse(JSON.stringify(newTransform.adjustments))
+      : undefined;
   }
 
   if ("stickerSettings" in newTransform) {
-    oldTransform.stickerSettings = clip.stickerSettings ? JSON.parse(JSON.stringify(clip.stickerSettings)) : undefined;
-    newTransform.stickerSettings = newTransform.stickerSettings ? JSON.parse(JSON.stringify(newTransform.stickerSettings)) : undefined;
+    oldTransform.stickerSettings = clip.stickerSettings
+      ? JSON.parse(JSON.stringify(clip.stickerSettings))
+      : undefined;
+    newTransform.stickerSettings = newTransform.stickerSettings
+      ? JSON.parse(JSON.stringify(newTransform.stickerSettings))
+      : undefined;
   }
 
   return { oldTransform, newTransform };
 }
 
 /** Clip type display info */
-function getClipTypeInfo(assetType: string | undefined, clipKind: Clip["kind"] | undefined, isText: boolean, isSticker?: boolean) {
-  if (isText) return { icon: FileText, label: "Text", color: "text-purple-400" };
-  if (isSticker) return { icon: Smile, label: "Sticker", color: "text-pink-400" };
-  if (clipKind === "filter") return { icon: Sparkles, label: "Filter", color: "text-violet-400" };
-  if (clipKind === "video-effect") return { icon: Sparkles, label: "Video Effect", color: "text-violet-400" };
-  if (clipKind === "body-effect") return { icon: Sparkles, label: "Body Effect", color: "text-violet-400" };
-  if (clipKind === "animated-overlay") return { icon: Sparkles, label: "Animated Overlay", color: "text-violet-400" };
+function getClipTypeInfo(
+  assetType: string | undefined,
+  clipKind: Clip["kind"] | undefined,
+  isText: boolean,
+  isSticker?: boolean,
+) {
+  if (isText)
+    return { icon: FileText, label: "Text", color: "text-purple-400" };
+  if (isSticker)
+    return { icon: Smile, label: "Sticker", color: "text-pink-400" };
+  if (clipKind === "filter")
+    return { icon: Sparkles, label: "Filter", color: "text-violet-400" };
+  if (clipKind === "video-effect")
+    return { icon: Sparkles, label: "Video Effect", color: "text-violet-400" };
+  if (clipKind === "body-effect")
+    return { icon: Sparkles, label: "Body Effect", color: "text-violet-400" };
+  if (clipKind === "animated-overlay")
+    return {
+      icon: Sparkles,
+      label: "Animated Overlay",
+      color: "text-violet-400",
+    };
   switch (assetType) {
     case "video":
       return { icon: Film, label: "Video", color: "text-blue-400" };
@@ -101,7 +152,11 @@ function getClipTypeInfo(assetType: string | undefined, clipKind: Clip["kind"] |
 
 type TextPropertyTab = "text" | "animation" | "transform";
 
-const TEXT_TABS: { id: TextPropertyTab; label: string; icon: React.FC<{ className?: string }> }[] = [
+const TEXT_TABS: {
+  id: TextPropertyTab;
+  label: string;
+  icon: React.FC<{ className?: string }>;
+}[] = [
   { id: "text", label: "Text Style", icon: Type },
   { id: "animation", label: "Animation", icon: Sparkles },
   { id: "transform", label: "Transform", icon: Layout },
@@ -125,8 +180,28 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const mediaAssets = useProjectStore((s) => s.mediaAssets);
   const project = useProjectStore((s) => s.project);
   const execute = useHistoryStore((s) => s.execute);
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const executePreviewCommand = (command: Parameters<typeof execute>[0]) => {
+    const token = previewInteractionCoordinator.begin("property-edit");
+    execute(command);
+    previewInteractionCoordinator.commit(token);
+  };
+  const updatePreviewTransition = (
+    id: string,
+    updates: Parameters<typeof updateTransition>[1],
+  ) => {
+    const token = previewInteractionCoordinator.begin("property-edit");
+    updateTransition(id, updates);
+    previewInteractionCoordinator.commit(token);
+  };
+  const removePreviewTransition = (id: string) => {
+    const token = previewInteractionCoordinator.begin("property-edit");
+    removeTransition(id);
+    previewInteractionCoordinator.commit(token);
+  };
 
-  const [activePropertyTab, setActivePropertyTab] = useState<TextPropertyTab>("text");
+  const [activePropertyTab, setActivePropertyTab] =
+    useState<TextPropertyTab>("text");
   const [newPresetName, setNewPresetName] = useState("");
   const presets = usePresetStore((s) => s.presets);
   const savePreset = usePresetStore((s) => s.savePreset);
@@ -144,7 +219,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     }
   };
 
-  const selectedTransition = transitions.find((t) => t.id === selectedTransitionId);
+  const selectedTransition = transitions.find(
+    (t) => t.id === selectedTransitionId,
+  );
 
   if (selectedTransitionId && selectedTransition) {
     return (
@@ -176,10 +253,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-text-primary truncate">
-                  {selectedTransition.type === "dissolve" ? "Dissolve" : "Fade"} Transition
+                  {selectedTransition.type === "dissolve" ? "Dissolve" : "Fade"}{" "}
+                  Transition
                 </p>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[9px] font-medium text-accent">Transition</span>
+                  <span className="text-[9px] font-medium text-accent">
+                    Transition
+                  </span>
                 </div>
               </div>
               {onToggleCollapse && (
@@ -211,8 +291,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-3">
             <TransitionSection
               selectedTransition={selectedTransition}
-              updateTransition={updateTransition}
-              removeTransition={removeTransition}
+              updateTransition={updatePreviewTransition}
+              removeTransition={removePreviewTransition}
               clearSelection={clearSelection}
             />
           </div>
@@ -224,11 +304,19 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const selectedClipId = selectedClipIds[0] ?? null;
   const selectedClip = clips.find((c) => c.id === selectedClipId);
   let selectedAsset = mediaAssets.find((a) => a.id === selectedClip?.mediaId);
-  if (!selectedAsset && selectedClip && (selectedClip.kind === "sticker" || selectedClip.mediaId.startsWith("sticker-"))) {
+  if (
+    !selectedAsset &&
+    selectedClip &&
+    (selectedClip.kind === "sticker" ||
+      selectedClip.mediaId.startsWith("sticker-"))
+  ) {
     selectedAsset = {
       id: selectedClip.mediaId,
       name: selectedClip.name || "Sticker",
-      path: (selectedClip as any).stickerImagePath || selectedClip.stickerAnimationPath || "",
+      path:
+        (selectedClip as any).stickerImagePath ||
+        selectedClip.stickerAnimationPath ||
+        "",
       type: "image",
       duration: selectedClip.duration,
       size: 0,
@@ -237,12 +325,17 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       stickerSourceId: selectedClip.stickerSourceId,
     };
   }
-  const isVisualClip = selectedAsset?.type === "video" || selectedAsset?.type === "image";
+  const isVisualClip =
+    selectedAsset?.type === "video" || selectedAsset?.type === "image";
   // Audio library clips have kind="audio" and audioPath on the clip but no matching mediaAsset entry
-  const isAudioClip = selectedAsset?.type === "audio" || selectedClip?.kind === "audio" || !!(selectedClip as any)?.audioPath;
+  const isAudioClip =
+    selectedAsset?.type === "audio" ||
+    selectedClip?.kind === "audio" ||
+    !!(selectedClip as any)?.audioPath;
   const isVideoClip = selectedAsset?.type === "video"; // Video clips have audio tracks
   const isTextClip = selectedClip && "text" in selectedClip;
-  const hasAudioTrack = isAudioClip || isVideoClip || Boolean(selectedClip?.audio); // Audio-backed clips, including text with an attached audio model
+  const hasAudioTrack =
+    isAudioClip || isVideoClip || Boolean(selectedClip?.audio); // Audio-backed clips, including text with an attached audio model
 
   if (!selectedClipId || !selectedClip) {
     return (
@@ -263,26 +356,52 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const canvasHeight = project?.canvasHeight ?? 1080;
 
   const handleUpdate = (key: string, value: any) => {
-    const { oldTransform, newTransform } = buildClipPropertyTransform(selectedClip, { [key]: value }, canvasWidth, canvasHeight);
-    execute(new TransformClipCommand(selectedClipId, oldTransform, newTransform));
+    const { oldTransform, newTransform } = buildClipPropertyTransform(
+      selectedClip,
+      { [key]: value },
+      canvasWidth,
+      canvasHeight,
+    );
+    executePreviewCommand(
+      new TransformClipCommand(selectedClipId, oldTransform, newTransform),
+    );
   };
 
   const handleUpdateMultiple = (fields: Record<string, any>) => {
-    const { oldTransform: oldFields, newTransform: newFields } = buildClipPropertyTransform(selectedClip, fields, canvasWidth, canvasHeight);
-    execute(new TransformClipCommand(selectedClipId, oldFields, newFields));
+    const { oldTransform: oldFields, newTransform: newFields } =
+      buildClipPropertyTransform(
+        selectedClip,
+        fields,
+        canvasWidth,
+        canvasHeight,
+      );
+    executePreviewCommand(
+      new TransformClipCommand(selectedClipId, oldFields, newFields),
+    );
   };
 
-  const linkedAudio = selectedClip ? UnlinkAudioCommand.findLinkedAudio(selectedClip.id, clips) : undefined;
-  const sourceVideo = selectedClip?.audio?.linkState === "unlinked"
-    ? clips.find((clip) => clip.id === selectedClip.audio?.linkedClipId)
+  const linkedAudio = selectedClip
+    ? UnlinkAudioCommand.findLinkedAudio(selectedClip.id, clips)
     : undefined;
+  const sourceVideo =
+    selectedClip?.audio?.linkState === "unlinked"
+      ? clips.find((clip) => clip.id === selectedClip.audio?.linkedClipId)
+      : undefined;
   const handleUnlinkAudio = () => {
-    if (!selectedClip || !selectedAsset || selectedClip.kind !== "video" || linkedAudio) return;
-    execute(new UnlinkAudioCommand(selectedClip, selectedAsset.path, tracks));
+    if (
+      !selectedClip ||
+      !selectedAsset ||
+      selectedClip.kind !== "video" ||
+      linkedAudio
+    )
+      return;
+    executePreviewCommand(
+      new UnlinkAudioCommand(selectedClip, selectedAsset.path, tracks),
+    );
   };
   const handleRelinkAudio = () => {
     if (!selectedClip || !sourceVideo) return;
-    execute(new RelinkAudioCommand(sourceVideo, selectedClip));
+    executePreviewCommand(new RelinkAudioCommand(sourceVideo, selectedClip));
   };
 
   const handleApplyPreset = (preset: any) => {
@@ -306,8 +425,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   const handleApplyFit = (fitMode: ClipFitModeExtended) => {
     if (!selectedClip || !selectedAsset || !project || !isVisualClip) return;
-    const rect = calculateClipDimensions(selectedAsset, project.canvasWidth, project.canvasHeight, fitMode);
-    execute(
+    const rect = calculateClipDimensions(
+      selectedAsset,
+      project.canvasWidth,
+      project.canvasHeight,
+      fitMode,
+    );
+    executePreviewCommand(
       new TransformClipCommand(
         selectedClip.id,
         {
@@ -328,15 +452,35 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     );
   };
 
-  const isSticker = selectedClip?.kind === "sticker" || selectedClip?.mediaId.startsWith("sticker-");
-  const isFilter = selectedClip?.kind === "filter" || selectedClip?.id.startsWith("filter-clip-");
-  const isTimelineEffectClip = isFilter || selectedClip?.kind === "video-effect" || selectedClip?.kind === "body-effect";
+  const isSticker =
+    selectedClip?.kind === "sticker" ||
+    selectedClip?.mediaId.startsWith("sticker-");
+  const isFilter =
+    selectedClip?.kind === "filter" ||
+    selectedClip?.id.startsWith("filter-clip-");
+  const isTimelineEffectClip =
+    isFilter ||
+    selectedClip?.kind === "video-effect" ||
+    selectedClip?.kind === "body-effect";
 
   // Clip type info for the header. For audio library clips, selectedAsset is undefined; derive type from kind.
-  const effectiveAssetType = selectedAsset?.type ?? (selectedClip.kind === "audio" ? "audio" : undefined);
-  const typeInfo = getClipTypeInfo(effectiveAssetType, selectedClip.kind, !!isTextClip, isSticker);
+  const effectiveAssetType =
+    selectedAsset?.type ??
+    (selectedClip.kind === "audio" ? "audio" : undefined);
+  const typeInfo = getClipTypeInfo(
+    effectiveAssetType,
+    selectedClip.kind,
+    !!isTextClip,
+    isSticker,
+  );
   const TypeIcon = typeInfo.icon;
-  const clipName = isTextClip ? (textClip.text || "Text").slice(0, 24) : isTimelineEffectClip ? (selectedClip.name || typeInfo.label) : selectedAsset?.name || (selectedClip as any)?.audioPath?.split("/").pop() || "Clip";
+  const clipName = isTextClip
+    ? (textClip.text || "Text").slice(0, 24)
+    : isTimelineEffectClip
+      ? selectedClip.name || typeInfo.label
+      : selectedAsset?.name ||
+        (selectedClip as any)?.audioPath?.split("/").pop() ||
+        "Clip";
   const clipDuration = selectedClip.duration.toFixed(1);
 
   return (
@@ -365,13 +509,19 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         ) : (
           <>
             <div className="px-4 py-2.5 flex items-center gap-3">
-              <div className={`w-7 h-7 rounded-lg bg-surface-raised border border-border/40 flex items-center justify-center shrink-0 ${typeInfo.color}`}>
+              <div
+                className={`w-7 h-7 rounded-lg bg-surface-raised border border-border/40 flex items-center justify-center shrink-0 ${typeInfo.color}`}
+              >
                 <TypeIcon className="w-3.5 h-3.5" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-text-primary truncate">{clipName}</p>
+                <p className="text-xs font-semibold text-text-primary truncate">
+                  {clipName}
+                </p>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className={`text-[9px] font-medium ${typeInfo.color}`}>{typeInfo.label}</span>
+                  <span className={`text-[9px] font-medium ${typeInfo.color}`}>
+                    {typeInfo.label}
+                  </span>
                   <span className="text-[9px] text-text-muted/40">•</span>
                   <span className="text-[9px] text-text-muted tabular-nums flex items-center gap-0.5">
                     <Clock className="w-2.5 h-2.5" />
@@ -404,7 +554,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       className={`flex-1 py-2 text-[10px] font-semibold tracking-wide text-center transition-all cursor-pointer border-b-2 ${
                         isActive
                           ? "text-accent border-accent bg-accent/[0.04]"
-                          : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.02]"
+                          : "text-text-muted border-transparent hover:text-text-primary hover:bg-white/2"
                       }`}
                     >
                       <span className="flex items-center justify-center gap-1.5">
@@ -505,31 +655,98 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       ) : (
         <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-3">
           {/* Sticker properties */}
-          {isSticker && <StickerSettingsSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
+          {isSticker && (
+            <StickerSettingsSection
+              selectedClip={selectedClip}
+              handleUpdate={handleUpdate}
+            />
+          )}
 
           {/* Audio properties (audio clips or video clips) */}
-          {hasAudioTrack && <AudioSection selectedClip={selectedClip} handleUpdate={handleUpdate} onUnlink={isVideoClip && !linkedAudio ? handleUnlinkAudio : undefined} onRelink={sourceVideo ? handleRelinkAudio : linkedAudio ? () => execute(new RelinkAudioCommand(selectedClip, linkedAudio)) : undefined} />}
+          {hasAudioTrack && (
+            <AudioSection
+              selectedClip={selectedClip}
+              handleUpdate={handleUpdate}
+              onUnlink={
+                isVideoClip && !linkedAudio ? handleUnlinkAudio : undefined
+              }
+              onRelink={
+                sourceVideo
+                  ? handleRelinkAudio
+                  : linkedAudio
+                    ? () =>
+                        executePreviewCommand(
+                          new RelinkAudioCommand(selectedClip, linkedAudio),
+                        )
+                    : undefined
+              }
+            />
+          )}
 
           {/* Text Styling (text clip + text tab) */}
-          {isTextClip && activePropertyTab === "text" && <TextStyleSection textClip={textClip} presets={presets} newPresetName={newPresetName} setNewPresetName={setNewPresetName} handleUpdate={handleUpdate} handleUpdateMultiple={handleUpdateMultiple} handleApplyPreset={handleApplyPreset} savePreset={savePreset} deletePreset={deletePreset} />}
+          {isTextClip && activePropertyTab === "text" && (
+            <TextStyleSection
+              textClip={textClip}
+              presets={presets}
+              newPresetName={newPresetName}
+              setNewPresetName={setNewPresetName}
+              handleUpdate={handleUpdate}
+              handleUpdateMultiple={handleUpdateMultiple}
+              handleApplyPreset={handleApplyPreset}
+              savePreset={savePreset}
+              deletePreset={deletePreset}
+            />
+          )}
 
           {/* Text Animations (text clip + animation tab) */}
-          {isTextClip && activePropertyTab === "animation" && <TextAnimationControls clip={textClip} handleUpdate={handleUpdate} handleUpdateMultiple={handleUpdateMultiple} />}
+          {isTextClip && activePropertyTab === "animation" && (
+            <TextAnimationControls
+              clip={textClip}
+              handleUpdate={handleUpdate}
+              handleUpdateMultiple={handleUpdateMultiple}
+            />
+          )}
 
           {/* Transform (visual clips, or text clips on transform tab) */}
-          {(isVisualClip || (isTextClip && activePropertyTab === "transform")) && <TransformSection selectedClip={selectedClip} isVisualClip={isVisualClip} handleUpdate={handleUpdate} handleUpdateMultiple={handleUpdateMultiple} handleApplyFit={handleApplyFit} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />}
+          {(isVisualClip ||
+            (isTextClip && activePropertyTab === "transform")) && (
+            <TransformSection
+              selectedClip={selectedClip}
+              isVisualClip={isVisualClip}
+              handleUpdate={handleUpdate}
+              handleUpdateMultiple={handleUpdateMultiple}
+              handleApplyFit={handleApplyFit}
+              canvasWidth={canvasWidth}
+              canvasHeight={canvasHeight}
+            />
+          )}
 
           {/* Color Adjustments */}
-          {isVisualClip && <AdjustmentsSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
+          {isVisualClip && (
+            <AdjustmentsSection
+              selectedClip={selectedClip}
+              handleUpdate={handleUpdate}
+            />
+          )}
 
           {/* UltraKey (Chroma Key) */}
           {isVisualClip && <ChromaKeySection selectedClip={selectedClip} />}
 
           {/* Effects and Filters */}
-          {isVisualClip && <EffectsFiltersSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
+          {isVisualClip && (
+            <EffectsFiltersSection
+              selectedClip={selectedClip}
+              handleUpdate={handleUpdate}
+            />
+          )}
 
           {/* Timeline filter/effect clips */}
-          {isTimelineEffectClip && <TimelineEffectSection selectedClip={selectedClip} handleUpdate={handleUpdate} />}
+          {isTimelineEffectClip && (
+            <TimelineEffectSection
+              selectedClip={selectedClip}
+              handleUpdate={handleUpdate}
+            />
+          )}
         </div>
       )}
     </div>
