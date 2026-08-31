@@ -161,11 +161,21 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   /** The current playhead time in seconds */
   readonly time?: number;
 
+  /** Caption text may wrap by default; title text is point text unless constrained. */
+  readonly textRole?: "caption" | "title";
+
+  /** Explicit user-authored width constraint for automatic wrapping. */
+  readonly maxWidth?: number;
+
   /** The clip start time on timeline */
   readonly clipStartTime?: number;
 
   /** The clip duration */
   readonly clipDuration?: number;
+
+  /** Text lifecycle segment active at the evaluated playhead. */
+  readonly animationOperation?: "render" | "entrance" | "exit" | "animation";
+  readonly animationType?: string;
 
   // ─── Text Content ─────────────────────────────────────────────────────────
 
