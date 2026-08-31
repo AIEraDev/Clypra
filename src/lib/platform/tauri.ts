@@ -6,11 +6,13 @@ import { toNativePath } from "./pathConversion";
 import type {
   NativeFrameRequest,
   NativeFrameServiceStats,
+  NativePerformanceSampleBatch,
   NativeAudioDiagnostics,
   NativeAudioStatus,
   NativeAudioClipStatus,
   NativeGpuRuntimeStatus,
   NativePlaybackPlan,
+  NativePlaybackFrameDemand,
   NativePlaybackState,
   NativeFrameTime,
   NativeSurfaceGeometry,
@@ -373,6 +375,34 @@ export async function presentNativeFrame(
   return invoke<NativeSurfacePresentation>("present_native_frame", { request: nativeRequest });
 }
 
+/** Configure the persistent Rust-owned Native playback render graph. */
+export async function configureNativePlaybackRender(
+  request: NativeFrameRequest,
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error("configureNativePlaybackRender requires the Tauri runtime");
+  }
+  const nativeRequest: NativeFrameRequest = {
+    ...request,
+    project: {
+      ...request.project,
+      videoLayers: request.project.videoLayers.map((layer) => ({
+        ...layer,
+        videoPath: toNativePath(layer.videoPath),
+      })),
+    },
+  };
+  await invoke("configure_native_playback_render", { snapshot: nativeRequest });
+}
+
+/** Submit a compact latest-value Native playback demand without awaiting render. */
+export async function submitNativePlaybackDemand(
+  demand: NativePlaybackFrameDemand,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("submit_native_playback_demand", { demand });
+}
+
 /** Decode a native playback frame ahead of presentation. */
 export async function queueNativeFrame(request: NativeFrameRequest): Promise<void> {
   if (!isTauriRuntime()) {
@@ -431,6 +461,19 @@ export async function getNativeFrameServiceStats(): Promise<NativeFrameServiceSt
     throw new Error("getNativeFrameServiceStats requires the Tauri runtime");
   }
   return invoke<NativeFrameServiceStats>("get_native_frame_service_stats");
+}
+
+export async function getNativeFrameServiceSamples(
+  afterSequence: number,
+  limit = 256,
+): Promise<NativePerformanceSampleBatch> {
+  if (!isTauriRuntime()) {
+    throw new Error("getNativeFrameServiceSamples requires the Tauri runtime");
+  }
+  return invoke<NativePerformanceSampleBatch>("get_native_frame_service_samples", {
+    afterSequence,
+    limit,
+  });
 }
 
 export async function getNativeSyncMetricsSnapshot(): Promise<NativeSyncMetricsSnapshot> {
