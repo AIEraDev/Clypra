@@ -2,8 +2,13 @@ use super::contracts::{DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION};
 use super::playback::frame_for_audio_position;
 use super::{FrameTime, NativeCoreError, PlaybackClockStatus, PlaybackPlan, PlaybackState};
 
-/// Deterministic playback state machine. It deliberately has no audio device
-/// or UI dependency; the future cpal adapter supplies the authoritative clock.
+/// Deterministic playback state machine.
+///
+/// This type intentionally remains a platform-neutral timing/state machine:
+/// decoder leases, Tauri commands, native surfaces, and wgpu presentation are
+/// owned by `NativeRenderSession`. Keeping those concerns out of this type
+/// makes clock transitions and stale-request behavior deterministic and
+/// independently testable.
 #[derive(Debug, Clone)]
 pub struct PlaybackSession {
     plan: PlaybackPlan,
