@@ -5,7 +5,7 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
-import { usePlaybackClock } from "@/hooks/usePlaybackClock";
+import { useProjectStore } from "@/store/projectStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import {
   timeToPixel,
@@ -353,8 +353,11 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   sequenceDuration,
   startOffset = 0,
 }) => {
-  const clockState = usePlaybackClock();
-  const frameRate = clockState.frameRate;
+  // PERF (8-G / Rank 3): TimelineRuler only needs frameRate, which changes rarely
+  // (only on project settings change). Using useProjectStore avoids subscribing to
+  // the clock's 10fps throttled updates, which caused the ruler to re-render on
+  // every playback tick even though its content doesn't change with time.
+  const frameRate = useProjectStore((s) => s.project?.frameRate ?? 30);
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState(1200);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
