@@ -39,6 +39,7 @@ import {
   hasTextClipContentTransformDrift,
   resolveTextClipContentTransform,
 } from "@/lib/text/textClip";
+import { traceTextInteraction } from "@/core/render/textRenderTrace";
 import type {
   Clip,
   TextClip,
@@ -458,6 +459,11 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   const transformController = getTransformController();
   const previewInteractionCoordinator = getPreviewInteractionCoordinator();
   const previewInteractionRef = useRef<PreviewInteractionToken | null>(null);
+  const textTransformTraceRef = useRef<{
+    startedAtMs: number;
+    operation: "transform" | "resize";
+    clipId: string;
+  } | null>(null);
   const executePreviewCommand = useCallback(
     (command: Parameters<typeof execute>[0]) => {
       const token = previewInteractionCoordinator.begin("property-edit");
@@ -705,6 +711,13 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       e.preventDefault();
       e.stopPropagation();
       previewInteractionRef.current = previewInteractionCoordinator.begin("transform");
+      if ("text" in selectedClip) {
+        textTransformTraceRef.current = {
+          startedAtMs: performance.now(),
+          operation: handle === "move" || handle === "rotate" ? "transform" : "resize",
+          clipId: selectedClip.id,
+        };
+      }
       setIsDragging(true);
       setSnappedX(false);
       setSnappedY(false);
@@ -1488,6 +1501,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         previewInteractionCoordinator.cancel(previewInteractionRef.current);
         previewInteractionRef.current = null;
       }
+      textTransformTraceRef.current = null;
       return;
     }
 
@@ -1535,12 +1549,27 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     }
 
     transformController.endTransform();
+    const textTrace = textTransformTraceRef.current;
+    if (textTrace) {
+      traceTextInteraction({
+        kind: (selectedClip as any)?.kind === "text-template" ? "template" : (selectedClip as any)?.styleId ? "effect" : "plain",
+        rendererPath: "studio-preview",
+        operation: textTrace.operation,
+        property: textTrace.operation,
+        durationMs: Math.max(0, performance.now() - textTrace.startedAtMs),
+        interactionId: `text-${textTrace.operation}:${textTrace.clipId}:${textTrace.startedAtMs}`,
+        layoutWidth: finalGeometry.width,
+        layoutHeight: finalGeometry.height,
+      });
+      textTransformTraceRef.current = null;
+    }
     if (previewInteractionRef.current) {
       previewInteractionCoordinator.commit(previewInteractionRef.current);
       previewInteractionRef.current = null;
     }
   }, [
     isDragging,
+    selectedClip,
     execute,
     transformController,
     applyMouseMove,
