@@ -2,12 +2,14 @@ use crate::commands::lut::LutCache;
 use crate::commands::native_surface::NativeSurfaceRuntime;
 use crate::diagnostics;
 use crate::native_audio::NativeAudioClock;
-use crate::native_core::playback::VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ;
+use crate::native_core::playback::{
+    native_presentation_timing as decide_native_presentation_timing, VideoFrameTimingDecision,
+};
 use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
-    NativeFrameService, NativeFrameServiceStats, NativeSurfacePresentation,
-    NativeSurfacePresentationTimings, PerformanceSample, PixelFormat, PreviewMode,
-    TextLayerSnapshot, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
+    NativeFrameService, NativeFrameServiceStats, NativePerformanceSampleBatch,
+    NativeSurfacePresentation, NativeSurfacePresentationTimings, PerformanceSample, PixelFormat,
+    PreviewMode, TextLayerSnapshot, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
 use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
@@ -71,7 +73,11 @@ pub fn register_native_font_bytes(font_id: String, bytes: Vec<u8>) -> Result<u64
     let result =
         clypra_native_core::font_registry::global_font_registry().register_font(&font_id, &bytes);
     if let Err(error) = &result {
-        diagnostics::error("native-font", "register-failed", format!("{font_id}: {error}"));
+        diagnostics::error(
+            "native-font",
+            "register-failed",
+            format!("{font_id}: {error}"),
+        );
     }
     result
 }
@@ -122,10 +128,17 @@ fn native_presentation_timing(
         .record(frame_position_ticks.saturating_sub(status.audio_position_ticks as i64));
     let age = status.audio_position_ticks as i128 - frame_position_ticks as i128;
     let frame_age_ticks = age.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+    let decision = decide_native_presentation_timing(
+        FrameTime::new(0, status.audio_position_ticks as i64, 1_000_000)
+            .expect("native audio clock uses a non-zero timescale"),
+        FrameTime::new(0, frame_position_ticks, 1_000_000)
+            .expect("native frame timestamp uses a non-zero timescale"),
+    )
+    .unwrap_or(VideoFrameTimingDecision::OnTime);
     (
         status.audio_position_ticks,
         frame_age_ticks,
-        frame_age_ticks > VIDEO_DROP_THRESHOLD_TICKS_AT_1MHZ,
+        matches!(decision, VideoFrameTimingDecision::LateForAudio),
     )
 }
 
@@ -165,6 +178,7 @@ fn record_native_surface_sample(
     submit_present_us: Option<u64>,
     dropped: bool,
     stale: bool,
+    drop_reason: Option<&str>,
 ) {
     let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() else {
         return;
@@ -199,6 +213,7 @@ fn record_native_surface_sample(
         cancelled: false,
         stale,
         dropped,
+        drop_reason: drop_reason.map(str::to_string),
         seek_time_us: decode_timings.decode_time_us,
         conversion_time_us: conversion_upload_us.unwrap_or(0).min(u32::MAX as u64) as u32,
         upload_time_us: conversion_upload_us.unwrap_or(0).min(u32::MAX as u64) as u32,
@@ -1915,8 +1930,7 @@ pub async fn register_native_image_asset(
 /// transforms, blend modes, and clear color are identical. The only changed
 /// target is the final wgpu texture view, which removes the CPU RGBA bridge
 /// when an embedded native surface is available.
-#[tauri::command]
-pub async fn present_native_frame(
+pub(crate) async fn present_native_frame_internal(
     app: tauri::AppHandle,
     request: FrameRequest,
 ) -> Result<NativeSurfacePresentation, String> {
@@ -1999,6 +2013,7 @@ pub async fn present_native_frame(
                 None,
                 false,
                 true,
+                Some("stale"),
             );
             return Err("Native preview frame request is stale".to_string());
         }
@@ -2049,6 +2064,7 @@ pub async fn present_native_frame(
             None,
             true,
             false,
+            Some("stale"),
         );
         return Ok(NativeSurfacePresentation {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
@@ -2063,6 +2079,7 @@ pub async fn present_native_frame(
             mode: request.mode.clone(),
             stale: false,
             cancelled: false,
+            drop_reason: Some("stale".to_string()),
             timings: None,
         });
     }
@@ -2083,6 +2100,7 @@ pub async fn present_native_frame(
             None,
             true,
             false,
+            Some("late-for-audio"),
         );
         return Ok(NativeSurfacePresentation {
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
@@ -2097,6 +2115,7 @@ pub async fn present_native_frame(
             mode: request.mode.clone(),
             stale: false,
             cancelled: false,
+            drop_reason: Some("late-for-audio".to_string()),
             timings: None,
         });
     }
@@ -2339,6 +2358,7 @@ pub async fn present_native_frame(
         Some(submit_present_us),
         false,
         false,
+        None,
     );
 
     Ok(NativeSurfacePresentation {
@@ -2354,6 +2374,7 @@ pub async fn present_native_frame(
         mode: request.mode,
         stale: false,
         cancelled: false,
+        drop_reason: None,
         timings: Some(NativeSurfacePresentationTimings {
             total_us: request_started_at.elapsed().as_micros() as u64,
             decode_us: decode_timings.decode_time_us,
@@ -2365,6 +2386,17 @@ pub async fn present_native_frame(
             queue_hit,
         }),
     })
+}
+
+/// Compatibility command for paused/readback recovery and older callers.
+/// Continuous Native playback uses the persistent Rust render session above
+/// and never invokes this command once per frame.
+#[tauri::command]
+pub async fn present_native_frame(
+    app: tauri::AppHandle,
+    request: FrameRequest,
+) -> Result<NativeSurfacePresentation, String> {
+    present_native_frame_internal(app, request).await
 }
 
 /// Legacy-shaped command retained as a compatibility boundary while callers
@@ -2430,6 +2462,7 @@ pub async fn render_native_frame(
                 cancelled: false,
                 stale: false,
                 dropped: false,
+                drop_reason: None,
                 seek_time_us: 0,
                 conversion_time_us: 0,
                 upload_time_us: 0,
@@ -2496,6 +2529,7 @@ pub async fn render_native_frame(
             cancelled: false,
             stale: false,
             dropped: false,
+            drop_reason: None,
             seek_time_us: stage_timings.decode_time_us,
             conversion_time_us: stage_timings.conversion_time_us,
             upload_time_us: 0,
@@ -2532,6 +2566,24 @@ pub async fn get_native_frame_service_stats(
     Ok(stats)
 }
 
+/// Read native samples after a caller-owned cursor. This is a read-only
+/// diagnostics operation; it does not create or mutate telemetry samples.
+#[tauri::command]
+pub async fn get_native_frame_service_samples(
+    app: tauri::AppHandle,
+    after_sequence: u64,
+    limit: Option<usize>,
+) -> Result<NativePerformanceSampleBatch, String> {
+    let Some(service) = app.try_state::<tokio::sync::Mutex<NativeFrameService>>() else {
+        return Err("Native frame service is not initialized".to_string());
+    };
+    let batch = service
+        .lock()
+        .await
+        .samples_since(after_sequence, limit.unwrap_or(256));
+    Ok(batch)
+}
+
 /// Reset all per-project native preview state on project close.
 ///
 /// This atomically:
@@ -2556,14 +2608,18 @@ pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), S
     }
 
     // 4. Reset the surface presentation sequence.
-    if let Some(surface) = app.try_state::<Arc<std::sync::Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>() {
+    if let Some(surface) = app
+        .try_state::<Arc<std::sync::Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()
+    {
         if let Ok(mut s) = surface.inner().clone().lock() {
             s.reset();
         }
     }
 
     // 5. Stop native audio and clear clip state.
-    if let Some(clock) = app.try_state::<Arc<std::sync::Mutex<crate::native_audio::NativeAudioClock>>>() {
+    if let Some(clock) =
+        app.try_state::<Arc<std::sync::Mutex<crate::native_audio::NativeAudioClock>>>()
+    {
         if let Ok(mut c) = clock.inner().clone().lock() {
             c.stop();
         }
