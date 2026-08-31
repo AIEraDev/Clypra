@@ -443,14 +443,12 @@ function EditorTab() {
     previewQuality,
     proxyEditingEnabled,
     autoClearCacheOnProjectClose,
-    performanceTelemetryEnabled,
     setSnapToGrid,
     setAutoSave,
     setDefaultFrameRate,
     setPreviewQuality,
     setProxyEditingEnabled,
     setAutoClearCacheOnProjectClose,
-    setPerformanceTelemetryEnabled,
   } = useSettingsStore();
   const { snapEnabled, toggleSnapEnabled } = useTimelineStore();
   const { project, updateProject } = useProjectStore();
@@ -542,12 +540,6 @@ function EditorTab() {
             description="Automatically frees GPU frame cache when closing a project."
           >
             <ToggleSwitch checked={autoClearCacheOnProjectClose} onChange={setAutoClearCacheOnProjectClose} />
-          </SettingRow>
-          <SettingRow
-            label="Anonymous Performance Telemetry"
-            description="Shares anonymous frame render times, seek latencies, and GPU model to catch regressions and dropped frames. Zero video frames, assets, project titles, or user identities are ever collected."
-          >
-            <ToggleSwitch checked={performanceTelemetryEnabled} onChange={setPerformanceTelemetryEnabled} />
           </SettingRow>
         </div>
       </section>
