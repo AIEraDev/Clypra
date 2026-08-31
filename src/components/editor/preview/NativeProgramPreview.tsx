@@ -700,7 +700,13 @@ export const NativeProgramPreview: React.FC = () => {
         canvasEl.width = state.canvasWidth;
         canvasEl.height = state.canvasHeight;
         if (scene.visualLayers.some((layer) => layer.layerType === "text")) {
-          await paintTextLayersToCanvas(canvasEl, scene);
+          await paintTextLayersToCanvas(
+            canvasEl,
+            scene,
+            state.clock.state === "playing"
+              ? "visible-playback"
+              : "interactive-preview",
+          );
         } else {
           canvasEl
             .getContext("2d")
@@ -1880,7 +1886,11 @@ export const NativeProgramPreview: React.FC = () => {
         const bridgeStartedAt = performance.now();
         const nativeBridgeRasters = await nativeRasterBridge.rasterize(scene, {
           frameKey: frameIndex,
-          phase: "visible-playback",
+          phase: isPlaying ? "visible-playback" : "interactive-preview",
+          // A cold text asset must not block the native playback clock. The
+          // bridge returns the previous bitmap/native text fallback and
+          // publishes the prepared asset for a later frame.
+          nonBlockingText: isPlaying,
         });
         traceSlowPlaybackStage("visible-raster-bridge", bridgeStartedAt, {
           frameIndex,
@@ -2701,7 +2711,11 @@ export const NativeProgramPreview: React.FC = () => {
               scene.visualLayers.some((layer) => layer.layerType === "text")
             ) {
               const browserPaintStarted = performance.now();
-              await paintTextLayersToCanvas(canvasEl, scene);
+              await paintTextLayersToCanvas(
+                canvasEl,
+                scene,
+                isPlaying ? "visible-playback" : "interactive-preview",
+              );
               canvasPaintMs = performance.now() - browserPaintStarted;
             }
             if (nativeFrame && canvasEl && exactNativeFrame !== null) {
