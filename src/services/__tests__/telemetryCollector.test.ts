@@ -145,6 +145,37 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(telemetryCollector.getQueueLength()).toBe(1);
   });
 
+  it("records one idempotent audio health window with backend stage data", () => {
+    telemetryCollector.recordAudioSnapshot({
+      sessionId: "audio-session-1",
+      windowStartMs: 1000,
+      backend: "web-audio",
+      runtimeEnvironment: "development",
+      windowDurationMs: 5000,
+      syncCalls: 300,
+      playingSyncCalls: 300,
+      callbackCount: 300,
+      renderedFrames: 300,
+      underruns: 2,
+      bufferHits: 295,
+      bufferMisses: 5,
+      bufferHitRatio: 295 / 300,
+      stageTimings: { totalTimeUs: 1_500_000 },
+    });
+    telemetryCollector.recordAudioSnapshot({
+      sessionId: "audio-session-1",
+      windowStartMs: 1000,
+      backend: "web-audio",
+      runtimeEnvironment: "development",
+      windowDurationMs: 5000,
+      callbackCount: 300,
+      renderedFrames: 300,
+      stageTimings: { totalTimeUs: 1_500_000 },
+    });
+
+    expect(telemetryCollector.getQueueLength()).toBe(1);
+  });
+
   it("records AI inference tasks like whisper and auto-reframe", () => {
     telemetryCollector.recordAIInferenceSpan("whisper-captions", 320, 0, 0.25, true);
     expect(telemetryCollector.getQueueLength()).toBe(1);
