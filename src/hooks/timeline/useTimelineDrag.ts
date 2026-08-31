@@ -43,6 +43,10 @@ import {
 import { useHistoryStore } from "@/store/historyStore";
 import { buildTimelineDragCommand } from "@/core/history/commands/TimelineDragCommand";
 import { isTrackBelowMainVideo } from "@/lib/timeline/trackTypeConfig";
+import {
+  getPreviewInteractionCoordinator,
+  type PreviewInteractionToken,
+} from "@/core/interactions";
 
 const DRAG_RENDER_EPSILON_PX = 0.25;
 const EDGE_HIT_WIDTH_PX = 8; // Screen-space edge detection (stable at any zoom)
@@ -316,7 +320,9 @@ export function useTimelineDrag(
   const snapEnabled = useTimelineStore((state) => state.snapEnabled);
   const clockState = usePlaybackClock();
   const currentTime = clockState.time;
-  const { pause } = useTransportControls();
+  useTransportControls();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const previewInteractionRef = useRef<PreviewInteractionToken | null>(null);
 
   const [dragState, setDragState] = useState<DragState | null>(null);
 
@@ -379,7 +385,8 @@ export function useTimelineDrag(
       // to carry a locked clip along with it.
       if (hasLockedSourceClip) return;
 
-      pause();
+      previewInteractionRef.current =
+        previewInteractionCoordinator.begin("clip-move");
       suspendAutoSave();
 
       // Find clip's index in its track
@@ -485,7 +492,7 @@ export function useTimelineDrag(
       dragStateRef.current = nextDragState;
       setDragState(nextDragState);
     },
-    [clips, containerRef, pause],
+    [clips, containerRef, previewInteractionCoordinator],
   );
 
   const flushQueuedClipDragMove = useCallback(() => {
@@ -888,6 +895,13 @@ export function useTimelineDrag(
 
   const handleClipDragEnd = useCallback(
     (clipId: string) => {
+      const finishPreviewInteraction = (commit: boolean) => {
+        const token = previewInteractionRef.current;
+        if (!token) return;
+        if (commit) previewInteractionCoordinator.commit(token);
+        else previewInteractionCoordinator.cancel(token);
+        previewInteractionRef.current = null;
+      };
       flushQueuedClipDragMove();
       const dragSnapshot = dragStateRef.current;
 
@@ -896,6 +910,7 @@ export function useTimelineDrag(
 
       if (!dragSnapshot) {
         clearQueuedDragMove();
+        finishPreviewInteraction(false);
         return;
       }
 
@@ -904,6 +919,7 @@ export function useTimelineDrag(
         setDragState(null);
         clearQueuedDragMove();
         resumeAutoSave();
+        finishPreviewInteraction(false);
         return;
       }
 
@@ -915,6 +931,7 @@ export function useTimelineDrag(
         setDragState(null);
         clearQueuedDragMove();
         resumeAutoSave();
+        finishPreviewInteraction(false);
         return;
       }
 
@@ -961,6 +978,7 @@ export function useTimelineDrag(
         setDragState(null);
         clearQueuedDragMove();
         resumeAutoSave();
+        finishPreviewInteraction(Boolean(command));
         return;
       }
 
@@ -974,6 +992,7 @@ export function useTimelineDrag(
         setDragState(null);
         clearQueuedDragMove();
         resumeAutoSave();
+        finishPreviewInteraction(false);
         return;
       }
 
@@ -1015,6 +1034,7 @@ export function useTimelineDrag(
       setDragState(null);
       clearQueuedDragMove();
       resumeAutoSave();
+      finishPreviewInteraction(true);
     },
     [
       flushQueuedClipDragMove,
@@ -1022,6 +1042,7 @@ export function useTimelineDrag(
       clearSnapGuides,
       snapEnabled,
       currentTime,
+      previewInteractionCoordinator,
     ],
   );
 
@@ -1038,17 +1059,29 @@ export function useTimelineDrag(
       dragStateRef.current = null;
       setDragState(null);
       resumeAutoSave();
+      if (previewInteractionRef.current) {
+        previewInteractionCoordinator.cancel(previewInteractionRef.current);
+        previewInteractionRef.current = null;
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [clearQueuedDragMove, clearSnapGuides]);
+  }, [
+    clearQueuedDragMove,
+    clearSnapGuides,
+    previewInteractionCoordinator,
+  ]);
 
   useEffect(() => {
     return () => {
       clearQueuedDragMove();
+      if (previewInteractionRef.current) {
+        previewInteractionCoordinator.cancel(previewInteractionRef.current);
+        previewInteractionRef.current = null;
+      }
     };
-  }, [clearQueuedDragMove]);
+  }, [clearQueuedDragMove, previewInteractionCoordinator]);
 
   // ── Smooth auto-scroll during clip drag ──────────────────────────────────
   useEffect(() => {
