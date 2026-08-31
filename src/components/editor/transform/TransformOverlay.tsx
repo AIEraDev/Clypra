@@ -12,11 +12,17 @@
  *   relative to the overlay itself is (0, 0).
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUIStore } from "@/store/uiStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
-import { getTransformController, type DragGeometry } from "@/core/interactions";
+import {
+  getPreviewInteractionCoordinator,
+  getTransformController,
+  createLatestFrameQueue,
+  type DragGeometry,
+  type PreviewInteractionToken,
+} from "@/core/interactions";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
 import {
   calculateTransform,
@@ -450,6 +456,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
 
   // Get transform controller for imperative updates
   const transformController = getTransformController();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const previewInteractionRef = useRef<PreviewInteractionToken | null>(null);
+  const executePreviewCommand = useCallback(
+    (command: Parameters<typeof execute>[0]) => {
+      const token = previewInteractionCoordinator.begin("property-edit");
+      execute(command);
+      previewInteractionCoordinator.commit(token);
+    },
+    [execute, previewInteractionCoordinator],
+  );
   const activeTransform = transformController.getActiveTransform();
 
   const [isDragging, setIsDragging] = useState(false);
@@ -497,9 +513,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   const startAngleRef = useRef<number | undefined>(undefined);
   /** Start font size for text clips — supports proportional dynamic scaling */
   const startFontSizeRef = useRef<number | undefined>(undefined);
-  /** Latest pointer event waiting for the transform RAF batch. */
-  const pendingMouseMoveRef = useRef<MouseEvent | null>(null);
-  const mouseMoveRafRef = useRef<number | null>(null);
 
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
@@ -593,12 +606,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       // intent. Pause first, then run the same hit test against the now-still
       // frame. The callback is transport-owned; this component only owns the
       // selection decision.
-      if (isPlaybackInteraction) {
-        onPlaybackInteraction?.();
-      }
+      const selectionToken = isPlaybackInteraction
+        ? previewInteractionCoordinator.begin("selection", { pauseOnBegin: true })
+        : null;
 
       const rect = overlayRef.current?.getBoundingClientRect();
-      if (!rect) return;
+      if (!rect) {
+        if (selectionToken) previewInteractionCoordinator.cancel(selectionToken);
+        onPlaybackInteraction?.();
+        return;
+      }
 
       // Convert screen coordinates to canvas coordinates using overlay-local mapping
       const canvasCoords = mouseToCanvas(
@@ -634,6 +651,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         // Multi-select modifier: toggle topmost hit only.
         if (e.shiftKey || e.metaKey || e.ctrlKey) {
           toggleClipSelection(hitCandidates[0].id);
+          if (selectionToken) previewInteractionCoordinator.commit(selectionToken);
           return;
         }
 
@@ -659,6 +677,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         clickCycleRef.current = { signature: "", index: -1 };
         selectClip(null);
       }
+      if (selectionToken) previewInteractionCoordinator.commit(selectionToken);
     },
     [
       clips,
@@ -675,6 +694,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       selectedClipIds,
       isPlaybackInteraction,
       onPlaybackInteraction,
+      previewInteractionCoordinator,
     ],
   );
 
@@ -684,6 +704,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
 
       e.preventDefault();
       e.stopPropagation();
+      previewInteractionRef.current = previewInteractionCoordinator.begin("transform");
       setIsDragging(true);
       setSnappedX(false);
       setSnappedY(false);
@@ -713,7 +734,13 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       snapMouseBottomRef.current = 0;
 
       const rect = overlayRef.current?.getBoundingClientRect();
-      if (!rect) return;
+      if (!rect) {
+        if (previewInteractionRef.current) {
+          previewInteractionCoordinator.cancel(previewInteractionRef.current);
+          previewInteractionRef.current = null;
+        }
+        return;
+      }
 
       // Convert screen coordinates to canvas coordinates using overlay-local mapping
       const canvasCoords = mouseToCanvas(
@@ -827,6 +854,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       canvasWidth,
       canvasHeight,
       transformController,
+      previewInteractionCoordinator,
     ],
   );
 
@@ -1403,23 +1431,20 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     ],
   );
 
+  const transformFrameQueue = useMemo(
+    () => createLatestFrameQueue<MouseEvent>(applyMouseMove),
+    [applyMouseMove],
+  );
+
   // Pointer events can arrive considerably faster than the native preview can
   // compose a frame. Keep only the newest position and apply it once per
   // display frame. This preserves responsive transform feedback without
   // queuing a native render for every raw mousemove event.
   const handleMouseMove = useCallback(
     (event: MouseEvent) => {
-      pendingMouseMoveRef.current = event;
-      if (mouseMoveRafRef.current !== null) return;
-
-      mouseMoveRafRef.current = requestAnimationFrame(() => {
-        mouseMoveRafRef.current = null;
-        const pending = pendingMouseMoveRef.current;
-        pendingMouseMoveRef.current = null;
-        if (pending) applyMouseMove(pending);
-      });
+      transformFrameQueue.push(event);
     },
-    [applyMouseMove],
+    [transformFrameQueue],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -1427,13 +1452,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     if (!isDragging || !currentTransform) return;
 
     // Do not commit a stale transform when mouseup lands before the queued RAF.
-    if (mouseMoveRafRef.current !== null) {
-      cancelAnimationFrame(mouseMoveRafRef.current);
-      mouseMoveRafRef.current = null;
-    }
-    const pendingMouseMove = pendingMouseMoveRef.current;
-    pendingMouseMoveRef.current = null;
-    if (pendingMouseMove) applyMouseMove(pendingMouseMove);
+    transformFrameQueue.flush();
 
     setIsDragging(false);
     setSnappedX(false);
@@ -1465,6 +1484,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     const finalGeometry = transformController.getCurrentDragGeometry();
     if (!finalGeometry) {
       transformController.endTransform();
+      if (previewInteractionRef.current) {
+        previewInteractionCoordinator.cancel(previewInteractionRef.current);
+        previewInteractionRef.current = null;
+      }
       return;
     }
 
@@ -1512,7 +1535,20 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     }
 
     transformController.endTransform();
-  }, [isDragging, execute, transformController, applyMouseMove]);
+    if (previewInteractionRef.current) {
+      previewInteractionCoordinator.commit(previewInteractionRef.current);
+      previewInteractionRef.current = null;
+    }
+  }, [
+    isDragging,
+    execute,
+    transformController,
+    applyMouseMove,
+    previewInteractionCoordinator,
+    transformFrameQueue,
+  ]);
+
+  useEffect(() => () => transformFrameQueue.dispose(), [transformFrameQueue]);
 
   const getClipAspect = useCallback(() => {
     if (!selectedClip) return 16 / 9;
@@ -1582,8 +1618,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       );
     }
 
-    execute(new TransformClipCommand(selectedClip.id, oldVal, newVal));
-  }, [selectedClip, canvasWidth, canvasHeight, getClipAspect, execute]);
+    executePreviewCommand(new TransformClipCommand(selectedClip.id, oldVal, newVal));
+  }, [selectedClip, canvasWidth, canvasHeight, getClipAspect, executePreviewCommand]);
 
   const handleFillCanvas = useCallback(() => {
     if (!selectedClip) return;
@@ -1641,8 +1677,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       );
     }
 
-    execute(new TransformClipCommand(selectedClip.id, oldVal, newVal));
-  }, [selectedClip, canvasWidth, canvasHeight, getClipAspect, execute]);
+    executePreviewCommand(new TransformClipCommand(selectedClip.id, oldVal, newVal));
+  }, [selectedClip, canvasWidth, canvasHeight, getClipAspect, executePreviewCommand]);
 
   const handleResetTransform = useCallback(() => {
     if (!selectedClip) return;
@@ -1694,8 +1730,8 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       };
     }
 
-    execute(new TransformClipCommand(selectedClip.id, oldVal, newVal));
-  }, [selectedClip, canvasWidth, canvasHeight, execute]);
+    executePreviewCommand(new TransformClipCommand(selectedClip.id, oldVal, newVal));
+  }, [selectedClip, canvasWidth, canvasHeight, executePreviewCommand]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -1742,11 +1778,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
 
   React.useEffect(() => {
     return () => {
-      if (mouseMoveRafRef.current !== null) {
-        cancelAnimationFrame(mouseMoveRafRef.current);
-        mouseMoveRafRef.current = null;
+      transformFrameQueue.cancel();
+      if (previewInteractionRef.current) {
+        previewInteractionCoordinator.cancel(
+          previewInteractionRef.current,
+          "disposed",
+          false,
+        );
+        previewInteractionRef.current = null;
       }
-      pendingMouseMoveRef.current = null;
       // Cleanup: remove all cursor classes on unmount
       const cursorClasses = [
         "cursor-move",
@@ -1758,7 +1798,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       ];
       cursorClasses.forEach((cls) => document.body.classList.remove(cls));
     };
-  }, []);
+  }, [previewInteractionCoordinator, transformFrameQueue]);
 
   // Convert clip bounds to screen coordinates for handle rendering
   const isTransformable =
