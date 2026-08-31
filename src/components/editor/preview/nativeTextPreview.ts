@@ -12,7 +12,10 @@ import { rasterizeTextLayer } from "@/core/render/textRasterizer";
 import { getFontLoader } from "@/core/fonts/FontLoader";
 import {
   traceTextRenderGeometry,
+  traceTextRenderCacheHit,
   traceTextRenderTiming,
+  type TextRenderKind,
+  type TextRenderPath,
   type TextRenderTracePhase,
 } from "@/core/render/textRenderTrace";
 
@@ -33,6 +36,17 @@ export interface NativeTextRasterAsset {
   /** Internal geometry metadata; not part of the native wire snapshot. */
   bleedX?: number;
   bleedY?: number;
+  /** Internal timing carried to the WebView painter; never sent to Native. */
+  timing?: {
+    phase: TextRenderTracePhase;
+    kind: TextRenderKind;
+    rendererPath: TextRenderPath;
+    fontWaitMs: number;
+    rasterMs: number;
+    readbackMs: number;
+    totalMs: number;
+    outputPixels: number;
+  };
 }
 
 /**
@@ -63,6 +77,8 @@ export async function paintTextLayersToCanvas(
       if (!rasterPromise) {
         rasterPromise = rasterizeTextLayerForNative(layer, {
           phase: "visible-playback",
+          rendererPath: "webview-canvas",
+          deferTelemetry: true,
         });
         browserTextRasterCache.set(rasterKey, rasterPromise);
         while (browserTextRasterCache.size > MAX_BROWSER_TEXT_RASTER_ENTRIES) {
@@ -76,6 +92,8 @@ export async function paintTextLayersToCanvas(
           if (browserTextRasterCache.get(rasterKey) === rasterPromise)
             browserTextRasterCache.delete(rasterKey);
         });
+      } else {
+        traceTextRenderCacheHit({ kind: getTextRenderKind(layer), rendererPath: "webview-canvas", phase: "visible-playback" });
       }
       return { layer, asset: await rasterPromise };
     }),
@@ -98,9 +116,12 @@ export async function paintTextLayersToCanvas(
     bitmapCanvas.height = asset.height;
     const bitmapContext = bitmapCanvas.getContext("2d");
     if (!bitmapContext) continue;
+    const transferStartedAt = performance.now();
     const image = bitmapContext.createImageData(asset.width, asset.height);
     image.data.set(asset.rgba);
     bitmapContext.putImageData(image, 0, 0);
+    const transferMs = performance.now() - transferStartedAt;
+    const paintStartedAt = performance.now();
     ctx.save();
     ctx.globalAlpha = layer.opacity;
     const isAbsolute = asset.positionMode === "absolute";
@@ -118,6 +139,15 @@ export async function paintTextLayersToCanvas(
       -asset.height / 2,
     );
     ctx.restore();
+    const paintMs = performance.now() - paintStartedAt;
+    if (asset.timing) {
+      traceTextRenderTiming({
+        ...asset.timing,
+        transferMs,
+        paintMs,
+        totalMs: asset.timing.totalMs + transferMs + paintMs,
+      });
+    }
   }
 }
 
@@ -324,7 +354,7 @@ function cropTransparentBounds(
  */
 export async function rasterizeTextLayerForNative(
   layer: EvaluatedTextLayer,
-  options: { phase?: TextRenderTracePhase } = {},
+  options: { phase?: TextRenderTracePhase; rendererPath?: TextRenderPath; deferTelemetry?: boolean } = {},
 ): Promise<NativeTextRasterAsset> {
   const totalStartedAt = performance.now();
   let fontWaitMs = 0;
@@ -423,21 +453,28 @@ export async function rasterizeTextLayerForNative(
   const rasterMs = performance.now() - rasterStartedAt;
   ctx.restore();
 
+  const readbackStartedAt = performance.now();
   const rgba = Array.from(ctx.getImageData(0, 0, width, height).data);
+  const readbackMs = performance.now() - readbackStartedAt;
   const templateArtifact = resolveTextTemplateArtifact(layer.templateSnapshot);
   const croppedTemplate = templateArtifact
     ? cropTransparentBounds(rgba, width, height)
     : null;
   const cacheKey = buildNativeTextRasterKey(layer);
-  // traceTextRenderTiming({
-  //   phase: options.phase ?? "visible-playback",
-  //   assetId: layer.templateId ?? layer.styleId,
-  //   layerId: layer.layerId,
-  //   fontFamily: layer.fontFamily,
-  //   fontWaitMs,
-  //   rasterMs,
-  //   totalMs: performance.now() - totalStartedAt,
-  // });
+  const timing = {
+    phase: options.phase ?? "visible-playback",
+    kind: getTextRenderKind(layer),
+    rendererPath: options.rendererPath ?? "native-raster",
+    assetId: layer.templateId ?? layer.styleId,
+    layerId: layer.layerId,
+    fontFamily: layer.fontFamily,
+    fontWaitMs,
+    rasterMs,
+    readbackMs: (options.rendererPath ?? "native-raster") === "webview-canvas" ? readbackMs : 0,
+    outputPixels: width * height,
+    totalMs: performance.now() - totalStartedAt,
+  };
+  if (!options.deferTelemetry) traceTextRenderTiming(timing);
 
   return {
     assetId: `native-text:${layer.layerId}:${hashTextRasterKey(cacheKey)}`,
@@ -458,5 +495,12 @@ export async function rasterizeTextLayerForNative(
     ...(croppedTemplate ? { positionMode: "absolute" as const } : {}),
     bleedX,
     bleedY,
+    timing,
   };
+}
+
+function getTextRenderKind(layer: EvaluatedTextLayer): TextRenderKind {
+  if (layer.templateId || layer.clipKind === "text-template") return "template";
+  if (layer.styleId) return "effect";
+  return "plain";
 }
