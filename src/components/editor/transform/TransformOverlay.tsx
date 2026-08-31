@@ -18,10 +18,28 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useHistoryStore } from "@/store/historyStore";
 import { getTransformController, type DragGeometry } from "@/core/interactions";
 import { TransformClipCommand } from "@/core/history/commands/TransformCommand";
-import { calculateTransform, getDefaultConstraints, getCursorForHandle } from "./calculator";
-import { screenToCanvas, canvasToScreen, hitTestClip, type ViewportTransform } from "@/lib/utils/coordinateSystem";
-import { hasTextClipContentTransformDrift, resolveTextClipContentTransform } from "@/lib/text/textClip";
-import type { Clip, TextClip, Track, TransformHandle, TransformState } from "@/types";
+import {
+  calculateTransform,
+  getDefaultConstraints,
+  getCursorForHandle,
+} from "./calculator";
+import {
+  screenToCanvas,
+  canvasToScreen,
+  hitTestClip,
+  type ViewportTransform,
+} from "@/lib/utils/coordinateSystem";
+import {
+  hasTextClipContentTransformDrift,
+  resolveTextClipContentTransform,
+} from "@/lib/text/textClip";
+import type {
+  Clip,
+  TextClip,
+  Track,
+  TransformHandle,
+  TransformState,
+} from "@/types";
 import { ContextMenu } from "@/components/ui/ContextMenu";
 import { useProjectStore } from "@/store/projectStore";
 import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
@@ -35,12 +53,21 @@ export function shouldScaleTextFontForHandle(handle: TransformHandle): boolean {
   return handle !== "move" && handle !== "rotate";
 }
 
-export function calculateTextResizeFontSize(startFontSize: number, handle: TransformHandle, startTransform: { width: number; height: number }, nextTransform: { width?: number; height?: number }): number {
+export function calculateTextResizeFontSize(
+  startFontSize: number,
+  handle: TransformHandle,
+  startTransform: { width: number; height: number },
+  nextTransform: { width?: number; height?: number },
+): number {
   const scale = calculateTextResizeScale(handle, startTransform, nextTransform);
   return Math.max(10, Math.min(1000, Math.round(startFontSize * scale)));
 }
 
-export function calculateTextResizeScale(handle: TransformHandle, startTransform: { width: number; height: number }, nextTransform: { width?: number; height?: number }): number {
+export function calculateTextResizeScale(
+  handle: TransformHandle,
+  startTransform: { width: number; height: number },
+  nextTransform: { width?: number; height?: number },
+): number {
   const startWidth = Math.max(1, startTransform.width);
   const startHeight = Math.max(1, startTransform.height);
   const nextWidth = nextTransform.width ?? startTransform.width;
@@ -51,16 +78,29 @@ export function calculateTextResizeScale(handle: TransformHandle, startTransform
     scale = nextWidth / startWidth;
   } else if (handle === "n" || handle === "s") {
     scale = nextHeight / startHeight;
-  } else if (handle === "nw" || handle === "ne" || handle === "sw" || handle === "se") {
+  } else if (
+    handle === "nw" ||
+    handle === "ne" ||
+    handle === "sw" ||
+    handle === "se"
+  ) {
     const widthScale = nextWidth / startWidth;
     const heightScale = nextHeight / startHeight;
-    scale = Math.abs(widthScale - 1) >= Math.abs(heightScale - 1) ? widthScale : heightScale;
+    scale =
+      Math.abs(widthScale - 1) >= Math.abs(heightScale - 1)
+        ? widthScale
+        : heightScale;
   }
 
   return Math.max(0.01, scale);
 }
 
-export function calculateScaledTextTransform(handle: TransformHandle, startTransform: { x: number; y: number; width: number; height: number }, nextTransform: Partial<Clip>, scale: number): Partial<Clip> {
+export function calculateScaledTextTransform(
+  handle: TransformHandle,
+  startTransform: { x: number; y: number; width: number; height: number },
+  nextTransform: Partial<Clip>,
+  scale: number,
+): Partial<Clip> {
   if (!shouldScaleTextFontForHandle(handle)) return nextTransform;
 
   const centerX = startTransform.x + startTransform.width / 2;
@@ -93,12 +133,18 @@ export function calculateScaledTextTransform(handle: TransformHandle, startTrans
   };
 }
 
-export function isClipActiveAtTime(clip: { startTime: number; duration: number }, time: number): boolean {
+export function isClipActiveAtTime(
+  clip: { startTime: number; duration: number },
+  time: number,
+): boolean {
   const end = clip.startTime + clip.duration;
   return clip.startTime <= time && time < end;
 }
 
-export function buildTransformStartClip(selectedClip: Clip, activeTransform: TransformState): Clip {
+export function buildTransformStartClip(
+  selectedClip: Clip,
+  activeTransform: TransformState,
+): Clip {
   return {
     ...selectedClip,
     ...activeTransform.startTransform,
@@ -168,14 +214,29 @@ interface TransformOverlayProps {
  * inside the display viewport div, so the letterbox offset relative to
  * the overlay is always (0, 0).
  */
-function mouseToCanvas(clientX: number, clientY: number, overlayRect: DOMRect, viewport: ViewportTransform, canvasWidth: number, canvasHeight: number, scale: number): { x: number; y: number } {
+function mouseToCanvas(
+  clientX: number,
+  clientY: number,
+  overlayRect: DOMRect,
+  viewport: ViewportTransform,
+  canvasWidth: number,
+  canvasHeight: number,
+  scale: number,
+): { x: number; y: number } {
   // Step 1: Screen → overlay-local (subtract overlay's screen position)
   const localX = clientX - overlayRect.left;
   const localY = clientY - overlayRect.top;
 
   // Step 2: Overlay-local → canvas (the overlay sits at displayOffset=(0,0)
   // relative to itself, so pass zero offset)
-  return screenToCanvas(localX, localY, viewport, { width: canvasWidth, height: canvasHeight }, scale, { x: 0, y: 0 });
+  return screenToCanvas(
+    localX,
+    localY,
+    viewport,
+    { width: canvasWidth, height: canvasHeight },
+    scale,
+    { x: 0, y: 0 },
+  );
 }
 
 /**
@@ -215,7 +276,13 @@ export interface HitTestCandidateDiagnostic {
   zIndex: number;
   evaluationPriority: number;
   compositorClip: CompositorClip;
-  bounds: { x: number; y: number; width: number; height: number; rotation: number };
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
   hit: boolean;
 }
 
@@ -334,9 +401,21 @@ export function getHitTestCandidates(
     .map(({ clip }) => clip);
 }
 
-export function getUpdatedConformForClipBounds(clip: Clip, newX: number, newY: number, newWidth: number, newHeight: number, canvasWidth: number, canvasHeight: number): any | undefined {
+export function getUpdatedConformForClipBounds(
+  clip: Clip,
+  newX: number,
+  newY: number,
+  newWidth: number,
+  newHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): any | undefined {
   if (clip.conform && clip.conform.sourceWidth && clip.conform.sourceHeight) {
-    const baseConformed = resolveConform({ ...clip.conform, userScale: 1, userOffsetX: 0, userOffsetY: 0 }, canvasWidth, canvasHeight);
+    const baseConformed = resolveConform(
+      { ...clip.conform, userScale: 1, userOffsetX: 0, userOffsetY: 0 },
+      canvasWidth,
+      canvasHeight,
+    );
     if (baseConformed) {
       const userScale = newWidth / baseConformed.width;
       const userOffsetX = newX + newWidth / 2 - canvasWidth / 2;
@@ -352,7 +431,19 @@ export function getUpdatedConformForClipBounds(clip: Clip, newX: number, newY: n
   return undefined;
 }
 
-export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth, canvasHeight, scale, viewport, displayOffset, displayWidth, displayHeight, currentTime, visible = true, interactionMode = "editing", onPlaybackInteraction }) => {
+export const TransformOverlay: React.FC<TransformOverlayProps> = ({
+  canvasWidth,
+  canvasHeight,
+  scale,
+  viewport,
+  displayOffset,
+  displayWidth,
+  displayHeight,
+  currentTime,
+  visible = true,
+  interactionMode = "editing",
+  onPlaybackInteraction,
+}) => {
   const { selectedClipIds, selectClip, toggleClipSelection } = useUIStore();
   const { clips, tracks, updateClip } = useTimelineStore();
   const { execute } = useHistoryStore();
@@ -371,7 +462,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   const [snapGuideX, setSnapGuideX] = useState<number | null>(null);
   const [snapGuideY, setSnapGuideY] = useState<number | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   const snappedXRef = useRef<boolean>(false);
   const snappedYRef = useRef<boolean>(false);
@@ -394,7 +488,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
   const overlayRef = useRef<HTMLDivElement>(null);
   const transformContainerRef = useRef<HTMLDivElement>(null);
-  const clickCycleRef = useRef<{ signature: string; index: number }>({ signature: "", index: -1 });
+  const clickCycleRef = useRef<{ signature: string; index: number }>({
+    signature: "",
+    index: -1,
+  });
   const dragCursorRef = useRef<string | null>(null);
   /** Start angle (radians) for rotation drag — prevents initial snap */
   const startAngleRef = useRef<number | undefined>(undefined);
@@ -420,15 +517,22 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       container.style.removeProperty("--transform-overlay-drag-transform");
     };
 
-    const unsubscribeGeometry = transformController.onDragGeometry((geometry) => {
-      const active = transformController.getActiveTransform();
-      if (!active || active.clipId !== selectedClip?.id) return;
+    const unsubscribeGeometry = transformController.onDragGeometry(
+      (geometry) => {
+        const active = transformController.getActiveTransform();
+        if (!active || active.clipId !== selectedClip?.id) return;
 
-      container.style.setProperty(
-        "--transform-overlay-drag-transform",
-        getDragPreviewTransform(geometry, active.startTransform, scale, viewport.zoom),
-      );
-    });
+        container.style.setProperty(
+          "--transform-overlay-drag-transform",
+          getDragPreviewTransform(
+            geometry,
+            active.startTransform,
+            scale,
+            viewport.zoom,
+          ),
+        );
+      },
+    );
     const unsubscribeEnd = transformController.onDragEnd(clearPreviewTransform);
 
     return () => {
@@ -439,18 +543,37 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   }, [selectedClip?.id, scale, transformController, viewport.zoom]);
 
   useEffect(() => {
-    if (!selectedClip || isDragging || !isClipActiveAtTime(selectedClip, currentTime) || !("text" in selectedClip)) return;
+    if (
+      !selectedClip ||
+      isDragging ||
+      !isClipActiveAtTime(selectedClip, currentTime) ||
+      !("text" in selectedClip)
+    )
+      return;
 
     const textClip = selectedClip as TextClip;
     // Apply transform normalization to text effects (styleId) and text with background
     // Template clips are excluded because their bounds are determined by the template's
     // canvas dimensions and should be freely transformable without normalization
     if (!textClip.styleId && !textClip.background) return;
-    if (!hasTextClipContentTransformDrift(textClip, canvasWidth, canvasHeight)) return;
+    if (!hasTextClipContentTransformDrift(textClip, canvasWidth, canvasHeight))
+      return;
 
-    const nextTransform = resolveTextClipContentTransform(textClip, canvasWidth, canvasHeight, "selection-normalize");
+    const nextTransform = resolveTextClipContentTransform(
+      textClip,
+      canvasWidth,
+      canvasHeight,
+      "selection-normalize",
+    );
     updateClip(textClip.id, nextTransform);
-  }, [selectedClip, isDragging, currentTime, canvasWidth, canvasHeight, updateClip]);
+  }, [
+    selectedClip,
+    isDragging,
+    currentTime,
+    canvasWidth,
+    canvasHeight,
+    updateClip,
+  ]);
 
   // Handle canvas mousedown to select/deselect clips.
   // Using mousedown (instead of click) avoids click-tail races after drag.
@@ -459,7 +582,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       if (e.button !== 0) return;
 
       // Don't handle if clicking on a handle or during drag
-      if (isDragging || (e.target as HTMLElement).closest("[data-transform-handle]")) {
+      if (
+        isDragging ||
+        (e.target as HTMLElement).closest("[data-transform-handle]")
+      ) {
         return;
       }
 
@@ -475,7 +601,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       if (!rect) return;
 
       // Convert screen coordinates to canvas coordinates using overlay-local mapping
-      const canvasCoords = mouseToCanvas(e.clientX, e.clientY, rect, viewport, canvasWidth, canvasHeight, scale);
+      const canvasCoords = mouseToCanvas(
+        e.clientX,
+        e.clientY,
+        rect,
+        viewport,
+        canvasWidth,
+        canvasHeight,
+        scale,
+      );
 
       const hitCandidates = getHitTestCandidates(
         clips,
@@ -495,35 +629,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         canvasWidth,
         canvasHeight,
       );
-      tracePlayback("preview-hit-test", {
-        source: "canvas-capture",
-        pointer: { clientX: e.clientX, clientY: e.clientY },
-        overlayRect: {
-          left: Number(rect.left.toFixed(2)),
-          top: Number(rect.top.toFixed(2)),
-          width: Number(rect.width.toFixed(2)),
-          height: Number(rect.height.toFixed(2)),
-        },
-        canvasPoint: {
-          x: Number(canvasCoords.x.toFixed(2)),
-          y: Number(canvasCoords.y.toFixed(2)),
-        },
-        currentTime: Number(currentTime.toFixed(3)),
-        selectedClipId: selectedClip?.id ?? null,
-        modifiers: { shift: e.shiftKey, meta: e.metaKey, ctrl: e.ctrlKey },
-        candidates: hitDiagnostics.map((candidate) => ({
-          id: candidate.clip.id,
-          kind: candidate.clip.kind,
-          trackId: candidate.clip.trackId,
-          trackIndex: candidate.trackIndex,
-          role: candidate.role,
-          zIndex: candidate.zIndex,
-          evaluationPriority: candidate.evaluationPriority,
-          bounds: candidate.bounds,
-          hit: candidate.hit,
-        })),
-        hitCandidateIds: hitCandidates.map((candidate) => candidate.id),
-      });
 
       if (hitCandidates.length > 0) {
         // Multi-select modifier: toggle topmost hit only.
@@ -555,7 +660,22 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         selectClip(null);
       }
     },
-    [clips, tracks, currentTime, scale, viewport, canvasWidth, canvasHeight, isDragging, selectClip, toggleClipSelection, selectedClip, selectedClipIds, isPlaybackInteraction, onPlaybackInteraction],
+    [
+      clips,
+      tracks,
+      currentTime,
+      scale,
+      viewport,
+      canvasWidth,
+      canvasHeight,
+      isDragging,
+      selectClip,
+      toggleClipSelection,
+      selectedClip,
+      selectedClipIds,
+      isPlaybackInteraction,
+      onPlaybackInteraction,
+    ],
   );
 
   const handleMouseDown = useCallback(
@@ -596,7 +716,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       if (!rect) return;
 
       // Convert screen coordinates to canvas coordinates using overlay-local mapping
-      const canvasCoords = mouseToCanvas(e.clientX, e.clientY, rect, viewport, canvasWidth, canvasHeight, scale);
+      const canvasCoords = mouseToCanvas(
+        e.clientX,
+        e.clientY,
+        rect,
+        viewport,
+        canvasWidth,
+        canvasHeight,
+        scale,
+      );
 
       // Resolve actual rendered dimensions (accounting for conform if present)
       let actualWidth = selectedClip.width;
@@ -604,8 +732,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       let actualX = selectedClip.x;
       let actualY = selectedClip.y;
 
-      if (selectedClip.conform && selectedClip.conform.sourceWidth && selectedClip.conform.sourceHeight) {
-        const resolved = resolveConform(selectedClip.conform, canvasWidth, canvasHeight);
+      if (
+        selectedClip.conform &&
+        selectedClip.conform.sourceWidth &&
+        selectedClip.conform.sourceHeight
+      ) {
+        const resolved = resolveConform(
+          selectedClip.conform,
+          canvasWidth,
+          canvasHeight,
+        );
         actualWidth = resolved.width;
         actualHeight = resolved.height;
         actualX = resolved.x;
@@ -616,7 +752,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       if (handle === "rotate") {
         const centerX = actualX + actualWidth / 2;
         const centerY = actualY + actualHeight / 2;
-        startAngleRef.current = Math.atan2(canvasCoords.y - centerY, canvasCoords.x - centerX);
+        startAngleRef.current = Math.atan2(
+          canvasCoords.y - centerY,
+          canvasCoords.x - centerX,
+        );
       } else {
         startAngleRef.current = undefined;
       }
@@ -657,11 +796,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           width: actualWidth,
           height: actualHeight,
           rotation: selectedClip.rotation,
-          conform: selectedClip.conform ? { ...selectedClip.conform } : undefined,
+          conform: selectedClip.conform
+            ? { ...selectedClip.conform }
+            : undefined,
         },
         startMousePos: canvasCoords,
         aspectRatioLocked: selectedClip.aspectRatioLocked ?? true,
-        sourceAspectRatio: selectedClip.sourceAspectRatio ?? (actualWidth / Math.max(1, actualHeight)),
+        sourceAspectRatio:
+          selectedClip.sourceAspectRatio ??
+          actualWidth / Math.max(1, actualHeight),
       });
       transformController.updateDragGeometry({
         x: actualX,
@@ -677,7 +820,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           : {}),
       });
     },
-    [selectedClip, scale, viewport, canvasWidth, canvasHeight, transformController],
+    [
+      selectedClip,
+      scale,
+      viewport,
+      canvasWidth,
+      canvasHeight,
+      transformController,
+    ],
   );
 
   // The selected clip's move surface sits above the preview pixels. If another
@@ -708,27 +858,6 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
           canvasHeight,
         );
         const topmostClip = hitDiagnostics.find(({ hit }) => hit)?.clip;
-        tracePlayback("preview-hit-test", {
-          source: "selected-move-surface",
-          pointer: { clientX: e.clientX, clientY: e.clientY },
-          canvasPoint: {
-            x: Number(canvasCoords.x.toFixed(2)),
-            y: Number(canvasCoords.y.toFixed(2)),
-          },
-          currentTime: Number(currentTime.toFixed(3)),
-          selectedClipId: selectedClip.id,
-          candidates: hitDiagnostics.map((candidate) => ({
-            id: candidate.clip.id,
-            kind: candidate.clip.kind,
-            trackId: candidate.clip.trackId,
-            trackIndex: candidate.trackIndex,
-            role: candidate.role,
-            zIndex: candidate.zIndex,
-            bounds: candidate.bounds,
-            hit: candidate.hit,
-          })),
-          resolvedTopmostClipId: topmostClip?.id ?? null,
-        });
 
         if (topmostClip && topmostClip.id !== selectedClip.id) {
           e.preventDefault();
@@ -768,25 +897,61 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       if (!rect) return;
 
       // Convert screen coordinates to canvas coordinates using overlay-local mapping
-      const canvasCoords = mouseToCanvas(e.clientX, e.clientY, rect, viewport, canvasWidth, canvasHeight, scale);
+      const canvasCoords = mouseToCanvas(
+        e.clientX,
+        e.clientY,
+        rect,
+        viewport,
+        canvasWidth,
+        canvasHeight,
+        scale,
+      );
 
       // Calculate new transform from the ORIGINAL start state (not current clip state)
       // This prevents transform drift / acceleration during drag.
-      const constraints = getDefaultConstraints(canvasWidth, canvasHeight, currentTransform.aspectRatioLocked);
+      const constraints = getDefaultConstraints(
+        canvasWidth,
+        canvasHeight,
+        currentTransform.aspectRatioLocked,
+      );
 
       // Preserve text/media metadata while applying drag-start geometry so deltas
       // stay absolute without dropping type-specific resize behavior.
       if (!selectedClip) return;
       const startClip = buildTransformStartClip(selectedClip, currentTransform);
 
-      const newTransform = calculateTransform(startClip, currentTransform.handle, currentTransform.startMousePos, canvasCoords, constraints, startAngleRef.current);
+      const newTransform = calculateTransform(
+        startClip,
+        currentTransform.handle,
+        currentTransform.startMousePos,
+        canvasCoords,
+        constraints,
+        startAngleRef.current,
+      );
 
       // Resize handles scale text size with the edited axis so the rendered text
       // tracks the visible transform box during drag.
-      if (startFontSizeRef.current !== undefined && shouldScaleTextFontForHandle(currentTransform.handle)) {
-        const newFontSize = calculateTextResizeFontSize(startFontSizeRef.current, currentTransform.handle, currentTransform.startTransform, newTransform);
+      if (
+        startFontSizeRef.current !== undefined &&
+        shouldScaleTextFontForHandle(currentTransform.handle)
+      ) {
+        const newFontSize = calculateTextResizeFontSize(
+          startFontSizeRef.current,
+          currentTransform.handle,
+          currentTransform.startTransform,
+          newTransform,
+        );
         const textScale = newFontSize / Math.max(1, startFontSizeRef.current);
-        Object.assign(newTransform, calculateScaledTextTransform(currentTransform.handle, currentTransform.startTransform, newTransform, textScale), { fontSize: newFontSize });
+        Object.assign(
+          newTransform,
+          calculateScaledTextTransform(
+            currentTransform.handle,
+            currentTransform.startTransform,
+            newTransform,
+            textScale,
+          ),
+          { fontSize: newFontSize },
+        );
       }
 
       // Stateful magnetic center snapping (like CapCut):
@@ -808,11 +973,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         const rotation = selectedClip.rotation ?? 0;
 
         if (currentTransform.handle === "move") {
-          const activeClips = clips.filter((c) => c.id !== selectedClip.id && isClipActiveAtTime(c, currentTime));
+          const activeClips = clips.filter(
+            (c) =>
+              c.id !== selectedClip.id && isClipActiveAtTime(c, currentTime),
+          );
 
           // X Axis Snapping (Left, Right, Center)
           if (snappedXRef.current) {
-            const deltaMouseX = Math.abs(canvasCoords.x - snapMouseXRef.current);
+            const deltaMouseX = Math.abs(
+              canvasCoords.x - snapMouseXRef.current,
+            );
             if (deltaMouseX > ESCAPE_THRESHOLD) {
               snappedXRef.current = false;
               snappedLeftRef.current = false;
@@ -823,11 +993,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
               setSnappedRight(false);
               setSnapGuideX(null);
             } else {
-              newTransform.x = snapGuideXRef.current! + snapClipXOffsetRef.current;
+              newTransform.x =
+                snapGuideXRef.current! + snapClipXOffsetRef.current;
             }
           } else {
             // Gather all target X coordinates
-            const targetXCandidates: { value: number; type: "canvas-left" | "canvas-center" | "canvas-right" | "clip" }[] = [
+            const targetXCandidates: {
+              value: number;
+              type: "canvas-left" | "canvas-center" | "canvas-right" | "clip";
+            }[] = [
               { value: 0, type: "canvas-left" },
               { value: canvasWidth / 2, type: "canvas-center" },
               { value: canvasWidth, type: "canvas-right" },
@@ -835,11 +1009,18 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
             activeClips.forEach((c) => {
               targetXCandidates.push({ value: c.x, type: "clip" });
-              targetXCandidates.push({ value: c.x + c.width / 2, type: "clip" });
+              targetXCandidates.push({
+                value: c.x + c.width / 2,
+                type: "clip",
+              });
               targetXCandidates.push({ value: c.x + c.width, type: "clip" });
             });
 
-            let bestSnapX: { targetVal: number; clipOffset: number; type: string } | null = null;
+            let bestSnapX: {
+              targetVal: number;
+              clipOffset: number;
+              type: string;
+            } | null = null;
             let minDistanceX = Infinity;
 
             const sourceXCandidates =
@@ -890,7 +1071,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
           // Y Axis Snapping (Top, Bottom, Center)
           if (snappedYRef.current) {
-            const deltaMouseY = Math.abs(canvasCoords.y - snapMouseYRef.current);
+            const deltaMouseY = Math.abs(
+              canvasCoords.y - snapMouseYRef.current,
+            );
             if (deltaMouseY > ESCAPE_THRESHOLD) {
               snappedYRef.current = false;
               snappedTopRef.current = false;
@@ -901,11 +1084,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
               setSnappedBottom(false);
               setSnapGuideY(null);
             } else {
-              newTransform.y = snapGuideYRef.current! + snapClipYOffsetRef.current;
+              newTransform.y =
+                snapGuideYRef.current! + snapClipYOffsetRef.current;
             }
           } else {
             // Gather all target Y coordinates
-            const targetYCandidates: { value: number; type: "canvas-top" | "canvas-center" | "canvas-bottom" | "clip" }[] = [
+            const targetYCandidates: {
+              value: number;
+              type: "canvas-top" | "canvas-center" | "canvas-bottom" | "clip";
+            }[] = [
               { value: 0, type: "canvas-top" },
               { value: canvasHeight / 2, type: "canvas-center" },
               { value: canvasHeight, type: "canvas-bottom" },
@@ -913,11 +1100,18 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
             activeClips.forEach((c) => {
               targetYCandidates.push({ value: c.y, type: "clip" });
-              targetYCandidates.push({ value: c.y + c.height / 2, type: "clip" });
+              targetYCandidates.push({
+                value: c.y + c.height / 2,
+                type: "clip",
+              });
               targetYCandidates.push({ value: c.y + c.height, type: "clip" });
             });
 
-            let bestSnapY: { targetVal: number; clipOffset: number; type: string } | null = null;
+            let bestSnapY: {
+              targetVal: number;
+              clipOffset: number;
+              type: string;
+            } | null = null;
             let minDistanceY = Infinity;
 
             const sourceYCandidates =
@@ -968,10 +1162,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         } else {
           // Resize snapping
           const handle = currentTransform.handle;
-          const isLeftResize = handle === "w" || handle === "nw" || handle === "sw";
-          const isRightResize = handle === "e" || handle === "ne" || handle === "se";
-          const isTopResize = handle === "n" || handle === "nw" || handle === "ne";
-          const isBottomResize = handle === "s" || handle === "sw" || handle === "se";
+          const isLeftResize =
+            handle === "w" || handle === "nw" || handle === "sw";
+          const isRightResize =
+            handle === "e" || handle === "ne" || handle === "se";
+          const isTopResize =
+            handle === "n" || handle === "nw" || handle === "ne";
+          const isBottomResize =
+            handle === "s" || handle === "sw" || handle === "se";
 
           if (rotation === 0) {
             let horizontalSnapped = false;
@@ -987,7 +1185,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 newTransform.x = 0;
                 newTransform.width = newWidth;
                 if (currentTransform.aspectRatioLocked) {
-                  const aspectRatio = startClip.sourceAspectRatio ?? startClip.width / startClip.height;
+                  const aspectRatio =
+                    startClip.sourceAspectRatio ??
+                    startClip.width / startClip.height;
                   const newHeight = newWidth / aspectRatio;
                   const centerY = startClip.y + startClip.height / 2;
                   newTransform.y = centerY - newHeight / 2;
@@ -1006,7 +1206,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 newTransform.width = newWidth;
                 newTransform.x = centerX - newWidth / 2;
                 if (currentTransform.aspectRatioLocked) {
-                  const aspectRatio = startClip.sourceAspectRatio ?? startClip.width / startClip.height;
+                  const aspectRatio =
+                    startClip.sourceAspectRatio ??
+                    startClip.width / startClip.height;
                   const newHeight = newWidth / aspectRatio;
                   const centerY = startClip.y + startClip.height / 2;
                   newTransform.y = centerY - newHeight / 2;
@@ -1026,7 +1228,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 newTransform.y = 0;
                 newTransform.height = newHeight;
                 if (currentTransform.aspectRatioLocked) {
-                  const aspectRatio = startClip.sourceAspectRatio ?? startClip.width / startClip.height;
+                  const aspectRatio =
+                    startClip.sourceAspectRatio ??
+                    startClip.width / startClip.height;
                   const newWidth = newHeight * aspectRatio;
                   const centerX = startClip.x + startClip.width / 2;
                   newTransform.x = centerX - newWidth / 2;
@@ -1045,7 +1249,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 newTransform.height = newHeight;
                 newTransform.y = centerY - newHeight / 2;
                 if (currentTransform.aspectRatioLocked) {
-                  const aspectRatio = startClip.sourceAspectRatio ?? startClip.width / startClip.height;
+                  const aspectRatio =
+                    startClip.sourceAspectRatio ??
+                    startClip.width / startClip.height;
                   const newWidth = newHeight * aspectRatio;
                   const centerX = startClip.x + startClip.width / 2;
                   newTransform.x = centerX - newWidth / 2;
@@ -1056,7 +1262,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
             if (isLeftResize) {
               if (snappedLeftRef.current) {
-                const deltaMouseX = Math.abs(canvasCoords.x - snapMouseLeftRef.current);
+                const deltaMouseX = Math.abs(
+                  canvasCoords.x - snapMouseLeftRef.current,
+                );
                 if (deltaMouseX > ESCAPE_THRESHOLD) {
                   snappedLeftRef.current = false;
                   setSnappedLeft(false);
@@ -1073,7 +1281,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
               }
             } else if (isRightResize) {
               if (snappedRightRef.current) {
-                const deltaMouseX = Math.abs(canvasCoords.x - snapMouseRightRef.current);
+                const deltaMouseX = Math.abs(
+                  canvasCoords.x - snapMouseRightRef.current,
+                );
                 if (deltaMouseX > ESCAPE_THRESHOLD) {
                   snappedRightRef.current = false;
                   setSnappedRight(false);
@@ -1081,7 +1291,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                   horizontalSnapped = true;
                   applyRightResizeSnap();
                 }
-              } else if (Math.abs(nextX + nextW - canvasWidth) <= SNAP_IN_THRESHOLD) {
+              } else if (
+                Math.abs(nextX + nextW - canvasWidth) <= SNAP_IN_THRESHOLD
+              ) {
                 snappedRightRef.current = true;
                 snapMouseRightRef.current = canvasCoords.x;
                 setSnappedRight(true);
@@ -1090,11 +1302,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
               }
             }
 
-            const canSnapVertical = !currentTransform.aspectRatioLocked || !horizontalSnapped;
+            const canSnapVertical =
+              !currentTransform.aspectRatioLocked || !horizontalSnapped;
             if (canSnapVertical) {
               if (isTopResize) {
                 if (snappedTopRef.current) {
-                  const deltaMouseY = Math.abs(canvasCoords.y - snapMouseTopRef.current);
+                  const deltaMouseY = Math.abs(
+                    canvasCoords.y - snapMouseTopRef.current,
+                  );
                   if (deltaMouseY > ESCAPE_THRESHOLD) {
                     snappedTopRef.current = false;
                     setSnappedTop(false);
@@ -1109,14 +1324,18 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
                 }
               } else if (isBottomResize) {
                 if (snappedBottomRef.current) {
-                  const deltaMouseY = Math.abs(canvasCoords.y - snapMouseBottomRef.current);
+                  const deltaMouseY = Math.abs(
+                    canvasCoords.y - snapMouseBottomRef.current,
+                  );
                   if (deltaMouseY > ESCAPE_THRESHOLD) {
                     snappedBottomRef.current = false;
                     setSnappedBottom(false);
                   } else {
                     applyBottomResizeSnap();
                   }
-                } else if (Math.abs(nextY + nextH - canvasHeight) <= SNAP_IN_THRESHOLD) {
+                } else if (
+                  Math.abs(nextY + nextH - canvasHeight) <= SNAP_IN_THRESHOLD
+                ) {
                   snappedBottomRef.current = true;
                   snapMouseBottomRef.current = canvasCoords.y;
                   setSnappedBottom(true);
@@ -1128,8 +1347,20 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         }
       }
 
-      if (selectedClip.conform && selectedClip.conform.sourceWidth && selectedClip.conform.sourceHeight) {
-        const updatedConform = getUpdatedConformForClipBounds(selectedClip, newTransform.x ?? selectedClip.x, newTransform.y ?? selectedClip.y, newTransform.width ?? selectedClip.width, newTransform.height ?? selectedClip.height, canvasWidth, canvasHeight);
+      if (
+        selectedClip.conform &&
+        selectedClip.conform.sourceWidth &&
+        selectedClip.conform.sourceHeight
+      ) {
+        const updatedConform = getUpdatedConformForClipBounds(
+          selectedClip,
+          newTransform.x ?? selectedClip.x,
+          newTransform.y ?? selectedClip.y,
+          newTransform.width ?? selectedClip.width,
+          newTransform.height ?? selectedClip.height,
+          canvasWidth,
+          canvasHeight,
+        );
         if (updatedConform) {
           (newTransform as any).conform = updatedConform;
         }
@@ -1150,11 +1381,26 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
             ? { fontSize: startFontSizeRef.current }
             : {}),
         ...(newTransform.conform
-          ? { conform: newTransform.conform as unknown as Record<string, unknown> }
+          ? {
+              conform: newTransform.conform as unknown as Record<
+                string,
+                unknown
+              >,
+            }
           : {}),
       });
     },
-    [isDragging, selectedClip, scale, viewport, canvasWidth, canvasHeight, transformController, clips, currentTime],
+    [
+      isDragging,
+      selectedClip,
+      scale,
+      viewport,
+      canvasWidth,
+      canvasHeight,
+      transformController,
+      clips,
+      currentTime,
+    ],
   );
 
   // Pointer events can arrive considerably faster than the native preview can
@@ -1223,7 +1469,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     }
 
     // Commit to history with epoch advancement
-    const oldTransform: Record<string, any> = { ...currentTransform.startTransform };
+    const oldTransform: Record<string, any> = {
+      ...currentTransform.startTransform,
+    };
     const newTransform: Record<string, any> = {
       x: finalGeometry.x,
       y: finalGeometry.y,
@@ -1238,14 +1486,29 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
 
     if (startFontSizeRef.current !== undefined) {
       oldTransform.fontSize = startFontSizeRef.current;
-      newTransform.fontSize = finalGeometry.fontSize ?? startFontSizeRef.current;
+      newTransform.fontSize =
+        finalGeometry.fontSize ?? startFontSizeRef.current;
     }
 
     // Only create command if something actually changed
-    const hasChanged = oldTransform.x !== newTransform.x || oldTransform.y !== newTransform.y || oldTransform.width !== newTransform.width || oldTransform.height !== newTransform.height || oldTransform.rotation !== newTransform.rotation || oldTransform.fontSize !== newTransform.fontSize || JSON.stringify(oldTransform.conform) !== JSON.stringify(newTransform.conform);
+    const hasChanged =
+      oldTransform.x !== newTransform.x ||
+      oldTransform.y !== newTransform.y ||
+      oldTransform.width !== newTransform.width ||
+      oldTransform.height !== newTransform.height ||
+      oldTransform.rotation !== newTransform.rotation ||
+      oldTransform.fontSize !== newTransform.fontSize ||
+      JSON.stringify(oldTransform.conform) !==
+        JSON.stringify(newTransform.conform);
 
     if (hasChanged) {
-      execute(new TransformClipCommand(currentTransform.clipId, oldTransform, newTransform));
+      execute(
+        new TransformClipCommand(
+          currentTransform.clipId,
+          oldTransform,
+          newTransform,
+        ),
+      );
     }
 
     transformController.endTransform();
@@ -1254,7 +1517,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   const getClipAspect = useCallback(() => {
     if (!selectedClip) return 16 / 9;
     if (selectedClip.sourceAspectRatio) return selectedClip.sourceAspectRatio;
-    const asset = useProjectStore.getState().mediaAssets.find((a) => a.id === selectedClip.mediaId);
+    const asset = useProjectStore
+      .getState()
+      .mediaAssets.find((a) => a.id === selectedClip.mediaId);
     if (asset && asset.width && asset.height) {
       return asset.width / asset.height;
     }
@@ -1268,7 +1533,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       y: selectedClip.y,
       width: selectedClip.width,
       height: selectedClip.height,
-      ...("fontSize" in selectedClip ? { fontSize: (selectedClip as any).fontSize } : {}),
+      ...("fontSize" in selectedClip
+        ? { fontSize: (selectedClip as any).fontSize }
+        : {}),
       ...(selectedClip.conform ? { conform: { ...selectedClip.conform } } : {}),
     };
 
@@ -1297,11 +1564,22 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     if ("fontSize" in selectedClip) {
       const sizeScale = newWidth / Math.max(1, selectedClip.width);
       const currentFontSize = (selectedClip as any).fontSize || 48;
-      newVal.fontSize = Math.max(10, Math.min(1000, Math.round(currentFontSize * sizeScale)));
+      newVal.fontSize = Math.max(
+        10,
+        Math.min(1000, Math.round(currentFontSize * sizeScale)),
+      );
     }
 
     if (selectedClip.conform) {
-      newVal.conform = getUpdatedConformForClipBounds(selectedClip, newVal.x, newVal.y, newVal.width, newVal.height, canvasWidth, canvasHeight);
+      newVal.conform = getUpdatedConformForClipBounds(
+        selectedClip,
+        newVal.x,
+        newVal.y,
+        newVal.width,
+        newVal.height,
+        canvasWidth,
+        canvasHeight,
+      );
     }
 
     execute(new TransformClipCommand(selectedClip.id, oldVal, newVal));
@@ -1314,7 +1592,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       y: selectedClip.y,
       width: selectedClip.width,
       height: selectedClip.height,
-      ...("fontSize" in selectedClip ? { fontSize: (selectedClip as any).fontSize } : {}),
+      ...("fontSize" in selectedClip
+        ? { fontSize: (selectedClip as any).fontSize }
+        : {}),
       ...(selectedClip.conform ? { conform: { ...selectedClip.conform } } : {}),
     };
 
@@ -1343,11 +1623,22 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     if ("fontSize" in selectedClip) {
       const sizeScale = newWidth / Math.max(1, selectedClip.width);
       const currentFontSize = (selectedClip as any).fontSize || 48;
-      newVal.fontSize = Math.max(10, Math.min(1000, Math.round(currentFontSize * sizeScale)));
+      newVal.fontSize = Math.max(
+        10,
+        Math.min(1000, Math.round(currentFontSize * sizeScale)),
+      );
     }
 
     if (selectedClip.conform) {
-      newVal.conform = getUpdatedConformForClipBounds(selectedClip, newVal.x, newVal.y, newVal.width, newVal.height, canvasWidth, canvasHeight);
+      newVal.conform = getUpdatedConformForClipBounds(
+        selectedClip,
+        newVal.x,
+        newVal.y,
+        newVal.width,
+        newVal.height,
+        canvasWidth,
+        canvasHeight,
+      );
     }
 
     execute(new TransformClipCommand(selectedClip.id, oldVal, newVal));
@@ -1361,7 +1652,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       width: selectedClip.width,
       height: selectedClip.height,
       rotation: selectedClip.rotation,
-      ...("fontSize" in selectedClip ? { fontSize: (selectedClip as any).fontSize } : {}),
+      ...("fontSize" in selectedClip
+        ? { fontSize: (selectedClip as any).fontSize }
+        : {}),
       ...(selectedClip.conform ? { conform: { ...selectedClip.conform } } : {}),
     };
 
@@ -1372,14 +1665,17 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
     };
 
     if ("fontSize" in selectedClip) {
-      const defaultFontSize = (selectedClip as any).styleDefinition?.fontSize || 48;
+      const defaultFontSize =
+        (selectedClip as any).styleDefinition?.fontSize || 48;
       const currentFontSize = (selectedClip as any).fontSize || 48;
       const sizeScale = defaultFontSize / Math.max(1, currentFontSize);
       newVal.fontSize = defaultFontSize;
       newVal.width = selectedClip.width * sizeScale;
       newVal.height = selectedClip.height * sizeScale;
     } else {
-      const asset = useProjectStore.getState().mediaAssets.find((a) => a.id === selectedClip.mediaId);
+      const asset = useProjectStore
+        .getState()
+        .mediaAssets.find((a) => a.id === selectedClip.mediaId);
       if (asset && asset.width && asset.height) {
         newVal.width = asset.width;
         newVal.height = asset.height;
@@ -1452,15 +1748,31 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
       }
       pendingMouseMoveRef.current = null;
       // Cleanup: remove all cursor classes on unmount
-      const cursorClasses = ["cursor-move", "cursor-nwse-resize", "cursor-nesw-resize", "cursor-ns-resize", "cursor-ew-resize", "cursor-grabbing"];
+      const cursorClasses = [
+        "cursor-move",
+        "cursor-nwse-resize",
+        "cursor-nesw-resize",
+        "cursor-ns-resize",
+        "cursor-ew-resize",
+        "cursor-grabbing",
+      ];
       cursorClasses.forEach((cls) => document.body.classList.remove(cls));
     };
   }, []);
 
   // Convert clip bounds to screen coordinates for handle rendering
-  const isTransformable = selectedClip && selectedClip.kind !== "filter" && selectedClip.kind !== "video-effect" && selectedClip.kind !== "body-effect" && selectedClip.kind !== "audio";
+  const isTransformable =
+    selectedClip &&
+    selectedClip.kind !== "filter" &&
+    selectedClip.kind !== "video-effect" &&
+    selectedClip.kind !== "body-effect" &&
+    selectedClip.kind !== "audio";
 
-  if (!selectedClip || !isClipActiveAtTime(selectedClip, currentTime) || !isTransformable) {
+  if (
+    !selectedClip ||
+    !isClipActiveAtTime(selectedClip, currentTime) ||
+    !isTransformable
+  ) {
     return (
       <div
         ref={overlayRef}
@@ -1506,8 +1818,16 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   let actualX = selectedClip.x;
   let actualY = selectedClip.y;
 
-  if (selectedClip.conform && selectedClip.conform.sourceWidth && selectedClip.conform.sourceHeight) {
-    const resolved = resolveConform(selectedClip.conform, canvasWidth, canvasHeight);
+  if (
+    selectedClip.conform &&
+    selectedClip.conform.sourceWidth &&
+    selectedClip.conform.sourceHeight
+  ) {
+    const resolved = resolveConform(
+      selectedClip.conform,
+      canvasWidth,
+      canvasHeight,
+    );
     actualWidth = resolved.width;
     actualHeight = resolved.height;
     actualX = resolved.x;
@@ -1517,7 +1837,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   // Convert clip center to screen space (use actual rendered position)
   const actualCenterX = actualX + actualWidth / 2;
   const actualCenterY = actualY + actualHeight / 2;
-  const clipCenterScreen = canvasToScreen(actualCenterX, actualCenterY, viewport, { width: canvasWidth, height: canvasHeight }, scale, zeroOffset);
+  const clipCenterScreen = canvasToScreen(
+    actualCenterX,
+    actualCenterY,
+    viewport,
+    { width: canvasWidth, height: canvasHeight },
+    scale,
+    zeroOffset,
+  );
 
   // Calculate screen-space dimensions (accounting for scale and zoom)
   const handleDisplayWidth = actualWidth * scale * viewport.zoom;
@@ -1530,7 +1857,14 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
   // Calculate canvas center for guides
   const canvasCenterX = canvasWidth / 2;
   const canvasCenterY = canvasHeight / 2;
-  const centerScreen = canvasToScreen(canvasCenterX, canvasCenterY, viewport, { width: canvasWidth, height: canvasHeight }, scale, zeroOffset);
+  const centerScreen = canvasToScreen(
+    canvasCenterX,
+    canvasCenterY,
+    viewport,
+    { width: canvasWidth, height: canvasHeight },
+    scale,
+    zeroOffset,
+  );
 
   const showVerticalCenterGuide = isDragging && snappedX;
   const showHorizontalCenterGuide = isDragging && snappedY;
@@ -1608,19 +1942,92 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         />
 
         {/* Corner handles (centered exactly on the box vertices) */}
-        <Handle position="nw" onMouseDown={(e) => handleMouseDown(e, "nw")} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
-        <Handle position="ne" onMouseDown={(e) => handleMouseDown(e, "ne")} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
-        <Handle position="sw" onMouseDown={(e) => handleMouseDown(e, "sw")} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
-        <Handle position="se" onMouseDown={(e) => handleMouseDown(e, "se")} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
+        <Handle
+          position="nw"
+          onMouseDown={(e) => handleMouseDown(e, "nw")}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
+        <Handle
+          position="ne"
+          onMouseDown={(e) => handleMouseDown(e, "ne")}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
+        <Handle
+          position="sw"
+          onMouseDown={(e) => handleMouseDown(e, "sw")}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
+        <Handle
+          position="se"
+          onMouseDown={(e) => handleMouseDown(e, "se")}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
 
         {/* Side handles (horizontal & vertical pills) */}
-        <Handle position="n" onMouseDown={(e) => handleMouseDown(e, "n")} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
-        <Handle position="s" onMouseDown={(e) => handleMouseDown(e, "s")} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
-        <Handle position="w" onMouseDown={(e) => handleMouseDown(e, "w")} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
-        <Handle position="e" onMouseDown={(e) => handleMouseDown(e, "e")} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
+        <Handle
+          position="n"
+          onMouseDown={(e) => handleMouseDown(e, "n")}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
+        <Handle
+          position="s"
+          onMouseDown={(e) => handleMouseDown(e, "s")}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
+        <Handle
+          position="w"
+          onMouseDown={(e) => handleMouseDown(e, "w")}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
+        <Handle
+          position="e"
+          onMouseDown={(e) => handleMouseDown(e, "e")}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
 
         {/* Rotation handle - floating centered below the bottom edge with scale compensation */}
-        <Handle position="rotate" onMouseDown={(e) => handleMouseDown(e, "rotate")} scale={scale} left={0} top={0} width={handleDisplayWidth} height={handleDisplayHeight} rotation={rotation} />
+        <Handle
+          position="rotate"
+          onMouseDown={(e) => handleMouseDown(e, "rotate")}
+          scale={scale}
+          left={0}
+          top={0}
+          width={handleDisplayWidth}
+          height={handleDisplayHeight}
+          rotation={rotation}
+        />
       </div>
 
       {/* Center alignment guides (visible during move/resize near center) */}
@@ -1725,7 +2132,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
             transform: "translateX(-50%)",
           }}
         >
-          <div className="w-11 h-6 flex justify-center items-center rounded-sm text-sm font-semibold bg-accent/60 text-text-primary" style={{ backdropFilter: "blur(8px)" }}>
+          <div
+            className="w-11 h-6 flex justify-center items-center rounded-sm text-sm font-semibold bg-accent/60 text-text-primary"
+            style={{ backdropFilter: "blur(8px)" }}
+          >
             {Math.round(rotation)}°
           </div>
         </div>
@@ -1763,7 +2173,13 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({ canvasWidth,
         />
       )}
 
-      {contextMenu && <ContextMenu items={contextMenuItems} position={contextMenu} onClose={() => setContextMenu(null)} />}
+      {contextMenu && (
+        <ContextMenu
+          items={contextMenuItems}
+          position={contextMenu}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 };
@@ -1780,10 +2196,23 @@ interface HandleProps {
   rotation: number;
 }
 
-const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left, top, width, height, rotation }) => {
+const Handle: React.FC<HandleProps> = ({
+  position,
+  onMouseDown,
+  scale = 1,
+  left,
+  top,
+  width,
+  height,
+  rotation,
+}) => {
   const getHandleStyle = (): React.CSSProperties => {
     const handleSize = 10;
-    const isCorner = position === "nw" || position === "ne" || position === "sw" || position === "se";
+    const isCorner =
+      position === "nw" ||
+      position === "ne" ||
+      position === "sw" ||
+      position === "se";
     const baseStyle: React.CSSProperties = {
       position: "absolute",
       // Give corner handles a forgiving hit target. The visible dot remains
@@ -1864,7 +2293,8 @@ const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left,
           borderRadius: "50%",
           width: "20px",
           height: "20px",
-          boxShadow: "0 3px 6px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08)",
+          boxShadow:
+            "0 3px 6px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -1892,7 +2322,10 @@ const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left,
       data-transform-handle={position}
     >
       {position !== "rotate" &&
-        (position === "nw" || position === "ne" || position === "sw" || position === "se") && (
+        (position === "nw" ||
+          position === "ne" ||
+          position === "sw" ||
+          position === "se") && (
           <span
             aria-hidden="true"
             style={{
@@ -1908,7 +2341,18 @@ const Handle: React.FC<HandleProps> = ({ position, onMouseDown, scale = 1, left,
           />
         )}
       {position === "rotate" && (
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--color-bg)" }}>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ color: "var(--color-bg)" }}
+        >
           <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
           <path d="M3 3v5h5" />
           <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
