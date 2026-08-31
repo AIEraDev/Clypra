@@ -19,7 +19,11 @@ import { useTimelineStore } from "@/store/timelineStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
-import { getTransformController, type DragGeometry } from "@/core/interactions";
+import {
+  getPreviewInteractionCoordinator,
+  getTransformController,
+  type DragGeometry,
+} from "@/core/interactions";
 import { useViewportState } from "@/hooks/useViewportController";
 import { PreviewTransport } from "./PreviewTransport";
 import { TransformOverlayMemoized as TransformOverlay } from "../transform/TransformOverlay";
@@ -352,6 +356,7 @@ export const NativeProgramPreview: React.FC = () => {
   const setPreviewQuality = useSettingsStore((s) => s.setPreviewQuality);
 
   const clock = getPlaybackClock();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
   const { state: playbackState } = usePlaybackStatus();
   const { setDuration, setFrameRate } = usePlaybackControls();
   const {
@@ -461,12 +466,6 @@ export const NativeProgramPreview: React.FC = () => {
   const prevFrameRateRef = useRef<number>(0);
   const isMutedRef = useRef(isMuted);
   const volumeRef = useRef(volume);
-  // Qualification is diagnostic lifecycle work, not a user preference. Start
-  // one automatic two-path pass the first time each project actually plays so
-  // WebView data is collected without a console command or editor telemetry UI.
-  const automaticQualificationProjectRef = useRef<string | null>(null);
-  const automaticQualificationStartedRef = useRef(false);
-
   isMutedRef.current = isMuted;
   volumeRef.current = volume;
 
@@ -623,39 +622,6 @@ export const NativeProgramPreview: React.FC = () => {
       useEffectsStore.getState().definitions,
     ),
   };
-
-  useEffect(() => {
-    const projectId = project?.id ?? null;
-    if (projectId !== automaticQualificationProjectRef.current) {
-      automaticQualificationProjectRef.current = projectId;
-      automaticQualificationStartedRef.current = false;
-    }
-  }, [project?.id]);
-
-  useEffect(() => {
-    if (
-      !isTauriRuntime() ||
-      projectInitializing ||
-      !project?.id ||
-      playbackState !== "playing" ||
-      automaticQualificationStartedRef.current
-    ) {
-      return;
-    }
-
-    const qualification = previewQualificationController.getState();
-    if (qualification.status === "running") return;
-
-    automaticQualificationStartedRef.current = true;
-    const projectId = project.id;
-    const projectEpoch = epoch;
-    previewQualificationController.start({
-      isSnapshotValid: () => {
-        const current = renderStateRef.current;
-        return current.project?.id === projectId && current.epoch === projectEpoch;
-      },
-    });
-  }, [epoch, playbackState, project?.id, projectInitializing]);
 
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
@@ -2050,6 +2016,12 @@ export const NativeProgramPreview: React.FC = () => {
           visibleRequestGeneration += 1;
           nativePreviewScheduler.setVisibleGeneration();
         }
+        const interactionGeneration =
+          previewInteractionCoordinator.getGeneration().revision;
+        if (interactionGeneration > visibleRequestGeneration) {
+          visibleRequestGeneration = interactionGeneration;
+          nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
+        }
         const targetGeneration = visibleRequestGeneration;
         // Do not hand the visible surface to native video until native audio has
         // supplied its first hardware-clock sample. Before that point the
@@ -2254,8 +2226,12 @@ export const NativeProgramPreview: React.FC = () => {
                   // one latest pending demand. This command contains only
                   // dynamic layer values; it never sends paths or the full
                   // project snapshot and it does not wait for presentation.
+                  const playbackDemandRequest = {
+                    ...requestToPresent,
+                    generation: targetGeneration,
+                  };
                   void submitNativePlaybackDemand(
-                    createNativePlaybackFrameDemand(requestToPresent),
+                    createNativePlaybackFrameDemand(playbackDemandRequest),
                   ).catch((error) => {
                     nativePlaybackRenderFailed = true;
                     lastNativePlaybackRequestKey = "";
