@@ -1715,12 +1715,42 @@ fn current_timestamp_ms() -> u64 {
 pub(crate) struct DecoderEntry {
     pub(crate) decoder: Arc<Mutex<VideoDecoder>>,
     pub(crate) last_accessed_ms: AtomicU64,
+    /// Persistent playback leases pin the entry while the preview owns it.
+    /// Filmstrip activity may evict only entries with a zero lease count.
+    pub(crate) lease_count: AtomicU64,
 }
 
 impl DecoderEntry {
     pub(crate) fn touch(&self) {
         self.last_accessed_ms
             .store(current_timestamp_ms(), Ordering::Relaxed);
+    }
+}
+
+/// An active-preview pin for one decoder pool entry.
+///
+/// The decoder mutex is still acquired only by the decode operation. Holding
+/// this lease does not hold the mutex; it only prevents LRU eviction while a
+/// persistent Native playback session is using the decoder.
+pub struct PreviewDecoderLease {
+    path: String,
+    entry: Arc<DecoderEntry>,
+}
+
+impl PreviewDecoderLease {
+    pub fn decoder(&self) -> Arc<Mutex<VideoDecoder>> {
+        self.entry.touch();
+        self.entry.decoder.clone()
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+impl Drop for PreviewDecoderLease {
+    fn drop(&mut self) {
+        self.entry.lease_count.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -1753,11 +1783,13 @@ async fn get_or_create_decoder_in_pool(
                 (
                     kv.key().clone(),
                     kv.value().last_accessed_ms.load(Ordering::Relaxed),
+                    kv.value().lease_count.load(Ordering::Acquire),
                 )
             })
-            .min_by_key(|(_, ts)| *ts);
+            .filter(|(_, _, leases)| *leases == 0)
+            .min_by_key(|(_, ts, _)| *ts);
 
-        if let Some((oldest_key, _)) = oldest {
+        if let Some((oldest_key, _, _)) = oldest {
             pool.remove(&oldest_key);
         }
     }
@@ -1774,6 +1806,7 @@ async fn get_or_create_decoder_in_pool(
     let entry = Arc::new(DecoderEntry {
         decoder: arc_decoder.clone(),
         last_accessed_ms: AtomicU64::new(current_timestamp_ms()),
+        lease_count: AtomicU64::new(0),
     });
 
     pool.insert(path.to_string(), entry);
@@ -1804,10 +1837,41 @@ pub async fn get_preview_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>,
     .await
 }
 
+/// Acquire a persistent pin for a Native playback decoder.
+pub async fn acquire_preview_decoder_lease(path: &str) -> Result<PreviewDecoderLease, String> {
+    // Resolve the entry through the same pool path used by ordinary preview
+    // decoding, then increment the lease before returning it. The entry stays
+    // in the pool and is therefore ineligible for LRU eviction.
+    let decoder = get_or_create_decoder_in_pool(
+        &PREVIEW_DECODER_POOL,
+        path,
+        MAX_PREVIEW_DECODER_POOL_SIZE,
+        true,
+    )
+    .await?;
+    let entry = PREVIEW_DECODER_POOL
+        .get(path)
+        .map(|value| value.value().clone())
+        .ok_or_else(|| "Preview decoder disappeared during lease acquisition".to_string())?;
+    entry.lease_count.fetch_add(1, Ordering::AcqRel);
+    entry.touch();
+    debug_assert!(Arc::ptr_eq(&decoder, &entry.decoder));
+    Ok(PreviewDecoderLease {
+        path: path.to_string(),
+        entry,
+    })
+}
+
 /// Call this when a clip is removed from the project to free memory
 pub fn release_decoder(path: &str) {
     THUMBNAIL_DECODER_POOL.remove(path);
-    PREVIEW_DECODER_POOL.remove(path);
+    if PREVIEW_DECODER_POOL
+        .get(path)
+        .map(|entry| entry.lease_count.load(Ordering::Acquire) == 0)
+        .unwrap_or(false)
+    {
+        PREVIEW_DECODER_POOL.remove(path);
+    }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
