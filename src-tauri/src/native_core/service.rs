@@ -18,6 +18,7 @@ pub struct NativeFrameService {
     cache_hits: u64,
     cache_misses: u64,
     last_sample: Option<PerformanceSample>,
+    last_sample_sequence: u64,
     window_samples: VecDeque<(u64, PerformanceSample)>,
 }
 
@@ -29,6 +30,7 @@ impl NativeFrameService {
             cache_hits: 0,
             cache_misses: 0,
             last_sample: None,
+            last_sample_sequence: 0,
             window_samples: VecDeque::new(),
         })
     }
@@ -76,11 +78,13 @@ impl NativeFrameService {
         self.cache_hits = 0;
         self.cache_misses = 0;
         self.last_sample = None;
+        self.last_sample_sequence = 0;
         self.window_samples.clear();
     }
 
     pub fn record_sample(&mut self, sample: PerformanceSample) {
         let now = now_ms();
+        self.last_sample_sequence = self.last_sample_sequence.saturating_add(1);
         self.last_sample = Some(sample);
         self.window_samples
             .push_back((now, self.last_sample.clone().expect("sample stored")));
@@ -175,6 +179,7 @@ impl NativeFrameService {
             cached_entries: self.cache.len(),
             cached_bytes: self.cache.current_bytes(),
             last_sample: self.last_sample.clone(),
+            last_sample_sequence: self.last_sample_sequence,
             window_started_at_ms: self
                 .window_samples
                 .front()
