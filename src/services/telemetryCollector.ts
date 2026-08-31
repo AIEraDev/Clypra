@@ -82,9 +82,13 @@ export interface TelemetryExportMetrics {
 
 export interface TelemetryEvent {
   eventId: string;
+  /** Stable identity for one logical measurement across retries. */
+  measurementId?: string;
+  measurementSource?: "frontend-span" | "native-sample" | "session-rollup";
   appVersion: string;
   appBuildNumber: string;
   appEnvironment: "production" | "canary" | "beta";
+  previewContext?: TelemetryPreviewContext;
   device: TelemetryHardwareContext;
   video: TelemetryVideoProfile;
   workload: {
@@ -130,6 +134,22 @@ export interface TelemetryEvent {
     stackSnippet?: string;
   };
   timestampMs: number;
+}
+
+export type TelemetryPreviewView = "webview" | "native";
+export type TelemetryPreviewSurface = "dom-canvas" | "native-surface";
+export type TelemetryRuntimeEnvironment = "development" | "production";
+
+export interface TelemetryPreviewContext {
+  view: TelemetryPreviewView;
+  surface: TelemetryPreviewSurface;
+  runtimeEnvironment: TelemetryRuntimeEnvironment;
+}
+
+export interface TelemetryRenderOptions {
+  previewContext?: TelemetryPreviewContext;
+  measurementId?: string;
+  measurementSource?: "frontend-span" | "native-sample" | "session-rollup";
 }
 
 const DEFAULT_API_INGEST_URL = `${getApiBaseUrl()}/performance/telemetry/ingest/batch`;
@@ -234,6 +254,7 @@ class SessionRollupAccumulator {
   }
 
   public extractRollupAndReset(): {
+    windowStartMs: number;
     durationMs: number;
     totalFrames: number;
     droppedFrames: number;
@@ -277,6 +298,7 @@ class SessionRollupAccumulator {
     const avDriftP95Ms = p95(this.driftSamplesMs);
 
     const result = {
+      windowStartMs: this.windowStartMs,
       durationMs,
       totalFrames: this.totalFrames,
       droppedFrames: this.droppedFrames,
@@ -338,7 +360,8 @@ class TelemetryCollector {
   private cachedHardware: TelemetryHardwareContext | null = null;
   private isEnabled: boolean = true;
   private appVersion: string = "1.4.5";
-  private rollupAccumulator = new SessionRollupAccumulator();
+  private rollupAccumulators = new Map<string, SessionRollupAccumulator>();
+  private reportedNativeMeasurementIds = new Set<string>();
   private transportStatus: TelemetryTransportStatus = {
     endpoint: DEFAULT_API_INGEST_URL,
     pendingEvents: 0,
@@ -386,7 +409,7 @@ class TelemetryCollector {
     this.isEnabled = enabled;
     if (!enabled) {
       this.clearQueue();
-      this.rollupAccumulator.reset();
+      for (const accumulator of this.rollupAccumulators.values()) accumulator.reset();
     }
   }
 
@@ -408,6 +431,7 @@ class TelemetryCollector {
   public clearQueue(): void {
     this.queue = [];
     this.clearOfflineQueue();
+    this.reportedNativeMeasurementIds.clear();
   }
 
   /**
@@ -554,11 +578,13 @@ class TelemetryCollector {
     workloadMode: TelemetryOperationMode = "playback",
     avDriftMs?: number,
     staleFrames: number = 0,
-    cancelledFrames: number = 0
+    cancelledFrames: number = 0,
+    options: TelemetryRenderOptions = {}
   ): void {
     if (!this.isEnabled) return;
 
-    this.rollupAccumulator.recordFrame(
+    const accumulator = this.getRollupAccumulator(options.previewContext);
+    accumulator.recordFrame(
       timings,
       droppedFrames > 0,
       videoProfile,
@@ -567,7 +593,7 @@ class TelemetryCollector {
       cancelledFrames > 0
     );
 
-    if (this.rollupAccumulator.shouldEmitRollup()) {
+    if (accumulator.shouldEmitRollup()) {
       this.flushRollupIfPending();
     }
 
@@ -584,9 +610,12 @@ class TelemetryCollector {
 
     const event: TelemetryEvent = {
       eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      measurementId: options.measurementId,
+      measurementSource: options.measurementSource,
       appVersion: this.appVersion,
       appBuildNumber: import.meta.env.MODE || "prod",
       appEnvironment: import.meta.env.DEV ? "beta" : "production",
+      previewContext: options.previewContext,
       device: hardware,
       video: fullVideoProfile,
       workload: {
@@ -620,7 +649,7 @@ class TelemetryCollector {
   ): void {
     if (!this.isEnabled) return;
 
-    this.rollupAccumulator.recordSeek(seekLatencyMs);
+    this.getRollupAccumulator().recordSeek(seekLatencyMs);
 
     const isAnomaly = seekLatencyMs > 100.0;
     if (!isAnomaly && Math.random() > NOMINAL_SAMPLE_RATE) {
@@ -836,9 +865,22 @@ class TelemetryCollector {
       windowStaleFrames?: number;
       windowCancelledFrames?: number;
     } | null,
-    videoProfile: Partial<TelemetryVideoProfile> = {}
+    videoProfile: Partial<TelemetryVideoProfile> = {},
+    previewContext?: TelemetryPreviewContext,
+    measurementId?: string,
   ): void {
     if (!this.isEnabled) return;
+
+    if (measurementId) {
+      if (this.reportedNativeMeasurementIds.has(measurementId)) return;
+      // Keep this defensive dedupe set bounded for long-running editor
+      // sessions. Durable storage provides the cross-restart idempotency.
+      if (this.reportedNativeMeasurementIds.size >= 10000) {
+        const oldest = this.reportedNativeMeasurementIds.values().next().value;
+        if (oldest) this.reportedNativeMeasurementIds.delete(oldest);
+      }
+      this.reportedNativeMeasurementIds.add(measurementId);
+    }
 
     const last = nativeRender?.lastSample;
     if (!last) return;
@@ -862,7 +904,14 @@ class TelemetryCollector {
       "playback",
       avDriftMs,
       nativeRender?.windowStaleFrames || 0,
-      nativeRender?.windowCancelledFrames || 0
+      nativeRender?.windowCancelledFrames || 0,
+      {
+        previewContext,
+        measurementId: measurementId
+          ? `native-sample:${previewContext?.view ?? "unknown"}:${measurementId}`
+          : undefined,
+        measurementSource: "native-sample",
+      }
     );
   }
 
@@ -870,43 +919,56 @@ class TelemetryCollector {
    * Emits pending session rollup if enough activity occurred.
    */
   public flushRollupIfPending(): void {
-    const rollup = this.rollupAccumulator.extractRollupAndReset();
-    if (!rollup) return;
-
     const hardware = this.initHardwareContext();
-    const fullVideoProfile = this.sanitizeVideoProfile(rollup.videoProfile);
+    for (const [key, accumulator] of this.rollupAccumulators) {
+      const rollup = accumulator.extractRollupAndReset();
+      if (!rollup) continue;
 
-    const event: TelemetryEvent = {
-      eventId: `evt_rollup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      appVersion: this.appVersion,
-      appBuildNumber: import.meta.env.MODE || "prod",
-      appEnvironment: import.meta.env.DEV ? "beta" : "production",
-      device: hardware,
-      video: fullVideoProfile,
-      workload: {
-        mode: "playback",
-        durationMs: rollup.durationMs,
-        targetFps: fullVideoProfile.nominalFps,
-        renderedFps:
-          rollup.stageTimings.totalTimeUs > 0
-            ? Math.min(fullVideoProfile.nominalFps, 1000000 / rollup.stageTimings.totalTimeUs)
-            : fullVideoProfile.nominalFps,
-        totalFrames: rollup.totalFrames,
-        droppedFrames: rollup.droppedFrames,
-        droppedFramesRatio: rollup.droppedFramesRatio,
-        staleFrames: rollup.staleFrames,
-        cancelledFrames: rollup.cancelledFrames,
-        avDriftMs: rollup.avDriftP95Ms,
-        peakRamMb: 512,
-        cacheHitRatio: rollup.cacheHitRatio,
-        stageTimings: rollup.stageTimings,
-        isSessionRollup: true,
-        jankEventsCount: rollup.jankEventsCount,
-      },
-      timestampMs: Date.now(),
-    };
+      const previewContext = key === "default" ? undefined : JSON.parse(key) as TelemetryPreviewContext;
+      const fullVideoProfile = this.sanitizeVideoProfile(rollup.videoProfile);
+      this.enqueueEvent({
+        eventId: `evt_rollup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        measurementId: `rollup:${key}:${rollup.windowStartMs}`,
+        measurementSource: "session-rollup",
+        appVersion: this.appVersion,
+        appBuildNumber: import.meta.env.MODE || "prod",
+        appEnvironment: import.meta.env.DEV ? "beta" : "production",
+        previewContext,
+        device: hardware,
+        video: fullVideoProfile,
+        workload: {
+          mode: "playback",
+          durationMs: rollup.durationMs,
+          targetFps: fullVideoProfile.nominalFps,
+          renderedFps:
+            rollup.stageTimings.totalTimeUs > 0
+              ? Math.min(fullVideoProfile.nominalFps, 1000000 / rollup.stageTimings.totalTimeUs)
+              : fullVideoProfile.nominalFps,
+          totalFrames: rollup.totalFrames,
+          droppedFrames: rollup.droppedFrames,
+          droppedFramesRatio: rollup.droppedFramesRatio,
+          staleFrames: rollup.staleFrames,
+          cancelledFrames: rollup.cancelledFrames,
+          avDriftMs: rollup.avDriftP95Ms,
+          peakRamMb: 512,
+          cacheHitRatio: rollup.cacheHitRatio,
+          stageTimings: rollup.stageTimings,
+          isSessionRollup: true,
+          jankEventsCount: rollup.jankEventsCount,
+        },
+        timestampMs: Date.now(),
+      });
+    }
+  }
 
-    this.enqueueEvent(event);
+  private getRollupAccumulator(previewContext?: TelemetryPreviewContext): SessionRollupAccumulator {
+    const key = previewContext ? JSON.stringify(previewContext) : "default";
+    let accumulator = this.rollupAccumulators.get(key);
+    if (!accumulator) {
+      accumulator = new SessionRollupAccumulator();
+      this.rollupAccumulators.set(key, accumulator);
+    }
+    return accumulator;
   }
 
   private enqueueEvent(event: TelemetryEvent): void {
