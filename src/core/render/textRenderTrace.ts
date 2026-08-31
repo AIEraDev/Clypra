@@ -1,3 +1,10 @@
+import {
+  telemetryCollector,
+  type TelemetryTextKind,
+  type TelemetryTextRendererPath,
+  type TelemetryTextPhase,
+} from "@/services/telemetryCollector";
+
 export interface TextRenderTraceLayer {
   id?: string;
   type?: string;
@@ -40,10 +47,9 @@ export interface TextRenderTraceContext {
   time?: number;
 }
 
-export type TextRenderTracePhase =
-  | "session-prewarm"
-  | "text-prefetch"
-  | "visible-playback";
+export type TextRenderTracePhase = Exclude<TelemetryTextPhase, "interactive-preview">;
+export type TextRenderKind = TelemetryTextKind;
+export type TextRenderPath = TelemetryTextRendererPath;
 
 /**
  * Text diagnostics are intentionally silent. Text performance is captured by
@@ -75,38 +81,44 @@ export function traceTextRenderGeometry(input: {
   void input;
 }
 
-function isTraceEnabled(): boolean {
-  if (import.meta.env.VITE_CLYPRA_TEXT_RENDER_TRACE === "1") return true;
-  try {
-    return (
-      localStorage.getItem("clypra:debug:text-render") === "1" ||
-      localStorage.getItem("clypra:debug:playback") === "1" ||
-      import.meta.env.DEV
-    );
-  } catch {
-    return import.meta.env.DEV;
-  }
-}
-
-/**
- * Record the expensive part of native text preparation without logging every
- * cheap cached lookup. The phase identifies whether the work raced playback.
- */
 export function traceTextRenderTiming(input: {
   phase: TextRenderTracePhase;
+  kind: TextRenderKind;
+  rendererPath: TextRenderPath;
   assetId?: string;
   layerId?: string;
   fontFamily?: string;
   fontWaitMs: number;
   rasterMs: number;
+  readbackMs?: number;
+  transferMs?: number;
+  paintMs?: number;
+  outputPixels?: number;
+  cacheHit?: boolean;
   totalMs: number;
 }): void {
-  if (!isTraceEnabled()) return;
-  if (input.totalMs < 8 && input.phase !== "session-prewarm") return;
-  console.debug("[Clypra:text-render] timing", {
-    ...input,
-    totalMs: Number(input.totalMs.toFixed(2)),
-    fontWaitMs: Number(input.fontWaitMs.toFixed(2)),
-    rasterMs: Number(input.rasterMs.toFixed(2)),
+  const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
+  telemetryCollector.recordTextRender({
+    kind: input.kind,
+    rendererPath: input.rendererPath,
+    phase: input.phase,
+    sessionId: activeSession?.sessionId,
+    fontWaitUs: Math.round(Math.max(0, input.fontWaitMs) * 1000),
+    rasterUs: Math.round(Math.max(0, input.rasterMs) * 1000),
+    readbackUs: input.readbackMs === undefined ? undefined : Math.round(Math.max(0, input.readbackMs) * 1000),
+    transferUs: input.transferMs === undefined ? undefined : Math.round(Math.max(0, input.transferMs) * 1000),
+    paintUs: input.paintMs === undefined ? undefined : Math.round(Math.max(0, input.paintMs) * 1000),
+    outputPixels: input.outputPixels,
+    cacheHit: input.cacheHit ?? false,
+    totalTimeUs: Math.round(Math.max(0, input.totalMs) * 1000),
   });
+}
+
+export function traceTextRenderCacheHit(input: {
+  kind: TextRenderKind;
+  rendererPath: TextRenderPath;
+  phase: TextRenderTracePhase;
+}): void {
+  const activeSession = (globalThis as { __activeProjectSession?: { sessionId?: string } }).__activeProjectSession;
+  telemetryCollector.recordTextCacheHit({ ...input, sessionId: activeSession?.sessionId });
 }
