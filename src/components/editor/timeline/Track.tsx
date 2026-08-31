@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Lock } from "lucide-react";
 import { useDrop } from "react-dnd";
 import { useUIStore } from "@/store/uiStore";
@@ -21,7 +21,7 @@ import {
   getTrackVisualSpec,
   type TrackVisualSpec,
 } from "@/lib/timeline/trackTypeConfig";
-import { usePlaybackClock } from "@/hooks/usePlaybackClock";
+import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import { getActiveProgramBridgeClips } from "@/lib/timeline/programTimelineBridge";
 import type { Clip as ClipType, Track as TrackType, DragItem } from "@/types";
 
@@ -88,7 +88,6 @@ const TrackInner: React.FC<TrackProps> = ({
   const mainVideoTrackId = useTimelineStore((state) => state.mainVideoTrackId);
   const scrollLeft = useTimelineStore((state) => state.scrollLeft);
   const frameRate = useProjectStore((state) => state.project?.frameRate ?? 30);
-  const playbackTime = usePlaybackClock().time;
   const { getMediaAsset } = useTimeline();
   const [mediaDropPreview, setMediaDropPreview] = useState<{
     startTime: number;
@@ -164,14 +163,65 @@ const TrackInner: React.FC<TrackProps> = ({
   // No need to filter again - this was causing unnecessary re-computation
   const trackClips = clips;
 
-  const activeClipIds = useMemo(() => {
+  // PERF (0-A / 8-A): Compute active bridge clips only on seek/state-change events,
+  // not on every 10fps clock tick. We subscribe to the clock but filter out
+  // continuous time updates — only state transitions and seeks trigger re-evaluation.
+  // During playback, bridge clips stay constant between cuts, so stale-by-one-frame
+  // is perfectly acceptable (and far cheaper than 400 re-renders/sec at 10fps x 40 components).
+  const activeClipIdsRef = useRef<Set<string>>(new Set<string>());
+  const [activeClipIds, setActiveClipIds] = useState<Set<string>>(() => {
     if (previewMode !== "program") return new Set<string>();
     return new Set(
-      getActiveProgramBridgeClips(allClips, playbackTime).map(
+      getActiveProgramBridgeClips(allClips, getPlaybackClock().time).map(
         (clip) => clip.id,
       ),
     );
-  }, [allClips, playbackTime, previewMode]);
+  });
+  // Recalculate when clips or previewMode change (independent of clock ticks)
+  const prevAllClipsRef = useRef(allClips);
+  const prevPreviewModeRef = useRef(previewMode);
+  useEffect(() => {
+    const clipsChanged = prevAllClipsRef.current !== allClips;
+    const modeChanged = prevPreviewModeRef.current !== previewMode;
+    prevAllClipsRef.current = allClips;
+    prevPreviewModeRef.current = previewMode;
+    if (!clipsChanged && !modeChanged) return;
+    if (previewMode !== "program") {
+      const empty = new Set<string>();
+      activeClipIdsRef.current = empty;
+      setActiveClipIds(empty);
+      return;
+    }
+    const next = new Set(
+      getActiveProgramBridgeClips(allClips, getPlaybackClock().time).map(
+        (c) => c.id,
+      ),
+    );
+    activeClipIdsRef.current = next;
+    setActiveClipIds(next);
+  }, [allClips, previewMode]);
+  // Subscribe to clock for seek and state-change events only, not continuous ticks
+  useEffect(() => {
+    if (previewMode !== "program") return;
+    const clock = getPlaybackClock();
+    let lastState = clock.getState().state;
+    let lastTime = clock.getState().time;
+    const unsubscribe = clock.subscribe((newClockState) => {
+      const stateChanged = newClockState.state !== lastState;
+      // A time jump > 200ms is an intentional seek (not normal playback drift)
+      const wasSeeked = Math.abs(newClockState.time - lastTime) > 0.2;
+      lastState = newClockState.state;
+      lastTime = newClockState.time;
+      if (!stateChanged && !wasSeeked) return;
+      const clips = useTimelineStore.getState().clips;
+      const next = new Set(
+        getActiveProgramBridgeClips(clips, newClockState.time).map((c) => c.id),
+      );
+      activeClipIdsRef.current = next;
+      setActiveClipIds(next);
+    });
+    return unsubscribe;
+  }, [previewMode]);
 
   // Chronological order
   const sortedTrackClips = useMemo(
