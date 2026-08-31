@@ -155,3 +155,15 @@ class PreviewQualificationController {
 }
 
 export const previewQualificationController = new PreviewQualificationController();
+
+/**
+ * Public diagnostics entry point. Normal transport never calls this function;
+ * a desktop diagnostics surface must invoke it explicitly with the current
+ * render-snapshot validity check.
+ */
+export function startPreviewQualificationFromDiagnostics(
+  callbacks: PreviewQualificationCallbacks = {},
+  durationMs: number = PREVIEW_PERFORMANCE_BUDGETS.qualificationDurationMs,
+): PreviewQualificationState {
+  return previewQualificationController.start(callbacks, durationMs);
+}
