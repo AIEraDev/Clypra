@@ -51,7 +51,7 @@ function makeFrame(frameIndex: number): NativePreviewFrame {
 }
 
 describe("NativePreviewFrameScheduler", () => {
-  it("starts the visible request immediately even when prefetch is using its budget", async () => {
+  it("keeps one active request and promotes the visible request after prefetch", async () => {
     const pending = new Map<number, (frame: NativePreviewFrame) => void>();
     const load = vi.fn((request: NativeFrameRequest) => new Promise<NativePreviewFrame>((resolve) => {
       pending.set(request.frameTime.frameIndex, resolve);
@@ -61,7 +61,9 @@ describe("NativePreviewFrameScheduler", () => {
     scheduler.prefetch([makeSource(1)]);
     const visible = scheduler.requestVisible(makeSource(0));
 
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(1);
+    resolveFrame(pending, 1);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledWith(makeRequest(0), expect.any(AbortSignal)));
     resolveFrame(pending, 0);
 
     await expect(visible).resolves.toEqual(makeFrame(0));
@@ -130,6 +132,7 @@ describe("NativePreviewFrameScheduler", () => {
 
     expect(pending.get(1)?.signal?.aborted).toBe(true);
     pending.get(1)?.resolve(makeFrame(1));
+    await vi.waitFor(() => expect(pending.get(2)).toBeDefined());
     pending.get(2)?.resolve(makeFrame(2));
     await expect(old).resolves.toEqual(makeFrame(1));
     await expect(current).resolves.toEqual(makeFrame(2));
