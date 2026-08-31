@@ -46,11 +46,36 @@ export interface TelemetryStageTimings {
   conversionUploadUs?: number;
   composeUs?: number;
   surfaceAcquireUs?: number;
+  gpuQueueWaitUs?: number;
   readbackUs?: number;
   submitPresentUs?: number;
   schedulerWaitUs?: number;
   ipcWaitUs?: number;
+  transferUs?: number;
+  canvasPaintUs?: number;
   totalTimeUs: number;
+}
+
+export interface TelemetryMetricPercentiles {
+  p50: number;
+  p95: number;
+  p99: number;
+}
+
+export interface TelemetryStagePercentiles {
+  decodeUs?: TelemetryMetricPercentiles;
+  decoderMutexWaitUs?: TelemetryMetricPercentiles;
+  conversionUploadUs?: TelemetryMetricPercentiles;
+  composeUs?: TelemetryMetricPercentiles;
+  surfaceAcquireUs?: TelemetryMetricPercentiles;
+  gpuQueueWaitUs?: TelemetryMetricPercentiles;
+  readbackUs?: TelemetryMetricPercentiles;
+  submitPresentUs?: TelemetryMetricPercentiles;
+  schedulerWaitUs?: TelemetryMetricPercentiles;
+  ipcWaitUs?: TelemetryMetricPercentiles;
+  transferUs?: TelemetryMetricPercentiles;
+  canvasPaintUs?: TelemetryMetricPercentiles;
+  totalTimeUs?: TelemetryMetricPercentiles;
 }
 
 export type TelemetryOperationMode =
@@ -85,6 +110,14 @@ export interface TelemetryEvent {
   /** Stable identity for one logical measurement across retries. */
   measurementId?: string;
   measurementSource?: "frontend-span" | "native-sample" | "session-rollup";
+  sessionId?: string;
+  qualificationRunId?: string;
+  scenario?: TelemetryPreviewScenario;
+  sampleKind?: TelemetrySampleKind;
+  frameSequence?: number;
+  dropReason?: string;
+  deadlineUs?: number;
+  forceSample?: boolean;
   appVersion: string;
   appBuildNumber: string;
   appEnvironment: "production" | "canary" | "beta";
@@ -106,6 +139,9 @@ export interface TelemetryEvent {
     peakVramMb?: number;
     cacheHitRatio: number;
     stageTimings: TelemetryStageTimings;
+    renderPercentiles?: TelemetryMetricPercentiles;
+    stagePercentiles?: TelemetryStagePercentiles;
+    firstFrameVisibleMs?: number;
     isSessionRollup?: boolean;
     jankEventsCount?: number;
   };
@@ -139,17 +175,39 @@ export interface TelemetryEvent {
 export type TelemetryPreviewView = "webview" | "native";
 export type TelemetryPreviewSurface = "dom-canvas" | "native-surface";
 export type TelemetryRuntimeEnvironment = "development" | "production";
+export type TelemetryPreviewScenario =
+  | "playback"
+  | "seek"
+  | "scrub"
+  | "paused-interaction"
+  | "qualification";
+export type TelemetrySampleKind =
+  | "frame-anomaly"
+  | "window-rollup"
+  | "qualification-summary"
+  | "interaction";
 
 export interface TelemetryPreviewContext {
   view: TelemetryPreviewView;
   surface: TelemetryPreviewSurface;
   runtimeEnvironment: TelemetryRuntimeEnvironment;
+  sessionId?: string;
+  qualificationRunId?: string;
+  scenario?: TelemetryPreviewScenario;
 }
 
 export interface TelemetryRenderOptions {
   previewContext?: TelemetryPreviewContext;
   measurementId?: string;
   measurementSource?: "frontend-span" | "native-sample" | "session-rollup";
+  sampleKind?: TelemetrySampleKind;
+  frameSequence?: number;
+  dropReason?: string;
+  deadlineUs?: number;
+  forceSample?: boolean;
+  cacheHit?: boolean;
+  /** Native samples are stage evidence for a frontend frame, not a second frame. */
+  includeInRollup?: boolean;
 }
 
 const DEFAULT_API_INGEST_URL = `${getApiBaseUrl()}/performance/telemetry/ingest/batch`;
@@ -180,10 +238,17 @@ class SessionRollupAccumulator {
   private lastFrameTimestampMs: number = 0;
   private renderTimesUs: number[] = [];
   private decodeTimesUs: number[] = [];
+  private decoderMutexWaitTimesUs: number[] = [];
   private composeTimesUs: number[] = [];
   private uploadTimesUs: number[] = [];
+  private surfaceAcquireTimesUs: number[] = [];
+  private gpuQueueWaitTimesUs: number[] = [];
   private readbackTimesUs: number[] = [];
+  private transferTimesUs: number[] = [];
+  private canvasPaintTimesUs: number[] = [];
   private presentTimesUs: number[] = [];
+  private schedulerWaitTimesUs: number[] = [];
+  private ipcWaitTimesUs: number[] = [];
   private driftSamplesMs: number[] = [];
   private seekLatenciesMs: number[] = [];
   private totalFrames: number = 0;
@@ -193,6 +258,7 @@ class SessionRollupAccumulator {
   private jankEvents: number = 0;
   private cacheHits: number = 0;
   private cacheMisses: number = 0;
+  private firstFrameVisibleMs: number | undefined;
   private lastKnownVideoProfile: Partial<TelemetryVideoProfile> = {};
 
   public recordFrame(
@@ -214,6 +280,9 @@ class SessionRollupAccumulator {
     this.lastFrameTimestampMs = now;
 
     this.totalFrames++;
+    if (this.firstFrameVisibleMs === undefined) {
+      this.firstFrameVisibleMs = timings.totalTimeUs / 1000;
+    }
     if (dropped) this.droppedFrames++;
     if (isStale) this.staleFrames++;
     if (isCancelled) this.cancelledFrames++;
@@ -227,10 +296,17 @@ class SessionRollupAccumulator {
     if (this.renderTimesUs.length < 1000) {
       this.renderTimesUs.push(timings.totalTimeUs);
       if (timings.decodeUs !== undefined) this.decodeTimesUs.push(timings.decodeUs);
+      if (timings.decoderMutexWaitUs !== undefined) this.decoderMutexWaitTimesUs.push(timings.decoderMutexWaitUs);
       if (timings.composeUs !== undefined) this.composeTimesUs.push(timings.composeUs);
       if (timings.conversionUploadUs !== undefined) this.uploadTimesUs.push(timings.conversionUploadUs);
+      if (timings.surfaceAcquireUs !== undefined) this.surfaceAcquireTimesUs.push(timings.surfaceAcquireUs);
+      if (timings.gpuQueueWaitUs !== undefined) this.gpuQueueWaitTimesUs.push(timings.gpuQueueWaitUs);
       if (timings.readbackUs !== undefined) this.readbackTimesUs.push(timings.readbackUs);
+      if (timings.transferUs !== undefined) this.transferTimesUs.push(timings.transferUs);
+      if (timings.canvasPaintUs !== undefined) this.canvasPaintTimesUs.push(timings.canvasPaintUs);
       if (timings.submitPresentUs !== undefined) this.presentTimesUs.push(timings.submitPresentUs);
+      if (timings.schedulerWaitUs !== undefined) this.schedulerWaitTimesUs.push(timings.schedulerWaitUs);
+      if (timings.ipcWaitUs !== undefined) this.ipcWaitTimesUs.push(timings.ipcWaitUs);
     }
 
     if (avDriftMs !== undefined && this.driftSamplesMs.length < 500) {
@@ -265,6 +341,9 @@ class SessionRollupAccumulator {
     avDriftP95Ms: number;
     cacheHitRatio: number;
     stageTimings: TelemetryStageTimings;
+    renderPercentiles?: TelemetryMetricPercentiles;
+    stagePercentiles?: TelemetryStagePercentiles;
+    firstFrameVisibleMs?: number;
     videoProfile: Partial<TelemetryVideoProfile>;
   } | null {
     if (this.totalFrames === 0) {
@@ -282,14 +361,27 @@ class SessionRollupAccumulator {
       const idx = Math.min(sorted.length - 1, Math.round((sorted.length - 1) * 0.95));
       return sorted[idx];
     };
+    const metricPercentiles = (arr: number[]): TelemetryMetricPercentiles | undefined => {
+      if (arr.length === 0) return undefined;
+      const sorted = [...arr].sort((a, b) => a - b);
+      const at = (pct: number) => sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * pct))] ?? 0;
+      return { p50: at(0.5), p95: at(0.95), p99: at(0.99) };
+    };
 
     const totalTimeUs = p95(this.renderTimesUs) || mean(this.renderTimesUs) || 16667;
     const stageTimings: TelemetryStageTimings = {
       decodeUs: mean(this.decodeTimesUs) || undefined,
+      decoderMutexWaitUs: mean(this.decoderMutexWaitTimesUs) || undefined,
       composeUs: mean(this.composeTimesUs) || undefined,
       conversionUploadUs: mean(this.uploadTimesUs) || undefined,
+      surfaceAcquireUs: mean(this.surfaceAcquireTimesUs) || undefined,
+      gpuQueueWaitUs: mean(this.gpuQueueWaitTimesUs) || undefined,
       readbackUs: mean(this.readbackTimesUs) || undefined,
+      transferUs: mean(this.transferTimesUs) || undefined,
+      canvasPaintUs: mean(this.canvasPaintTimesUs) || undefined,
       submitPresentUs: mean(this.presentTimesUs) || undefined,
+      schedulerWaitUs: mean(this.schedulerWaitTimesUs) || undefined,
+      ipcWaitUs: mean(this.ipcWaitTimesUs) || undefined,
       totalTimeUs,
     };
 
@@ -309,6 +401,23 @@ class SessionRollupAccumulator {
       avDriftP95Ms,
       cacheHitRatio,
       stageTimings,
+      renderPercentiles: metricPercentiles(this.renderTimesUs),
+      stagePercentiles: {
+        decodeUs: metricPercentiles(this.decodeTimesUs),
+        decoderMutexWaitUs: metricPercentiles(this.decoderMutexWaitTimesUs),
+        conversionUploadUs: metricPercentiles(this.uploadTimesUs),
+        composeUs: metricPercentiles(this.composeTimesUs),
+        surfaceAcquireUs: metricPercentiles(this.surfaceAcquireTimesUs),
+        gpuQueueWaitUs: metricPercentiles(this.gpuQueueWaitTimesUs),
+        readbackUs: metricPercentiles(this.readbackTimesUs),
+        transferUs: metricPercentiles(this.transferTimesUs),
+        canvasPaintUs: metricPercentiles(this.canvasPaintTimesUs),
+        submitPresentUs: metricPercentiles(this.presentTimesUs),
+        schedulerWaitUs: metricPercentiles(this.schedulerWaitTimesUs),
+        ipcWaitUs: metricPercentiles(this.ipcWaitTimesUs),
+        totalTimeUs: metricPercentiles(this.renderTimesUs),
+      },
+      firstFrameVisibleMs: this.firstFrameVisibleMs,
       videoProfile: this.lastKnownVideoProfile,
     };
 
@@ -322,12 +431,20 @@ class SessionRollupAccumulator {
     this.cacheMisses = 0;
     this.renderTimesUs = [];
     this.decodeTimesUs = [];
+    this.decoderMutexWaitTimesUs = [];
     this.composeTimesUs = [];
     this.uploadTimesUs = [];
+    this.surfaceAcquireTimesUs = [];
+    this.gpuQueueWaitTimesUs = [];
     this.readbackTimesUs = [];
+    this.transferTimesUs = [];
+    this.canvasPaintTimesUs = [];
     this.presentTimesUs = [];
+    this.schedulerWaitTimesUs = [];
+    this.ipcWaitTimesUs = [];
     this.driftSamplesMs = [];
     this.seekLatenciesMs = [];
+    this.firstFrameVisibleMs = undefined;
 
     return result;
   }
@@ -344,12 +461,20 @@ class SessionRollupAccumulator {
     this.cacheMisses = 0;
     this.renderTimesUs = [];
     this.decodeTimesUs = [];
+    this.decoderMutexWaitTimesUs = [];
     this.composeTimesUs = [];
     this.uploadTimesUs = [];
+    this.surfaceAcquireTimesUs = [];
+    this.gpuQueueWaitTimesUs = [];
     this.readbackTimesUs = [];
+    this.transferTimesUs = [];
+    this.canvasPaintTimesUs = [];
     this.presentTimesUs = [];
+    this.schedulerWaitTimesUs = [];
+    this.ipcWaitTimesUs = [];
     this.driftSamplesMs = [];
     this.seekLatenciesMs = [];
+    this.firstFrameVisibleMs = undefined;
   }
 }
 
@@ -583,25 +708,28 @@ class TelemetryCollector {
   ): void {
     if (!this.isEnabled) return;
 
-    const accumulator = this.getRollupAccumulator(options.previewContext);
-    accumulator.recordFrame(
-      timings,
-      droppedFrames > 0,
-      videoProfile,
-      avDriftMs,
-      staleFrames > 0,
-      cancelledFrames > 0
-    );
+    if (options.includeInRollup !== false) {
+      const accumulator = this.getRollupAccumulator(options.previewContext);
+      accumulator.recordFrame(
+        timings,
+        droppedFrames > 0,
+        videoProfile,
+        avDriftMs,
+        staleFrames > 0,
+        cancelledFrames > 0,
+        options.cacheHit ?? true,
+      );
 
-    if (accumulator.shouldEmitRollup()) {
-      this.flushRollupIfPending();
+      if (accumulator.shouldEmitRollup()) {
+        this.flushRollupIfPending();
+      }
     }
 
     const droppedRatio = totalFrames > 0 ? droppedFrames / totalFrames : 0;
     const isAnomaly = droppedRatio > 0.05 || timings.totalTimeUs > 16667;
 
     // Adaptive sampling: 100% on dropped frames / latency SLA overruns, 1% on nominal smooth frames
-    if (!isAnomaly && Math.random() > NOMINAL_SAMPLE_RATE) {
+    if (!options.forceSample && !isAnomaly && Math.random() > NOMINAL_SAMPLE_RATE) {
       return;
     }
 
@@ -612,6 +740,13 @@ class TelemetryCollector {
       eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       measurementId: options.measurementId,
       measurementSource: options.measurementSource,
+      sessionId: options.previewContext?.sessionId,
+      qualificationRunId: options.previewContext?.qualificationRunId,
+      scenario: options.previewContext?.scenario,
+      sampleKind: options.sampleKind,
+      frameSequence: options.frameSequence,
+      dropReason: options.dropReason,
+      deadlineUs: options.deadlineUs,
       appVersion: this.appVersion,
       appBuildNumber: import.meta.env.MODE || "prod",
       appEnvironment: import.meta.env.DEV ? "beta" : "production",
@@ -855,11 +990,25 @@ class TelemetryCollector {
     } | null,
     nativeRender: {
       lastSample?: {
+        requestId?: string;
+        frameIndex?: number;
         decodeTimeUs: number;
         composeTimeUs: number;
         readbackTimeUs: number;
         presentTimeUs?: number;
         totalTimeUs: number;
+        cacheHit?: boolean;
+        conversionTimeUs?: number;
+        uploadTimeUs?: number;
+        conversionUploadUs?: number;
+        decoderMutexWaitUs?: number;
+        gpuQueueWaitUs?: number;
+        surfaceAcquireUs?: number;
+        schedulerWaitUs?: number;
+        ipcWaitUs?: number;
+        dropped?: boolean;
+        stale?: boolean;
+        cancelled?: boolean;
       } | null;
       windowDroppedFrames?: number;
       windowStaleFrames?: number;
@@ -887,30 +1036,51 @@ class TelemetryCollector {
 
     const timings: TelemetryStageTimings = {
       decodeUs: last.decodeTimeUs,
+      decoderMutexWaitUs: last.decoderMutexWaitUs,
+      conversionUploadUs: last.conversionUploadUs ?? last.conversionTimeUs ?? last.uploadTimeUs,
       composeUs: last.composeTimeUs,
+      surfaceAcquireUs: last.surfaceAcquireUs,
+      gpuQueueWaitUs: last.gpuQueueWaitUs,
       readbackUs: last.readbackTimeUs,
+      schedulerWaitUs: last.schedulerWaitUs,
+      ipcWaitUs: last.ipcWaitUs,
       submitPresentUs: last.presentTimeUs,
       totalTimeUs: last.totalTimeUs,
     };
 
-    const dropped = (nativeRender?.windowDroppedFrames || 0) + (nativeSync?.dropped_frames || 0);
+    const dropped = last.dropped === true;
+    const stale = last.stale === true;
+    const cancelled = last.cancelled === true;
     const avDriftMs = nativeSync?.av_drift ? nativeSync.av_drift.p95_abs_micros / 1000 : 0;
 
     this.recordRenderSpan(
       timings,
-      dropped > 0 ? 1 : 0,
-      60,
+      dropped ? 1 : 0,
+      1,
       videoProfile,
       "playback",
       avDriftMs,
-      nativeRender?.windowStaleFrames || 0,
-      nativeRender?.windowCancelledFrames || 0,
+      stale ? 1 : 0,
+      cancelled ? 1 : 0,
       {
         previewContext,
         measurementId: measurementId
           ? `native-sample:${previewContext?.view ?? "unknown"}:${measurementId}`
           : undefined,
         measurementSource: "native-sample",
+        sampleKind: "frame-anomaly",
+        frameSequence: last.frameIndex,
+        deadlineUs: 16_667,
+        dropReason: dropped
+          ? cancelled
+            ? "cancelled"
+            : stale
+              ? "stale"
+              : "native-present-drop"
+          : undefined,
+        forceSample: previewContext?.scenario === "qualification",
+        cacheHit: last.cacheHit,
+        includeInRollup: false,
       }
     );
   }
@@ -930,6 +1100,10 @@ class TelemetryCollector {
         eventId: `evt_rollup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         measurementId: `rollup:${key}:${rollup.windowStartMs}`,
         measurementSource: "session-rollup",
+        sampleKind:
+          previewContext?.scenario === "qualification"
+            ? "qualification-summary"
+            : "window-rollup",
         appVersion: this.appVersion,
         appBuildNumber: import.meta.env.MODE || "prod",
         appEnvironment: import.meta.env.DEV ? "beta" : "production",
@@ -953,6 +1127,9 @@ class TelemetryCollector {
           peakRamMb: 512,
           cacheHitRatio: rollup.cacheHitRatio,
           stageTimings: rollup.stageTimings,
+          renderPercentiles: rollup.renderPercentiles,
+          stagePercentiles: rollup.stagePercentiles,
+          firstFrameVisibleMs: rollup.firstFrameVisibleMs,
           isSessionRollup: true,
           jankEventsCount: rollup.jankEventsCount,
         },
