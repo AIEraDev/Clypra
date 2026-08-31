@@ -1009,6 +1009,7 @@ class TelemetryCollector {
         dropped?: boolean;
         stale?: boolean;
         cancelled?: boolean;
+        dropReason?: string;
       } | null;
       windowDroppedFrames?: number;
       windowStaleFrames?: number;
@@ -1076,11 +1077,15 @@ class TelemetryCollector {
             ? "cancelled"
             : stale
               ? "stale"
-              : "native-present-drop"
+              : last.dropReason ?? "native-present-drop"
           : undefined,
         forceSample: previewContext?.scenario === "qualification",
         cacheHit: last.cacheHit,
-        includeInRollup: false,
+        // The native session is the authoritative frame stream for the Native
+        // path. Frontend spans are used for WebView and compatibility fallback
+        // only, so Native samples can feed the session rollup without being
+        // double-counted by a second frontend frame stream.
+        includeInRollup: previewContext?.view === "native",
       }
     );
   }
