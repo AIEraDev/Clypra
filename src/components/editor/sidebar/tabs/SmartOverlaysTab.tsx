@@ -4,12 +4,19 @@ import { Button } from "@/components/ui/Button";
 import { useTimelineStore } from "@/store/timelineStore";
 import { SMART_OVERLAY_PRESETS, getSmartOverlayPreset, type SmartOverlayType, type SmartOverlayClip, type ComparisonOverlayContent } from "@/types/smartOverlay";
 import { smartOverlayCacheManager, type CachedSmartOverlay } from "@/features/smart-overlays/cache/smartOverlayCache";
+import { getPreviewInteractionCoordinator } from "@/core/interactions";
 
 import { extractSmartOverlaysFromTranscript } from "@/features/smart-overlays/services/smartOverlayExtractor";
 import type { TabProps } from "../types";
 
 export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   const { clips, addClip, updateClip } = useTimelineStore();
+  const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const updatePreviewClip = (id: string, updates: unknown) => {
+    const token = previewInteractionCoordinator.begin("property-edit");
+    updateClip(id, updates as Parameters<typeof updateClip>[1]);
+    previewInteractionCoordinator.commit(token);
+  };
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<SmartOverlayType | "all">("all");
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
@@ -236,7 +243,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   type="text"
                   value={selectedClip.content.data.value}
                   onChange={(e) =>
-                    updateClip(selectedClip.id, {
+                    updatePreviewClip(selectedClip.id, {
                       content: {
                         ...selectedClip.content,
                         data: { ...selectedClip.content.data, value: e.target.value },
@@ -252,7 +259,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   type="text"
                   value={selectedClip.content.data.label}
                   onChange={(e) =>
-                    updateClip(selectedClip.id, {
+                    updatePreviewClip(selectedClip.id, {
                       content: {
                         ...selectedClip.content,
                         data: { ...selectedClip.content.data, label: e.target.value },
@@ -268,7 +275,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   type="text"
                   value={selectedClip.content.data.delta || ""}
                   onChange={(e) =>
-                    updateClip(selectedClip.id, {
+                    updatePreviewClip(selectedClip.id, {
                       content: {
                         ...selectedClip.content,
                         data: { ...selectedClip.content.data, delta: e.target.value },
@@ -290,7 +297,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   value={selectedClip.content.data.quote}
                   rows={2}
                   onChange={(e) =>
-                    updateClip(selectedClip.id, {
+                    updatePreviewClip(selectedClip.id, {
                       content: {
                         ...selectedClip.content,
                         data: { ...selectedClip.content.data, quote: e.target.value },
@@ -306,7 +313,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   type="text"
                   value={selectedClip.content.data.author}
                   onChange={(e) =>
-                    updateClip(selectedClip.id, {
+                    updatePreviewClip(selectedClip.id, {
                       content: {
                         ...selectedClip.content,
                         data: { ...selectedClip.content.data, author: e.target.value },
@@ -328,7 +335,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   value={selectedClip.content.data.code}
                   rows={3}
                   onChange={(e) =>
-                    updateClip(selectedClip.id, {
+                    updatePreviewClip(selectedClip.id, {
                       content: {
                         ...selectedClip.content,
                         data: { ...selectedClip.content.data, code: e.target.value },
@@ -350,7 +357,7 @@ export const SmartOverlaysTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
                   type="text"
                   value={selectedClip.content.data.name}
                   onChange={(e) =>
-                    updateClip(selectedClip.id, {
+                    updatePreviewClip(selectedClip.id, {
                       content: {
                         ...selectedClip.content,
                         data: { ...selectedClip.content.data, name: e.target.value },
