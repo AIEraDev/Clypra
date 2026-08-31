@@ -132,6 +132,9 @@ pub struct NativeSurfacePresentation {
     /// True when the frame was intentionally discarded because it was stale
     /// relative to the native audio clock or superseded by a newer request.
     pub dropped: bool,
+    /// `stale`, `cancelled`, or `late-for-audio` when a frame is discarded.
+    #[serde(default)]
+    pub drop_reason: Option<String>,
     /// Native audio position in the audio clock's canonical 1 MHz ticks.
     pub audio_position_ticks: u64,
     /// Audio position minus frame position in canonical 1 MHz ticks.
