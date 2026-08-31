@@ -32,6 +32,12 @@ export interface NativeAudioStatus {
   speed: number;
   volume: number;
   muted: boolean;
+  /** Number of output callbacks that could not acquire the mixer read lock. */
+  mixerLockMisses: number;
+  /** Accumulated callback execution time, measured off the network path. */
+  callbackTimeUs: number;
+  callbackMaxTimeUs: number;
+  callbackOverBudgetCount: number;
 }
 
 export interface NativeAudioClipStatus {
