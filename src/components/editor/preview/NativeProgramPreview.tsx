@@ -9,6 +9,7 @@ import { Expand, Shrink, Activity } from "lucide-react";
 import { VideoScopesModal } from "../scopes/VideoScopesModal";
 import {
   usePlaybackClock,
+  usePlaybackStatus,
   usePlaybackControls,
   useTransportControls,
   getPlaybackClock,
@@ -61,7 +62,10 @@ import {
   isTauriRuntime,
   onNativePreviewWindowMoved,
   presentNativeFrame,
+  configureNativePlaybackRender,
+  submitNativePlaybackDemand,
   getNativeFrameServiceStats,
+  getNativeFrameServiceSamples,
   getNativeSyncMetricsSnapshot,
   getNativeGpuStatus,
   registerNativeRasterAsset,
@@ -108,6 +112,7 @@ import {
 import { ensureNativeFontsRegistered } from "@/core/fonts/nativeFontRegistry";
 import {
   NATIVE_PREVIEW_ONLY,
+  createNativePlaybackFrameDemand,
   type NativeFrameRequest,
   type NativeRasterLayerSnapshot,
 } from "@/lib/platform/nativeCore";
@@ -155,13 +160,58 @@ function drawNativeFrameToCanvas(
 
   if (canvas.width !== frame.width) canvas.width = frame.width;
   if (canvas.height !== frame.height) canvas.height = frame.height;
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { alpha: false });
   if (!context) return false;
 
-  const image = context.createImageData(frame.width, frame.height);
+  const image = getReusableCanvasImageData(
+    canvas,
+    context,
+    frame.width,
+    frame.height,
+  );
   image.data.set(new Uint8ClampedArray(frame.rgba));
   context.putImageData(image, 0, 0);
   return true;
+}
+
+const reusableCanvasImages = new WeakMap<
+  HTMLCanvasElement,
+  { width: number; height: number; image: ImageData }
+>();
+
+function getReusableCanvasImageData(
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): ImageData {
+  const cached = reusableCanvasImages.get(canvas);
+  if (cached?.width === width && cached.height === height) return cached.image;
+  const image = context.createImageData(width, height);
+  reusableCanvasImages.set(canvas, { width, height, image });
+  return image;
+}
+
+/**
+ * WebView readback is a fallback/qualification path, not a full-resolution
+ * export path. Keep the transfer bounded even when a large editor viewport or
+ * DPR would otherwise make every RGBA frame expensive.
+ */
+const WEBVIEW_MAX_OUTPUT_DIMENSION = 960;
+
+function capWebViewRenderTarget(target: {
+  width: number;
+  height: number;
+  quality: NativeFrameRequest["quality"];
+}): typeof target {
+  const largest = Math.max(target.width, target.height);
+  if (largest <= WEBVIEW_MAX_OUTPUT_DIMENSION) return target;
+  const scale = WEBVIEW_MAX_OUTPUT_DIMENSION / largest;
+  return {
+    ...target,
+    width: Math.max(1, Math.floor(target.width * scale)),
+    height: Math.max(1, Math.floor(target.height * scale)),
+  };
 }
 
 interface ConnectedProgramTransportProps {
@@ -302,6 +352,7 @@ export const NativeProgramPreview: React.FC = () => {
   const setPreviewQuality = useSettingsStore((s) => s.setPreviewQuality);
 
   const clock = getPlaybackClock();
+  const { state: playbackState } = usePlaybackStatus();
   const { setDuration, setFrameRate } = usePlaybackControls();
   const {
     play: transportPlay,
@@ -397,10 +448,10 @@ export const NativeProgramPreview: React.FC = () => {
     surface: "dom-canvas",
     runtimeEnvironment: import.meta.env.DEV ? "development" : "production",
   });
-  // Native stats are sampled for API telemetry, but `lastSample` is a snapshot,
-  // not a stream. Keep a cursor so polling an idle editor cannot create a new
-  // telemetry event for the same native frame over and over.
-  const lastReportedNativeSampleRef = useRef<string | null>(null);
+  // Native telemetry is read through the service's bounded sequence cursor.
+  // This preserves every retained observation between polls without creating
+  // a measurement when the editor is idle.
+  const lastNativeSampleSequenceRef = useRef(0);
   const originalCanvasDimsRef = useRef<{
     projectId: string;
     width: number;
@@ -410,6 +461,11 @@ export const NativeProgramPreview: React.FC = () => {
   const prevFrameRateRef = useRef<number>(0);
   const isMutedRef = useRef(isMuted);
   const volumeRef = useRef(volume);
+  // Qualification is diagnostic lifecycle work, not a user preference. Start
+  // one automatic two-path pass the first time each project actually plays so
+  // WebView data is collected without a console command or editor telemetry UI.
+  const automaticQualificationProjectRef = useRef<string | null>(null);
+  const automaticQualificationStartedRef = useRef(false);
 
   isMutedRef.current = isMuted;
   volumeRef.current = volume;
@@ -468,11 +524,22 @@ export const NativeProgramPreview: React.FC = () => {
 
     let active = true;
     const flushMetrics = async () => {
-      const [nativeSync, nativeRender] = await Promise.all([
+      const afterSequence = lastNativeSampleSequenceRef.current;
+      const [nativeSync, nativeRender, nativeSampleBatch] = await Promise.all([
         getNativeSyncMetricsSnapshot().catch(() => null),
         getNativeFrameServiceStats().catch(() => null),
+        getNativeFrameServiceSamples(afterSequence, 256).catch(() => null),
       ]);
       if (!active) return;
+
+      // A project reset starts the native sequence over. Do not let the old
+      // cursor suppress all samples from the new project.
+      if (
+        nativeSampleBatch &&
+        nativeSampleBatch.latestSequence < lastNativeSampleSequenceRef.current
+      ) {
+        lastNativeSampleSequenceRef.current = 0;
+      }
 
       // Extract current video profile
       const videoAsset = renderStateRef.current.mediaAssets.find(
@@ -491,27 +558,37 @@ export const NativeProgramPreview: React.FC = () => {
         nominalFps: renderStateRef.current.project?.frameRate || 60,
       };
 
-      // Feed production telemetry only when native produced a new sample.
-      // The stats command intentionally returns the last sample so the HUD
-      // remains useful while paused; it must not be mistaken for a stream.
-      const lastNativeSample = nativeRender?.lastSample;
-      const nativeSampleCursor = lastNativeSample
-        ? nativeRender?.lastSampleSequence !== undefined
+      const samples = nativeSampleBatch?.samples ?? [];
+      if (nativeSampleBatch) {
+        for (let index = 0; index < samples.length; index += 1) {
+          const sample = samples[index];
+          const sequence = nativeSampleBatch.firstSequence + index;
+          telemetryCollector.recordNativeSyncSnapshot(
+            nativeSync,
+            { ...(nativeRender ?? {}), lastSample: sample },
+            profile,
+            previewTelemetryContextRef.current,
+            `sequence:${sequence}:${sample.requestId}:${sample.frameIndex}`,
+          );
+        }
+        lastNativeSampleSequenceRef.current = nativeSampleBatch.nextSequence;
+      } else {
+        // Compatibility fallback for older desktop binaries that do not yet
+        // expose the cursor command. It remains cursor-protected.
+        const lastNativeSample = nativeRender?.lastSample;
+        const nativeSampleCursor = lastNativeSample && nativeRender?.lastSampleSequence !== undefined
           ? `sequence:${nativeRender.lastSampleSequence}:${lastNativeSample.requestId}:${lastNativeSample.frameIndex}`
-          : `frame:${lastNativeSample.requestId}:${lastNativeSample.frameIndex}`
-        : null;
-      if (
-        nativeSampleCursor &&
-        nativeSampleCursor !== lastReportedNativeSampleRef.current
-      ) {
-        lastReportedNativeSampleRef.current = nativeSampleCursor;
-        telemetryCollector.recordNativeSyncSnapshot(
-          nativeSync,
-          nativeRender,
-          profile,
-          previewTelemetryContextRef.current,
-          nativeSampleCursor,
-        );
+          : null;
+        if (nativeSampleCursor && nativeRender?.lastSampleSequence !== undefined && nativeRender.lastSampleSequence > afterSequence) {
+          lastNativeSampleSequenceRef.current = nativeRender.lastSampleSequence;
+          telemetryCollector.recordNativeSyncSnapshot(
+            nativeSync,
+            nativeRender,
+            profile,
+            previewTelemetryContextRef.current,
+            nativeSampleCursor,
+          );
+        }
       }
     };
 
@@ -523,7 +600,7 @@ export const NativeProgramPreview: React.FC = () => {
     return () => {
       active = false;
       window.clearInterval(interval);
-      lastReportedNativeSampleRef.current = null;
+      lastNativeSampleSequenceRef.current = 0;
     };
   }, []);
   renderStateRef.current.clips = clips;
@@ -546,6 +623,39 @@ export const NativeProgramPreview: React.FC = () => {
       useEffectsStore.getState().definitions,
     ),
   };
+
+  useEffect(() => {
+    const projectId = project?.id ?? null;
+    if (projectId !== automaticQualificationProjectRef.current) {
+      automaticQualificationProjectRef.current = projectId;
+      automaticQualificationStartedRef.current = false;
+    }
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (
+      !isTauriRuntime() ||
+      projectInitializing ||
+      !project?.id ||
+      playbackState !== "playing" ||
+      automaticQualificationStartedRef.current
+    ) {
+      return;
+    }
+
+    const qualification = previewQualificationController.getState();
+    if (qualification.status === "running") return;
+
+    automaticQualificationStartedRef.current = true;
+    const projectId = project.id;
+    const projectEpoch = epoch;
+    previewQualificationController.start({
+      isSnapshotValid: () => {
+        const current = renderStateRef.current;
+        return current.project?.id === projectId && current.epoch === projectEpoch;
+      },
+    });
+  }, [epoch, playbackState, project?.id, projectInitializing]);
 
   const canvasWidth = project?.canvasWidth ?? 1920;
   const canvasHeight = project?.canvasHeight ?? 1080;
@@ -1020,6 +1130,10 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeFailureCount = 0;
     let nativeBlockedKey = "";
     let nativePlaybackInFlight: Promise<void> | null = null;
+    let nativePlaybackRenderSnapshotKey = "";
+    let nativePlaybackRenderSnapshotInFlight: Promise<void> | null = null;
+    let nativePlaybackRenderSnapshotInFlightKey = "";
+    let nativePlaybackRenderFailed = false;
     let nativeContinuousFailureStreak = 0;
     let nativeDroppedFrameCount = 0;
     let nativeContinuousBlockedRevision = "";
@@ -1394,6 +1508,46 @@ export const NativeProgramPreview: React.FC = () => {
       }
     };
 
+    const nativePlaybackSnapshotKeyFor = (request: NativeFrameRequest) =>
+      [
+        request.project.projectRevision,
+        request.renderGraphVersion,
+        request.outputWidth,
+        request.outputHeight,
+        request.quality,
+      ].join(":");
+
+    const ensureNativePlaybackRenderSnapshot = (
+      request: NativeFrameRequest,
+    ): void => {
+      const key = nativePlaybackSnapshotKeyFor(request);
+      if (
+        nativePlaybackRenderSnapshotKey === key ||
+        nativePlaybackRenderSnapshotInFlightKey === key
+      ) {
+        return;
+      }
+      nativePlaybackRenderSnapshotInFlightKey = key;
+      nativePlaybackRenderFailed = false;
+      nativePlaybackRenderSnapshotInFlight = configureNativePlaybackRender(
+        request,
+      )
+        .then(() => {
+          nativePlaybackRenderSnapshotKey = key;
+        })
+        .catch((error) => {
+          nativePlaybackRenderFailed = true;
+          console.warn("[native-preview] persistent-render-session-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          nativePlaybackRenderSnapshotInFlight = null;
+          nativePlaybackRenderSnapshotInFlightKey = "";
+          forceRenderNeeded = true;
+        });
+    };
+
     const nativeTextDebugSummary = (request: NativeFrameRequest) =>
       (request.project.textLayers ?? []).map((layer) => ({
         text: layer.text.slice(0, 80),
@@ -1651,10 +1805,26 @@ export const NativeProgramPreview: React.FC = () => {
         }
         traceFrameIndex = frameIndex;
         const frameStartTime = getFrameStartTime(timeToRender, frameRate);
-        const renderTarget = getNativeRenderTarget(
+        const qualificationState = previewQualificationController.getState();
+        const nativeAudioClockReadyForTarget =
+          !isTauriRuntime() || state.clock.hasNativeClockPosition;
+        const nativeRevisionForTarget = `${state.project?.id ?? "unknown-project"}:${state.epoch}`;
+        const nativeSurfaceCanOwnPlayback =
+          nativeSurfaceReadyRef.current &&
+          nativeSurfaceGeometrySettledRef.current &&
+          nativeAudioClockReadyForTarget &&
+          nativeContinuousBlockedRevision !== nativeRevisionForTarget;
+        const baseRenderTarget = getNativeRenderTarget(
           state,
           !isPlaying && clock.isSeeking,
         );
+        const webViewTargetRequired =
+          !isPlaying ||
+          qualificationState.path === "webview" ||
+          !nativeSurfaceCanOwnPlayback;
+        const renderTarget = webViewTargetRequired
+          ? capWebViewRenderTarget(baseRenderTarget)
+          : baseRenderTarget;
         const requestIntent = latestSeekIntent
           ? {
               generation: latestSeekIntent.generation,
@@ -2066,7 +2236,39 @@ export const NativeProgramPreview: React.FC = () => {
                 generation: targetGeneration,
               };
 
-              if (nativeSurfaceUsable && !qualificationForcesWebView) {
+              const persistentNativePlaybackEligible =
+                isPlaying &&
+                nativeSurfaceUsable &&
+                !qualificationForcesWebView &&
+                !nativePlaybackRenderFailed;
+              if (persistentNativePlaybackEligible) {
+                ensureNativePlaybackRenderSnapshot(requestToPresent);
+                const snapshotKey = nativePlaybackSnapshotKeyFor(
+                  requestToPresent,
+                );
+                if (
+                  nativePlaybackRenderSnapshotKey === snapshotKey &&
+                  nativePlaybackRenderSnapshotInFlight === null
+                ) {
+                  // Rust owns the active decode/present operation and keeps
+                  // one latest pending demand. This command contains only
+                  // dynamic layer values; it never sends paths or the full
+                  // project snapshot and it does not wait for presentation.
+                  void submitNativePlaybackDemand(
+                    createNativePlaybackFrameDemand(requestToPresent),
+                  ).catch((error) => {
+                    nativePlaybackRenderFailed = true;
+                    lastNativePlaybackRequestKey = "";
+                    forceRenderNeeded = true;
+                    console.warn("[native-preview] demand-submit-failed", {
+                      frameIndex: requestToPresent.frameTime.frameIndex,
+                      error: error instanceof Error ? error.message : String(error),
+                    });
+                  });
+                  nativeSurfaceShown = true;
+                  lastNativePlaybackRequestKey = requestKey;
+                }
+              } else if (nativeSurfaceUsable && !qualificationForcesWebView) {
                 const tracePresentation = isFirstFrame || !isPlaying;
                 if (tracePresentation) {
                   // tracePlayback("native-present-start", {
@@ -2186,6 +2388,9 @@ export const NativeProgramPreview: React.FC = () => {
                       frontendSpan?.finish({
                         dropped: presentation.dropped,
                         stale: presentation.stale === true,
+                        dropReason:
+                          presentation.dropReason ??
+                          (presentation.dropped ? "present-failed" : undefined),
                       });
                       lastNativePlaybackRequestKey = "";
                       if (presentation.dropped) {
