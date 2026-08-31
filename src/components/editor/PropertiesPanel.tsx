@@ -42,7 +42,11 @@ import { StickerSettingsSection } from "./properties/StickerSettingsSection";
 import { TimelineEffectSection } from "./properties/TimelineEffectSection";
 import { AdjustmentsSection } from "./properties/AdjustmentsSection";
 import { ChromaKeySection } from "./properties/ChromaKeySection";
-import { getPreviewInteractionCoordinator } from "@/core/interactions";
+import {
+  getPreviewInteractionCoordinator,
+  type PreviewInteractionToken,
+} from "@/core/interactions";
+import { traceTextInteraction } from "@/core/render/textRenderTrace";
 
 export interface PropertiesPanelProps {
   width?: number;
@@ -181,10 +185,239 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const project = useProjectStore((s) => s.project);
   const execute = useHistoryStore((s) => s.execute);
   const previewInteractionCoordinator = getPreviewInteractionCoordinator();
+  const propertyEditTokenRef = React.useRef<PreviewInteractionToken | null>(null);
+  const keepTextPropertyPausedRef = React.useRef(false);
+  const propertyEditTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textPropertyDraftRef = React.useRef<{
+    clipId: string;
+    before: Record<string, unknown>;
+    latest: Record<string, unknown>;
+    raf: number | null;
+    startedAtMs: number;
+    firstPreviewAtMs?: number;
+    operation: "content-edit" | "property-edit" | "resize";
+    property?: any;
+  } | null>(null);
+
+  const flushTextPropertyDraft = (commit: boolean) => {
+    const draft = textPropertyDraftRef.current;
+    if (!draft) return;
+
+    if (draft.raf !== null) {
+      cancelAnimationFrame(draft.raf);
+      draft.raf = null;
+      const pending = { ...draft.latest, _skipEpochIncrement: true } as any;
+      useTimelineStore.getState().updateClip(draft.clipId, pending);
+    }
+
+    if (commit) {
+      const current = useTimelineStore
+        .getState()
+        .clips.find((clip) => clip.id === draft.clipId);
+      if (current) {
+        const oldTransform: Record<string, unknown> = {};
+        const newTransform: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(draft.latest)) {
+          const oldValue = draft.before[key];
+          if (Object.is(oldValue, value)) continue;
+          oldTransform[key] = oldValue;
+          newTransform[key] = value;
+        }
+        if (Object.keys(newTransform).length > 0) {
+          execute(
+            new TransformClipCommand(
+              draft.clipId,
+              oldTransform as Partial<Clip>,
+              newTransform as Partial<Clip>,
+            ),
+          );
+        }
+      }
+    }
+
+    const latestClip = useTimelineStore.getState().clips.find((clip) => clip.id === draft.clipId);
+    const elapsedMs = Math.max(0, performance.now() - draft.startedAtMs);
+    traceTextInteraction({
+      kind: latestClip?.kind === "text-template" ? "template" : (latestClip as any)?.styleId ? "effect" : "plain",
+      rendererPath: "studio-preview",
+      operation: draft.operation,
+      property: draft.property,
+      durationMs: elapsedMs,
+      inputToPreviewMs: draft.firstPreviewAtMs === undefined ? undefined : Math.max(0, draft.firstPreviewAtMs - draft.startedAtMs),
+      interactionId: `text-property:${draft.clipId}:${draft.startedAtMs}`,
+      contentLength: typeof draft.latest.text === "string" ? draft.latest.text.length : undefined,
+      lineCount: typeof draft.latest.text === "string" ? Math.max(1, draft.latest.text.split("\n").length) : undefined,
+      layoutWidth: typeof latestClip?.width === "number" ? latestClip.width : undefined,
+      layoutHeight: typeof latestClip?.height === "number" ? latestClip.height : undefined,
+    });
+
+    textPropertyDraftRef.current = null;
+  };
+
+  const finishPropertyEdit = () => {
+    if (propertyEditTimerRef.current !== null) {
+      clearTimeout(propertyEditTimerRef.current);
+      propertyEditTimerRef.current = null;
+    }
+    // Text controls are a continuous preview/editing surface. They must not
+    // restart playback when their debounce window closes, including the
+    // immediate apply-to-all path which has no text draft object.
+    const keepPaused =
+      keepTextPropertyPausedRef.current || textPropertyDraftRef.current !== null;
+    flushTextPropertyDraft(true);
+    const token = propertyEditTokenRef.current;
+    propertyEditTokenRef.current = null;
+    keepTextPropertyPausedRef.current = false;
+    if (token) previewInteractionCoordinator.commit(token, !keepPaused);
+  };
+
+  React.useEffect(() => () => finishPropertyEdit(), []);
+  React.useEffect(
+    () =>
+      previewInteractionCoordinator.subscribe((snapshot) => {
+        const token = propertyEditTokenRef.current;
+        if (
+          textPropertyDraftRef.current &&
+          token &&
+          snapshot.active?.interactionId !== token.interactionId
+        ) {
+          // Undo/redo, transport, selection, and a conflicting gesture can
+          // invalidate the coordinator while the debounce timer is pending.
+          // Flush the draft before that command continues, otherwise a late
+          // timer could mutate the timeline after undo/redo.
+          finishPropertyEdit();
+        }
+      }),
+    [previewInteractionCoordinator],
+  );
+
   const executePreviewCommand = (command: Parameters<typeof execute>[0]) => {
-    const token = previewInteractionCoordinator.begin("property-edit");
+    // A discrete command must finish any pending text draft first so updates
+    // cannot be reordered around selection, transport, or another property.
+    if (textPropertyDraftRef.current) finishPropertyEdit();
+    // Some text commands (for example caption apply-to-all and discrete
+    // style changes) use the immediate command path, so mark them explicitly
+    // to preserve the no-autoplay rule without adding per-control transport
+    // calls.
+    if (isTextClip) keepTextPropertyPausedRef.current = true;
+    let token = propertyEditTokenRef.current;
+    if (!token || !previewInteractionCoordinator.isCurrent(token)) {
+      token = previewInteractionCoordinator.begin("property-edit");
+      propertyEditTokenRef.current = token;
+    }
     execute(command);
-    previewInteractionCoordinator.commit(token);
+    if (propertyEditTimerRef.current !== null) {
+      clearTimeout(propertyEditTimerRef.current);
+    }
+    // Range inputs and text entry emit many changes in one gesture. Keep the
+    // transport paused across that burst, then commit/resume once. The
+    // history journal still coalesces the commands into one undo operation.
+    propertyEditTimerRef.current = setTimeout(finishPropertyEdit, 120);
+  };
+
+  const queueTextPropertyUpdate = (fields: Record<string, any>) => {
+    const current = useTimelineStore
+      .getState()
+      .clips.find((clip) => clip.id === selectedClipId);
+    if (!current || !("text" in current)) return;
+
+    if (
+      !propertyEditTokenRef.current ||
+      !previewInteractionCoordinator.isCurrent(propertyEditTokenRef.current)
+    ) {
+      finishPropertyEdit();
+      keepTextPropertyPausedRef.current = true;
+      propertyEditTokenRef.current = previewInteractionCoordinator.begin(
+        "property-edit",
+      );
+    }
+
+    let draft = textPropertyDraftRef.current;
+    if (draft && draft.clipId !== current.id) {
+      finishPropertyEdit();
+      keepTextPropertyPausedRef.current = true;
+      propertyEditTokenRef.current = previewInteractionCoordinator.begin(
+        "property-edit",
+      );
+      draft = null;
+    }
+    if (!draft) {
+      keepTextPropertyPausedRef.current = true;
+      const fieldNames = Object.keys(fields);
+      const property = fieldNames.includes("text")
+        ? "content"
+        : fieldNames.includes("width") || fieldNames.includes("height")
+          ? "resize"
+          : fieldNames.includes("color")
+            ? "color"
+            : fieldNames.includes("fontFamily")
+              ? "fontFamily"
+              : fieldNames.includes("fontSize")
+                ? "fontSize"
+                : fieldNames.includes("fontWeight")
+                  ? "fontWeight"
+                  : fieldNames.includes("fontStyle")
+                    ? "fontStyle"
+                    : fieldNames.includes("lineHeight")
+                      ? "lineHeight"
+                      : fieldNames.includes("letterSpacing")
+                        ? "letterSpacing"
+                        : fieldNames.some((key) => key === "align" || key === "valign")
+                          ? "alignment"
+                          : fieldNames.some((key) => key === "styleId" || key === "styleSnapshot")
+                            ? "effect"
+                            : undefined;
+      draft = {
+        clipId: current.id,
+        before: {},
+        latest: {},
+        raf: null,
+        startedAtMs: performance.now(),
+        firstPreviewAtMs: undefined,
+        operation: property === "resize" ? "resize" : property === "content" ? "content-edit" : "property-edit",
+        property,
+      };
+      textPropertyDraftRef.current = draft;
+    }
+
+    // Text entry is a high-frequency input path. Do not measure text bounds
+    // synchronously for every DOM input event; the RAF update below performs
+    // the authoritative timeline update once per frame. The editor keeps the
+    // raw latest string so fast typing cannot be rebuilt from a stale store
+    // snapshot between keystrokes.
+    const newTransform =
+      Object.keys(fields).length === 1 && "text" in fields
+        ? { text: fields.text }
+        : buildClipPropertyTransform(
+            current,
+            fields,
+            canvasWidth,
+            canvasHeight,
+          ).newTransform;
+    for (const [key, value] of Object.entries(newTransform)) {
+      if (!(key in draft.before)) {
+        draft.before[key] = (current as any)[key];
+      }
+      draft.latest[key] = value;
+    }
+
+    if (draft.raf === null) {
+      draft.raf = requestAnimationFrame(() => {
+        const pendingDraft = textPropertyDraftRef.current;
+        if (!pendingDraft || pendingDraft !== draft) return;
+        pendingDraft.raf = null;
+        if (pendingDraft.firstPreviewAtMs === undefined) pendingDraft.firstPreviewAtMs = performance.now();
+        useTimelineStore.getState().updateClip(pendingDraft.clipId, {
+          ...pendingDraft.latest,
+          _skipEpochIncrement: true,
+        } as any);
+      });
+    }
+
+    if (propertyEditTimerRef.current !== null) {
+      clearTimeout(propertyEditTimerRef.current);
+    }
+    propertyEditTimerRef.current = setTimeout(finishPropertyEdit, 120);
   };
   const updatePreviewTransition = (
     id: string,
@@ -356,6 +589,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const canvasHeight = project?.canvasHeight ?? 1080;
 
   const handleUpdate = (key: string, value: any) => {
+    if (isTextClip) {
+      queueTextPropertyUpdate({ [key]: value });
+      return;
+    }
     const { oldTransform, newTransform } = buildClipPropertyTransform(
       selectedClip,
       { [key]: value },
@@ -368,6 +605,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   };
 
   const handleUpdateMultiple = (fields: Record<string, any>) => {
+    if (isTextClip) {
+      queueTextPropertyUpdate(fields);
+      return;
+    }
     const { oldTransform: oldFields, newTransform: newFields } =
       buildClipPropertyTransform(
         selectedClip,
@@ -377,6 +618,30 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       );
     executePreviewCommand(
       new TransformClipCommand(selectedClipId, oldFields, newFields),
+    );
+  };
+
+  const handleUpdateImmediate = (key: string, value: any) => {
+    const { oldTransform, newTransform } = buildClipPropertyTransform(
+      selectedClip,
+      { [key]: value },
+      canvasWidth,
+      canvasHeight,
+    );
+    executePreviewCommand(
+      new TransformClipCommand(selectedClipId, oldTransform, newTransform),
+    );
+  };
+
+  const handleUpdateMultipleImmediate = (fields: Record<string, any>) => {
+    const { oldTransform, newTransform } = buildClipPropertyTransform(
+      selectedClip,
+      fields,
+      canvasWidth,
+      canvasHeight,
+    );
+    executePreviewCommand(
+      new TransformClipCommand(selectedClipId, oldTransform, newTransform),
     );
   };
 
@@ -692,6 +957,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               setNewPresetName={setNewPresetName}
               handleUpdate={handleUpdate}
               handleUpdateMultiple={handleUpdateMultiple}
+              handleUpdateImmediate={handleUpdateImmediate}
+              handleUpdateMultipleImmediate={handleUpdateMultipleImmediate}
               handleApplyPreset={handleApplyPreset}
               savePreset={savePreset}
               deletePreset={deletePreset}
