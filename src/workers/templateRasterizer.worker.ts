@@ -52,30 +52,16 @@ export interface WorkerRenderTemplateMessage {
   clipDuration: number | undefined;
   layerWidth: number;
   layerHeight: number;
-  bleedX: number;
-  bleedY: number;
-  rasterWidth: number;
-  rasterHeight: number;
   controlValues: Record<string, unknown>;
 }
 
 export interface WorkerRenderEffectMessage {
   type: "RENDER_EFFECT";
   id: string;
-  /**
-   * The fully-resolved SceneDocument with all text/typography fields already
-   * injected by the main thread. The worker does NOT touch stores or perform
-   * any data resolution — it only calls renderTextEffectToCanvas.
-   */
   sceneDocument: Record<string, unknown>;
-  /** Playhead time for animated effects (layer.time ?? 0). */
   time: number;
   evalWidth: number;
   evalHeight: number;
-  rasterWidth: number;
-  rasterHeight: number;
-  bleedX: number;
-  bleedY: number;
 }
 
 export interface WorkerDisposeMessage {
@@ -91,9 +77,11 @@ export interface WorkerFrameReadyMessage {
   type: "FRAME_READY";
   id: string;
   bitmap: ImageBitmap;
-  canvasWidth: number;
-  canvasHeight: number;
-  /** How long renderTextTemplateToCanvas / renderTextEffectToCanvas took inside the worker (ms). */
+  offsetX: number;
+  offsetY: number;
+  croppedWidth: number;
+  croppedHeight: number;
+  /** How long renderTextTemplateToCanvas / renderTextEffectToCanvas + cropping took inside the worker (ms). */
   workerRasterMs: number;
 }
 
@@ -109,6 +97,44 @@ export type WorkerOutboundMessage =
 
 // ─── Worker implementation ────────────────────────────────────────────────────
 
+function findVisibleBounds(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  padding = 8,
+): { left: number; top: number; width: number; height: number } | null {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    const rowOffset = y * width * 4;
+    for (let x = 0; x < width; x += 1) {
+      if (rgba[rowOffset + x * 4 + 3] > 8) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < minX || maxY < minY) return null;
+
+  const left = Math.max(0, minX - padding);
+  const top = Math.max(0, minY - padding);
+  const right = Math.min(width - 1, maxX + padding);
+  const bottom = Math.min(height - 1, maxY + padding);
+
+  return {
+    left,
+    top,
+    width: right - left + 1,
+    height: bottom - top + 1,
+  };
+}
+
 async function handleRenderTemplate(
   msg: WorkerRenderTemplateMessage,
 ): Promise<void> {
@@ -119,47 +145,81 @@ async function handleRenderTemplate(
     clipDuration,
     layerWidth,
     layerHeight,
-    bleedX,
-    bleedY,
-    rasterWidth,
-    rasterHeight,
     controlValues,
   } = msg;
 
-  const offscreen = new OffscreenCanvas(rasterWidth, rasterHeight);
+  const width = Math.max(1, Math.round(layerWidth));
+  const height = Math.max(1, Math.round(layerHeight));
+
+  const offscreen = new OffscreenCanvas(width, height);
   const ctx = offscreen.getContext("2d", { alpha: true });
   if (!ctx) throw new Error("OffscreenCanvas 2D context not available");
 
-  ctx.clearRect(0, 0, rasterWidth, rasterHeight);
+  ctx.clearRect(0, 0, width, height);
 
-  // renderTextTemplateToCanvas uses only Canvas 2D APIs — Worker-safe.
   const rasterStart = performance.now();
-  ctx.save();
-  ctx.translate(bleedX, bleedY);
   renderTextTemplateToCanvas(ctx, {
     artifact,
     context: {
       environment: "editor",
       time: localTime,
       clipDuration,
-      width: layerWidth,
-      height: layerHeight,
+      width,
+      height,
       controlValues,
     },
   });
-  ctx.restore();
-  const workerRasterMs = performance.now() - rasterStart;
 
-  const bitmap = offscreen.transferToImageBitmap();
-  console.log(`[TextRasterizerWorker] Template frame rendered (id=${id}, time=${localTime.toFixed(3)}s, size=${rasterWidth}x${rasterHeight}, rasterMs=${workerRasterMs.toFixed(2)}ms)`);
+  const imgData = ctx.getImageData(0, 0, width, height);
+  const bounds = findVisibleBounds(imgData.data, width, height, 8);
+
+  let bitmap: ImageBitmap;
+  let offsetX = 0;
+  let offsetY = 0;
+  let croppedWidth = 1;
+  let croppedHeight = 1;
+
+  if (!bounds) {
+    const blank = new OffscreenCanvas(1, 1);
+    bitmap = blank.transferToImageBitmap();
+  } else {
+    offsetX = bounds.left;
+    offsetY = bounds.top;
+    croppedWidth = bounds.width;
+    croppedHeight = bounds.height;
+
+    const cropped = new OffscreenCanvas(croppedWidth, croppedHeight);
+    const croppedCtx = cropped.getContext("2d", { alpha: true });
+    if (croppedCtx) {
+      croppedCtx.drawImage(
+        offscreen,
+        offsetX,
+        offsetY,
+        croppedWidth,
+        croppedHeight,
+        0,
+        0,
+        croppedWidth,
+        croppedHeight,
+      );
+      bitmap = cropped.transferToImageBitmap();
+    } else {
+      bitmap = offscreen.transferToImageBitmap();
+    }
+  }
+
+  const workerRasterMs = performance.now() - rasterStart;
+  console.log(`[TextRasterizerWorker] Template frame rendered (id=${id}, time=${localTime.toFixed(3)}s, cropped=${croppedWidth}x${croppedHeight}, offset=(${offsetX},${offsetY}), workerMs=${workerRasterMs.toFixed(2)}ms)`);
 
   (self as unknown as Worker).postMessage(
     {
       type: "FRAME_READY",
       id,
       bitmap,
-      canvasWidth: rasterWidth,
-      canvasHeight: rasterHeight,
+      offsetX,
+      offsetY,
+      croppedWidth,
+      croppedHeight,
       workerRasterMs,
     } satisfies WorkerFrameReadyMessage,
     [bitmap],
@@ -175,49 +235,79 @@ async function handleRenderEffect(
     time,
     evalWidth,
     evalHeight,
-    rasterWidth,
-    rasterHeight,
   } = msg;
 
+  const width = Math.max(1, Math.round(evalWidth));
+  const height = Math.max(1, Math.round(evalHeight));
+
   const rasterStart = performance.now();
-  // 1. Render the canonical effect to an evalWidth x evalHeight canvas
-  const evalCanvas = new OffscreenCanvas(evalWidth, evalHeight);
+  const evalCanvas = new OffscreenCanvas(width, height);
   const evalCtx = evalCanvas.getContext("2d", { alpha: true });
   if (!evalCtx) throw new Error("OffscreenCanvas 2D context not available");
-  evalCtx.clearRect(0, 0, evalWidth, evalHeight);
+  evalCtx.clearRect(0, 0, width, height);
 
   renderTextEffectToCanvas(evalCtx, {
     source: sceneDocument as any,
     context: {
       environment: "editor",
       time,
-      width: evalWidth,
-      height: evalHeight,
+      width,
+      height,
     },
   });
 
-  // 2. Draw centered onto the target rasterWidth x rasterHeight canvas
-  const targetCanvas = new OffscreenCanvas(rasterWidth, rasterHeight);
-  const targetCtx = targetCanvas.getContext("2d", { alpha: true });
-  if (!targetCtx) throw new Error("OffscreenCanvas 2D context not available");
-  targetCtx.clearRect(0, 0, rasterWidth, rasterHeight);
-  targetCtx.drawImage(
-    evalCanvas,
-    (rasterWidth - evalWidth) / 2,
-    (rasterHeight - evalHeight) / 2,
-  );
-  const workerRasterMs = performance.now() - rasterStart;
+  const imgData = evalCtx.getImageData(0, 0, width, height);
+  const bounds = findVisibleBounds(imgData.data, width, height, 16);
 
-  const bitmap = targetCanvas.transferToImageBitmap();
-  console.log(`[TextRasterizerWorker] Effect frame rendered (id=${id}, time=${time.toFixed(3)}s, size=${rasterWidth}x${rasterHeight}, rasterMs=${workerRasterMs.toFixed(2)}ms)`);
+  let bitmap: ImageBitmap;
+  let offsetX = 0;
+  let offsetY = 0;
+  let croppedWidth = 1;
+  let croppedHeight = 1;
+
+  if (!bounds) {
+    const blank = new OffscreenCanvas(1, 1);
+    bitmap = blank.transferToImageBitmap();
+    offsetX = Math.round(width / 2);
+    offsetY = Math.round(height / 2);
+  } else {
+    offsetX = bounds.left;
+    offsetY = bounds.top;
+    croppedWidth = bounds.width;
+    croppedHeight = bounds.height;
+
+    const cropped = new OffscreenCanvas(croppedWidth, croppedHeight);
+    const croppedCtx = cropped.getContext("2d", { alpha: true });
+    if (croppedCtx) {
+      croppedCtx.drawImage(
+        evalCanvas,
+        offsetX,
+        offsetY,
+        croppedWidth,
+        croppedHeight,
+        0,
+        0,
+        croppedWidth,
+        croppedHeight,
+      );
+      bitmap = cropped.transferToImageBitmap();
+    } else {
+      bitmap = evalCanvas.transferToImageBitmap();
+    }
+  }
+
+  const workerRasterMs = performance.now() - rasterStart;
+  console.log(`[TextRasterizerWorker] Effect frame rendered (id=${id}, time=${time.toFixed(3)}s, cropped=${croppedWidth}x${croppedHeight}, offset=(${offsetX},${offsetY}), workerMs=${workerRasterMs.toFixed(2)}ms)`);
 
   (self as unknown as Worker).postMessage(
     {
       type: "FRAME_READY",
       id,
       bitmap,
-      canvasWidth: rasterWidth,
-      canvasHeight: rasterHeight,
+      offsetX,
+      offsetY,
+      croppedWidth,
+      croppedHeight,
       workerRasterMs,
     } satisfies WorkerFrameReadyMessage,
     [bitmap],
