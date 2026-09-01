@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
-import { autoUpdateManager, isTauriDesktop, type AutoUpdaterState } from "@/services/updaterService";
+import { useCallback, useSyncExternalStore } from "react";
+import { autoUpdateManager, type AutoUpdaterState } from "@/services/updaterService";
 
 export type { AutoUpdateStatus, AutoUpdaterState } from "@/services/updaterService";
 
@@ -26,13 +26,11 @@ export function useAutoUpdater(): UseAutoUpdaterReturn {
     getUpdaterSnapshot,
   );
 
-  useEffect(() => {
-    if (!isTauriDesktop()) return;
-    const timer = window.setTimeout(() => {
-      void autoUpdateManager.check({ silent: true });
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, []);
+  // NOTE: Auto-update checks are intentionally DISABLED in this build
+  // (2026-09-01): the Rust side no longer registers tauri-plugin-updater, so
+  // `check()` would fail and produce spurious error logs. The updater UI
+  // surfaces (banner/Settings) remain wired to the manager but can never
+  // reach an "available" state.
 
   const dismiss = useCallback(() => autoUpdateManager.dismiss(), []);
   const later = useCallback(() => autoUpdateManager.defer(), []);

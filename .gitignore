@@ -15,6 +15,32 @@ src-tauri/target/
 *.log
 *.tmp
 
+# Local npm cache & scratch dirs (setup-time artifacts)
+.npm-cache/
+.tmp-engine-check/
+
+# Local FFmpeg dev package (for ffmpeg-sys-next builds; not part of the repo)
+ffmpeg-8.1.2-full_build-shared/
+ffmpeg-*.7z
+
+# FFmpeg shared-library DLLs for Windows NSIS builds (too large for git;
+# see README "Windows release builds (NSIS)" for how to obtain them)
+src-tauri/resources/
+
+# Local toolchain scratch dirs (machine-specific, not part of the repo)
+.cargo/
+.llvm-bin/
+.llvm-pkg2/
+llvm-installer.exe
+whisper-build.log
+
+# WorkBuddy project data (local-only, not part of the repo)
+.workbuddy/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
 # Scratch/experimental files
 scratch/
 

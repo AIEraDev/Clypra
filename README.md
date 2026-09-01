@@ -103,6 +103,20 @@ Download pre-built binaries from [Latest Releases](https://github.com/AIEraDev/C
 - Rust 1.70+ (`rustup`)
 - FFmpeg 6.0+ with development headers
 
+> **Windows release builds (NSIS)**: building the installer requires the FFmpeg
+> shared-library DLLs to be present under `src-tauri/resources/` (they are too
+> large for git, see `.gitignore`). Copy them from any FFmpeg `full-shared`
+> build (e.g. gyan.dev FFmpeg 8.1.2):
+>
+> ```text
+> avcodec-62.dll  avdevice-62.dll  avfilter-11.dll  avformat-62.dll
+> avutil-60.dll   swresample-6.dll swscale-9.dll
+> ```
+>
+> The DLLs must match the FFmpeg version used by `src-tauri/bin/ffmpeg-x86_64-pc-windows-msvc.exe`.
+> `npm run tauri build` copies them next to the main executable via the
+> `resources` map in `tauri.conf.json`.
+
 ### Quick Start
 
 ```bash

@@ -13,6 +13,8 @@ The repo ships **small shell/batch wrappers** that delegate to `ffmpeg` / `ffpro
 chmod +x src-tauri/bin/ffmpeg-* src-tauri/bin/ffprobe-*
 ```
 
+> **Windows x86_64 (2026-09-01)**: the dev wrappers for `ffmpeg-x86_64-pc-windows-msvc.exe` / `ffprobe-x86_64-pc-windows-msvc.exe` have been replaced with the real executables from the **gyan.dev FFmpeg 8.1.2 full-shared build** (`ffmpeg-8.1.2-full_build-shared/bin/` in the repo root). These depend on the 7 core DLLs (`avcodec-62.dll`, `avdevice-62.dll`, `avfilter-11.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`), which are bundled via `bundle.resources` in `tauri.conf.json` (`{"resources/*.dll": ""}` — object form so they land in the install root, next to the exe, where the Windows loader can find them).
+
 ## Compliance
 
 FFmpeg is typically LGPL/GPL depending on enabled codecs. Ensure your **LICENSE** / third-party notices match the binaries you ship.

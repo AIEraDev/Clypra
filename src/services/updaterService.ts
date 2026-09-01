@@ -1,8 +1,21 @@
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 export function isTauriDesktop(): boolean {
   return typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+}
+
+/**
+ * Local shape for the update object. The upstream `Update` class from
+ * `@tauri-apps/plugin-updater` is intentionally NOT imported anymore:
+ * auto-updates are permanently disabled in this build (2026-09-01) and the
+ * npm dependency has been removed.
+ */
+export interface UpdateLike {
+  version: string;
+  date?: string;
+  body?: string;
+  download(onEvent: (event: unknown) => void): Promise<void>;
+  install(): Promise<void>;
 }
 
 export interface UpdateCheckResult {
@@ -11,7 +24,7 @@ export interface UpdateCheckResult {
   date?: string;
   body?: string;
   error?: string;
-  updateObject?: Update;
+  updateObject?: UpdateLike;
 }
 
 export interface DownloadProgress {
@@ -35,7 +48,7 @@ export type AutoUpdateStatus =
 export interface AutoUpdaterState {
   status: AutoUpdateStatus;
   updateInfo: { version: string; body?: string; date?: string } | null;
-  updateObject: Update | null;
+  updateObject: UpdateLike | null;
   downloadProgress: number;
   error: string | null;
   deferred: boolean;
@@ -46,37 +59,18 @@ export interface AutoUpdaterListener {
 }
 
 export async function checkAppUpdate(): Promise<UpdateCheckResult> {
-  if (!isTauriDesktop()) {
-    return { hasUpdate: false, error: "Not running in Tauri desktop environment" };
-  }
-
-  try {
-    const update = await check();
-    if (update) {
-      return {
-        hasUpdate: true,
-        version: update.version,
-        date: update.date,
-        body: update.body,
-        updateObject: update,
-      };
-    }
-    return { hasUpdate: false };
-  } catch (error: any) {
-    console.error("Failed to check for updates:", error);
-    let errorMessage = error?.message || String(error);
-    if (errorMessage.includes("Could not fetch a valid release JSON")) {
-      errorMessage = "No compatible update found for your platform or release metadata is unavailable.";
-    } else if (errorMessage.includes("network") || errorMessage.includes("fetch") || errorMessage.includes("connect")) {
-      errorMessage = "Unable to connect to update server. Please check your internet connection.";
-    } else if (errorMessage.includes("Signature") || errorMessage.includes("signature")) {
-      errorMessage = "Update signature verification failed.";
-    }
-    return { hasUpdate: false, error: errorMessage };
-  }
+  // Auto-updates are permanently DISABLED in this build (2026-09-01):
+  // the Rust side no longer registers tauri-plugin-updater, so calling the
+  // plugin would fail anyway. Short-circuit so the manual "Check for Updates"
+  // button in Settings reports the real state instead of a misleading
+  // network/plugin error.
+  return {
+    hasUpdate: false,
+    error: "Updates are disabled in this build.",
+  };
 }
 
-export async function downloadUpdate(updateObject: Update, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
+export async function downloadUpdate(updateObject: UpdateLike, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
   if (!updateObject) throw new Error("No update object provided");
 
   let downloaded = 0;
@@ -97,7 +91,7 @@ export async function downloadUpdate(updateObject: Update, onProgress?: (progres
   });
 }
 
-export async function installDownloadedUpdate(updateObject: Update): Promise<void> {
+export async function installDownloadedUpdate(updateObject: UpdateLike): Promise<void> {
   if (!updateObject) throw new Error("No update object provided");
   await updateObject.install();
 }
