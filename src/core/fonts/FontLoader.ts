@@ -6,8 +6,9 @@
  * stylesheet while a preview is playing can block the main thread and cause
  * a text clip to miss its audio/video deadline.
  *
- * Unknown families are delegated to the engine for backwards compatibility
- * with user/template fonts that are not bundled with the application.
+ * Font metadata (alias table, system font set) is sourced exclusively from
+ * fontRegistry.ts — the single canonical registry. Do not duplicate alias
+ * tables here.
  *
  * Performance SLA:
  * - System fonts (OS-resident): resolved synchronously at 0ms — no
@@ -19,6 +20,12 @@
  * - prewarmRemainingFontsOnIdle(): loads the remaining bundled fonts during
  *   requestIdleCallback / setTimeout(0) so they are warm before the user
  *   opens the font picker, without competing with video/audio playback.
+ *
+ * Offline guard:
+ * - When constructed with `offlineOnly: true` (used on Tauri), the loader
+ *   will not delegate unknown families to the EngineFontLoader CDN path.
+ *   Unknown families return a failed result immediately, and a console warning
+ *   is emitted so the caller knows the font is not available offline.
  */
 
 import {
@@ -26,68 +33,15 @@ import {
   type FontDescriptor,
   type FontLoadResult,
 } from "@clypra-studio/engine";
+import {
+  SYSTEM_FONT_NAME_SET,
+  FONT_ALIAS_MAP,
+  BUNDLED_FONT_ALIAS_SET,
+} from "./fontRegistry";
 
 export type { FontDescriptor, FontLoadResult } from "@clypra-studio/engine";
 
-/**
- * OS-resident fonts that are available on every platform without any network
- * or WOFF2 fetch. document.fonts.check() always returns true for these, so
- * ensureFont() short-circuits immediately with loadTimeMs = 0.
- */
-const SYSTEM_FONT_NAMES = new Set<string>([
-  "arial",
-  "arial black",
-  "arial rounded mt bold",
-  "georgia",
-  "times new roman",
-  "courier new",
-  "impact",
-  "verdana",
-  "trebuchet ms",
-  "palatino",
-]);
-
-/**
- * @fontsource-variable registers these families with a ` Variable` suffix;
- * static @fontsource packages register the family without it. Keep aliases
- * here because project documents may use either form.
- */
-const LOCAL_FONT_FAMILY_ALIASES = new Map<string, string>([
-  ["inter", "Inter Variable"],
-  ["inter variable", "Inter Variable"],
-  ["montserrat", "Montserrat Variable"],
-  ["montserrat variable", "Montserrat Variable"],
-  ["geist", "Geist Variable"],
-  ["geist variable", "Geist Variable"],
-  ["space grotesk", "Space Grotesk Variable"],
-  ["space grotesk variable", "Space Grotesk Variable"],
-  ["roboto", "Roboto Variable"],
-  ["roboto variable", "Roboto Variable"],
-  ["outfit", "Outfit Variable"],
-  ["outfit variable", "Outfit Variable"],
-  ["roboto condensed", "Roboto Condensed Variable"],
-  ["roboto condensed variable", "Roboto Condensed Variable"],
-  ["open sans", "Open Sans Variable"],
-  ["open sans variable", "Open Sans Variable"],
-  ["raleway", "Raleway Variable"],
-  ["raleway variable", "Raleway Variable"],
-  ["oswald", "Oswald Variable"],
-  ["oswald variable", "Oswald Variable"],
-  ["playfair display", "Playfair Display Variable"],
-  ["playfair display variable", "Playfair Display Variable"],
-  ["nunito", "Nunito Variable"],
-  ["nunito variable", "Nunito Variable"],
-  ["dancing script", "Dancing Script Variable"],
-  ["dancing script variable", "Dancing Script Variable"],
-  ["lato", "Lato"],
-  ["anton", "Anton"],
-  ["bebas neue", "Bebas Neue"],
-  ["poppins", "Poppins"],
-  ["permanent marker", "Permanent Marker"],
-  ["bangers", "Bangers"],
-  ["press start 2p", "Press Start 2P"],
-  ["pacifico", "Pacifico"],
-]);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function now(): number {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -96,7 +50,6 @@ function now(): number {
 function normalizeWeight(weight: FontDescriptor["weight"]): number {
   if (typeof weight === "number") return weight;
   if (!weight) return 400;
-
   const numericWeight = Number.parseInt(weight, 10);
   if (
     !Number.isNaN(numericWeight) &&
@@ -105,14 +58,15 @@ function normalizeWeight(weight: FontDescriptor["weight"]): number {
   ) {
     return numericWeight;
   }
-
   return (
-    {
-      normal: 400,
-      bold: 700,
-      lighter: 300,
-      bolder: 700,
-    }[weight] ?? 400
+    (
+      {
+        normal: 400,
+        bold: 700,
+        lighter: 300,
+        bolder: 700,
+      } as Record<string, number>
+    )[weight] ?? 400
   );
 }
 
@@ -120,34 +74,70 @@ function descriptorKey(descriptor: FontDescriptor): string {
   return `${descriptor.family.trim().toLowerCase()}|${normalizeWeight(descriptor.weight)}|${descriptor.style || "normal"}`;
 }
 
+/**
+ * Resolve a raw family string to the canonical Fontsource CSS family name
+ * using the registry's alias map.
+ * Returns undefined if the family is not in the bundled/system registry.
+ */
 function getLocalFamily(family: string): string | undefined {
-  return LOCAL_FONT_FAMILY_ALIASES.get(family.trim().toLowerCase());
+  return FONT_ALIAS_MAP.get(family.trim().toLowerCase());
 }
 
 function fontFaceString(descriptor: FontDescriptor, family: string): string {
   return `${descriptor.style || "normal"} ${normalizeWeight(descriptor.weight)} 16px "${family}"`;
 }
 
+// ─── LocalFontLoader ──────────────────────────────────────────────────────────
+
+export interface FontLoaderOptions {
+  /**
+   * When true, the loader will NOT delegate unknown families to the
+   * EngineFontLoader CDN path. Instead it returns a failed result and emits
+   * a console warning. Set to true on Tauri where network CDN access is not
+   * guaranteed and all fonts must be bundled.
+   *
+   * Default: false (browser mode — legacy CDN fallback allowed).
+   */
+  offlineOnly?: boolean;
+}
+
 class LocalFontLoader {
-  private readonly fallback = new EngineFontLoader();
+  private readonly fallback: EngineFontLoader | null;
+  private readonly offlineOnly: boolean;
   private readonly loaded = new Set<string>();
   private readonly failed = new Map<string, string>();
   private readonly promises = new Map<string, Promise<FontLoadResult>>();
   /** Tracks whether an idle prewarm sweep has been scheduled. */
   private _idlePrewarmScheduled = false;
 
+  constructor(options: FontLoaderOptions = {}) {
+    this.offlineOnly = options.offlineOnly ?? false;
+    // Only instantiate EngineFontLoader when CDN fallback is permitted.
+    this.fallback = this.offlineOnly ? null : new EngineFontLoader();
+  }
+
   async ensureFont(descriptor: FontDescriptor): Promise<FontLoadResult> {
     // ── Fast path 1: OS-resident system fonts ──────────────────────────────
-    // These are always available; document.fonts.check() returns true without
-    // any load() call. Resolve immediately at 0ms to avoid any async overhead.
-    if (SYSTEM_FONT_NAMES.has(descriptor.family.trim().toLowerCase())) {
+    // Sourced from SYSTEM_FONT_NAME_SET in fontRegistry — no duplicate table.
+    if (SYSTEM_FONT_NAME_SET.has(descriptor.family.trim().toLowerCase())) {
       const key = descriptorKey(descriptor);
       this.loaded.add(key);
       return { font: descriptor, loaded: true, loadTimeMs: 0 };
     }
 
     const localFamily = getLocalFamily(descriptor.family);
-    if (!localFamily) return this.fallback.ensureFont(descriptor);
+
+    // Unknown family: delegate to CDN or block depending on offlineOnly mode.
+    if (!localFamily) {
+      if (this.offlineOnly) {
+        // Offline guard: reject unknown fonts without any network attempt.
+        const msg = `[FontLoader] Font "${descriptor.family}" is not bundled and offline-only mode is active. Using fallback.`;
+        console.warn(msg);
+        return { font: descriptor, loaded: false, error: msg, loadTimeMs: 0 };
+      }
+      // Browser mode: delegate to engine's existing CDN path.
+      return this.fallback!.ensureFont(descriptor);
+    }
 
     const key = descriptorKey(descriptor);
 
@@ -192,16 +182,30 @@ class LocalFontLoader {
 
   isLoaded(descriptor: FontDescriptor): boolean {
     // System fonts are always considered loaded — no async work needed.
-    if (SYSTEM_FONT_NAMES.has(descriptor.family.trim().toLowerCase()))
+    if (SYSTEM_FONT_NAME_SET.has(descriptor.family.trim().toLowerCase()))
       return true;
     const localFamily = getLocalFamily(descriptor.family);
-    return localFamily
-      ? this.loaded.has(descriptorKey(descriptor))
-      : this.fallback.isLoaded(descriptor);
+    if (localFamily) return this.loaded.has(descriptorKey(descriptor));
+    // Offline mode: unknown fonts are never loaded.
+    if (this.offlineOnly) return false;
+    return this.fallback?.isLoaded(descriptor) ?? false;
+  }
+
+  /**
+   * Returns true if the family is a known bundled font (i.e. will not go to
+   * the CDN path). Useful for missing-font detection.
+   */
+  isBundledFamily(family: string): boolean {
+    const lower = family.trim().toLowerCase();
+    return SYSTEM_FONT_NAME_SET.has(lower) || BUNDLED_FONT_ALIAS_SET.has(lower);
   }
 
   getStats(): { loaded: number; loading: number; failed: number } {
-    const fallbackStats = this.fallback.getStats();
+    const fallbackStats = this.fallback?.getStats() ?? {
+      loaded: 0,
+      loading: 0,
+      failed: 0,
+    };
     return {
       loaded: this.loaded.size + fallbackStats.loaded,
       loading: this.promises.size + fallbackStats.loading,
@@ -214,7 +218,7 @@ class LocalFontLoader {
     this.failed.clear();
     this.promises.clear();
     this._idlePrewarmScheduled = false;
-    this.fallback.clear();
+    this.fallback?.clear();
   }
 
   /**
@@ -227,7 +231,7 @@ class LocalFontLoader {
    *
    * Families already loaded are skipped instantly. Unknown families (custom /
    * Google Fonts) are silently ignored — they follow the engine's existing
-   * deferred-load path.
+   * deferred-load path (or the offline-guard path on Tauri).
    */
   async prewarmProjectFonts(fontFamilies: readonly string[]): Promise<void> {
     const unique = [
@@ -248,9 +252,9 @@ class LocalFontLoader {
    * Low-priority background prewarm for all remaining bundled fonts.
    *
    * Schedules one requestIdleCallback (or setTimeout fallback) sweep that
-   * loads every entry from LOCAL_FONT_FAMILY_ALIASES that has not already been
-   * loaded. This ensures fonts are warm before the user opens the font picker,
-   * without competing with video playback or timeline operations.
+   * loads every bundled font not already in the loaded cache. Ensures fonts
+   * are warm before the user opens the font picker, without competing with
+   * video playback or timeline operations.
    *
    * Calling this multiple times is safe — the sweep is scheduled at most once
    * per loader instance.
@@ -260,11 +264,12 @@ class LocalFontLoader {
     this._idlePrewarmScheduled = true;
 
     const run = () => {
-      // Collect unique canonical families not yet loaded.
+      // Collect unique canonical bundled families not yet loaded.
       const pending: string[] = [];
       const seen = new Set<string>();
-      for (const canonical of LOCAL_FONT_FAMILY_ALIASES.values()) {
-        if (!seen.has(canonical)) {
+      // Iterate the alias map and collect canonical families for bundled fonts.
+      for (const [alias, canonical] of FONT_ALIAS_MAP) {
+        if (!seen.has(canonical) && BUNDLED_FONT_ALIAS_SET.has(alias)) {
           seen.add(canonical);
           const key = descriptorKey({
             family: canonical,
@@ -275,8 +280,6 @@ class LocalFontLoader {
         }
       }
       if (pending.length === 0) return;
-      // Fire-and-forget: failures are silently swallowed. The font picker will
-      // still work; any unloaded font just pays the load cost on first use.
       void Promise.allSettled(
         pending.map((family) =>
           this.ensureFont({ family, weight: 400, style: "normal" }),
@@ -304,9 +307,6 @@ class LocalFontLoader {
         throw new Error("Font API not available");
       }
 
-      // The @fontsource CSS imports above point at local WOFF2 assets. Calling
-      // document.fonts.load here only waits for those assets; it does not make
-      // a network request to Google Fonts.
       const requestedFace = fontFaceString(descriptor, localFamily);
       await document.fonts.load(requestedFace);
 
@@ -343,12 +343,30 @@ class LocalFontLoader {
   }
 }
 
+// ─── Singleton ────────────────────────────────────────────────────────────────
+
 let globalFontLoader: LocalFontLoader | null = null;
 
 export { LocalFontLoader as FontLoader };
 
 export function getFontLoader(): LocalFontLoader {
   if (!globalFontLoader) globalFontLoader = new LocalFontLoader();
+  return globalFontLoader;
+}
+
+/**
+ * Create (or recreate) the global font loader with explicit options.
+ *
+ * Call once at app startup:
+ *   - Tauri: `initFontLoader({ offlineOnly: true })`
+ *   - Browser: `initFontLoader()` or don't call (lazy default is fine)
+ *
+ * Must be called before any `getFontLoader()` usage to take effect.
+ */
+export function initFontLoader(
+  options: FontLoaderOptions = {},
+): LocalFontLoader {
+  globalFontLoader = new LocalFontLoader(options);
   return globalFontLoader;
 }
 
