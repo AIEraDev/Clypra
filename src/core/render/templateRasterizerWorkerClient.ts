@@ -109,13 +109,13 @@ function imageBitmapToRgba(bitmap: ImageBitmap): Uint8ClampedArray {
 function buildAsset(
   bitmap: ImageBitmap,
   layer: EvaluatedTextLayer,
-  bleedX: number,
-  bleedY: number,
-  canvasWidth: number,
-  canvasHeight: number,
+  offsetX: number,
+  offsetY: number,
   rasterKey: string,
   phase: TextRenderTracePhase,
   kind: "template" | "effect",
+  evalWidth: number,
+  evalHeight: number,
   totalMs: number,
   workerRasterMs: number,
   transferMs: number,
@@ -123,44 +123,50 @@ function buildAsset(
   const readbackStart = performance.now();
   const rgba = imageBitmapToRgba(bitmap);
   const readbackMs = performance.now() - readbackStart;
+  const width = bitmap.width;
+  const height = bitmap.height;
   bitmap.close();
 
-  const cropKey = kind === "template" ? getTemplateCropCacheKey(layer) : null;
-  const cropped = cropKey
-    ? cropTemplateAsset(rgba, canvasWidth, canvasHeight, cropKey)
-    : null;
+  let x: number;
+  let y: number;
+
+  if (kind === "template") {
+    x = layer.x + offsetX;
+    y = layer.y + offsetY;
+  } else {
+    // For effects: the uncropped evalCanvas center was (evalWidth/2, evalHeight/2)
+    // which aligns with project space center (layer.x + layer.width/2, layer.y + layer.height/2).
+    const evalCanvasOriginX = layer.x + layer.width / 2 - evalWidth / 2;
+    const evalCanvasOriginY = layer.y + layer.height / 2 - evalHeight / 2;
+    x = evalCanvasOriginX + offsetX;
+    y = evalCanvasOriginY + offsetY;
+  }
 
   return {
     assetId: `native-text:${layer.layerId}:${hashRasterKey(rasterKey)}`,
-    rgba: cropped?.rgba ?? rgba,
-    width: cropped?.width ?? canvasWidth,
-    height: cropped?.height ?? canvasHeight,
-    x: cropped ? layer.x - bleedX + cropped.offsetX : layer.x - bleedX,
-    y: cropped ? layer.y - bleedY + cropped.offsetY : layer.y - bleedY,
+    rgba,
+    width,
+    height,
+    x,
+    y,
     rotation: layer.rotation,
     opacity: layer.opacity,
     zIndex: layer.zIndex,
     blendMode: layer.blendMode,
     isText: true,
-    ...(cropped ? { positionMode: "absolute" as const } : {}),
-    bleedX,
-    bleedY,
+    positionMode: "absolute",
+    bleedX: 0,
+    bleedY: 0,
     timing: {
       phase,
       kind,
       rendererPath: "native-raster",
       fontWaitMs: 0,
-      // Stage breakdown — each number is measured, not derived:
-      //   rasterMs    = renderTextTemplate/EffectToCanvas inside the Worker
-      //   readbackMs  = ImageBitmap → Uint8ClampedArray on main thread
-      //   transferMs  = structured-clone + message channel round-trip latency
-      //   totalMs     = full wall-clock (rasterMs + readbackMs + transferMs +
-      //                 resolveArtifact + getCachedLayoutMetrics ≈ <1ms combined)
       rasterMs: workerRasterMs,
       readbackMs,
       transferMs,
       totalMs,
-      outputPixels: canvasWidth * canvasHeight,
+      outputPixels: width * height,
       operation: layer.animationOperation ?? "render",
       contentLength: layer.text.length,
       lineCount: Math.max(1, layer.text.split("\n").length),
@@ -187,6 +193,10 @@ export class TemplateRasterizerWorkerClient {
     {
       resolve: (result: {
         bitmap: ImageBitmap;
+        offsetX: number;
+        offsetY: number;
+        croppedWidth: number;
+        croppedHeight: number;
         workerRasterMs: number;
       }) => void;
       reject: (err: Error) => void;
@@ -240,6 +250,10 @@ export class TemplateRasterizerWorkerClient {
     if (msg.type === "FRAME_READY") {
       callbacks.resolve({
         bitmap: msg.bitmap,
+        offsetX: msg.offsetX,
+        offsetY: msg.offsetY,
+        croppedWidth: msg.croppedWidth,
+        croppedHeight: msg.croppedHeight,
         workerRasterMs: msg.workerRasterMs,
       });
     } else {
@@ -288,14 +302,10 @@ export class TemplateRasterizerWorkerClient {
       return rasterizeTextLayerForNative(layer, { phase });
     }
 
-    const layoutKey = buildNativeTextLayoutKey(layer);
-    const { bleedX, bleedY, rasterWidth, rasterHeight } =
-      getCachedLayoutMetrics(layer, layoutKey);
-
     if (this.worker && !this.disposed) {
       try {
         const sendAt = performance.now();
-        const { bitmap, workerRasterMs } = await this._sendMessage({
+        const { bitmap, offsetX, offsetY, workerRasterMs } = await this._sendMessage({
           type: "RENDER_TEMPLATE",
           artifact,
           localTime:
@@ -305,10 +315,6 @@ export class TemplateRasterizerWorkerClient {
           clipDuration: layer.clipDuration,
           layerWidth: layer.width,
           layerHeight: layer.height,
-          bleedX,
-          bleedY,
-          rasterWidth,
-          rasterHeight,
           controlValues: resolveControlValues(layer, artifact),
         } as Omit<WorkerRenderTemplateMessage, "id">);
         const transferMs = Math.max(
@@ -321,13 +327,13 @@ export class TemplateRasterizerWorkerClient {
         return buildAsset(
           bitmap,
           layer,
-          bleedX,
-          bleedY,
-          rasterWidth,
-          rasterHeight,
+          offsetX,
+          offsetY,
           rasterKey,
           phase,
           "template",
+          layer.width,
+          layer.height,
           totalMs,
           workerRasterMs,
           transferMs,
@@ -396,23 +402,15 @@ export class TemplateRasterizerWorkerClient {
   ): Promise<NativeTextRasterAsset> {
     const totalStartedAt = performance.now();
 
-    const layoutKey = buildNativeTextLayoutKey(layer);
-    const { bleedX, bleedY, rasterWidth, rasterHeight } =
-      getCachedLayoutMetrics(layer, layoutKey);
-
     if (this.worker && !this.disposed) {
       try {
         const sendAt = performance.now();
-        const { bitmap, workerRasterMs } = await this._sendMessage({
+        const { bitmap, offsetX, offsetY, workerRasterMs } = await this._sendMessage({
           type: "RENDER_EFFECT",
           sceneDocument: sceneDoc,
           time: layer.time ?? 0,
           evalWidth: canvasWidth,
           evalHeight: canvasHeight,
-          rasterWidth,
-          rasterHeight,
-          bleedX,
-          bleedY,
         } as Omit<WorkerRenderEffectMessage, "id">);
         const transferMs = Math.max(
           0,
@@ -424,13 +422,13 @@ export class TemplateRasterizerWorkerClient {
         return buildAsset(
           bitmap,
           layer,
-          bleedX,
-          bleedY,
-          rasterWidth,
-          rasterHeight,
+          offsetX,
+          offsetY,
           rasterKey,
           phase,
           "effect",
+          canvasWidth,
+          canvasHeight,
           totalMs,
           workerRasterMs,
           transferMs,
@@ -452,7 +450,14 @@ export class TemplateRasterizerWorkerClient {
     params:
       | Omit<WorkerRenderTemplateMessage, "id">
       | Omit<WorkerRenderEffectMessage, "id">,
-  ): Promise<{ bitmap: ImageBitmap; workerRasterMs: number }> {
+  ): Promise<{
+    bitmap: ImageBitmap;
+    offsetX: number;
+    offsetY: number;
+    croppedWidth: number;
+    croppedHeight: number;
+    workerRasterMs: number;
+  }> {
     return new Promise((resolve, reject) => {
       if (!this.worker || this.disposed) {
         reject(new Error("Worker not available"));
