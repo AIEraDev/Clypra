@@ -101,6 +101,15 @@ export class NativeRasterBridge {
   private readonly textSnapshotsByLayerId = new Map<string, NativeRasterLayerSnapshot>();
   private readonly textSnapshotKeysByLayerId = new Map<string, string>();
   private readonly lastTextPlaybackObservationAtByLayerId = new Map<string, number>();
+  /**
+   * Bleed and position-mode metadata stripped by snapshot() but needed to
+   * recompute placement from current layer coordinates in the non-blocking path.
+   */
+  private readonly textSnapshotBleedByLayerId = new Map<string, {
+    bleedX: number;
+    bleedY: number;
+    positionMode: "centered" | "absolute";
+  }>();
   private readonly imageCache = new Map<string, Promise<void>>();
   private readonly imageSourcesById = new Map<string, { sourcePath: string; width: number; height: number }>();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
@@ -256,6 +265,7 @@ export class NativeRasterBridge {
     this.textCache.clear();
     this.textSnapshotsByLayerId.clear();
     this.textSnapshotKeysByLayerId.clear();
+    this.textSnapshotBleedByLayerId.clear();
     this.lastTextPlaybackObservationAtByLayerId.clear();
     this.imageCache.clear();
     this.imageSourcesById.clear();
@@ -322,11 +332,31 @@ export class NativeRasterBridge {
             generation: this.textPreparationGeneration,
           });
         }
-        // Keep the old bitmap (when available) while the new one is prepared.
-        // Returning no raster is also valid: buildNativeVideoProjectRequest
-        // emits the native text fallback, which keeps playback moving and
-        // replaces itself on the next frame once the shared bitmap is ready.
-        return previous ?? null;
+        // The pixel buffer is immutable — no re-raster needed. But placement
+        // (x, y, rotation, opacity, zIndex) is time-varying: the non-blocking
+        // path must apply the current frame's layer properties to the cached
+        // snapshot, otherwise the text renders at pause-time coordinates for
+        // the entire duration of playback (text invisible or at wrong position).
+        if (previous) {
+          const bleed = this.textSnapshotBleedByLayerId.get(layer.layerId);
+          const updatedSnapshot: NativeRasterLayerSnapshot = {
+            ...previous,
+            x: bleed?.positionMode === "absolute"
+              ? previous.x
+              : typeof layer.x === "number" ? layer.x - (bleed?.bleedX ?? 0) : previous.x,
+            y: bleed?.positionMode === "absolute"
+              ? previous.y
+              : typeof layer.y === "number" ? layer.y - (bleed?.bleedY ?? 0) : previous.y,
+            rotation: typeof layer.rotation === "number" ? layer.rotation : previous.rotation,
+            opacity: typeof layer.opacity === "number" ? layer.opacity : previous.opacity,
+            zIndex: typeof layer.zIndex === "number" ? layer.zIndex : previous.zIndex,
+            blendMode: typeof layer.blendMode === "string" ? layer.blendMode : previous.blendMode,
+          };
+          this.textSnapshotsByLayerId.set(layer.layerId, updatedSnapshot);
+          return updatedSnapshot;
+        }
+        return null;
+
       }
 
       const asset = await this.getTextRaster(layer, key, phase);
@@ -350,6 +380,11 @@ export class NativeRasterBridge {
       const result = snapshot(positioned);
       this.textSnapshotsByLayerId.set(layer.layerId, result);
       this.textSnapshotKeysByLayerId.set(layer.layerId, key);
+      this.textSnapshotBleedByLayerId.set(layer.layerId, {
+        bleedX: asset.bleedX ?? 0,
+        bleedY: asset.bleedY ?? 0,
+        positionMode: asset.positionMode ?? "centered",
+      });
       return positioned;
     });
 
@@ -393,8 +428,26 @@ export class NativeRasterBridge {
     if (input.generation !== this.textPreparationGeneration) return;
     await this.register(asset);
     if (input.generation !== this.textPreparationGeneration) return;
-    this.textSnapshotsByLayerId.set(input.layer.layerId, snapshot(asset));
+    const positioned = {
+      ...asset,
+      x: asset.positionMode === "absolute"
+        ? asset.x
+        : typeof input.layer.x === "number" ? input.layer.x - (asset.bleedX ?? 0) : asset.x,
+      y: asset.positionMode === "absolute"
+        ? asset.y
+        : typeof input.layer.y === "number" ? input.layer.y - (asset.bleedY ?? 0) : asset.y,
+      rotation: typeof input.layer.rotation === "number" ? input.layer.rotation : asset.rotation,
+      opacity: typeof input.layer.opacity === "number" ? input.layer.opacity : asset.opacity,
+      zIndex: typeof input.layer.zIndex === "number" ? input.layer.zIndex : asset.zIndex,
+      blendMode: typeof input.layer.blendMode === "string" ? input.layer.blendMode : asset.blendMode,
+    };
+    this.textSnapshotsByLayerId.set(input.layer.layerId, snapshot(positioned));
     this.textSnapshotKeysByLayerId.set(input.layer.layerId, input.key);
+    this.textSnapshotBleedByLayerId.set(input.layer.layerId, {
+      bleedX: asset.bleedX ?? 0,
+      bleedY: asset.bleedY ?? 0,
+      positionMode: asset.positionMode ?? "centered",
+    });
   }
 
   private async rasterizeAnimatedStickers(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
