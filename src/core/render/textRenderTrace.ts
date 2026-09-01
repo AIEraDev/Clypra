@@ -6,6 +6,7 @@ import {
   type TelemetryTextOperation,
   type TelemetryTextProperty,
 } from "@/services/telemetryCollector";
+import { observeInteractiveTextRender } from "@/core/interactions/InteractiveTextRenderCoordinator";
 
 export interface TextRenderTraceLayer {
   id?: string;
@@ -127,6 +128,17 @@ export function traceTextRenderTiming(input: {
     layoutWidth: input.layoutWidth,
     layoutHeight: input.layoutHeight,
   });
+  if (input.phase === "interactive-preview") {
+    observeInteractiveTextRender({
+      fontWaitMs: input.fontWaitMs,
+      rasterMs: input.rasterMs,
+      readbackMs: input.readbackMs,
+      transferMs: input.transferMs,
+      paintMs: input.paintMs,
+      totalMs: input.totalMs,
+      cacheHit: input.cacheHit,
+    });
+  }
 }
 
 export function traceTextInteraction(input: {
@@ -138,6 +150,20 @@ export function traceTextInteraction(input: {
   interactionId?: string;
   durationMs: number;
   inputToPreviewMs?: number;
+  stageTimings?: {
+    fontWaitMs?: number;
+    compileMs?: number;
+    rasterMs?: number;
+    readbackMs?: number;
+    transferMs?: number;
+    paintMs?: number;
+    totalMs?: number;
+  };
+  stageCoverage?: "complete" | "partial" | "unattributed";
+  renderCount?: number;
+  cacheHits?: number;
+  cacheMisses?: number;
+  unattributedTimeMs?: number;
   contentLength?: number;
   lineCount?: number;
   layoutWidth?: number;
@@ -149,6 +175,20 @@ export function traceTextInteraction(input: {
     sessionId: activeSession?.sessionId,
     durationUs: Math.round(Math.max(0, input.durationMs) * 1000),
     inputToPreviewUs: input.inputToPreviewMs === undefined ? undefined : Math.round(Math.max(0, input.inputToPreviewMs) * 1000),
+    stageTimings: input.stageTimings ? {
+      fontWaitUs: input.stageTimings.fontWaitMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.fontWaitMs) * 1000),
+      compileUs: input.stageTimings.compileMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.compileMs) * 1000),
+      rasterUs: input.stageTimings.rasterMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.rasterMs) * 1000),
+      readbackUs: input.stageTimings.readbackMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.readbackMs) * 1000),
+      transferUs: input.stageTimings.transferMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.transferMs) * 1000),
+      paintUs: input.stageTimings.paintMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.paintMs) * 1000),
+      totalTimeUs: input.stageTimings.totalMs === undefined ? undefined : Math.round(Math.max(0, input.stageTimings.totalMs) * 1000),
+    } : undefined,
+    stageCoverage: input.stageCoverage,
+    renderCount: input.renderCount,
+    cacheHits: input.cacheHits,
+    cacheMisses: input.cacheMisses,
+    unattributedTimeUs: input.unattributedTimeMs === undefined ? undefined : Math.round(Math.max(0, input.unattributedTimeMs) * 1000),
   });
 }
 
