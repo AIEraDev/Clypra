@@ -20,6 +20,43 @@ import {
   type TextRenderOperation,
 } from "@/core/render/textRenderTrace";
 
+// ─── Module-level worker client singleton ────────────────────────────────────
+//
+// One TemplateRasterizerWorkerClient is shared across all calls to
+// rasterizeTextLayerForNative and paintTextLayersToCanvas in this module.
+// It is created lazily on first template render and lives for the process
+// lifetime — Worker startup cost (~5ms) is paid once, not per session.
+//
+// NativeRasterBridge owns its own reference and calls dispose() on session
+// end. This module-level instance handles the browser (non-Tauri) canvas
+// path where no bridge is involved.
+let _templateWorkerClient:
+  | import("@/core/render/templateRasterizerWorkerClient").TemplateRasterizerWorkerClient
+  | null = null;
+
+function getTemplateWorkerClient():
+  | import("@/core/render/templateRasterizerWorkerClient").TemplateRasterizerWorkerClient
+  | null {
+  if (!_templateWorkerClient) {
+    // Dynamic import to avoid a circular dependency at module load time.
+    // The void-and-assign fires immediately as a module side-effect so the
+    // client is ready well before the first actual template render.
+    void import("@/core/render/templateRasterizerWorkerClient").then((mod) => {
+      _templateWorkerClient = new mod.TemplateRasterizerWorkerClient();
+    });
+    // Null on the very first synchronous call (only). Callers fall through
+    // to the main-thread path for that one frame, then use the worker.
+    return null;
+  }
+  return _templateWorkerClient;
+}
+
+/** Exported for testing — resets the module-level worker client. */
+export function _resetTemplateWorkerClient(): void {
+  _templateWorkerClient?.dispose();
+  _templateWorkerClient = null;
+}
+
 export interface NativeTextRasterAsset {
   assetId: string;
   /**
@@ -536,7 +573,9 @@ export function _clearTemplateCropGeometryCache(): void {
   templateCropGeometryCache.clear();
 }
 
-function getTemplateCropCacheKey(layer: EvaluatedTextLayer): string | null {
+export function getTemplateCropCacheKey(
+  layer: EvaluatedTextLayer,
+): string | null {
   if (!layer.templateId) return null;
   return (
     layer.templateRevisionId ?? layer.templateContentHash ?? layer.templateId
@@ -614,7 +653,7 @@ function applyCropGeometry(
  * Uses the geometry cache to avoid the O(W×H) pixel scan on every frame.
  * Falls back to a fresh scan (and caches the result) on first render.
  */
-function cropTemplateAsset(
+export function cropTemplateAsset(
   rgba: Uint8ClampedArray,
   width: number,
   height: number,
@@ -695,7 +734,7 @@ interface TextLayoutMetrics {
 const MAX_LAYOUT_CACHE_ENTRIES = 32;
 const textLayoutMetricsCache = new Map<string, TextLayoutMetrics>();
 
-function getCachedLayoutMetrics(
+export function getCachedLayoutMetrics(
   layer: EvaluatedTextLayer,
   layoutKey: string,
 ): TextLayoutMetrics {
@@ -803,6 +842,26 @@ export async function rasterizeTextLayerForNative(
     rasterHeight: height,
     effectDefinition,
   } = getCachedLayoutMetrics(layer, layoutKey);
+
+  // ── Template fast-path: delegate to OffscreenCanvas Worker ────────────────
+  // For text-template clips the render work (renderTextTemplateToCanvas +
+  // getImageData) happens in the Worker, not on this thread. This is the
+  // browser canvas path; the Tauri/native path already routes through
+  // NativeRasterBridge.getTextRaster → TemplateRasterizerWorkerClient.
+  if (layer.templateId || layer.clipKind === "text-template") {
+    const rasterKey = buildNativeTextRasterKey(layer);
+    const workerClient = getTemplateWorkerClient();
+    if (workerClient) {
+      // Worker client available — render off-thread.
+      return workerClient.rasterize(
+        layer,
+        rasterKey,
+        options.phase ?? "visible-playback",
+      );
+    }
+    // Worker not yet ready (lazy init on first call) — fall through to
+    // main-thread path below for this one frame only.
+  }
   traceTextRenderGeometry({
     path: "program-preview",
     assetId: layer.templateId ?? layer.styleId,
