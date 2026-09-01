@@ -94,6 +94,7 @@ export interface NativeTextRasterAsset {
     fontWaitMs: number;
     rasterMs: number;
     readbackMs: number;
+    transferMs?: number;
     totalMs: number;
     outputPixels: number;
     operation?: TextRenderOperation;
@@ -401,26 +402,48 @@ function buildNativeTextKeyObject(
   layer: EvaluatedTextLayer,
   includeColor: boolean,
 ): Record<string, unknown> {
+  // templateAnimated is computed once by the evaluator from the embedded
+  // templateSnapshot and stored on the layer. Reading it here is O(1) —
+  // no artifact parsing, no document traversal, no per-frame allocation.
+  //
+  // For legacy layers that predate this field (templateAnimated === undefined),
+  // we fall back to the old artifact-parse path so old clips are not broken.
+  const templateAnimated: boolean =
+    layer.templateAnimated !== undefined
+      ? layer.templateAnimated
+      : Boolean(
+          layer.templateId &&
+          resolveTextTemplateArtifact(
+            layer.templateSnapshot,
+          )?.document.nodes.some((node: any) => {
+            const a = node.animation;
+            return (
+              a &&
+              ((a.in && a.in !== "none") ||
+                (a.out && a.out !== "none") ||
+                Boolean(a.propertyKeyframes) ||
+                Boolean(node.splitAnimator))
+            );
+          }),
+        );
+
+  // Problem 4 fix: refine from clip-lifetime to frame-level.
+  // A template with a 0.5s entrance + 3s static hold + 0.5s exit should only
+  // include `time` in the raster key during entrance/exit/animation phases —
+  // not during the static hold where every frame produces identical pixels.
+  // layer.animationOperation is set by the evaluator per-frame and tells us
+  // exactly which phase the playhead is in.
+  const isActivelyAnimating =
+    templateAnimated &&
+    (layer.animationOperation === "entrance" ||
+      layer.animationOperation === "exit" ||
+      layer.animationOperation === "animation");
+
   const animation = layer.styleDefinition?.animation as
     | { type?: string }
     | undefined;
-  const templateArtifact = layer.templateId
-    ? resolveTextTemplateArtifact(layer.templateSnapshot)
-    : null;
-  const templateAnimated = Boolean(
-    templateArtifact?.document.nodes.some((node: any) => {
-      const nodeAnimation = node.animation;
-      return (
-        nodeAnimation &&
-        ((nodeAnimation.in && nodeAnimation.in !== "none") ||
-          (nodeAnimation.out && nodeAnimation.out !== "none") ||
-          Boolean(nodeAnimation.propertyKeyframes) ||
-          Boolean(node.splitAnimator))
-      );
-    }),
-  );
   const timeDependent = Boolean(
-    templateAnimated ||
+    isActivelyAnimating ||
     (animation && animation.type && animation.type !== "none"),
   );
 
@@ -852,15 +875,75 @@ export async function rasterizeTextLayerForNative(
     const rasterKey = buildNativeTextRasterKey(layer);
     const workerClient = getTemplateWorkerClient();
     if (workerClient) {
-      // Worker client available — render off-thread.
       return workerClient.rasterize(
         layer,
         rasterKey,
         options.phase ?? "visible-playback",
       );
     }
-    // Worker not yet ready (lazy init on first call) — fall through to
-    // main-thread path below for this one frame only.
+    // Worker not yet ready (lazy init on first call) — fall through.
+  }
+
+  // ── Canonical effect fast-path: delegate to OffscreenCanvas Worker ─────────
+  // Only the canonical scene path (effectDef.scene.effectLayers) is routed
+  // off-thread. Legacy _buildConfig effects are CPU-light and stay on main thread.
+  if (layer.styleId && (layer.styleDefinition as any)?.scene?.effectLayers) {
+    const rasterKey = buildNativeTextRasterKey(layer);
+    const workerClient = getTemplateWorkerClient();
+    if (workerClient) {
+      try {
+        const effectDef = layer.styleDefinition as any;
+        const canonicalScene = JSON.parse(
+          JSON.stringify(effectDef.scene),
+        ) as Record<string, unknown>;
+        const canvas = canonicalScene.canvas as any;
+        const authoredWidth = Math.max(
+          1,
+          Math.ceil(Number(canvas?.width) || 800),
+        );
+        const authoredHeight = Math.max(
+          1,
+          Math.ceil(Number(canvas?.height) || 200),
+        );
+        const unscaledFontSize = normalizeFontSize(layer.fontSize);
+        const evalWidth = Math.max(authoredWidth, Math.ceil(layer.width + 200));
+        const evalHeight = Math.max(
+          authoredHeight,
+          Math.ceil(layer.height + 100),
+        );
+        const sceneText = canonicalScene.text as any;
+        if (sceneText) {
+          sceneText.content = layer.text;
+          sceneText.fontSize = unscaledFontSize;
+          sceneText.fontFamily = layer.fontFamily || sceneText.fontFamily;
+          sceneText.fontWeight = layer.fontWeight ?? sceneText.fontWeight;
+          sceneText.fontStyle = layer.fontStyle ?? sceneText.fontStyle;
+          sceneText.letterSpacing =
+            layer.letterSpacing ?? sceneText.letterSpacing;
+          sceneText.lineHeight = layer.lineHeight ?? sceneText.lineHeight;
+          sceneText.textPosX = layer.textAlign || sceneText.textPosX;
+          sceneText.textPosY =
+            layer.verticalAlign === "middle"
+              ? "middle"
+              : layer.verticalAlign || sceneText.textPosY;
+        }
+        (canonicalScene.canvas as any) = {
+          ...canvas,
+          width: evalWidth,
+          height: evalHeight,
+        };
+        return workerClient.rasterizeEffect(
+          layer,
+          canonicalScene,
+          evalWidth,
+          evalHeight,
+          rasterKey,
+          options.phase ?? "visible-playback",
+        );
+      } catch {
+        // Scene prep failed — fall through to main-thread path.
+      }
+    }
   }
   traceTextRenderGeometry({
     path: "program-preview",
