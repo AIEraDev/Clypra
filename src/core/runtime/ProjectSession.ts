@@ -112,6 +112,14 @@ export class ProjectSession {
     | import("@/core/render/nativeRasterBridge").NativeRasterBridge
     | null = null;
   private readonly _onInitializationProgress?: SessionInitializationProgress;
+  /**
+   * Font families referenced by this project's text clips that are not in
+   * the bundled/system font registry. Populated during session init.
+   * These clips will render with a fallback font until the font is installed
+   * or the user replaces it. The original fontFamily string is preserved in
+   * the project data (never silently mutated).
+   */
+  private _missingFontFamilies: string[] = [];
 
   // Lifecycle tracking
   private _initializePromise: Promise<void> | null = null;
@@ -181,6 +189,17 @@ export class ProjectSession {
     | import("@/core/render/nativeRasterBridge").NativeRasterBridge
     | null {
     return this._nativeRasterBridge;
+  }
+
+  /**
+   * Font families referenced by this project that are not in the bundled
+   * registry. Empty when all fonts are known. Populated after initialize().
+   *
+   * These represent missing-font conditions: the clip data is unchanged,
+   * but the font cannot be loaded offline. Show a diagnostic to the user.
+   */
+  get missingFontFamilies(): readonly string[] {
+    return this._missingFontFamilies;
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────
@@ -534,12 +553,13 @@ export class ProjectSession {
   }
 
   private async _prewarmProjectFonts(): Promise<void> {
-    const [projectStore, timelineStore, fontLoader, fontRegistry] =
+    const [projectStore, timelineStore, fontLoader, fontRegistry, registry] =
       await Promise.all([
         import("@/store/projectStore"),
         import("@/store/timelineStore"),
         import("@/core/fonts/FontLoader"),
         import("@/core/fonts/nativeFontRegistry"),
+        import("@/core/fonts/fontRegistry"),
       ]);
 
     const project = projectStore.useProjectStore.getState().project;
@@ -548,16 +568,33 @@ export class ProjectSession {
     const { clips } = timelineStore.useTimelineStore.getState();
 
     // Collect unique font families from all text/text-template clips.
+    const textClips = clips.filter(
+      (clip) => clip.kind === "text" || clip.kind === "text-template",
+    ) as Array<{ fontFamily?: string; fontId?: string }>;
+
     const fontFamilies = [
       ...new Set(
-        clips
-          .filter(
-            (clip) => clip.kind === "text" || clip.kind === "text-template",
-          )
-          .map((clip) => (clip as { fontFamily?: string }).fontFamily)
+        textClips
+          .map((clip) => clip.fontFamily)
           .filter((f): f is string => Boolean(f?.trim())),
       ),
     ];
+
+    // ── Missing-font detection ─────────────────────────────────────────────
+    // A font is "missing" if it is not a known bundled/system font and cannot
+    // be resolved offline. We surface this as a console warning and store the
+    // list on the session for diagnostic use. We do NOT mutate the clip —
+    // the original fontFamily value is preserved so the project is portable.
+    const missingFamilies = fontFamilies.filter(
+      (family) => !registry.isKnownFont(family),
+    );
+    if (missingFamilies.length > 0) {
+      console.warn(
+        `[ProjectSession] Project references ${missingFamilies.length} font(s) not in the bundled registry. ` +
+          `These will render with a fallback font. Missing: ${missingFamilies.join(", ")}`,
+      );
+    }
+    this._missingFontFamilies = missingFamilies;
 
     if (fontFamilies.length === 0) {
       // No text clips — still schedule idle prewarm so the font picker is
