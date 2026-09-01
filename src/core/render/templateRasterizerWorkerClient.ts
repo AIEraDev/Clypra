@@ -1,37 +1,33 @@
 /**
- * Template Rasterizer Worker Client
+ * Text Rasterizer Worker Client
  *
  * Main-thread façade over the OffscreenCanvas worker that renders animated
- * text templates. Moves renderTextTemplateToCanvas off the JS main thread so
- * it can never stall React, RAF scheduling, or Tauri IPC during playback.
+ * text templates and styled text effects off the main JS thread.
  *
- * API contract:
- *   client.rasterize(layer, rasterKey, phase) → Promise<NativeTextRasterAsset>
+ * Why only templates and effects (not plain text):
+ *   Plain text is static — its raster key excludes `time`, so it rasterizes
+ *   once and the cached result is reused for the entire clip duration. A Worker
+ *   round-trip (~0.1ms overhead) would exceed the rendering cost (~1–2ms).
+ *   Templates and effects can be animated (per-frame cache misses) and their
+ *   render cost is 20–100ms, making off-thread rendering essential.
  *
- * The returned NativeTextRasterAsset is identical in shape to what
- * rasterizeTextLayerForNative produces — existing callers in nativeRasterBridge
- * require no type changes.
+ * API:
+ *   client.rasterize(layer, rasterKey, phase)
+ *     → Promise<NativeTextRasterAsset>   — template path
  *
- * Internal flow:
- *   1. Resolve artifact from layer.templateSnapshot (sync, main thread)
- *   2. Compute bleed/geometry via getCachedLayoutMetrics (sync, 32-entry LRU)
- *   3. Compute control values from layer customization (sync)
- *   4. Send RENDER_FRAME to Worker → Worker renders on OffscreenCanvas
- *   5. Receive ImageBitmap (zero-copy GPU transfer from Worker)
- *   6. Draw ImageBitmap to a local OffscreenCanvas → getImageData → Uint8ClampedArray
- *      (this readback is ~1ms and happens once per unique raster key, not every frame)
- *   7. Apply cached crop geometry (no per-frame pixel scan)
- *   8. Return NativeTextRasterAsset
- *
- * Deduplication:
- *   Requests with the same rasterKey share one promise — the worker only
- *   renders each unique key once regardless of how many callers await it.
- *   (Same semantics as the existing textCache in NativeRasterBridge.)
+ *   client.rasterizeEffect(layer, resolvedSceneDoc, rasterKey, phase)
+ *     → Promise<NativeTextRasterAsset>   — effect path
+ *     The caller (nativeTextPreview / nativeRasterBridge) resolves the
+ *     SceneDocument on the main thread before passing it here, so the worker
+ *     never needs to access Zustand stores.
  *
  * Fallback:
- *   If OffscreenCanvas or Worker is unavailable (old browser / test env),
- *   falls back to rasterizeTextLayerForNative on the main thread. The caller
- *   cannot observe the difference.
+ *   When OffscreenCanvas or Worker is unavailable (test env, old browser),
+ *   both methods fall back to the main-thread rasterizer transparently.
+ *
+ * Deduplication:
+ *   An `inFlight` map keyed by rasterKey ensures the same frame is never
+ *   rendered twice concurrently, regardless of how many callers await it.
  */
 
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
@@ -39,7 +35,6 @@ import type { EvaluatedTextLayer } from "@/core/evaluation/types";
 import type { TextRenderTracePhase } from "@/core/render/textRenderTrace";
 import type { NativeTextRasterAsset } from "@/components/editor/preview/nativeTextPreview";
 import {
-  buildNativeTextRasterKey,
   buildNativeTextLayoutKey,
   getCachedLayoutMetrics,
   getTemplateCropCacheKey,
@@ -47,7 +42,8 @@ import {
   _clearTemplateCropGeometryCache,
 } from "@/components/editor/preview/nativeTextPreview";
 import type {
-  WorkerRenderFrameMessage,
+  WorkerRenderTemplateMessage,
+  WorkerRenderEffectMessage,
   WorkerOutboundMessage,
 } from "@/workers/templateRasterizer.worker";
 
@@ -60,13 +56,15 @@ function resolveControlValues(
   artifact: NonNullable<ReturnType<typeof resolveTextTemplateArtifact>>,
 ): Record<string, unknown> {
   const customization = layer.customization;
-  const values: Record<string, unknown> = { ...(layer.templateControlValues || {}) };
+  const values: Record<string, unknown> = {
+    ...(layer.templateControlValues || {}),
+  };
   for (const control of artifact.controls) {
     if (control.type !== "text" && control.type !== "color") continue;
     const node = artifact.document.nodes.find(
       (candidate: any) => candidate.id === control.target.nodeId,
     ) as any;
-    const role = node?.role || "";
+    const role: string = node?.role || "";
     if (control.type === "text") {
       values[control.id] =
         customization?.layerTexts?.[control.target.nodeId] ??
@@ -95,62 +93,124 @@ function resolveControlValues(
 // ─── ImageBitmap → Uint8ClampedArray readback ─────────────────────────────────
 
 /**
- * Draw an ImageBitmap to a temporary OffscreenCanvas and read back its pixels.
- * This is the only place we touch pixel memory on the main thread for templates.
- * It runs once per unique raster key (deduped by the pending map) — not every frame.
+ * Draw an ImageBitmap to a temporary OffscreenCanvas and read back pixels.
+ * Runs once per unique raster key (deduped by `inFlight`), not every frame.
+ * Cost: ~1ms for a typical 640×360 raster — negligible vs. off-thread savings.
  */
-function imageBitmapToRgba(
-  bitmap: ImageBitmap,
-): Uint8ClampedArray {
+function imageBitmapToRgba(bitmap: ImageBitmap): Uint8ClampedArray {
   const offscreen = new OffscreenCanvas(bitmap.width, bitmap.height);
   const ctx = offscreen.getContext("2d", { alpha: true })!;
   ctx.drawImage(bitmap, 0, 0);
   return ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
 }
 
+// ─── Shared result builder ────────────────────────────────────────────────────
+
+function buildAsset(
+  bitmap: ImageBitmap,
+  layer: EvaluatedTextLayer,
+  bleedX: number,
+  bleedY: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  rasterKey: string,
+  phase: TextRenderTracePhase,
+  kind: "template" | "effect",
+  totalMs: number,
+  workerRasterMs: number,
+  transferMs: number,
+): NativeTextRasterAsset {
+  const readbackStart = performance.now();
+  const rgba = imageBitmapToRgba(bitmap);
+  const readbackMs = performance.now() - readbackStart;
+  bitmap.close();
+
+  const cropKey = kind === "template" ? getTemplateCropCacheKey(layer) : null;
+  const cropped = cropKey
+    ? cropTemplateAsset(rgba, canvasWidth, canvasHeight, cropKey)
+    : null;
+
+  return {
+    assetId: `native-text:${layer.layerId}:${hashRasterKey(rasterKey)}`,
+    rgba: cropped?.rgba ?? rgba,
+    width: cropped?.width ?? canvasWidth,
+    height: cropped?.height ?? canvasHeight,
+    x: cropped ? layer.x - bleedX + cropped.offsetX : layer.x - bleedX,
+    y: cropped ? layer.y - bleedY + cropped.offsetY : layer.y - bleedY,
+    rotation: layer.rotation,
+    opacity: layer.opacity,
+    zIndex: layer.zIndex,
+    blendMode: layer.blendMode,
+    isText: true,
+    ...(cropped ? { positionMode: "absolute" as const } : {}),
+    bleedX,
+    bleedY,
+    timing: {
+      phase,
+      kind,
+      rendererPath: "native-raster",
+      fontWaitMs: 0,
+      // Stage breakdown — each number is measured, not derived:
+      //   rasterMs    = renderTextTemplate/EffectToCanvas inside the Worker
+      //   readbackMs  = ImageBitmap → Uint8ClampedArray on main thread
+      //   transferMs  = structured-clone + message channel round-trip latency
+      //   totalMs     = full wall-clock (rasterMs + readbackMs + transferMs +
+      //                 resolveArtifact + getCachedLayoutMetrics ≈ <1ms combined)
+      rasterMs: workerRasterMs,
+      readbackMs,
+      transferMs,
+      totalMs,
+      outputPixels: canvasWidth * canvasHeight,
+      operation: layer.animationOperation ?? "render",
+      contentLength: layer.text.length,
+      lineCount: Math.max(1, layer.text.split("\n").length),
+      layoutWidth: layer.width,
+      layoutHeight: layer.height,
+    },
+  };
+}
+
 // ─── TemplateRasterizerWorkerClient ──────────────────────────────────────────
 
-// Auto-incrementing ID for correlating request/response messages.
 let nextRequestId = 0;
 
-/** Whether the current environment supports OffscreenCanvas + Worker. */
 function isWorkerEnvironmentAvailable(): boolean {
   return (
-    typeof OffscreenCanvas !== "undefined" &&
-    typeof Worker !== "undefined"
+    typeof OffscreenCanvas !== "undefined" && typeof Worker !== "undefined"
   );
 }
 
 export class TemplateRasterizerWorkerClient {
   private worker: Worker | null = null;
-  /** Pending promises keyed by request ID. */
   private readonly pending = new Map<
     string,
-    { resolve: (bitmap: ImageBitmap) => void; reject: (err: Error) => void }
+    {
+      resolve: (result: {
+        bitmap: ImageBitmap;
+        workerRasterMs: number;
+      }) => void;
+      reject: (err: Error) => void;
+    }
   >();
   /**
-   * Deduplication: maps rasterKey → in-flight Promise<NativeTextRasterAsset>.
-   * Multiple callers awaiting the same raster key share one worker round-trip.
+   * Dedup map: rasterKey → in-flight Promise<NativeTextRasterAsset>.
+   * Shared by both rasterize() and rasterizeEffect() so a template and an
+   * effect with the same key can never race each other.
    */
-  private readonly inFlight = new Map<
-    string,
-    Promise<NativeTextRasterAsset>
-  >();
+  private readonly inFlight = new Map<string, Promise<NativeTextRasterAsset>>();
   private disposed = false;
-  private workerAvailable: boolean;
+  /** Exposed for tests. */
+  readonly isWorkerAvailable: () => boolean;
 
   constructor() {
-    this.workerAvailable = isWorkerEnvironmentAvailable();
-    if (this.workerAvailable) {
-      this.initWorker();
-    }
+    const available = isWorkerEnvironmentAvailable();
+    this.isWorkerAvailable = () =>
+      available && !this.disposed && this.worker !== null;
+    if (available) this.initWorker();
   }
 
   private initWorker(): void {
     try {
-      // Vite bundles the worker via the `?worker` import convention but we
-      // use the explicit URL form here so the worker is code-split by Vite
-      // (same pattern as the mediapipe worker in this project).
       this.worker = new Worker(
         new URL("@/workers/templateRasterizer.worker.ts", import.meta.url),
         { type: "module" },
@@ -158,18 +218,15 @@ export class TemplateRasterizerWorkerClient {
       this.worker.onmessage = this.handleMessage.bind(this);
       this.worker.onerror = (e) => {
         console.error("[TemplateRasterizerWorkerClient] Worker error:", e);
-        // Reject all pending requests so callers fall back.
         for (const [, { reject }] of this.pending) {
           reject(new Error("Worker error: " + e.message));
         }
         this.pending.clear();
         this.inFlight.clear();
-        // Mark unavailable — rasterize() will fall back to main-thread path.
-        this.workerAvailable = false;
         this.worker = null;
       };
     } catch {
-      this.workerAvailable = false;
+      this.worker = null;
     }
   }
 
@@ -178,157 +235,209 @@ export class TemplateRasterizerWorkerClient {
     const callbacks = this.pending.get(msg.id);
     if (!callbacks) return;
     this.pending.delete(msg.id);
-
     if (msg.type === "FRAME_READY") {
-      callbacks.resolve(msg.bitmap);
+      callbacks.resolve({
+        bitmap: msg.bitmap,
+        workerRasterMs: msg.workerRasterMs,
+      });
     } else {
       callbacks.reject(new Error(msg.error));
     }
   }
 
+  // ─── Template rasterization ────────────────────────────────────────────────
+
   /**
-   * Rasterize one EvaluatedTextLayer (template path only).
-   *
-   * Returns a NativeTextRasterAsset with the same shape as the existing
-   * rasterizeTextLayerForNative output. Falls back to main-thread rasterization
-   * when the worker is unavailable.
+   * Rasterize an animated text template layer.
+   * The artifact is resolved from layer.templateSnapshot on the main thread
+   * before sending to the worker — no store access needed in the worker.
    */
-  async rasterize(
+  rasterize(
     layer: EvaluatedTextLayer,
     rasterKey: string,
     phase: TextRenderTracePhase,
   ): Promise<NativeTextRasterAsset> {
-    // Deduplication: return the existing promise for the same raster key.
     const existing = this.inFlight.get(rasterKey);
     if (existing) return existing;
-
-    const promise = this._rasterizeOnce(layer, rasterKey, phase);
+    const promise = this._doRasterizeTemplate(layer, rasterKey, phase);
     this.inFlight.set(rasterKey, promise);
     void promise.finally(() => this.inFlight.delete(rasterKey));
     return promise;
   }
 
-  private async _rasterizeOnce(
+  private async _doRasterizeTemplate(
     layer: EvaluatedTextLayer,
     rasterKey: string,
     phase: TextRenderTracePhase,
   ): Promise<NativeTextRasterAsset> {
     const totalStartedAt = performance.now();
 
-    // ── Resolve artifact (sync, main thread) ────────────────────────────────
     const artifact = resolveTextTemplateArtifact(layer.templateSnapshot);
     if (!artifact) {
       // No embedded snapshot — fall back to full main-thread rasterizer
-      // which handles lazy-loading from catalog.
-      const { rasterizeTextLayerForNative } = await import(
-        "@/components/editor/preview/nativeTextPreview"
-      );
+      // which handles lazy-loading from the catalog.
+      const { rasterizeTextLayerForNative } =
+        await import("@/components/editor/preview/nativeTextPreview");
       return rasterizeTextLayerForNative(layer, { phase });
     }
 
-    // ── Geometry (sync, 32-entry LRU cache) ─────────────────────────────────
     const layoutKey = buildNativeTextLayoutKey(layer);
     const { bleedX, bleedY, rasterWidth, rasterHeight } =
       getCachedLayoutMetrics(layer, layoutKey);
 
-    // The worker renders using composition-space (0,0) coordinates, applying
-    // the same translate(-width/2, -height/2) as renderTemplateArtifact in
-    // textRasterizer.ts. Pass the full raster canvas dimensions.
-    const canvasWidth = rasterWidth;
-    const canvasHeight = rasterHeight;
-
-    // ── Worker path ──────────────────────────────────────────────────────────
-    if (this.workerAvailable && this.worker && !this.disposed) {
-      const bitmap = await this.sendToWorker({
+    if (this.worker && !this.disposed) {
+      const sendAt = performance.now();
+      const { bitmap, workerRasterMs } = await this._sendMessage({
+        type: "RENDER_TEMPLATE",
         artifact,
         localTime:
           layer.time !== undefined && layer.clipStartTime !== undefined
             ? layer.time - layer.clipStartTime
             : 0,
         clipDuration: layer.clipDuration,
-        canvasWidth,
-        canvasHeight,
+        canvasWidth: rasterWidth,
+        canvasHeight: rasterHeight,
         controlValues: resolveControlValues(layer, artifact),
-      });
+      } as Omit<WorkerRenderTemplateMessage, "id">);
+      // transferMs = message round-trip wall-clock minus the worker's render
+      // time. This names the structured-clone + IPC channel latency explicitly
+      // rather than folding it into an unattributed gap in totalMs.
+      const transferMs = Math.max(
+        0,
+        performance.now() - sendAt - workerRasterMs,
+      );
 
-      // Readback: ImageBitmap → Uint8ClampedArray (once per unique raster key)
-      const rgba = imageBitmapToRgba(bitmap);
-      bitmap.close(); // Release GPU memory; we have the pixel copy.
-
-      // Apply cached crop geometry (no per-frame pixel scan)
-      const cropKey = getTemplateCropCacheKey(layer);
-      const cropped = cropKey
-        ? cropTemplateAsset(rgba, canvasWidth, canvasHeight, cropKey)
-        : null;
-
-      const totalMs = performance.now() - totalStartedAt;
-
-      return {
-        assetId: `native-text:${layer.layerId}:${hashRasterKey(rasterKey)}`,
-        rgba: cropped?.rgba ?? rgba,
-        width: cropped?.width ?? canvasWidth,
-        height: cropped?.height ?? canvasHeight,
-        x: cropped
-          ? layer.x - bleedX + cropped.offsetX
-          : layer.x - bleedX,
-        y: cropped
-          ? layer.y - bleedY + cropped.offsetY
-          : layer.y - bleedY,
-        rotation: layer.rotation,
-        opacity: layer.opacity,
-        zIndex: layer.zIndex,
-        blendMode: layer.blendMode,
-        isText: true,
-        ...(cropped ? { positionMode: "absolute" as const } : {}),
+      return buildAsset(
+        bitmap,
+        layer,
         bleedX,
         bleedY,
-        timing: {
-          phase,
-          kind: "template",
-          rendererPath: "native-raster",
-          fontWaitMs: 0,
-          rasterMs: totalMs,
-          readbackMs: 0,
-          totalMs,
-          outputPixels: canvasWidth * canvasHeight,
-          operation: layer.animationOperation ?? "render",
-          contentLength: layer.text.length,
-          lineCount: Math.max(1, layer.text.split("\n").length),
-          layoutWidth: layer.width,
-          layoutHeight: layer.height,
-        },
-      };
+        rasterWidth,
+        rasterHeight,
+        rasterKey,
+        phase,
+        "template",
+        performance.now() - totalStartedAt,
+        workerRasterMs,
+        transferMs,
+      );
     }
 
-    // ── Fallback: main-thread rasterizer (worker unavailable) ────────────────
-    const { rasterizeTextLayerForNative } = await import(
-      "@/components/editor/preview/nativeTextPreview"
-    );
+    // Worker unavailable — fall back to main-thread rasterizer.
+    const { rasterizeTextLayerForNative } =
+      await import("@/components/editor/preview/nativeTextPreview");
     return rasterizeTextLayerForNative(layer, { phase });
   }
 
+  // ─── Effect rasterization ──────────────────────────────────────────────────
+
   /**
-   * Send a render request to the Worker and await the ImageBitmap response.
+   * Rasterize a styled text effect layer using a pre-resolved scene document.
+   *
+   * The caller is responsible for resolving the SceneDocument on the main
+   * thread (including text/typography injection) before passing it here.
+   * The worker receives fully-prepared data and only calls
+   * renderTextEffectToCanvas — it never touches Zustand stores.
+   *
+   * @param layer       - The evaluated text layer (for geometry + placement)
+   * @param sceneDoc    - Fully-resolved SceneDocument with text/font overrides applied
+   * @param canvasWidth - Render canvas width (from getCachedLayoutMetrics or caller)
+   * @param canvasHeight - Render canvas height
+   * @param rasterKey   - The precomputed raster cache key
+   * @param phase       - Telemetry phase label
    */
-  private sendToWorker(
-    params: Omit<WorkerRenderFrameMessage, "type" | "id">,
-  ): Promise<ImageBitmap> {
-    return new Promise<ImageBitmap>((resolve, reject) => {
+  rasterizeEffect(
+    layer: EvaluatedTextLayer,
+    sceneDoc: Record<string, unknown>,
+    canvasWidth: number,
+    canvasHeight: number,
+    rasterKey: string,
+    phase: TextRenderTracePhase,
+  ): Promise<NativeTextRasterAsset> {
+    const existing = this.inFlight.get(rasterKey);
+    if (existing) return existing;
+    const promise = this._doRasterizeEffect(
+      layer,
+      sceneDoc,
+      canvasWidth,
+      canvasHeight,
+      rasterKey,
+      phase,
+    );
+    this.inFlight.set(rasterKey, promise);
+    void promise.finally(() => this.inFlight.delete(rasterKey));
+    return promise;
+  }
+
+  private async _doRasterizeEffect(
+    layer: EvaluatedTextLayer,
+    sceneDoc: Record<string, unknown>,
+    canvasWidth: number,
+    canvasHeight: number,
+    rasterKey: string,
+    phase: TextRenderTracePhase,
+  ): Promise<NativeTextRasterAsset> {
+    const totalStartedAt = performance.now();
+
+    const layoutKey = buildNativeTextLayoutKey(layer);
+    const { bleedX, bleedY } = getCachedLayoutMetrics(layer, layoutKey);
+
+    if (this.worker && !this.disposed) {
+      const sendAt = performance.now();
+      const { bitmap, workerRasterMs } = await this._sendMessage({
+        type: "RENDER_EFFECT",
+        sceneDocument: sceneDoc,
+        time: layer.time ?? 0,
+        canvasWidth,
+        canvasHeight,
+      } as Omit<WorkerRenderEffectMessage, "id">);
+      const transferMs = Math.max(
+        0,
+        performance.now() - sendAt - workerRasterMs,
+      );
+
+      return buildAsset(
+        bitmap,
+        layer,
+        bleedX,
+        bleedY,
+        canvasWidth,
+        canvasHeight,
+        rasterKey,
+        phase,
+        "effect",
+        performance.now() - totalStartedAt,
+        workerRasterMs,
+        transferMs,
+      );
+    }
+
+    // Worker unavailable — fall back to main-thread rasterizer.
+    const { rasterizeTextLayerForNative } =
+      await import("@/components/editor/preview/nativeTextPreview");
+    return rasterizeTextLayerForNative(layer, { phase });
+  }
+
+  // ─── Shared worker messaging ───────────────────────────────────────────────
+
+  private _sendMessage(
+    params:
+      | Omit<WorkerRenderTemplateMessage, "id">
+      | Omit<WorkerRenderEffectMessage, "id">,
+  ): Promise<{ bitmap: ImageBitmap; workerRasterMs: number }> {
+    return new Promise((resolve, reject) => {
       if (!this.worker || this.disposed) {
         reject(new Error("Worker not available"));
         return;
       }
       const id = String(++nextRequestId);
       this.pending.set(id, { resolve, reject });
-      const msg: WorkerRenderFrameMessage = { type: "RENDER_FRAME", id, ...params };
-      this.worker.postMessage(msg);
+      this.worker.postMessage({ ...params, id });
     });
   }
 
-  /**
-   * Terminate the Worker and reject all pending requests.
-   * Call when the owning session is disposed.
-   */
+  // ─── Lifecycle ─────────────────────────────────────────────────────────────
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -343,9 +452,19 @@ export class TemplateRasterizerWorkerClient {
       this.worker = null;
     }
   }
+
+  /** Number of in-flight requests. Exposed for tests. */
+  get pendingCount(): number {
+    return this.pending.size;
+  }
+
+  /** Number of deduplicated in-flight asset promises. Exposed for tests. */
+  get inFlightCount(): number {
+    return this.inFlight.size;
+  }
 }
 
-// ─── FNV-1a 32-bit hash (matches hashTextRasterKey in nativeTextPreview.ts) ──
+// ─── FNV-1a 32-bit hash ───────────────────────────────────────────────────────
 
 function hashRasterKey(value: string): string {
   let hash = 2166136261;
