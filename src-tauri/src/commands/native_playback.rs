@@ -172,6 +172,17 @@ impl NativeRenderSession {
             .iter_mut()
             .zip(&demand.raster_layers)
         {
+            if !update.asset_id.is_empty() {
+                layer.asset_id = update.asset_id.clone();
+            }
+            if update.width > 0 {
+                layer.width = update.width;
+            }
+            if update.height > 0 {
+                layer.height = update.height;
+            }
+            layer.display_width = update.display_width;
+            layer.display_height = update.display_height;
             layer.x = update.x;
             layer.y = update.y;
             layer.rotation = update.rotation;
