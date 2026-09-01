@@ -308,11 +308,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
         return source ? { key, source } : null;
       })
       .filter((item): item is { key: string; source: string } => Boolean(item));
-    void prewarmSharedAudioBuffers(items).then((result) => {
-      if (result.failed > 0) {
-        console.warn("[useAudioSyncEngine] Audio prewarm completed with failures", result);
-      }
-    });
+    void prewarmSharedAudioBuffers(items);
   }, [expandedClips, mediaAssets]);
 
   // 2. High-performance RAF playback synchronizer loop (ZERO REACT DOM RE-RENDERS)
