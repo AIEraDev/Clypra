@@ -1327,10 +1327,13 @@ export function resolveTextClipStyleUpdate(
   canvasWidth: number,
   canvasHeight: number,
 ): Partial<TextClip> {
-  if (!shouldRecalculateTextClipBounds(clip, updates)) return updates;
+  const previewOnly = Boolean((updates as Record<string, unknown>)._skipTextBoundsRecalculation);
+  const cleanUpdates = { ...updates } as Partial<TextClip> & { _skipTextBoundsRecalculation?: boolean };
+  delete cleanUpdates._skipTextBoundsRecalculation;
+  if (previewOnly || !shouldRecalculateTextClipBounds(clip, cleanUpdates)) return cleanUpdates;
   const recalculated = recalculateTextClipBounds(
     clip,
-    updates,
+    cleanUpdates,
     canvasWidth,
     canvasHeight,
   );
