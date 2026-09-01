@@ -47,6 +47,7 @@ import {
   type PreviewInteractionToken,
 } from "@/core/interactions";
 import { traceTextInteraction } from "@/core/render/textRenderTrace";
+import { InteractiveTextRenderCoordinator } from "@/core/interactions/InteractiveTextRenderCoordinator";
 
 export interface PropertiesPanelProps {
   width?: number;
@@ -188,71 +189,58 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const propertyEditTokenRef = React.useRef<PreviewInteractionToken | null>(null);
   const keepTextPropertyPausedRef = React.useRef(false);
   const propertyEditTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const textPropertyDraftRef = React.useRef<{
-    clipId: string;
-    before: Record<string, unknown>;
-    latest: Record<string, unknown>;
-    raf: number | null;
-    startedAtMs: number;
-    firstPreviewAtMs?: number;
-    operation: "content-edit" | "property-edit" | "resize";
-    property?: any;
-  } | null>(null);
-
-  const flushTextPropertyDraft = (commit: boolean) => {
-    const draft = textPropertyDraftRef.current;
-    if (!draft) return;
-
-    if (draft.raf !== null) {
-      cancelAnimationFrame(draft.raf);
-      draft.raf = null;
-      const pending = { ...draft.latest, _skipEpochIncrement: true } as any;
-      useTimelineStore.getState().updateClip(draft.clipId, pending);
-    }
-
-    if (commit) {
-      const current = useTimelineStore
-        .getState()
-        .clips.find((clip) => clip.id === draft.clipId);
-      if (current) {
+  const interactiveTextCoordinatorRef = React.useRef<InteractiveTextRenderCoordinator | null>(null);
+  if (!interactiveTextCoordinatorRef.current) {
+    interactiveTextCoordinatorRef.current = new InteractiveTextRenderCoordinator({
+      apply: (clipId, latest) => {
+        useTimelineStore.getState().updateClip(clipId, {
+          ...latest,
+          _skipEpochIncrement: true,
+          _skipTextBoundsRecalculation: true,
+        } as any);
+      },
+      commit: (clipId, before, latest, meta) => {
+        const current = useTimelineStore.getState().clips.find((clip) => clip.id === clipId);
         const oldTransform: Record<string, unknown> = {};
         const newTransform: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(draft.latest)) {
-          const oldValue = draft.before[key];
+        for (const [key, value] of Object.entries(latest)) {
+          const oldValue = before[key];
           if (Object.is(oldValue, value)) continue;
           oldTransform[key] = oldValue;
           newTransform[key] = value;
         }
         if (Object.keys(newTransform).length > 0) {
-          execute(
+          useHistoryStore.getState().execute(
             new TransformClipCommand(
-              draft.clipId,
+              clipId,
               oldTransform as Partial<Clip>,
               newTransform as Partial<Clip>,
             ),
           );
         }
-      }
-    }
-
-    const latestClip = useTimelineStore.getState().clips.find((clip) => clip.id === draft.clipId);
-    const elapsedMs = Math.max(0, performance.now() - draft.startedAtMs);
-    traceTextInteraction({
-      kind: latestClip?.kind === "text-template" ? "template" : (latestClip as any)?.styleId ? "effect" : "plain",
-      rendererPath: "studio-preview",
-      operation: draft.operation,
-      property: draft.property,
-      durationMs: elapsedMs,
-      inputToPreviewMs: draft.firstPreviewAtMs === undefined ? undefined : Math.max(0, draft.firstPreviewAtMs - draft.startedAtMs),
-      interactionId: `text-property:${draft.clipId}:${draft.startedAtMs}`,
-      contentLength: typeof draft.latest.text === "string" ? draft.latest.text.length : undefined,
-      lineCount: typeof draft.latest.text === "string" ? Math.max(1, draft.latest.text.split("\n").length) : undefined,
-      layoutWidth: typeof latestClip?.width === "number" ? latestClip.width : undefined,
-      layoutHeight: typeof latestClip?.height === "number" ? latestClip.height : undefined,
+        traceTextInteraction({
+          kind: current?.kind === "text-template" ? "template" : (current as any)?.styleId ? "effect" : "plain",
+          rendererPath: "studio-preview",
+          operation: meta.operation,
+          property: meta.property as any,
+          durationMs: meta.durationMs,
+          inputToPreviewMs: meta.inputToPreviewMs,
+          interactionId: `text-property:${clipId}:${meta.interactionId}`,
+          contentLength: typeof latest.text === "string" ? latest.text.length : undefined,
+          lineCount: typeof latest.text === "string" ? Math.max(1, latest.text.split("\n").length) : undefined,
+          layoutWidth: typeof current?.width === "number" ? current.width : undefined,
+          layoutHeight: typeof current?.height === "number" ? current.height : undefined,
+          stageTimings: meta.stageTimings,
+          stageCoverage: meta.stageCoverage,
+          renderCount: meta.renderCount,
+          cacheHits: meta.cacheHits,
+          cacheMisses: meta.cacheMisses,
+          unattributedTimeMs: meta.unattributedTimeMs,
+        });
+      },
     });
-
-    textPropertyDraftRef.current = null;
-  };
+  }
+  const interactiveTextCoordinator = interactiveTextCoordinatorRef.current;
 
   const finishPropertyEdit = () => {
     if (propertyEditTimerRef.current !== null) {
@@ -263,21 +251,24 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     // restart playback when their debounce window closes, including the
     // immediate apply-to-all path which has no text draft object.
     const keepPaused =
-      keepTextPropertyPausedRef.current || textPropertyDraftRef.current !== null;
-    flushTextPropertyDraft(true);
+      keepTextPropertyPausedRef.current || interactiveTextCoordinator.isActive();
+    interactiveTextCoordinator.finish(true);
     const token = propertyEditTokenRef.current;
     propertyEditTokenRef.current = null;
     keepTextPropertyPausedRef.current = false;
     if (token) previewInteractionCoordinator.commit(token, !keepPaused);
   };
 
-  React.useEffect(() => () => finishPropertyEdit(), []);
+  React.useEffect(() => () => {
+    finishPropertyEdit();
+    interactiveTextCoordinator.dispose();
+  }, [interactiveTextCoordinator]);
   React.useEffect(
     () =>
       previewInteractionCoordinator.subscribe((snapshot) => {
         const token = propertyEditTokenRef.current;
         if (
-          textPropertyDraftRef.current &&
+          interactiveTextCoordinator.isActive() &&
           token &&
           snapshot.active?.interactionId !== token.interactionId
         ) {
@@ -294,7 +285,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const executePreviewCommand = (command: Parameters<typeof execute>[0]) => {
     // A discrete command must finish any pending text draft first so updates
     // cannot be reordered around selection, transport, or another property.
-    if (textPropertyDraftRef.current) finishPropertyEdit();
+    if (interactiveTextCoordinator.isActive()) finishPropertyEdit();
     // Some text commands (for example caption apply-to-all and discrete
     // style changes) use the immediate command path, so mark them explicitly
     // to preserve the no-autoplay rule without adding per-control transport
@@ -332,16 +323,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       );
     }
 
-    let draft = textPropertyDraftRef.current;
-    if (draft && draft.clipId !== current.id) {
+    let textToken = interactiveTextCoordinator.getActiveToken() ?? null;
+    if (textToken && textToken.clipId !== current.id) {
       finishPropertyEdit();
       keepTextPropertyPausedRef.current = true;
       propertyEditTokenRef.current = previewInteractionCoordinator.begin(
         "property-edit",
       );
-      draft = null;
+      textToken = null;
     }
-    if (!draft) {
+    if (!textToken) {
       keepTextPropertyPausedRef.current = true;
       const fieldNames = Object.keys(fields);
       const property = fieldNames.includes("text")
@@ -367,17 +358,14 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                           : fieldNames.some((key) => key === "styleId" || key === "styleSnapshot")
                             ? "effect"
                             : undefined;
-      draft = {
+      const previewToken = propertyEditTokenRef.current ?? previewInteractionCoordinator.begin("property-edit");
+      propertyEditTokenRef.current = previewToken;
+      textToken = interactiveTextCoordinator.begin({
         clipId: current.id,
-        before: {},
-        latest: {},
-        raf: null,
-        startedAtMs: performance.now(),
-        firstPreviewAtMs: undefined,
+        previewToken,
         operation: property === "resize" ? "resize" : property === "content" ? "content-edit" : "property-edit",
         property,
-      };
-      textPropertyDraftRef.current = draft;
+      });
     }
 
     // Text entry is a high-frequency input path. Do not measure text bounds
@@ -385,33 +373,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     // the authoritative timeline update once per frame. The editor keeps the
     // raw latest string so fast typing cannot be rebuilt from a stale store
     // snapshot between keystrokes.
-    const newTransform =
-      Object.keys(fields).length === 1 && "text" in fields
-        ? { text: fields.text }
-        : buildClipPropertyTransform(
-            current,
-            fields,
-            canvasWidth,
-            canvasHeight,
-          ).newTransform;
+    // Bounds are an authoritative commit concern. Recomputing font metrics
+    // synchronously for every typed character or slider tick is what caused
+    // the 200–600 ms editor stalls. The preview keeps the existing box during
+    // the draft; the single history commit recalculates final bounds once.
+    const newTransform = { ...fields };
     for (const [key, value] of Object.entries(newTransform)) {
-      if (!(key in draft.before)) {
-        draft.before[key] = (current as any)[key];
-      }
-      draft.latest[key] = value;
-    }
-
-    if (draft.raf === null) {
-      draft.raf = requestAnimationFrame(() => {
-        const pendingDraft = textPropertyDraftRef.current;
-        if (!pendingDraft || pendingDraft !== draft) return;
-        pendingDraft.raf = null;
-        if (pendingDraft.firstPreviewAtMs === undefined) pendingDraft.firstPreviewAtMs = performance.now();
-        useTimelineStore.getState().updateClip(pendingDraft.clipId, {
-          ...pendingDraft.latest,
-          _skipEpochIncrement: true,
-        } as any);
-      });
+      if (textToken) interactiveTextCoordinator.update(textToken, { [key]: value }, { [key]: (current as any)[key] });
     }
 
     if (propertyEditTimerRef.current !== null) {
