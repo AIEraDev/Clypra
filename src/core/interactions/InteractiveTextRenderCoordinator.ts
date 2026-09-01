@@ -197,6 +197,40 @@ export class InteractiveTextRenderCoordinator {
     if (activeTextCoordinator === this) activeTextCoordinator = null;
     if (!commit) return;
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+
+    // Determine stage coverage quality before building the commit payload.
+    //
+    // "complete": every sample has at minimum rasterMs + totalMs — the render
+    //   trace captured a per-stage breakdown for the full interaction.
+    // "partial": at least one sample carries a named stage field (raster, compile
+    //   or fontWait), but not all samples are fully instrumented.
+    // "unattributed": no samples at all, or samples only carry totalMs with no
+    //   stage breakdown — nothing useful to attribute.
+    const hasSamples = active.stageSamples.length > 0;
+    const allHaveCoreStages = hasSamples && active.stageSamples.every(
+      (s) => s.rasterMs !== undefined && s.totalMs !== undefined,
+    );
+    const anyHasNamedStage = hasSamples && active.stageSamples.some(
+      (s) =>
+        s.rasterMs !== undefined ||
+        s.compileMs !== undefined ||
+        s.fontWaitMs !== undefined,
+    );
+    const stageCoverage: "complete" | "partial" | "unattributed" = allHaveCoreStages
+      ? "complete"
+      : anyHasNamedStage
+        ? "partial"
+        : "unattributed";
+
+    // unattributedTimeMs is the wall-clock interaction time that cannot be
+    // explained by the collected stage samples. It is 0 only when every
+    // stage is accounted for (complete coverage). For partial or unattributed
+    // coverage the whole duration is considered unaccounted for — this is
+    // conservative but avoids falsely claiming attribution that was never measured.
+    const unattributedTimeMs = stageCoverage === "complete"
+      ? 0
+      : Math.max(0, now - active.startedAtMs);
+
     this.callbacks.commit(active.token.clipId, active.before, active.latest, {
       ...active.meta,
       durationMs: Math.max(0, now - active.startedAtMs),
@@ -206,10 +240,8 @@ export class InteractiveTextRenderCoordinator {
       cacheHits: active.cacheHits,
       cacheMisses: active.cacheMisses,
       stageTimings: percentileStages(active.stageSamples),
-      stageCoverage: active.stageSamples.length === 0
-        ? "unattributed"
-        : active.stageSamples.some((sample) => sample.totalMs !== undefined) ? "partial" : "unattributed",
-      unattributedTimeMs: active.stageSamples.length === 0 ? Math.max(0, now - active.startedAtMs) : 0,
+      stageCoverage,
+      unattributedTimeMs,
     });
   }
 

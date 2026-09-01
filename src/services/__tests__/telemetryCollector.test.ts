@@ -224,4 +224,55 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     telemetryCollector.flushRollupIfPending();
     expect(telemetryCollector.getQueueLength()).toBeGreaterThanOrEqual(1);
   });
+
+  it("records text interaction telemetry and mirrors stagePercentiles from interactionStagePercentiles", () => {
+    telemetryCollector.recordTextInteraction({
+      kind: "plain",
+      rendererPath: "studio-preview",
+      operation: "content-edit",
+      property: "content",
+      durationUs: 45000,
+      interactionId: "test-edit-1",
+      renderCount: 3,
+      stageCoverage: "complete",
+      unattributedTimeUs: 0,
+      stageTimings: {
+        rasterUs: 5000,
+        paintUs: 1200,
+        totalTimeUs: 6500,
+      },
+    });
+
+    expect(telemetryCollector.getQueueLength()).toBe(1);
+    const event = (telemetryCollector as any).queue[0];
+    expect(event.subsystem).toBe("text");
+    expect(event.sampleKind).toBe("interaction");
+    expect(event.textMetrics.stageCoverage).toBe("complete");
+    expect(event.textMetrics.unattributedTimeUs).toBe(0);
+    expect(event.textMetrics.interactionStagePercentiles.rasterUs).toEqual({ p50: 5000, p95: 5000, p99: 5000 });
+    expect(event.textMetrics.stagePercentiles).toEqual(event.textMetrics.interactionStagePercentiles);
+  });
+
+  it("records canvas drag text interaction with unattributed stage coverage", () => {
+    telemetryCollector.recordTextInteraction({
+      kind: "plain",
+      rendererPath: "studio-preview",
+      operation: "transform",
+      property: "transform",
+      durationUs: 150000,
+      interactionId: "test-drag-1",
+      renderCount: 0,
+      stageCoverage: "unattributed",
+      unattributedTimeUs: 150000,
+    });
+
+    expect(telemetryCollector.getQueueLength()).toBe(1);
+    const event = (telemetryCollector as any).queue[0];
+    expect(event.textMetrics.operation).toBe("transform");
+    expect(event.textMetrics.stageCoverage).toBe("unattributed");
+    expect(event.textMetrics.unattributedTimeUs).toBe(150000);
+    expect(event.textMetrics.stagePercentiles).toEqual({});
+    expect(event.textMetrics.interactionStagePercentiles).toEqual({});
+  });
 });
+

@@ -60,4 +60,101 @@ describe("InteractiveTextRenderCoordinator", () => {
     expect(callbacks.commit).not.toHaveBeenCalled();
     coordinator.dispose();
   });
+
+  it("reports stageCoverage 'complete' and unattributedTimeMs = 0 when all samples have core stages", () => {
+    const coordinator = new InteractiveTextRenderCoordinator(callbacks as any);
+    const token = coordinator.begin({ clipId: "clip-1", operation: "property-edit", property: "color" });
+
+    coordinator.observeRender({
+      rasterMs: 4.5,
+      paintMs: 1.2,
+      totalMs: 6.0,
+      cacheHit: false,
+    });
+    coordinator.observeRender({
+      rasterMs: 3.8,
+      paintMs: 0.9,
+      totalMs: 5.1,
+      cacheHit: true,
+    });
+
+    coordinator.finish(true);
+    expect(callbacks.commit).toHaveBeenCalledOnce();
+    const meta = callbacks.commit.mock.calls[0][3];
+    expect(meta.stageCoverage).toBe("complete");
+    expect(meta.unattributedTimeMs).toBe(0);
+    expect(meta.renderCount).toBe(2);
+    expect(meta.cacheHits).toBe(1);
+    expect(meta.cacheMisses).toBe(1);
+    expect(meta.stageTimings).toBeDefined();
+    expect(meta.stageTimings.rasterMs).toBeGreaterThan(0);
+    expect(meta.stageTimings.totalMs).toBeGreaterThan(0);
+    coordinator.dispose();
+  });
+
+  it("reports stageCoverage 'partial' and non-zero unattributedTimeMs when some samples lack raster stage data", () => {
+    const coordinator = new InteractiveTextRenderCoordinator(callbacks as any);
+    const token = coordinator.begin({ clipId: "clip-1", operation: "content-edit", property: "content" });
+
+    // Sample 1 has rasterMs
+    coordinator.observeRender({
+      rasterMs: 5.0,
+      totalMs: 7.0,
+    });
+    // Sample 2 only has totalMs, missing rasterMs
+    coordinator.observeRender({
+      totalMs: 6.0,
+    });
+
+    coordinator.finish(true);
+    expect(callbacks.commit).toHaveBeenCalledOnce();
+    const meta = callbacks.commit.mock.calls[0][3];
+    expect(meta.stageCoverage).toBe("partial");
+    expect(meta.unattributedTimeMs).toBeGreaterThanOrEqual(0);
+    expect(meta.renderCount).toBe(2);
+    coordinator.dispose();
+  });
+
+  it("reports stageCoverage 'unattributed' when zero samples or only generic totalMs exist", () => {
+    const coordinator = new InteractiveTextRenderCoordinator(callbacks as any);
+    const token = coordinator.begin({ clipId: "clip-1", operation: "property-edit", property: "color" });
+
+    // No observeRender calls made
+    coordinator.finish(true);
+    expect(callbacks.commit).toHaveBeenCalledOnce();
+    const meta = callbacks.commit.mock.calls[0][3];
+    expect(meta.stageCoverage).toBe("unattributed");
+    expect(meta.unattributedTimeMs).toBeGreaterThanOrEqual(0);
+    expect(meta.renderCount).toBe(0);
+    expect(meta.stageTimings).toBeUndefined();
+    coordinator.dispose();
+  });
+
+  it("escalates invalidation priority when updates require higher invalidation levels", () => {
+    const coordinator = new InteractiveTextRenderCoordinator(callbacks as any);
+    const token = coordinator.begin({ clipId: "clip-1", operation: "property-edit", property: "color" });
+
+    expect(coordinator.getActiveToken()?.clipId).toBe("clip-1");
+
+    // Initially paint invalidation
+    coordinator.update(token, { color: "#ff0000" });
+
+    // Escalates to layout when fontFamily is patched
+    coordinator.update(token, { fontFamily: "Roboto" });
+
+    // Escalates to raster when styleId is patched
+    coordinator.update(token, { styleId: "neon" });
+
+    rafCallbacks.shift()?.(0);
+    expect(callbacks.apply).toHaveBeenCalledWith("clip-1", expect.objectContaining({
+      color: "#ff0000",
+      fontFamily: "Roboto",
+      styleId: "neon",
+    }), expect.objectContaining({
+      invalidation: "raster",
+    }));
+
+    coordinator.dispose();
+  });
 });
+
