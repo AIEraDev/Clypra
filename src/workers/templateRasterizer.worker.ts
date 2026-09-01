@@ -135,6 +135,13 @@ function findVisibleBounds(
   };
 }
 
+function createBlankBitmap(): ImageBitmap {
+  const blank = new OffscreenCanvas(1, 1);
+  const ctx = blank.getContext("2d", { alpha: true });
+  ctx?.clearRect(0, 0, 1, 1);
+  return blank.transferToImageBitmap();
+}
+
 async function handleRenderTemplate(
   msg: WorkerRenderTemplateMessage,
 ): Promise<void> {
@@ -180,13 +187,12 @@ async function handleRenderTemplate(
   let croppedHeight = 1;
 
   if (!bounds) {
-    const blank = new OffscreenCanvas(1, 1);
-    bitmap = blank.transferToImageBitmap();
+    bitmap = createBlankBitmap();
   } else {
     offsetX = bounds.left;
     offsetY = bounds.top;
-    croppedWidth = bounds.width;
-    croppedHeight = bounds.height;
+    croppedWidth = Math.max(1, bounds.width);
+    croppedHeight = Math.max(1, bounds.height);
 
     const cropped = new OffscreenCanvas(croppedWidth, croppedHeight);
     const croppedCtx = cropped.getContext("2d", { alpha: true });
@@ -266,15 +272,14 @@ async function handleRenderEffect(
   let croppedHeight = 1;
 
   if (!bounds) {
-    const blank = new OffscreenCanvas(1, 1);
-    bitmap = blank.transferToImageBitmap();
+    bitmap = createBlankBitmap();
     offsetX = Math.round(width / 2);
     offsetY = Math.round(height / 2);
   } else {
     offsetX = bounds.left;
     offsetY = bounds.top;
-    croppedWidth = bounds.width;
-    croppedHeight = bounds.height;
+    croppedWidth = Math.max(1, bounds.width);
+    croppedHeight = Math.max(1, bounds.height);
 
     const cropped = new OffscreenCanvas(croppedWidth, croppedHeight);
     const croppedCtx = cropped.getContext("2d", { alpha: true });
