@@ -212,7 +212,7 @@ export class TemplateRasterizerWorkerClient {
   private initWorker(): void {
     try {
       this.worker = new Worker(
-        new URL("@/workers/templateRasterizer.worker.ts", import.meta.url),
+        new URL("../../workers/templateRasterizer.worker.ts", import.meta.url),
         { type: "module" },
       );
       this.worker.onmessage = this.handleMessage.bind(this);
@@ -225,7 +225,9 @@ export class TemplateRasterizerWorkerClient {
         this.inFlight.clear();
         this.worker = null;
       };
-    } catch {
+      console.log("[TemplateRasterizerWorkerClient] Worker initialized successfully");
+    } catch (err) {
+      console.warn("[TemplateRasterizerWorkerClient] Failed to initialize worker, fallback will be used:", err);
       this.worker = null;
     }
   }
@@ -241,6 +243,7 @@ export class TemplateRasterizerWorkerClient {
         workerRasterMs: msg.workerRasterMs,
       });
     } else {
+      console.error(`[TemplateRasterizerWorkerClient] Worker returned error for frame ${msg.id}:`, msg.error);
       callbacks.reject(new Error(msg.error));
     }
   }
@@ -258,7 +261,10 @@ export class TemplateRasterizerWorkerClient {
     phase: TextRenderTracePhase,
   ): Promise<NativeTextRasterAsset> {
     const existing = this.inFlight.get(rasterKey);
-    if (existing) return existing;
+    if (existing) {
+      console.log(`[TemplateRasterizerWorkerClient] Dedup hit for template ${layer.layerId} (key=${rasterKey.slice(0, 32)}...)`);
+      return existing;
+    }
     const promise = this._doRasterizeTemplate(layer, rasterKey, phase);
     this.inFlight.set(rasterKey, promise);
     void promise.finally(() => this.inFlight.delete(rasterKey));
@@ -274,6 +280,7 @@ export class TemplateRasterizerWorkerClient {
 
     const artifact = resolveTextTemplateArtifact(layer.templateSnapshot);
     if (!artifact) {
+      console.log(`[TemplateRasterizerWorkerClient] No embedded snapshot for template ${layer.layerId}, falling back to main thread`);
       // No embedded snapshot — fall back to full main-thread rasterizer
       // which handles lazy-loading from the catalog.
       const { rasterizeTextLayerForNative } =
@@ -286,44 +293,51 @@ export class TemplateRasterizerWorkerClient {
       getCachedLayoutMetrics(layer, layoutKey);
 
     if (this.worker && !this.disposed) {
-      const sendAt = performance.now();
-      const { bitmap, workerRasterMs } = await this._sendMessage({
-        type: "RENDER_TEMPLATE",
-        artifact,
-        localTime:
-          layer.time !== undefined && layer.clipStartTime !== undefined
-            ? layer.time - layer.clipStartTime
-            : 0,
-        clipDuration: layer.clipDuration,
-        canvasWidth: rasterWidth,
-        canvasHeight: rasterHeight,
-        controlValues: resolveControlValues(layer, artifact),
-      } as Omit<WorkerRenderTemplateMessage, "id">);
-      // transferMs = message round-trip wall-clock minus the worker's render
-      // time. This names the structured-clone + IPC channel latency explicitly
-      // rather than folding it into an unattributed gap in totalMs.
-      const transferMs = Math.max(
-        0,
-        performance.now() - sendAt - workerRasterMs,
-      );
+      try {
+        const sendAt = performance.now();
+        const { bitmap, workerRasterMs } = await this._sendMessage({
+          type: "RENDER_TEMPLATE",
+          artifact,
+          localTime:
+            layer.time !== undefined && layer.clipStartTime !== undefined
+              ? layer.time - layer.clipStartTime
+              : 0,
+          clipDuration: layer.clipDuration,
+          layerWidth: layer.width,
+          layerHeight: layer.height,
+          bleedX,
+          bleedY,
+          rasterWidth,
+          rasterHeight,
+          controlValues: resolveControlValues(layer, artifact),
+        } as Omit<WorkerRenderTemplateMessage, "id">);
+        const transferMs = Math.max(
+          0,
+          performance.now() - sendAt - workerRasterMs,
+        );
+        const totalMs = performance.now() - totalStartedAt;
+        console.log(`[TemplateRasterizerWorkerClient] Template rendered off-thread (layer=${layer.layerId}, workerMs=${workerRasterMs.toFixed(2)}ms, transferMs=${transferMs.toFixed(2)}ms, totalMs=${totalMs.toFixed(2)}ms)`);
 
-      return buildAsset(
-        bitmap,
-        layer,
-        bleedX,
-        bleedY,
-        rasterWidth,
-        rasterHeight,
-        rasterKey,
-        phase,
-        "template",
-        performance.now() - totalStartedAt,
-        workerRasterMs,
-        transferMs,
-      );
+        return buildAsset(
+          bitmap,
+          layer,
+          bleedX,
+          bleedY,
+          rasterWidth,
+          rasterHeight,
+          rasterKey,
+          phase,
+          "template",
+          totalMs,
+          workerRasterMs,
+          transferMs,
+        );
+      } catch (workerErr) {
+        console.warn(`[TemplateRasterizerWorkerClient] Off-thread template render failed, falling back to main-thread:`, workerErr);
+      }
     }
 
-    // Worker unavailable — fall back to main-thread rasterizer.
+    // Worker unavailable or failed — fall back to main-thread rasterizer.
     const { rasterizeTextLayerForNative } =
       await import("@/components/editor/preview/nativeTextPreview");
     return rasterizeTextLayerForNative(layer, { phase });
@@ -355,7 +369,10 @@ export class TemplateRasterizerWorkerClient {
     phase: TextRenderTracePhase,
   ): Promise<NativeTextRasterAsset> {
     const existing = this.inFlight.get(rasterKey);
-    if (existing) return existing;
+    if (existing) {
+      console.log(`[TemplateRasterizerWorkerClient] Dedup hit for effect ${layer.layerId} (key=${rasterKey.slice(0, 32)}...)`);
+      return existing;
+    }
     const promise = this._doRasterizeEffect(
       layer,
       sceneDoc,
@@ -380,39 +397,50 @@ export class TemplateRasterizerWorkerClient {
     const totalStartedAt = performance.now();
 
     const layoutKey = buildNativeTextLayoutKey(layer);
-    const { bleedX, bleedY } = getCachedLayoutMetrics(layer, layoutKey);
+    const { bleedX, bleedY, rasterWidth, rasterHeight } =
+      getCachedLayoutMetrics(layer, layoutKey);
 
     if (this.worker && !this.disposed) {
-      const sendAt = performance.now();
-      const { bitmap, workerRasterMs } = await this._sendMessage({
-        type: "RENDER_EFFECT",
-        sceneDocument: sceneDoc,
-        time: layer.time ?? 0,
-        canvasWidth,
-        canvasHeight,
-      } as Omit<WorkerRenderEffectMessage, "id">);
-      const transferMs = Math.max(
-        0,
-        performance.now() - sendAt - workerRasterMs,
-      );
+      try {
+        const sendAt = performance.now();
+        const { bitmap, workerRasterMs } = await this._sendMessage({
+          type: "RENDER_EFFECT",
+          sceneDocument: sceneDoc,
+          time: layer.time ?? 0,
+          evalWidth: canvasWidth,
+          evalHeight: canvasHeight,
+          rasterWidth,
+          rasterHeight,
+          bleedX,
+          bleedY,
+        } as Omit<WorkerRenderEffectMessage, "id">);
+        const transferMs = Math.max(
+          0,
+          performance.now() - sendAt - workerRasterMs,
+        );
+        const totalMs = performance.now() - totalStartedAt;
+        console.log(`[TemplateRasterizerWorkerClient] Effect rendered off-thread (layer=${layer.layerId}, workerMs=${workerRasterMs.toFixed(2)}ms, transferMs=${transferMs.toFixed(2)}ms, totalMs=${totalMs.toFixed(2)}ms)`);
 
-      return buildAsset(
-        bitmap,
-        layer,
-        bleedX,
-        bleedY,
-        canvasWidth,
-        canvasHeight,
-        rasterKey,
-        phase,
-        "effect",
-        performance.now() - totalStartedAt,
-        workerRasterMs,
-        transferMs,
-      );
+        return buildAsset(
+          bitmap,
+          layer,
+          bleedX,
+          bleedY,
+          rasterWidth,
+          rasterHeight,
+          rasterKey,
+          phase,
+          "effect",
+          totalMs,
+          workerRasterMs,
+          transferMs,
+        );
+      } catch (workerErr) {
+        console.warn(`[TemplateRasterizerWorkerClient] Off-thread effect render failed, falling back to main-thread:`, workerErr);
+      }
     }
 
-    // Worker unavailable — fall back to main-thread rasterizer.
+    // Worker unavailable or failed — fall back to main-thread rasterizer.
     const { rasterizeTextLayerForNative } =
       await import("@/components/editor/preview/nativeTextPreview");
     return rasterizeTextLayerForNative(layer, { phase });
