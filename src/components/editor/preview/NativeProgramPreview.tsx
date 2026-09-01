@@ -96,6 +96,7 @@ import {
   computeAssetsVersion,
   computeEffectsStoreVersion,
 } from "@/core/evaluation/cache";
+import { buildNativePlaybackSnapshotKey } from "@/core/playback/nativePlaybackSnapshot";
 import {
   buildNativeFrameRequest,
   getNativePreviewBlockers,
@@ -1112,6 +1113,7 @@ export const NativeProgramPreview: React.FC = () => {
     let nativePlaybackRenderSnapshotKey = "";
     let nativePlaybackRenderSnapshotInFlight: Promise<void> | null = null;
     let nativePlaybackRenderSnapshotInFlightKey = "";
+    let nativePlaybackRenderSnapshotPending: { key: string; request: NativeFrameRequest } | null = null;
     let nativePlaybackRenderFailed = false;
     let nativeContinuousFailureStreak = 0;
     let nativeDroppedFrameCount = 0;
@@ -1487,14 +1489,7 @@ export const NativeProgramPreview: React.FC = () => {
       }
     };
 
-    const nativePlaybackSnapshotKeyFor = (request: NativeFrameRequest) =>
-      [
-        request.project.projectRevision,
-        request.renderGraphVersion,
-        request.outputWidth,
-        request.outputHeight,
-        request.quality,
-      ].join(":");
+    const nativePlaybackSnapshotKeyFor = buildNativePlaybackSnapshotKey;
 
     const ensureNativePlaybackRenderSnapshot = (
       request: NativeFrameRequest,
@@ -1504,6 +1499,13 @@ export const NativeProgramPreview: React.FC = () => {
         nativePlaybackRenderSnapshotKey === key ||
         nativePlaybackRenderSnapshotInFlightKey === key
       ) {
+        return;
+      }
+      if (nativePlaybackRenderSnapshotInFlight !== null) {
+        // Configuration is also latest-value work. A text asset can become
+        // available while the previous graph is still being installed; keep
+        // only the newest snapshot and avoid concurrent Rust session swaps.
+        nativePlaybackRenderSnapshotPending = { key, request };
         return;
       }
       nativePlaybackRenderSnapshotInFlightKey = key;
@@ -1524,6 +1526,11 @@ export const NativeProgramPreview: React.FC = () => {
           nativePlaybackRenderSnapshotInFlight = null;
           nativePlaybackRenderSnapshotInFlightKey = "";
           forceRenderNeeded = true;
+          const pending = nativePlaybackRenderSnapshotPending;
+          nativePlaybackRenderSnapshotPending = null;
+          if (pending && isActive) {
+            ensureNativePlaybackRenderSnapshot(pending.request);
+          }
         });
     };
 
