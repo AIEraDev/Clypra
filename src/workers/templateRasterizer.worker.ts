@@ -50,8 +50,12 @@ export interface WorkerRenderTemplateMessage {
   artifact: TextTemplateArtifact;
   localTime: number;
   clipDuration: number | undefined;
-  canvasWidth: number;
-  canvasHeight: number;
+  layerWidth: number;
+  layerHeight: number;
+  bleedX: number;
+  bleedY: number;
+  rasterWidth: number;
+  rasterHeight: number;
   controlValues: Record<string, unknown>;
 }
 
@@ -66,8 +70,12 @@ export interface WorkerRenderEffectMessage {
   sceneDocument: Record<string, unknown>;
   /** Playhead time for animated effects (layer.time ?? 0). */
   time: number;
-  canvasWidth: number;
-  canvasHeight: number;
+  evalWidth: number;
+  evalHeight: number;
+  rasterWidth: number;
+  rasterHeight: number;
+  bleedX: number;
+  bleedY: number;
 }
 
 export interface WorkerDisposeMessage {
@@ -109,40 +117,49 @@ async function handleRenderTemplate(
     artifact,
     localTime,
     clipDuration,
-    canvasWidth,
-    canvasHeight,
+    layerWidth,
+    layerHeight,
+    bleedX,
+    bleedY,
+    rasterWidth,
+    rasterHeight,
     controlValues,
   } = msg;
 
-  const offscreen = new OffscreenCanvas(canvasWidth, canvasHeight);
+  const offscreen = new OffscreenCanvas(rasterWidth, rasterHeight);
   const ctx = offscreen.getContext("2d", { alpha: true });
   if (!ctx) throw new Error("OffscreenCanvas 2D context not available");
 
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+  ctx.clearRect(0, 0, rasterWidth, rasterHeight);
 
   // renderTextTemplateToCanvas uses only Canvas 2D APIs — Worker-safe.
   const rasterStart = performance.now();
+  ctx.save();
+  ctx.translate(bleedX, bleedY);
   renderTextTemplateToCanvas(ctx, {
     artifact,
     context: {
       environment: "editor",
       time: localTime,
       clipDuration,
-      width: canvasWidth,
-      height: canvasHeight,
+      width: layerWidth,
+      height: layerHeight,
       controlValues,
     },
   });
+  ctx.restore();
   const workerRasterMs = performance.now() - rasterStart;
 
   const bitmap = offscreen.transferToImageBitmap();
+  console.log(`[TextRasterizerWorker] Template frame rendered (id=${id}, time=${localTime.toFixed(3)}s, size=${rasterWidth}x${rasterHeight}, rasterMs=${workerRasterMs.toFixed(2)}ms)`);
+
   (self as unknown as Worker).postMessage(
     {
       type: "FRAME_READY",
       id,
       bitmap,
-      canvasWidth,
-      canvasHeight,
+      canvasWidth: rasterWidth,
+      canvasHeight: rasterHeight,
       workerRasterMs,
     } satisfies WorkerFrameReadyMessage,
     [bitmap],
@@ -152,35 +169,55 @@ async function handleRenderTemplate(
 async function handleRenderEffect(
   msg: WorkerRenderEffectMessage,
 ): Promise<void> {
-  const { id, sceneDocument, time, canvasWidth, canvasHeight } = msg;
+  const {
+    id,
+    sceneDocument,
+    time,
+    evalWidth,
+    evalHeight,
+    rasterWidth,
+    rasterHeight,
+  } = msg;
 
-  const offscreen = new OffscreenCanvas(canvasWidth, canvasHeight);
-  const ctx = offscreen.getContext("2d", { alpha: true });
-  if (!ctx) throw new Error("OffscreenCanvas 2D context not available");
-
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-  // renderTextEffectToCanvas uses only Canvas 2D APIs — Worker-safe.
   const rasterStart = performance.now();
-  renderTextEffectToCanvas(ctx, {
+  // 1. Render the canonical effect to an evalWidth x evalHeight canvas
+  const evalCanvas = new OffscreenCanvas(evalWidth, evalHeight);
+  const evalCtx = evalCanvas.getContext("2d", { alpha: true });
+  if (!evalCtx) throw new Error("OffscreenCanvas 2D context not available");
+  evalCtx.clearRect(0, 0, evalWidth, evalHeight);
+
+  renderTextEffectToCanvas(evalCtx, {
     source: sceneDocument as any,
     context: {
       environment: "editor",
       time,
-      width: canvasWidth,
-      height: canvasHeight,
+      width: evalWidth,
+      height: evalHeight,
     },
   });
+
+  // 2. Draw centered onto the target rasterWidth x rasterHeight canvas
+  const targetCanvas = new OffscreenCanvas(rasterWidth, rasterHeight);
+  const targetCtx = targetCanvas.getContext("2d", { alpha: true });
+  if (!targetCtx) throw new Error("OffscreenCanvas 2D context not available");
+  targetCtx.clearRect(0, 0, rasterWidth, rasterHeight);
+  targetCtx.drawImage(
+    evalCanvas,
+    (rasterWidth - evalWidth) / 2,
+    (rasterHeight - evalHeight) / 2,
+  );
   const workerRasterMs = performance.now() - rasterStart;
 
-  const bitmap = offscreen.transferToImageBitmap();
+  const bitmap = targetCanvas.transferToImageBitmap();
+  console.log(`[TextRasterizerWorker] Effect frame rendered (id=${id}, time=${time.toFixed(3)}s, size=${rasterWidth}x${rasterHeight}, rasterMs=${workerRasterMs.toFixed(2)}ms)`);
+
   (self as unknown as Worker).postMessage(
     {
       type: "FRAME_READY",
       id,
       bitmap,
-      canvasWidth,
-      canvasHeight,
+      canvasWidth: rasterWidth,
+      canvasHeight: rasterHeight,
       workerRasterMs,
     } satisfies WorkerFrameReadyMessage,
     [bitmap],
@@ -193,6 +230,7 @@ self.onmessage = async (
   const msg = event.data;
 
   if (msg.type === "DISPOSE") {
+    console.log("[TextRasterizerWorker] Disposing worker");
     self.close();
     return;
   }
@@ -204,6 +242,7 @@ self.onmessage = async (
       await handleRenderEffect(msg);
     }
   } catch (error) {
+    console.error(`[TextRasterizerWorker] Render failed for ${msg.type} (id=${(msg as { id: string }).id}):`, error);
     (self as unknown as Worker).postMessage({
       type: "FRAME_FAILED",
       id: (msg as { id: string }).id,
