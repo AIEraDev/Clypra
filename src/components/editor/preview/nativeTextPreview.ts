@@ -427,24 +427,13 @@ function buildNativeTextKeyObject(
           }),
         );
 
-  // Problem 4 fix: refine from clip-lifetime to frame-level.
-  // A template with a 0.5s entrance + 3s static hold + 0.5s exit should only
-  // include `time` in the raster key during entrance/exit/animation phases —
-  // not during the static hold where every frame produces identical pixels.
-  // layer.animationOperation is set by the evaluator per-frame and tells us
-  // exactly which phase the playhead is in.
-  const isActivelyAnimating =
-    templateAnimated &&
-    (layer.animationOperation === "entrance" ||
-      layer.animationOperation === "exit" ||
-      layer.animationOperation === "animation");
-
   const animation = layer.styleDefinition?.animation as
     | { type?: string }
     | undefined;
   const timeDependent = Boolean(
-    isActivelyAnimating ||
-    (animation && animation.type && animation.type !== "none"),
+    templateAnimated ||
+    (animation && animation.type && animation.type !== "none") ||
+    Boolean((layer.styleDefinition as any)?.scene?.timeline?.duration),
   );
 
   return {
@@ -875,13 +864,18 @@ export async function rasterizeTextLayerForNative(
     const rasterKey = buildNativeTextRasterKey(layer);
     const workerClient = getTemplateWorkerClient();
     if (workerClient) {
-      return workerClient.rasterize(
-        layer,
-        rasterKey,
-        options.phase ?? "visible-playback",
-      );
+      try {
+        console.log(`[nativeTextPreview] Delegating template ${layer.layerId} to worker client`);
+        return await workerClient.rasterize(
+          layer,
+          rasterKey,
+          options.phase ?? "visible-playback",
+        );
+      } catch (err) {
+        console.warn(`[nativeTextPreview] Worker template rasterize failed for ${layer.layerId}, falling back to main-thread:`, err);
+      }
     }
-    // Worker not yet ready (lazy init on first call) — fall through.
+    // Worker not yet ready or failed — fall through to main thread.
   }
 
   // ── Canonical effect fast-path: delegate to OffscreenCanvas Worker ─────────
@@ -932,7 +926,8 @@ export async function rasterizeTextLayerForNative(
           width: evalWidth,
           height: evalHeight,
         };
-        return workerClient.rasterizeEffect(
+        console.log(`[nativeTextPreview] Delegating effect ${layer.layerId} to worker client`);
+        return await workerClient.rasterizeEffect(
           layer,
           canonicalScene,
           evalWidth,
@@ -940,8 +935,8 @@ export async function rasterizeTextLayerForNative(
           rasterKey,
           options.phase ?? "visible-playback",
         );
-      } catch {
-        // Scene prep failed — fall through to main-thread path.
+      } catch (err) {
+        console.warn(`[nativeTextPreview] Worker effect rasterize failed for ${layer.layerId}, falling back to main-thread:`, err);
       }
     }
   }
