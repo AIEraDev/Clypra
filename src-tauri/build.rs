@@ -1,4 +1,16 @@
 fn main() {
+    // Watch the frontend build output so changes to ../dist trigger a rebuild.
+    // Without this, editing src/ alone won't invalidate the cargo fingerprint
+    // (cargo hashes file *contents*, not mtimes), and the old frontend stays
+    // embedded in the exe.
+    // NOTE(2026-09-01): cargo's directory-level rerun-if-changed was observed to
+    // MISS ../dist changes in practice, leaving stale frontend embedded. Bumping
+    // this file (or running `cargo clean -p clypra`) forces tauri-build to
+    // re-copy ../dist into OUT_DIR. Keep this comment unique.
+    println!("cargo:rerun-if-changed=../dist");
+    println!("cargo:rerun-if-changed=../dist/index.html");
+    println!("cargo:rerun-if-changed=../dist/assets");
+
     // Tell Cargo to re-run this if these env vars change
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
     println!("cargo:rerun-if-env-changed=FFMPEG_STATIC");

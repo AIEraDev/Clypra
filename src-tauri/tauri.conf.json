@@ -53,8 +53,11 @@
     "active": true,
     "targets": "all",
     "publisher": "AIEraDev",
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "externalBin": ["bin/ffmpeg", "bin/ffprobe"],
+    "resources": {
+      "resources/*.dll": ""
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -65,14 +68,6 @@
     "macOS": {
       "infoPlist": "Info.plist",
       "entitlements": "Entitlements.plist"
-    }
-  },
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://github.com/AIEraDev/clypra/releases/latest/download/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdCOUZCOEM1RDBDN0NBOUIKUldTYnlzZlF4YmlmZXpMSUI4ZGJveW1xVFRIeDMza25NMlg0R2xmdFJNaTVLTHBmdVlYejFFc2oK"
     }
   }
 }

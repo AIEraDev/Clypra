@@ -1,27 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { isTauriDesktop, checkAppUpdate, downloadUpdate, installDownloadedUpdate } from "../updaterService";
-import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-
-// Mock Tauri updater plugin
-vi.mock("@tauri-apps/plugin-updater", () => {
-  const mockUpdate = {
-    version: "1.2.0",
-    date: "2026-06-25",
-    body: "Bug fixes and performance improvements",
-    download: vi.fn((callback) => {
-      callback({ event: "Started" });
-      callback({ event: "Progress", data: { chunkLength: 100, contentLength: 200 } });
-      callback({ event: "Finished" });
-      return Promise.resolve();
-    }),
-    install: vi.fn().mockResolvedValue(undefined),
-  };
-
-  return {
-    check: vi.fn().mockResolvedValue(mockUpdate),
-  };
-});
 
 // Mock Tauri process plugin
 vi.mock("@tauri-apps/plugin-process", () => {
@@ -65,30 +44,23 @@ describe("Updater Service", () => {
   });
 
   describe("checkAppUpdate", () => {
-    it("should return early if not running in Tauri desktop environment", async () => {
-      // Mock window to simulate mobile/web
-      const originalWindow = (globalThis as any).window;
-      (globalThis as any).window = {};
-
-      const result = await checkAppUpdate();
-      expect(result.hasUpdate).toBe(false);
-      expect(result.error).toContain("Not running in Tauri desktop");
-
-      (globalThis as any).window = originalWindow;
-    });
-
-    it("should verify and parse update availability correctly", async () => {
-      // Mock window to simulate Tauri desktop
+    it("should report updates as permanently disabled", async () => {
+      // Auto-updates are disabled in this build; the check must short-circuit
+      // to a clear "disabled" error in every environment.
       const originalWindow = (globalThis as any).window;
       (globalThis as any).window = { __TAURI_INTERNALS__: {} };
 
       const result = await checkAppUpdate();
-      expect(result.hasUpdate).toBe(true);
-      expect(result.version).toBe("1.2.0");
-      expect(result.date).toBe("2026-06-25");
-      expect(check).toHaveBeenCalled();
+      expect(result.hasUpdate).toBe(false);
+      expect(result.error).toContain("disabled");
 
       (globalThis as any).window = originalWindow;
+    });
+
+    it("should never return an available update", async () => {
+      const result = await checkAppUpdate();
+      expect(result.hasUpdate).toBe(false);
+      expect(result.updateObject).toBeUndefined();
     });
   });
 
