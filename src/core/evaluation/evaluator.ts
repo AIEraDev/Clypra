@@ -219,6 +219,23 @@ export function evaluateTimelineScene(
       const templateTextNode = templateArtifact?.document.nodes.find(
         (node: any) => node.type === "text",
       ) as any;
+
+      // Compute once here — never re-parsed per render frame.
+      // Stored on EvaluatedTextLayer so buildNativeTextKeyObject can read
+      // layer.templateAnimated instead of re-parsing the artifact document
+      // on every call (which was the per-frame O(n-nodes) hotspot).
+      const templateAnimated = Boolean(
+        templateArtifact?.document.nodes.some((node: any) => {
+          const a = node.animation;
+          return (
+            a &&
+            ((a.in && a.in !== "none") ||
+              (a.out && a.out !== "none") ||
+              Boolean(a.propertyKeyframes) ||
+              Boolean(node.splitAnimator))
+          );
+        }),
+      );
       const transitionState = evaluateTransitionState(clip, transitionWindows);
 
       const catalogStyleDefinition = resolveTextEffectDefinition(
@@ -374,6 +391,7 @@ export function evaluateTimelineScene(
         templateDependencySnapshot: textClip.templateDependencySnapshot,
         templateDependencies: textClip.templateDependencies,
         customization: textClip.customization,
+        templateAnimated: templateAnimated || undefined,
       };
 
       visualLayers.push(textLayer);
