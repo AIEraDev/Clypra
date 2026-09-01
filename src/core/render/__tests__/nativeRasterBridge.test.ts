@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   registerImage: vi.fn().mockResolvedValue(undefined),
   rasterizeText: vi.fn(),
   textKey: vi.fn(() => "caption-key"),
+  traceTextRenderTiming: vi.fn(),
 }));
 
 vi.mock("@/lib/platform/tauri", () => ({
@@ -18,6 +19,10 @@ vi.mock("@/lib/platform/tauri", () => ({
 vi.mock("@/components/editor/preview/nativeTextPreview", () => ({
   buildNativeTextRasterKey: mocks.textKey,
   rasterizeTextLayerForNative: mocks.rasterizeText,
+}));
+
+vi.mock("@/core/render/textRenderTrace", () => ({
+  traceTextRenderTiming: mocks.traceTextRenderTiming,
 }));
 
 vi.mock("@/components/editor/preview/nativeStickerPreview", () => ({
@@ -36,6 +41,7 @@ describe("NativeRasterBridge", () => {
     mocks.registerImage.mockResolvedValue(undefined);
     mocks.rasterizeText.mockReset();
     mocks.textKey.mockClear();
+    mocks.traceTextRenderTiming.mockClear();
   });
 
   it("registers text layers as Studio-engine rasters for native composition", async () => {
@@ -167,6 +173,47 @@ describe("NativeRasterBridge", () => {
     });
     expect(first[0]).toMatchObject({ width: 1920, height: 1080, displayWidth: 640, displayHeight: 360 });
     expect(resized[0]).toMatchObject({ width: 1920, height: 1080, displayWidth: 320, displayHeight: 180 });
+    bridge.dispose();
+  });
+
+  it("keeps animated playback text preparation latest-only", async () => {
+    let resolveFirst!: (asset: object) => void;
+    let resolveLatest!: (asset: object) => void;
+    const first = new Promise<object>((resolve) => { resolveFirst = resolve; });
+    const latest = new Promise<object>((resolve) => { resolveLatest = resolve; });
+    mocks.textKey.mockImplementation((layer?: { time?: number }) => `caption-${layer?.time}`);
+    mocks.rasterizeText
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(latest);
+    const scene = {
+      visualLayers: [{ layerType: "text", layerId: "title", time: 0 }],
+      metadata: { canvasWidth: 1920, canvasHeight: 1080 },
+    } as unknown as EvaluatedScene;
+    const bridge = new NativeRasterBridge();
+
+    await bridge.rasterize(scene, { frameKey: 0, phase: "visible-playback", nonBlockingText: true });
+    await bridge.rasterize({
+      ...scene,
+      visualLayers: [{ ...(scene.visualLayers[0] as object), time: 1 }],
+    } as unknown as EvaluatedScene, { frameKey: 1, phase: "visible-playback", nonBlockingText: true });
+    await bridge.rasterize({
+      ...scene,
+      visualLayers: [{ ...(scene.visualLayers[0] as object), time: 2 }],
+    } as unknown as EvaluatedScene, { frameKey: 2, phase: "visible-playback", nonBlockingText: true });
+
+    expect(mocks.rasterizeText).toHaveBeenCalledTimes(1);
+    resolveFirst({
+      assetId: "native-text:title:0", rgba: [255, 255, 255, 255], width: 1, height: 1,
+      x: 0, y: 0, rotation: 0, opacity: 1, zIndex: 0, blendMode: "normal", isText: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(mocks.rasterizeText).toHaveBeenCalledTimes(2);
+    expect((mocks.rasterizeText.mock.calls[1]?.[0] as { time?: number }).time).toBe(2);
+    resolveLatest({
+      assetId: "native-text:title:2", rgba: [255, 255, 255, 255], width: 1, height: 1,
+      x: 0, y: 0, rotation: 0, opacity: 1, zIndex: 0, blendMode: "normal", isText: true,
+    });
     bridge.dispose();
   });
 });
