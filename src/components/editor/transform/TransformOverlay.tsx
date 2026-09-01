@@ -519,6 +519,15 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
   const startAngleRef = useRef<number | undefined>(undefined);
   /** Start font size for text clips — supports proportional dynamic scaling */
   const startFontSizeRef = useRef<number | undefined>(undefined);
+  // Refs that let applyMouseMove read the latest clips and currentTime without
+  // capturing them as useCallback deps. Without these, any clip update or
+  // playback-clock tick during an active drag would recreate applyMouseMove →
+  // recreate transformFrameQueue → dispose the live queue → drop the pending RAF.
+  const clipsRef = useRef(clips);
+  clipsRef.current = clips;
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
+
 
   // Get the first selected clip (multi-select transform comes later)
   const selectedClip = clips.find((c) => c.id === selectedClipIds[0]);
@@ -1014,9 +1023,9 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         const rotation = selectedClip.rotation ?? 0;
 
         if (currentTransform.handle === "move") {
-          const activeClips = clips.filter(
+          const activeClips = clipsRef.current.filter(
             (c) =>
-              c.id !== selectedClip.id && isClipActiveAtTime(c, currentTime),
+              c.id !== selectedClip.id && isClipActiveAtTime(c, currentTimeRef.current),
           );
 
           // X Axis Snapping (Left, Right, Center)
@@ -1439,8 +1448,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       canvasWidth,
       canvasHeight,
       transformController,
-      clips,
-      currentTime,
+      // clips and currentTime are intentionally omitted — they are read via
+      // clipsRef / currentTimeRef inside the callback to avoid recreating
+      // transformFrameQueue (and cancelling its pending RAF) on every clip
+      // update or playback-clock tick during an active drag.
     ],
   );
 
@@ -1556,10 +1567,17 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         rendererPath: "studio-preview",
         operation: textTrace.operation,
         property: textTrace.operation,
+        // durationMs is the gesture wall-clock time (mousedown → mouseup), not
+        // post-commit render latency. Canvas drag renders via CSS matrix preview;
+        // the raster only fires after the commit and is not captured here.
         durationMs: Math.max(0, performance.now() - textTrace.startedAtMs),
         interactionId: `text-${textTrace.operation}:${textTrace.clipId}:${textTrace.startedAtMs}`,
         layoutWidth: finalGeometry.width,
         layoutHeight: finalGeometry.height,
+        // No raster stage data available at commit time for canvas drag operations.
+        // The preview is a CSS matrix applied imperatively; observeInteractiveTextRender
+        // is never called during the gesture, so stageSamples is always empty here.
+        stageCoverage: "unattributed",
       });
       textTransformTraceRef.current = null;
     }
