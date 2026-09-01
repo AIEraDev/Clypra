@@ -906,7 +906,7 @@ const ClipInner: React.FC<ClipProps> = ({
       ) : isClipText ? (
         <div className="relative flex h-full w-full items-center px-3">
           {/* Icon badge for text role differentiation */}
-          {(isCaption || isTitle) && (
+          {(isCaption || isTitle || inferredKind === "text-template") && (
             <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded bg-clypra-clip-badge-bg px-1.5 py-0.5 text-[9px] font-semibold text-clypra-clip-fg backdrop-blur-sm">
               {isCaption ? "CC" : "T"}
             </div>
