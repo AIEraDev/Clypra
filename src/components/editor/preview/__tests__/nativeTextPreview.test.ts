@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { EvaluatedTextLayer } from "@/core/evaluation/types";
 import { useEffectsStore } from "@/features/text-effects/store/effectsStore";
 import {
+  buildNativeTextLayoutKey,
   buildNativeTextRasterKey,
   resolveNativeTextEffectDefinition,
 } from "../nativeTextPreview";
@@ -77,6 +78,12 @@ describe("native text raster compatibility", () => {
   it("invalidates the raster asset when the text color changes", () => {
     expect(buildNativeTextRasterKey(makeTextLayer({ color: "#ffffff" }))).not.toBe(
       buildNativeTextRasterKey(makeTextLayer({ color: "#ff3366" })),
+    );
+  });
+
+  it("keeps layout work cacheable when only a plain text color changes", () => {
+    expect(buildNativeTextLayoutKey(makeTextLayer({ color: "#ffffff" }))).toBe(
+      buildNativeTextLayoutKey(makeTextLayer({ color: "#ff3366" })),
     );
   });
 
