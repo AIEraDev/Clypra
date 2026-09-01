@@ -597,11 +597,11 @@ export class NativeRasterBridge {
           const unscaledFontSize = normalizeFontSize(layer.fontSize);
           const evalWidth = Math.max(
             authoredWidth,
-            Math.ceil(layer.width + 200),
+            Math.ceil(layer.width + 400),
           );
           const evalHeight = Math.max(
             authoredHeight,
-            Math.ceil(layer.height + 100),
+            Math.ceil(layer.height + 200),
           );
           // Inject current layer's text and typography into the scene.
           const sceneText = canonicalScene.text as any;
