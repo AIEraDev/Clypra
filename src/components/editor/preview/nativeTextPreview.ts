@@ -22,7 +22,19 @@ import {
 
 export interface NativeTextRasterAsset {
   assetId: string;
-  rgba: number[];
+  /**
+   * Raw RGBA pixel data.
+   *
+   * Kept as Uint8ClampedArray throughout the rasterization and scheduling
+   * pipeline to avoid the O(W×H) Array.from() copy that occurred on every
+   * animated template frame. Converted to number[] only at the Tauri IPC
+   * boundary (registerNativeRasterAsset) where the JSON serializer requires
+   * a plain array.
+   *
+   * Consumers that draw via canvas (paintTextLayersToCanvas) use
+   * createImageData which accepts Uint8ClampedArray directly — zero copy.
+   */
+  rgba: Uint8ClampedArray | number[];
   width: number;
   height: number;
   x: number;
@@ -487,18 +499,63 @@ function createCanvas(
   );
 }
 
-function cropTransparentBounds(
-  rgba: number[],
+/**
+ * Template crop geometry cache.
+ *
+ * The tight bounding box of a template's visible pixels is a property of the
+ * template design, not of the frame time. Two facts make it safe to cache:
+ *   1. The outer canvas dimensions are fixed (determined by bleed + layer size).
+ *   2. Template animations move pixels inside the bounding box — they do not
+ *      change the box itself across the clip duration.
+ *
+ * We scan pixels once on the first rendered frame and store only the geometry
+ * (left, top, croppedWidth, croppedHeight). Subsequent frames apply the same
+ * crop window to their fresh pixel data without re-scanning.
+ *
+ * Cache key: templateRevisionId ?? templateContentHash ?? templateId.
+ * Invalidated implicitly when the clip is replaced (different key).
+ * Bounded to MAX_TEMPLATE_CROP_CACHE_ENTRIES entries; LRU eviction.
+ */
+interface TemplateCropGeometry {
+  left: number;
+  top: number;
+  croppedWidth: number;
+  croppedHeight: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+const MAX_TEMPLATE_CROP_CACHE_ENTRIES = 64;
+const templateCropGeometryCache = new Map<
+  string,
+  TemplateCropGeometry | null
+>();
+
+/** Exported for testing only. */
+export function _clearTemplateCropGeometryCache(): void {
+  templateCropGeometryCache.clear();
+}
+
+function getTemplateCropCacheKey(layer: EvaluatedTextLayer): string | null {
+  if (!layer.templateId) return null;
+  return (
+    layer.templateRevisionId ?? layer.templateContentHash ?? layer.templateId
+  );
+}
+
+/**
+ * Scan the pixel data to find the tight bounding box of visible (alpha > 8)
+ * pixels, then add a safety padding margin.
+ *
+ * This is O(W×H) and should only be called once per template revision.
+ * All subsequent calls use `applyCropGeometry` with the cached result.
+ */
+function computeCropGeometry(
+  rgba: Uint8ClampedArray,
   width: number,
   height: number,
   padding = 8,
-): {
-  rgba: number[];
-  width: number;
-  height: number;
-  offsetX: number;
-  offsetY: number;
-} | null {
+): TemplateCropGeometry | null {
   let minX = width;
   let minY = height;
   let maxX = -1;
@@ -506,10 +563,10 @@ function cropTransparentBounds(
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       if (rgba[(y * width + x) * 4 + 3] > 8) {
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
       }
     }
   }
@@ -518,22 +575,101 @@ function cropTransparentBounds(
   const top = Math.max(0, minY - padding);
   const right = Math.min(width - 1, maxX + padding);
   const bottom = Math.min(height - 1, maxY + padding);
-  const croppedWidth = right - left + 1;
-  const croppedHeight = bottom - top + 1;
-  const cropped = new Array<number>(croppedWidth * croppedHeight * 4);
-  for (let y = 0; y < croppedHeight; y += 1) {
-    const sourceStart = ((top + y) * width + left) * 4;
-    const targetStart = y * croppedWidth * 4;
-    for (let x = 0; x < croppedWidth * 4; x += 1) {
-      cropped[targetStart + x] = rgba[sourceStart + x];
-    }
-  }
   return {
-    rgba: cropped,
-    width: croppedWidth,
-    height: croppedHeight,
+    left,
+    top,
+    croppedWidth: right - left + 1,
+    croppedHeight: bottom - top + 1,
     offsetX: left,
     offsetY: top,
+  };
+}
+
+/**
+ * Apply a cached crop geometry to a fresh pixel buffer.
+ * No pixel scanning — just a typed-array slice using the pre-computed bounds.
+ * O(croppedWidth × croppedHeight) copy — much smaller than O(W×H) scan.
+ */
+function applyCropGeometry(
+  rgba: Uint8ClampedArray,
+  srcWidth: number,
+  geo: TemplateCropGeometry,
+): Uint8ClampedArray {
+  const { left, top, croppedWidth, croppedHeight } = geo;
+  const cropped = new Uint8ClampedArray(croppedWidth * croppedHeight * 4);
+  for (let y = 0; y < croppedHeight; y += 1) {
+    const sourceStart = ((top + y) * srcWidth + left) * 4;
+    const targetStart = y * croppedWidth * 4;
+    cropped.set(
+      rgba.subarray(sourceStart, sourceStart + croppedWidth * 4),
+      targetStart,
+    );
+  }
+  return cropped;
+}
+
+/**
+ * Crop the transparent margins from a template raster asset.
+ *
+ * Uses the geometry cache to avoid the O(W×H) pixel scan on every frame.
+ * Falls back to a fresh scan (and caches the result) on first render.
+ */
+function cropTemplateAsset(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  cacheKey: string,
+): {
+  rgba: Uint8ClampedArray;
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+} | null {
+  let geo = templateCropGeometryCache.get(cacheKey);
+  if (geo === undefined) {
+    // First render for this template revision — scan and cache.
+    geo = computeCropGeometry(rgba, width, height);
+    if (templateCropGeometryCache.size >= MAX_TEMPLATE_CROP_CACHE_ENTRIES) {
+      const oldest = templateCropGeometryCache.keys().next().value as
+        | string
+        | undefined;
+      if (oldest) templateCropGeometryCache.delete(oldest);
+    }
+    templateCropGeometryCache.set(cacheKey, geo);
+  }
+  if (!geo) return null;
+  return {
+    rgba: applyCropGeometry(rgba, width, geo),
+    width: geo.croppedWidth,
+    height: geo.croppedHeight,
+    offsetX: geo.offsetX,
+    offsetY: geo.offsetY,
+  };
+}
+
+// Legacy function kept for non-template callers (currently unused — templates
+// now use cropTemplateAsset). Retained so any future call sites compile.
+function cropTransparentBounds(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  padding = 8,
+): {
+  rgba: Uint8ClampedArray;
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+} | null {
+  const geo = computeCropGeometry(rgba, width, height, padding);
+  if (!geo) return null;
+  return {
+    rgba: applyCropGeometry(rgba, width, geo),
+    width: geo.croppedWidth,
+    height: geo.croppedHeight,
+    offsetX: geo.offsetX,
+    offsetY: geo.offsetY,
   };
 }
 
@@ -713,11 +849,16 @@ export async function rasterizeTextLayerForNative(
   ctx.restore();
 
   const readbackStartedAt = performance.now();
-  const rgba = Array.from(ctx.getImageData(0, 0, width, height).data);
+  // Keep the raw Uint8ClampedArray from getImageData — do NOT call Array.from().
+  // The O(W×H) array copy was the dominant main-thread hotspot for animated
+  // template frames. Uint8ClampedArray is accepted directly by createImageData
+  // (browser canvas path) and converted to number[] only at the Tauri IPC
+  // boundary where the JSON serializer actually requires it.
+  const rgba = ctx.getImageData(0, 0, width, height).data;
   const readbackMs = performance.now() - readbackStartedAt;
-  const templateArtifact = resolveTextTemplateArtifact(layer.templateSnapshot);
-  const croppedTemplate = templateArtifact
-    ? cropTransparentBounds(rgba, width, height)
+  const cropKey = getTemplateCropCacheKey(layer);
+  const croppedTemplate = cropKey
+    ? cropTemplateAsset(rgba, width, height, cropKey)
     : null;
   const cacheKey = buildNativeTextRasterKey(layer);
   const timing = {
