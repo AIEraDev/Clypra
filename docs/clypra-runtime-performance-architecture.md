@@ -224,8 +224,10 @@ the rasterized result.
 
 ### Live text property updates
 
-The properties panel maintains a temporary text draft during a burst of
-changes:
+`InteractiveTextRenderCoordinator` is the specialist owner for text-edit
+transactions. The properties panel supplies resolved field patches; the
+coordinator owns the draft, invalidation class, RAF scheduling, and completion
+metadata:
 
 ```text
 color/font/spacing input
@@ -236,14 +238,27 @@ color/font/spacing input
 ```
 
 The draft is flushed before selection, transport, undo/redo, project reset, or
-a conflicting interaction can reorder state. Caption “apply to all” remains
-an explicit history transaction.
+a conflicting interaction can reorder state. During the draft, expensive
+automatic text-bound measurement is deferred; the authoritative commit runs
+the bound calculation once. This keeps fast typing lossless and prevents a
+font metric/layout calculation from blocking every keystroke. Caption “apply
+to all” remains an explicit history transaction.
+
+The coordinator classifies updates as `paint`, `layout`, `raster`, or
+`transform`. This classification is a scheduling/cache contract, not a second
+renderer: paint-only changes may reuse layout work, layout changes invalidate
+glyph placement, raster changes invalidate effects/templates, and transform
+changes affect placement only.
 
 ### Text performance evidence
 
 Text telemetry has two bounded layers. Raster work is accumulated into a
 five-second development or thirty-second production window; completed typing,
-style, transform, and resize bursts emit one interaction span at gesture end.
+style, transform, and resize bursts emit one interaction transaction at
+gesture end. Interaction duration and input-to-preview latency never populate
+render percentiles or render counts. If no render stages are correlated with
+the transaction, the API marks the row `unattributed` instead of displaying
+zero-valued stages and claiming a bottleneck of `none`.
 Raw pointer movement never performs a network request. Every record carries
 the text kind, renderer path, phase, operation, and optional property, so
 normal text, effects, templates, entrance/exit animation, and editing work do
@@ -357,7 +372,7 @@ The following findings are development evidence, not production guarantees:
 | Native audio | Approximately 2.25–2.75 ms callback P95 with zero underruns in observed runs | Audio callback is not the reported text freeze bottleneck in those runs |
 | Text interactive preview | Approximately 91 ms P95 in a small normal-text sample | Text edit/raster path needs coalescing and better warm-cache behavior |
 | Text session prewarm | Approximately 186 ms cold sample with most time in font wait/raster | Pay cold font work at bounded startup/prewarm, not during repeated edits |
-| Text cache behavior | Color was previously absent from the raster key | Immediate cache-key invalidation is required for visual correctness |
+| Text cache behavior | Color, layout, and effect inputs participate in the raster identity | Paint/layout invalidation must remain explicit so visual changes are immediate without redoing unrelated work |
 
 Small samples must remain visibly marked as insufficient or preliminary. They
 are useful for finding a bottleneck, but not for declaring a path qualified.
