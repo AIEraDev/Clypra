@@ -91,12 +91,20 @@ export async function paintTextLayersToCanvas(
       const rasterKey = buildNativeTextRasterKey(layer);
       const layoutKey = buildNativeTextLayoutKey(layer);
       const previous = browserTextAssetByLayerId.get(layer.layerId);
-      if (previous && browserTextAssetKeyByLayerId.get(layer.layerId) !== rasterKey && browserTextLayoutKeyByLayerId.get(layer.layerId) === layoutKey) {
+      if (
+        previous &&
+        browserTextAssetKeyByLayerId.get(layer.layerId) !== rasterKey &&
+        browserTextLayoutKeyByLayerId.get(layer.layerId) === layoutKey
+      ) {
         const recolored = recolorPlainTextAsset(previous, layer.color, layer);
         if (recolored) {
           browserTextAssetByLayerId.set(layer.layerId, recolored);
           browserTextAssetKeyByLayerId.set(layer.layerId, rasterKey);
-          traceTextRenderCacheHit({ kind: "plain", rendererPath: "webview-canvas", phase });
+          traceTextRenderCacheHit({
+            kind: "plain",
+            rendererPath: "webview-canvas",
+            phase,
+          });
           return { layer, asset: recolored };
         }
       }
@@ -120,7 +128,11 @@ export async function paintTextLayersToCanvas(
             browserTextRasterCache.delete(rasterKey);
         });
       } else {
-        traceTextRenderCacheHit({ kind: getTextRenderKind(layer), rendererPath: "webview-canvas", phase });
+        traceTextRenderCacheHit({
+          kind: getTextRenderKind(layer),
+          rendererPath: "webview-canvas",
+          phase,
+        });
       }
 
       if (
@@ -173,11 +185,7 @@ export async function paintTextLayersToCanvas(
       : layer.y + layer.height / 2;
     ctx.translate(centerX, centerY);
     ctx.rotate((layer.rotation * Math.PI) / 180);
-    ctx.drawImage(
-      bitmap.source,
-      -asset.width / 2,
-      -asset.height / 2,
-    );
+    ctx.drawImage(bitmap.source, -asset.width / 2, -asset.height / 2);
     ctx.restore();
     const paintMs = performance.now() - paintStartedAt;
     if (asset.timing) {
@@ -199,19 +207,25 @@ const browserTextRasterCache = new Map<
 const browserTextAssetByLayerId = new Map<string, NativeTextRasterAsset>();
 const browserTextAssetKeyByLayerId = new Map<string, string>();
 const browserTextLayoutKeyByLayerId = new Map<string, string>();
-const browserTextBitmapCache = new Map<string, {
-  source: CanvasImageSource;
-  transferMs: number;
-}>();
+const browserTextBitmapCache = new Map<
+  string,
+  {
+    source: CanvasImageSource;
+    transferMs: number;
+  }
+>();
 
-function getBrowserTextBitmap(asset: NativeTextRasterAsset): { source: CanvasImageSource; transferMs: number } | null {
+function getBrowserTextBitmap(
+  asset: NativeTextRasterAsset,
+): { source: CanvasImageSource; transferMs: number } | null {
   const cached = browserTextBitmapCache.get(asset.assetId);
   if (cached) return { ...cached, transferMs: 0 };
-  const bitmapCanvas = typeof OffscreenCanvas !== "undefined"
-    ? new OffscreenCanvas(asset.width, asset.height)
-    : typeof document !== "undefined"
-      ? document.createElement("canvas")
-      : null;
+  const bitmapCanvas =
+    typeof OffscreenCanvas !== "undefined"
+      ? new OffscreenCanvas(asset.width, asset.height)
+      : typeof document !== "undefined"
+        ? document.createElement("canvas")
+        : null;
   if (!bitmapCanvas) return null;
   bitmapCanvas.width = asset.width;
   bitmapCanvas.height = asset.height;
@@ -227,7 +241,9 @@ function getBrowserTextBitmap(asset: NativeTextRasterAsset): { source: CanvasIma
   };
   browserTextBitmapCache.set(asset.assetId, value);
   while (browserTextBitmapCache.size > MAX_BROWSER_TEXT_RASTER_ENTRIES) {
-    const oldest = browserTextBitmapCache.keys().next().value as string | undefined;
+    const oldest = browserTextBitmapCache.keys().next().value as
+      | string
+      | undefined;
     if (!oldest) break;
     browserTextBitmapCache.delete(oldest);
   }
@@ -306,7 +322,12 @@ function getStyleRasterIdentity(layer: EvaluatedTextLayer): string | undefined {
     layer.styleContentHash ??
     definition.contentHash ??
     definition.revision?.contentHash;
-  if (revisionId || contentHash || definition.id || definition.version !== undefined) {
+  if (
+    revisionId ||
+    contentHash ||
+    definition.id ||
+    definition.version !== undefined
+  ) {
     return JSON.stringify({
       id: definition.id,
       version: definition.version,
@@ -393,12 +414,18 @@ export function buildNativeTextLayoutKey(layer: EvaluatedTextLayer): string {
   return JSON.stringify(buildNativeTextKeyObject(layer, false));
 }
 
-function parseSolidColor(value: string | undefined): [number, number, number] | null {
+function parseSolidColor(
+  value: string | undefined,
+): [number, number, number] | null {
   const match = value?.trim().match(/^#([0-9a-f]{6}|[0-9a-f]{3})$/i);
   if (!match) return null;
-  const hex = match[1].length === 3
-    ? match[1].split("").map((part) => part + part).join("")
-    : match[1];
+  const hex =
+    match[1].length === 3
+      ? match[1]
+          .split("")
+          .map((part) => part + part)
+          .join("")
+      : match[1];
   return [
     Number.parseInt(hex.slice(0, 2), 16),
     Number.parseInt(hex.slice(2, 4), 16),
@@ -411,7 +438,15 @@ function recolorPlainTextAsset(
   color: string | undefined,
   layer: EvaluatedTextLayer,
 ): NativeTextRasterAsset | null {
-  if (layer.styleId || layer.templateId || layer.stroke || layer.shadow || layer.background || layer.runs) return null;
+  if (
+    layer.styleId ||
+    layer.templateId ||
+    layer.stroke ||
+    layer.shadow ||
+    layer.background ||
+    layer.runs
+  )
+    return null;
   const rgb = parseSolidColor(color);
   if (!rgb) return null;
   const rgba = previous.rgba.slice();
@@ -502,44 +537,34 @@ function cropTransparentBounds(
   };
 }
 
-/**
- * Rasterize one evaluated text layer through the exact Clypra Studio engine
- * path used by the native text bridge. The returned bitmap is positioned in
- * project space including the same effect bleed as the browser renderer.
- */
-export async function rasterizeTextLayerForNative(
+// ─── Text layout/metrics cache ────────────────────────────────────────────────
+//
+// Computing effectDefinition + bleed + metrics is deterministic for a given
+// set of styling inputs and does not depend on time, color, or opacity.
+// Cache it keyed on `buildNativeTextLayoutKey` (excludes color) to avoid
+// redundant object allocations and function calls on every rasterize call
+// for static text layers during playback.
+//
+// The cache is intentionally small (32 entries). Static text layers hit
+// the same key on every frame, so a tiny cache is sufficient.
+
+interface TextLayoutMetrics {
+  bleedX: number;
+  bleedY: number;
+  rasterWidth: number;
+  rasterHeight: number;
+  effectDefinition: ReturnType<typeof resolveNativeTextEffectDefinition>;
+}
+
+const MAX_LAYOUT_CACHE_ENTRIES = 32;
+const textLayoutMetricsCache = new Map<string, TextLayoutMetrics>();
+
+function getCachedLayoutMetrics(
   layer: EvaluatedTextLayer,
-  options: { phase?: TextRenderTracePhase; rendererPath?: TextRenderPath; deferTelemetry?: boolean } = {},
-): Promise<NativeTextRasterAsset> {
-  const totalStartedAt = performance.now();
-  let fontWaitMs = 0;
-  // The raster must use the same font variant as Studio/source preview before
-  // any glyph metrics or effect bounds are computed.
-  if (layer.fontFamily) {
-    const fontStartedAt = performance.now();
-    try {
-      await boundedPreviewWait(
-        getFontLoader().ensureFont({
-          family: layer.fontFamily,
-          weight: layer.fontWeight,
-          style: layer.fontStyle,
-        }),
-        750,
-        `font "${layer.fontFamily}"`,
-      );
-      if (typeof document !== "undefined" && document.fonts) {
-        await boundedPreviewWait(
-          document.fonts.ready,
-          250,
-          "document.fonts.ready",
-        );
-      }
-    } catch {
-      // The rasterizer continues with the browser fallback font. The failure
-      // is intentionally represented by telemetry rather than console noise.
-    }
-    fontWaitMs = performance.now() - fontStartedAt;
-  }
+  layoutKey: string,
+): TextLayoutMetrics {
+  const cached = textLayoutMetricsCache.get(layoutKey);
+  if (cached) return cached;
 
   const effectDefinition = resolveNativeTextEffectDefinition(layer);
   const normalizedFontSize = normalizeFontSize(layer.fontSize);
@@ -559,8 +584,89 @@ export async function rasterizeTextLayerForNative(
   });
   const bleedX = Math.max(metrics.paddingX, bleed.x);
   const bleedY = Math.max(metrics.paddingY, bleed.y);
-  const width = Math.max(1, Math.ceil(layer.width + bleedX * 2));
-  const height = Math.max(1, Math.ceil(layer.height + bleedY * 2));
+  const rasterWidth = Math.max(1, Math.ceil(layer.width + bleedX * 2));
+  const rasterHeight = Math.max(1, Math.ceil(layer.height + bleedY * 2));
+
+  const result: TextLayoutMetrics = {
+    bleedX,
+    bleedY,
+    rasterWidth,
+    rasterHeight,
+    effectDefinition,
+  };
+
+  // LRU eviction: remove the oldest entry if at capacity.
+  if (textLayoutMetricsCache.size >= MAX_LAYOUT_CACHE_ENTRIES) {
+    const oldest = textLayoutMetricsCache.keys().next().value as
+      | string
+      | undefined;
+    if (oldest) textLayoutMetricsCache.delete(oldest);
+  }
+  textLayoutMetricsCache.set(layoutKey, result);
+  return result;
+}
+
+/** Exported for testing only — clears the layout metrics cache. */
+export function _clearTextLayoutMetricsCache(): void {
+  textLayoutMetricsCache.clear();
+}
+
+/**
+ * Rasterize one evaluated text layer through the exact Clypra Studio engine
+ * path used by the native text bridge. The returned bitmap is positioned in
+ * project space including the same effect bleed as the browser renderer.
+ */
+export async function rasterizeTextLayerForNative(
+  layer: EvaluatedTextLayer,
+  options: {
+    phase?: TextRenderTracePhase;
+    rendererPath?: TextRenderPath;
+    deferTelemetry?: boolean;
+  } = {},
+): Promise<NativeTextRasterAsset> {
+  const totalStartedAt = performance.now();
+  let fontWaitMs = 0;
+  // The raster must use the same font variant as Studio/source preview before
+  // any glyph metrics or effect bounds are computed.
+  if (layer.fontFamily) {
+    const fontDescriptor = {
+      family: layer.fontFamily,
+      weight: layer.fontWeight,
+      style: layer.fontStyle,
+    };
+    // Fast path: system fonts and all prewarmed project fonts are already
+    // loaded — skip both boundedPreviewWait calls so fontWaitMs stays 0.
+    if (!getFontLoader().isLoaded(fontDescriptor)) {
+      const fontStartedAt = performance.now();
+      try {
+        await boundedPreviewWait(
+          getFontLoader().ensureFont(fontDescriptor),
+          750,
+          `font "${layer.fontFamily}"`,
+        );
+        if (typeof document !== "undefined" && document.fonts) {
+          await boundedPreviewWait(
+            document.fonts.ready,
+            250,
+            "document.fonts.ready",
+          );
+        }
+      } catch {
+        // The rasterizer continues with the browser fallback font. The failure
+        // is intentionally represented by telemetry rather than console noise.
+      }
+      fontWaitMs = performance.now() - fontStartedAt;
+    }
+  }
+
+  const layoutKey = buildNativeTextLayoutKey(layer);
+  const {
+    bleedX,
+    bleedY,
+    rasterWidth: width,
+    rasterHeight: height,
+    effectDefinition,
+  } = getCachedLayoutMetrics(layer, layoutKey);
   traceTextRenderGeometry({
     path: "program-preview",
     assetId: layer.templateId ?? layer.styleId,
@@ -623,10 +729,17 @@ export async function rasterizeTextLayerForNative(
     fontFamily: layer.fontFamily,
     fontWaitMs,
     rasterMs,
-    readbackMs: (options.rendererPath ?? "native-raster") === "webview-canvas" ? readbackMs : 0,
+    readbackMs:
+      (options.rendererPath ?? "native-raster") === "webview-canvas"
+        ? readbackMs
+        : 0,
     outputPixels: width * height,
     totalMs: performance.now() - totalStartedAt,
-    operation: layer.animationOperation ?? (options.phase === "session-prewarm" || options.phase === "text-prefetch" ? "prefetch" : "render") as TextRenderOperation,
+    operation:
+      layer.animationOperation ??
+      ((options.phase === "session-prewarm" || options.phase === "text-prefetch"
+        ? "prefetch"
+        : "render") as TextRenderOperation),
     contentLength: layer.text.length,
     lineCount: Math.max(1, layer.text.split("\n").length),
     layoutWidth: layer.width,
