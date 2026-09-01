@@ -37,6 +37,7 @@ import {
   NativeAnimatedStickerRenderer,
   type NativeAnimatedStickerRaster,
 } from "@/components/editor/preview/nativeStickerPreview";
+import { TemplateRasterizerWorkerClient } from "@/core/render/templateRasterizerWorkerClient";
 
 type UploadableNativeRaster = NativeRasterLayerSnapshot & {
   /**
@@ -172,6 +173,13 @@ export class NativeRasterBridge {
           error: error instanceof Error ? error.message : String(error),
         }),
     );
+  /**
+   * Off-thread renderer for animated text templates.
+   * Routes renderTextTemplateToCanvas to a Worker via OffscreenCanvas so the
+   * main JS thread is never blocked by template pixel generation.
+   */
+  private readonly templateRasterizerWorkerClient =
+    new TemplateRasterizerWorkerClient();
 
   async rasterize(
     scene: EvaluatedScene,
@@ -335,6 +343,7 @@ export class NativeRasterBridge {
   dispose(): void {
     this.textPreparationGeneration += 1;
     this.textPreparationScheduler.dispose();
+    this.templateRasterizerWorkerClient.dispose();
     this.textCache.clear();
     this.textSnapshotsByLayerId.clear();
     this.textSnapshotKeysByLayerId.clear();
@@ -526,7 +535,14 @@ export class NativeRasterBridge {
   ): Promise<NativeTextRasterAsset> {
     let raster = this.textCache.get(key);
     if (!raster) {
-      raster = rasterizeTextLayerForNative(layer, { phase });
+      // Template layers are rendered off-thread via TemplateRasterizerWorkerClient
+      // so the main JS thread is never blocked by renderTextTemplateToCanvas.
+      // Plain and effect text layers continue using the existing synchronous path.
+      const isTemplate =
+        Boolean(layer.templateId) || layer.clipKind === "text-template";
+      raster = isTemplate
+        ? this.templateRasterizerWorkerClient.rasterize(layer, key, phase)
+        : rasterizeTextLayerForNative(layer, { phase });
       this.textCache.set(key, raster);
       evictOldest(this.textCache, MAX_TEXT_CACHE_ENTRIES);
       void raster.catch(() => {
