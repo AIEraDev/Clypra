@@ -271,6 +271,14 @@ export class ProjectSession {
         const { NativeRasterBridge } =
           await import("@/core/render/nativeRasterBridge");
         this._nativeRasterBridge = new NativeRasterBridge();
+
+        // ── Project-scoped font prewarm ──────────────────────────────────
+        // Extract every font family used by text clips in this project and
+        // warm both the browser (document.fonts) and the native Rust registry
+        // in parallel. This ensures the subsequent _prewarmNativeRasterAssets
+        // rasterization loop hits the fast-path cache and fontWaitMs = 0ms.
+        await this._prewarmProjectFonts();
+
         // Opening is not complete until every text/image boundary has been
         // warmed. This is deliberately awaited: a background warmup can
         // contend with the first transport frame and recreate the entry freeze
@@ -525,6 +533,54 @@ export class ProjectSession {
     getViewportController().reset();
   }
 
+  private async _prewarmProjectFonts(): Promise<void> {
+    const [projectStore, timelineStore, fontLoader, fontRegistry] =
+      await Promise.all([
+        import("@/store/projectStore"),
+        import("@/store/timelineStore"),
+        import("@/core/fonts/FontLoader"),
+        import("@/core/fonts/nativeFontRegistry"),
+      ]);
+
+    const project = projectStore.useProjectStore.getState().project;
+    if (!project || project.id !== this.projectId) return;
+
+    const { clips } = timelineStore.useTimelineStore.getState();
+
+    // Collect unique font families from all text/text-template clips.
+    const fontFamilies = [
+      ...new Set(
+        clips
+          .filter(
+            (clip) => clip.kind === "text" || clip.kind === "text-template",
+          )
+          .map((clip) => (clip as { fontFamily?: string }).fontFamily)
+          .filter((f): f is string => Boolean(f?.trim())),
+      ),
+    ];
+
+    if (fontFamilies.length === 0) {
+      // No text clips — still schedule idle prewarm so the font picker is
+      // warm when the user first opens it.
+      fontLoader.getFontLoader().prewarmRemainingFontsOnIdle();
+      fontRegistry.prewarmNativeFontsOnIdle();
+      return;
+    }
+
+    // Warm browser document.fonts and the native Rust registry in parallel.
+    // Errors in either path are swallowed — a failure here means first-frame
+    // font-wait cost is paid, not a hard error.
+    await Promise.allSettled([
+      fontLoader.getFontLoader().prewarmProjectFonts(fontFamilies),
+      fontRegistry.ensureNativeFontsRegistered(fontFamilies),
+    ]);
+
+    // Schedule remaining bundled fonts for idle loading so the font picker
+    // shows instant previews without blocking the project open sequence.
+    fontLoader.getFontLoader().prewarmRemainingFontsOnIdle();
+    fontRegistry.prewarmNativeFontsOnIdle();
+  }
+
   private async _prewarmNativeRasterAssets(): Promise<void> {
     const bridge = this._nativeRasterBridge;
     if (!bridge || typeof document === "undefined") return;
@@ -616,7 +672,9 @@ export class ProjectSession {
 
     const { clips, tracks } = timelineStore.useTimelineStore.getState();
     const audioTrackIds = new Set(
-      tracks.filter((track) => track.type === "audio" && !track.muted).map((track) => track.id),
+      tracks
+        .filter((track) => track.type === "audio" && !track.muted)
+        .map((track) => track.id),
     );
     const assets = projectStore.useProjectStore.getState().mediaAssets;
     const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
@@ -624,7 +682,9 @@ export class ProjectSession {
       .filter((clip) => audioTrackIds.has(clip.trackId))
       .map((clip) => {
         const key = clip.mediaId || clip.audioPath || clip.id;
-        const source = clip.audioPath || (clip.mediaId ? assetsById.get(clip.mediaId)?.path : undefined);
+        const source =
+          clip.audioPath ||
+          (clip.mediaId ? assetsById.get(clip.mediaId)?.path : undefined);
         return source ? { key, source } : null;
       })
       .filter((item): item is { key: string; source: string } => Boolean(item));
