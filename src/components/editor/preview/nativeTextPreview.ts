@@ -65,6 +65,7 @@ export async function paintTextLayersToCanvas(
   canvas: HTMLCanvasElement,
   scene: EvaluatedScene,
   phase: TextRenderTracePhase = "visible-playback",
+  options: { shouldPaint?: () => boolean } = {},
 ): Promise<void> {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -81,12 +82,24 @@ export async function paintTextLayersToCanvas(
     if (!activeLayerIds.has(layerId)) {
       browserTextAssetByLayerId.delete(layerId);
       browserTextAssetKeyByLayerId.delete(layerId);
+      browserTextLayoutKeyByLayerId.delete(layerId);
     }
   }
 
   const rasterResults = await Promise.allSettled(
     layers.map(async (layer) => {
       const rasterKey = buildNativeTextRasterKey(layer);
+      const layoutKey = buildNativeTextLayoutKey(layer);
+      const previous = browserTextAssetByLayerId.get(layer.layerId);
+      if (previous && browserTextAssetKeyByLayerId.get(layer.layerId) !== rasterKey && browserTextLayoutKeyByLayerId.get(layer.layerId) === layoutKey) {
+        const recolored = recolorPlainTextAsset(previous, layer.color, layer);
+        if (recolored) {
+          browserTextAssetByLayerId.set(layer.layerId, recolored);
+          browserTextAssetKeyByLayerId.set(layer.layerId, rasterKey);
+          traceTextRenderCacheHit({ kind: "plain", rendererPath: "webview-canvas", phase });
+          return { layer, asset: recolored };
+        }
+      }
       let rasterPromise = browserTextRasterCache.get(rasterKey);
       if (!rasterPromise) {
         rasterPromise = rasterizeTextLayerForNative(layer, {
@@ -110,7 +123,6 @@ export async function paintTextLayersToCanvas(
         traceTextRenderCacheHit({ kind: getTextRenderKind(layer), rendererPath: "webview-canvas", phase });
       }
 
-      const previous = browserTextAssetByLayerId.get(layer.layerId);
       if (
         phase === "visible-playback" &&
         previous &&
@@ -131,6 +143,7 @@ export async function paintTextLayersToCanvas(
       const asset = await rasterPromise;
       browserTextAssetByLayerId.set(layer.layerId, asset);
       browserTextAssetKeyByLayerId.set(layer.layerId, rasterKey);
+      browserTextLayoutKeyByLayerId.set(layer.layerId, layoutKey);
       return { layer, asset };
     }),
   );
@@ -143,20 +156,11 @@ export async function paintTextLayersToCanvas(
       );
       continue;
     }
+    if (options.shouldPaint && !options.shouldPaint()) return;
     const { layer, asset } = result.value;
-    const bitmapCanvas =
-      typeof OffscreenCanvas !== "undefined"
-        ? new OffscreenCanvas(asset.width, asset.height)
-        : document.createElement("canvas");
-    bitmapCanvas.width = asset.width;
-    bitmapCanvas.height = asset.height;
-    const bitmapContext = bitmapCanvas.getContext("2d");
-    if (!bitmapContext) continue;
-    const transferStartedAt = performance.now();
-    const image = bitmapContext.createImageData(asset.width, asset.height);
-    image.data.set(asset.rgba);
-    bitmapContext.putImageData(image, 0, 0);
-    const transferMs = performance.now() - transferStartedAt;
+    const bitmap = getBrowserTextBitmap(asset);
+    if (!bitmap) continue;
+    const transferMs = bitmap.transferMs;
     const paintStartedAt = performance.now();
     ctx.save();
     ctx.globalAlpha = layer.opacity;
@@ -170,7 +174,7 @@ export async function paintTextLayersToCanvas(
     ctx.translate(centerX, centerY);
     ctx.rotate((layer.rotation * Math.PI) / 180);
     ctx.drawImage(
-      bitmapCanvas as unknown as CanvasImageSource,
+      bitmap.source,
       -asset.width / 2,
       -asset.height / 2,
     );
@@ -194,6 +198,41 @@ const browserTextRasterCache = new Map<
 >();
 const browserTextAssetByLayerId = new Map<string, NativeTextRasterAsset>();
 const browserTextAssetKeyByLayerId = new Map<string, string>();
+const browserTextLayoutKeyByLayerId = new Map<string, string>();
+const browserTextBitmapCache = new Map<string, {
+  source: CanvasImageSource;
+  transferMs: number;
+}>();
+
+function getBrowserTextBitmap(asset: NativeTextRasterAsset): { source: CanvasImageSource; transferMs: number } | null {
+  const cached = browserTextBitmapCache.get(asset.assetId);
+  if (cached) return { ...cached, transferMs: 0 };
+  const bitmapCanvas = typeof OffscreenCanvas !== "undefined"
+    ? new OffscreenCanvas(asset.width, asset.height)
+    : typeof document !== "undefined"
+      ? document.createElement("canvas")
+      : null;
+  if (!bitmapCanvas) return null;
+  bitmapCanvas.width = asset.width;
+  bitmapCanvas.height = asset.height;
+  const bitmapContext = bitmapCanvas.getContext("2d");
+  if (!bitmapContext) return null;
+  const transferStartedAt = performance.now();
+  const image = bitmapContext.createImageData(asset.width, asset.height);
+  image.data.set(asset.rgba);
+  bitmapContext.putImageData(image, 0, 0);
+  const value = {
+    source: bitmapCanvas as unknown as CanvasImageSource,
+    transferMs: performance.now() - transferStartedAt,
+  };
+  browserTextBitmapCache.set(asset.assetId, value);
+  while (browserTextBitmapCache.size > MAX_BROWSER_TEXT_RASTER_ENTRIES) {
+    const oldest = browserTextBitmapCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    browserTextBitmapCache.delete(oldest);
+  }
+  return value;
+}
 
 /**
  * Preview rendering is a real-time stream. Font discovery is a preparation
@@ -212,19 +251,10 @@ async function boundedPreviewWait<T>(
     return await Promise.race([
       promise,
       new Promise<undefined>((resolve) => {
-        timeoutId = setTimeout(() => {
-          console.warn(
-            `[NativeTextPreview] ${label} exceeded ${timeoutMs}ms; continuing with fallback`,
-          );
-          resolve(undefined);
-        }, timeoutMs);
+        timeoutId = setTimeout(() => resolve(undefined), timeoutMs);
       }),
     ]);
-  } catch (error) {
-    console.warn(
-      `[NativeTextPreview] ${label} failed; continuing with fallback`,
-      error,
-    );
+  } catch {
     return undefined;
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
@@ -294,6 +324,13 @@ function getStyleRasterIdentity(layer: EvaluatedTextLayer): string | undefined {
  * controls are compositor uniforms and deliberately do not.
  */
 export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
+  return JSON.stringify(buildNativeTextKeyObject(layer, true));
+}
+
+function buildNativeTextKeyObject(
+  layer: EvaluatedTextLayer,
+  includeColor: boolean,
+): Record<string, unknown> {
   const animation = layer.styleDefinition?.animation as
     | { type?: string }
     | undefined;
@@ -317,7 +354,7 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
     (animation && animation.type && animation.type !== "none"),
   );
 
-  return JSON.stringify({
+  return {
     layerId: layer.layerId,
     text: layer.text,
     textRole: layer.textRole,
@@ -329,7 +366,7 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
     fontSize: layer.fontSize,
     fontWeight: layer.fontWeight,
     fontStyle: layer.fontStyle,
-    color: layer.color,
+    color: includeColor ? layer.color : undefined,
     textAlign: layer.textAlign,
     verticalAlign: layer.verticalAlign,
     lineHeight: layer.lineHeight,
@@ -348,7 +385,48 @@ export function buildNativeTextRasterKey(layer: EvaluatedTextLayer): string {
     shadow: getObjectKey(layer.shadow),
     background: getObjectKey(layer.background),
     styleDefinition: getStyleRasterIdentity(layer),
-  });
+  };
+}
+
+/** Identity for glyph/layout/effect work, excluding a plain fill color. */
+export function buildNativeTextLayoutKey(layer: EvaluatedTextLayer): string {
+  return JSON.stringify(buildNativeTextKeyObject(layer, false));
+}
+
+function parseSolidColor(value: string | undefined): [number, number, number] | null {
+  const match = value?.trim().match(/^#([0-9a-f]{6}|[0-9a-f]{3})$/i);
+  if (!match) return null;
+  const hex = match[1].length === 3
+    ? match[1].split("").map((part) => part + part).join("")
+    : match[1];
+  return [
+    Number.parseInt(hex.slice(0, 2), 16),
+    Number.parseInt(hex.slice(2, 4), 16),
+    Number.parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+function recolorPlainTextAsset(
+  previous: NativeTextRasterAsset,
+  color: string | undefined,
+  layer: EvaluatedTextLayer,
+): NativeTextRasterAsset | null {
+  if (layer.styleId || layer.templateId || layer.stroke || layer.shadow || layer.background || layer.runs) return null;
+  const rgb = parseSolidColor(color);
+  if (!rgb) return null;
+  const rgba = previous.rgba.slice();
+  for (let index = 0; index < rgba.length; index += 4) {
+    if (rgba[index + 3] === 0) continue;
+    rgba[index] = rgb[0];
+    rgba[index + 1] = rgb[1];
+    rgba[index + 2] = rgb[2];
+  }
+  return {
+    ...previous,
+    assetId: `native-text:${layer.layerId}:${hashTextRasterKey(buildNativeTextRasterKey(layer))}`,
+    rgba,
+    timing: undefined,
+  };
 }
 
 /** Resolve the immutable clip snapshot before consulting the live catalog. */
@@ -456,11 +534,9 @@ export async function rasterizeTextLayerForNative(
           "document.fonts.ready",
         );
       }
-    } catch (error) {
-      console.warn(
-        `[NativeTextPreview] Failed to pre-load font "${layer.fontFamily}":`,
-        error,
-      );
+    } catch {
+      // The rasterizer continues with the browser fallback font. The failure
+      // is intentionally represented by telemetry rather than console noise.
     }
     fontWaitMs = performance.now() - fontStartedAt;
   }
