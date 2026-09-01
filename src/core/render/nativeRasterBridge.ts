@@ -546,7 +546,7 @@ export class NativeRasterBridge {
     return raster;
   }
 
-  private _buildTextRaster(
+  private async _buildTextRaster(
     layer: NativeTextLayer,
     key: string,
     phase: TextRenderTracePhase,
@@ -556,7 +556,17 @@ export class NativeRasterBridge {
 
     // ── Templates: always off-thread ─────────────────────────────────────────
     if (isTemplate) {
-      return this.templateRasterizerWorkerClient.rasterize(layer, key, phase);
+      try {
+        console.log(`[NativeRasterBridge] Routing template ${layer.layerId} to worker client`);
+        return await this.templateRasterizerWorkerClient.rasterize(
+          layer,
+          key,
+          phase,
+        );
+      } catch (err) {
+        console.warn(`[NativeRasterBridge] Worker template rasterize failed for ${layer.layerId}, falling back to main-thread:`, err);
+        return rasterizeTextLayerForNative(layer, { phase });
+      }
     }
 
     // ── Styled effects with a resolved definition: off-thread ─────────────────
@@ -615,7 +625,8 @@ export class NativeRasterBridge {
             width: evalWidth,
             height: evalHeight,
           };
-          return this.templateRasterizerWorkerClient.rasterizeEffect(
+          console.log(`[NativeRasterBridge] Routing effect ${layer.layerId} to worker client`);
+          return await this.templateRasterizerWorkerClient.rasterizeEffect(
             layer,
             canonicalScene,
             evalWidth,
@@ -623,8 +634,8 @@ export class NativeRasterBridge {
             key,
             phase,
           );
-        } catch {
-          // Scene prep failed — fall through to main-thread path.
+        } catch (err) {
+          console.warn(`[NativeRasterBridge] Worker effect rasterize failed for ${layer.layerId}, falling back to main-thread:`, err);
         }
       }
     }
