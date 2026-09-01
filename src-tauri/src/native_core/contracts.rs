@@ -713,6 +713,16 @@ pub struct NativePlaybackVideoLayerUpdate {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativePlaybackRasterLayerUpdate {
+    #[serde(default)]
+    pub asset_id: String,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+    #[serde(default)]
+    pub display_width: Option<f32>,
+    #[serde(default)]
+    pub display_height: Option<f32>,
     pub x: f32,
     pub y: f32,
     pub rotation: f32,
