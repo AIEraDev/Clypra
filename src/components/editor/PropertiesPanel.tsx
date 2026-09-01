@@ -186,59 +186,80 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const project = useProjectStore((s) => s.project);
   const execute = useHistoryStore((s) => s.execute);
   const previewInteractionCoordinator = getPreviewInteractionCoordinator();
-  const propertyEditTokenRef = React.useRef<PreviewInteractionToken | null>(null);
+  const propertyEditTokenRef = React.useRef<PreviewInteractionToken | null>(
+    null,
+  );
   const keepTextPropertyPausedRef = React.useRef(false);
-  const propertyEditTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const interactiveTextCoordinatorRef = React.useRef<InteractiveTextRenderCoordinator | null>(null);
+  const propertyEditTimerRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const interactiveTextCoordinatorRef =
+    React.useRef<InteractiveTextRenderCoordinator | null>(null);
   if (!interactiveTextCoordinatorRef.current) {
-    interactiveTextCoordinatorRef.current = new InteractiveTextRenderCoordinator({
-      apply: (clipId, latest) => {
-        useTimelineStore.getState().updateClip(clipId, {
-          ...latest,
-          _skipEpochIncrement: true,
-          _skipTextBoundsRecalculation: true,
-        } as any);
-      },
-      commit: (clipId, before, latest, meta) => {
-        const current = useTimelineStore.getState().clips.find((clip) => clip.id === clipId);
-        const oldTransform: Record<string, unknown> = {};
-        const newTransform: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(latest)) {
-          const oldValue = before[key];
-          if (Object.is(oldValue, value)) continue;
-          oldTransform[key] = oldValue;
-          newTransform[key] = value;
-        }
-        if (Object.keys(newTransform).length > 0) {
-          useHistoryStore.getState().execute(
-            new TransformClipCommand(
-              clipId,
-              oldTransform as Partial<Clip>,
-              newTransform as Partial<Clip>,
-            ),
-          );
-        }
-        traceTextInteraction({
-          kind: current?.kind === "text-template" ? "template" : (current as any)?.styleId ? "effect" : "plain",
-          rendererPath: "studio-preview",
-          operation: meta.operation,
-          property: meta.property as any,
-          durationMs: meta.durationMs,
-          inputToPreviewMs: meta.inputToPreviewMs,
-          interactionId: `text-property:${clipId}:${meta.interactionId}`,
-          contentLength: typeof latest.text === "string" ? latest.text.length : undefined,
-          lineCount: typeof latest.text === "string" ? Math.max(1, latest.text.split("\n").length) : undefined,
-          layoutWidth: typeof current?.width === "number" ? current.width : undefined,
-          layoutHeight: typeof current?.height === "number" ? current.height : undefined,
-          stageTimings: meta.stageTimings,
-          stageCoverage: meta.stageCoverage,
-          renderCount: meta.renderCount,
-          cacheHits: meta.cacheHits,
-          cacheMisses: meta.cacheMisses,
-          unattributedTimeMs: meta.unattributedTimeMs,
-        });
-      },
-    });
+    interactiveTextCoordinatorRef.current =
+      new InteractiveTextRenderCoordinator({
+        apply: (clipId, latest) => {
+          useTimelineStore.getState().updateClip(clipId, {
+            ...latest,
+            _skipEpochIncrement: true,
+            _skipTextBoundsRecalculation: true,
+          } as any);
+        },
+        commit: (clipId, before, latest, meta) => {
+          const current = useTimelineStore
+            .getState()
+            .clips.find((clip) => clip.id === clipId);
+          const oldTransform: Record<string, unknown> = {};
+          const newTransform: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(latest)) {
+            const oldValue = before[key];
+            if (Object.is(oldValue, value)) continue;
+            oldTransform[key] = oldValue;
+            newTransform[key] = value;
+          }
+          if (Object.keys(newTransform).length > 0) {
+            useHistoryStore
+              .getState()
+              .execute(
+                new TransformClipCommand(
+                  clipId,
+                  oldTransform as Partial<Clip>,
+                  newTransform as Partial<Clip>,
+                ),
+              );
+          }
+          traceTextInteraction({
+            kind:
+              current?.kind === "text-template"
+                ? "template"
+                : (current as any)?.styleId
+                  ? "effect"
+                  : "plain",
+            rendererPath: "studio-preview",
+            operation: meta.operation,
+            property: meta.property as any,
+            durationMs: meta.durationMs,
+            inputToPreviewMs: meta.inputToPreviewMs,
+            interactionId: `text-property:${clipId}:${meta.interactionId}`,
+            contentLength:
+              typeof latest.text === "string" ? latest.text.length : undefined,
+            lineCount:
+              typeof latest.text === "string"
+                ? Math.max(1, latest.text.split("\n").length)
+                : undefined,
+            layoutWidth:
+              typeof current?.width === "number" ? current.width : undefined,
+            layoutHeight:
+              typeof current?.height === "number" ? current.height : undefined,
+            stageTimings: meta.stageTimings,
+            stageCoverage: meta.stageCoverage,
+            renderCount: meta.renderCount,
+            cacheHits: meta.cacheHits,
+            cacheMisses: meta.cacheMisses,
+            unattributedTimeMs: meta.unattributedTimeMs,
+          });
+        },
+      });
   }
   const interactiveTextCoordinator = interactiveTextCoordinatorRef.current;
 
@@ -251,7 +272,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     // restart playback when their debounce window closes, including the
     // immediate apply-to-all path which has no text draft object.
     const keepPaused =
-      keepTextPropertyPausedRef.current || interactiveTextCoordinator.isActive();
+      keepTextPropertyPausedRef.current ||
+      interactiveTextCoordinator.isActive();
     interactiveTextCoordinator.finish(true);
     const token = propertyEditTokenRef.current;
     propertyEditTokenRef.current = null;
@@ -259,10 +281,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     if (token) previewInteractionCoordinator.commit(token, !keepPaused);
   };
 
-  React.useEffect(() => () => {
-    finishPropertyEdit();
-    interactiveTextCoordinator.dispose();
-  }, [interactiveTextCoordinator]);
+  React.useEffect(
+    () => () => {
+      finishPropertyEdit();
+      interactiveTextCoordinator.dispose();
+    },
+    [interactiveTextCoordinator],
+  );
   React.useEffect(
     () =>
       previewInteractionCoordinator.subscribe((snapshot) => {
@@ -310,7 +335,15 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     const current = useTimelineStore
       .getState()
       .clips.find((clip) => clip.id === selectedClipId);
-    if (!current || !("text" in current)) return;
+    if (
+      !current ||
+      !(
+        current.kind === "text" ||
+        current.kind === "text-template" ||
+        "text" in current
+      )
+    )
+      return;
 
     if (
       !propertyEditTokenRef.current ||
@@ -318,18 +351,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     ) {
       finishPropertyEdit();
       keepTextPropertyPausedRef.current = true;
-      propertyEditTokenRef.current = previewInteractionCoordinator.begin(
-        "property-edit",
-      );
+      propertyEditTokenRef.current =
+        previewInteractionCoordinator.begin("property-edit");
     }
 
     let textToken = interactiveTextCoordinator.getActiveToken() ?? null;
     if (textToken && textToken.clipId !== current.id) {
       finishPropertyEdit();
       keepTextPropertyPausedRef.current = true;
-      propertyEditTokenRef.current = previewInteractionCoordinator.begin(
-        "property-edit",
-      );
+      propertyEditTokenRef.current =
+        previewInteractionCoordinator.begin("property-edit");
       textToken = null;
     }
     if (!textToken) {
@@ -353,17 +384,29 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       ? "lineHeight"
                       : fieldNames.includes("letterSpacing")
                         ? "letterSpacing"
-                        : fieldNames.some((key) => key === "align" || key === "valign")
+                        : fieldNames.some(
+                              (key) => key === "align" || key === "valign",
+                            )
                           ? "alignment"
-                          : fieldNames.some((key) => key === "styleId" || key === "styleSnapshot")
+                          : fieldNames.some(
+                                (key) =>
+                                  key === "styleId" || key === "styleSnapshot",
+                              )
                             ? "effect"
                             : undefined;
-      const previewToken = propertyEditTokenRef.current ?? previewInteractionCoordinator.begin("property-edit");
+      const previewToken =
+        propertyEditTokenRef.current ??
+        previewInteractionCoordinator.begin("property-edit");
       propertyEditTokenRef.current = previewToken;
       textToken = interactiveTextCoordinator.begin({
         clipId: current.id,
         previewToken,
-        operation: property === "resize" ? "resize" : property === "content" ? "content-edit" : "property-edit",
+        operation:
+          property === "resize"
+            ? "resize"
+            : property === "content"
+              ? "content-edit"
+              : "property-edit",
         property,
       });
     }
@@ -379,7 +422,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     // the draft; the single history commit recalculates final bounds once.
     const newTransform = { ...fields };
     for (const [key, value] of Object.entries(newTransform)) {
-      if (textToken) interactiveTextCoordinator.update(textToken, { [key]: value }, { [key]: (current as any)[key] });
+      if (textToken)
+        interactiveTextCoordinator.update(
+          textToken,
+          { [key]: value },
+          { [key]: (current as any)[key] },
+        );
     }
 
     if (propertyEditTimerRef.current !== null) {
@@ -534,7 +582,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     selectedClip?.kind === "audio" ||
     !!(selectedClip as any)?.audioPath;
   const isVideoClip = selectedAsset?.type === "video"; // Video clips have audio tracks
-  const isTextClip = selectedClip && "text" in selectedClip;
+  const isTextClip =
+    selectedClip &&
+    (selectedClip.kind === "text" ||
+      selectedClip.kind === "text-template" ||
+      "text" in selectedClip);
   const hasAudioTrack =
     isAudioClip || isVideoClip || Boolean(selectedClip?.audio); // Audio-backed clips, including text with an attached audio model
 
@@ -708,7 +760,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   );
   const TypeIcon = typeInfo.icon;
   const clipName = isTextClip
-    ? (textClip.text || "Text").slice(0, 24)
+    ? selectedClip.kind === "text-template"
+      ? (
+          selectedClip.name ||
+          (selectedClip as any).templateSnapshot?.metadata?.label ||
+          "Text Template"
+        ).slice(0, 24)
+      : (textClip.text || "Text").slice(0, 24)
     : isTimelineEffectClip
       ? selectedClip.name || typeInfo.label
       : selectedAsset?.name ||
