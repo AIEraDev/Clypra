@@ -376,3 +376,120 @@ describe("prewarmRemainingFontsOnIdle()", () => {
     void callsAfter; // suppress unused-variable warning
   });
 });
+
+// ─── offlineOnly guard ────────────────────────────────────────────────────────
+
+import { initFontLoader } from "../FontLoader";
+
+describe("offlineOnly guard", () => {
+  beforeEach(() => {
+    resetFontLoader();
+    vi.clearAllMocks();
+  });
+
+  it("blocks EngineFontLoader CDN path for unknown families in offlineOnly mode", async () => {
+    const loader = initFontLoader({ offlineOnly: true });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await loader.ensureFont({
+      family: "Helvetica Neue",
+      weight: 400,
+      style: "normal",
+    });
+    expect(result.loaded).toBe(false);
+    expect(result.error).toContain("offline-only");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("offline-only"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("still resolves bundled fonts normally in offlineOnly mode", async () => {
+    const loader = initFontLoader({ offlineOnly: true });
+    const result = await loader.ensureFont({
+      family: "Inter",
+      weight: 400,
+      style: "normal",
+    });
+    expect(result.loaded).toBe(true);
+  });
+
+  it("still resolves system fonts at 0ms in offlineOnly mode", async () => {
+    const loader = initFontLoader({ offlineOnly: true });
+    const result = await loader.ensureFont({
+      family: "Impact",
+      weight: 400,
+      style: "normal",
+    });
+    expect(result.loaded).toBe(true);
+    expect(result.loadTimeMs).toBe(0);
+    expect(mockFonts.load).not.toHaveBeenCalled();
+  });
+
+  it("isLoaded returns false for unknown families in offlineOnly mode", () => {
+    const loader = initFontLoader({ offlineOnly: true });
+    expect(
+      loader.isLoaded({ family: "Helvetica", weight: 400, style: "normal" }),
+    ).toBe(false);
+  });
+
+  it("offlineOnly mode does not throw — returns failed result gracefully", async () => {
+    const loader = initFontLoader({ offlineOnly: true });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(
+      loader.ensureFont({
+        family: "Unknown Font",
+        weight: 400,
+        style: "normal",
+      }),
+    ).resolves.toMatchObject({ loaded: false });
+  });
+
+  it("initFontLoader replaces the global singleton", () => {
+    const loader1 = getFontLoader();
+    const loader2 = initFontLoader({ offlineOnly: true });
+    const loader3 = getFontLoader();
+    expect(loader2).toBe(loader3);
+    expect(loader1).not.toBe(loader3);
+  });
+});
+
+// ─── isBundledFamily ──────────────────────────────────────────────────────────
+
+describe("isBundledFamily()", () => {
+  beforeEach(() => {
+    resetFontLoader();
+    vi.clearAllMocks();
+  });
+
+  it("returns true for bundled variable font aliases", () => {
+    const loader = new FontLoader();
+    expect(loader.isBundledFamily("Inter")).toBe(true);
+    expect(loader.isBundledFamily("Inter Variable")).toBe(true);
+    expect(loader.isBundledFamily("Montserrat")).toBe(true);
+  });
+
+  it("returns true for bundled static fonts", () => {
+    const loader = new FontLoader();
+    expect(loader.isBundledFamily("Bebas Neue")).toBe(true);
+    expect(loader.isBundledFamily("Poppins")).toBe(true);
+    expect(loader.isBundledFamily("Anton")).toBe(true);
+  });
+
+  it("returns true for system fonts", () => {
+    const loader = new FontLoader();
+    expect(loader.isBundledFamily("Arial")).toBe(true);
+    expect(loader.isBundledFamily("Impact")).toBe(true);
+  });
+
+  it("returns false for unknown fonts", () => {
+    const loader = new FontLoader();
+    expect(loader.isBundledFamily("Helvetica")).toBe(false);
+    expect(loader.isBundledFamily("Custom Brand Font")).toBe(false);
+  });
+
+  it("is case-insensitive", () => {
+    const loader = new FontLoader();
+    expect(loader.isBundledFamily("ARIAL")).toBe(true);
+    expect(loader.isBundledFamily("inter variable")).toBe(true);
+  });
+});
