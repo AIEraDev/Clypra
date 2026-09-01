@@ -671,9 +671,12 @@ export const NativeProgramPreview: React.FC = () => {
     let rafId: number | null = null;
     let renderInFlight = false;
     let renderQueued = true;
+    let requestVersion = 0;
 
     const schedule = () => {
       renderQueued = true;
+      requestVersion += 1;
+      if (renderInFlight) return;
       if (rafId !== null) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = null;
@@ -684,6 +687,7 @@ export const NativeProgramPreview: React.FC = () => {
     const render = async () => {
       if (disposed || renderInFlight) return;
       renderInFlight = true;
+      const versionAtStart = requestVersion;
       renderQueued = false;
       try {
         const state = renderStateRef.current;
@@ -697,8 +701,10 @@ export const NativeProgramPreview: React.FC = () => {
           state.transitions,
           state.sceneVersions,
         );
-        canvasEl.width = state.canvasWidth;
-        canvasEl.height = state.canvasHeight;
+        // Resizing a canvas reallocates its backing store and clears all
+        // drawing state. It is a layout event, not a frame event.
+        if (canvasEl.width !== state.canvasWidth) canvasEl.width = state.canvasWidth;
+        if (canvasEl.height !== state.canvasHeight) canvasEl.height = state.canvasHeight;
         if (scene.visualLayers.some((layer) => layer.layerType === "text")) {
           await paintTextLayersToCanvas(
             canvasEl,
@@ -706,8 +712,9 @@ export const NativeProgramPreview: React.FC = () => {
             state.clock.state === "playing"
               ? "visible-playback"
               : "interactive-preview",
+            { shouldPaint: () => !disposed && versionAtStart === requestVersion },
           );
-        } else {
+        } else if (!disposed && versionAtStart === requestVersion) {
           canvasEl
             .getContext("2d")
             ?.clearRect(0, 0, canvasEl.width, canvasEl.height);
@@ -716,7 +723,7 @@ export const NativeProgramPreview: React.FC = () => {
         console.error("[browser-preview] text-render-failed", error);
       } finally {
         renderInFlight = false;
-        if (renderQueued && !disposed) schedule();
+        if ((renderQueued || versionAtStart !== requestVersion) && !disposed) schedule();
       }
     };
 
@@ -2715,6 +2722,7 @@ export const NativeProgramPreview: React.FC = () => {
                 canvasEl,
                 scene,
                 isPlaying ? "visible-playback" : "interactive-preview",
+                { shouldPaint: targetStillCurrent },
               );
               canvasPaintMs = performance.now() - browserPaintStarted;
             }
