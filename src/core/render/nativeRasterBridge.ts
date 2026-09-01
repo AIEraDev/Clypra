@@ -28,6 +28,7 @@ import {
   rasterizeTextLayerForNative,
   type NativeTextRasterAsset,
 } from "@/components/editor/preview/nativeTextPreview";
+import { normalizeFontSize } from "@/lib/utils/fixedSizing";
 import {
   traceTextRenderTiming,
   type TextRenderTracePhase,
@@ -535,14 +536,7 @@ export class NativeRasterBridge {
   ): Promise<NativeTextRasterAsset> {
     let raster = this.textCache.get(key);
     if (!raster) {
-      // Template layers are rendered off-thread via TemplateRasterizerWorkerClient
-      // so the main JS thread is never blocked by renderTextTemplateToCanvas.
-      // Plain and effect text layers continue using the existing synchronous path.
-      const isTemplate =
-        Boolean(layer.templateId) || layer.clipKind === "text-template";
-      raster = isTemplate
-        ? this.templateRasterizerWorkerClient.rasterize(layer, key, phase)
-        : rasterizeTextLayerForNative(layer, { phase });
+      raster = this._buildTextRaster(layer, key, phase);
       this.textCache.set(key, raster);
       evictOldest(this.textCache, MAX_TEXT_CACHE_ENTRIES);
       void raster.catch(() => {
@@ -550,6 +544,93 @@ export class NativeRasterBridge {
       });
     }
     return raster;
+  }
+
+  private _buildTextRaster(
+    layer: NativeTextLayer,
+    key: string,
+    phase: TextRenderTracePhase,
+  ): Promise<NativeTextRasterAsset> {
+    const isTemplate =
+      Boolean(layer.templateId) || layer.clipKind === "text-template";
+
+    // ── Templates: always off-thread ─────────────────────────────────────────
+    if (isTemplate) {
+      return this.templateRasterizerWorkerClient.rasterize(layer, key, phase);
+    }
+
+    // ── Styled effects with a resolved definition: off-thread ─────────────────
+    // The main thread resolves and prepares the scene document synchronously
+    // (pure data transformation, no async) then sends it to the worker.
+    // The cold path (definition not yet cached → store fetch + epoch increment)
+    // falls through to the main-thread rasterizer below — it's rare and already
+    // triggers a full re-evaluation cycle.
+    if (layer.styleId && layer.styleDefinition) {
+      const effectDef = layer.styleDefinition as any;
+      // Only the canonical scene path (effectDef.scene.effectLayers) is
+      // delegated off-thread. The _buildConfig legacy path is CPU-light
+      // (no complex animation) and stays on the main thread for simplicity.
+      if (effectDef?.scene?.effectLayers) {
+        try {
+          const canonicalScene = JSON.parse(
+            JSON.stringify(effectDef.scene),
+          ) as Record<string, unknown>;
+          const canvas = canonicalScene.canvas as any;
+          const authoredWidth = Math.max(
+            1,
+            Math.ceil(Number(canvas?.width) || 800),
+          );
+          const authoredHeight = Math.max(
+            1,
+            Math.ceil(Number(canvas?.height) || 200),
+          );
+          const unscaledFontSize = normalizeFontSize(layer.fontSize);
+          const evalWidth = Math.max(
+            authoredWidth,
+            Math.ceil(layer.width + 200),
+          );
+          const evalHeight = Math.max(
+            authoredHeight,
+            Math.ceil(layer.height + 100),
+          );
+          // Inject current layer's text and typography into the scene.
+          const sceneText = canonicalScene.text as any;
+          if (sceneText) {
+            sceneText.content = layer.text;
+            sceneText.fontSize = unscaledFontSize;
+            sceneText.fontFamily = layer.fontFamily || sceneText.fontFamily;
+            sceneText.fontWeight = layer.fontWeight ?? sceneText.fontWeight;
+            sceneText.fontStyle = layer.fontStyle ?? sceneText.fontStyle;
+            sceneText.letterSpacing =
+              layer.letterSpacing ?? sceneText.letterSpacing;
+            sceneText.lineHeight = layer.lineHeight ?? sceneText.lineHeight;
+            sceneText.textPosX = layer.textAlign || sceneText.textPosX;
+            sceneText.textPosY =
+              layer.verticalAlign === "middle"
+                ? "middle"
+                : layer.verticalAlign || sceneText.textPosY;
+          }
+          (canonicalScene.canvas as any) = {
+            ...canvas,
+            width: evalWidth,
+            height: evalHeight,
+          };
+          return this.templateRasterizerWorkerClient.rasterizeEffect(
+            layer,
+            canonicalScene,
+            evalWidth,
+            evalHeight,
+            key,
+            phase,
+          );
+        } catch {
+          // Scene prep failed — fall through to main-thread path.
+        }
+      }
+    }
+
+    // ── Plain text + legacy effects + cold definition path: main thread ────────
+    return rasterizeTextLayerForNative(layer, { phase });
   }
 
   private async prepareTextAsset(input: TextPreparationInput): Promise<void> {
