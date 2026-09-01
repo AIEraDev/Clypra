@@ -9,11 +9,18 @@
  * bounded cache and dispose any Lottie DOM resources when their work ends.
  */
 
-import type { EvaluatedMediaLayer, EvaluatedScene } from "@/core/evaluation/types";
+import type {
+  EvaluatedMediaLayer,
+  EvaluatedScene,
+} from "@/core/evaluation/types";
 import { drawCanvasBackground } from "@/core/render/canvasBackground";
 import { SmartOverlayRenderer } from "@/features/smart-overlays/renderer/SmartOverlayRenderer";
 import type { SmartOverlayClip } from "@/types/smartOverlay";
-import { isTauriRuntime, registerNativeImageAsset, registerNativeRasterAsset } from "@/lib/platform/tauri";
+import {
+  isTauriRuntime,
+  registerNativeImageAsset,
+  registerNativeRasterAsset,
+} from "@/lib/platform/tauri";
 import type { NativeRasterLayerSnapshot } from "@/lib/platform/nativeCore";
 import { buildNativeImageAssetId } from "@/core/render/nativeRasterAssetIds";
 import {
@@ -21,7 +28,10 @@ import {
   rasterizeTextLayerForNative,
   type NativeTextRasterAsset,
 } from "@/components/editor/preview/nativeTextPreview";
-import { traceTextRenderTiming, type TextRenderTracePhase } from "@/core/render/textRenderTrace";
+import {
+  traceTextRenderTiming,
+  type TextRenderTracePhase,
+} from "@/core/render/textRenderTrace";
 import { LatestTextPreparationScheduler } from "@/core/render/latestTextPreparationScheduler";
 import {
   NativeAnimatedStickerRenderer,
@@ -29,7 +39,12 @@ import {
 } from "@/components/editor/preview/nativeStickerPreview";
 
 type UploadableNativeRaster = NativeRasterLayerSnapshot & {
-  rgba: number[];
+  /**
+   * Pixel data as Uint8ClampedArray (from rasterizeTextLayerForNative) or
+   * number[] (from legacy smart-overlay / background paths). The register()
+   * method converts to number[] only at the Tauri IPC boundary.
+   */
+  rgba: Uint8ClampedArray | number[];
   /** Text-only metadata used to reapply current compositor placement. */
   bleedX?: number;
   bleedY?: number;
@@ -52,7 +67,10 @@ const MAX_TEXT_CACHE_ENTRIES = 96;
 const MAX_REGISTERED_ASSETS = 256;
 const PLAYBACK_TEXT_OBSERVATION_INTERVAL_MS = 250;
 
-function evictOldest<TKey, TValue>(cache: Map<TKey, TValue>, maxEntries: number): void {
+function evictOldest<TKey, TValue>(
+  cache: Map<TKey, TValue>,
+  maxEntries: number,
+): void {
   while (cache.size > maxEntries) {
     const oldestKey = cache.keys().next().value as TKey | undefined;
     if (oldestKey === undefined) return;
@@ -64,13 +82,23 @@ function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(",")}}`;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value);
 }
 
 function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
-  const { rgba: _rgba, bleedX: _bleedX, bleedY: _bleedY, positionMode: _positionMode, timing: _timing, ...reference } = asset;
+  const {
+    rgba: _rgba,
+    bleedX: _bleedX,
+    bleedY: _bleedY,
+    positionMode: _positionMode,
+    timing: _timing,
+    ...reference
+  } = asset;
   return reference;
 }
 
@@ -96,41 +124,63 @@ function textKind(layer: NativeTextLayer): "plain" | "effect" | "template" {
  * contract failures rather than falling back to the browser compositor.
  */
 export class NativeRasterBridge {
-  private readonly textCache = new Map<string, Promise<NativeTextRasterAsset>>();
+  private readonly textCache = new Map<
+    string,
+    Promise<NativeTextRasterAsset>
+  >();
   /** Last registered frame per layer, used as a non-blocking playback fallback. */
-  private readonly textSnapshotsByLayerId = new Map<string, NativeRasterLayerSnapshot>();
+  private readonly textSnapshotsByLayerId = new Map<
+    string,
+    NativeRasterLayerSnapshot
+  >();
   private readonly textSnapshotKeysByLayerId = new Map<string, string>();
-  private readonly lastTextPlaybackObservationAtByLayerId = new Map<string, number>();
+  private readonly lastTextPlaybackObservationAtByLayerId = new Map<
+    string,
+    number
+  >();
   /**
    * Bleed and position-mode metadata stripped by snapshot() but needed to
    * recompute placement from current layer coordinates in the non-blocking path.
    */
-  private readonly textSnapshotBleedByLayerId = new Map<string, {
-    bleedX: number;
-    bleedY: number;
-    positionMode: "centered" | "absolute";
-  }>();
+  private readonly textSnapshotBleedByLayerId = new Map<
+    string,
+    {
+      bleedX: number;
+      bleedY: number;
+      positionMode: "centered" | "absolute";
+    }
+  >();
   private readonly imageCache = new Map<string, Promise<void>>();
-  private readonly imageSourcesById = new Map<string, { sourcePath: string; width: number; height: number }>();
+  private readonly imageSourcesById = new Map<
+    string,
+    { sourcePath: string; width: number; height: number }
+  >();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
   private readonly registeredAssetIds = new Set<string>();
-  private readonly animatedStickerRenderer = new NativeAnimatedStickerRenderer();
+  private readonly animatedStickerRenderer =
+    new NativeAnimatedStickerRenderer();
   private textPreparationGeneration = 0;
   /** One active raster plus one latest replacement for real-time playback. */
-  private readonly textPreparationScheduler = new LatestTextPreparationScheduler<TextPreparationInput>(
-    (input) => this.prepareTextAsset(input),
-    (error, input) => console.error("[NativeRasterBridge] background text frame failed", {
-      layerId: input.layer.layerId,
-      templateId: input.layer.templateId,
-      revisionId: input.layer.templateRevisionId,
-      error: error instanceof Error ? error.message : String(error),
-    }),
-  );
+  private readonly textPreparationScheduler =
+    new LatestTextPreparationScheduler<TextPreparationInput>(
+      (input) => this.prepareTextAsset(input),
+      (error, input) =>
+        console.error("[NativeRasterBridge] background text frame failed", {
+          layerId: input.layer.layerId,
+          templateId: input.layer.templateId,
+          revisionId: input.layer.templateRevisionId,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
 
-  async rasterize(scene: EvaluatedScene, options: NativeRasterBridgeOptions): Promise<NativeRasterLayerSnapshot[]> {
+  async rasterize(
+    scene: EvaluatedScene,
+    options: NativeRasterBridgeOptions,
+  ): Promise<NativeRasterLayerSnapshot[]> {
     if (!isTauriRuntime()) return [];
 
-    const hasVisualLayers = Array.isArray(scene.visualLayers) && scene.visualLayers.length > 0;
+    const hasVisualLayers =
+      Array.isArray(scene.visualLayers) && scene.visualLayers.length > 0;
     const bg = scene.metadata?.canvasBackground;
     const hasComplexBg = Boolean(
       bg &&
@@ -148,9 +198,19 @@ export class NativeRasterBridge {
     // native SDF path remains a compatibility fallback for frames that cannot
     // be rasterized in the WebView.
     const [text, background, animatedStickers, images] = await Promise.all([
-      hasVisualLayers ? this.rasterizeText(scene, options.phase ?? "visible-playback", options.nonBlockingText === true) : Promise.resolve([]),
-      hasComplexBg ? this.rasterizeBackground(scene, options.frameKey) : Promise.resolve([]),
-      hasVisualLayers ? this.rasterizeAnimatedStickers(scene) : Promise.resolve([]),
+      hasVisualLayers
+        ? this.rasterizeText(
+            scene,
+            options.phase ?? "visible-playback",
+            options.nonBlockingText === true,
+          )
+        : Promise.resolve([]),
+      hasComplexBg
+        ? this.rasterizeBackground(scene, options.frameKey)
+        : Promise.resolve([]),
+      hasVisualLayers
+        ? this.rasterizeAnimatedStickers(scene)
+        : Promise.resolve([]),
       hasVisualLayers ? this.rasterizeImages(scene) : Promise.resolve([]),
     ]);
     return [...background, ...text, ...animatedStickers, ...images];
@@ -194,7 +254,9 @@ export class NativeRasterBridge {
   ): Promise<NativeRasterLayerSnapshot[]> {
     if (!isTauriRuntime() || activeClips.length === 0) return [];
     if (typeof document === "undefined") {
-      throw new Error("Native smart-overlay rasterization requires a canvas-capable desktop runtime");
+      throw new Error(
+        "Native smart-overlay rasterization requires a canvas-capable desktop runtime",
+      );
     }
 
     const rasterWidth = Math.max(1, Math.round(width));
@@ -214,13 +276,23 @@ export class NativeRasterBridge {
     canvas.width = rasterWidth;
     canvas.height = rasterHeight;
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("Unable to create a 2D context for native smart-overlay rasterization");
+    if (!context)
+      throw new Error(
+        "Unable to create a 2D context for native smart-overlay rasterization",
+      );
     context.clearRect(0, 0, rasterWidth, rasterHeight);
     for (const clip of activeClips) {
-      new SmartOverlayRenderer(clip).draw(context, time - clip.startTime, rasterWidth, rasterHeight);
+      new SmartOverlayRenderer(clip).draw(
+        context,
+        time - clip.startTime,
+        rasterWidth,
+        rasterHeight,
+      );
     }
 
-    const rgba = Array.from(context.getImageData(0, 0, rasterWidth, rasterHeight).data);
+    const rgba = Array.from(
+      context.getImageData(0, 0, rasterWidth, rasterHeight).data,
+    );
     if (!rgba.some((value, index) => index % 4 === 3 && value > 0)) return [];
     const asset: UploadableNativeRaster = {
       assetId,
@@ -254,7 +326,8 @@ export class NativeRasterBridge {
       const asset = this.assetsById.get(reference.assetId);
       return asset ? this.register(asset, true) : null;
     });
-    if (registrations.some((registration) => registration === null)) return false;
+    if (registrations.some((registration) => registration === null))
+      return false;
     await Promise.all(registrations as Promise<void>[]);
     return true;
   }
@@ -279,7 +352,9 @@ export class NativeRasterBridge {
     phase: TextRenderTracePhase,
     nonBlocking: boolean,
   ): Promise<NativeRasterLayerSnapshot[]> {
-    const layers = scene.visualLayers.filter((layer) => layer.layerType === "text");
+    const layers = scene.visualLayers.filter(
+      (layer) => layer.layerType === "text",
+    );
     if (layers.length === 0) return [];
     const pendingAssets = layers.map(async (layer) => {
       const key = buildNativeTextRasterKey(layer);
@@ -290,11 +365,16 @@ export class NativeRasterBridge {
       // first frame has no fallback and is awaited during session prewarm or
       // the initial visible render.
       const previous = this.textSnapshotsByLayerId.get(layer.layerId);
-      const hasCurrentSnapshot = this.textSnapshotKeysByLayerId.get(layer.layerId) === key;
+      const hasCurrentSnapshot =
+        this.textSnapshotKeysByLayerId.get(layer.layerId) === key;
       if (nonBlocking && phase === "visible-playback") {
         const now = Date.now();
-        const lastObservationAt = this.lastTextPlaybackObservationAtByLayerId.get(layer.layerId) ?? 0;
-        if ((hasCurrentSnapshot || previous) && now - lastObservationAt >= PLAYBACK_TEXT_OBSERVATION_INTERVAL_MS) {
+        const lastObservationAt =
+          this.lastTextPlaybackObservationAtByLayerId.get(layer.layerId) ?? 0;
+        if (
+          (hasCurrentSnapshot || previous) &&
+          now - lastObservationAt >= PLAYBACK_TEXT_OBSERVATION_INTERVAL_MS
+        ) {
           this.lastTextPlaybackObservationAtByLayerId.set(layer.layerId, now);
           // Reuse is still a real playback observation. Without this sample,
           // the Admin page only sees cold raster completions and cannot tell
@@ -341,22 +421,37 @@ export class NativeRasterBridge {
           const bleed = this.textSnapshotBleedByLayerId.get(layer.layerId);
           const updatedSnapshot: NativeRasterLayerSnapshot = {
             ...previous,
-            x: bleed?.positionMode === "absolute"
-              ? previous.x
-              : typeof layer.x === "number" ? layer.x - (bleed?.bleedX ?? 0) : previous.x,
-            y: bleed?.positionMode === "absolute"
-              ? previous.y
-              : typeof layer.y === "number" ? layer.y - (bleed?.bleedY ?? 0) : previous.y,
-            rotation: typeof layer.rotation === "number" ? layer.rotation : previous.rotation,
-            opacity: typeof layer.opacity === "number" ? layer.opacity : previous.opacity,
-            zIndex: typeof layer.zIndex === "number" ? layer.zIndex : previous.zIndex,
-            blendMode: typeof layer.blendMode === "string" ? layer.blendMode : previous.blendMode,
+            x:
+              bleed?.positionMode === "absolute"
+                ? previous.x
+                : typeof layer.x === "number"
+                  ? layer.x - (bleed?.bleedX ?? 0)
+                  : previous.x,
+            y:
+              bleed?.positionMode === "absolute"
+                ? previous.y
+                : typeof layer.y === "number"
+                  ? layer.y - (bleed?.bleedY ?? 0)
+                  : previous.y,
+            rotation:
+              typeof layer.rotation === "number"
+                ? layer.rotation
+                : previous.rotation,
+            opacity:
+              typeof layer.opacity === "number"
+                ? layer.opacity
+                : previous.opacity,
+            zIndex:
+              typeof layer.zIndex === "number" ? layer.zIndex : previous.zIndex,
+            blendMode:
+              typeof layer.blendMode === "string"
+                ? layer.blendMode
+                : previous.blendMode,
           };
           this.textSnapshotsByLayerId.set(layer.layerId, updatedSnapshot);
           return updatedSnapshot;
         }
         return null;
-
       }
 
       const asset = await this.getTextRaster(layer, key, phase);
@@ -365,16 +460,27 @@ export class NativeRasterBridge {
       // causing a new Canvas raster and GPU upload every frame.
       const positioned = {
         ...asset,
-        x: asset.positionMode === "absolute"
-          ? asset.x
-          : typeof layer.x === "number" ? layer.x - (asset.bleedX ?? 0) : asset.x,
-        y: asset.positionMode === "absolute"
-          ? asset.y
-          : typeof layer.y === "number" ? layer.y - (asset.bleedY ?? 0) : asset.y,
-        rotation: typeof layer.rotation === "number" ? layer.rotation : asset.rotation,
-        opacity: typeof layer.opacity === "number" ? layer.opacity : asset.opacity,
+        x:
+          asset.positionMode === "absolute"
+            ? asset.x
+            : typeof layer.x === "number"
+              ? layer.x - (asset.bleedX ?? 0)
+              : asset.x,
+        y:
+          asset.positionMode === "absolute"
+            ? asset.y
+            : typeof layer.y === "number"
+              ? layer.y - (asset.bleedY ?? 0)
+              : asset.y,
+        rotation:
+          typeof layer.rotation === "number" ? layer.rotation : asset.rotation,
+        opacity:
+          typeof layer.opacity === "number" ? layer.opacity : asset.opacity,
         zIndex: typeof layer.zIndex === "number" ? layer.zIndex : asset.zIndex,
-        blendMode: typeof layer.blendMode === "string" ? layer.blendMode : asset.blendMode,
+        blendMode:
+          typeof layer.blendMode === "string"
+            ? layer.blendMode
+            : asset.blendMode,
       };
       await this.register(positioned);
       const result = snapshot(positioned);
@@ -393,13 +499,20 @@ export class NativeRasterBridge {
     // text snapshot fallback in buildNativeVideoProjectRequest.
     const rasterResults = await Promise.allSettled(pendingAssets);
     const assets = rasterResults
-      .filter((result): result is PromiseFulfilledResult<NativeTextRasterAsset | null> => {
-        if (result.status === "rejected") {
-          console.error("[NativeRasterBridge] text-layer-raster-failed", result.reason);
-          return false;
-        }
-        return true;
-      })
+      .filter(
+        (
+          result,
+        ): result is PromiseFulfilledResult<NativeTextRasterAsset | null> => {
+          if (result.status === "rejected") {
+            console.error(
+              "[NativeRasterBridge] text-layer-raster-failed",
+              result.reason,
+            );
+            return false;
+          }
+          return true;
+        },
+      )
       .map((result) => result.value)
       .filter((asset): asset is NativeTextRasterAsset => asset !== null);
 
@@ -430,16 +543,34 @@ export class NativeRasterBridge {
     if (input.generation !== this.textPreparationGeneration) return;
     const positioned = {
       ...asset,
-      x: asset.positionMode === "absolute"
-        ? asset.x
-        : typeof input.layer.x === "number" ? input.layer.x - (asset.bleedX ?? 0) : asset.x,
-      y: asset.positionMode === "absolute"
-        ? asset.y
-        : typeof input.layer.y === "number" ? input.layer.y - (asset.bleedY ?? 0) : asset.y,
-      rotation: typeof input.layer.rotation === "number" ? input.layer.rotation : asset.rotation,
-      opacity: typeof input.layer.opacity === "number" ? input.layer.opacity : asset.opacity,
-      zIndex: typeof input.layer.zIndex === "number" ? input.layer.zIndex : asset.zIndex,
-      blendMode: typeof input.layer.blendMode === "string" ? input.layer.blendMode : asset.blendMode,
+      x:
+        asset.positionMode === "absolute"
+          ? asset.x
+          : typeof input.layer.x === "number"
+            ? input.layer.x - (asset.bleedX ?? 0)
+            : asset.x,
+      y:
+        asset.positionMode === "absolute"
+          ? asset.y
+          : typeof input.layer.y === "number"
+            ? input.layer.y - (asset.bleedY ?? 0)
+            : asset.y,
+      rotation:
+        typeof input.layer.rotation === "number"
+          ? input.layer.rotation
+          : asset.rotation,
+      opacity:
+        typeof input.layer.opacity === "number"
+          ? input.layer.opacity
+          : asset.opacity,
+      zIndex:
+        typeof input.layer.zIndex === "number"
+          ? input.layer.zIndex
+          : asset.zIndex,
+      blendMode:
+        typeof input.layer.blendMode === "string"
+          ? input.layer.blendMode
+          : asset.blendMode,
     };
     this.textSnapshotsByLayerId.set(input.layer.layerId, snapshot(positioned));
     this.textSnapshotKeysByLayerId.set(input.layer.layerId, input.key);
@@ -450,14 +581,22 @@ export class NativeRasterBridge {
     });
   }
 
-  private async rasterizeAnimatedStickers(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
+  private async rasterizeAnimatedStickers(
+    scene: EvaluatedScene,
+  ): Promise<NativeRasterLayerSnapshot[]> {
     const layers = scene.visualLayers.filter(
       (layer): layer is EvaluatedMediaLayer =>
-        layer.layerType === "media" && layer.clipKind === "sticker" && layer.stickerFormat === "lottie",
+        layer.layerType === "media" &&
+        layer.clipKind === "sticker" &&
+        layer.stickerFormat === "lottie",
     );
     if (layers.length === 0) return [];
-    const assets = await Promise.all(layers.map((layer) => this.animatedStickerRenderer.render(layer)));
-    const resolved = assets.filter((asset): asset is NativeAnimatedStickerRaster => asset !== null);
+    const assets = await Promise.all(
+      layers.map((layer) => this.animatedStickerRenderer.render(layer)),
+    );
+    const resolved = assets.filter(
+      (asset): asset is NativeAnimatedStickerRaster => asset !== null,
+    );
     await Promise.all(resolved.map((asset) => this.register(asset)));
     return resolved.map(snapshot);
   }
@@ -467,7 +606,9 @@ export class NativeRasterBridge {
    * distinction at the raster bridge preserves PNG/WebP alpha while allowing
    * the native compositor to own the final transform and blend operation.
    */
-  private async rasterizeImages(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
+  private async rasterizeImages(
+    scene: EvaluatedScene,
+  ): Promise<NativeRasterLayerSnapshot[]> {
     const layers = scene.visualLayers.filter(
       (layer): layer is EvaluatedMediaLayer =>
         layer.layerType === "media" &&
@@ -476,62 +617,82 @@ export class NativeRasterBridge {
         layer.stickerFormat !== "lottie",
     );
     if (layers.length === 0) return [];
-    const assets = await Promise.all(layers.map((layer) => {
-      // Placement changes on every transform frame; the source texture does
-      // not. Registering by display dimensions caused a fresh decode/upload
-      // for every resize. Keep the immutable source resource keyed by source
-      // dimensions and send placement dimensions separately to the compositor.
-      const width = Math.max(1, Math.round(layer.sourceWidth ?? layer.width));
-      const height = Math.max(1, Math.round(layer.sourceHeight ?? layer.height));
-      const displayWidth = Math.max(1, layer.width);
-      const displayHeight = Math.max(1, layer.height);
-      const assetId = buildNativeImageAssetId(layer.sourcePath, width, height);
-      this.imageSourcesById.set(assetId, { sourcePath: layer.sourcePath, width, height });
-      let registration = this.imageCache.get(assetId);
-      if (!registration) {
-        registration = registerNativeImageAsset({
-          assetId,
+    const assets = await Promise.all(
+      layers.map((layer) => {
+        // Placement changes on every transform frame; the source texture does
+        // not. Registering by display dimensions caused a fresh decode/upload
+        // for every resize. Keep the immutable source resource keyed by source
+        // dimensions and send placement dimensions separately to the compositor.
+        const width = Math.max(1, Math.round(layer.sourceWidth ?? layer.width));
+        const height = Math.max(
+          1,
+          Math.round(layer.sourceHeight ?? layer.height),
+        );
+        const displayWidth = Math.max(1, layer.width);
+        const displayHeight = Math.max(1, layer.height);
+        const assetId = buildNativeImageAssetId(
+          layer.sourcePath,
+          width,
+          height,
+        );
+        this.imageSourcesById.set(assetId, {
           sourcePath: layer.sourcePath,
           width,
           height,
-        }).then(() => {
-          this.registeredAssetIds.add(assetId);
         });
-        this.imageCache.set(assetId, registration);
-        void registration.catch(() => {
-          if (this.imageCache.get(assetId) === registration) this.imageCache.delete(assetId);
-          this.registeredAssetIds.delete(assetId);
-        });
-      }
-      return registration.then(() => ({
-        assetId,
-        width,
-        height,
-        ...(displayWidth !== width ? { displayWidth } : {}),
-        ...(displayHeight !== height ? { displayHeight } : {}),
-        x: layer.x,
-        y: layer.y,
-        rotation: layer.rotation,
-        opacity: layer.opacity,
-        zIndex: layer.zIndex,
-        blendMode: layer.blendMode,
-        isText: false,
-      }));
-    }));
+        let registration = this.imageCache.get(assetId);
+        if (!registration) {
+          registration = registerNativeImageAsset({
+            assetId,
+            sourcePath: layer.sourcePath,
+            width,
+            height,
+          }).then(() => {
+            this.registeredAssetIds.add(assetId);
+          });
+          this.imageCache.set(assetId, registration);
+          void registration.catch(() => {
+            if (this.imageCache.get(assetId) === registration)
+              this.imageCache.delete(assetId);
+            this.registeredAssetIds.delete(assetId);
+          });
+        }
+        return registration.then(() => ({
+          assetId,
+          width,
+          height,
+          ...(displayWidth !== width ? { displayWidth } : {}),
+          ...(displayHeight !== height ? { displayHeight } : {}),
+          x: layer.x,
+          y: layer.y,
+          rotation: layer.rotation,
+          opacity: layer.opacity,
+          zIndex: layer.zIndex,
+          blendMode: layer.blendMode,
+          isText: false,
+        }));
+      }),
+    );
 
     return assets;
   }
 
-  private async rasterizeBackground(scene: EvaluatedScene, frameKey: number): Promise<NativeRasterLayerSnapshot[]> {
+  private async rasterizeBackground(
+    scene: EvaluatedScene,
+    frameKey: number,
+  ): Promise<NativeRasterLayerSnapshot[]> {
     const background = scene.metadata.canvasBackground;
     if (
       !background ||
       background.isTransparent ||
       background.type === "solid" ||
       (background.type !== "gradient" && background.type !== "shader")
-    ) return [];
+    )
+      return [];
     if (typeof document === "undefined") {
-      throw new Error("Native raster background requires a canvas-capable desktop runtime");
+      throw new Error(
+        "Native raster background requires a canvas-capable desktop runtime",
+      );
     }
 
     const width = Math.max(1, Math.round(scene.metadata.canvasWidth));
@@ -556,8 +717,17 @@ export class NativeRasterBridge {
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("Unable to create a 2D context for native background rasterization");
-    drawCanvasBackground(context, background, width, height, scene.metadata.time);
+    if (!context)
+      throw new Error(
+        "Unable to create a 2D context for native background rasterization",
+      );
+    drawCanvasBackground(
+      context,
+      background,
+      width,
+      height,
+      scene.metadata.time,
+    );
     const asset: UploadableNativeRaster = {
       assetId,
       rgba: Array.from(context.getImageData(0, 0, width, height).data),
@@ -575,11 +745,16 @@ export class NativeRasterBridge {
     return [snapshot(asset)];
   }
 
-  private async register(asset: UploadableNativeRaster, force = false): Promise<void> {
+  private async register(
+    asset: UploadableNativeRaster,
+    force = false,
+  ): Promise<void> {
     this.assetsById.delete(asset.assetId);
     this.assetsById.set(asset.assetId, asset);
     while (this.assetsById.size > MAX_REGISTERED_ASSETS) {
-      const oldestId = this.assetsById.keys().next().value as string | undefined;
+      const oldestId = this.assetsById.keys().next().value as
+        | string
+        | undefined;
       if (!oldestId) break;
       this.assetsById.delete(oldestId);
       this.registeredAssetIds.delete(oldestId);
