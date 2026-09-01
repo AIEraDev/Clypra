@@ -37,6 +37,9 @@ high-level map for implementation and review. Detailed contracts remain in
 8. All performance evidence is sent to the real Clypra API and inspected from
    Studio Admin. No editor HUD, local fixture, localStorage switch, or
    synthetic fallback is a source of truth.
+9. Time-dependent text preparation is a bounded latest-value stream. Native
+   playback keeps one active text raster preparation and one replacement
+   request; obsolete animation timestamps never form a background backlog.
 
 ## 2. System ownership
 
@@ -137,6 +140,28 @@ allocation, and no per-frame React render. During visible playback fallback,
 the last complete text bitmap may remain visible while a changed bitmap is
 rasterized. Paused and interactive renders remain exact and wait for the
 requested result.
+
+### Text preparation during playback
+
+The `NativeRasterBridge` separates immutable text pixels from compositor
+placement. A text animation may change its raster key every frame, but the
+visible playback path does not start a raster/readback/upload for every key.
+`LatestTextPreparationScheduler` owns one active preparation and one latest
+replacement. A newer replacement supersedes an older pending timestamp, while
+the last complete registered asset remains available to the native compositor.
+
+This is intentionally different from paused rendering: paused and seeked
+renders await the requested text asset for exactness; continuous playback
+protects the audio-clock-driven frame stream and accepts temporary bitmap
+reuse while preparation catches up. The scheduler is disposed with the project
+session, so pending work cannot continue into a new project generation.
+
+Native text telemetry records cold raster completions and bounded playback
+reuse observations separately within the `visible-playback` cohort. Reuse
+observations are sampled at a low fixed interval to avoid making telemetry a
+new per-frame workload. Font-wait and raster stages identify cold preparation
+cost, while cache-hit ratio and playback sample counts show whether the
+compositor was reusing a complete asset.
 
 ## 4. Scheduling and stale work
 
