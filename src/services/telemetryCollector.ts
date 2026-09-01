@@ -162,6 +162,12 @@ export interface TelemetryTextMetrics {
   outputPixels: number;
   renderPercentiles: TelemetryTextPercentiles;
   stagePercentiles: TelemetryTextStagePercentiles;
+  /** Interaction latency is a transaction metric, never a render sample. */
+  interactionPercentiles?: TelemetryTextPercentiles;
+  interactionStagePercentiles?: TelemetryTextStagePercentiles;
+  interactionRenderCount?: number;
+  stageCoverage?: "complete" | "partial" | "unattributed";
+  unattributedTimeUs?: number;
   /** Present for completed editing/gesture events, not render windows. */
   interactionDurationUs?: number;
   inputToPreviewUs?: number;
@@ -377,6 +383,12 @@ export interface TelemetryTextInteractionInput {
   interactionId?: string;
   durationUs: number;
   inputToPreviewUs?: number;
+  stageTimings?: Partial<Pick<TelemetryTextRenderInput, "fontWaitUs" | "compileUs" | "rasterUs" | "readbackUs" | "transferUs" | "paintUs" | "totalTimeUs">>;
+  stageCoverage?: "complete" | "partial" | "unattributed";
+  unattributedTimeUs?: number;
+  renderCount?: number;
+  cacheHits?: number;
+  cacheMisses?: number;
   contentLength?: number;
   lineCount?: number;
   layoutWidth?: number;
@@ -1124,7 +1136,7 @@ class TelemetryCollector {
   public recordTextCacheHit(input: Pick<TelemetryTextRenderInput, "kind" | "rendererPath" | "phase" | "sessionId">): void {
     if (!this.isEnabled) return;
     const runtimeEnvironment = import.meta.env.DEV ? "development" : "production";
-    const key = JSON.stringify([input.sessionId || "text-runtime", input.kind, input.rendererPath, input.phase, runtimeEnvironment, "render", "none"]);
+    const key = JSON.stringify([input.sessionId || "text-runtime", input.kind, input.rendererPath, input.phase, "render", "none", runtimeEnvironment]);
     let accumulator = this.textAccumulators.get(key);
     if (!accumulator) {
       accumulator = new TextWindowAccumulator();
@@ -1210,6 +1222,15 @@ class TelemetryCollector {
     const sessionId = input.sessionId || "text-runtime";
     const now = Date.now();
     const percentile = { p50: Math.round(input.durationUs), p95: Math.round(input.durationUs), p99: Math.round(input.durationUs) };
+    const interactionStagePercentiles: TelemetryTextStagePercentiles = {};
+    for (const [key, value] of Object.entries(input.stageTimings || {})) {
+      if (typeof value !== "number") continue;
+      interactionStagePercentiles[key as keyof TelemetryTextStagePercentiles] = {
+        p50: Math.max(0, Math.round(value)),
+        p95: Math.max(0, Math.round(value)),
+        p99: Math.max(0, Math.round(value)),
+      };
+    }
     const measurementId = `text-interaction:${sessionId}:${input.interactionId || `${input.operation}-${now}`}`;
     if (this.reportedTextMeasurementIds.has(measurementId)) return;
     if (this.reportedTextMeasurementIds.size >= 10000) {
@@ -1224,7 +1245,7 @@ class TelemetryCollector {
       measurementSource: "frontend-span",
       sampleKind: "interaction",
       subsystem: "text",
-      sessionId: input.sessionId,
+      sessionId,
       appVersion: this.appVersion,
       appBuildNumber: import.meta.env.MODE || "prod",
       appEnvironment: import.meta.env.DEV ? "beta" : "production",
@@ -1242,7 +1263,10 @@ class TelemetryCollector {
         cancelledFrames: 0,
         peakRamMb: 0,
         cacheHitRatio: 1,
-        stageTimings: { totalTimeUs: Math.round(input.durationUs) },
+        // This event is a transaction boundary, not a frame. Keeping the
+        // workload render time empty prevents generic preview analytics from
+        // treating editor latency as a rendered frame.
+        stageTimings: { totalTimeUs: 0 },
       },
       textMetrics: {
         kind: input.kind ?? "plain",
@@ -1252,14 +1276,19 @@ class TelemetryCollector {
         ...(input.property ? { property: input.property } : {}),
         runtimeEnvironment,
         windowDurationMs: Math.max(1, Math.round(input.durationUs / 1000)),
-        renderCount: 1,
+        renderCount: 0,
         cacheHits: 0,
-        cacheMisses: 1,
-        cacheHitRatio: 0,
+        cacheMisses: 0,
+        cacheHitRatio: 1,
         layerCount: 1,
         outputPixels: Math.max(0, Math.round((input.layoutWidth || 0) * (input.layoutHeight || 0))),
-        renderPercentiles: percentile,
-        stagePercentiles: { totalTimeUs: percentile },
+        renderPercentiles: { p50: 0, p95: 0, p99: 0 },
+        stagePercentiles: {},
+        interactionPercentiles: percentile,
+        interactionStagePercentiles,
+        interactionRenderCount: input.renderCount ?? 0,
+        stageCoverage: input.stageCoverage ?? (Object.keys(interactionStagePercentiles).length > 0 ? "partial" : "unattributed"),
+        unattributedTimeUs: Math.max(0, Math.round(input.unattributedTimeUs ?? (Object.keys(interactionStagePercentiles).length > 0 ? 0 : input.durationUs))),
         interactionDurationUs: Math.round(input.durationUs),
         inputToPreviewUs: input.inputToPreviewUs,
         contentLength: input.contentLength,
