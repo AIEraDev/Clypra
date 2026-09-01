@@ -63,14 +63,14 @@ fn decode_audio_clip_sync(
 
     // Attempt FFmpeg in-process decode first
     match decode_with_ffmpeg_next(path, &config, target_sample_rate, target_channels) {
-        Ok(clip) if !is_materially_truncated(&clip, &config) => Ok(clip),
-        Ok(clip) => {
+        Ok((clip, _reached_source_end)) if !is_materially_truncated(&clip, &config) => Ok(clip),
+        Ok((clip, reached_source_end)) => {
             // A clip is allowed to end at the source boundary. In that case
             // the requested timeline range can be longer than the remaining
             // media, and a shorter decoded buffer is correct rather than a
             // decoder failure. Only recover through the CLI when the source
             // still contains enough media for the requested range.
-            if is_expected_source_end(path, &clip, &config) {
+            if reached_source_end || is_expected_source_end(path, &clip, &config) {
                 return Ok(clip);
             }
 
@@ -80,19 +80,10 @@ fn decode_audio_clip_sync(
             // buffer ends—the exact failure observed with the 31.8s MP3 that
             // decoded to 0.8s. Use the established FFmpeg CLI decoder as an
             // explicit decoder-backend recovery, not as a playback fallback.
-            eprintln!(
-                "[native-audio] in-process decoder returned a truncated clip for {:?}: requested={}us decoded={}us; retrying with FFmpeg CLI",
-                path,
-                config.duration_ticks,
-                decoded_duration_ticks(&clip),
-            );
             decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels)
         }
         Err(err) => {
-            eprintln!(
-                "[native-audio] in-process decoder failed for {:?}: {}. Retrying with FFmpeg CLI.",
-                path, err
-            );
+            let _ = err;
             decode_with_ffmpeg_cli(path, &config, target_sample_rate, target_channels)
         }
     }
@@ -175,7 +166,7 @@ fn decode_with_ffmpeg_next(
     config: &AudioClipConfig,
     target_sample_rate: u32,
     target_channels: u16,
-) -> Result<DecodedAudioClip, String> {
+) -> Result<(DecodedAudioClip, bool), String> {
     let mut ictx =
         ffmpeg::format::input(&path).map_err(|e| format!("Failed to open audio input: {e}"))?;
 
@@ -229,6 +220,7 @@ fn decode_with_ffmpeg_next(
     }
 
     let mut all_samples = Vec::new();
+    let mut reached_source_end = true;
     let mut decoded_frame = ffmpeg::frame::Audio::empty();
     let mut resampled_frame = ffmpeg::frame::Audio::empty();
     let mut next_frame_start_ticks: Option<i64> = None;
@@ -283,7 +275,8 @@ fn decode_with_ffmpeg_next(
 
         if let Some(target_len) = target_duration_samples {
             if all_samples.len() >= target_len {
-                all_samples.truncate(target_len);
+            all_samples.truncate(target_len);
+                reached_source_end = false;
                 break;
             }
         }
@@ -329,12 +322,12 @@ fn decode_with_ffmpeg_next(
         final_config.duration_ticks = actual_duration_ticks;
     }
 
-    Ok(DecodedAudioClip {
+    Ok((DecodedAudioClip {
         config: final_config,
         sample_rate: target_sample_rate,
         channels: target_channels,
         samples: all_samples.into(),
-    })
+    }, reached_source_end))
 }
 
 /// Safely extract ONLY the valid audio samples from a resampled FFmpeg frame.
