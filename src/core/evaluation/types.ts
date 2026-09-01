@@ -182,6 +182,14 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   /** Text content to render */
   readonly text: string;
 
+  /**
+   * Stable font identifier propagated from TextClip.fontId.
+   * Present when the source clip had a fontId assigned (all clips created
+   * after the fontRegistry was introduced). Used for missing-font detection
+   * and registry lookups without re-normalising the family string.
+   */
+  readonly fontId?: string;
+
   /** Font family */
   readonly fontFamily: string;
 
@@ -252,7 +260,9 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   readonly templateId?: string;
   readonly templateRevisionId?: string;
   readonly templateContentHash?: string;
-  readonly templateSnapshot?: import("@clypra-studio/engine").TextTemplate | import("@clypra-studio/engine").TextTemplateArtifact;
+  readonly templateSnapshot?:
+    | import("@clypra-studio/engine").TextTemplate
+    | import("@clypra-studio/engine").TextTemplateArtifact;
   readonly templateControlValues?: Record<string, unknown>;
   readonly templateDependencySnapshot?: import("@clypra-studio/engine").TemplateDependencyManifest;
   readonly templateDependencies?: ReadonlyArray<{
@@ -337,7 +347,15 @@ export interface EvaluatedTransition {
 /**
  * Blend modes for compositing.
  */
-export type BlendMode = "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten" | "add" | "subtract";
+export type BlendMode =
+  | "normal"
+  | "multiply"
+  | "screen"
+  | "overlay"
+  | "darken"
+  | "lighten"
+  | "add"
+  | "subtract";
 
 /**
  * Evaluated effect (future).
@@ -380,7 +398,11 @@ export interface SceneMetadata {
   readonly isGap: boolean;
 
   /** Fallback strategy if gap */
-  readonly fallbackStrategy?: "black" | "freeze" | "transparent" | "placeholder";
+  readonly fallbackStrategy?:
+    | "black"
+    | "freeze"
+    | "transparent"
+    | "placeholder";
 
   /** Timeline epoch (for cache invalidation) */
   readonly epochId?: string;
@@ -418,7 +440,10 @@ export interface EvaluatedScene {
     intensity: number;
     gradingParams?: import("@clypra-studio/engine").GradingParams;
     pipeline?: "v2";
-    effectStack?: ReadonlyArray<{ type: string; params?: Record<string, unknown> }>;
+    effectStack?: ReadonlyArray<{
+      type: string;
+      params?: Record<string, unknown>;
+    }>;
   };
 }
 
