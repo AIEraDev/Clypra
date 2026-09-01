@@ -161,6 +161,19 @@ export interface EvaluatedTextLayer extends BaseVisualLayer {
   /** The current playhead time in seconds */
   readonly time?: number;
 
+  /**
+   * Whether this layer's template contains any animation nodes
+   * (entrance/exit/propertyKeyframes/splitAnimator).
+   *
+   * Computed once in the evaluator from the embedded templateSnapshot and
+   * stored here so the raster cache-key builder (buildNativeTextKeyObject)
+   * never needs to re-parse the template document per frame.
+   *
+   * When false (static template or no templateId), `time` is excluded from
+   * the raster key, giving the cache a stable hit for the entire clip duration.
+   */
+  readonly templateAnimated?: boolean;
+
   /** Caption text may wrap by default; title text is point text unless constrained. */
   readonly textRole?: "caption" | "title";
 
