@@ -1283,7 +1283,13 @@ class TelemetryCollector {
         layerCount: 1,
         outputPixels: Math.max(0, Math.round((input.layoutWidth || 0) * (input.layoutHeight || 0))),
         renderPercentiles: { p50: 0, p95: 0, p99: 0 },
-        stagePercentiles: {},
+        // For interaction events stagePercentiles must mirror interactionStagePercentiles.
+        // The render-window stagePercentiles field is meaningless for a transaction
+        // boundary (renderCount is 0), but analytics classifiers that read stagePercentiles
+        // for bottleneck attribution must find the same data here as in
+        // interactionStagePercentiles — otherwise they see all-zeros and fall
+        // through to a default label regardless of what stage data was actually collected.
+        stagePercentiles: interactionStagePercentiles,
         interactionPercentiles: percentile,
         interactionStagePercentiles,
         interactionRenderCount: input.renderCount ?? 0,
