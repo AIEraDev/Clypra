@@ -16,6 +16,7 @@ import {
 import { generateId } from "../utils/id";
 import { useEffectsStore } from "../../features/text-effects/store/effectsStore";
 import { useTemplateStore } from "../../features/text-templates/templateStore";
+import { deriveFontId } from "../../core/fonts/fontRegistry";
 
 export interface CreateTextClipOptions {
   /** Track ID to place the clip on */
@@ -130,14 +131,16 @@ export interface TextEffectTypography {
 export function resolveTextEffectTypography(
   definition?: TextEffectDefinition,
 ): TextEffectTypography {
-  const raw = definition as (TextEffectDefinition & {
-    fontFamily?: string;
-    fontSize?: number;
-    fontWeight?: string | number;
-    fontStyle?: "normal" | "italic";
-    lineHeight?: number;
-    letterSpacing?: number;
-  }) | undefined;
+  const raw = definition as
+    | (TextEffectDefinition & {
+        fontFamily?: string;
+        fontSize?: number;
+        fontWeight?: string | number;
+        fontStyle?: "normal" | "italic";
+        lineHeight?: number;
+        letterSpacing?: number;
+      })
+    | undefined;
   const sceneText = (raw as any)?.scene?.text;
   const font = raw?.font;
   const finitePositive = (value: unknown): number | undefined => {
@@ -148,22 +151,20 @@ export function resolveTextEffectTypography(
   return {
     fontFamily: sceneText?.fontFamily ?? raw?.fontFamily ?? font?.family,
     fontSize:
-      finitePositive(sceneText?.fontSize) ??
-      finitePositive(raw?.fontSize),
+      finitePositive(sceneText?.fontSize) ?? finitePositive(raw?.fontSize),
     fontWeight: sceneText?.fontWeight ?? raw?.fontWeight ?? font?.weight,
     fontStyle: sceneText?.fontStyle ?? raw?.fontStyle ?? font?.style,
     lineHeight:
       finitePositive(sceneText?.lineHeight) ??
       finitePositive(raw?.lineHeight) ??
       finitePositive(font?.lineHeight),
-    letterSpacing:
-      Number.isFinite(Number(sceneText?.letterSpacing))
-        ? Number(sceneText.letterSpacing)
-        : Number.isFinite(Number(raw?.letterSpacing))
-          ? Number(raw?.letterSpacing)
-          : Number.isFinite(Number(font?.letterSpacing))
-            ? Number(font?.letterSpacing)
-            : undefined,
+    letterSpacing: Number.isFinite(Number(sceneText?.letterSpacing))
+      ? Number(sceneText.letterSpacing)
+      : Number.isFinite(Number(raw?.letterSpacing))
+        ? Number(raw?.letterSpacing)
+        : Number.isFinite(Number(font?.letterSpacing))
+          ? Number(font?.letterSpacing)
+          : undefined,
   };
 }
 
@@ -199,11 +200,17 @@ function measureTextInk(
         0,
       );
       const lineWidths = lines.map(
-        (line) => line.length * fontSize * 0.6 + Math.max(0, line.length - 1) * letterSpacing,
+        (line) =>
+          line.length * fontSize * 0.6 +
+          Math.max(0, line.length - 1) * letterSpacing,
       );
       return {
-        width: longestLine * fontSize * 0.6 + Math.max(0, longestLine - 1) * letterSpacing,
-        height: fallbackLineHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
+        width:
+          longestLine * fontSize * 0.6 +
+          Math.max(0, longestLine - 1) * letterSpacing,
+        height:
+          fallbackLineHeight +
+          Math.max(0, lines.length - 1) * fontSize * lineHeight,
         lineWidths,
       };
     }
@@ -213,7 +220,9 @@ function measureTextInk(
     const lineWidths: number[] = [];
     for (const line of lines) {
       const metrics = ctx.measureText(line);
-      const lineWidth = Number(metrics.width ?? 0) + Math.max(0, line.length - 1) * letterSpacing;
+      const lineWidth =
+        Number(metrics.width ?? 0) +
+        Math.max(0, line.length - 1) * letterSpacing;
       lineWidths.push(lineWidth);
       width = Math.max(width, lineWidth);
       lineInkHeight = Math.max(
@@ -225,7 +234,8 @@ function measureTextInk(
     lineInkHeight = Math.max(lineInkHeight, fallbackLineHeight);
     return {
       width,
-      height: lineInkHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
+      height:
+        lineInkHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
       lineWidths,
     };
   } catch (e) {
@@ -234,11 +244,17 @@ function measureTextInk(
       0,
     );
     const lineWidths = lines.map(
-      (line) => line.length * fontSize * 0.6 + Math.max(0, line.length - 1) * letterSpacing,
+      (line) =>
+        line.length * fontSize * 0.6 +
+        Math.max(0, line.length - 1) * letterSpacing,
     );
     return {
-      width: longestLine * fontSize * 0.6 + Math.max(0, longestLine - 1) * letterSpacing,
-      height: fallbackLineHeight + Math.max(0, lines.length - 1) * fontSize * lineHeight,
+      width:
+        longestLine * fontSize * 0.6 +
+        Math.max(0, longestLine - 1) * letterSpacing,
+      height:
+        fallbackLineHeight +
+        Math.max(0, lines.length - 1) * fontSize * lineHeight,
       lineWidths,
     };
   }
@@ -505,7 +521,8 @@ export function measureTextEffectContentBounds(options: {
   const explicitLines = options.text.split("\n");
   const explicitLineCount = Math.max(1, explicitLines.length);
   const wrappedLineCount = measured.lineWidths.reduce(
-    (count, lineWidth) => count + Math.max(1, Math.ceil(lineWidth / contentInnerWidth)),
+    (count, lineWidth) =>
+      count + Math.max(1, Math.ceil(lineWidth / contentInnerWidth)),
     0,
   );
   const textHeight =
@@ -589,9 +606,15 @@ export function resolveTextEffectDefinition(
     | TextEffectDefinition
     | undefined;
   if (!definition) return undefined;
-  const identity = useEffectsStore.getState().definitionRevisions?.[styleId] ?? {
-    revisionId: (definition as any).revisionId ?? (definition as any).revision?.revisionId,
-    contentHash: (definition as any).contentHash ?? (definition as any).revision?.contentHash,
+  const identity = useEffectsStore.getState().definitionRevisions?.[
+    styleId
+  ] ?? {
+    revisionId:
+      (definition as any).revisionId ??
+      (definition as any).revision?.revisionId,
+    contentHash:
+      (definition as any).contentHash ??
+      (definition as any).revision?.contentHash,
   };
   if (revisionId && identity.revisionId !== revisionId) return undefined;
   if (contentHash && identity.contentHash !== contentHash) return undefined;
@@ -641,37 +664,69 @@ function createMeasurementCanvas(
   return null;
 }
 
-function templateControlValues(artifact: ReturnType<typeof resolveTextTemplateArtifact>, text: string, customization?: any): Record<string, unknown> {
+function templateControlValues(
+  artifact: ReturnType<typeof resolveTextTemplateArtifact>,
+  text: string,
+  customization?: any,
+): Record<string, unknown> {
   if (!artifact) return {};
   const values: Record<string, unknown> = {};
   for (const control of artifact.controls) {
-    const node = artifact.document.nodes.find((candidate: any) => candidate.id === control.target.nodeId) as any;
+    const node = artifact.document.nodes.find(
+      (candidate: any) => candidate.id === control.target.nodeId,
+    ) as any;
     const role = node?.role || "";
     if (control.type === "text") {
-      values[control.id] = customization?.layerTexts?.[control.target.nodeId]
-        ?? (role === "primary" ? customization?.primaryText : role === "secondary" ? customization?.secondaryText : role === "accent" ? customization?.accentText : undefined)
-        ?? (control.target.nodeId === artifact.document.nodes.find((candidate: any) => candidate.type === "text")?.id ? text : undefined)
-        ?? control.defaultValue;
+      values[control.id] =
+        customization?.layerTexts?.[control.target.nodeId] ??
+        (role === "primary"
+          ? customization?.primaryText
+          : role === "secondary"
+            ? customization?.secondaryText
+            : role === "accent"
+              ? customization?.accentText
+              : undefined) ??
+        (control.target.nodeId ===
+        artifact.document.nodes.find(
+          (candidate: any) => candidate.type === "text",
+        )?.id
+          ? text
+          : undefined) ??
+        control.defaultValue;
     } else if (control.type === "color") {
-      values[control.id] = customization?.layerColors?.[control.target.nodeId]
-        ?? (role === "secondary" ? customization?.secondaryColor : customization?.primaryColor)
-        ?? control.defaultValue;
+      values[control.id] =
+        customization?.layerColors?.[control.target.nodeId] ??
+        (role === "secondary"
+          ? customization?.secondaryColor
+          : customization?.primaryColor) ??
+        control.defaultValue;
     }
   }
   return values;
 }
 
-function alphaBounds(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number) {
+function alphaBounds(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  width: number,
+  height: number,
+) {
   const data = ctx.getImageData(0, 0, width, height).data;
-  let minX = width, minY = height, maxX = -1, maxY = -1;
+  let minX = width,
+    minY = height,
+    maxX = -1,
+    maxY = -1;
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       if (data[(y * width + x) * 4 + 3] <= 8) continue;
-      minX = Math.min(minX, x); minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
     }
   }
-  return maxX < 0 ? null : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  return maxX < 0
+    ? null
+    : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
 export function measureTextTemplateContentSize(options: {
@@ -695,11 +750,21 @@ export function measureTextTemplateContentSize(options: {
   };
   const templateWidth = Math.max(
     1,
-    Number(artifact.document.canvas.width ?? legacyTemplate.canvasWidth ?? legacyTemplate.width ?? 800),
+    Number(
+      artifact.document.canvas.width ??
+        legacyTemplate.canvasWidth ??
+        legacyTemplate.width ??
+        800,
+    ),
   );
   const templateHeight = Math.max(
     1,
-    Number(artifact.document.canvas.height ?? legacyTemplate.canvasHeight ?? legacyTemplate.height ?? 450),
+    Number(
+      artifact.document.canvas.height ??
+        legacyTemplate.canvasHeight ??
+        legacyTemplate.height ??
+        450,
+    ),
   );
   const fallbackAspect = templateWidth / templateHeight;
 
@@ -726,7 +791,11 @@ export function measureTextTemplateContentSize(options: {
         time: 0,
         width: templateWidth,
         height: templateHeight,
-        controlValues: templateControlValues(artifact, options.text ?? "Text", options.customization),
+        controlValues: templateControlValues(
+          artifact,
+          options.text ?? "Text",
+          options.customization,
+        ),
       },
     });
 
@@ -883,7 +952,9 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     styleId,
     effectDefinition,
   );
-  const effectTypography = resolveTextEffectTypography(resolvedEffectDefinition);
+  const effectTypography = resolveTextEffectTypography(
+    resolvedEffectDefinition,
+  );
 
   // For templates, calculate dimensions based on template's native aspect ratio
   // instead of text measurements to ensure professional full-canvas rendering
@@ -936,22 +1007,18 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     };
   } else {
     // Regular text clips use text measurement
-    const defaultFontSize = effectTypography.fontSize ?? (options.styleId ? 96 : 100);
+    const defaultFontSize =
+      effectTypography.fontSize ?? (options.styleId ? 96 : 100);
     const fontSize = options.fontSize ?? defaultFontSize;
     const fontFamily =
       options.fontFamily ??
       effectTypography.fontFamily ??
       "Inter, system-ui, sans-serif";
-    const fontWeight =
-      options.fontWeight ?? effectTypography.fontWeight;
-    const fontStyle =
-      options.fontStyle ?? effectTypography.fontStyle;
-    const lineHeight =
-      options.lineHeight ?? effectTypography.lineHeight ?? 1.2;
+    const fontWeight = options.fontWeight ?? effectTypography.fontWeight;
+    const fontStyle = options.fontStyle ?? effectTypography.fontStyle;
+    const lineHeight = options.lineHeight ?? effectTypography.lineHeight ?? 1.2;
     const letterSpacing =
-      options.letterSpacing ??
-      effectTypography.letterSpacing ??
-      0;
+      options.letterSpacing ?? effectTypography.letterSpacing ?? 0;
 
     sizing = calculateTextClipSize({
       text,
@@ -985,23 +1052,30 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     height = textPosition.height;
   }
 
-  const defaultFontSize = effectTypography.fontSize ?? (options.styleId ? 96 : 100);
+  const defaultFontSize =
+    effectTypography.fontSize ?? (options.styleId ? 96 : 100);
   const fontSize = options.fontSize ?? defaultFontSize;
   const fontFamily =
     options.fontFamily ??
     effectTypography.fontFamily ??
     "Inter, system-ui, sans-serif";
-  const fontWeight =
-    options.fontWeight ?? effectTypography.fontWeight;
+  const fontWeight = options.fontWeight ?? effectTypography.fontWeight;
   const fontStyle = options.fontStyle ?? effectTypography.fontStyle;
   const lineHeight = options.lineHeight ?? effectTypography.lineHeight ?? 1.2;
   const letterSpacing =
     options.letterSpacing ?? effectTypography.letterSpacing ?? 0;
   const resolvedStyleVersion =
     styleVersion ?? (Number(resolvedEffectDefinition?.version) || 1);
-  const resolvedStyleRevisionId = styleRevisionId ?? (resolvedEffectDefinition as any)?.revisionId ?? (resolvedEffectDefinition as any)?.revision?.revisionId;
-  const resolvedStyleContentHash = styleContentHash ?? (resolvedEffectDefinition as any)?.contentHash ?? (resolvedEffectDefinition as any)?.revision?.contentHash;
-  const resolvedStyleSnapshot = styleSnapshot ?? (resolvedEffectDefinition as any)?.scene;
+  const resolvedStyleRevisionId =
+    styleRevisionId ??
+    (resolvedEffectDefinition as any)?.revisionId ??
+    (resolvedEffectDefinition as any)?.revision?.revisionId;
+  const resolvedStyleContentHash =
+    styleContentHash ??
+    (resolvedEffectDefinition as any)?.contentHash ??
+    (resolvedEffectDefinition as any)?.revision?.contentHash;
+  const resolvedStyleSnapshot =
+    styleSnapshot ?? (resolvedEffectDefinition as any)?.scene;
 
   const clip: TextClip = {
     id: generateId("text-clip"),
@@ -1022,6 +1096,9 @@ export function createTextClip(options: CreateTextClipOptions): TextClip {
     text,
     fontSize,
     fontFamily,
+    // Derive a stable fontId from the registry so future lookups are O(1)
+    // and independent of alias normalisation.
+    fontId: deriveFontId(fontFamily),
     color,
     fontWeight: fontWeight || (bold ? "bold" : "normal"),
     fontStyle: fontStyle || (italic ? "italic" : "normal"),
@@ -1327,10 +1404,15 @@ export function resolveTextClipStyleUpdate(
   canvasWidth: number,
   canvasHeight: number,
 ): Partial<TextClip> {
-  const previewOnly = Boolean((updates as Record<string, unknown>)._skipTextBoundsRecalculation);
-  const cleanUpdates = { ...updates } as Partial<TextClip> & { _skipTextBoundsRecalculation?: boolean };
+  const previewOnly = Boolean(
+    (updates as Record<string, unknown>)._skipTextBoundsRecalculation,
+  );
+  const cleanUpdates = { ...updates } as Partial<TextClip> & {
+    _skipTextBoundsRecalculation?: boolean;
+  };
   delete cleanUpdates._skipTextBoundsRecalculation;
-  if (previewOnly || !shouldRecalculateTextClipBounds(clip, cleanUpdates)) return cleanUpdates;
+  if (previewOnly || !shouldRecalculateTextClipBounds(clip, cleanUpdates))
+    return cleanUpdates;
   const recalculated = recalculateTextClipBounds(
     clip,
     cleanUpdates,
