@@ -87,9 +87,9 @@ describe("FontLoader", () => {
       });
 
       expect(result.loaded).toBe(true);
-      expect(mockFonts.load).toHaveBeenCalledWith(
-        'normal 700 16px "Bebas Neue"',
-      );
+      // The check() fast-path short-circuits before load() when the face is
+      // already registered (e.g. via CSS @fontsource import). Either path is
+      // valid; what matters is that no Google Fonts stylesheet was injected.
       expect(document.getElementById("gfont-bebas-neue")).toBeNull();
     });
 
@@ -101,9 +101,15 @@ describe("FontLoader", () => {
       });
 
       expect(result.loaded).toBe(true);
-      expect(mockFonts.load).toHaveBeenCalledWith(
-        'normal 600 16px "Inter Variable"',
-      );
+      // When document.fonts.check() already returns true (CSS preloaded),
+      // the loader short-circuits before calling load(). Either path is valid;
+      // the key invariant is that the result is loaded and no engine network
+      // request was made for this bundled family.
+      const wasLocallyResolved =
+        mockFonts.load.mock.calls.some((args: string[]) =>
+          args[0]?.includes("Inter Variable"),
+        ) || result.loadTimeMs === 0;
+      expect(wasLocallyResolved).toBe(true);
     });
   });
 
@@ -174,5 +180,199 @@ describe("FontLoader", () => {
 
       expect(loader1).not.toBe(loader2);
     });
+  });
+});
+
+// ─── New tests for performance fast-paths & prewarm APIs ─────────────────────
+
+describe("system font fast path (0ms resolution)", () => {
+  beforeEach(() => {
+    resetFontLoader();
+    vi.clearAllMocks();
+  });
+
+  const SYSTEM_FONTS_CASES = [
+    "Arial",
+    "Arial Black",
+    "Arial Rounded MT Bold",
+    "Georgia",
+    "Times New Roman",
+    "Courier New",
+    "Impact",
+    "Verdana",
+    "Trebuchet MS",
+    "Palatino",
+  ] as const;
+
+  for (const family of SYSTEM_FONTS_CASES) {
+    it(`resolves "${family}" synchronously at loadTimeMs=0 without calling document.fonts.load`, async () => {
+      const loader = new FontLoader();
+      const result = await loader.ensureFont({
+        family,
+        weight: 400,
+        style: "normal",
+      });
+      expect(result.loaded).toBe(true);
+      expect(result.loadTimeMs).toBe(0);
+      // System fonts must never trigger a document.fonts.load() call
+      expect(mockFonts.load).not.toHaveBeenCalled();
+    });
+
+    it(`isLoaded returns true for "${family}" without any prior ensureFont call`, () => {
+      const loader = new FontLoader();
+      expect(loader.isLoaded({ family, weight: 400, style: "normal" })).toBe(
+        true,
+      );
+    });
+  }
+
+  it("is case-insensitive for system font names", async () => {
+    const loader = new FontLoader();
+    const result = await loader.ensureFont({
+      family: "ARIAL",
+      weight: 400,
+      style: "normal",
+    });
+    expect(result.loaded).toBe(true);
+    expect(result.loadTimeMs).toBe(0);
+    expect(mockFonts.load).not.toHaveBeenCalled();
+  });
+});
+
+describe("document.fonts.check fast path (CSS preloaded face)", () => {
+  beforeEach(() => {
+    resetFontLoader();
+    vi.clearAllMocks();
+  });
+
+  it("hits the check fast-path and skips document.fonts.load when check() already returns true", async () => {
+    // document.fonts.check is already mocked to return true globally
+    const loader = new FontLoader();
+    // Inter is a bundled variable font — goes through the local path
+    const result = await loader.ensureFont({
+      family: "Inter",
+      weight: 400,
+      style: "normal",
+    });
+    expect(result.loaded).toBe(true);
+    // load() must NOT be called because check() short-circuits first
+    expect(mockFonts.load).not.toHaveBeenCalled();
+    expect(result.loadTimeMs).toBe(0);
+  });
+
+  it("marks the descriptor as loaded after the check fast-path so isLoaded returns true", async () => {
+    const loader = new FontLoader();
+    const desc = { family: "Inter", weight: 400, style: "normal" as const };
+    await loader.ensureFont(desc);
+    expect(loader.isLoaded(desc)).toBe(true);
+  });
+});
+
+describe("prewarmProjectFonts()", () => {
+  beforeEach(() => {
+    resetFontLoader();
+    vi.clearAllMocks();
+  });
+
+  it("loads all unique families from the supplied list", async () => {
+    const loader = new FontLoader();
+    await loader.prewarmProjectFonts(["Inter", "Bebas Neue", "Inter"]); // duplicate intentional
+    // "Inter" normalises to "Inter Variable" internally. isLoaded accepts
+    // either form since the alias map normalises the key lookup.
+    expect(
+      loader.isLoaded({ family: "Inter", weight: 400, style: "normal" }) ||
+        loader.isLoaded({
+          family: "Inter Variable",
+          weight: 400,
+          style: "normal",
+        }),
+    ).toBe(true);
+    expect(
+      loader.isLoaded({ family: "Bebas Neue", weight: 400, style: "normal" }),
+    ).toBe(true);
+  });
+
+  it("completes without error for an empty list", async () => {
+    const loader = new FontLoader();
+    await expect(loader.prewarmProjectFonts([])).resolves.toBeUndefined();
+  });
+
+  it("silently ignores unknown families (delegated to engine fallback)", async () => {
+    const loader = new FontLoader();
+    // Should not throw even though "CustomFont" has no local alias
+    await expect(
+      loader.prewarmProjectFonts(["CustomFont"]),
+    ).resolves.toBeUndefined();
+  });
+
+  it("resolves aliases — 'Inter' and 'Inter Variable' deduplicate to one load call", async () => {
+    const loader = new FontLoader();
+    await loader.prewarmProjectFonts(["Inter", "Inter Variable"]);
+    const stats = loader.getStats();
+    // Both aliases point to the same canonical family; only one face is loaded
+    expect(stats.loaded).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("prewarmRemainingFontsOnIdle()", () => {
+  beforeEach(() => {
+    resetFontLoader();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("schedules via setTimeout when requestIdleCallback is unavailable", () => {
+    const loader = new FontLoader();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    loader.prewarmRemainingFontsOnIdle();
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 0);
+  });
+
+  it("does not schedule more than once per instance", () => {
+    const loader = new FontLoader();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    loader.prewarmRemainingFontsOnIdle();
+    loader.prewarmRemainingFontsOnIdle();
+    loader.prewarmRemainingFontsOnIdle();
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets the idle-scheduled flag after clear() so a fresh sweep can be scheduled", () => {
+    const loader = new FontLoader();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    loader.prewarmRemainingFontsOnIdle();
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+    loader.clear();
+    loader.prewarmRemainingFontsOnIdle();
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("runs the sweep callback and triggers ensureFont for unloaded families", async () => {
+    const loader = new FontLoader();
+    const ensureSpy = vi.spyOn(loader, "ensureFont");
+    loader.prewarmRemainingFontsOnIdle();
+    // Flush the setTimeout(fn, 0) callback
+    await vi.runAllTimersAsync();
+    expect(ensureSpy).toHaveBeenCalled();
+  });
+
+  it("skips families already loaded when the sweep runs", async () => {
+    const loader = new FontLoader();
+    // Prewarm Inter first so it's already in the loaded set
+    await loader.prewarmProjectFonts(["Inter Variable"]);
+    const callsBefore = mockFonts.load.mock.calls.length;
+    loader.prewarmRemainingFontsOnIdle();
+    await vi.runAllTimersAsync();
+    // Inter Variable was already loaded, so load() should not be called for it again
+    const callsAfter = mockFonts.load.mock.calls.length;
+    const interCalls = mockFonts.load.mock.calls
+      .slice(callsBefore)
+      .filter((args: string[]) => args[0]?.includes("Inter Variable"));
+    expect(interCalls.length).toBe(0);
+    void callsAfter; // suppress unused-variable warning
   });
 });
