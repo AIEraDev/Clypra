@@ -36,3 +36,13 @@ export {
   type CoalescedFrameQueue,
   type CoalescedPointerDrag,
 } from "./coalescedPointerDrag";
+
+export {
+  InteractiveTextRenderCoordinator,
+  classifyTextInvalidation,
+  type InteractiveTextEditCallbacks,
+  type InteractiveTextEditMeta,
+  type InteractiveTextEditToken,
+  type TextInteractionStageTimings,
+  type TextInvalidationClass,
+} from "./InteractiveTextRenderCoordinator";
