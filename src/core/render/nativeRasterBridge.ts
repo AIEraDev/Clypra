@@ -21,7 +21,8 @@ import {
   rasterizeTextLayerForNative,
   type NativeTextRasterAsset,
 } from "@/components/editor/preview/nativeTextPreview";
-import { traceTextRenderCacheHit, type TextRenderTracePhase } from "@/core/render/textRenderTrace";
+import { traceTextRenderTiming, type TextRenderTracePhase } from "@/core/render/textRenderTrace";
+import { LatestTextPreparationScheduler } from "@/core/render/latestTextPreparationScheduler";
 import {
   NativeAnimatedStickerRenderer,
   type NativeAnimatedStickerRaster,
@@ -49,6 +50,7 @@ interface NativeRasterBridgeOptions {
 
 const MAX_TEXT_CACHE_ENTRIES = 96;
 const MAX_REGISTERED_ASSETS = 256;
+const PLAYBACK_TEXT_OBSERVATION_INTERVAL_MS = 250;
 
 function evictOldest<TKey, TValue>(cache: Map<TKey, TValue>, maxEntries: number): void {
   while (cache.size > maxEntries) {
@@ -72,6 +74,22 @@ function snapshot(asset: UploadableNativeRaster): NativeRasterLayerSnapshot {
   return reference;
 }
 
+type NativeTextLayer = Parameters<typeof buildNativeTextRasterKey>[0];
+type TextPreparationInput = {
+  layer: NativeTextLayer;
+  key: string;
+  phase: TextRenderTracePhase;
+  generation: number;
+};
+
+function textKind(layer: NativeTextLayer): "plain" | "effect" | "template" {
+  return layer.templateId || layer.clipKind === "text-template"
+    ? "template"
+    : layer.styleId
+      ? "effect"
+      : "plain";
+}
+
 /**
  * Produces and registers all raster assets that can be derived from an
  * EvaluatedScene alone. Unsupported raster sources remain explicit native
@@ -82,11 +100,23 @@ export class NativeRasterBridge {
   /** Last registered frame per layer, used as a non-blocking playback fallback. */
   private readonly textSnapshotsByLayerId = new Map<string, NativeRasterLayerSnapshot>();
   private readonly textSnapshotKeysByLayerId = new Map<string, string>();
+  private readonly lastTextPlaybackObservationAtByLayerId = new Map<string, number>();
   private readonly imageCache = new Map<string, Promise<void>>();
   private readonly imageSourcesById = new Map<string, { sourcePath: string; width: number; height: number }>();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
   private readonly registeredAssetIds = new Set<string>();
   private readonly animatedStickerRenderer = new NativeAnimatedStickerRenderer();
+  private textPreparationGeneration = 0;
+  /** One active raster plus one latest replacement for real-time playback. */
+  private readonly textPreparationScheduler = new LatestTextPreparationScheduler<TextPreparationInput>(
+    (input) => this.prepareTextAsset(input),
+    (error, input) => console.error("[NativeRasterBridge] background text frame failed", {
+      layerId: input.layer.layerId,
+      templateId: input.layer.templateId,
+      revisionId: input.layer.templateRevisionId,
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
 
   async rasterize(scene: EvaluatedScene, options: NativeRasterBridgeOptions): Promise<NativeRasterLayerSnapshot[]> {
     if (!isTauriRuntime()) return [];
@@ -221,9 +251,12 @@ export class NativeRasterBridge {
   }
 
   dispose(): void {
+    this.textPreparationGeneration += 1;
+    this.textPreparationScheduler.dispose();
     this.textCache.clear();
     this.textSnapshotsByLayerId.clear();
     this.textSnapshotKeysByLayerId.clear();
+    this.lastTextPlaybackObservationAtByLayerId.clear();
     this.imageCache.clear();
     this.imageSourcesById.clear();
     this.assetsById.clear();
@@ -240,21 +273,6 @@ export class NativeRasterBridge {
     if (layers.length === 0) return [];
     const pendingAssets = layers.map(async (layer) => {
       const key = buildNativeTextRasterKey(layer);
-      let raster = this.textCache.get(key);
-      if (!raster) {
-        raster = rasterizeTextLayerForNative(layer, { phase });
-        this.textCache.set(key, raster);
-        evictOldest(this.textCache, MAX_TEXT_CACHE_ENTRIES);
-        void raster.catch(() => {
-          if (this.textCache.get(key) === raster) this.textCache.delete(key);
-        });
-      } else {
-        traceTextRenderCacheHit({
-          kind: layer.templateId || layer.clipKind === "text-template" ? "template" : layer.styleId ? "effect" : "plain",
-          rendererPath: "native-raster",
-          phase,
-        });
-      }
       // During playback, never make the transport wait for a new animated
       // texture upload. The previous frame is already registered with the
       // native compositor and is a deterministic visual fallback while this
@@ -262,26 +280,56 @@ export class NativeRasterBridge {
       // first frame has no fallback and is awaited during session prewarm or
       // the initial visible render.
       const previous = this.textSnapshotsByLayerId.get(layer.layerId);
-      if (nonBlocking && phase === "visible-playback" && this.textSnapshotKeysByLayerId.get(layer.layerId) !== key) {
+      const hasCurrentSnapshot = this.textSnapshotKeysByLayerId.get(layer.layerId) === key;
+      if (nonBlocking && phase === "visible-playback") {
+        const now = Date.now();
+        const lastObservationAt = this.lastTextPlaybackObservationAtByLayerId.get(layer.layerId) ?? 0;
+        if ((hasCurrentSnapshot || previous) && now - lastObservationAt >= PLAYBACK_TEXT_OBSERVATION_INTERVAL_MS) {
+          this.lastTextPlaybackObservationAtByLayerId.set(layer.layerId, now);
+          // Reuse is still a real playback observation. Without this sample,
+          // the Admin page only sees cold raster completions and cannot tell
+          // whether a visible text clip was advancing on a cached bitmap.
+          traceTextRenderTiming({
+            phase,
+            kind: textKind(layer),
+            rendererPath: "native-raster",
+            assetId: previous?.assetId,
+            layerId: layer.layerId,
+            fontFamily: layer.fontFamily,
+            fontWaitMs: 0,
+            rasterMs: 0,
+            readbackMs: 0,
+            transferMs: 0,
+            paintMs: 0,
+            outputPixels: previous ? previous.width * previous.height : 0,
+            // A previous complete bitmap is a valid cache/reuse hit even
+            // while the latest animated key is still being prepared.
+            cacheHit: Boolean(previous),
+            totalMs: 0,
+            operation: layer.animationOperation ?? "render",
+            contentLength: layer.text.length,
+            lineCount: layer.text.split(/\r?\n/).length,
+            layoutWidth: layer.width,
+            layoutHeight: layer.height,
+          });
+        }
+
+        if (!hasCurrentSnapshot) {
+          this.textPreparationScheduler.enqueue(key, {
+            layer,
+            key,
+            phase,
+            generation: this.textPreparationGeneration,
+          });
+        }
         // Keep the old bitmap (when available) while the new one is prepared.
         // Returning no raster is also valid: buildNativeVideoProjectRequest
         // emits the native text fallback, which keeps playback moving and
         // replaces itself on the next frame once the shared bitmap is ready.
-        void raster
-          .then((asset) => this.register(asset).then(() => {
-            this.textSnapshotsByLayerId.set(layer.layerId, snapshot(asset));
-            this.textSnapshotKeysByLayerId.set(layer.layerId, key);
-          }))
-          .catch((error) => console.error("[NativeRasterBridge] background text frame failed", {
-            layerId: layer.layerId,
-            templateId: layer.templateId,
-            revisionId: layer.templateRevisionId,
-            error: error instanceof Error ? error.message : String(error),
-          }));
         return previous ?? null;
       }
 
-      const asset = await raster;
+      const asset = await this.getTextRaster(layer, key, phase);
       // Pixels are immutable; placement is not. Entry/leave motion and
       // opacity must be expressed as native compositor uniforms instead of
       // causing a new Canvas raster and GPU upload every frame.
@@ -321,6 +369,32 @@ export class NativeRasterBridge {
       .filter((asset): asset is NativeTextRasterAsset => asset !== null);
 
     return assets.map((asset) => snapshot(asset));
+  }
+
+  private getTextRaster(
+    layer: NativeTextLayer,
+    key: string,
+    phase: TextRenderTracePhase,
+  ): Promise<NativeTextRasterAsset> {
+    let raster = this.textCache.get(key);
+    if (!raster) {
+      raster = rasterizeTextLayerForNative(layer, { phase });
+      this.textCache.set(key, raster);
+      evictOldest(this.textCache, MAX_TEXT_CACHE_ENTRIES);
+      void raster.catch(() => {
+        if (this.textCache.get(key) === raster) this.textCache.delete(key);
+      });
+    }
+    return raster;
+  }
+
+  private async prepareTextAsset(input: TextPreparationInput): Promise<void> {
+    const asset = await this.getTextRaster(input.layer, input.key, input.phase);
+    if (input.generation !== this.textPreparationGeneration) return;
+    await this.register(asset);
+    if (input.generation !== this.textPreparationGeneration) return;
+    this.textSnapshotsByLayerId.set(input.layer.layerId, snapshot(asset));
+    this.textSnapshotKeysByLayerId.set(input.layer.layerId, input.key);
   }
 
   private async rasterizeAnimatedStickers(scene: EvaluatedScene): Promise<NativeRasterLayerSnapshot[]> {
