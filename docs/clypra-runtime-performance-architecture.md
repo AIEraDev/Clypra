@@ -112,8 +112,10 @@ window and a WebView; click-through hardening is a separate platform action.
 ### Native continuous playback
 
 The native render session receives the complete immutable render snapshot once
-per project/timeline revision. Per-frame work contains only compact demand
-information. The session owns:
+per project/timeline revision and structural raster-layer layout. Per-frame
+work contains only compact demand information, including the identity of an
+already-registered raster asset when an animated text bitmap changes. The
+session owns:
 
 - one active decode/compose/present operation;
 - one latest pending frame demand;
@@ -149,6 +151,13 @@ visible playback path does not start a raster/readback/upload for every key.
 `LatestTextPreparationScheduler` owns one active preparation and one latest
 replacement. A newer replacement supersedes an older pending timestamp, while
 the last complete registered asset remains available to the native compositor.
+
+The retained Rust snapshot key includes raster-layer presence and texture
+shape, but not the asset id itself. Once a text layer slot exists, the compact
+playback demand swaps the registered asset id without rebuilding the render
+graph. This prevents both failure modes: text disappearing because the session
+never learns about a newly prepared asset, and graph reconfiguration on every
+animated text frame.
 
 This is intentionally different from paused rendering: paused and seeked
 renders await the requested text asset for exactness; continuous playback
