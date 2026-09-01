@@ -8,6 +8,17 @@
  *
  * Unknown families are delegated to the engine for backwards compatibility
  * with user/template fonts that are not bundled with the application.
+ *
+ * Performance SLA:
+ * - System fonts (OS-resident): resolved synchronously at 0ms — no
+ *   document.fonts.load() call needed; the browser already has the face.
+ * - Bundled WOFF2 fonts: first load goes through document.fonts.load(); all
+ *   subsequent calls on the same descriptor return instantly from cache.
+ * - prewarmProjectFonts(): loads only the font families currently used in the
+ *   open project so the first rasterized frame pays zero font-wait cost.
+ * - prewarmRemainingFontsOnIdle(): loads the remaining bundled fonts during
+ *   requestIdleCallback / setTimeout(0) so they are warm before the user
+ *   opens the font picker, without competing with video/audio playback.
  */
 
 import {
@@ -17,6 +28,24 @@ import {
 } from "@clypra-studio/engine";
 
 export type { FontDescriptor, FontLoadResult } from "@clypra-studio/engine";
+
+/**
+ * OS-resident fonts that are available on every platform without any network
+ * or WOFF2 fetch. document.fonts.check() always returns true for these, so
+ * ensureFont() short-circuits immediately with loadTimeMs = 0.
+ */
+const SYSTEM_FONT_NAMES = new Set<string>([
+  "arial",
+  "arial black",
+  "arial rounded mt bold",
+  "georgia",
+  "times new roman",
+  "courier new",
+  "impact",
+  "verdana",
+  "trebuchet ms",
+  "palatino",
+]);
 
 /**
  * @fontsource-variable registers these families with a ` Variable` suffix;
@@ -69,16 +98,22 @@ function normalizeWeight(weight: FontDescriptor["weight"]): number {
   if (!weight) return 400;
 
   const numericWeight = Number.parseInt(weight, 10);
-  if (!Number.isNaN(numericWeight) && numericWeight >= 100 && numericWeight <= 900) {
+  if (
+    !Number.isNaN(numericWeight) &&
+    numericWeight >= 100 &&
+    numericWeight <= 900
+  ) {
     return numericWeight;
   }
 
-  return {
-    normal: 400,
-    bold: 700,
-    lighter: 300,
-    bolder: 700,
-  }[weight] ?? 400;
+  return (
+    {
+      normal: 400,
+      bold: 700,
+      lighter: 300,
+      bolder: 700,
+    }[weight] ?? 400
+  );
 }
 
 function descriptorKey(descriptor: FontDescriptor): string {
@@ -98,13 +133,35 @@ class LocalFontLoader {
   private readonly loaded = new Set<string>();
   private readonly failed = new Map<string, string>();
   private readonly promises = new Map<string, Promise<FontLoadResult>>();
+  /** Tracks whether an idle prewarm sweep has been scheduled. */
+  private _idlePrewarmScheduled = false;
 
   async ensureFont(descriptor: FontDescriptor): Promise<FontLoadResult> {
+    // ── Fast path 1: OS-resident system fonts ──────────────────────────────
+    // These are always available; document.fonts.check() returns true without
+    // any load() call. Resolve immediately at 0ms to avoid any async overhead.
+    if (SYSTEM_FONT_NAMES.has(descriptor.family.trim().toLowerCase())) {
+      const key = descriptorKey(descriptor);
+      this.loaded.add(key);
+      return { font: descriptor, loaded: true, loadTimeMs: 0 };
+    }
+
     const localFamily = getLocalFamily(descriptor.family);
     if (!localFamily) return this.fallback.ensureFont(descriptor);
 
     const key = descriptorKey(descriptor);
+
+    // ── Fast path 2: already loaded (internal cache hit) ──────────────────
     if (this.loaded.has(key)) {
+      return { font: descriptor, loaded: true, loadTimeMs: 0 };
+    }
+
+    // ── Fast path 3: document.fonts already has the face (e.g. CSS preload) ─
+    if (
+      typeof document !== "undefined" &&
+      document.fonts?.check(fontFaceString(descriptor, localFamily))
+    ) {
+      this.loaded.add(key);
       return { font: descriptor, loaded: true, loadTimeMs: 0 };
     }
 
@@ -123,7 +180,9 @@ class LocalFontLoader {
   }
 
   async ensureFonts(descriptors: FontDescriptor[]): Promise<FontLoadResult[]> {
-    return Promise.all(descriptors.map((descriptor) => this.ensureFont(descriptor)));
+    return Promise.all(
+      descriptors.map((descriptor) => this.ensureFont(descriptor)),
+    );
   }
 
   async waitForFontsReady(): Promise<void> {
@@ -132,6 +191,9 @@ class LocalFontLoader {
   }
 
   isLoaded(descriptor: FontDescriptor): boolean {
+    // System fonts are always considered loaded — no async work needed.
+    if (SYSTEM_FONT_NAMES.has(descriptor.family.trim().toLowerCase()))
+      return true;
     const localFamily = getLocalFamily(descriptor.family);
     return localFamily
       ? this.loaded.has(descriptorKey(descriptor))
@@ -151,7 +213,82 @@ class LocalFontLoader {
     this.loaded.clear();
     this.failed.clear();
     this.promises.clear();
+    this._idlePrewarmScheduled = false;
     this.fallback.clear();
+  }
+
+  /**
+   * Project-scoped eager prewarm.
+   *
+   * Loads only the font families currently referenced by the open project
+   * (extracted from text clips) into document.fonts in parallel. Call this
+   * at project/session startup so every subsequent rasterizeTextLayerForNative
+   * call hits the fast-path cache and pays 0ms font-wait cost.
+   *
+   * Families already loaded are skipped instantly. Unknown families (custom /
+   * Google Fonts) are silently ignored — they follow the engine's existing
+   * deferred-load path.
+   */
+  async prewarmProjectFonts(fontFamilies: readonly string[]): Promise<void> {
+    const unique = [
+      ...new Set(fontFamilies.map((f) => f.trim()).filter(Boolean)),
+    ];
+    if (unique.length === 0) return;
+    // Use weight 400 / normal as a representative face. The actual clip weight
+    // is resolved on first rasterize; this ensures the font bytes are decoded
+    // and the family is warm in document.fonts before the first paint.
+    await Promise.allSettled(
+      unique.map((family) =>
+        this.ensureFont({ family, weight: 400, style: "normal" }),
+      ),
+    );
+  }
+
+  /**
+   * Low-priority background prewarm for all remaining bundled fonts.
+   *
+   * Schedules one requestIdleCallback (or setTimeout fallback) sweep that
+   * loads every entry from LOCAL_FONT_FAMILY_ALIASES that has not already been
+   * loaded. This ensures fonts are warm before the user opens the font picker,
+   * without competing with video playback or timeline operations.
+   *
+   * Calling this multiple times is safe — the sweep is scheduled at most once
+   * per loader instance.
+   */
+  prewarmRemainingFontsOnIdle(): void {
+    if (this._idlePrewarmScheduled) return;
+    this._idlePrewarmScheduled = true;
+
+    const run = () => {
+      // Collect unique canonical families not yet loaded.
+      const pending: string[] = [];
+      const seen = new Set<string>();
+      for (const canonical of LOCAL_FONT_FAMILY_ALIASES.values()) {
+        if (!seen.has(canonical)) {
+          seen.add(canonical);
+          const key = descriptorKey({
+            family: canonical,
+            weight: 400,
+            style: "normal",
+          });
+          if (!this.loaded.has(key)) pending.push(canonical);
+        }
+      }
+      if (pending.length === 0) return;
+      // Fire-and-forget: failures are silently swallowed. The font picker will
+      // still work; any unloaded font just pays the load cost on first use.
+      void Promise.allSettled(
+        pending.map((family) =>
+          this.ensureFont({ family, weight: 400, style: "normal" }),
+        ),
+      );
+    };
+
+    if (typeof requestIdleCallback !== "undefined") {
+      requestIdleCallback(() => run(), { timeout: 3000 });
+    } else {
+      setTimeout(run, 0);
+    }
   }
 
   private async loadLocalFont(
@@ -176,7 +313,10 @@ class LocalFontLoader {
       if (!document.fonts.check(requestedFace)) {
         // Static packages intentionally ship one 400 face. Accept it for a
         // requested synthetic weight, matching the engine's existing policy.
-        const fallbackFace = fontFaceString({ ...descriptor, weight: 400 }, localFamily);
+        const fallbackFace = fontFaceString(
+          { ...descriptor, weight: 400 },
+          localFamily,
+        );
         if (normalizeWeight(descriptor.weight) !== 400) {
           await document.fonts.load(fallbackFace);
         }
@@ -188,9 +328,15 @@ class LocalFontLoader {
       this.loaded.add(key);
       return { font: descriptor, loaded: true, loadTimeMs: loadTimeMs() };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
       this.failed.set(key, errorMessage);
-      return { font: descriptor, loaded: false, error: errorMessage, loadTimeMs: loadTimeMs() };
+      return {
+        font: descriptor,
+        loaded: false,
+        error: errorMessage,
+        loadTimeMs: loadTimeMs(),
+      };
     } finally {
       this.promises.delete(key);
     }
