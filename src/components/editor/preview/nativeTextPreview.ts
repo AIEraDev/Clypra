@@ -900,10 +900,10 @@ export async function rasterizeTextLayerForNative(
           Math.ceil(Number(canvas?.height) || 200),
         );
         const unscaledFontSize = normalizeFontSize(layer.fontSize);
-        const evalWidth = Math.max(authoredWidth, Math.ceil(layer.width + 200));
+        const evalWidth = Math.max(authoredWidth, Math.ceil(layer.width + 400));
         const evalHeight = Math.max(
           authoredHeight,
-          Math.ceil(layer.height + 100),
+          Math.ceil(layer.height + 200),
         );
         const sceneText = canonicalScene.text as any;
         if (sceneText) {
