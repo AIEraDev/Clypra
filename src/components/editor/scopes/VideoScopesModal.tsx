@@ -9,6 +9,8 @@ import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import { evaluateTimelineSceneCached } from "@/core/evaluation/evaluator";
 import { buildNativeFrameRequest } from "@/components/editor/preview/nativeVideoPreview";
 import { getFrameIndexAtTime, getFrameStartTime } from "@/lib/utils/frameTime";
+import { getColorScopesWorkerClient } from "@/core/workers/colorScopesWorkerClient";
+import { isTauriRuntime } from "@/lib/platform/tauri";
 
 interface VideoScopesModalProps {
   isOpen: boolean;
@@ -67,15 +69,48 @@ export const VideoScopesModal: React.FC<VideoScopesModalProps> = ({
           { mode: "scrub" },
         );
 
-        if (!nativeReq) return;
+        if (isTauriRuntime() && nativeReq) {
+          const result = await invoke<VideoScopePayload>("get_video_scopes", {
+            request: nativeReq,
+            scopeType: activeScope === "all" ? "all" : activeScope,
+          });
 
-        const result = await invoke<VideoScopePayload>("get_video_scopes", {
-          request: nativeReq,
-          scopeType: activeScope === "all" ? "all" : activeScope,
-        });
-
-        if (isMounted) {
-          setTelemetry(result);
+          if (isMounted) {
+            setTelemetry(result);
+          }
+        } else {
+          // Off-thread web worker analysis via ColorScopesWorkerClient
+          const workerClient = getColorScopesWorkerClient();
+          const previewCanvas = document.querySelector("canvas") as HTMLCanvasElement | null;
+          if (previewCanvas && previewCanvas.width > 0 && previewCanvas.height > 0) {
+            const scopeKind = activeScope === "rgb_parade" ? "parade" : activeScope === "all" ? ["histogram", "vectorscope", "waveform", "parade"] : [activeScope];
+            const scopes = Array.isArray(scopeKind) ? (scopeKind as any) : [scopeKind as any];
+            const scopeRes = await workerClient.analyzeCanvas(previewCanvas, scopes, 2);
+            if (isMounted && scopeRes) {
+              setTelemetry({
+                histogram: scopeRes.histogram ? {
+                  red: Array.from(scopeRes.histogram.r),
+                  green: Array.from(scopeRes.histogram.g),
+                  blue: Array.from(scopeRes.histogram.b),
+                  luma: Array.from(scopeRes.histogram.luma),
+                  maxBinCount: Math.max(...scopeRes.histogram.luma, 1),
+                } : undefined,
+                vectorscope: scopeRes.vectorscope ? {
+                  width: 256,
+                  height: 256,
+                  data: Array.from(scopeRes.vectorscope),
+                } : undefined,
+                rgbParade: scopeRes.parade ? {
+                  width: 256,
+                  height: 256,
+                  red: Array.from(scopeRes.parade),
+                  green: Array.from(scopeRes.parade),
+                  blue: Array.from(scopeRes.parade),
+                } : undefined,
+                waveform: undefined,
+              });
+            }
+          }
         }
       } catch (err) {
         console.error("Failed to compute video scopes:", err);
