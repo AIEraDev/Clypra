@@ -86,8 +86,15 @@ interface TemplateGridProps {
   onApply: (template: TemplateDefinition, e: React.MouseEvent) => void;
 }
 
-// Module-level per-category cache — persists across component unmounts
+// Module-level per-category cache — persists across component unmounts with 30m TTL
 const categoryCache = new Map<string, TemplateDefinition[]>();
+const categoryCacheTimestamps = new Map<string, number>();
+const TEMPLATE_CATEGORY_TTL_MS = 30 * 60 * 1000; // 30 mins
+
+export function clearTemplateGridCache(): void {
+  categoryCache.clear();
+  categoryCacheTimestamps.clear();
+}
 
 export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
   const [activeCategory, setActiveCategory] = useState<string>(
@@ -102,10 +109,14 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
   const { favorites, downloadedTemplates, downloadingIds, toggleFavorite } =
     useFavoritesStore();
 
-  const fetchCategory = useCallback(async (category: string) => {
-    // Cache hit — no network request needed
-    if (categoryCache.has(category)) {
-      setItems(categoryCache.get(category)!);
+  const fetchCategory = useCallback(async (category: string, force = false) => {
+    const cached = categoryCache.get(category);
+    const cachedAt = categoryCacheTimestamps.get(category);
+    const isStale = !cachedAt || Date.now() - cachedAt > TEMPLATE_CATEGORY_TTL_MS;
+
+    // Valid cache hit (non-empty and fresh)
+    if (!force && cached && cached.length > 0 && !isStale) {
+      setItems(cached);
       setLoading(false);
       setError(null);
       return;
@@ -120,9 +131,10 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
     setError(null);
 
     try {
-      const data = await TextEffectsApi.getTemplatesByCategory(category);
+      const data = await TextEffectsApi.getTemplatesByCategory(category, { forceRefresh: force });
       if (controller.signal.aborted) return;
       categoryCache.set(category, data as TemplateDefinition[]);
+      categoryCacheTimestamps.set(category, Date.now());
       setItems(data as TemplateDefinition[]);
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -139,6 +151,14 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
   useEffect(() => {
     fetchCategory(activeCategory);
     setSearchQuery(""); // clear search on tab switch
+  }, [activeCategory, fetchCategory]);
+
+  // Periodic 30-minute background auto-refresh
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchCategory(activeCategory, true);
+    }, TEMPLATE_CATEGORY_TTL_MS);
+    return () => clearInterval(timer);
   }, [activeCategory, fetchCategory]);
 
   const handleCategoryChange = (cat: string) => {
@@ -178,9 +198,9 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
         </div>
       </div>
 
-      {/* ── Search bar ── */}
-      <div className="shrink-0 px-2 py-1.5 border-b border-border/30">
-        <div className="relative flex items-center">
+      {/* ── Search bar + Refresh ── */}
+      <div className="shrink-0 px-2 py-1.5 border-b border-border/30 flex items-center gap-1.5">
+        <div className="relative flex-1 flex items-center">
           <Search
             size={11}
             className="absolute left-2 text-text-muted/60 pointer-events-none"
@@ -201,6 +221,14 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
             </button>
           )}
         </div>
+        <button
+          onClick={() => fetchCategory(activeCategory, true)}
+          disabled={loading}
+          title="Refresh templates from server"
+          className="p-1.5 rounded-md bg-surface-raised/40 hover:bg-surface-raised border border-border/40 text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+        >
+          <RefreshCw size={11} className={loading ? "animate-spin text-accent" : ""} />
+        </button>
       </div>
 
       {/* ── Grid body ── */}
@@ -213,7 +241,7 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
             <button
               onClick={() => {
                 categoryCache.delete(activeCategory);
-                fetchCategory(activeCategory);
+                fetchCategory(activeCategory, true);
               }}
               className="flex items-center gap-1 text-xs text-accent underline cursor-pointer hover:text-accent-soft"
             >
@@ -223,7 +251,7 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
         )}
 
         {!loading && !error && filteredItems.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-40 gap-1 text-xs text-text-muted">
+          <div className="flex flex-col items-center justify-center h-40 gap-1.5 text-xs text-text-muted">
             {searchQuery ? (
               <>
                 <p>
@@ -245,6 +273,12 @@ export function TemplateGrid({ onPreview, onApply }: TemplateGridProps) {
                 <p className="opacity-60 text-center px-4">
                   {getCategoryEmptyState(activeCategory).sub}
                 </p>
+                <button
+                  onClick={() => fetchCategory(activeCategory, true)}
+                  className="mt-2 flex items-center gap-1.5 px-3 py-1 rounded-md bg-surface-raised border border-border/60 hover:border-accent/40 text-[11px] text-text-primary hover:text-accent transition-colors cursor-pointer"
+                >
+                  <RefreshCw size={11} /> Check for updates
+                </button>
               </>
             ) : (
               <>
