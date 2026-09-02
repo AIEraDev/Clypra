@@ -75,6 +75,11 @@ describe("EffectGrid Component", () => {
           },
         ],
       },
+      indexTimestamps: {
+        essentials: Date.now(),
+        "3d": Date.now(),
+        neon: Date.now(),
+      },
       indexLoading: false,
       indexError: null,
       definitions: {},
