@@ -26,48 +26,80 @@ const formatCategoryLabel = (cat: string) =>
 // Category-aware empty-state copy
 const CATEGORY_EMPTY_STATE: Record<string, { headline: string; sub: string }> =
   {
-    "lower-thirds": {
-      headline: "No lower thirds yet",
+    "lower-third": {
+      headline: "No lower thirds published yet",
       sub: "Broadcast-style name and title cards coming soon",
     },
-    titles: {
-      headline: "No title cards yet",
+    "lower-thirds": {
+      headline: "No lower thirds published yet",
+      sub: "Broadcast-style name and title cards coming soon",
+    },
+    "title-card": {
+      headline: "No title cards published yet",
       sub: "Cinematic opening and closing titles coming soon",
     },
+    titles: {
+      headline: "No title cards published yet",
+      sub: "Cinematic opening and closing titles coming soon",
+    },
+    callout: {
+      headline: "No callouts published yet",
+      sub: "Animated callouts and feature labels coming soon",
+    },
     callouts: {
-      headline: "No callouts yet",
-      sub: "Animated callouts and labels coming soon",
+      headline: "No callouts published yet",
+      sub: "Animated callouts and feature labels coming soon",
+    },
+    caption: {
+      headline: "No subtitle captions published yet",
+      sub: "Styled captions and dialogue overlays coming soon",
     },
     subtitles: {
-      headline: "No subtitle templates yet",
-      sub: "Styled captions and subtitle overlays coming soon",
+      headline: "No subtitle captions published yet",
+      sub: "Styled captions and dialogue overlays coming soon",
     },
-    countdowns: {
-      headline: "No countdowns yet",
+    countdown: {
+      headline: "No countdowns published yet",
       sub: "Countdown timers and event announcements coming soon",
     },
+    countdowns: {
+      headline: "No countdowns published yet",
+      sub: "Countdown timers and event announcements coming soon",
+    },
+    "kinetic-type": {
+      headline: "No kinetic type templates published yet",
+      sub: "Dynamic typography animations coming soon",
+    },
+    cta: {
+      headline: "No call-to-action cards published yet",
+      sub: "Action prompts and conversion cards coming soon",
+    },
+    credits: {
+      headline: "No end credits published yet",
+      sub: "Cast rolls and closing credit layouts coming soon",
+    },
     quotes: {
-      headline: "No quote cards yet",
+      headline: "No quote cards published yet",
       sub: "Inspirational quote and pull-quote templates coming soon",
     },
     social: {
-      headline: "No social overlays yet",
+      headline: "No social overlays published yet",
       sub: "Story frames, handle cards, and link badges coming soon",
     },
     sports: {
-      headline: "No sports graphics yet",
+      headline: "No sports graphics published yet",
       sub: "Scoreboards, stats, and player card overlays coming soon",
     },
     gaming: {
-      headline: "No gaming overlays yet",
-      sub: "HUD elements, kill feeds, and notification cards coming soon",
+      headline: "No gaming overlays published yet",
+      sub: "HUD elements, streamer tags, and notification cards coming soon",
     },
     news: {
-      headline: "No news tickers yet",
+      headline: "No news tickers published yet",
       sub: "Breaking-news crawls and headline straps coming soon",
     },
     minimal: {
-      headline: "No minimal templates yet",
+      headline: "No minimal templates published yet",
       sub: "Clean, typographic-led layouts coming soon",
     },
   };
