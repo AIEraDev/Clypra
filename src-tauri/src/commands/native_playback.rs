@@ -716,7 +716,7 @@ pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> 
     if let Some(surface) =
         app.try_state::<Arc<Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()
     {
-        if let Ok(mut surface) = surface.inner().clone().lock() {
+        if let Ok(surface) = surface.inner().clone().lock() {
             let _ = surface.hide_surface();
         }
     }
