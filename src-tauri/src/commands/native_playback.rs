@@ -4,7 +4,9 @@ use crate::native_core::{
     FrameRequest, FrameTime, NativeCoreError, NativePlaybackFrameDemand, PlaybackPlan,
     PlaybackSession, PlaybackState, DEFAULT_TIME_SCALE, NATIVE_CORE_CONTRACT_VERSION,
 };
-use crate::thumbnail_engine::decoder::{acquire_preview_decoder_lease, PreviewDecoderLease};
+use crate::thumbnail_engine::decoder::{
+    acquire_preview_decoder_lease_for_stream, PreviewDecoderLease,
+};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -42,11 +44,18 @@ impl LatestPlaybackDemand {
 impl NativeRenderSession {
     async fn new(snapshot: FrameRequest) -> Result<Arc<Self>, String> {
         snapshot.validate().map_err(|error| error.to_string())?;
-        let mut paths = HashSet::new();
+        let mut streams = HashSet::new();
         let mut leases = Vec::new();
         for layer in &snapshot.project.video_layers {
-            if paths.insert(layer.video_path.clone()) {
-                leases.push(acquire_preview_decoder_lease(&layer.video_path).await?);
+            let key = (layer.video_path.clone(), layer.layer_id.clone());
+            if streams.insert(key) {
+                leases.push(
+                    acquire_preview_decoder_lease_for_stream(
+                        &layer.video_path,
+                        &layer.layer_id,
+                    )
+                    .await?,
+                );
             }
         }
         Ok(Arc::new(Self {
