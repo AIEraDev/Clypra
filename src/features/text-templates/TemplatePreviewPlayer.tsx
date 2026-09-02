@@ -5,6 +5,7 @@ import React, {
 import { renderTextTemplateToCanvas, resolveTextTemplateArtifact } from '@clypra-studio/engine';
 import { getApiBaseUrl } from '@/lib/api';
 import { getFontLoader } from '@/core/fonts/FontLoader';
+import { resolveCanonicalFamily } from '@/core/fonts/fontRegistry';
 
 export interface TemplatePreviewPlayerHandle {
   play:        () => void;
@@ -30,6 +31,19 @@ export interface TemplatePreviewPlayerProps {
   onFrameChange?: (currentFrame: number, totalFrames: number) => void;
   mode?:        "video" | "canvas" | "auto";
   fitToContent?: boolean;
+}
+
+function extractAllTemplateTextNodes(nodes: any[]): any[] {
+  const result: any[] = [];
+  for (const node of nodes) {
+    if (node.type === 'text') {
+      result.push(node);
+    }
+    if (Array.isArray(node.children)) {
+      result.push(...extractAllTemplateTextNodes(node.children));
+    }
+  }
+  return result;
 }
 
 export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, TemplatePreviewPlayerProps>(
@@ -76,20 +90,63 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
     // authored template fonts before its first text measurement/draw.
     useEffect(() => {
       let cancelled = false;
-      const textNodes = artifact?.document.nodes.filter((node: any) => node.type === 'text') ?? [];
-      const descriptors = textNodes
-        .map((node: any) => ({
-          family: node.style?.fontFamily,
-          weight: node.style?.fontWeight ?? 400,
-          style: 'normal' as const,
-        }))
-        .filter((descriptor) => typeof descriptor.family === 'string' && descriptor.family.trim());
+      const textNodes = extractAllTemplateTextNodes(artifact?.document.nodes ?? []);
+      const descriptors: Array<{ family: string; weight: number; style: 'normal' | 'italic' }> = [];
 
-      setFontsReady(descriptors.length === 0);
-      if (descriptors.length === 0) return () => { cancelled = true; };
+      for (const node of textNodes) {
+        if (node.style?.fontFamily) {
+          const rawFamily = String(node.style.fontFamily).trim();
+          const weight = typeof node.style.fontWeight === 'number'
+            ? node.style.fontWeight
+            : Number(node.style.fontWeight) || 400;
+          const style = (node.style.fontStyle === 'italic' ? 'italic' : 'normal') as 'normal' | 'italic';
+          
+          descriptors.push({ family: rawFamily, weight, style });
+          const canonical = resolveCanonicalFamily(rawFamily);
+          if (canonical && canonical.toLowerCase() !== rawFamily.toLowerCase()) {
+            descriptors.push({ family: canonical, weight, style });
+          }
+        }
+      }
 
-      getFontLoader().ensureFonts(descriptors).then(async () => {
+      // Also inspect legacy layers if present
+      const layers = (template?.layers || template?.elements) as any[];
+      if (Array.isArray(layers)) {
+        for (const layer of layers) {
+          if (layer.kind === 'text' && layer.fontFamily) {
+            const rawFamily = String(layer.fontFamily).trim();
+            const weight = typeof layer.fontWeight === 'number'
+              ? layer.fontWeight
+              : Number(layer.fontWeight) || 400;
+            const style = (layer.fontStyle === 'italic' ? 'italic' : 'normal') as 'normal' | 'italic';
+            
+            descriptors.push({ family: rawFamily, weight, style });
+            const canonical = resolveCanonicalFamily(rawFamily);
+            if (canonical && canonical.toLowerCase() !== rawFamily.toLowerCase()) {
+              descriptors.push({ family: canonical, weight, style });
+            }
+          }
+        }
+      }
+
+      const validDescriptors = descriptors.filter((d) => Boolean(d.family));
+
+      setFontsReady(validDescriptors.length === 0);
+      if (validDescriptors.length === 0) return () => { cancelled = true; };
+
+      getFontLoader().ensureFonts(validDescriptors).then(async () => {
         await getFontLoader().waitForFontsReady();
+        if (typeof document !== "undefined" && document.fonts) {
+          for (const d of validDescriptors) {
+            const face = `${d.style} ${d.weight} 16px "${d.family}"`;
+            try {
+              await document.fonts.load(face);
+            } catch {
+              // Ignore individual font load error
+            }
+          }
+          await document.fonts.ready;
+        }
         if (!cancelled) setFontsReady(true);
       }).catch((error) => {
         console.warn('[TemplatePreviewPlayer] Font loading failed; using fallback fonts:', error);
@@ -97,7 +154,7 @@ export const TemplatePreviewPlayer = forwardRef<TemplatePreviewPlayerHandle, Tem
       });
 
       return () => { cancelled = true; };
-    }, [artifact]);
+    }, [artifact, template]);
 
     const resolvedMode = mode !== "auto"
       ? mode
@@ -183,8 +240,10 @@ function computeTemplateContentBounds(
         if (ctx) {
           ctx.save();
           const weight = style.fontWeight ?? 400;
-          const family = (style.fontFamily || "Inter").replace(/"/g, "");
-          ctx.font = `${weight} ${fontSize}px "${family}"`;
+          const fontStyle = style.fontStyle === "italic" ? "italic" : "normal";
+          const rawFamily = (style.fontFamily || "Inter Variable").replace(/"/g, "");
+          const canonical = resolveCanonicalFamily(rawFamily);
+          ctx.font = `${fontStyle} ${weight} ${fontSize}px "${canonical}", "${rawFamily}", sans-serif`;
           const lineWidths = lines.map(
             (line) => ctx.measureText(line).width + Math.max(0, line.length - 1) * letterSpacing,
           );
@@ -238,8 +297,10 @@ function computeTemplateContentBounds(
         if (ctx) {
           ctx.save();
           const weight = layer.fontWeight ?? 400;
-          const family = (layer.fontFamily || "Inter").replace(/"/g, "");
-          ctx.font = `${weight} ${fontSize}px "${family}"`;
+          const fontStyle = layer.fontStyle === "italic" ? "italic" : "normal";
+          const rawFamily = (layer.fontFamily || "Inter Variable").replace(/"/g, "");
+          const canonical = resolveCanonicalFamily(rawFamily);
+          ctx.font = `${fontStyle} ${weight} ${fontSize}px "${canonical}", "${rawFamily}", sans-serif`;
           const lineWidths = lines.map(
             (line) => ctx.measureText(line).width + Math.max(0, line.length - 1) * letterSpacing,
           );
