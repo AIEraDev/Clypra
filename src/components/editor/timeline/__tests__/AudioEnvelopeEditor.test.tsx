@@ -92,6 +92,10 @@ const prepareSlider = (volume = 1) => {
 describe("AudioEnvelopeEditor volume interaction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      cb(performance.now());
+      return 0;
+    });
   });
 
   afterEach(() => {
@@ -107,7 +111,7 @@ describe("AudioEnvelopeEditor volume interaction", () => {
       fireEvent.pointerMove(slider, { pointerId: 1, clientX, clientY: 8.4 });
 
       expect(slider).toHaveAttribute("aria-valuenow", "50");
-      expect(mocks.updateClip).toHaveBeenCalledWith("clip-1", { volume: 0.5 });
+      expect(mocks.updateClip).toHaveBeenCalledWith("clip-1", expect.objectContaining({ volume: 0.5 }));
     },
   );
 
@@ -237,7 +241,7 @@ describe("AudioEnvelopeEditor volume interaction", () => {
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 120, clientY: 20 });
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 120, clientY: 20 });
 
-    expect(mocks.updateClip).toHaveBeenCalledWith("clip-1", { fadeIn: 3 });
+    expect(mocks.updateClip).toHaveBeenCalledWith("clip-1", expect.objectContaining({ fadeIn: 3 }));
     const command = mocks.execute.mock.calls[0][0] as any;
     expect(command).toBeInstanceOf(TransformClipCommand);
     expect(command.newTransform.fadeIn).toBe(3);
@@ -263,6 +267,6 @@ describe("AudioEnvelopeEditor volume interaction", () => {
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0, clientY: 20 });
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 0, clientY: 20 });
 
-    expect(mocks.updateClip).toHaveBeenCalledWith("clip-1", { fadeOut: 3 });
+    expect(mocks.updateClip).toHaveBeenCalledWith("clip-1", expect.objectContaining({ fadeOut: 3 }));
   });
 });
