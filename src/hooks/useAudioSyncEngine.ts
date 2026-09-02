@@ -21,7 +21,11 @@ import {
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
 import { isTauriRuntime } from "@/lib/platform/tauri";
-import { NativeAudioPreviewController, type NativeAudioPreviewSource } from "@/core/audio/nativeAudioPreviewController";
+import {
+  createAudioPlaybackAdapter,
+  type AudioPlaybackAdapter,
+  type AudioPlaybackSource,
+} from "@/core/audio/AudioPlaybackAdapter";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { getNativeAudioDiagnostics } from "@/lib/platform/tauri";
@@ -71,9 +75,9 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     options.nativeMode ? null : options.audioEngine ?? getSharedAudioEngine(),
   );
   const rafRef = useRef<number | null>(null);
-  const nativeControllerRef = useRef<NativeAudioPreviewController | null>(null);
-  const nativeDisposeChainRef = useRef<Promise<void>>(Promise.resolve());
-  const latestNativeSourceRef = useRef<NativeAudioPreviewSource | null>(null);
+  const adapterRef = useRef<AudioPlaybackAdapter | null>(null);
+  const adapterDisposeChainRef = useRef<Promise<void>>(Promise.resolve());
+  const latestAudioSourceRef = useRef<AudioPlaybackSource | null>(null);
   const previousNativeAudioStatusRef = useRef<{
     callbackCount: number;
     renderedFrames: number;
@@ -89,21 +93,21 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     (maximum, clip) => Math.max(maximum, clip.startTime + clip.duration),
     0,
   );
-  const nativeDuration = project
+  const totalDuration = project
     ? Math.max(0, project.duration || 0, timelineDuration, getPlaybackClock().duration)
     : 0;
-  const latestNativeSource = project
+  const latestAudioSource: AudioPlaybackSource | null = project
     ? {
         projectRevision: `${project.id}:${timelineEpoch}`,
         frameRate: project.frameRate,
-        duration: nativeDuration,
+        duration: totalDuration,
         audioTrackCount: tracks.filter((track) => track.type === "audio" && !track.muted).length,
         clips: expandedClips,
         tracks,
         assets: mediaAssets,
       }
     : null;
-  latestNativeSourceRef.current = latestNativeSource;
+  latestAudioSourceRef.current = latestAudioSource;
 
   // Audio telemetry is sampled away from the real-time callback. One event per
   // five-second active window is enough to expose bottlenecks without turning
@@ -196,73 +200,55 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     };
   }, [options.nativeMode, project?.id]);
 
-  // AU-1 fix: Native audio controller lifecycle — create and initialize once per project mount/switch.
-  // Timeline data is refreshed through updateSource below without tearing down
-  // the CPAL stream.
+  // Adapter lifecycle: Initialize and bind to playback source
   useEffect(() => {
     if (!options.nativeMode || !isTauriRuntime() || !project) return;
 
-    const source = latestNativeSourceRef.current;
+    const source = latestAudioSourceRef.current;
     if (!source) return;
 
-    const controller = new NativeAudioPreviewController({
+    const adapter = createAudioPlaybackAdapter({
       clock: getPlaybackClock(),
-      source,
+      forceKind: "native",
       onError: (error) => {
-        console.warn("[useAudioSyncEngine] Native audio controller error:", error);
+        console.warn("[useAudioSyncEngine] Audio adapter error:", error);
       },
     });
-    // Claim the clock synchronously, before any awaited native loading. A
-    // user can press Play during decode/configuration; that must not make
-    // PlaybackClock create a temporary Web Audio context in the gap.
+
     getPlaybackClock().setNativeClockAuthority(true);
-    // A stale browser graph must be silent before native initialization begins.
-    // Native mode has one audible authority. Quiesce any voices left by a
-    // previous controller before the native stream is initialized; otherwise
-    // native startup can overlap the old Web Audio graph for one or more RAFs.
     engineRef.current?.stopAllVoices(false);
     let cancelled = false;
     let initializeStarted = false;
 
-    const initializeNativeController = () => {
+    const initializeAdapter = () => {
       if (initializeStarted || cancelled) return;
       initializeStarted = true;
       void (async () => {
-        await nativeDisposeChainRef.current;
+        await adapterDisposeChainRef.current;
         if (cancelled) return;
-        nativeControllerRef.current = controller;
-        const enabled = await controller.initialize();
-        if (cancelled || !enabled) {
-          // Native Tauri playback is mandatory. Staying silent is safer than
-          // silently switching to a second clock/audio implementation.
+        adapterRef.current = adapter;
+        await adapter.initialize(source);
+        if (cancelled || !adapter.isActive) {
           engineRef.current?.stopAllVoices(true);
-          if (!cancelled) {
-            console.error(
-              "[useAudioSyncEngine] Native program-preview audio could not initialize; browser fallback is disabled.",
-            );
-          }
           return;
         }
         engineRef.current?.stopAllVoices(true);
-        const currentSource = latestNativeSourceRef.current;
+        const currentSource = latestAudioSourceRef.current;
         if (currentSource && currentSource !== source) {
-          controller.updateSource(currentSource);
+          adapter.updateSource(currentSource);
         }
-        controller.setOutput(options.volume ?? 100, options.muted ?? false);
+        adapter.setOutput(options.volume ?? 100, options.muted ?? false);
       })();
     };
-    // Warm the native graph while paused. Starting native audio lazily from
-    // the first Play click allowed WebAudio to begin immediately and then be
-    // replaced by CPAL mid-play, which caused the initial A/V discontinuity.
-    initializeNativeController();
+    initializeAdapter();
 
     return () => {
       cancelled = true;
       engineRef.current?.stopAllVoices(false);
-      if (nativeControllerRef.current === controller) {
-        nativeControllerRef.current = null;
+      if (adapterRef.current === adapter) {
+        adapterRef.current = null;
       }
-      nativeDisposeChainRef.current = controller.dispose();
+      adapterDisposeChainRef.current = adapter.dispose();
     };
   }, [
     options.nativeMode,
@@ -270,19 +256,18 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
     project?.frameRate,
   ]);
 
-  // AU-2 fix: Update the native audio timeline dynamically when timelineEpoch or project duration changes.
-  // This uses controller.updateSource() without tearing down the CPAL audio stream or disposing the controller.
+  // Update the audio playback source dynamically when timelineEpoch or project duration changes
   const lastProjectIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!options.nativeMode || !isTauriRuntime() || !project || !nativeControllerRef.current) return;
+    if (!options.nativeMode || !isTauriRuntime() || !project || !adapterRef.current) return;
     if (lastProjectIdRef.current !== project.id) {
       lastProjectIdRef.current = project.id;
-      if (!nativeControllerRef.current.isActive) return;
+      if (!adapterRef.current.isActive) return;
     }
 
-    const source = latestNativeSourceRef.current;
+    const source = latestAudioSourceRef.current;
     if (!source) return;
-    nativeControllerRef.current.updateSource(source);
+    adapterRef.current.updateSource(source);
   }, [
     options.nativeMode,
     project?.id,
@@ -294,7 +279,7 @@ export function useAudioSyncEngine(options: UseAudioSyncEngineOptions = {}) {
   ]);
 
   useEffect(() => {
-    nativeControllerRef.current?.setOutput(options.volume ?? 100, options.muted ?? false);
+    adapterRef.current?.setOutput(options.volume ?? 100, options.muted ?? false);
   }, [options.volume, options.muted]);
 
   // 1. Asynchronously pre-decode and cache audio buffers whenever timeline clips change
