@@ -227,6 +227,84 @@ export class ProjectSession {
     await this._prewarmNativeRasterAssets();
   }
 
+  /**
+   * Prewarms a specific clip at a given timestamp (defaulting to clip.startTime).
+   * Evaluates only the frame containing the clip, registers required fonts,
+   * dispatches rendering off-thread to the Worker, and registers the texture
+   * with the native raster bridge before playback or preview begins.
+   */
+  async prewarmClip(clip: Clip, atTime?: number): Promise<void> {
+    if (!isTauriRuntime() || this._state !== "active") return;
+    const bridge = this._nativeRasterBridge;
+    if (!bridge || typeof document === "undefined") return;
+
+    try {
+      const [projectStore, timelineStore, evaluator, fontRegistry] =
+        await Promise.all([
+          import("@/store/projectStore"),
+          import("@/store/timelineStore"),
+          import("@/core/evaluation/evaluator"),
+          import("@/core/fonts/nativeFontRegistry"),
+        ]);
+
+      const project = projectStore.useProjectStore.getState().project;
+      if (!project || project.id !== this.projectId) return;
+
+      const { clips, tracks, transitions } = timelineStore.useTimelineStore.getState();
+      const mediaAssets = projectStore.useProjectStore.getState().mediaAssets;
+      const frameRate = Math.max(1, project.frameRate ?? 30);
+      const targetTime = atTime ?? clip.startTime;
+      const frameTime = getFrameStartTime(targetTime, frameRate);
+
+      // Ensure the clip is in the evaluated list
+      const effectiveClips = clips.some((c) => c.id === clip.id) ? clips : [...clips, clip];
+
+      const scene = evaluator.evaluateTimelineScene(
+        frameTime,
+        effectiveClips,
+        tracks,
+        mediaAssets,
+        project,
+        transitions,
+      );
+
+      const textLayers = scene.visualLayers.filter(
+        (layer): layer is import("@/core/evaluation/types").EvaluatedTextLayer =>
+          layer.layerType === "text" && (layer.clipId === clip.id || layer.layerId.startsWith(clip.id)),
+      );
+      const imageLayers = scene.visualLayers.filter(
+        (layer) =>
+          layer.layerType === "media" &&
+          layer.mediaType === "image" &&
+          layer.stickerFormat !== "gif" &&
+          layer.stickerFormat !== "lottie" &&
+          (layer.clipId === clip.id || layer.layerId.startsWith(clip.id)),
+      );
+
+      if (textLayers.length === 0 && imageLayers.length === 0) return;
+
+      await Promise.all([
+        textLayers.length > 0
+          ? bridge.prewarmTextAssets(scene, "session-prewarm")
+          : Promise.resolve(),
+        textLayers.length > 0
+          ? fontRegistry.ensureNativeFontsRegistered(
+              textLayers.map((layer) => layer.fontFamily),
+            )
+          : Promise.resolve(),
+        imageLayers.length > 0
+          ? bridge.prewarmImageAssets(scene)
+          : Promise.resolve(),
+      ]);
+    } catch (error) {
+      console.warn("[ProjectSession] Clip raster prewarm failed", {
+        projectId: this.projectId,
+        clipId: clip.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async _doInitialize(): Promise<void> {
     if (this._state !== "initializing") {
       throw new Error(
