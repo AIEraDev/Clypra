@@ -2,7 +2,7 @@ import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track } from "@/types";
 import type { Gap } from "@/types/gap";
-import { shouldAutoPruneTrack } from "@/lib/timeline/trackTypeConfig";
+import { shouldAutoPruneTrack, resolvePrimaryVideoTrackId } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks: Track[];
@@ -112,7 +112,7 @@ export class RippleDeleteRangeCommand implements Command {
 
     let mainVideoTrackId = state.mainVideoTrackId;
     if (mainVideoTrackId && !tracks.some((t) => t.id === mainVideoTrackId)) {
-      mainVideoTrackId = tracks.find((t) => t.type === "video")?.id ?? null;
+      mainVideoTrackId = resolvePrimaryVideoTrackId(tracks);
     }
 
     return {
