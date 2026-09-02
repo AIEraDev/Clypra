@@ -10,6 +10,7 @@
 
 import type { CanvasBackgroundConfig, MediaAsset } from "@/types";
 import type { EvaluatedScene } from "./types";
+import { getCacheCoordinator } from "@/core/cache/cacheCoordinator";
 
 /**
  * Cache key for evaluated scenes.
@@ -215,6 +216,19 @@ export class EvaluationCache {
     }
   }
 
+  getBytesUsed(): number {
+    return this.currentMemoryMB * 1024 * 1024;
+  }
+
+  trimTo(targetBytes: number): number {
+    const startBytes = this.getBytesUsed();
+    const targetMB = targetBytes / (1024 * 1024);
+    while (this.currentMemoryMB > targetMB && this.cache.size > 0) {
+      this.evictLRU();
+    }
+    return Math.max(0, startBytes - this.getBytesUsed());
+  }
+
   private serializeKey(key: CacheKey): string {
     // Round time to 3 decimal places (millisecond precision)
     const roundedTime = Math.round(key.time * 1000) / 1000;
@@ -238,6 +252,12 @@ let globalCache: EvaluationCache | null = null;
 export function getEvaluationCache(): EvaluationCache {
   if (!globalCache) {
     globalCache = new EvaluationCache(100);
+    getCacheCoordinator().register({
+      name: "evaluated-scene",
+      getBytesUsed: () => globalCache?.getBytesUsed() ?? 0,
+      trimTo: (t) => globalCache?.trimTo(t) ?? 0,
+      clear: () => globalCache?.clear(),
+    });
   }
   return globalCache;
 }
