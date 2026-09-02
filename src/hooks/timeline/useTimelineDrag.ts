@@ -47,6 +47,7 @@ import {
   getPreviewInteractionCoordinator,
   type PreviewInteractionToken,
 } from "@/core/interactions";
+import { useTimelineDraftStore } from "@/store/timelineDraftStore";
 
 const DRAG_RENDER_EPSILON_PX = 0.25;
 const EDGE_HIT_WIDTH_PX = 8; // Screen-space edge detection (stable at any zoom)
@@ -388,6 +389,19 @@ export function useTimelineDrag(
       previewInteractionRef.current =
         previewInteractionCoordinator.begin("clip-move");
       suspendAutoSave();
+
+      useTimelineDraftStore.getState().startGesture(
+        "move",
+        draggedClipIds.map((id) => {
+          const c = clipMapRef.current.get(id);
+          return {
+            id,
+            trackId: c?.trackId ?? "",
+            startTime: c?.startTime ?? 0,
+            duration: c?.duration ?? 0,
+          };
+        }),
+      );
 
       // Find clip's index in its track
       const trackClips = trackClipsMapRef.current.get(clip.trackId) ?? [];
@@ -897,6 +911,11 @@ export function useTimelineDrag(
     (clipId: string) => {
       const finishPreviewInteraction = (commit: boolean) => {
         const token = previewInteractionRef.current;
+        if (commit) {
+          useTimelineDraftStore.getState().commitGesture();
+        } else {
+          useTimelineDraftStore.getState().cancelGesture();
+        }
         if (!token) return;
         if (commit) previewInteractionCoordinator.commit(token);
         else previewInteractionCoordinator.cancel(token);
