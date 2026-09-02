@@ -15,6 +15,7 @@ import { CrashRecoveryDialog } from "./components/ui/CrashRecoveryDialog";
 import { UnsavedChangesDialog } from "@/components/ui/modals";
 import { ErrorBoundary } from "@/components/ErrorBoundary"; // Add root error boundary
 import { hasSnapshot, getSnapshot, clearSnapshot, type RecoverySnapshot } from "@/core/runtime/CrashRecoveryService";
+import { resolvePrimaryVideoTrackId } from "@/lib/timeline/trackTypeConfig";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
 import { useRecordingStore } from "@/store/recordingStore";
 import { FloatingWidget } from "@/components/ui/FloatingWidget";
@@ -281,12 +282,14 @@ const App = () => {
             timelineStore.withBatch(() => {
               // Ensure main video track exists
               let tracks = useTimelineStore.getState().tracks;
-              let mainVideoTrack = tracks.find((t) => t.type === "video");
+              const mainVideoTrackId = useTimelineStore.getState().mainVideoTrackId;
+              let mainVideoTrack = tracks.find((t) => t.id === resolvePrimaryVideoTrackId(tracks, mainVideoTrackId));
 
               if (!mainVideoTrack) {
                 useTimelineStore.getState().addTrack("video");
                 tracks = useTimelineStore.getState().tracks;
-                mainVideoTrack = tracks.find((t) => t.type === "video");
+                const nextMainId = useTimelineStore.getState().mainVideoTrackId;
+                mainVideoTrack = tracks.find((t) => t.id === resolvePrimaryVideoTrackId(tracks, nextMainId));
               }
 
               const mainTrackId = mainVideoTrack!.id;
@@ -440,10 +443,10 @@ const App = () => {
     setIsRestoring(true);
     try {
       // BUG-008 fix: useTimelineStore import removed — loadProject() handles hydration.
-      const { tracks, clips, transitions, gaps, markers, mediaAssets, project } = pendingRecovery;
+      const { tracks, clips, transitions, gaps, markers, mediaAssets, project, mainVideoTrackId } = pendingRecovery;
 
       // Hydrate project store (sets active project)
-      await loadProject(project, { tracks, clips, transitions, gaps: gaps ?? [], markers: markers ?? [], mediaAssets });
+      await loadProject(project, { tracks, clips, transitions, gaps: gaps ?? [], markers: markers ?? [], mediaAssets, mainVideoTrackId });
 
       // BUG-008 fix: Removed redundant hydrateFromProject() call.
       // loadProject() already hydrates the timeline with proper normalization.
