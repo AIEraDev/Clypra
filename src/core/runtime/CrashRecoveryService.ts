@@ -36,6 +36,7 @@ export interface RecoverySnapshot {
   /** Timeline gaps and global markers are editable project data too. */
   gaps?: Gap[];
   markers?: import("@/types").TimelineMarker[];
+  mainVideoTrackId?: string | null;
   timelineSchemaVersion?: number;
 }
 
