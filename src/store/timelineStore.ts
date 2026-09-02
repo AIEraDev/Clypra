@@ -41,6 +41,7 @@ import {
   getTrackInsertionIndexGrouped,
   getSafeTrackInsertionIndex,
   normalizeTrackOrderForMainVideo,
+  resolvePrimaryVideoTrackId,
 } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineStore {
@@ -327,12 +328,12 @@ export const useTimelineStore = create<TimelineStore>(
         });
 
         // The main row is explicit when present. For older projects, infer it
-        // from the clip/media contract so an image overlay track (which is
-        // serialized as a compatible video row) cannot become the main row.
+        // from the clip/media contract and canonical bottommost video track position
+        // so an overlay track or secondary video row cannot steal the main A-roll role.
         const explicitMainTrack = finalTracks.find(
           (track) => track.id === payload?.mainVideoTrackId && track.type === "video",
         );
-        const inferredMainTrack = finalTracks.find((track) =>
+        const inferredMainTrack = [...finalTracks].reverse().find((track) =>
           track.type === "video" && finalClipsRaw.some((clip: any) => {
             if (clip.trackId !== track.id) return false;
             if (clip.kind === "video") return true;
@@ -340,7 +341,7 @@ export const useTimelineStore = create<TimelineStore>(
             return asset?.type === "video";
           }),
         );
-        const newMainVideoTrackId = explicitMainTrack?.id ?? inferredMainTrack?.id ?? finalTracks.find((t) => t.type === "video")?.id ?? null;
+        const newMainVideoTrackId = explicitMainTrack?.id ?? inferredMainTrack?.id ?? resolvePrimaryVideoTrackId(finalTracks, payload?.mainVideoTrackId);
         finalTracks = normalizeTrackOrderForMainVideo(finalTracks, newMainVideoTrackId);
 
         // Atomic state update - all or nothing
@@ -469,7 +470,7 @@ export const useTimelineStore = create<TimelineStore>(
         nextTracks.splice(insertIndex, 0, newTrack);
         const next: Partial<TimelineStore> = {
           tracks: nextTracks,
-          mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
+          mainVideoTrackId: resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ?? (type === "video" ? newTrack.id : null),
         };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
@@ -497,7 +498,7 @@ export const useTimelineStore = create<TimelineStore>(
         nextTracks.splice(clamped, 0, newTrack);
         const next: Partial<TimelineStore> = {
           tracks: nextTracks,
-          mainVideoTrackId: state.mainVideoTrackId ?? (type === "video" ? newTrack.id : null),
+          mainVideoTrackId: resolvePrimaryVideoTrackId(state.tracks, state.mainVideoTrackId) ?? (type === "video" ? newTrack.id : null),
         };
         if (state._batchDepth > 0) {
           next._pendingEpochIncrement = true;
