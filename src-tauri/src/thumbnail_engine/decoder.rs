@@ -1759,18 +1759,28 @@ pub(crate) static THUMBNAIL_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>
 pub(crate) static PREVIEW_DECODER_POOL: Lazy<DashMap<String, Arc<DecoderEntry>>> =
     Lazy::new(DashMap::new);
 
-// Symmetric pool size limits with lock-free atomic LRU eviction (Total 20 max decoders)
+// Symmetric pool size limits with lock-free atomic LRU eviction
 const MAX_THUMBNAIL_DECODER_POOL_SIZE: usize = 10;
-const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 10;
+const MAX_PREVIEW_DECODER_POOL_SIZE: usize = 32;
+
+#[inline]
+pub fn preview_pool_key(path: &str, stream_id: &str) -> String {
+    if stream_id.trim().is_empty() {
+        path.to_string()
+    } else {
+        format!("{path}::stream::{stream_id}")
+    }
+}
 
 async fn get_or_create_decoder_in_pool(
     pool: &DashMap<String, Arc<DecoderEntry>>,
+    key: &str,
     path: &str,
     max_pool_size: usize,
     prefer_hardware: bool,
 ) -> Result<Arc<Mutex<VideoDecoder>>, String> {
     // 1. Fast Path: Check if decoder exists in pool without holding shard lock across await
-    if let Some(entry) = pool.get(path) {
+    if let Some(entry) = pool.get(key) {
         entry.touch();
         return Ok(entry.decoder.clone());
     }
@@ -1809,7 +1819,7 @@ async fn get_or_create_decoder_in_pool(
         lease_count: AtomicU64::new(0),
     });
 
-    pool.insert(path.to_string(), entry);
+    pool.insert(key.to_string(), entry);
     Ok(arc_decoder)
 }
 
@@ -1817,6 +1827,7 @@ async fn get_or_create_decoder_in_pool(
 pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
     get_or_create_decoder_in_pool(
         &THUMBNAIL_DECODER_POOL,
+        path,
         path,
         MAX_THUMBNAIL_DECODER_POOL_SIZE,
         false,
@@ -1828,8 +1839,20 @@ pub async fn get_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String>
 /// Completely decoupled from background filmstrip decoding so playback/playhead scrubbing
 /// is NEVER blocked by background batch generation locks.
 pub async fn get_preview_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    get_preview_decoder_for_stream(path, "").await
+}
+
+/// Dedicated stream-isolated Interactive Preview & Playback decoder.
+/// Stacking multiple clips or tracks referencing the same or different video files
+/// assigns each track/layer its own stream reader to prevent sequential GOP seek thrashing.
+pub async fn get_preview_decoder_for_stream(
+    path: &str,
+    stream_id: &str,
+) -> Result<Arc<Mutex<VideoDecoder>>, String> {
+    let key = preview_pool_key(path, stream_id);
     get_or_create_decoder_in_pool(
         &PREVIEW_DECODER_POOL,
+        &key,
         path,
         MAX_PREVIEW_DECODER_POOL_SIZE,
         true,
@@ -1839,18 +1862,25 @@ pub async fn get_preview_decoder(path: &str) -> Result<Arc<Mutex<VideoDecoder>>,
 
 /// Acquire a persistent pin for a Native playback decoder.
 pub async fn acquire_preview_decoder_lease(path: &str) -> Result<PreviewDecoderLease, String> {
-    // Resolve the entry through the same pool path used by ordinary preview
-    // decoding, then increment the lease before returning it. The entry stays
-    // in the pool and is therefore ineligible for LRU eviction.
+    acquire_preview_decoder_lease_for_stream(path, "").await
+}
+
+/// Acquire a persistent stream-isolated pin for a Native playback decoder.
+pub async fn acquire_preview_decoder_lease_for_stream(
+    path: &str,
+    stream_id: &str,
+) -> Result<PreviewDecoderLease, String> {
+    let key = preview_pool_key(path, stream_id);
     let decoder = get_or_create_decoder_in_pool(
         &PREVIEW_DECODER_POOL,
+        &key,
         path,
         MAX_PREVIEW_DECODER_POOL_SIZE,
         true,
     )
     .await?;
     let entry = PREVIEW_DECODER_POOL
-        .get(path)
+        .get(&key)
         .map(|value| value.value().clone())
         .ok_or_else(|| "Preview decoder disappeared during lease acquisition".to_string())?;
     entry.lease_count.fetch_add(1, Ordering::AcqRel);
@@ -1865,12 +1895,28 @@ pub async fn acquire_preview_decoder_lease(path: &str) -> Result<PreviewDecoderL
 /// Call this when a clip is removed from the project to free memory
 pub fn release_decoder(path: &str) {
     THUMBNAIL_DECODER_POOL.remove(path);
+    let keys_to_remove: Vec<String> = PREVIEW_DECODER_POOL
+        .iter()
+        .filter(|kv| {
+            (kv.key() == path || kv.key().starts_with(&format!("{path}::stream::")))
+                && kv.value().lease_count.load(Ordering::Acquire) == 0
+        })
+        .map(|kv| kv.key().clone())
+        .collect();
+    for key in keys_to_remove {
+        PREVIEW_DECODER_POOL.remove(&key);
+    }
+}
+
+/// Release a specific stream-isolated decoder
+pub fn release_decoder_stream(path: &str, stream_id: &str) {
+    let key = preview_pool_key(path, stream_id);
     if PREVIEW_DECODER_POOL
-        .get(path)
+        .get(&key)
         .map(|entry| entry.lease_count.load(Ordering::Acquire) == 0)
         .unwrap_or(false)
     {
-        PREVIEW_DECODER_POOL.remove(path);
+        PREVIEW_DECODER_POOL.remove(&key);
     }
 }
 
