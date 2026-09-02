@@ -309,7 +309,9 @@ async function persistProjectPayload(
 async function persistCurrentProjectSnapshot(
   snapshot: ProjectPersistenceSnapshot,
 ): Promise<ProjectSaveResult> {
-  return persistProjectPayload(JSON.stringify(snapshot.rustProject));
+  const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
+  const serialized = await getProjectWorkerClient().serialize(snapshot.rustProject as any);
+  return persistProjectPayload(serialized.json);
 }
 
 let crashRecoveryPromise: Promise<void> | null = null;
