@@ -25,6 +25,7 @@ import { AddClipCommand, UpdateClipCommand, AddTransitionCommand } from "@/core/
 import type { MediaAsset, TrackType } from "@/types";
 import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
+import { getPreviewInteractionCoordinator } from "@/core/interactions/PreviewInteractionCoordinator";
 
 export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
   const { selectedClipIds } = useUIStore();
@@ -38,13 +39,13 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
     return { tracks: state.tracks, clips: state.clips };
   };
 
-  const findAdjacentClipsAtPlayhead = () => {
+  const findAdjacentClipsAtPlayhead = (): [string, string] | null => {
     const { tracks, clips } = getTimelineState();
     const playheadTime = getPlaybackClock().time;
-    for (const track of tracks.filter((t) => t.type !== "audio" && !t.locked)) {
-      const sorted = clips
-        .filter((c) => c.trackId === track.id)
-        .sort((a, b) => a.startTime - b.startTime);
+    for (const track of tracks) {
+      if (track.type === "audio") continue;
+      const trackClips = clips.filter((c) => c.trackId === track.id);
+      const sorted = [...trackClips].sort((a, b) => a.startTime - b.startTime);
       for (let i = 0; i < sorted.length - 1; i++) {
         const left = sorted[i];
         const right = sorted[i + 1];
@@ -60,188 +61,191 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
 
   return useCallback(
     async (item: any, type: string) => {
-      const { tracks, clips } = getTimelineState();
+      const coordinator = getPreviewInteractionCoordinator();
+      const token = coordinator.begin("property-edit", { pauseOnBegin: true });
 
-      if (type === "media") {
-        const mediaAsset = mediaAssets.find((asset) => asset.id === item.id);
-        if (!mediaAsset) return;
+      try {
+        const { tracks, clips } = getTimelineState();
 
-        const placement = resolveAddToTimelinePlacement({
-          asset: mediaAsset,
-          tracks,
-          clips,
-          playheadTime: getPlaybackClock().time,
-          sequenceEndTime: getTimelineEndTime(),
-        });
-        let targetTrackId = placement.targetTrackId;
-        if (placement.shouldCreateTrack || !targetTrackId) {
-          const latestTracks = useTimelineStore.getState().tracks;
-          const insertIndex = getInsertIndexForNewTrack(latestTracks, placement.trackType);
-          targetTrackId = insertTrackAt(placement.trackType, insertIndex);
-        }
-        if (!targetTrackId) return;
+        if (type === "media") {
+          const mediaAsset = mediaAssets.find((asset) => asset.id === item.id);
+          if (!mediaAsset) return;
 
-        if (DEFAULT_PLACEMENT_POLICY.autoAdaptSequenceForFirstVisualClip) {
-          autoAdaptSequenceForFirstVisualClip({
-            project,
-            existingClips: clips,
+          const placement = resolveAddToTimelinePlacement({
             asset: mediaAsset,
-            updateProject,
+            tracks,
+            clips,
+            playheadTime: getPlaybackClock().time,
+            sequenceEndTime: getTimelineEndTime(),
           });
-        }
-        const nextProject = useProjectStore.getState().project;
-        const newClip = createClipFromAsset({
-          asset: mediaAsset,
-          trackId: targetTrackId,
-          startTime: placement.startTime,
-          width: nextProject?.canvasWidth || project?.canvasWidth || 1920,
-          height: nextProject?.canvasHeight || project?.canvasHeight || 1080,
-          fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-        });
-        execute(new AddClipCommand(newClip));
-
-      } else if (type === "text") {
-        const isTemplate = item.presetType === "template" || Boolean(item.templateId);
-        let placement = resolveAddToTimelinePlacement({
-          asset: { type: "video", id: item.id, trackType: "text" },
-          tracks,
-          clips,
-          playheadTime: getPlaybackClock().time,
-          sequenceEndTime: getTimelineEndTime(),
-          duration: isTemplate ? undefined : 5.0,
-        });
-        let targetTrackId = placement.targetTrackId;
-
-        // Template payloads are fetched before creating a track. This keeps a
-        // failed catalog/revision request from leaving an empty text lane.
-        if (isTemplate) {
-          const { useTemplateStore } = await import("@/features/text-templates/templateStore");
-          const { instantiateTemplate } = await import("@/features/text-templates/instantiateTemplate");
-          const store = useTemplateStore.getState();
-          const candidates = [
-            item.templateData,
-            item.injectedData,
-            item.templateDefinition?.templateData,
-            item.templateDefinition?.lottieData,
-            item.templateDefinition,
-            store.selectedTemplate?.id === item.templateId ? store.selectedTemplate : null,
-            store.templates.find((template) => template.id === item.templateId),
-          ].filter(Boolean);
-
-          let resolvedTemplate: any = candidates.find((candidate) => resolveTextTemplateArtifact(candidate));
-          const summary = item.templateDefinition || store.selectedTemplate || store.templates.find((template) => template.id === item.templateId);
-          if (!resolvedTemplate && summary?.category && item.templateId) {
-            try {
-              const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
-              // Exact revision pinning is mandatory for timeline instances.
-              resolvedTemplate = await TextEffectsApi.getTemplateArtifact(
-                summary.category,
-                item.templateId,
-                item.templateRevisionId ?? summary.revisionId ?? summary.revision?.revisionId,
-              );
-            } catch (error) {
-              console.error("[Clypra:AddToTimeline] Failed to fetch pinned text-template artifact:", error);
-            }
+          let targetTrackId = placement.targetTrackId;
+          if (placement.shouldCreateTrack || !targetTrackId) {
+            const latestTracks = useTimelineStore.getState().tracks;
+            const insertIndex = getInsertIndexForNewTrack(latestTracks, placement.trackType);
+            targetTrackId = insertTrackAt(placement.trackType, insertIndex);
           }
+          if (!targetTrackId) return;
 
-          if (!resolvedTemplate) {
-            console.error("[Clypra:AddToTimeline] Refusing to insert template without a canonical artifact", {
-              templateId: item.templateId,
-              revisionId: item.templateRevisionId,
+          if (DEFAULT_PLACEMENT_POLICY.autoAdaptSequenceForFirstVisualClip) {
+            autoAdaptSequenceForFirstVisualClip({
+              project,
+              existingClips: clips,
+              asset: mediaAsset,
+              updateProject,
             });
+          }
+          const nextProject = useProjectStore.getState().project;
+          const newClip = createClipFromAsset({
+            asset: mediaAsset,
+            trackId: targetTrackId,
+            startTime: placement.startTime,
+            width: nextProject?.canvasWidth || project?.canvasWidth || 1920,
+            height: nextProject?.canvasHeight || project?.canvasHeight || 1080,
+            fitMode: resolveDefaultFitModeForAsset(mediaAsset),
+          });
+          execute(new AddClipCommand(newClip));
+          void getActiveSessionOrNull()?.prewarmClip(newClip, placement.startTime);
+
+        } else if (type === "text") {
+          const isTemplate = item.presetType === "template" || Boolean(item.templateId);
+          let placement = resolveAddToTimelinePlacement({
+            asset: { type: "video", id: item.id, trackType: "text" },
+            tracks,
+            clips,
+            playheadTime: getPlaybackClock().time,
+            sequenceEndTime: getTimelineEndTime(),
+            duration: isTemplate ? undefined : 5.0,
+          });
+          let targetTrackId = placement.targetTrackId;
+
+          // Template payloads are fetched before creating a track. This keeps a
+          // failed catalog/revision request from leaving an empty text lane.
+          if (isTemplate) {
+            const { useTemplateStore } = await import("@/features/text-templates/templateStore");
+            const { instantiateTemplate } = await import("@/features/text-templates/instantiateTemplate");
+            const store = useTemplateStore.getState();
+            const candidates = [
+              item.templateData,
+              item.injectedData,
+              item.templateDefinition?.templateData,
+              item.templateDefinition?.lottieData,
+              item.templateDefinition,
+              store.selectedTemplate?.id === item.templateId ? store.selectedTemplate : null,
+              store.templates.find((template) => template.id === item.templateId),
+            ].filter(Boolean);
+
+            let resolvedTemplate: any = candidates.find((candidate) => resolveTextTemplateArtifact(candidate));
+            const summary = item.templateDefinition || store.selectedTemplate || store.templates.find((template) => template.id === item.templateId);
+            if (!resolvedTemplate && summary?.category && item.templateId) {
+              try {
+                const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
+                // Exact revision pinning is mandatory for timeline instances.
+                resolvedTemplate = await TextEffectsApi.getTemplateArtifact(
+                  summary.category,
+                  item.templateId,
+                  item.templateRevisionId ?? summary.revisionId ?? summary.revision?.revisionId,
+                );
+              } catch (error) {
+                console.error("[Clypra:AddToTimeline] Failed to fetch pinned text-template artifact:", error);
+              }
+            }
+
+            if (!resolvedTemplate) {
+              console.error("[Clypra:AddToTimeline] Refusing to insert template without a canonical artifact", {
+                templateId: item.templateId,
+                revisionId: item.templateRevisionId,
+              });
+              return;
+            }
+
+            const artifact = resolveTextTemplateArtifact(resolvedTemplate);
+            const duration = artifact?.timing.duration ?? resolvedTemplate.defaultDuration ?? resolvedTemplate.duration ?? 4;
+            const latest = useTimelineStore.getState();
+            placement = resolveAddToTimelinePlacement({
+              asset: { type: "video", id: item.templateId, trackType: "text" },
+              tracks: latest.tracks,
+              clips: latest.clips,
+              playheadTime: getPlaybackClock().time,
+              sequenceEndTime: getTimelineEndTime(),
+              duration,
+            });
+            targetTrackId = placement.targetTrackId;
+            if (placement.shouldCreateTrack || !targetTrackId) {
+              const latestTracks = useTimelineStore.getState().tracks;
+              targetTrackId = insertTrackAt("text", getInsertIndexForNewTrack(latestTracks, "text"));
+            }
+            if (!targetTrackId) return;
+
+            const templateClip = instantiateTemplate(resolvedTemplate, {
+              trackId: targetTrackId,
+              startTime: placement.startTime,
+              canvasWidth: project?.canvasWidth || 1920,
+              canvasHeight: project?.canvasHeight || 1080,
+              customization: item.customization,
+            });
+            execute(new AddClipCommand(templateClip));
+            // Authoritative targeted prewarm via worker client & native texture registration
+            await getActiveSessionOrNull()?.prewarmClip(templateClip, placement.startTime);
             return;
           }
 
-          const artifact = resolveTextTemplateArtifact(resolvedTemplate);
-          const duration = artifact?.timing.duration ?? resolvedTemplate.defaultDuration ?? resolvedTemplate.duration ?? 4;
-          const latest = useTimelineStore.getState();
-          placement = resolveAddToTimelinePlacement({
-            asset: { type: "video", id: item.templateId, trackType: "text" },
-            tracks: latest.tracks,
-            clips: latest.clips,
-            playheadTime: getPlaybackClock().time,
-            sequenceEndTime: getTimelineEndTime(),
-            duration,
-          });
-          targetTrackId = placement.targetTrackId;
           if (placement.shouldCreateTrack || !targetTrackId) {
             const latestTracks = useTimelineStore.getState().tracks;
             targetTrackId = insertTrackAt("text", getInsertIndexForNewTrack(latestTracks, "text"));
           }
           if (!targetTrackId) return;
 
-          const templateClip = instantiateTemplate(resolvedTemplate, {
+          let presetConfig = {};
+          if (item.id && item.id.startsWith("text-")) {
+            const presetName = item.name?.toLowerCase().replace(/\s+/g, "") as keyof typeof TEXT_PRESETS;
+            if (TEXT_PRESETS[presetName]) presetConfig = TEXT_PRESETS[presetName];
+          }
+
+          let effectDefinition = item.effectDefinition;
+          if (item.styleId && !effectDefinition) {
+            try {
+              const { useEffectsStore } = await import("@/features/text-effects/store/effectsStore");
+              const store = useEffectsStore.getState();
+              effectDefinition = store.definitions[item.styleId];
+              if (!effectDefinition) {
+                await store.fetchDefinitionOnlyById(item.styleId);
+                effectDefinition = useEffectsStore.getState().definitions[item.styleId];
+              }
+            } catch {
+              // Continue without definition — will use fallback sizing
+            }
+          }
+
+          const textClip = createTextClip({
             trackId: targetTrackId,
             startTime: placement.startTime,
+            duration: 5.0,
+            text: item.text || item.name || "Text",
             canvasWidth: project?.canvasWidth || 1920,
             canvasHeight: project?.canvasHeight || 1080,
+            textRole: "title",
+            ...presetConfig,
+            ...(item.fontFamily !== undefined ? { fontFamily: item.fontFamily } : {}),
+            ...(item.color !== undefined ? { color: item.color } : {}),
+            ...(item.fontSize !== undefined ? { fontSize: item.fontSize } : {}),
+            ...(item.fontWeight !== undefined ? { fontWeight: item.fontWeight } : {}),
+            ...(item.fontStyle !== undefined ? { fontStyle: item.fontStyle } : {}),
+            ...(item.stroke !== undefined ? { stroke: item.stroke } : {}),
+            ...(item.shadow !== undefined ? { shadow: item.shadow } : {}),
+            ...(item.background !== undefined ? { background: item.background } : {}),
+            ...(item.styleId !== undefined ? { styleId: item.styleId } : {}),
+            styleRevisionId: item.styleRevisionId ?? effectDefinition?.revisionId ?? effectDefinition?.revision?.revisionId,
+            styleContentHash: item.styleContentHash ?? effectDefinition?.contentHash ?? effectDefinition?.revision?.contentHash,
+            styleSnapshot: item.styleSnapshot ?? effectDefinition?.scene,
+            effectDefinition,
+            templateId: item.templateId,
             customization: item.customization,
           });
-          execute(new AddClipCommand(templateClip));
-          // Session-owned bridge caches are warmed after insertion, outside
-          // the add command. Playback therefore consumes a registered native
-          // texture instead of uploading the template on its first frame.
-          void getActiveSessionOrNull()?.prewarmNativeRasterAssets().catch((error) => {
-            console.warn("[Clypra:AddToTimeline] Template prewarm failed", error);
-          });
-          return;
-        }
+          execute(new AddClipCommand(textClip));
+          // Authoritative targeted prewarm for text effects and plain text
+          await getActiveSessionOrNull()?.prewarmClip(textClip, placement.startTime);
 
-        if (placement.shouldCreateTrack || !targetTrackId) {
-          const latestTracks = useTimelineStore.getState().tracks;
-          targetTrackId = insertTrackAt("text", getInsertIndexForNewTrack(latestTracks, "text"));
-        }
-        if (!targetTrackId) return;
-
-        let presetConfig = {};
-        if (item.id && item.id.startsWith("text-")) {
-          const presetName = item.name?.toLowerCase().replace(/\s+/g, "") as keyof typeof TEXT_PRESETS;
-          if (TEXT_PRESETS[presetName]) presetConfig = TEXT_PRESETS[presetName];
-        }
-
-        let effectDefinition = item.effectDefinition;
-        if (item.styleId && !effectDefinition) {
-          try {
-            const { useEffectsStore } = await import("@/features/text-effects/store/effectsStore");
-            const store = useEffectsStore.getState();
-            effectDefinition = store.definitions[item.styleId];
-            if (!effectDefinition) {
-              await store.fetchDefinitionOnlyById(item.styleId);
-              effectDefinition = useEffectsStore.getState().definitions[item.styleId];
-            }
-          } catch {
-            // Continue without definition — will use fallback sizing
-          }
-        }
-
-        const textClip = createTextClip({
-          trackId: targetTrackId,
-          startTime: placement.startTime,
-          duration: 5.0,
-          text: item.text || item.name || "Text",
-          canvasWidth: project?.canvasWidth || 1920,
-          canvasHeight: project?.canvasHeight || 1080,
-          textRole: "title",
-          ...presetConfig,
-          ...(item.fontFamily !== undefined ? { fontFamily: item.fontFamily } : {}),
-          ...(item.color !== undefined ? { color: item.color } : {}),
-          ...(item.fontSize !== undefined ? { fontSize: item.fontSize } : {}),
-          ...(item.fontWeight !== undefined ? { fontWeight: item.fontWeight } : {}),
-          ...(item.fontStyle !== undefined ? { fontStyle: item.fontStyle } : {}),
-          ...(item.stroke !== undefined ? { stroke: item.stroke } : {}),
-          ...(item.shadow !== undefined ? { shadow: item.shadow } : {}),
-          ...(item.background !== undefined ? { background: item.background } : {}),
-          ...(item.styleId !== undefined ? { styleId: item.styleId } : {}),
-          styleRevisionId: item.styleRevisionId ?? effectDefinition?.revisionId ?? effectDefinition?.revision?.revisionId,
-          styleContentHash: item.styleContentHash ?? effectDefinition?.contentHash ?? effectDefinition?.revision?.contentHash,
-          styleSnapshot: item.styleSnapshot ?? effectDefinition?.scene,
-          effectDefinition,
-          templateId: item.templateId,
-          customization: item.customization,
-        });
-        execute(new AddClipCommand(textClip));
-
-      } else if (type === "audio" && item?.audioUrl) {
+        } else if (type === "audio" && item?.audioUrl) {
         const cachedFile = getCachedFile(item.id);
         if (!cachedFile) return;
 
@@ -509,8 +513,11 @@ export function useAddToTimeline(): (item: any, type: string) => Promise<void> {
         execute(new AddClipCommand(effectClip as any));
         useProjectStore.getState().showToast(`Added ${item.name} effect`);
       }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mediaAssets, project, updateProject, insertTrackAt, getTimelineEndTime, createTransitionBetweenClips, execute, getCachedFile, selectedClipIds],
-  );
+    } finally {
+      coordinator.commit(token, false);
+    }
+  },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [mediaAssets, project, updateProject, insertTrackAt, getTimelineEndTime, createTransitionBetweenClips, execute, getCachedFile, selectedClipIds],
+);
 }
