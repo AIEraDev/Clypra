@@ -5,7 +5,7 @@
  * synchronous fallback support for non-Worker environments.
  */
 
-import { WorkerBus } from "./workerBus";
+import { WorkerBus, getSharedDomainWorkerBus } from "./workerBus";
 import type {
   WaveformLodWorkerRequest,
   WaveformLodWorkerResponse,
@@ -24,13 +24,14 @@ export class WaveformLodWorkerClient {
   >();
 
   constructor() {
-    this.bus = new WorkerBus(
+    this.bus = getSharedDomainWorkerBus(
+      "mediaAnalysis",
       () =>
         new Worker(
-          new URL("../../workers/waveformLod.worker.ts", import.meta.url),
+          new URL("../../workers/mediaAnalysis.worker.ts", import.meta.url),
           { type: "module" },
         ),
-      { name: "WaveformLodWorker", autoRestart: true },
+      { name: "MediaAnalysisWorker:WaveformLod", autoRestart: true },
     );
   }
 
