@@ -3,5 +3,5 @@
  * Public exports for subtitle parsing functionality
  */
 
-export { parseSubtitles, serializeSubtitles, parseSubtitleTime, formatSubtitleTime } from "./parser";
+export { parseSubtitles, parseSubtitlesAsync, serializeSubtitles, parseSubtitleTime, formatSubtitleTime } from "./parser";
 export type { SubtitleBlock } from "./parser";
