@@ -141,108 +141,131 @@ impl NativeRenderSession {
 
     fn materialize_request(
         &self,
-        demand: &NativePlaybackFrameDemand,
+        demand: Option<&NativePlaybackFrameDemand>,
     ) -> Result<FrameRequest, String> {
         let mut request = self
             .snapshot
             .lock()
             .map_err(|_| "Native render snapshot lock is poisoned".to_string())?
             .clone();
-        if demand.video_layers.len() != request.project.video_layers.len()
-            || demand.raster_layers.len() != request.project.raster_layers.len()
-            || demand.text_layers.len() != request.project.text_layers.len()
-        {
-            return Err(
-                "Native playback demand does not match the configured render snapshot".to_string(),
-            );
-        }
-        request.request_id = demand.request_id.clone();
-        request.frame_time = demand.frame_time;
-        request.generation = demand.generation;
-        request.mode = demand.mode.clone();
-        for (layer, update) in request
-            .project
-            .video_layers
-            .iter_mut()
-            .zip(&demand.video_layers)
-        {
-            layer.source_time = update.source_time;
-            layer.x = update.x;
-            layer.y = update.y;
-            layer.width = update.width;
-            layer.height = update.height;
-            layer.rotation = update.rotation;
-            layer.opacity = update.opacity;
-            layer.z_index = update.z_index;
-        }
-        for (layer, update) in request
-            .project
-            .raster_layers
-            .iter_mut()
-            .zip(&demand.raster_layers)
-        {
-            if !update.asset_id.is_empty() {
-                layer.asset_id = update.asset_id.clone();
+        if let Some(demand) = demand {
+            if demand.video_layers.len() != request.project.video_layers.len()
+                || demand.raster_layers.len() != request.project.raster_layers.len()
+                || demand.text_layers.len() != request.project.text_layers.len()
+            {
+                return Err(
+                    "Native playback demand does not match the configured render snapshot".to_string(),
+                );
             }
-            if update.width > 0 {
+            request.request_id = demand.request_id.clone();
+            request.frame_time = demand.frame_time;
+            request.generation = demand.generation;
+            request.mode = demand.mode.clone();
+            for (layer, update) in request
+                .project
+                .video_layers
+                .iter_mut()
+                .zip(&demand.video_layers)
+            {
+                layer.source_time = update.source_time;
+                layer.x = update.x;
+                layer.y = update.y;
                 layer.width = update.width;
-            }
-            if update.height > 0 {
                 layer.height = update.height;
+                layer.rotation = update.rotation;
+                layer.opacity = update.opacity;
+                layer.z_index = update.z_index;
             }
-            layer.display_width = update.display_width;
-            layer.display_height = update.display_height;
-            layer.x = update.x;
-            layer.y = update.y;
-            layer.rotation = update.rotation;
-            layer.opacity = update.opacity;
-            layer.z_index = update.z_index;
-        }
-        for (layer, update) in request
-            .project
-            .text_layers
-            .iter_mut()
-            .zip(&demand.text_layers)
-        {
-            layer.x = update.x;
-            layer.y = update.y;
-            layer.rotation = update.rotation;
-            layer.opacity = update.opacity;
-            layer.z_index = update.z_index;
-        }
-        if let Some(progress) = demand.transition_progress {
-            if let Some(transition) = request.project.transition.as_mut() {
-                transition.progress = progress;
+            for (layer, update) in request
+                .project
+                .raster_layers
+                .iter_mut()
+                .zip(&demand.raster_layers)
+            {
+                if !update.asset_id.is_empty() {
+                    layer.asset_id = update.asset_id.clone();
+                }
+                if update.width > 0 {
+                    layer.width = update.width;
+                }
+                if update.height > 0 {
+                    layer.height = update.height;
+                }
+                layer.display_width = update.display_width;
+                layer.display_height = update.display_height;
+                layer.x = update.x;
+                layer.y = update.y;
+                layer.rotation = update.rotation;
+                layer.opacity = update.opacity;
+                layer.z_index = update.z_index;
+            }
+            for (layer, update) in request
+                .project
+                .text_layers
+                .iter_mut()
+                .zip(&demand.text_layers)
+            {
+                layer.x = update.x;
+                layer.y = update.y;
+                layer.rotation = update.rotation;
+                layer.opacity = update.opacity;
+                layer.z_index = update.z_index;
+            }
+            if let Some(progress) = demand.transition_progress {
+                if let Some(transition) = request.project.transition.as_mut() {
+                    transition.progress = progress;
+                }
             }
         }
         Ok(request)
     }
 
     async fn render_loop(self: Arc<Self>, app: AppHandle) {
+        let frame_rate = {
+            self.snapshot
+                .lock()
+                .map(|s| s.project.frame_rate.max(1) as u64)
+                .unwrap_or(60)
+        };
+        let tick_duration = std::time::Duration::from_nanos(1_000_000_000 / frame_rate);
+        let mut ticker = tokio::time::interval(tick_duration);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        let mut last_rendered_frame_index: Option<u64> = None;
+
         while self.running.load(Ordering::Acquire) {
-            let notified = self.notify.notified();
-            let demand = self.pending.lock().ok().and_then(|mut slot| slot.take());
-            let Some(demand) = demand else {
-                notified.await;
-                continue;
-            };
-            let generation = demand.generation.unwrap_or(0);
-            if generation < self.generation.load(Ordering::Acquire) {
-                continue;
+            tokio::select! {
+                _ = ticker.tick() => {},
+                _ = self.notify.notified() => {},
             }
-            let request = match self.materialize_request(&demand) {
-                Ok(request) => request,
+
+            if !self.running.load(Ordering::Acquire) {
+                break;
+            }
+
+            let generation = self.generation.load(Ordering::Acquire);
+            let dynamic_demand = self.pending.lock().ok().and_then(|mut slot| slot.take());
+            if let Some(demand) = &dynamic_demand {
+                if demand.generation.unwrap_or(0) < generation {
+                    continue;
+                }
+            }
+
+            let base_request = match self.materialize_request(dynamic_demand.as_ref()) {
+                Ok(req) => req,
                 Err(error) => {
-                    log::warn!("native playback demand rejected: {error}");
+                    log::debug!("native playback demand materialize failed: {error}");
                     continue;
                 }
             };
+
             // Reading the lease collection here documents and enforces the
             // ownership boundary: these decoder entries stay pinned for the
             // complete lifetime of the render session, while their mutexes
             // are acquired only inside the decode stage.
             let _active_decoder_lease_count =
                 self.leases.lock().map(|leases| leases.len()).unwrap_or(0);
+
             // The JS demand carries the evaluated layer state, but the
             // authoritative frame address is always taken from Rust's native
             // audio clock. This prevents a delayed WebView RAF from selecting
@@ -251,22 +274,42 @@ impl NativeRenderSession {
                 if let Ok(frame_index) = frame_for_audio_position(
                     audio_time,
                     &PlaybackPlan {
-                        contract_version: request.contract_version,
-                        project_revision: request.project.project_revision.clone(),
-                        frame_rate: request.project.frame_rate,
+                        contract_version: base_request.contract_version,
+                        project_revision: base_request.project.project_revision.clone(),
+                        frame_rate: base_request.project.frame_rate,
                         duration_frames: u64::MAX,
                         audio_track_count: 0,
                     },
                 ) {
-                    let mut request = request;
+                    if last_rendered_frame_index == Some(frame_index) && dynamic_demand.is_none() {
+                        continue;
+                    }
+                    last_rendered_frame_index = Some(frame_index);
+
+                    let mut request = base_request;
                     request.frame_time.frame_index = frame_index;
                     request.frame_time.ticks = audio_time.ticks;
                     request.frame_time.timescale = audio_time.timescale;
+
+                    if dynamic_demand.is_none() {
+                        let audio_time_secs = (audio_time.ticks as f64) / (audio_time.timescale as f64);
+                        for layer in &mut request.project.video_layers {
+                            let base_source_time_secs = (layer.source_time.ticks as f64) / (layer.source_time.timescale.max(1) as f64);
+                            let current_source_secs = (base_source_time_secs + audio_time_secs).max(0.0);
+                            let source_frame_index = (current_source_secs * request.project.frame_rate as f64).round() as u64;
+                            let ticks = (current_source_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
+                            if let Ok(ft) = FrameTime::new(source_frame_index, ticks, DEFAULT_TIME_SCALE) {
+                                layer.source_time = ft;
+                            }
+                        }
+                    }
+
                     self.render_one(&app, request, generation).await;
                     continue;
                 }
             }
-            self.render_one(&app, request, generation).await;
+
+            self.render_one(&app, base_request, generation).await;
         }
     }
 
