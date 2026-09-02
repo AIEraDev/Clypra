@@ -60,6 +60,7 @@ export const CacheSettings: React.FC = () => {
     totalMB: number;
   } | null>(null);
   const [isClearingTemplates, setIsClearingTemplates] = useState(false);
+  const [isHardReloadingText, setIsHardReloadingText] = useState(false);
   const [audioCacheStats, setAudioCacheStats] = useState({
     count: 0,
     totalSize: 0,
@@ -250,6 +251,32 @@ export const CacheSettings: React.FC = () => {
       setTimeout(() => setApiCacheStatus(null), 5000);
     } finally {
       setIsClearingTemplates(false);
+    }
+  };
+
+  const handleHardReloadAllTextData = async () => {
+    setIsHardReloadingText(true);
+    try {
+      const { TextEffectsApi } = await import("@/features/text-effects/api/textEffectsApi");
+      const { clearTemplateGridCache } = await import("@/features/text-templates/components/TemplateGrid");
+      clearTemplateGridCache();
+
+      const result = await TextEffectsApi.hardReloadAllTextData();
+      await loadTextEffectsCacheStats();
+      await loadTextTemplatesCacheStats();
+
+      const msg = `Hard reloaded all text data (${result.effectsCount} effects, ${result.templatesCount} templates)`;
+      setApiCacheStatus({ type: "success", message: msg });
+      toast.success(msg);
+      setTimeout(() => setApiCacheStatus(null), 4000);
+    } catch (error) {
+      console.error("[CacheSettings] Hard reload text data failed:", error);
+      const msg = error instanceof Error ? error.message : "Failed to hard reload text data";
+      setApiCacheStatus({ type: "error", message: msg });
+      toast.error(msg);
+      setTimeout(() => setApiCacheStatus(null), 5000);
+    } finally {
+      setIsHardReloadingText(false);
     }
   };
 
@@ -459,6 +486,31 @@ export const CacheSettings: React.FC = () => {
         </button>
 
         <p className="text-[10px] text-text-muted px-1 leading-relaxed">Timeline instances keep their immutable snapshot and are not affected by this action.</p>
+      </section>
+
+      {/* Dev Mode: Hard Reload Text Effects & Templates */}
+      <section className="space-y-2.5 pt-4 border-t border-white/6">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-accent">Developer Mode: Text Catalog</h3>
+            <span className="px-1.5 py-0.5 rounded bg-accent/15 text-accent text-[9px] font-medium">Auto-refreshes every 30m</span>
+          </div>
+          <p className="text-[10px] text-text-muted mt-0.5">Purges all local RAM, IndexedDB, and browser caches for both text effects and text templates, then re-fetches the latest catalog fresh from the API.</p>
+        </div>
+
+        <button
+          onClick={handleHardReloadAllTextData}
+          disabled={isHardReloadingText}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-accent/10 hover:bg-accent/20 border border-accent/25 hover:border-accent/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center shrink-0">
+            {isHardReloadingText ? <RefreshCw className="w-4 h-4 text-accent animate-spin" /> : <RefreshCw className="w-4 h-4 text-accent" />}
+          </div>
+          <div className="text-left flex-1">
+            <div className="text-[12px] font-semibold text-text-primary">Hard Reload &amp; Refresh All Text Data</div>
+            <div className="text-[10px] text-text-muted">Purges all text effects and template caches &amp; refetches latest catalog</div>
+          </div>
+        </button>
       </section>
 
       {/* Filmstrip & Media Pipeline Disk Cache */}
