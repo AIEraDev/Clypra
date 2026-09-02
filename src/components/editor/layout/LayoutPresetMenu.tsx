@@ -1,7 +1,8 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { LayoutGrid, Check } from "lucide-react";
 import { useSettingsStore, type LayoutPreset } from "@/store/settingsStore";
 import { useClickOutside } from "@/hooks";
+import { hideNativeSurfaceWhenIdle } from "@/core/runtime/nativeSurfaceLifecycle";
 
 interface PresetOption {
   id: LayoutPreset;
@@ -17,6 +18,12 @@ export const LayoutPresetMenu: React.FC = () => {
   const setLayoutPreset = useSettingsStore((s) => s.setLayoutPreset);
 
   useClickOutside(menuRef, () => setIsOpen(false), { enabled: isOpen });
+
+  useEffect(() => {
+    if (isOpen) {
+      void hideNativeSurfaceWhenIdle().catch(() => undefined);
+    }
+  }, [isOpen]);
 
   const presets: PresetOption[] = [
     {
