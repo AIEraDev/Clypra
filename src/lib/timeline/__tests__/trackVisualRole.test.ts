@@ -57,11 +57,11 @@ describe("track visual roles", () => {
     ]);
   });
 
-  it("falls back to the first video track when mainVideoTrackId is absent", () => {
-    const tracks = [track("main", "video"), track("secondary", "video")];
+  it("falls back to the bottommost video track (A-roll) when mainVideoTrackId is absent in top-insertion layout", () => {
+    const tracks = [track("overlay", "video"), track("main", "video")];
 
-    expect(getTrackVisualSpec(tracks[0], tracks, null).role).toBe("a-roll");
-    expect(getTrackVisualSpec(tracks[1], tracks, null).role).toBe("b-roll");
+    expect(getTrackVisualSpec(tracks[0], tracks, null).role).toBe("b-roll");
+    expect(getTrackVisualSpec(tracks[1], tracks, null).role).toBe("a-roll");
   });
 
   it.each([
