@@ -71,6 +71,35 @@ interface ClipProps {
   };
 }
 
+function getClipDisplayText(clip: any): string {
+  // 1. If explicit text is set on the clip
+  if (clip.text && typeof clip.text === "string" && clip.text.trim().length > 0) {
+    return clip.text;
+  }
+
+  // 2. For text templates, check control values or snapshot nodes
+  if (clip.kind === "text-template" || clip.templateSnapshot) {
+    if (clip.templateControlValues) {
+      for (const val of Object.values(clip.templateControlValues)) {
+        if (typeof val === "string" && val.trim().length > 0) {
+          return val;
+        }
+      }
+    }
+    const nodes = clip.templateSnapshot?.document?.nodes;
+    if (Array.isArray(nodes)) {
+      const textNode = nodes.find(
+        (n: any) => n.type === "text" && typeof n.text === "string" && n.text.trim().length > 0,
+      );
+      if (textNode?.text) return textNode.text;
+    }
+  }
+
+  // 3. Clean up clip name or template label
+  const rawLabel = clip.name || clip.templateSnapshot?.metadata?.label || "Text";
+  return rawLabel.replace(/^text-template-/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+}
+
 const ClipInner: React.FC<ClipProps> = ({
   clip,
   mediaAsset,
@@ -912,11 +941,7 @@ const ClipInner: React.FC<ClipProps> = ({
             </div>
           )}
           <div className="text-[12px] text-clypra-clip-fg font-medium tracking-[0.01em] truncate max-w-full select-none pointer-events-none pl-4">
-            {clip.kind === "text-template"
-              ? clip.name ||
-                (clip as any).templateSnapshot?.metadata?.label ||
-                "Text Template"
-              : (clip as any).text || "Default text"}
+            {getClipDisplayText(clip)}
           </div>
         </div>
       ) : isClipFilter ? (
