@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { WaveformBucket } from "@/types";
+import { getWaveformLodWorkerClient } from "@/core/workers/waveformLodWorkerClient";
 
 const WAVEFORM_CACHE_MAX = 50;
 
@@ -156,31 +157,29 @@ export function getBrowserWaveformData(
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       const channelData = audioBuffer.getChannelData(0);
       const sampleRate = audioBuffer.sampleRate;
-      const sourceDuration = Number.isFinite(request.sourceDuration) && request.sourceDuration! > 0
-        ? request.sourceDuration!
-        : undefined;
 
-      if (sourceDuration) {
-        const sourceBuckets = computeWaveformBuckets(
-          channelData,
-          0,
-          channelData.length,
-          request.sourceBucketCount ?? 2048,
-        );
-        return sampleWaveformRange(
-          sourceBuckets,
-          request.sourceStart / sourceDuration,
-          (request.sourceStart + request.visibleDuration) / sourceDuration,
-          request.bucketCount,
-        );
-      }
+      const workerClient = getWaveformLodWorkerClient();
+      // Transfer copy of channelData to worker for LOD pyramid building
+      const pcmCopy = new Float32Array(channelData);
+      await workerClient.buildLod(request.url, pcmCopy, sampleRate, 1);
 
-      return computeWaveformBuckets(
-        channelData,
-        Math.floor(Math.max(0, request.sourceStart) * sampleRate),
-        Math.floor(Math.max(0, request.sourceStart + request.visibleDuration) * sampleRate),
+      const startSample = Math.floor(Math.max(0, request.sourceStart) * sampleRate);
+      const endSample = Math.floor(
+        Math.max(0, request.sourceStart + request.visibleDuration) * sampleRate,
+      );
+
+      const slice = await workerClient.sliceViewport(
+        request.url,
+        startSample,
+        endSample,
         request.bucketCount,
       );
+
+      const buckets: WaveformBucket[] = [];
+      for (let i = 0; i < slice.peaks.length; i++) {
+        buckets.push({ peak: slice.peaks[i], rms: slice.rms[i] });
+      }
+      return buckets;
     } finally {
       await audioContext.close();
     }
