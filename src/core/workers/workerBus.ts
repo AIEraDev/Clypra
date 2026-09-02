@@ -398,3 +398,37 @@ export class LatestOnlyQueue<
     return result;
   }
 }
+
+// ─── Shared Domain Worker Bus Registry ────────────────────────────────────────
+
+const domainBuses = new Map<string, WorkerBus<any, any>>();
+
+/**
+ * Get or initialize a shared WorkerBus for a persistent domain isolate.
+ * Multiple domain clients (e.g. keyframeEval, timelineSnap, projectWorker)
+ * share the same underlying Web Worker thread instead of spawning separate isolates.
+ */
+export function getSharedDomainWorkerBus<
+  TRequest extends WorkerMessage = WorkerMessage,
+  TResponse extends WorkerMessage = WorkerMessage,
+>(
+  domainKey: string,
+  factory: () => Worker,
+  options?: WorkerBusOptions,
+): WorkerBus<TRequest, TResponse> {
+  let bus = domainBuses.get(domainKey);
+  if (!bus || bus.status === "error" || !bus.isAvailable) {
+    bus = new WorkerBus<TRequest, TResponse>(factory, options);
+    domainBuses.set(domainKey, bus);
+  }
+  return bus as WorkerBus<TRequest, TResponse>;
+}
+
+/** Reset all shared domain worker buses (for testing / runtime teardown). */
+export function resetSharedDomainWorkerBuses(): void {
+  for (const bus of domainBuses.values()) {
+    bus.dispose();
+  }
+  domainBuses.clear();
+}
+
