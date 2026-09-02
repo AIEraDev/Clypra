@@ -79,6 +79,25 @@ export class ColorScopesWorkerClient {
     return this.dispatchAnalyze(frame, enabledScopes, downsampleFactor);
   }
 
+  /**
+   * Capture and analyze a canvas element frame.
+   */
+  async analyzeCanvas(
+    canvas: HTMLCanvasElement | OffscreenCanvas,
+    enabledScopes: ScopeKind[],
+    downsampleFactor: number = 2,
+  ): Promise<ScopeAnalyzeResult> {
+    if (typeof createImageBitmap === "function") {
+      try {
+        const bitmap = await createImageBitmap(canvas);
+        return await this.analyze(bitmap, enabledScopes, downsampleFactor);
+      } catch {
+        // fallback
+      }
+    }
+    return this.fallbackAnalyze({ close() {} } as any, enabledScopes, downsampleFactor);
+  }
+
   private async dispatchAnalyze(
     frame: ImageBitmap,
     enabledScopes: ScopeKind[],
