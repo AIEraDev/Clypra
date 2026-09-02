@@ -991,20 +991,19 @@ export function buildNativeVideoProjectRequest(
 ): NativeVideoProjectFrameRequest | null {
   const canvasWidth = scene.metadata.canvasWidth || 1920;
   const canvasHeight = scene.metadata.canvasHeight || 1080;
-  const culledVisualLayers = cullOccludedVisualLayers(
-    scene.visualLayers,
-    canvasWidth,
-    canvasHeight,
-  );
+  const hasTransitions = Boolean(scene.transitions && scene.transitions.length > 0);
+  const visualLayers = hasTransitions
+    ? scene.visualLayers
+    : cullOccludedVisualLayers(scene.visualLayers, canvasWidth, canvasHeight);
 
-  if (culledVisualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) return null;
+  if (visualLayers.some((layer) => layer.layerType !== "media" && layer.layerType !== "text")) return null;
   const clearColor = getNativeClearColor(scene, rasterLayers);
   if (!clearColor) return null;
 
-  const textLayers = culledVisualLayers.filter(
+  const textLayers = visualLayers.filter(
     (layer): layer is EvaluatedTextLayer => layer.layerType === "text"
   );
-  const allMediaLayers = culledVisualLayers.filter(
+  const allMediaLayers = visualLayers.filter(
     (layer): layer is EvaluatedMediaLayer => layer.layerType === "media",
   );
   const animatedStickerLayers = allMediaLayers.filter(isNativeAnimatedStickerLayer);
@@ -1274,13 +1273,12 @@ export function buildNativeFrameRequest(
   const request = buildNativeVideoProjectRequest(scene, rasterLayers);
   if (!request) return null;
 
-  const culledVisualLayers = cullOccludedVisualLayers(
-    scene.visualLayers,
-    request.canvasWidth,
-    request.canvasHeight,
-  );
+  const hasTransitions = Boolean(scene.transitions && scene.transitions.length > 0);
+  const visualLayers = hasTransitions
+    ? scene.visualLayers
+    : cullOccludedVisualLayers(scene.visualLayers, request.canvasWidth, request.canvasHeight);
   const nativeMediaLayers = request.layers.filter((layer) => layer.layerId !== NATIVE_BACKGROUND_MEDIA_LAYER_ID);
-  const videoLayers = culledVisualLayers
+  const videoLayers = visualLayers
     .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer))
     .map((layer, index) => {
       const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
