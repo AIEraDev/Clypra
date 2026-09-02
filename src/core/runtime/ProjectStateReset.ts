@@ -340,6 +340,17 @@ export async function resetAllProjectState(options: ResetOptions = {}): Promise<
 
 
 
+    // CacheCoordinator — coordinated memory trimming across all registered participants
+    import("@/core/cache/cacheCoordinator")
+      .then(({ getCacheCoordinator }) => {
+        getCacheCoordinator().handleMemoryPressure("moderate");
+        resetSubsystems.push("CacheCoordinator");
+      })
+      .catch((error) => {
+        errors.push({ subsystem: "CacheCoordinator", error: error as Error });
+        console.error("  ❌ CacheCoordinator reset failed:", error);
+      }),
+
     // GlobalGPUCache
     opts.resetGPUCache
       ? import("@/lib/cache/globalGPUCache")
