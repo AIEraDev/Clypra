@@ -182,7 +182,22 @@ export const TextEffectsApi = {
     // non-existent aggregate `/text-templates` route (which returned 404 and
     // caused the editor to silently replace the remote catalog with static
     // templates). Category requests also preserve each item's revision pin.
-    const categories = ["lower-third", "title-card", "caption", "callout", "social", "countdown"];
+    const categories = [
+      "lower-third",
+      "title-card",
+      "caption",
+      "callout",
+      "social",
+      "countdown",
+      "kinetic-type",
+      "cta",
+      "credits",
+      "quotes",
+      "sports",
+      "gaming",
+      "news",
+      "minimal",
+    ];
     const responses = await Promise.all(
       categories.map((category) => this.getTemplatesByCategory(category, options)),
     );
@@ -202,6 +217,9 @@ export const TextEffectsApi = {
       headers: getApiHeaders(),
       cache: options.forceRefresh ? "no-store" : "default",
     });
+    if (res.status === 404) {
+      return [];
+    }
     if (!res.ok) throw new Error(`Failed to load templates for category: ${category}`);
     const data = (await res.json()) as TemplateDefinition[];
     if (Array.isArray(data) && data.length > 0) {
