@@ -5,7 +5,7 @@
  * and background OPFS persistence via WorkerBus with synchronous fallbacks.
  */
 
-import { WorkerBus } from "./workerBus";
+import { WorkerBus, getSharedDomainWorkerBus } from "./workerBus";
 import type {
   ProjectWorkerRequest,
   ProjectWorkerResponse,
@@ -23,13 +23,14 @@ export class ProjectWorkerClient {
   >;
 
   constructor() {
-    this.bus = new WorkerBus(
+    this.bus = getSharedDomainWorkerBus(
+      "compute",
       () =>
         new Worker(
-          new URL("../../workers/projectWorker.worker.ts", import.meta.url),
+          new URL("../../workers/compute.worker.ts", import.meta.url),
           { type: "module" },
         ),
-      { name: "ProjectWorker", autoRestart: true },
+      { name: "ComputeWorker:Project", autoRestart: true },
     );
   }
 
