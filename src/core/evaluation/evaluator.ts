@@ -262,26 +262,26 @@ export function evaluateTimelineScene(
       const evalFontSize =
         kf.fontSize !== undefined
           ? evaluateProperty(kf.fontSize, offset, clip.duration)
-          : (templateStyle.fontSize ??
-            textClip.fontSize ??
+          : (textClip.fontSize ??
+            templateStyle.fontSize ??
             styleTypography.fontSize ??
             48);
       const evalColor =
         kf.color !== undefined
           ? evaluateProperty(kf.color, offset, clip.duration)
-          : templateStyle.textColor || textClip.color || "#ffffff";
+          : textClip.color || templateStyle.textColor || "#ffffff";
       const evalLetterSpacing =
         kf.letterSpacing !== undefined
           ? evaluateProperty(kf.letterSpacing, offset, clip.duration)
-          : (templateStyle.letterSpacing ??
-            textClip.letterSpacing ??
+          : (textClip.letterSpacing ??
+            templateStyle.letterSpacing ??
             styleTypography.letterSpacing ??
             0);
       const evalLineHeight =
         kf.lineHeight !== undefined
           ? evaluateProperty(kf.lineHeight, offset, clip.duration)
-          : (templateStyle.lineHeight ??
-            textClip.lineHeight ??
+          : (textClip.lineHeight ??
+            templateStyle.lineHeight ??
             styleTypography.lineHeight ??
             1.2);
 
@@ -348,8 +348,8 @@ export function evaluateTimelineScene(
         // evaluation after the user clears the editor field.
         text: templateTextNode?.text ?? textClip.text ?? "",
         fontFamily: normalizeFontFamily(
-          templateStyle.fontFamily ||
-            textClip.fontFamily ||
+          textClip.fontFamily ||
+            templateStyle.fontFamily ||
             styleTypography.fontFamily ||
             "Inter Variable",
         ),
@@ -358,16 +358,16 @@ export function evaluateTimelineScene(
         fontId: textClip.fontId,
         fontSize: evalFontSize,
         color: evalColor,
-        fontWeight: (templateStyle.fontWeight ??
-          textClip.fontWeight ??
+        fontWeight: (textClip.fontWeight ??
+          templateStyle.fontWeight ??
           styleTypography.fontWeight ??
           "normal") as "normal" | "bold" | number,
         fontStyle:
-          templateStyle.fontStyle ||
           textClip.fontStyle ||
+          templateStyle.fontStyle ||
           styleTypography.fontStyle ||
           "normal",
-        textAlign: templateStyle.textAlign || textClip.align || "center",
+        textAlign: textClip.align || templateStyle.textAlign || "center",
         verticalAlign:
           templateStyle.verticalAlign || textClip.valign || "middle",
         lineHeight: evalLineHeight,
