@@ -5,7 +5,7 @@
  * via WorkerBus with synchronous fallback support for test/SSR environments.
  */
 
-import { WorkerBus } from "./workerBus";
+import { WorkerBus, getSharedDomainWorkerBus } from "./workerBus";
 import type {
   TimelineSnapWorkerRequest,
   TimelineSnapWorkerResponse,
@@ -25,13 +25,14 @@ export class TimelineSnapWorkerClient {
   private fallbackMarkers: SnapMarker[] = [];
 
   constructor() {
-    this.bus = new WorkerBus(
+    this.bus = getSharedDomainWorkerBus(
+      "compute",
       () =>
         new Worker(
-          new URL("../../workers/timelineSnap.worker.ts", import.meta.url),
+          new URL("../../workers/compute.worker.ts", import.meta.url),
           { type: "module" },
         ),
-      { name: "TimelineSnapWorker", autoRestart: true },
+      { name: "ComputeWorker:TimelineSnap", autoRestart: true },
     );
   }
 
