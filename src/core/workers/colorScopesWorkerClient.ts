@@ -6,7 +6,7 @@
  * a backlog of stale analysis jobs.
  */
 
-import { WorkerBus } from "./workerBus";
+import { WorkerBus, getSharedDomainWorkerBus } from "./workerBus";
 import type {
   ColorScopesWorkerRequest,
   ColorScopesWorkerResponse,
@@ -29,13 +29,14 @@ export class ColorScopesWorkerClient {
   } | null = null;
 
   constructor() {
-    this.bus = new WorkerBus(
+    this.bus = getSharedDomainWorkerBus(
+      "mediaAnalysis",
       () =>
         new Worker(
-          new URL("../../workers/colorScopes.worker.ts", import.meta.url),
+          new URL("../../workers/mediaAnalysis.worker.ts", import.meta.url),
           { type: "module" },
         ),
-      { name: "ColorScopesWorker", autoRestart: true },
+      { name: "MediaAnalysisWorker:ColorScopes", autoRestart: true },
     );
   }
 
