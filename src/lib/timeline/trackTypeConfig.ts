@@ -142,8 +142,39 @@ export const TRACK_TYPE_CONFIG: Record<TrackType, TrackTypeConfig> = {
 };
 
 /**
+ * Canonical helper to resolve the authoritative primary video track (A-Roll) ID.
+ *
+ * In Clypra's timeline architecture:
+ * 1. If `mainVideoTrackId` is explicitly provided and matches an existing video track,
+ *    it is authoritative.
+ * 2. In top-insertion order, overlay/B-roll video tracks reside above the main video track
+ *    (at lower array indices). Thus, the primary A-roll track is always the bottommost
+ *    video track (highest index video track before audio).
+ */
+export function resolvePrimaryVideoTrackId(
+  tracks: Array<Pick<Track, "id" | "type">>,
+  mainVideoTrackId?: string | null,
+): string | null {
+  if (mainVideoTrackId) {
+    const matched = tracks.find(
+      (track) => track.id === mainVideoTrackId && track.type === "video",
+    );
+    if (matched) return matched.id;
+  }
+
+  // Fallback: bottommost video track in array order
+  for (let i = tracks.length - 1; i >= 0; i--) {
+    if (tracks[i].type === "video") {
+      return tracks[i].id;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Resolves the display role for a track without relying on array position.
- * mainVideoTrackId is authoritative; the first video track is the compatibility
+ * mainVideoTrackId is authoritative; the bottommost video track is the compatibility
  * fallback for older or partially hydrated projects.
  */
 export function getTrackVisualSpec(
@@ -152,14 +183,8 @@ export function getTrackVisualSpec(
   mainVideoTrackId?: string | null,
 ): TrackVisualSpec {
   if (track.type === "video") {
-    const configuredPrimaryIsVideo = tracks.some(
-      (candidate) =>
-        candidate.id === mainVideoTrackId && candidate.type === "video",
-    );
-    const primaryVideoId = configuredPrimaryIsVideo
-      ? mainVideoTrackId
-      : tracks.find((candidate) => candidate.type === "video")?.id;
-    const isARoll = track.id === primaryVideoId;
+    const primaryVideoId = resolvePrimaryVideoTrackId(tracks, mainVideoTrackId);
+    const isARoll = primaryVideoId !== null && track.id === primaryVideoId;
 
     return {
       role: isARoll ? "a-roll" : "b-roll",
@@ -200,7 +225,7 @@ export function getTrackVisualSpec(
 
 /**
  * Returns true if an empty track should be automatically removed.
- * Protects the primary video track (mainVideoTrackId / first video track) from auto-pruning.
+ * Protects the primary video track (mainVideoTrackId / bottommost video track) from auto-pruning.
  * All other empty tracks (secondary video, audio, text, overlay, etc.) are auto-pruned.
  */
 export function shouldAutoPruneTrack(
@@ -214,14 +239,7 @@ export function shouldAutoPruneTrack(
   } else if (typeof mainVideoTrackId === "string") {
     primaryId = mainVideoTrackId;
   } else if (Array.isArray(tracksOrPrimaryId)) {
-    const videoTracks = tracksOrPrimaryId.filter((t) => t.type === "video");
-    if (videoTracks.length === 1) {
-      primaryId = videoTracks[0].id;
-    } else if (videoTracks.length > 1) {
-      // In top-insertion order, overlay tracks are inserted at the top (index 0).
-      // The primary / main video track is the bottommost video track before audio.
-      primaryId = videoTracks[videoTracks.length - 1].id;
-    }
+    primaryId = resolvePrimaryVideoTrackId(tracksOrPrimaryId, mainVideoTrackId);
   }
 
   if (primaryId && track.id === primaryId) {
@@ -300,14 +318,8 @@ export function getMainVideoTrackIndex(
   tracks: Array<Pick<Track, "id" | "type">>,
   mainVideoTrackId?: string | null,
 ): number {
-  const configuredIndex = mainVideoTrackId
-    ? tracks.findIndex(
-        (track) => track.id === mainVideoTrackId && track.type === "video",
-      )
-    : -1;
-  return configuredIndex >= 0
-    ? configuredIndex
-    : tracks.findIndex((track) => track.type === "video");
+  const primaryId = resolvePrimaryVideoTrackId(tracks, mainVideoTrackId);
+  return primaryId ? tracks.findIndex((track) => track.id === primaryId) : -1;
 }
 
 /** Returns true when a track is below the main video row. */
@@ -351,10 +363,12 @@ export function normalizeTrackOrderForMainVideo<
 >(tracks: T[], mainVideoTrackId?: string | null): T[] {
   const nonAudioTracks = tracks.filter((track) => track.type !== "audio");
   const audioTracks = tracks.filter((track) => track.type === "audio");
-  const mainIndex = getMainVideoTrackIndex(tracks, mainVideoTrackId);
-  if (mainIndex < 0) return [...nonAudioTracks, ...audioTracks];
+  const primaryId = resolvePrimaryVideoTrackId(tracks, mainVideoTrackId);
+  if (!primaryId) return [...nonAudioTracks, ...audioTracks];
 
-  const mainTrack = tracks[mainIndex];
+  const mainTrack = tracks.find((track) => track.id === primaryId);
+  if (!mainTrack) return [...nonAudioTracks, ...audioTracks];
+
   const nonAudioAboveMain = nonAudioTracks.filter(
     (track) => track.id !== mainTrack.id,
   );
