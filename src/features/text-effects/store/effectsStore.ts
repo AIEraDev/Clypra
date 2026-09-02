@@ -17,6 +17,7 @@ const initialDefinitions = builtInPresets.reduce<Record<string, EffectDefinition
 interface EffectsState {
   // ── Phase 1: Grid index ─────────────────────────────────────────
   index: Record<string, EffectIndexItem[]>; // category → items
+  indexTimestamps: Record<string, number>; // category → fetch timestamp
   indexLoading: boolean;
   indexError: string | null;
 
@@ -32,7 +33,7 @@ interface EffectsState {
   selectedCategory: string | null;
 
   // ── Actions ─────────────────────────────────────────────────────
-  loadCategory: (category: string) => Promise<void>;
+  loadCategory: (category: string, options?: { forceRefresh?: boolean }) => Promise<void>;
   getDefinitionById: (id: string, category: string, options?: { revisionId?: string; contentHash?: string }) => Promise<EffectFullDefinition>;
   selectEffect: (id: string, category: string) => Promise<void>;
   prefetchEffect: (id: string, category: string) => void; // fire and forget
@@ -40,8 +41,11 @@ interface EffectsState {
   fetchDefinitionOnlyById: (id: string) => Promise<EffectFullDefinition>;
 }
 
+const EFFECT_CATEGORY_TTL_MS = 30 * 60 * 1000; // 30 mins
+
 export const useEffectsStore = create<EffectsState>((set, get) => ({
   index: {},
+  indexTimestamps: {},
   indexLoading: false,
   indexError: null,
   definitions: initialDefinitions,
@@ -58,17 +62,21 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
 
   // ── loadCategory ──────────────────────────────────────────────
   // Called on panel open or tab switch
-  // No-ops if category already in memory
-  loadCategory: async (category) => {
+  // Refetches if stale (>30m) or empty or forceRefresh is true
+  loadCategory: async (category, options = {}) => {
     // Standardize category lookup (e.g. lowercase)
     const catKey = category.toLowerCase();
-    if (get().index[catKey]) return;
+    const existing = get().index[catKey];
+    const timestamp = get().indexTimestamps[catKey] ?? 0;
+    const isFresh = Date.now() - timestamp < EFFECT_CATEGORY_TTL_MS;
+
+    if (!options.forceRefresh && existing && existing.length > 0 && isFresh) return;
 
     set({ indexLoading: true, indexError: null });
 
     try {
       const res = await fetch(`${API_BASE}/text-effects/${catKey}`, {
-        cache: "reload",
+        cache: options.forceRefresh ? "no-store" : "reload",
         headers: getApiHeaders(),
       });
 
@@ -76,6 +84,7 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
       if (res.status === 404) {
         set((state) => ({
           index: { ...state.index, [catKey]: [] },
+          indexTimestamps: { ...state.indexTimestamps, [catKey]: Date.now() },
           indexLoading: false,
         }));
         return;
@@ -86,6 +95,7 @@ export const useEffectsStore = create<EffectsState>((set, get) => ({
 
       set((state) => ({
         index: { ...state.index, [catKey]: data },
+        indexTimestamps: { ...state.indexTimestamps, [catKey]: Date.now() },
         indexLoading: false,
       }));
     } catch (err) {
