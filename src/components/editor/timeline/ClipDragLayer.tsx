@@ -4,11 +4,11 @@ import { useDragLayer } from "react-dnd";
 import { useDragStateStore } from "@/store/dragStateStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { useProjectStore } from "@/store/projectStore";
-import { TRACK_TYPE_CONFIG } from "@/lib/timeline/trackTypeConfig";
+import { TRACK_TYPE_CONFIG, resolveTrackTypeForClip } from "@/lib/timeline/trackTypeConfig";
 
 export const ClipDragLayer: React.FC = () => {
   const { draggingClip, grabOffsetX, grabOffsetY } = useDragStateStore();
-  const { pixelsPerSecond } = useTimelineStore();
+  const { pixelsPerSecond, tracks } = useTimelineStore();
   const { mediaAssets } = useProjectStore();
 
   const { isDragging, currentOffset } = useDragLayer((monitor: any) => ({
@@ -21,14 +21,16 @@ export const ClipDragLayer: React.FC = () => {
   }
 
   const mediaAsset = mediaAssets.find((a) => a.id === draggingClip.mediaId);
+  const sourceTrack = tracks.find((t) => t.id === draggingClip.trackId);
+  const resolvedTrackType = resolveTrackTypeForClip(draggingClip, sourceTrack, mediaAsset);
   const clipWidth = Math.min(Math.round(draggingClip.duration * pixelsPerSecond), 360);
-  const trackHeight = TRACK_TYPE_CONFIG.video.height;
+  const trackHeight = TRACK_TYPE_CONFIG[resolvedTrackType]?.height ?? TRACK_TYPE_CONFIG.video.height;
 
-  // Determine background color based on media asset type
+  // Determine background color based on resolved track type & media asset type
   const getBackgroundColor = () => {
-    if (!mediaAsset) return "var(--clypra-clip-video-bg)";
-    if (mediaAsset.type === "audio") return "var(--clypra-clip-audio-bg)";
-    if (mediaAsset.type === "video") return "var(--clypra-clip-video-bg)";
+    if (resolvedTrackType === "text") return "var(--clypra-clip-text-bg)";
+    if (resolvedTrackType === "audio" || mediaAsset?.type === "audio") return "var(--clypra-clip-audio-bg)";
+    if (mediaAsset?.type === "video") return "var(--clypra-clip-video-bg)";
     return "var(--clypra-clip-image-bg)";
   };
 
