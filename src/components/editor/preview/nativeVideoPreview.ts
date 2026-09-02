@@ -1277,26 +1277,26 @@ export function buildNativeFrameRequest(
   const visualLayers = hasTransitions
     ? scene.visualLayers
     : cullOccludedVisualLayers(scene.visualLayers, request.canvasWidth, request.canvasHeight);
-  const nativeMediaLayers = request.layers.filter((layer) => layer.layerId !== NATIVE_BACKGROUND_MEDIA_LAYER_ID);
   const videoLayers = visualLayers
     .filter((layer): layer is EvaluatedMediaLayer => layer.layerType === "media" && isNativeVideoGraphLayer(layer) && !isNativeAnimatedStickerLayer(layer))
-    .map((layer, index) => {
+    .map((layer) => {
       const colorGrade = getNativeColorGrade(layer.adjustments, layer.colorGrade, layer.filter, layer.effects, scene.activeFilter?.effectStack);
+      const bodyEffect = getNativeBodyEffect(layer, rasterLayers);
       return {
-      assetId: layer.mediaId,
-      layerId: layer.layerId,
-      videoPath: nativeMediaLayers[index].videoPath,
-      sourceTime: secondsToNativeTime(layer.sourceTime, Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1)))),
-      x: layer.x,
-      y: layer.y,
-      width: layer.width,
-      height: layer.height,
-      rotation: layer.rotation,
-      opacity: layer.opacity,
-      zIndex: layer.zIndex,
-      blendMode: layer.blendMode,
-      ...(colorGrade ? { colorGrade } : {}),
-      ...(nativeMediaLayers[index].bodyEffect ? { bodyEffect: nativeMediaLayers[index].bodyEffect } : {}),
+        assetId: layer.mediaId,
+        layerId: layer.layerId,
+        videoPath: layer.sourcePath,
+        sourceTime: secondsToNativeTime(layer.sourceTime, Math.max(0, Math.round(layer.sourceTime * Math.max(frameRate, 1)))),
+        x: layer.x,
+        y: layer.y,
+        width: layer.width,
+        height: layer.height,
+        rotation: layer.rotation,
+        opacity: layer.opacity,
+        zIndex: layer.zIndex,
+        blendMode: layer.blendMode,
+        ...(colorGrade ? { colorGrade } : {}),
+        ...(bodyEffect ? { bodyEffect } : {}),
       };
     });
 
