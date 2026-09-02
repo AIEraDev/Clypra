@@ -42,7 +42,7 @@ import {
 } from "@/lib/timeline/timelineViewport";
 import { useHistoryStore } from "@/store/historyStore";
 import { buildTimelineDragCommand } from "@/core/history/commands/TimelineDragCommand";
-import { isTrackBelowMainVideo } from "@/lib/timeline/trackTypeConfig";
+import { isTrackBelowMainVideo, resolveTrackTypeForClip } from "@/lib/timeline/trackTypeConfig";
 import {
   getPreviewInteractionCoordinator,
   type PreviewInteractionToken,
@@ -618,34 +618,36 @@ export function useTimelineDrag(
           clipMapRef.current.get(draggedId) ??
           liveClips.find((c) => c.id === draggedId);
         if (!draggedClip) continue;
-        const kind =
-          draggedClip.kind ??
-          ("text" in draggedClip || draggedClip.id.startsWith("text-clip-")
-            ? "text"
-            : draggedClip.mediaId.startsWith("sticker-")
-              ? "sticker"
-              : draggedClip.id.startsWith("filter-clip-")
-                ? "filter"
-                : "video");
-        if (kind === "text" && targetTrack.type !== "text") {
+        const sourceTrack = liveTracks.find((t) => t.id === draggedClip.trackId);
+        const resolvedType = resolveTrackTypeForClip(draggedClip, sourceTrack);
+        if (resolvedType === "text" && targetTrack.type !== "text") {
           isTrackTypeMismatch = true;
           break;
         }
-        if (kind === "sticker" && targetTrack.type !== "sticker") {
+        if (resolvedType === "sticker" && targetTrack.type !== "sticker") {
           isTrackTypeMismatch = true;
           break;
         }
-        if (kind === "filter" && targetTrack.type !== "filter") {
+        if (resolvedType === "filter" && targetTrack.type !== "filter") {
+          isTrackTypeMismatch = true;
+          break;
+        }
+        if (resolvedType === "video-effect" && targetTrack.type !== "video-effect") {
+          isTrackTypeMismatch = true;
+          break;
+        }
+        if (resolvedType === "body-effect" && targetTrack.type !== "body-effect") {
+          isTrackTypeMismatch = true;
+          break;
+        }
+        if (resolvedType === "animated-overlay" && targetTrack.type !== "animated-overlay") {
           isTrackTypeMismatch = true;
           break;
         }
         if (
-          kind !== "text" &&
-          kind !== "sticker" &&
-          kind !== "filter" &&
-          (targetTrack.type === "text" ||
-            targetTrack.type === "sticker" ||
-            targetTrack.type === "filter")
+          resolvedType !== "video" &&
+          resolvedType !== "audio" &&
+          targetTrack.type !== resolvedType
         ) {
           isTrackTypeMismatch = true;
           break;
@@ -956,23 +958,13 @@ export function useTimelineDrag(
 
       // Handle new track creation
       if (dragSnapshot.willCreateNewTrack && dragSnapshot.newTrackPosition) {
-        const isTextClip = clip.kind === "text";
-        const isStickerClip = clip.kind === "sticker";
-        const isFilterClip = clip.kind === "filter";
+        const store = useTimelineStore.getState();
+        const sourceTrack = store.tracks.find((t) => t.id === clip.trackId);
         const mediaAsset = useProjectStore
           .getState()
           .mediaAssets.find((a) => a.id === clip.mediaId);
-        const trackType = isTextClip
-          ? "text"
-          : isStickerClip
-            ? "sticker"
-            : isFilterClip
-              ? "filter"
-              : mediaAsset?.type === "audio"
-                ? "audio"
-                : "video";
+        const trackType = resolveTrackTypeForClip(clip, sourceTrack, mediaAsset);
 
-        const store = useTimelineStore.getState();
         const insertIndex = getInsertIndexForNewTrackSmart(
           store.tracks,
           trackType,
