@@ -242,7 +242,12 @@ pub async fn replace_native_audio_clips(
         );
     }
 
-    let statuses = decoded.iter().map(NativePcmClip::status).collect();
+    let statuses: Vec<NativeAudioClipStatus> = decoded.iter().map(NativePcmClip::status).collect();
+    log::info!(
+        "[NativeAudio] Installed {} audio clips: {:?}",
+        decoded.len(),
+        statuses
+    );
     clock
         .lock()
         .map_err(|_| "Native audio clock lock is poisoned".to_string())?
