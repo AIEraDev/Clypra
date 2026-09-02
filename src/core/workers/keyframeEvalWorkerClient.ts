@@ -5,7 +5,7 @@
  * via WorkerBus with typed unpacking and synchronous fallbacks.
  */
 
-import { WorkerBus } from "./workerBus";
+import { WorkerBus, getSharedDomainWorkerBus } from "./workerBus";
 import type {
   KeyframeEvalRequest,
   KeyframeEvalResult,
@@ -36,13 +36,14 @@ export class KeyframeEvalWorkerClient {
   >;
 
   constructor() {
-    this.bus = new WorkerBus(
+    this.bus = getSharedDomainWorkerBus(
+      "compute",
       () =>
         new Worker(
-          new URL("../../workers/keyframeEval.worker.ts", import.meta.url),
+          new URL("../../workers/compute.worker.ts", import.meta.url),
           { type: "module" },
         ),
-      { name: "KeyframeEvalWorker", autoRestart: true },
+      { name: "ComputeWorker:KeyframeEval", autoRestart: true },
     );
   }
 
