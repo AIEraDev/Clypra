@@ -28,6 +28,7 @@ export class TextTemplatePersistentCache {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
   private memory = new Map<string, TemplateCacheData>();
+  private memoryTimestamps = new Map<string, number>();
 
   private async init(): Promise<void> {
     if (this.db || !hasIndexedDb()) return;
@@ -84,14 +85,32 @@ export class TextTemplatePersistentCache {
     return `${category}:${id}:${revisionId || "latest"}`;
   }
 
-  async get(category: string, id: string, revisionId?: string): Promise<TemplateCacheData | null> {
+  async get(
+    category: string,
+    id: string,
+    revisionId?: string,
+    options?: { maxAgeMs?: number },
+  ): Promise<TemplateCacheData | null> {
     const cacheKey = this.key(category, id, revisionId);
+    const maxAge = options?.maxAgeMs ?? (category === "__catalog__" ? 30 * 60 * 1000 : undefined);
+    const now = Date.now();
+
     const inMemory = this.memory.get(cacheKey);
-    if (inMemory) return inMemory;
+    const memTimestamp = this.memoryTimestamps.get(cacheKey);
+    if (inMemory && (!maxAge || (memTimestamp && now - memTimestamp <= maxAge))) {
+      return inMemory;
+    }
+
     try {
       const entry = await this.readPersistent(cacheKey);
       if (!entry || entry.cacheVersion !== CACHE_VERSION) return null;
+      if (maxAge && now - entry.timestamp > maxAge) {
+        this.memory.delete(cacheKey);
+        this.memoryTimestamps.delete(cacheKey);
+        return null;
+      }
       this.memory.set(cacheKey, entry.data);
+      this.memoryTimestamps.set(cacheKey, entry.timestamp);
       return entry.data;
     } catch (error) {
       console.warn("[TextTemplateCache] IndexedDB read failed:", error);
@@ -99,16 +118,32 @@ export class TextTemplatePersistentCache {
     }
   }
 
-  async set(category: string, id: string, data: TemplateCacheData, revisionId?: string, contentHash?: string): Promise<void> {
+  async set(
+    category: string,
+    id: string,
+    data: TemplateCacheData,
+    revisionId?: string,
+    contentHash?: string,
+  ): Promise<void> {
     const cacheKey = this.key(category, id, revisionId);
+    const now = Date.now();
     this.memory.set(cacheKey, data);
+    this.memoryTimestamps.set(cacheKey, now);
     while (this.memory.size > MAX_MEMORY_ENTRIES) {
       const oldestKey = this.memory.keys().next().value as string | undefined;
       if (!oldestKey) break;
       this.memory.delete(oldestKey);
+      this.memoryTimestamps.delete(oldestKey);
     }
     try {
-      await this.writePersistent({ cacheKey, data, revisionId, contentHash, cacheVersion: CACHE_VERSION, timestamp: Date.now() });
+      await this.writePersistent({
+        cacheKey,
+        data,
+        revisionId,
+        contentHash,
+        cacheVersion: CACHE_VERSION,
+        timestamp: now,
+      });
       await this.prunePersistent();
     } catch (error) {
       console.warn("[TextTemplateCache] IndexedDB write failed:", error);
