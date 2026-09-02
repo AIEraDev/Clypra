@@ -6,7 +6,7 @@ import type { Command } from "../Command";
 import { generateCommandId } from "../Command";
 import type { Clip, Track, TransitionTimelineItem } from "@/types";
 import type { Gap } from "@/types/gap";
-import { shouldAutoPruneTrack } from "@/lib/timeline/trackTypeConfig";
+import { shouldAutoPruneTrack, resolvePrimaryVideoTrackId } from "@/lib/timeline/trackTypeConfig";
 
 interface TimelineState {
   tracks?: Track[];
@@ -68,7 +68,7 @@ export class DeleteClipCommand implements Command {
         this.deletedTrackIndex = tracks.findIndex((t) => t.id === clip.trackId);
         tracks = tracks.filter((t) => t.id !== clip.trackId);
         if (nextMainVideoTrackId === clip.trackId) {
-          nextMainVideoTrackId = tracks.find((t) => t.type === "video")?.id ?? null;
+          nextMainVideoTrackId = resolvePrimaryVideoTrackId(tracks);
         }
       }
     }
