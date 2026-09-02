@@ -287,18 +287,28 @@ impl NativeRenderSession {
                     last_rendered_frame_index = Some(frame_index);
 
                     let mut request = base_request;
+                    let base_timeline_secs = (request.frame_time.ticks as f64)
+                        / (request.frame_time.timescale.max(1) as f64);
                     request.frame_time.frame_index = frame_index;
                     request.frame_time.ticks = audio_time.ticks;
                     request.frame_time.timescale = audio_time.timescale;
 
                     if dynamic_demand.is_none() {
-                        let audio_time_secs = (audio_time.ticks as f64) / (audio_time.timescale as f64);
+                        let audio_time_secs =
+                            (audio_time.ticks as f64) / (audio_time.timescale as f64);
+                        let delta_secs = (audio_time_secs - base_timeline_secs).max(0.0);
                         for layer in &mut request.project.video_layers {
-                            let base_source_time_secs = (layer.source_time.ticks as f64) / (layer.source_time.timescale.max(1) as f64);
-                            let current_source_secs = (base_source_time_secs + audio_time_secs).max(0.0);
-                            let source_frame_index = (current_source_secs * request.project.frame_rate as f64).round() as u64;
-                            let ticks = (current_source_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
-                            if let Ok(ft) = FrameTime::new(source_frame_index, ticks, DEFAULT_TIME_SCALE) {
+                            let base_source_time_secs = (layer.source_time.ticks as f64)
+                                / (layer.source_time.timescale.max(1) as f64);
+                            let current_source_secs = (base_source_time_secs + delta_secs).max(0.0);
+                            let source_frame_index = (current_source_secs
+                                * request.project.frame_rate as f64)
+                                .round() as u64;
+                            let ticks =
+                                (current_source_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
+                            if let Ok(ft) =
+                                FrameTime::new(source_frame_index, ticks, DEFAULT_TIME_SCALE)
+                            {
                                 layer.source_time = ft;
                             }
                         }
@@ -319,23 +329,27 @@ impl NativeRenderSession {
             // audio-clock lateness decision in present_native_frame.
             return;
         }
+        let frame_index = request.frame_time.frame_index;
         match crate::commands::native_preview::present_native_frame_internal(app.clone(), request)
             .await
         {
-            Ok(presentation) if presentation.presented => {
-                if let Some(surface) = app
-                    .try_state::<Arc<Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>(
-                    )
-                {
-                    if let Ok(surface) = surface.inner().clone().lock() {
-                        let _ = surface.show_surface();
+            Ok(presentation) => {
+                if presentation.presented {
+                    if let Some(surface) = app
+                        .try_state::<Arc<Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>(
+                        )
+                    {
+                        if let Ok(surface) = surface.inner().clone().lock() {
+                            let _ = surface.show_surface();
+                        }
                     }
+                } else if presentation.dropped {
+                    log::warn!("[NativePlayback] frame #{} DROPPED (late for audio)", frame_index);
                 }
             }
-            Ok(_) => {}
             Err(error) => {
                 if !error.contains("stale") {
-                    log::debug!("native playback presentation failed: {error}");
+                    log::warn!("[NativePlayback] frame #{} presentation failed: {error}", frame_index);
                 }
             }
         }
