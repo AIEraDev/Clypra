@@ -138,9 +138,20 @@ export function instantiateTextTemplateArtifact(
   const duration = options.controlValues && artifact.timing.durationPolicy === "fixed"
     ? artifact.timing.duration
     : artifact.timing.duration;
+
+  const primaryText =
+    (Object.values(controlValues).find((val) => typeof val === "string" && val.trim().length > 0) as string) ||
+    textNodes[0]?.text ||
+    "";
+
+  const cleanLabel = artifact.metadata.label
+    ? artifact.metadata.label.replace(/^text-template-/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : "Text Template";
+
   return {
     id: generateId("text-template"),
-    name: artifact.metadata.label,
+    name: cleanLabel,
+    text: primaryText || cleanLabel,
     kind: "text-template",
     trackId: options.trackId,
     startTime: options.startTime,
