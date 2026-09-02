@@ -12,7 +12,9 @@ use crate::native_core::{
     PreviewMode, TextLayerSnapshot, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
-use crate::thumbnail_engine::decoder::{get_preview_decoder, VideoColorMetadata};
+use crate::thumbnail_engine::decoder::{
+    get_preview_decoder, get_preview_decoder_for_stream, VideoColorMetadata,
+};
 use crate::wgpu_compositor::multi_track_composer::TransitionUniforms;
 use crate::wgpu_compositor::{
     BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms,
@@ -1693,41 +1695,103 @@ async fn decode_native_video_layers(
     request: &NativeVideoProjectFrameRequest,
     cancellation: Option<(Arc<AtomicU64>, u64)>,
 ) -> Result<(Vec<DecodedNativeVideoFrame>, NativeDecodeTimings), String> {
-    let mut decoded_frames = Vec::with_capacity(request.layers.len());
-    let mut timings = NativeDecodeTimings::default();
-    for layer in &request.layers {
-        let decoder = get_preview_decoder(&layer.video_path).await?;
+    if request.layers.is_empty() {
+        return Ok((Vec::new(), NativeDecodeTimings::default()));
+    }
+
+    if request.layers.len() == 1 {
+        let layer = &request.layers[0];
+        let stream_id = if !layer.layer_id.is_empty() {
+            &layer.layer_id
+        } else {
+            ""
+        };
+        let decoder = get_preview_decoder_for_stream(&layer.video_path, stream_id).await?;
         let mutex_started = Instant::now();
-        let (y_plane, uv_plane, width, height, color) = {
+        let mut guard = decoder.lock().await;
+        let mutex_wait_us = mutex_started.elapsed().as_micros() as u64;
+        let decode_started = Instant::now();
+        let stream_color = guard.metadata().color;
+        let cancel = cancellation;
+        let (y_plane, uv_plane, width, height, frame_color) = guard
+            .decode_frame_raw_nv12_with_cancel(layer.time_secs, || {
+                cancel
+                    .as_ref()
+                    .map(|(latest, generation)| latest.load(Ordering::Acquire) > *generation)
+                    .unwrap_or(false)
+            })?;
+        let decode_us =
+            decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+        let decoded = (
+            y_plane,
+            uv_plane,
+            width,
+            height,
+            merge_color_metadata(frame_color, &stream_color),
+        );
+        return Ok((
+            vec![decoded],
+            NativeDecodeTimings {
+                decode_time_us: decode_us,
+                decoder_mutex_wait_us: mutex_wait_us,
+            },
+        ));
+    }
+
+    // Professional NLE concurrent multi-stream decoding:
+    // Each layer is assigned an isolated stream decoder reader so stacked clips
+    // (even using the same video file) decode independently in parallel without GOP thrashing.
+    let mut tasks = Vec::with_capacity(request.layers.len());
+    for layer in &request.layers {
+        let video_path = layer.video_path.clone();
+        let layer_id = layer.layer_id.clone();
+        let time_secs = layer.time_secs;
+        let cancel = cancellation.clone();
+
+        tasks.push(async move {
+            let stream_id = if !layer_id.is_empty() {
+                layer_id.as_str()
+            } else {
+                ""
+            };
+            let decoder = get_preview_decoder_for_stream(&video_path, stream_id).await?;
+            let mutex_started = Instant::now();
             let mut guard = decoder.lock().await;
-            timings.decoder_mutex_wait_us = timings
-                .decoder_mutex_wait_us
-                .saturating_add(mutex_started.elapsed().as_micros() as u64);
+            let mutex_wait_us = mutex_started.elapsed().as_micros() as u64;
             let decode_started = Instant::now();
             let stream_color = guard.metadata().color;
-            let cancel = cancellation.clone();
             let (y_plane, uv_plane, width, height, frame_color) = guard
-                .decode_frame_raw_nv12_with_cancel(layer.time_secs, || {
+                .decode_frame_raw_nv12_with_cancel(time_secs, || {
                     cancel
                         .as_ref()
                         .map(|(latest, generation)| latest.load(Ordering::Acquire) > *generation)
                         .unwrap_or(false)
                 })?;
-            let decoded = (
-                y_plane,
-                uv_plane,
-                width,
-                height,
-                merge_color_metadata(frame_color, &stream_color),
-            );
-            timings.decode_time_us = timings
-                .decode_time_us
-                .saturating_add(decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32);
-            decoded
-        };
-        decoded_frames.push((y_plane, uv_plane, width, height, color));
+            let decode_us =
+                decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
+            let color = merge_color_metadata(frame_color, &stream_color);
+            Ok::<_, String>(((y_plane, uv_plane, width, height, color), decode_us, mutex_wait_us))
+        });
     }
-    Ok((decoded_frames, timings))
+
+    let results = futures_util::future::try_join_all(tasks).await?;
+    let mut decoded_frames = Vec::with_capacity(results.len());
+    let mut max_decode_us = 0u32;
+    let mut total_mutex_wait_us = 0u64;
+
+    for (frame, decode_us, mutex_wait_us) in results {
+        decoded_frames.push(frame);
+        max_decode_us = max_decode_us.max(decode_us);
+        total_mutex_wait_us = total_mutex_wait_us.saturating_add(mutex_wait_us);
+    }
+
+    Ok((
+        decoded_frames,
+        NativeDecodeTimings {
+            decode_time_us: max_decode_us,
+            decoder_mutex_wait_us: total_mutex_wait_us,
+        },
+    ))
 }
 
 /// Decode a frame into the bounded native playback queue without presenting
