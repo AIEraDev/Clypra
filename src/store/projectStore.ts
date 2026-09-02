@@ -340,6 +340,7 @@ async function flushCrashRecoverySnapshot(
         transitions: snapshot.transitions,
         gaps: snapshot.gaps,
         markers: snapshot.markers,
+        mainVideoTrackId: snapshot.mainVideoTrackId,
         timelineSchemaVersion: snapshot.project.timelineSchemaVersion ?? 1,
       });
     } catch (_snapshotError) {
