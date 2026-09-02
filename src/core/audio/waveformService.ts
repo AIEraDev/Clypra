@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { WaveformBucket } from "@/types";
 import { getWaveformLodWorkerClient } from "@/core/workers/waveformLodWorkerClient";
+import { getCacheCoordinator, type ICacheParticipant } from "@/core/cache/cacheCoordinator";
 
 const WAVEFORM_CACHE_MAX = 50;
 
@@ -14,6 +15,34 @@ const WAVEFORM_CACHE_MAX = 50;
 const waveformCache = new Map<string, WaveformBucket[]>();
 const waveformRequests = new Map<string, Promise<WaveformBucket[]>>();
 const browserWaveformRequests = new Map<string, Promise<WaveformBucket[]>>();
+
+const waveformCacheParticipant: ICacheParticipant = {
+  name: "waveform-lod",
+  getBytesUsed() {
+    let bytes = 0;
+    for (const buckets of waveformCache.values()) {
+      bytes += (buckets?.length || 0) * 8;
+    }
+    return bytes;
+  },
+  trimTo(targetBytes) {
+    let freed = 0;
+    while (this.getBytesUsed() > targetBytes && waveformCache.size > 0) {
+      const oldest = waveformCache.keys().next().value;
+      if (!oldest) break;
+      const buckets = waveformCache.get(oldest);
+      const bSize = (buckets?.length || 0) * 8;
+      waveformCache.delete(oldest);
+      freed += bSize;
+    }
+    return freed;
+  },
+  clear() {
+    waveformCache.clear();
+  },
+};
+
+getCacheCoordinator().register(waveformCacheParticipant);
 
 export interface NativeWaveformRequest {
   path: string;
