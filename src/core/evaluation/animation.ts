@@ -329,3 +329,20 @@ export function evaluateVisualPropertyKeyframes(
     bezierFallback: "linear",
   });
 }
+
+/**
+ * Offloads multi-track keyframe evaluation for clips at a given presentation time
+ * to the KeyframeEval background worker.
+ */
+export async function evaluateKeyframesAsync(
+  time: number,
+  clips: import("@/workers/types").SerializedKeyframeClip[],
+  frameRate = 30,
+): Promise<Map<string, import("@/core/workers/keyframeEvalWorkerClient").EvaluatedClipProperties>> {
+  const { getKeyframeEvalWorkerClient } = await import(
+    "@/core/workers/keyframeEvalWorkerClient"
+  );
+  return getKeyframeEvalWorkerClient().evaluateKeyframes(time, clips, frameRate);
+}
+
+
