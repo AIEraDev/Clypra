@@ -1488,7 +1488,13 @@ async fn render_native_video_project_frame_bytes_timed(
         request.layers.iter().zip(decoded_frames.iter())
     {
         let params = color_params(color)?;
-        let texture = Arc::new(session.render_nv12_frame_to_texture(
+        let layer_key = if !layer.layer_id.is_empty() {
+            &layer.layer_id
+        } else {
+            &layer.video_path
+        };
+        let texture = session.render_nv12_frame_to_texture(
+            layer_key,
             *width,
             *height,
             layer.width.max(1.0).round() as u32,
@@ -1496,7 +1502,7 @@ async fn render_native_video_project_frame_bytes_timed(
             y_plane,
             uv_plane,
             &params,
-        )?);
+        )?;
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
@@ -1748,7 +1754,7 @@ async fn decode_native_video_layers(
         let time_secs = layer.time_secs;
         let cancel = cancellation.clone();
 
-        tasks.push(async move {
+        tasks.push(tokio::spawn(async move {
             let stream_id = if !layer_id.is_empty() {
                 layer_id.as_str()
             } else {
@@ -1771,15 +1777,17 @@ async fn decode_native_video_layers(
                 decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
             let color = merge_color_metadata(frame_color, &stream_color);
             Ok::<_, String>(((y_plane, uv_plane, width, height, color), decode_us, mutex_wait_us))
-        });
+        }));
     }
 
-    let results = futures_util::future::try_join_all(tasks).await?;
-    let mut decoded_frames = Vec::with_capacity(results.len());
+    let mut decoded_frames = Vec::with_capacity(tasks.len());
     let mut max_decode_us = 0u32;
     let mut total_mutex_wait_us = 0u64;
 
-    for (frame, decode_us, mutex_wait_us) in results {
+    for task in tasks {
+        let (frame, decode_us, mutex_wait_us) = task
+            .await
+            .map_err(|e| format!("Decode worker task failed: {e}"))??;
         decoded_frames.push(frame);
         max_decode_us = max_decode_us.max(decode_us);
         total_mutex_wait_us = total_mutex_wait_us.saturating_add(mutex_wait_us);
@@ -2214,7 +2222,13 @@ pub(crate) async fn present_native_frame_internal(
         legacy_request.layers.iter().zip(decoded_frames.iter())
     {
         let params = color_params(color)?;
-        let texture = Arc::new(session.render_nv12_frame_to_texture(
+        let layer_key = if !layer.layer_id.is_empty() {
+            &layer.layer_id
+        } else {
+            &layer.video_path
+        };
+        let texture = session.render_nv12_frame_to_texture(
+            layer_key,
             *width,
             *height,
             layer.width.max(1.0).round() as u32,
@@ -2222,7 +2236,7 @@ pub(crate) async fn present_native_frame_internal(
             y_plane,
             uv_plane,
             &params,
-        )?);
+        )?;
         views.push(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         textures.push(texture);
     }
