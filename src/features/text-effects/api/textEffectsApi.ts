@@ -53,9 +53,10 @@ export const TextEffectsApi = {
   },
 
   // 1. Fetch summaries for category tab picker UI
-  async getEffectsIndex(): Promise<TextEffectSummary[]> {
+  async getEffectsIndex(options: { forceRefresh?: boolean } = {}): Promise<TextEffectSummary[]> {
     try {
       const res = await fetch(`${BASE}/text-effects`, {
+        cache: options.forceRefresh ? "no-store" : "default",
         headers: getApiHeaders(),
       });
 
@@ -79,9 +80,16 @@ export const TextEffectsApi = {
     }
   },
 
-  async getEffectsByCategory(category: string): Promise<TextEffectSummary[]> {
+  async getEffectsByCategory(category: string, options: { forceRefresh?: boolean } = {}): Promise<TextEffectSummary[]> {
     try {
+      if (options.forceRefresh) {
+        for (const key of this._effectsCache.keys()) {
+          if (key.startsWith(`${category}:`)) this._effectsCache.delete(key);
+        }
+      }
+
       const res = await fetch(`${BASE}/text-effects/${category}`, {
+        cache: options.forceRefresh ? "no-store" : "default",
         headers: getApiHeaders(),
       });
 
@@ -165,31 +173,40 @@ export const TextEffectsApi = {
   },
 
   // 3. Fetch summaries for template category tab picker UI
-  async getTemplatesIndex(): Promise<TemplateDefinition[]> {
-    const cached = await textTemplatePersistentCache.get("__catalog__", "all");
-    if (Array.isArray(cached)) return cached as TemplateDefinition[];
+  async getTemplatesIndex(options: { forceRefresh?: boolean } = {}): Promise<TemplateDefinition[]> {
+    if (!options.forceRefresh) {
+      const cached = await textTemplatePersistentCache.get("__catalog__", "all", undefined, { maxAgeMs: 30 * 60 * 1000 });
+      if (Array.isArray(cached) && cached.length > 0) return cached as TemplateDefinition[];
+    }
     // The API's canonical catalog is partitioned by category. Do not call a
     // non-existent aggregate `/text-templates` route (which returned 404 and
     // caused the editor to silently replace the remote catalog with static
     // templates). Category requests also preserve each item's revision pin.
     const categories = ["lower-third", "title-card", "caption", "callout", "social", "countdown"];
     const responses = await Promise.all(
-      categories.map((category) => this.getTemplatesByCategory(category)),
+      categories.map((category) => this.getTemplatesByCategory(category, options)),
     );
     const data = responses.flat();
-    await textTemplatePersistentCache.set("__catalog__", "all", data);
+    if (data.length > 0) {
+      await textTemplatePersistentCache.set("__catalog__", "all", data);
+    }
     return data;
   },
 
-  async getTemplatesByCategory(category: string): Promise<TemplateDefinition[]> {
-    const cached = await textTemplatePersistentCache.get("__catalog__", category);
-    if (Array.isArray(cached)) return cached as TemplateDefinition[];
+  async getTemplatesByCategory(category: string, options: { forceRefresh?: boolean } = {}): Promise<TemplateDefinition[]> {
+    if (!options.forceRefresh) {
+      const cached = await textTemplatePersistentCache.get("__catalog__", category, undefined, { maxAgeMs: 30 * 60 * 1000 });
+      if (Array.isArray(cached) && cached.length > 0) return cached as TemplateDefinition[];
+    }
     const res = await fetch(`${BASE}/text-templates/${category}`, {
       headers: getApiHeaders(),
+      cache: options.forceRefresh ? "no-store" : "default",
     });
     if (!res.ok) throw new Error(`Failed to load templates for category: ${category}`);
-    const data = await res.json() as TemplateDefinition[];
-    await textTemplatePersistentCache.set("__catalog__", category, data);
+    const data = (await res.json()) as TemplateDefinition[];
+    if (Array.isArray(data) && data.length > 0) {
+      await textTemplatePersistentCache.set("__catalog__", category, data);
+    }
     for (const item of data as any[]) {
       const cacheKey = `${category}:${item.id}:latest`;
       const cached = this._templateCache.get(cacheKey);
@@ -361,4 +378,73 @@ export const TextEffectsApi = {
       server: serverResult,
     };
   },
+
+  /**
+   * Clear all local caches (memory, IndexedDB, localStorage) and hard re-fetch
+   * all Text Effects & Text Templates from the server.
+   */
+  async hardReloadAllTextData(): Promise<{ effectsCount: number; templatesCount: number }> {
+    console.log("[TextEffectsApi] 🔄 Initiating Hard Reload for all Text Effects & Templates...");
+    this.clearLocalCache();
+
+    // Clear feature cache in localStorage and persistent IndexedDB
+    try {
+      const { TextEffectsCacheManager } = await import("../cache/cacheManager");
+      await TextEffectsCacheManager.clearAll();
+    } catch (e) {
+      console.warn("[TextEffectsApi] Failed to clear effects cache manager:", e);
+    }
+
+    try {
+      const { TextTemplatesCacheManager } = await import("@/features/text-templates/cache/cacheManager");
+      await TextTemplatesCacheManager.clearAll();
+    } catch (e) {
+      console.warn("[TextEffectsApi] Failed to clear templates cache manager:", e);
+    }
+
+    // Force re-fetch templates
+    let templatesCount = 0;
+    try {
+      const { useTemplateStore } = await import("@/features/text-templates/templateStore");
+      const templates = await this.getTemplatesIndex({ forceRefresh: true });
+      templatesCount = templates.length;
+      useTemplateStore.setState({
+        templates,
+        isApiConnected: true,
+        isLoading: false,
+      });
+    } catch (err) {
+      console.warn("[TextEffectsApi] Failed to reload templates during hard reload:", err);
+    }
+
+    // Force re-fetch effects
+    let effectsCount = 0;
+    try {
+      const { useEffectsStore } = await import("../store/effectsStore");
+      const effectCategories = ["essentials", "glow", "gradient", "cyberpunk", "retro", "neon", "minimal"];
+      const effectResults = await Promise.allSettled(
+        effectCategories.map((cat) => this.getEffectsByCategory(cat, { forceRefresh: true })),
+      );
+      const newIndex: Record<string, any[]> = {};
+      for (let i = 0; i < effectCategories.length; i++) {
+        const cat = effectCategories[i];
+        const res = effectResults[i];
+        if (res.status === "fulfilled") {
+          newIndex[cat] = res.value;
+          effectsCount += res.value.length;
+        }
+      }
+      useEffectsStore.setState((state) => ({
+        index: { ...state.index, ...newIndex },
+        indexLoading: false,
+        indexError: null,
+      }));
+    } catch (err) {
+      console.warn("[TextEffectsApi] Failed to reload effects during hard reload:", err);
+    }
+
+    console.log(`[TextEffectsApi] ✅ Hard Reload complete: ${effectsCount} effects, ${templatesCount} templates`);
+    return { effectsCount, templatesCount };
+  },
 };
+
