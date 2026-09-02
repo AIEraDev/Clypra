@@ -8,7 +8,10 @@
 @import "@fontsource-variable/roboto";
 @import "@fontsource-variable/outfit";
 @import "@fontsource-variable/roboto-condensed";
-@import "@fontsource/lato";
+@import "@fontsource/lato/300.css";
+@import "@fontsource/lato/400.css";
+@import "@fontsource/lato/700.css";
+@import "@fontsource/lato/900.css";
 @import "@fontsource-variable/open-sans";
 @import "@fontsource-variable/raleway";
 @import "@fontsource-variable/oswald";
@@ -16,12 +19,98 @@
 @import "@fontsource/anton";
 @import "@fontsource/bebas-neue";
 @import "@fontsource-variable/nunito";
-@import "@fontsource/poppins";
+@import "@fontsource/poppins/300.css";
+@import "@fontsource/poppins/400.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+@import "@fontsource/poppins/800.css";
+@import "@fontsource/poppins/900.css";
 @import "@fontsource/permanent-marker";
 @import "@fontsource/bangers";
 @import "@fontsource/press-start-2p";
 @import "@fontsource-variable/dancing-script";
 @import "@fontsource/pacifico";
+
+/* Font aliases mapping short font family names to variable font families for HTML Canvas & DOM */
+@font-face {
+  font-family: 'Inter';
+  src: local('Inter Variable'), local('Inter');
+  font-weight: 100 900;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Outfit';
+  src: local('Outfit Variable'), local('Outfit');
+  font-weight: 100 900;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Playfair Display';
+  src: local('Playfair Display Variable'), local('Playfair Display');
+  font-weight: 400 900;
+  font-style: normal italic;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: local('Montserrat Variable'), local('Montserrat');
+  font-weight: 100 900;
+  font-style: normal italic;
+}
+@font-face {
+  font-family: 'Roboto';
+  src: local('Roboto Variable'), local('Roboto');
+  font-weight: 100 900;
+  font-style: normal italic;
+}
+@font-face {
+  font-family: 'Raleway';
+  src: local('Raleway Variable'), local('Raleway');
+  font-weight: 100 900;
+  font-style: normal italic;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  src: local('Space Grotesk Variable'), local('Space Grotesk');
+  font-weight: 300 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Nunito';
+  src: local('Nunito Variable'), local('Nunito');
+  font-weight: 200 900;
+  font-style: normal italic;
+}
+@font-face {
+  font-family: 'Open Sans';
+  src: local('Open Sans Variable'), local('Open Sans');
+  font-weight: 300 800;
+  font-style: normal italic;
+}
+@font-face {
+  font-family: 'Oswald';
+  src: local('Oswald Variable'), local('Oswald');
+  font-weight: 200 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Geist';
+  src: local('Geist Variable'), local('Geist');
+  font-weight: 100 900;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Dancing Script';
+  src: local('Dancing Script Variable'), local('Dancing Script');
+  font-weight: 400 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Roboto Condensed';
+  src: local('Roboto Condensed Variable'), local('Roboto Condensed');
+  font-weight: 100 900;
+  font-style: normal italic;
+}
 
 @custom-variant dark (&:is(.dark *));
 
