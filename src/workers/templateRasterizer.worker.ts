@@ -42,6 +42,79 @@ import {
   type TextTemplateArtifact,
 } from "@clypra-studio/engine";
 
+import interUrl from "@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url";
+import montserratUrl from "@fontsource-variable/montserrat/files/montserrat-latin-wght-normal.woff2?url";
+import geistUrl from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
+import spaceGroteskUrl from "@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2?url";
+import robotoUrl from "@fontsource-variable/roboto/files/roboto-latin-wght-normal.woff2?url";
+import outfitUrl from "@fontsource-variable/outfit/files/outfit-latin-wght-normal.woff2?url";
+import robotoCondensedUrl from "@fontsource-variable/roboto-condensed/files/roboto-condensed-latin-wght-normal.woff2?url";
+import openSansUrl from "@fontsource-variable/open-sans/files/open-sans-latin-wght-normal.woff2?url";
+import ralewayUrl from "@fontsource-variable/raleway/files/raleway-latin-wght-normal.woff2?url";
+import oswaldUrl from "@fontsource-variable/oswald/files/oswald-latin-wght-normal.woff2?url";
+import playfairDisplayUrl from "@fontsource-variable/playfair-display/files/playfair-display-latin-wght-normal.woff2?url";
+import nunitoUrl from "@fontsource-variable/nunito/files/nunito-latin-wght-normal.woff2?url";
+import dancingScriptUrl from "@fontsource-variable/dancing-script/files/dancing-script-latin-wght-normal.woff2?url";
+import latoUrl from "@fontsource/lato/files/lato-latin-400-normal.woff2?url";
+import antonUrl from "@fontsource/anton/files/anton-latin-400-normal.woff2?url";
+import bebasNeueUrl from "@fontsource/bebas-neue/files/bebas-neue-latin-400-normal.woff2?url";
+import poppinsUrl from "@fontsource/poppins/files/poppins-latin-400-normal.woff2?url";
+import permanentMarkerUrl from "@fontsource/permanent-marker/files/permanent-marker-latin-400-normal.woff2?url";
+import bangersUrl from "@fontsource/bangers/files/bangers-latin-400-normal.woff2?url";
+import pressStartUrl from "@fontsource/press-start-2p/files/press-start-2p-latin-400-normal.woff2?url";
+import pacificoUrl from "@fontsource/pacifico/files/pacifico-latin-400-normal.woff2?url";
+
+const BUNDLED_FONTS: Array<{ url: string; aliases: string[] }> = [
+  { url: interUrl, aliases: ["Inter", "Inter Variable"] },
+  { url: montserratUrl, aliases: ["Montserrat", "Montserrat Variable"] },
+  { url: geistUrl, aliases: ["Geist", "Geist Variable"] },
+  { url: spaceGroteskUrl, aliases: ["Space Grotesk", "Space Grotesk Variable"] },
+  { url: robotoUrl, aliases: ["Roboto", "Roboto Variable"] },
+  { url: outfitUrl, aliases: ["Outfit", "Outfit Variable"] },
+  { url: robotoCondensedUrl, aliases: ["Roboto Condensed", "Roboto Condensed Variable"] },
+  { url: openSansUrl, aliases: ["Open Sans", "Open Sans Variable"] },
+  { url: ralewayUrl, aliases: ["Raleway", "Raleway Variable"] },
+  { url: oswaldUrl, aliases: ["Oswald", "Oswald Variable"] },
+  { url: playfairDisplayUrl, aliases: ["Playfair Display", "Playfair Display Variable"] },
+  { url: nunitoUrl, aliases: ["Nunito", "Nunito Variable"] },
+  { url: dancingScriptUrl, aliases: ["Dancing Script", "Dancing Script Variable"] },
+  { url: latoUrl, aliases: ["Lato"] },
+  { url: antonUrl, aliases: ["Anton"] },
+  { url: bebasNeueUrl, aliases: ["Bebas Neue"] },
+  { url: poppinsUrl, aliases: ["Poppins"] },
+  { url: permanentMarkerUrl, aliases: ["Permanent Marker"] },
+  { url: bangersUrl, aliases: ["Bangers"] },
+  { url: pressStartUrl, aliases: ["Press Start 2P"] },
+  { url: pacificoUrl, aliases: ["Pacifico"] },
+];
+
+const fontUrlByAlias = new Map<string, string>();
+for (const font of BUNDLED_FONTS) {
+  for (const alias of font.aliases) {
+    fontUrlByAlias.set(alias.toLowerCase(), font.url);
+  }
+}
+
+const loadedWorkerFonts = new Set<string>();
+
+async function ensureWorkerFontLoaded(fontFamily?: string): Promise<void> {
+  if (!fontFamily || typeof self === "undefined" || !("fonts" in self)) return;
+  const key = fontFamily.trim().toLowerCase();
+  if (loadedWorkerFonts.has(key)) return;
+
+  const url = fontUrlByAlias.get(key) || fontUrlByAlias.get(key.replace(/\s+variable$/i, ""));
+  if (!url) return;
+
+  try {
+    const face = new FontFace(fontFamily, `url(${url})`);
+    const loadedFace = await face.load();
+    (self as any).fonts.add(loadedFace);
+    loadedWorkerFonts.add(key);
+  } catch (err) {
+    console.warn(`[TextRasterizerWorker] Failed to load font "${fontFamily}":`, err);
+  }
+}
+
 // ─── Message types ────────────────────────────────────────────────────────────
 
 export interface WorkerRenderTemplateMessage {
@@ -158,6 +231,14 @@ async function handleRenderTemplate(
   const width = Math.max(1, Math.round(layerWidth));
   const height = Math.max(1, Math.round(layerHeight));
 
+  // Ensure all fonts used by text nodes in the template are loaded in worker
+  if (artifact?.document?.nodes) {
+    const textNodes = artifact.document.nodes.filter((n: any) => n.type === "text");
+    await Promise.all(
+      textNodes.map((n: any) => ensureWorkerFontLoaded(n.style?.fontFamily)),
+    );
+  }
+
   const offscreen = new OffscreenCanvas(width, height);
   const ctx = offscreen.getContext("2d", { alpha: true });
   if (!ctx) throw new Error("OffscreenCanvas 2D context not available");
@@ -245,6 +326,12 @@ async function handleRenderEffect(
 
   const width = Math.max(1, Math.round(evalWidth));
   const height = Math.max(1, Math.round(evalHeight));
+
+  // Ensure font in scene document is loaded in worker
+  const sceneText = (sceneDocument as any)?.text;
+  if (sceneText?.fontFamily) {
+    await ensureWorkerFontLoaded(sceneText.fontFamily);
+  }
 
   const rasterStart = performance.now();
   const evalCanvas = new OffscreenCanvas(width, height);
