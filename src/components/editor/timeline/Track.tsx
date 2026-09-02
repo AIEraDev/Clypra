@@ -49,6 +49,11 @@ interface TrackProps {
     trackId: string,
     time: number,
   ) => void;
+  onGapContextMenu?: (params: {
+    gap: import("@/types/gap").Gap;
+    locked: boolean;
+    position: { x: number; y: number };
+  }) => void;
   dragState?: {
     draggingClipId: string | null;
     draggedClipIds?: string[];
@@ -72,6 +77,7 @@ const TrackInner: React.FC<TrackProps> = ({
   onClipDragEnd,
   onClipContextMenu,
   onTrackContextMenu,
+  onGapContextMenu,
   dragState,
 }) => {
   const selectedClipIds = useUIStore((state) => state.selectedClipIds);
@@ -509,6 +515,7 @@ const TrackInner: React.FC<TrackProps> = ({
             pixelsPerSecond={pixelsPerSecond}
             selected={selectedGapId === gap.id}
             locked={track.locked}
+            onContextMenu={onGapContextMenu}
           />
         ))}
 
