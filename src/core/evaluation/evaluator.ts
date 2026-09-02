@@ -661,6 +661,117 @@ export function evaluateTimelineScene(
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Top-Down Occlusion Culling for Professional NLE Multi-Track Compositing.
+ *
+ * Evaluates visual layers from foreground (highest z-index/top track) to background.
+ * If a foreground layer is 100% opaque, uses normal blend mode, has no masks/effects/chroma-key,
+ * and covers the full canvas, all layers beneath it are completely invisible and culled
+ * from video frame decoding, texture upload, and GPU compositing.
+ */
+export function isOpaqueFullFrameOccluder(
+  layer: EvaluatedVisualLayer,
+  canvasWidth: number,
+  canvasHeight: number,
+  transitionWindows: ActiveTransitionWindow[] = [],
+): boolean {
+  // Only media layers (video or opaque still images) can act as solid full-frame occluders
+  if (layer.layerType !== "media") return false;
+
+  // Must be fully opaque
+  if (layer.opacity < 0.999) return false;
+
+  // Must use standard 'normal' blend mode (other blend modes blend with background)
+  if (layer.blendMode && layer.blendMode !== "normal") return false;
+
+  // Animated stickers (GIF/Lottie) and transparent PNG overlays have alpha
+  if (layer.stickerFormat === "gif" || layer.stickerFormat === "lottie") return false;
+
+  // Cannot have body segmentation effects, chroma key, or custom alpha shaders
+  if (
+    layer.effects &&
+    layer.effects.some((fx) => {
+      const r = (fx.renderer || fx.effectId || "").toLowerCase();
+      return (
+        r.includes("body") ||
+        r.includes("chroma") ||
+        r.includes("key") ||
+        r.includes("mask") ||
+        r.includes("alpha") ||
+        r.includes("glitch") ||
+        r.includes("dissolve")
+      );
+    })
+  ) {
+    return false;
+  }
+
+  // Cannot have masks
+  if (layer.masks && layer.masks.length > 0) return false;
+
+  // Cannot have crop
+  const crop = (layer as any).crop;
+  if (
+    crop &&
+    (crop.left > 0.001 ||
+      crop.top > 0.001 ||
+      crop.right > 0.001 ||
+      crop.bottom > 0.001)
+  ) {
+    return false;
+  }
+
+  // Cannot be part of an active transition window
+  const isInTransition =
+    layer.inTransition ||
+    transitionWindows.some(
+      (tw) => tw.fromClip.id === layer.clipId || tw.toClip.id === layer.clipId,
+    );
+  if (isInTransition) return false;
+
+  // Must not have rotation (or rotation must be multiple of 360)
+  const normRotation = Math.abs(layer.rotation % 360);
+  if (normRotation > 0.01 && normRotation < 359.99) return false;
+
+  // Must cover the full canvas area
+  const coversX =
+    layer.x <= 0.01 && layer.x + layer.width >= canvasWidth - 0.01;
+  const coversY =
+    layer.y <= 0.01 && layer.y + layer.height >= canvasHeight - 0.01;
+
+  return coversX && coversY;
+}
+
+export function cullOccludedVisualLayers(
+  visualLayers: readonly EvaluatedVisualLayer[],
+  canvasWidth: number,
+  canvasHeight: number,
+  transitionWindows: ActiveTransitionWindow[] = [],
+): EvaluatedVisualLayer[] {
+  if (visualLayers.length <= 1) return [...visualLayers];
+
+  let lowestVisibleIndex = 0;
+  for (let i = visualLayers.length - 1; i >= 0; i--) {
+    const layer = visualLayers[i];
+    if (
+      isOpaqueFullFrameOccluder(
+        layer,
+        canvasWidth,
+        canvasHeight,
+        transitionWindows,
+      )
+    ) {
+      lowestVisibleIndex = i;
+      break;
+    }
+  }
+
+  if (lowestVisibleIndex > 0) {
+    return visualLayers.slice(lowestVisibleIndex);
+  }
+  return [...visualLayers];
+}
+
 function normalizeEffectIntensity(value: unknown): number {
   const numeric = typeof value === "number" ? value : 1;
   if (!Number.isFinite(numeric)) return 1;
