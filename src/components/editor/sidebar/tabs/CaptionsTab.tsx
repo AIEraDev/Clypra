@@ -6,7 +6,7 @@ import { useHistoryStore } from "@/store/historyStore";
 import { useTransportControls } from "@/hooks/usePlaybackClock";
 import { useCaptionStore } from "@/store/captionStore";
 import { useUIStore } from "@/store/uiStore";
-import { parseSubtitles } from "@/features/subtitles/parser";
+import { parseSubtitles, parseSubtitlesAsync } from "@/features/subtitles/parser";
 import { CAPTION_STYLE_PRESETS, getCaptionPresetById } from "@/features/subtitles/captionPresets";
 import {
   type CaptionTrack,
@@ -94,7 +94,8 @@ export const CaptionsTab: React.FC<TabProps> = () => {
     setErrorMsg(null);
     try {
       const text = await file.text();
-      const blocks = parseSubtitles(text);
+      const format = file.name.toLowerCase().endsWith(".vtt") ? "vtt" : "srt";
+      const blocks = await parseSubtitlesAsync(text, format);
 
       if (blocks.length === 0) {
         throw new Error("No subtitle blocks found. Please ensure the file is valid SRT or WebVTT.");
