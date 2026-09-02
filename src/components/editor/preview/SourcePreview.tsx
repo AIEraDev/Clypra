@@ -11,6 +11,7 @@ import { autoAdaptSequenceForFirstVisualClip } from "@/lib/timeline/sequenceAuto
 import { DEFAULT_PLACEMENT_POLICY, resolveAddToTimelinePlacement, resolveDefaultFitModeForAsset } from "@/lib/timeline/placementPolicy";
 import { getPlaybackClock } from "@/hooks/usePlaybackClock";
 import type { SourcePlaybackContext } from "@/core/playback";
+import { TimelinePlacementEngine } from "@/lib/timeline/placementEngine";
 import type { MediaAsset } from "@/types";
 import { formatTimecode } from "@/lib/utils/timeFormatting";
 import { PreviewTransport } from "./PreviewTransport";
@@ -283,144 +284,31 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ claimTransportOnMo
   if (!sourceAsset) return null;
 
   const handleAddToTimeline = async () => {
-    if (!project) return;
-    const { getPreviewInteractionCoordinator } = await import("@/core/interactions/PreviewInteractionCoordinator");
-    const coordinator = getPreviewInteractionCoordinator();
-    const token = coordinator.begin("property-edit", { pauseOnBegin: true });
+    if (!project || !sourceAsset) return;
 
-    try {
-      // Handle synthetic text assets
-      if (sourceAsset.type === "text") {
-        const sequenceEndTime = getTimelineEndTime();
-        const playheadTime = getPlaybackClock().time;
-        const startTime = Math.max(0, Math.min(playheadTime, Math.max(0, sequenceEndTime)));
-        const firstUnlockedTextTrack = tracks.find((track) => track.type === "text" && !track.locked);
-        let targetTrackId: string | null = firstUnlockedTextTrack?.id ?? null;
-
-        if (!targetTrackId) {
-          const latestTracks = useTimelineStore.getState().tracks;
-          const insertIndex = getInsertIndexForNewTrack(latestTracks, "text");
-          targetTrackId = insertTrackAt("text", insertIndex);
-        }
-
-        if (!targetTrackId) return;
-
-        const preset = sourceTextPreset;
-
-        // Template previews
-        if (preset?.presetType === "template") {
-          const { instantiateTemplate } = await import(
-            "@/features/text-templates/instantiateTemplate"
-          );
-          const templateClip = instantiateTemplate(
-            (preset.templateDefinition || preset) as any,
-            {
-              trackId: targetTrackId,
-              startTime,
-              canvasWidth: project.canvasWidth || 1920,
-              canvasHeight: project.canvasHeight || 1080,
-              customization: preset.customization,
-            },
-          );
-          addClip(templateClip);
-          await getActiveSessionOrNull()?.prewarmClip(templateClip, startTime);
-          exitSourceMode();
-          return;
-        }
-
-        const styleId = preset?.presetType === "effect" ? preset.id : undefined;
-        const effectDefinition = resolveTextEffectDefinition(
-          styleId,
-          (preset as any)?.effectDefinition || (preset as any),
-        );
-
-        const textClip = createTextClip({
-          trackId: targetTrackId,
-          startTime,
-          duration: 3.0,
-          text: preset?.text || "CLYPRA",
-          canvasWidth: project.canvasWidth || 1920,
-          canvasHeight: project.canvasHeight || 1080,
-          styleId,
-          styleRevisionId: preset?.revisionId ?? preset?.revision?.revisionId,
-          styleContentHash: preset?.contentHash ?? preset?.revision?.contentHash,
-          styleSnapshot: preset?.scene,
-          templateId: preset?.presetType === "template" ? preset.id : undefined,
-          effectDefinition,
-        });
-
-        addClip(textClip);
-        await getActiveSessionOrNull()?.prewarmClip(textClip, startTime);
-        exitSourceMode();
-        return;
-      }
-
-      let mediaAsset = sourceAsset as MediaAsset;
-
-      if (mediaAsset.id.startsWith("sticker-")) {
-        const stickerId = mediaAsset.id.replace("sticker-", "");
-        const cachedSticker = useStickersStore.getState().getCachedSticker(stickerId);
-        if (cachedSticker && cachedSticker.localImagePath) {
-          const appCache = await platform.appCacheDir();
-          const absoluteImagePath = await platform.joinPaths(appCache, cachedSticker.localImagePath!);
-          mediaAsset = {
-            ...mediaAsset,
-            path: absoluteImagePath,
-            width: mediaAsset.width || 400,
-            height: mediaAsset.height || 400,
-          };
-        }
-      }
-
-      const placement = resolveAddToTimelinePlacement({
-        asset: mediaAsset,
-        tracks,
-        clips,
-        playheadTime: getPlaybackClock().time,
-        sequenceEndTime: getTimelineEndTime(),
+    if (sourceAsset.type === "text" && sourceTextPreset) {
+      await TimelinePlacementEngine.addToTimeline({
+        item: sourceTextPreset,
+        type: "text",
+        sourceInPoint: sourceInPoint ?? undefined,
+        sourceOutPoint: sourceOutPoint ?? undefined,
       });
-      let targetTrackId = placement.targetTrackId;
-      if (placement.shouldCreateTrack || !targetTrackId) {
-        const latestTracks = useTimelineStore.getState().tracks;
-        const insertIndex = getInsertIndexForNewTrack(latestTracks, placement.trackType);
-        targetTrackId = insertTrackAt(placement.trackType, insertIndex);
-      }
-      if (!targetTrackId) return;
-
-      if (DEFAULT_PLACEMENT_POLICY.autoAdaptSequenceForFirstVisualClip) {
-        autoAdaptSequenceForFirstVisualClip({
-          project,
-          existingClips: clips,
-          asset: mediaAsset,
-          updateProject,
-        });
-      }
-      const nextProject = useProjectStore.getState().project;
-
-      const newClip = createClipFromAsset({
-        asset: mediaAsset,
-        trackId: targetTrackId,
-        startTime: placement.startTime,
-        width: nextProject?.canvasWidth ?? project.canvasWidth,
-        height: nextProject?.canvasHeight ?? project.canvasHeight,
-        fitMode: resolveDefaultFitModeForAsset(mediaAsset),
-      });
-
-      const trimIn = sourceInPoint ?? 0;
-      const trimOut = sourceOutPoint ?? newClip.duration;
-      newClip.trimIn = trimIn;
-      newClip.trimOut = trimOut;
-      newClip.duration = trimOut - trimIn;
-
-      if (!mediaAsset.id.startsWith("audio-library-") && !mediaAsset.id.startsWith("sticker-")) {
-        addMediaAsset(mediaAsset);
-      }
-      addClip(newClip);
-      void getActiveSessionOrNull()?.prewarmClip(newClip, placement.startTime);
       exitSourceMode();
-    } finally {
-      coordinator.commit(token, false);
+      return;
     }
+
+    const mediaAsset = sourceAsset as MediaAsset;
+    if (!mediaAsset.id.startsWith("audio-library-") && !mediaAsset.id.startsWith("sticker-")) {
+      addMediaAsset(mediaAsset);
+    }
+
+    await TimelinePlacementEngine.addToTimeline({
+      item: mediaAsset,
+      type: "media",
+      sourceInPoint: sourceInPoint ?? undefined,
+      sourceOutPoint: sourceOutPoint ?? undefined,
+    });
+    exitSourceMode();
   };
 
   /** Format time as HH:MM:SS:FF (frame-accurate) */
