@@ -5,7 +5,7 @@
  * via WorkerBus with synchronous fallbacks for non-worker environments.
  */
 
-import { WorkerBus } from "./workerBus";
+import { WorkerBus, getSharedDomainWorkerBus } from "./workerBus";
 import type {
   SubtitleParserWorkerRequest,
   SubtitleParserWorkerResponse,
@@ -24,13 +24,14 @@ export class SubtitleParserWorkerClient {
   >;
 
   constructor() {
-    this.bus = new WorkerBus(
+    this.bus = getSharedDomainWorkerBus(
+      "mediaAnalysis",
       () =>
         new Worker(
-          new URL("../../workers/subtitleParser.worker.ts", import.meta.url),
+          new URL("../../workers/mediaAnalysis.worker.ts", import.meta.url),
           { type: "module" },
         ),
-      { name: "SubtitleParserWorker", autoRestart: true },
+      { name: "MediaAnalysisWorker:SubtitleParser", autoRestart: true },
     );
   }
 
