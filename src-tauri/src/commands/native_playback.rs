@@ -713,6 +713,13 @@ pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> 
             .map_err(|_| "Native playback runtime lock is poisoned".to_string())?
             .stop_render();
     }
+    if let Some(surface) =
+        app.try_state::<Arc<Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()
+    {
+        if let Ok(mut surface) = surface.inner().clone().lock() {
+            let _ = surface.hide_surface();
+        }
+    }
     Ok(state)
 }
 
