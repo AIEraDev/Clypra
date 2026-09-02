@@ -26,6 +26,14 @@ export function TextEffectGrid({ searchQuery = "", onAddToTimeline }: TextEffect
     loadCategory(activeCategory);
   }, [activeCategory, loadCategory]);
 
+  // Periodic 30-minute background auto-refresh
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadCategory(activeCategory, { forceRefresh: true });
+    }, 30 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [activeCategory, loadCategory]);
+
   const items = index[activeCategory] ?? [];
   const filteredItems = items.filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
