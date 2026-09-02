@@ -13,7 +13,7 @@
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 
-import type { Track, TrackType } from "@/types";
+import type { Clip, Track, TrackType } from "@/types";
 
 // ─── Value types ─────────────────────────────────────────────────────────────
 
@@ -365,3 +365,73 @@ export function normalizeTrackOrderForMainVideo<
     ...audioTracks,
   ];
 }
+
+/**
+ * Canonical helper to determine which TrackType a clip belongs to.
+ * Ensures text templates, effects, stickers, audio, and visual clips
+ * always resolve to their correct track type when moving, dragging, or creating tracks.
+ */
+export function resolveTrackTypeForClip(
+  clip?: Partial<Clip> | null,
+  sourceTrack?: Pick<Track, "type"> | null,
+  mediaAsset?: { type: string } | null,
+): TrackType {
+  if (!clip) return sourceTrack?.type ?? "video";
+
+  // 1. Explicit trackType in clip
+  if ((clip as any)?.trackType) return (clip as any).trackType;
+
+  // 2. Direct clip.kind
+  if (clip.kind === "text" || clip.kind === "text-template") return "text";
+  if (clip.kind === "sticker") return "sticker";
+  if (clip.kind === "filter") return "filter";
+  if (clip.kind === "video-effect") return "video-effect";
+  if (clip.kind === "body-effect") return "body-effect";
+  if (clip.kind === "animated-overlay") return "animated-overlay";
+  if (clip.kind === "audio") return "audio";
+  if (clip.kind === "video" || clip.kind === "image") return "video";
+
+  // 3. If source track type is known and not video, prefer it
+  if (sourceTrack?.type && sourceTrack.type !== "video") {
+    return sourceTrack.type;
+  }
+
+  // 4. Text heuristics (text clips without explicit kind)
+  if (
+    "text" in clip ||
+    clip.id?.startsWith("text-clip-") ||
+    clip.id?.startsWith("text-") ||
+    (clip as any)?.templateId ||
+    (clip as any)?.styleId ||
+    (clip as any)?.styleDefinition
+  ) {
+    return "text";
+  }
+
+  // 5. Sticker heuristics
+  if (
+    clip.mediaId?.startsWith("sticker-") ||
+    clip.id?.startsWith("sticker-")
+  ) {
+    return "sticker";
+  }
+
+  // 6. Filter & Effect heuristics
+  if (clip.id?.startsWith("filter-clip-")) return "filter";
+  if (clip.id?.startsWith("video-effect-clip-") || (clip as any)?.renderer) {
+    return "video-effect";
+  }
+
+  // 7. Audio heuristics
+  if (mediaAsset?.type === "audio" || (clip as any)?.audioPath) {
+    return "audio";
+  }
+
+  // 8. If source track was video, keep it video
+  if (sourceTrack?.type === "video") {
+    return "video";
+  }
+
+  return "video";
+}
+
