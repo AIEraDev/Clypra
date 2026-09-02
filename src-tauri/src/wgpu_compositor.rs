@@ -92,7 +92,8 @@ pub struct NativePreviewSession {
     yuv_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     pipeline: wgpu::RenderPipeline,
-    ring: Option<YuvTextureRingBuffer>,
+    rings: HashMap<String, YuvTextureRingBuffer>,
+    layer_textures: HashMap<String, Arc<wgpu::Texture>>,
     rgba_layers: RgbaLayerTextureCache,
     pub text_cache: TextLayerCache,
     pub text_pipeline: TextEffectPipeline,
@@ -205,7 +206,8 @@ impl NativePreviewSession {
             yuv_layout,
             sampler,
             pipeline,
-            ring: None,
+            rings: HashMap::new(),
+            layer_textures: HashMap::new(),
             rgba_layers: RgbaLayerTextureCache::new(),
             text_cache,
             text_pipeline,
@@ -260,6 +262,7 @@ impl NativePreviewSession {
     #[allow(clippy::too_many_arguments)]
     pub fn render_nv12_frame_to_texture(
         &mut self,
+        layer_key: &str,
         source_width: u32,
         source_height: u32,
         output_width: u32,
@@ -267,17 +270,21 @@ impl NativePreviewSession {
         y_plane: &[u8],
         uv_plane: &[u8],
         params: &ColorTransformUniforms,
-    ) -> Result<wgpu::Texture, String> {
+    ) -> Result<Arc<wgpu::Texture>, String> {
         if source_width == 0 || source_height == 0 || output_width == 0 || output_height == 0 {
             return Err("Source and output dimensions must be non-zero".to_string());
         }
 
-        let ring = self.ring.get_or_insert_with(|| {
+        let yuv_layout = &self.yuv_layout;
+        let sampler = &self.sampler;
+        let device = &self.gpu.device;
+
+        let ring = self.rings.entry(layer_key.to_string()).or_insert_with(|| {
             YuvTextureRingBuffer::new(
-                &self.gpu.device,
-                &self.yuv_layout,
-                &self.sampler,
-                &self.sampler,
+                device,
+                yuv_layout,
+                sampler,
+                sampler,
                 source_width,
                 source_height,
                 YuvPixelFormat::Nv12,
@@ -294,20 +301,50 @@ impl NativePreviewSession {
             YuvPixelFormat::Nv12,
         );
 
-        let target_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Native Project Video Layer"),
-            size: wgpu::Extent3d {
-                width: output_width,
-                height: output_height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        let target_texture = if let Some(existing) = self.layer_textures.get(layer_key) {
+            if existing.width() == output_width && existing.height() == output_height {
+                Arc::clone(existing)
+            } else {
+                let new_tex = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Native Project Video Layer"),
+                    size: wgpu::Extent3d {
+                        width: output_width,
+                        height: output_height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                }));
+                self.layer_textures
+                    .insert(layer_key.to_string(), Arc::clone(&new_tex));
+                new_tex
+            }
+        } else {
+            let new_tex = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Native Project Video Layer"),
+                size: wgpu::Extent3d {
+                    width: output_width,
+                    height: output_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            }));
+            self.layer_textures
+                .insert(layer_key.to_string(), Arc::clone(&new_tex));
+            new_tex
+        };
+
         let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         render_yuv_frame(
@@ -839,12 +876,16 @@ impl NativePreviewSession {
             return Err("Source and output dimensions must be non-zero".to_string());
         }
 
-        let ring = self.ring.get_or_insert_with(|| {
+        let yuv_layout = &self.yuv_layout;
+        let sampler = &self.sampler;
+        let device = &self.gpu.device;
+
+        let ring = self.rings.entry("__single_frame__".to_string()).or_insert_with(|| {
             YuvTextureRingBuffer::new(
-                &self.gpu.device,
-                &self.yuv_layout,
-                &self.sampler,
-                &self.sampler,
+                device,
+                yuv_layout,
+                sampler,
+                sampler,
                 source_width,
                 source_height,
                 YuvPixelFormat::Nv12,
