@@ -447,3 +447,39 @@ async fn test_occlusion_culling_performance_delta() {
         "Culled decode should be faster than unculled decode"
     );
 }
+
+#[tokio::test]
+async fn test_long_range_continuous_playback_120_frames() {
+    let assets = get_available_test_assets();
+    let bellingham = assets.iter().find(|p| p.to_string_lossy().contains("Bellingham"));
+    let asset = match bellingham {
+        Some(a) => a,
+        None => return,
+    };
+
+    let path_str = asset.to_str().unwrap();
+    let mut decoder = VideoDecoder::open_hardware(path_str)
+        .or_else(|_| VideoDecoder::open_software(path_str))
+        .expect("Failed to open decoder");
+    let fps = 30.0;
+    let frame_interval = 1.0 / fps;
+    let num_frames = 120;
+
+    println!("\n--- Long-Range Continuous Decoding (120 frames @ 30fps) ---");
+    let mut spikes = Vec::new();
+    for i in 0..num_frames {
+        let t = 2.0 + (i as f64 * frame_interval);
+        let start = Instant::now();
+        let res = decoder.decode_frame_raw_nv12(t);
+        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+        assert!(res.is_ok());
+        if elapsed > 30.0 {
+            spikes.push((i, elapsed));
+            println!("  [SPIKE] Frame #{:03} (t={:.3}s): {:.2}ms", i, t, elapsed);
+        } else if i < 10 || i % 16 == 0 {
+            println!("  Frame #{:03} (t={:.3}s): {:.2}ms", i, t, elapsed);
+        }
+    }
+    println!("Total spikes (>30ms): {}", spikes.len());
+}
+
