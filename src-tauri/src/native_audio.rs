@@ -1455,6 +1455,70 @@ mod tests {
         assert!(clip.samples.is_empty());
     }
 
+    #[tokio::test]
+    async fn test_user_timeline_playback() {
+        let path1 = std::path::PathBuf::from("/Users/AIEraDev/Documents/clypra-testing-assets/O lo far ooo 😂😂🤣🤣 [7662866378793258261].mp4");
+        let path2 = std::path::PathBuf::from("/Users/AIEraDev/Documents/clypra-testing-assets/VØRTΞX★ 👽 - @CFCMods They thought they had Argentina [2077525613615751168].mp4");
+        if !path1.exists() || !path2.exists() {
+            return;
+        }
+
+        let clip1 = decode_native_audio_clip(
+            &path1,
+            "clip1".to_string(),
+            0,
+            0,
+            40_800_000,
+            1.0,
+            0.0,
+            0,
+            0,
+            "linear".to_string(),
+            "linear".to_string(),
+            Vec::new(),
+            "auto".to_string(),
+            "auto".to_string(),
+            None,
+            false,
+            48_000,
+            2,
+        ).await.unwrap();
+
+        let clip2 = decode_native_audio_clip(
+            &path2,
+            "clip2".to_string(),
+            12_200_000,
+            0,
+            25_402_630,
+            1.0,
+            0.0,
+            0,
+            0,
+            "linear".to_string(),
+            "linear".to_string(),
+            Vec::new(),
+            "auto".to_string(),
+            "auto".to_string(),
+            None,
+            false,
+            48_000,
+            2,
+        ).await.unwrap();
+
+        eprintln!("Clip 1: duration_ticks={}, sample_count={}, sample_rate={}, channels={}",
+            clip1.duration_ticks, clip1.samples.len(), clip1.sample_rate, clip1.channels);
+        eprintln!("Clip 2: duration_ticks={}, sample_count={}, sample_rate={}, channels={}",
+            clip2.duration_ticks, clip2.samples.len(), clip2.sample_rate, clip2.channels);
+
+        assert!(clip1.duration_ticks >= 40_000_000);
+        assert!(clip2.duration_ticks >= 25_000_000);
+
+        // At 22s, both clips are overlapping and MUST produce audio samples
+        let ticks_22s = 22 * 1_000_000;
+        assert!(sample_at(&clip1, ticks_22s, 0, 1.0).is_some());
+        assert!(sample_at(&clip2, ticks_22s, 0, 1.0).is_some());
+    }
+
     #[test]
     fn new_clock_is_stopped_and_unconfigured() {
         let clock = NativeAudioClock::new();
