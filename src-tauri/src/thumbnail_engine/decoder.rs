@@ -1342,8 +1342,22 @@ impl VideoDecoder {
         }
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let stream_fps = if self.stream_metadata.average_frame_rate_den > 0
+            && self.stream_metadata.average_frame_rate_num > 0
+        {
+            self.stream_metadata.average_frame_rate_num as f64
+                / self.stream_metadata.average_frame_rate_den as f64
+        } else if self.stream_metadata.nominal_frame_rate_den > 0
+            && self.stream_metadata.nominal_frame_rate_num > 0
+        {
+            self.stream_metadata.nominal_frame_rate_num as f64
+                / self.stream_metadata.nominal_frame_rate_den as f64
+        } else {
+            30.0
+        };
+        let frame_duration_secs = (1.0 / stream_fps.max(1.0)).min(0.2);
         let pts_tolerance =
-            (0.5 * self.time_base.1 as f64 / (self.time_base.0 as f64 * 30.0)).max(1.0) as i64;
+            ((frame_duration_secs * 0.95) * self.time_base.1 as f64 / self.time_base.0 as f64).round().max(1.0) as i64;
 
         if let Some((cached_pts, y, uv, width, height, color)) = &self.last_raw_nv12 {
             if (*cached_pts - target_pts).abs() <= pts_tolerance {

@@ -451,8 +451,8 @@ async fn test_occlusion_culling_performance_delta() {
 #[tokio::test]
 async fn test_long_range_continuous_playback_120_frames() {
     let assets = get_available_test_assets();
-    let bellingham = assets.iter().find(|p| p.to_string_lossy().contains("Bellingham"));
-    let asset = match bellingham {
+    let jomakaze = assets.iter().find(|p| p.to_string_lossy().contains("jomakaze"));
+    let asset = match jomakaze {
         Some(a) => a,
         None => return,
     };
