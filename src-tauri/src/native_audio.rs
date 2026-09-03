@@ -1350,7 +1350,7 @@ pub async fn decode_native_audio_clip(
     channels: u16,
 ) -> Result<NativePcmClip, String> {
     let config = AudioClipConfig {
-        id: clip_id,
+        id: clip_id.clone(),
         path: path.to_string_lossy().to_string(),
         timeline_start_ticks,
         source_start_ticks,
@@ -1371,7 +1371,35 @@ pub async fn decode_native_audio_clip(
     } else {
         channels
     };
-    let decoded = decode_audio_clip(path, config, sample_rate, decode_channels).await?;
+    let decoded = match decode_audio_clip(path, config, sample_rate, decode_channels).await {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            log::warn!(
+                "[NativeAudio] Audio decoding failed for clip {}: {}. Installing silent clip placeholder.",
+                clip_id,
+                error
+            );
+            return Ok(NativePcmClip {
+                id: clip_id,
+                sample_rate,
+                channels,
+                samples: Arc::from(Vec::<f32>::new()),
+                timeline_start_ticks,
+                duration_ticks,
+                gain: 0.0,
+                pan: 0.0,
+                fade_in_ticks: 0,
+                fade_out_ticks: 0,
+                fade_in_curve: "linear".to_string(),
+                fade_out_curve: "linear".to_string(),
+                volume_keyframes: Vec::new(),
+                channel_mode: "auto".to_string(),
+                downmix: "auto".to_string(),
+                channel_map: None,
+                preserve_pitch: false,
+            });
+        }
+    };
     let mut native: NativePcmClip = decoded.into();
     native.pan = pan.clamp(-1.0, 1.0);
     native.fade_in_curve = fade_in_curve;
@@ -1394,6 +1422,38 @@ pub async fn decode_native_audio_clip(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failed_audio_clip_decode_installs_silent_clip_without_error() {
+        let path = std::path::PathBuf::from("/nonexistent/file/without/audio.mp4");
+        let result = decode_native_audio_clip(
+            &path,
+            "silent_fallback_clip".to_string(),
+            0,
+            0,
+            1_000_000,
+            1.0,
+            0.0,
+            0,
+            0,
+            "linear".to_string(),
+            "linear".to_string(),
+            Vec::new(),
+            "auto".to_string(),
+            "auto".to_string(),
+            None,
+            false,
+            48_000,
+            2,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let clip = result.unwrap();
+        assert_eq!(clip.id, "silent_fallback_clip");
+        assert_eq!(clip.gain, 0.0);
+        assert!(clip.samples.is_empty());
+    }
 
     #[test]
     fn new_clock_is_stopped_and_unconfigured() {
