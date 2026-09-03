@@ -217,29 +217,37 @@ pub async fn replace_native_audio_clips(
 
     let mut decoded: Vec<NativePcmClip> = Vec::with_capacity(clips.len());
     for request in clips {
-        decoded.push(
-            decode_native_audio_clip(
-                &PathBuf::from(request.path),
-                request.clip_id,
-                request.timeline_start_ticks,
-                request.source_start_ticks,
-                request.duration_ticks,
-                request.gain,
-                request.pan,
-                request.fade_in_ticks,
-                request.fade_out_ticks,
-                request.fade_in_curve,
-                request.fade_out_curve,
-                request.volume_keyframes,
-                request.channel_mode,
-                request.downmix,
-                request.channel_map,
-                request.preserve_pitch,
-                sample_rate,
-                channels,
-            )
-            .await?,
-        );
+        match decode_native_audio_clip(
+            &PathBuf::from(&request.path),
+            request.clip_id.clone(),
+            request.timeline_start_ticks,
+            request.source_start_ticks,
+            request.duration_ticks,
+            request.gain,
+            request.pan,
+            request.fade_in_ticks,
+            request.fade_out_ticks,
+            request.fade_in_curve,
+            request.fade_out_curve,
+            request.volume_keyframes,
+            request.channel_mode,
+            request.downmix,
+            request.channel_map,
+            request.preserve_pitch,
+            sample_rate,
+            channels,
+        )
+        .await
+        {
+            Ok(clip) => decoded.push(clip),
+            Err(error) => {
+                log::warn!(
+                    "[NativeAudio] Skipping failed audio clip {}: {}",
+                    request.clip_id,
+                    error
+                );
+            }
+        }
     }
 
     let statuses: Vec<NativeAudioClipStatus> = decoded.iter().map(NativePcmClip::status).collect();
