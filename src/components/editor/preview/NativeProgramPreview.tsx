@@ -1544,6 +1544,7 @@ export const NativeProgramPreview: React.FC = () => {
       )
         .then(() => {
           nativePlaybackRenderSnapshotKey = key;
+          nativePlaybackRenderFailed = false;
         })
         .catch((error) => {
           nativePlaybackRenderFailed = true;
@@ -2304,14 +2305,17 @@ export const NativeProgramPreview: React.FC = () => {
                   void submitNativePlaybackDemand(
                     createNativePlaybackFrameDemand(playbackDemandRequest),
                   ).catch((error) => {
-                    nativePlaybackRenderFailed = true;
+                    const msg =
+                      error instanceof Error ? error.message : String(error);
+                    if (!msg.includes("not configured")) {
+                      nativePlaybackRenderFailed = true;
+                    }
                     nativePlaybackRenderSnapshotKey = "";
                     lastNativePlaybackRequestKey = "";
                     forceRenderNeeded = true;
                     console.warn("[native-preview] demand-submit-failed", {
                       frameIndex: requestToPresent.frameTime.frameIndex,
-                      error:
-                        error instanceof Error ? error.message : String(error),
+                      error: msg,
                     });
                   });
                   nativeSurfaceShown = true;
