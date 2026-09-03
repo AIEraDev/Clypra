@@ -7,10 +7,12 @@ use crate::native_core::{
 use crate::thumbnail_engine::decoder::{
     acquire_preview_decoder_lease_for_stream, PreviewDecoderLease,
 };
+use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Manager};
+use std::time::Instant;
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Rendering is owned by a session separate from the platform-neutral
 /// `PlaybackSession`. The latter intentionally has no Tauri, decoder, or wgpu
@@ -234,6 +236,13 @@ impl NativeRenderSession {
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut last_rendered_frame_index: Option<u64> = None;
+        let mut frames_rendered: u64 = 0;
+        let mut queue_hits: u64 = 0;
+        let mut total_time_sum_us: u64 = 0;
+        let mut decode_time_sum_us: u64 = 0;
+        let mut max_frame_us: u64 = 0;
+        let mut dropped_frames: u64 = 0;
+        let mut last_report = Instant::now();
 
         while self.running.load(Ordering::Acquire) {
             tokio::select! {
@@ -317,7 +326,81 @@ impl NativeRenderSession {
                         }
                     }
 
-                    self.render_one(&app, request, generation).await;
+                    if let Some(presentation) = self.render_one(&app, request, generation).await {
+                        if presentation.presented {
+                            frames_rendered += 1;
+                            if let Some(t) = &presentation.timings {
+                                if t.queue_hit {
+                                    queue_hits += 1;
+                                }
+                                total_time_sum_us += t.total_us;
+                                decode_time_sum_us += t.decode_us as u64;
+                                max_frame_us = max_frame_us.max(t.total_us);
+                            }
+                        } else if presentation.dropped {
+                            dropped_frames += 1;
+                        }
+
+                        if frames_rendered > 0 && frames_rendered % 60 == 0 {
+                            let elapsed_secs = last_report.elapsed().as_secs_f64();
+                            let fps = if elapsed_secs > 0.0 {
+                                (60.0 / elapsed_secs).round()
+                            } else {
+                                30.0
+                            };
+                            let hit_rate =
+                                (queue_hits as f64 / frames_rendered as f64) * 100.0;
+                            let avg_total_ms =
+                                (total_time_sum_us as f64 / frames_rendered as f64) / 1000.0;
+                            let avg_decode_ms =
+                                (decode_time_sum_us as f64 / frames_rendered as f64) / 1000.0;
+                            let peak_ms = (max_frame_us as f64) / 1000.0;
+                            let stream_count = _active_decoder_lease_count;
+
+                            eprintln!(
+                                "📊 [NativePlayback Summary] {} frames ({:.0}fps) | Lookahead Hit Rate: {:.1}% ({}/{}) | Avg Total: {:.2}ms | Avg Decode: {:.2}ms | Peak: {:.2}ms | Dropped: {} | Stacked Streams: {}",
+                                frames_rendered,
+                                fps,
+                                hit_rate,
+                                queue_hits,
+                                frames_rendered,
+                                avg_total_ms,
+                                avg_decode_ms,
+                                peak_ms,
+                                dropped_frames,
+                                stream_count
+                            );
+
+                            #[derive(Clone, Serialize)]
+                            #[serde(rename_all = "camelCase")]
+                            struct PlaybackStatsPayload {
+                                frames_rendered: u64,
+                                fps: f64,
+                                hit_rate_percent: f64,
+                                avg_total_ms: f64,
+                                avg_decode_ms: f64,
+                                max_frame_ms: f64,
+                                dropped: u64,
+                                stacked_streams: usize,
+                            }
+
+                            let _ = app.emit(
+                                "native-playback-stats",
+                                PlaybackStatsPayload {
+                                    frames_rendered,
+                                    fps,
+                                    hit_rate_percent: hit_rate,
+                                    avg_total_ms,
+                                    avg_decode_ms,
+                                    max_frame_ms: peak_ms,
+                                    dropped: dropped_frames,
+                                    stacked_streams: stream_count,
+                                },
+                            );
+
+                            last_report = Instant::now();
+                        }
+                    }
                     continue;
                 }
             }
@@ -330,15 +413,20 @@ impl NativeRenderSession {
                 continue;
             }
 
-            self.render_one(&app, base_request, generation).await;
+            let _ = self.render_one(&app, base_request, generation).await;
         }
     }
 
-    async fn render_one(&self, app: &AppHandle, request: FrameRequest, generation: u64) {
+    async fn render_one(
+        &self,
+        app: &AppHandle,
+        request: FrameRequest,
+        generation: u64,
+    ) -> Option<crate::native_core::NativeSurfacePresentation> {
         if generation < self.generation.load(Ordering::Acquire) {
             // Recency cancellation is deliberately before the shared
             // audio-clock lateness decision in present_native_frame.
-            return;
+            return None;
         }
         let frame_index = request.frame_time.frame_index;
         match crate::commands::native_preview::present_native_frame_internal(app.clone(), request)
@@ -360,11 +448,13 @@ impl NativeRenderSession {
                         frame_index, presentation.drop_reason
                     );
                 }
+                Some(presentation)
             }
             Err(error) => {
                 if !error.contains("stale") {
                     log::warn!("[NativePlayback] frame #{} presentation failed: {error}", frame_index);
                 }
+                None
             }
         }
     }
