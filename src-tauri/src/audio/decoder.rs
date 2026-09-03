@@ -64,13 +64,13 @@ fn decode_audio_clip_sync(
     // Attempt FFmpeg in-process decode first
     match decode_with_ffmpeg_next(path, &config, target_sample_rate, target_channels) {
         Ok((clip, _reached_source_end)) if !is_materially_truncated(&clip, &config) => Ok(clip),
-        Ok((clip, reached_source_end)) => {
+        Ok((clip, _reached_source_end)) => {
             // A clip is allowed to end at the source boundary. In that case
             // the requested timeline range can be longer than the remaining
             // media, and a shorter decoded buffer is correct rather than a
             // decoder failure. Only recover through the CLI when the source
             // still contains enough media for the requested range.
-            if reached_source_end || is_expected_source_end(path, &clip, &config) {
+            if is_expected_source_end(path, &clip, &config) {
                 return Ok(clip);
             }
 
