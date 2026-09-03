@@ -1374,6 +1374,12 @@ pub async fn decode_native_audio_clip(
     let decoded = match decode_audio_clip(path, config, sample_rate, decode_channels).await {
         Ok(decoded) => decoded,
         Err(error) => {
+            eprintln!(
+                "[NativeAudio] Audio decoding failed for clip {}: {} (path: {:?}). Installing silent clip placeholder.",
+                clip_id,
+                error,
+                path
+            );
             log::warn!(
                 "[NativeAudio] Audio decoding failed for clip {}: {}. Installing silent clip placeholder.",
                 clip_id,
