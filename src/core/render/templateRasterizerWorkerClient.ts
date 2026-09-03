@@ -235,9 +235,14 @@ export class TemplateRasterizerWorkerClient {
         this.inFlight.clear();
         this.worker = null;
       };
-      console.log("[TemplateRasterizerWorkerClient] Worker initialized successfully");
+      console.log(
+        "[TemplateRasterizerWorkerClient] Worker initialized successfully",
+      );
     } catch (err) {
-      console.warn("[TemplateRasterizerWorkerClient] Failed to initialize worker, fallback will be used:", err);
+      console.warn(
+        "[TemplateRasterizerWorkerClient] Failed to initialize worker, fallback will be used:",
+        err,
+      );
       this.worker = null;
     }
   }
@@ -257,7 +262,10 @@ export class TemplateRasterizerWorkerClient {
         workerRasterMs: msg.workerRasterMs,
       });
     } else {
-      console.error(`[TemplateRasterizerWorkerClient] Worker returned error for frame ${msg.id}:`, msg.error);
+      console.error(
+        `[TemplateRasterizerWorkerClient] Worker returned error for frame ${msg.id}:`,
+        msg.error,
+      );
       callbacks.reject(new Error(msg.error));
     }
   }
@@ -275,10 +283,7 @@ export class TemplateRasterizerWorkerClient {
     phase: TextRenderTracePhase,
   ): Promise<NativeTextRasterAsset> {
     const existing = this.inFlight.get(rasterKey);
-    if (existing) {
-      console.log(`[TemplateRasterizerWorkerClient] Dedup hit for template ${layer.layerId} (key=${rasterKey.slice(0, 32)}...)`);
-      return existing;
-    }
+    if (existing) return existing;
     const promise = this._doRasterizeTemplate(layer, rasterKey, phase);
     this.inFlight.set(rasterKey, promise);
     void promise.finally(() => this.inFlight.delete(rasterKey));
@@ -294,7 +299,6 @@ export class TemplateRasterizerWorkerClient {
 
     const artifact = resolveTextTemplateArtifact(layer.templateSnapshot);
     if (!artifact) {
-      console.log(`[TemplateRasterizerWorkerClient] No embedded snapshot for template ${layer.layerId}, falling back to main thread`);
       // No embedded snapshot — fall back to full main-thread rasterizer
       // which handles lazy-loading from the catalog.
       const { rasterizeTextLayerForNative } =
@@ -305,24 +309,24 @@ export class TemplateRasterizerWorkerClient {
     if (this.worker && !this.disposed) {
       try {
         const sendAt = performance.now();
-        const { bitmap, offsetX, offsetY, workerRasterMs } = await this._sendMessage({
-          type: "RENDER_TEMPLATE",
-          artifact,
-          localTime:
-            layer.time !== undefined && layer.clipStartTime !== undefined
-              ? layer.time - layer.clipStartTime
-              : 0,
-          clipDuration: layer.clipDuration,
-          layerWidth: layer.width,
-          layerHeight: layer.height,
-          controlValues: resolveControlValues(layer, artifact),
-        } as Omit<WorkerRenderTemplateMessage, "id">);
+        const { bitmap, offsetX, offsetY, workerRasterMs } =
+          await this._sendMessage({
+            type: "RENDER_TEMPLATE",
+            artifact,
+            localTime:
+              layer.time !== undefined && layer.clipStartTime !== undefined
+                ? layer.time - layer.clipStartTime
+                : 0,
+            clipDuration: layer.clipDuration,
+            layerWidth: layer.width,
+            layerHeight: layer.height,
+            controlValues: resolveControlValues(layer, artifact),
+          } as Omit<WorkerRenderTemplateMessage, "id">);
         const transferMs = Math.max(
           0,
           performance.now() - sendAt - workerRasterMs,
         );
         const totalMs = performance.now() - totalStartedAt;
-        console.log(`[TemplateRasterizerWorkerClient] Template rendered off-thread (layer=${layer.layerId}, workerMs=${workerRasterMs.toFixed(2)}ms, transferMs=${transferMs.toFixed(2)}ms, totalMs=${totalMs.toFixed(2)}ms)`);
 
         return buildAsset(
           bitmap,
@@ -339,7 +343,10 @@ export class TemplateRasterizerWorkerClient {
           transferMs,
         );
       } catch (workerErr) {
-        console.warn(`[TemplateRasterizerWorkerClient] Off-thread template render failed, falling back to main-thread:`, workerErr);
+        console.warn(
+          `[TemplateRasterizerWorkerClient] Off-thread template render failed, falling back to main-thread:`,
+          workerErr,
+        );
       }
     }
 
@@ -375,10 +382,7 @@ export class TemplateRasterizerWorkerClient {
     phase: TextRenderTracePhase,
   ): Promise<NativeTextRasterAsset> {
     const existing = this.inFlight.get(rasterKey);
-    if (existing) {
-      console.log(`[TemplateRasterizerWorkerClient] Dedup hit for effect ${layer.layerId} (key=${rasterKey.slice(0, 32)}...)`);
-      return existing;
-    }
+    if (existing) return existing;
     const promise = this._doRasterizeEffect(
       layer,
       sceneDoc,
@@ -405,19 +409,19 @@ export class TemplateRasterizerWorkerClient {
     if (this.worker && !this.disposed) {
       try {
         const sendAt = performance.now();
-        const { bitmap, offsetX, offsetY, workerRasterMs } = await this._sendMessage({
-          type: "RENDER_EFFECT",
-          sceneDocument: sceneDoc,
-          time: layer.time ?? 0,
-          evalWidth: canvasWidth,
-          evalHeight: canvasHeight,
-        } as Omit<WorkerRenderEffectMessage, "id">);
+        const { bitmap, offsetX, offsetY, workerRasterMs } =
+          await this._sendMessage({
+            type: "RENDER_EFFECT",
+            sceneDocument: sceneDoc,
+            time: layer.time ?? 0,
+            evalWidth: canvasWidth,
+            evalHeight: canvasHeight,
+          } as Omit<WorkerRenderEffectMessage, "id">);
         const transferMs = Math.max(
           0,
           performance.now() - sendAt - workerRasterMs,
         );
         const totalMs = performance.now() - totalStartedAt;
-        console.log(`[TemplateRasterizerWorkerClient] Effect rendered off-thread (layer=${layer.layerId}, workerMs=${workerRasterMs.toFixed(2)}ms, transferMs=${transferMs.toFixed(2)}ms, totalMs=${totalMs.toFixed(2)}ms)`);
 
         return buildAsset(
           bitmap,
@@ -434,7 +438,10 @@ export class TemplateRasterizerWorkerClient {
           transferMs,
         );
       } catch (workerErr) {
-        console.warn(`[TemplateRasterizerWorkerClient] Off-thread effect render failed, falling back to main-thread:`, workerErr);
+        console.warn(
+          `[TemplateRasterizerWorkerClient] Off-thread effect render failed, falling back to main-thread:`,
+          workerErr,
+        );
       }
     }
 

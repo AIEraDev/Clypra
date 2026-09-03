@@ -367,16 +367,6 @@ export class NativeAudioPreviewController {
       const position = positionTicks / 1_000_000;
       this.clock.setNativeClockPosition(position, this.clock.speed);
 
-      if (this.clock.state === "playing" && Math.random() < 0.05) {
-        console.debug("[NativeAudioController] poll:", {
-          positionSecs: Number(position.toFixed(3)),
-          positionTicks,
-          durationSecs: Number(this.source.duration.toFixed(3)),
-          durationTicks: secondsToTicks(this.source.duration),
-          speed: this.clock.speed,
-        });
-      }
-
       // A native graph can report position 0 while it is warming up. Never
       // treat a missing/stale zero duration as an end signal; the timeline
       // duration is the only valid terminal boundary.

@@ -159,6 +159,16 @@ export class NativeRasterBridge {
   >();
   private readonly assetsById = new Map<string, UploadableNativeRaster>();
   private readonly registeredAssetIds = new Set<string>();
+  /**
+   * Reference-equality cache for smart-overlay stableSerialize.
+   * stableSerialize does a full recursive deep serialization on every call.
+   * Since Zustand updates are immutable, the activeClips array reference only
+   * changes when the user edits a clip — not on every playback frame. Caching
+   * the last serialized string against the last array reference avoids O(fields)
+   * string concatenation every frame when clips haven't changed.
+   */
+  private _lastSmartOverlayClipsRef: readonly unknown[] | null = null;
+  private _lastSmartOverlayClipsSerial = "";
   private readonly animatedStickerRenderer =
     new NativeAnimatedStickerRenderer();
   private textPreparationGeneration = 0;
@@ -274,7 +284,22 @@ export class NativeRasterBridge {
     // frame-addressed. The preview scheduler is responsible for ensuring that
     // only the newest playback frame reaches this method; callers must not
     // turn this into an unbounded background queue.
-    const assetId = `native-smart-overlay:${options.frameKey}:${stableSerialize(activeClips)}`;
+    //
+    // Reference-equality check: stableSerialize does full recursive object
+    // serialization. Since Zustand clips are immutable, the array reference
+    // only changes on edits — not every frame. Reuse the last serial string
+    // when the reference is identical to avoid per-frame string allocation.
+    let clipsSerial: string;
+    if (
+      activeClips === (this._lastSmartOverlayClipsRef as typeof activeClips)
+    ) {
+      clipsSerial = this._lastSmartOverlayClipsSerial;
+    } else {
+      clipsSerial = stableSerialize(activeClips);
+      this._lastSmartOverlayClipsRef = activeClips;
+      this._lastSmartOverlayClipsSerial = clipsSerial;
+    }
+    const assetId = `native-smart-overlay:${options.frameKey}:${clipsSerial}`;
     const existing = this.assetsById.get(assetId);
     if (existing) {
       await this.register(existing);
@@ -299,10 +324,18 @@ export class NativeRasterBridge {
       );
     }
 
-    const rgba = Array.from(
-      context.getImageData(0, 0, rasterWidth, rasterHeight).data,
-    );
-    if (!rgba.some((value, index) => index % 4 === 3 && value > 0)) return [];
+    // Keep as Uint8ClampedArray — avoids the O(W×H) Array.from() copy.
+    // registerNativeRasterAsset converts to number[] at the Tauri IPC boundary.
+    const rgba = context.getImageData(0, 0, rasterWidth, rasterHeight).data;
+    // Check whether any pixel has non-zero alpha (every 4th byte starting at index 3).
+    let hasVisiblePixels = false;
+    for (let i = 3; i < rgba.length; i += 4) {
+      if (rgba[i] > 0) {
+        hasVisiblePixels = true;
+        break;
+      }
+    }
+    if (!hasVisiblePixels) return [];
     const asset: UploadableNativeRaster = {
       assetId,
       rgba,
@@ -557,14 +590,16 @@ export class NativeRasterBridge {
     // ── Templates: always off-thread ─────────────────────────────────────────
     if (isTemplate) {
       try {
-        console.log(`[NativeRasterBridge] Routing template ${layer.layerId} to worker client`);
         return await this.templateRasterizerWorkerClient.rasterize(
           layer,
           key,
           phase,
         );
       } catch (err) {
-        console.warn(`[NativeRasterBridge] Worker template rasterize failed for ${layer.layerId}, falling back to main-thread:`, err);
+        console.warn(
+          `[NativeRasterBridge] Worker template rasterize failed for ${layer.layerId}, falling back to main-thread:`,
+          err,
+        );
         return rasterizeTextLayerForNative(layer, { phase });
       }
     }
@@ -625,7 +660,6 @@ export class NativeRasterBridge {
             width: evalWidth,
             height: evalHeight,
           };
-          console.log(`[NativeRasterBridge] Routing effect ${layer.layerId} to worker client`);
           return await this.templateRasterizerWorkerClient.rasterizeEffect(
             layer,
             canonicalScene,
@@ -635,7 +669,10 @@ export class NativeRasterBridge {
             phase,
           );
         } catch (err) {
-          console.warn(`[NativeRasterBridge] Worker effect rasterize failed for ${layer.layerId}, falling back to main-thread:`, err);
+          console.warn(
+            `[NativeRasterBridge] Worker effect rasterize failed for ${layer.layerId}, falling back to main-thread:`,
+            err,
+          );
         }
       }
     }
@@ -838,7 +875,9 @@ export class NativeRasterBridge {
     );
     const asset: UploadableNativeRaster = {
       assetId,
-      rgba: Array.from(context.getImageData(0, 0, width, height).data),
+      // Keep as Uint8ClampedArray — avoids the O(W×H) Array.from() copy.
+      // registerNativeRasterAsset converts to number[] at the Tauri IPC boundary.
+      rgba: context.getImageData(0, 0, width, height).data,
       width,
       height,
       x: 0,
