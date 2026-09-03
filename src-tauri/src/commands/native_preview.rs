@@ -30,7 +30,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tauri::Manager;
 
-type DecodedNativeVideoFrame = (Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata);
+type DecodedNativeVideoFrame = (Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static VERBOSE_PREVIEW_LOGS: Lazy<bool> = Lazy::new(|| {
     std::env::var("CLYPRA_VERBOSE_PREVIEW")
@@ -484,7 +484,10 @@ pub struct NativeRasterAssetRegistration {
     pub asset_id: String,
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
     pub rgba: Vec<u8>,
+    #[serde(default)]
+    pub rgba_base64: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1568,8 +1571,8 @@ async fn render_native_video_project_frame_bytes_timed(
             layer_key,
             *width,
             *height,
-            layer.width.max(1.0).round() as u32,
-            layer.height.max(1.0).round() as u32,
+            *width,
+            *height,
             y_plane,
             uv_plane,
             &params,
@@ -2201,6 +2204,12 @@ pub async fn register_native_raster_asset(
     if asset.asset_id.trim().is_empty() {
         return Err("Native raster asset id must be non-empty".to_string());
     }
+    let raw_rgba = if let Some(b64) = &asset.rgba_base64 {
+        use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+        BASE64.decode(b64).map_err(|e| format!("Failed to decode base64 rgba: {e}"))?
+    } else {
+        asset.rgba
+    };
     let expected_bytes = (asset.width as usize)
         .checked_mul(asset.height as usize)
         .and_then(|pixels| pixels.checked_mul(4))
@@ -2209,8 +2218,8 @@ pub async fn register_native_raster_asset(
         || asset.height == 0
         || asset.width > 8192
         || asset.height > 8192
-        || asset.rgba.len() != expected_bytes
-        || asset.rgba.len() > 64 * 1024 * 1024
+        || raw_rgba.len() != expected_bytes
+        || raw_rgba.len() > 64 * 1024 * 1024
     {
         return Err("Native raster asset payload is invalid".to_string());
     }
@@ -2224,7 +2233,7 @@ pub async fn register_native_raster_asset(
             &asset.asset_id,
             asset.width,
             asset.height,
-            Some(&asset.rgba),
+            Some(&raw_rgba),
         )
         .map(|_| ())
 }
@@ -2545,8 +2554,8 @@ pub(crate) async fn present_native_frame_internal(
             layer_key,
             *width,
             *height,
-            layer.width.max(1.0).round() as u32,
-            layer.height.max(1.0).round() as u32,
+            *width,
+            *height,
             y_plane,
             uv_plane,
             &params,
