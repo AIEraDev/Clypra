@@ -97,6 +97,7 @@ struct NativeDecodeTimings {
 }
 
 struct QueuedNativeFrame {
+    frame_index: u64,
     decoded_frames: Vec<DecodedNativeVideoFrame>,
     decode_timings: NativeDecodeTimings,
     queued_at: Instant,
@@ -247,6 +248,7 @@ pub struct NativePreviewFrameQueue {
     pending: std::collections::HashSet<String>,
     max_entries: usize,
     latest_generation: Arc<AtomicU64>,
+    notify: Arc<tokio::sync::Notify>,
 }
 
 impl NativePreviewFrameQueue {
@@ -257,7 +259,16 @@ impl NativePreviewFrameQueue {
             pending: std::collections::HashSet::new(),
             max_entries: max_entries.max(1),
             latest_generation: Arc::new(AtomicU64::new(0)),
+            notify: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    pub fn notify(&self) -> Arc<tokio::sync::Notify> {
+        self.notify.clone()
+    }
+
+    pub fn is_pending(&self, key: &str) -> bool {
+        self.pending.contains(key)
     }
 
     pub fn len(&self) -> usize {
@@ -300,16 +311,42 @@ impl NativePreviewFrameQueue {
             };
             self.entries.remove(&oldest);
         }
+        self.notify.notify_waiters();
     }
 
     fn fail(&mut self, key: &str) {
         self.pending.remove(key);
+        self.notify.notify_waiters();
     }
 
     fn take(&mut self, key: &str) -> Option<QueuedNativeFrame> {
         let decoded = self.entries.remove(key)?;
         self.order.retain(|entry| entry != key);
         Some(decoded)
+    }
+
+    fn take_matching_or_closest(&mut self, key: &str, target_frame_index: u64) -> Option<QueuedNativeFrame> {
+        if let Some(frame) = self.take(key) {
+            return Some(frame);
+        }
+
+        let mut best_key: Option<String> = None;
+        let mut best_frame_index: u64 = 0;
+
+        for (k, frame) in &self.entries {
+            if frame.frame_index <= target_frame_index && target_frame_index.saturating_sub(frame.frame_index) <= 2 {
+                if best_key.is_none() || frame.frame_index > best_frame_index {
+                    best_key = Some(k.clone());
+                    best_frame_index = frame.frame_index;
+                }
+            }
+        }
+
+        if let Some(k) = best_key {
+            return self.take(&k);
+        }
+
+        None
     }
 
     /// Reset all queued frames and generation counter. Call on project close so
@@ -1919,6 +1956,7 @@ pub async fn queue_native_frame(
                 queue_state.complete(
                     key,
                     QueuedNativeFrame {
+                        frame_index: request.frame_time.frame_index,
                         decoded_frames,
                         decode_timings,
                         queued_at: command_started,
@@ -1939,7 +1977,12 @@ pub async fn queue_native_frame(
     }
 }
 
-static LOOKAHEAD_WORKER: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>> =
+struct LookaheadWorkerState {
+    handle: tokio::task::JoinHandle<()>,
+    generation: u64,
+}
+
+static LOOKAHEAD_WORKER: std::sync::Mutex<Option<LookaheadWorkerState>> =
     std::sync::Mutex::new(None);
 
 /// Non-blocking lookahead pre-decode worker.
@@ -1955,20 +1998,47 @@ pub(crate) fn schedule_lookahead_predecode(
         return;
     }
 
-    // Abort previous lookahead worker to prevent decoder mutex congestion and GOP thrashing!
+    let generation = base_request.generation.unwrap_or(0);
+    let fps = base_request.project.frame_rate.max(1) as f64;
+
     let mut worker_guard = match LOOKAHEAD_WORKER.lock() {
         Ok(guard) => guard,
         Err(_) => return,
     };
-    if let Some(prev) = worker_guard.take() {
-        prev.abort();
+
+    // If an active worker for the SAME generation is already busy pre-decoding upcoming frames,
+    // do NOT abort it! Let it continue its sequential decoding pipeline uninterrupted.
+    if let Some(active) = worker_guard.as_ref() {
+        if active.generation == generation && !active.handle.is_finished() {
+            return;
+        }
     }
 
-    let generation = base_request.generation.unwrap_or(0);
-    let fps = base_request.project.frame_rate.max(1) as f64;
+    // If generation changed (seek or project edit), abort previous worker to free decoders immediately.
+    if let Some(prev) = worker_guard.take() {
+        if prev.generation != generation {
+            prev.handle.abort();
+        }
+    }
 
-    let handle = tauri::async_runtime::spawn(async move {
-        for k in 1..=lookahead_count {
+    // Anchor starting position ONCE at the start of the batch so upcoming frame indices
+    // are strictly sequential (+1, +2, +3, +4...) without jitter or frame skips!
+    let (start_frame_index, start_time_secs) =
+        if let Ok(audio_time) = crate::commands::native_playback::audio_clock_time(&app, true, false) {
+            let audio_secs = (audio_time.ticks as f64) / (audio_time.timescale.max(1) as f64);
+            let audio_frame = (audio_secs * fps).round() as u64;
+            (audio_frame, audio_secs)
+        } else {
+            let base_time_secs = (base_request.frame_time.ticks as f64)
+                / (base_request.frame_time.timescale.max(1) as f64);
+            (base_request.frame_time.frame_index, base_time_secs)
+        };
+
+    let base_timeline_secs = (base_request.frame_time.ticks as f64)
+        / (base_request.frame_time.timescale.max(1) as f64);
+
+    let handle = tokio::spawn(async move {
+        for k in 0..=lookahead_count {
             // Check generation currency before each frame
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
                 let queue_state = queue.lock().await;
@@ -1977,25 +2047,8 @@ pub(crate) fn schedule_lookahead_predecode(
                 }
             }
 
-            // Always target strictly ahead of the current live audio clock position during playback,
-            // or ahead of the target frame if paused/seeking.
-            let (target_frame_index, target_time_secs) =
-                if let Ok(audio_time) = crate::commands::native_playback::audio_clock_time(&app, true, false) {
-                    let audio_secs = (audio_time.ticks as f64) / (audio_time.timescale.max(1) as f64);
-                    let audio_frame = (audio_secs * fps).round() as u64;
-                    let ahead_frame = audio_frame.saturating_add(k as u64);
-                    let ahead_secs = audio_secs + (k as f64 / fps);
-                    (ahead_frame, ahead_secs)
-                } else {
-                    let base_time_secs = (base_request.frame_time.ticks as f64)
-                        / (base_request.frame_time.timescale.max(1) as f64);
-                    let ahead_frame = base_request.frame_time.frame_index.saturating_add(k as u64);
-                    let ahead_secs = base_time_secs + (k as f64 / fps);
-                    (ahead_frame, ahead_secs)
-                };
-
-            let base_timeline_secs = (base_request.frame_time.ticks as f64)
-                / (base_request.frame_time.timescale.max(1) as f64);
+            let target_frame_index = start_frame_index.saturating_add(k as u64);
+            let target_time_secs = start_time_secs + (k as f64 / fps);
             let delta_secs = (target_time_secs - base_timeline_secs).max(0.0);
 
             let mut req = base_request.clone();
@@ -2050,7 +2103,7 @@ pub(crate) fn schedule_lookahead_predecode(
         }
     });
 
-    *worker_guard = Some(handle);
+    *worker_guard = Some(LookaheadWorkerState { handle, generation });
 }
 
 /// Mark all older native preview work stale. Decoder calls that cannot be
@@ -2063,7 +2116,7 @@ pub async fn cancel_native_preview_requests(
 ) -> Result<(), String> {
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(prev) = worker.take() {
-            prev.abort();
+            prev.handle.abort();
         }
     }
     let queue = app
@@ -2211,9 +2264,38 @@ pub(crate) async fn present_native_frame_internal(
         .map_err(|_| "Native surface runtime lock is poisoned".to_string())?
         .runtime_epoch();
     let queued_key = request.cache_key().map_err(|error| error.to_string())?;
+    let is_playback_mode = request.mode.as_deref() == Some("playback");
     let queued_frame =
         if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
-            queue.inner().clone().lock().await.take(&queued_key)
+            let queue_arc = queue.inner().clone();
+            let mut q = queue_arc.lock().await;
+            if let Some(frame) = q.take(&queued_key) {
+                Some(frame)
+            } else if is_playback_mode {
+                let notify = q.notify();
+                drop(q);
+                // In continuous playback, give in-flight lookahead up to 35ms to finish
+                // rather than launching a competing cold decode that thrashes the decoder GOP.
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(35),
+                    notify.notified(),
+                )
+                .await;
+                let mut q = queue_arc.lock().await;
+                q.take_matching_or_closest(&queued_key, request.frame_time.frame_index)
+            } else if q.is_pending(&queued_key) {
+                let notify = q.notify();
+                drop(q);
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(35),
+                    notify.notified(),
+                )
+                .await;
+                let mut q = queue_arc.lock().await;
+                q.take(&queued_key)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -2639,7 +2721,7 @@ pub(crate) async fn present_native_frame_internal(
     }
 
     if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
-        schedule_lookahead_predecode(app.clone(), request.clone(), 6);
+        schedule_lookahead_predecode(app.clone(), request.clone(), 12);
     }
 
     Ok(NativeSurfacePresentation {
@@ -2880,7 +2962,7 @@ pub async fn get_native_frame_service_samples(
 pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), String> {
     if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
         if let Some(prev) = worker.take() {
-            prev.abort();
+            prev.handle.abort();
         }
     }
 
@@ -3117,6 +3199,7 @@ mod tests {
     fn native_preview_queue_is_bounded_and_consumable() {
         let mut queue = NativePreviewFrameQueue::new(2);
         let queued_frame = || QueuedNativeFrame {
+            frame_index: 0,
             decoded_frames: Vec::new(),
             decode_timings: NativeDecodeTimings::default(),
             queued_at: Instant::now(),
