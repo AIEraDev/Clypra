@@ -79,7 +79,7 @@ impl NativeRenderSession {
         if let Ok(snapshot_guard) = self.snapshot.lock() {
             let base_request = snapshot_guard.clone();
             drop(snapshot_guard);
-            crate::commands::native_preview::schedule_lookahead_predecode(app.clone(), base_request, 12);
+            crate::commands::native_preview::schedule_lookahead_predecode(app.clone(), base_request, 16);
         }
         let session = Arc::clone(self);
         let handle = tauri::async_runtime::spawn(async move {
