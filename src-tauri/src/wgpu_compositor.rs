@@ -302,14 +302,14 @@ impl NativePreviewSession {
         );
 
         let target_texture = if let Some(existing) = self.layer_textures.get(layer_key) {
-            if existing.width() == output_width && existing.height() == output_height {
+            if existing.width() == source_width && existing.height() == source_height {
                 Arc::clone(existing)
             } else {
                 let new_tex = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("Native Project Video Layer"),
                     size: wgpu::Extent3d {
-                        width: output_width,
-                        height: output_height,
+                        width: source_width,
+                        height: source_height,
                         depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
@@ -328,8 +328,8 @@ impl NativePreviewSession {
             let new_tex = Arc::new(self.gpu.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Native Project Video Layer"),
                 size: wgpu::Extent3d {
-                    width: output_width,
-                    height: output_height,
+                    width: source_width,
+                    height: source_height,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
