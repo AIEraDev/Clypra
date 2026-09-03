@@ -494,6 +494,17 @@ export async function resetNativeRuntime(): Promise<void> {
   await invoke("reset_native_preview_runtime");
 }
 
+function uint8ArrayToBase64(bytes: Uint8Array | Uint8ClampedArray): string {
+  let binary = "";
+  const len = bytes.byteLength;
+  const chunkSize = 0x8000; // 32KB chunks prevent argument stack limits
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
+
 /** Upload immutable raster pixels once so frame requests can reference them by id. */
 export async function registerNativeRasterAsset(
   asset: NativeRasterLayerSnapshot & { rgba: Uint8ClampedArray | number[] },
@@ -501,22 +512,28 @@ export async function registerNativeRasterAsset(
   if (!isTauriRuntime()) {
     throw new Error("registerNativeRasterAsset requires the Tauri runtime");
   }
-  // Tauri's invoke serializes arguments as JSON. JSON.stringify cannot handle
-  // Uint8ClampedArray (it serializes as an object, not an array), so we
-  // convert to a plain number[] here — at the IPC boundary only, never
-  // earlier. This is the single copy for Uint8ClampedArray payloads.
-  const rgba =
-    asset.rgba instanceof Uint8ClampedArray
-      ? Array.from(asset.rgba)
-      : asset.rgba;
-  await invoke("register_native_raster_asset", {
-    asset: {
-      assetId: asset.assetId,
-      width: asset.width,
-      height: asset.height,
-      rgba,
-    },
-  });
+  // High-performance binary transfer: encode typed arrays to base64 directly
+  // to avoid V8 heap explosion (66MB+ for Array.from) and 30MB+ JSON stringification.
+  if (asset.rgba instanceof Uint8ClampedArray || asset.rgba instanceof Uint8Array) {
+    const rgbaBase64 = uint8ArrayToBase64(asset.rgba);
+    await invoke("register_native_raster_asset", {
+      asset: {
+        assetId: asset.assetId,
+        width: asset.width,
+        height: asset.height,
+        rgbaBase64,
+      },
+    });
+  } else {
+    await invoke("register_native_raster_asset", {
+      asset: {
+        assetId: asset.assetId,
+        width: asset.width,
+        height: asset.height,
+        rgba: asset.rgba,
+      },
+    });
+  }
 }
 
 export async function getNativeFrameServiceStats(): Promise<NativeFrameServiceStats> {
@@ -892,7 +909,9 @@ export async function getNativeAudioClips(): Promise<NativeAudioClipStatus[]> {
 /**
  * Extract a single frame using the native decoder (fast path).
  * ~20-50ms first frame, ~3-15ms subsequent frames.
- * Returns base64-encoded WebP data URL.
+ *
+ * Returns raw RGBA bytes from Rust as an ArrayBuffer (binary IPC, no base64
+ * on the Rust side). Converts to a data URL here so callers are unchanged.
  */
 export async function decodeFrame(
   videoPath: string,
@@ -904,13 +923,22 @@ export async function decodeFrame(
     console.warn("[Tauri] decodeFrame bypassed: Non-Tauri environment.");
     return "data:image/png;base64,mockedDataURL";
   }
-  return invoke<string>("decode_frame", {
+  // Binary IPC — Rust returns raw RGBA bytes, no base64 overhead
+  const buf = await invoke<ArrayBuffer>("decode_frame", {
     videoPath: toNativePath(videoPath),
     timeSecs,
     width,
     height,
   });
+  // Convert ArrayBuffer → data URL on JS side (single pass, no extra copy)
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return `data:image/rgba;base64,${btoa(binary)}`;
 }
+
 
 /**
  * Extract multiple frames using the native decoder with streaming, instead of sidecar FFmpeg. Much faster for batch extractions.
