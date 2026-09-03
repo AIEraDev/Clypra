@@ -32,10 +32,11 @@ export function refitClipsForCanvasChange(
 
   const assetMap = new Map(mediaAssets.map((a) => [a.id, a]));
 
-  const oW = oldCanvasWidth ?? 1920;
-  const oH = oldCanvasHeight ?? 1080;
-  const scaleX = newCanvasWidth / oW;
-  const scaleY = newCanvasHeight / oH;
+  const project = useProjectStore.getState().project;
+  const oW = oldCanvasWidth ?? project?.canvasWidth ?? 1920;
+  const oH = oldCanvasHeight ?? project?.canvasHeight ?? 1080;
+  const scaleX = oW > 0 ? newCanvasWidth / oW : 1.0;
+  const scaleY = oH > 0 ? newCanvasHeight / oH : 1.0;
 
   for (const clip of clips) {
     if (clip.kind === "text") {
@@ -66,14 +67,34 @@ export function refitClipsForCanvasChange(
     const fitMode: ClipFitModeExtended = (clip as any).fitMode ?? DEFAULT_PLACEMENT_POLICY.defaultVisualFitMode;
     const newDims = calculateClipDimensions(asset, newCanvasWidth, newCanvasHeight, fitMode);
 
-    // Only update if dimensions actually changed
-    if (
-      clip.x !== newDims.x ||
-      clip.y !== newDims.y ||
-      clip.width !== newDims.width ||
-      clip.height !== newDims.height
-    ) {
-      updateClip(clip.id, newDims);
+    let nextConform = (clip as any).conform;
+    if (nextConform) {
+      const conformMode =
+        fitMode === "cover" || fitMode === "fill"
+          ? "fill"
+          : fitMode === "stretch"
+          ? "stretch"
+          : fitMode === "original"
+          ? "none"
+          : "fit";
+
+      const scaledOffsetX = (nextConform.userOffsetX ?? 0) * scaleX;
+      const scaledOffsetY = (nextConform.userOffsetY ?? 0) * scaleY;
+
+      nextConform = {
+        ...nextConform,
+        mode: conformMode,
+        sourceWidth: nextConform.sourceWidth || asset.width || 0,
+        sourceHeight: nextConform.sourceHeight || asset.height || 0,
+        userOffsetX: scaledOffsetX,
+        userOffsetY: scaledOffsetY,
+      };
     }
+
+    // Update if dimensions or conform changed
+    updateClip(clip.id, {
+      ...newDims,
+      ...(nextConform ? { conform: nextConform } : {}),
+    });
   }
 }
