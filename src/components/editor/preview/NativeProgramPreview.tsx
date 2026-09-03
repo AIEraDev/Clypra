@@ -1142,6 +1142,7 @@ export const NativeProgramPreview: React.FC = () => {
     let nativeTextPrefetchTimer: number | null = null;
 
     let nativeSurfaceShown = false;
+    let playbackPipelineLogged = false;
     let lastNativePlaybackRequestKey = "";
     let visibleRequestKey = "";
     const seekController =
@@ -2179,6 +2180,7 @@ export const NativeProgramPreview: React.FC = () => {
         // SafeOverlay, captions).
         if (!isPlaying) {
           nativePlaybackRenderFailed = false;
+          playbackPipelineLogged = false;
         }
         const nativeSurfaceNeedsHide =
           nativeSurfaceShown &&
@@ -2264,9 +2266,11 @@ export const NativeProgramPreview: React.FC = () => {
                   nativePlaybackRenderSnapshotKey === snapshotKey &&
                   nativePlaybackRenderSnapshotInFlight === null
                 ) {
-                  if (isFirstFrame) {
-                    console.info(
-                      `[av-sync][pipeline] Continuous playback ACTIVE via persistent Native background worker (frame: ${requestToPresent.frameTime.frameIndex})`,
+                  if (!playbackPipelineLogged) {
+                    playbackPipelineLogged = true;
+                    console.log(
+                      `%c[av-sync][pipeline] Continuous playback ACTIVE via persistent Native background worker (frame: ${requestToPresent.frameTime.frameIndex})`,
+                      "color: #10b981; font-weight: bold;",
                     );
                   }
                   // Rust owns the active decode/present operation and keeps
@@ -2298,7 +2302,8 @@ export const NativeProgramPreview: React.FC = () => {
                 nativeSurfaceUsable &&
                 !qualificationForcesWebView
               ) {
-                if (isFirstFrame) {
+                if (!playbackPipelineLogged) {
+                  playbackPipelineLogged = true;
                   console.warn(
                     "[av-sync][pipeline] Fallback synchronous presentation active (not persistent worker):",
                     {
