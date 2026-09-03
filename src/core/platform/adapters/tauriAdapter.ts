@@ -186,7 +186,7 @@ export class TauriPlatformAdapter implements PlatformInterface {
   }
 
   async finalizeRecordingFile(tempFileName: string, finalFileName: string): Promise<string> {
-    const { rename, exists, stat } = await import("@tauri-apps/plugin-fs");
+    const { rename, exists, stat, copyFile, remove } = await import("@tauri-apps/plugin-fs");
     const { appLocalDataDir, join } = await import("@tauri-apps/api/path");
     const localDir = await appLocalDataDir();
     const tempPath = await join(localDir, tempFileName);
@@ -195,10 +195,30 @@ export class TauriPlatformAdapter implements PlatformInterface {
     if (await exists(tempPath)) {
       const fileStat = await stat(tempPath).catch(() => ({ size: 0 }));
       if (fileStat.size > 0) {
-        await rename(tempPath, finalPath);
+        try {
+          await rename(tempPath, finalPath);
+          return finalPath;
+        } catch (renameErr) {
+          console.warn("[tauriAdapter] rename failed, falling back to copyFile + remove:", renameErr);
+          try {
+            await copyFile(tempPath, finalPath);
+            await remove(tempPath).catch(() => {});
+            return finalPath;
+          } catch (copyErr) {
+            console.error("[tauriAdapter] copyFile fallback also failed:", copyErr);
+            throw renameErr;
+          }
+        }
+      }
+    }
+
+    if (await exists(finalPath)) {
+      const finalStat = await stat(finalPath).catch(() => ({ size: 0 }));
+      if (finalStat.size > 0) {
         return finalPath;
       }
     }
+
     throw new Error(`Temp recording file ${tempFileName} is missing or 0 bytes`);
   }
 }
