@@ -191,4 +191,39 @@ describe("audioClips — getActiveAudioClips range export fades", () => {
       { clipId: "child-b", startTime: 8, duration: 2, trimIn: 2 },
     ]);
   });
+
+  it("ignores video clips whose assets have no audio streams", () => {
+    const videoTrack: Track = { ...mockTrack, id: "video-track", type: "video", name: "Video" };
+    const silentVideoAsset: MediaAsset = {
+      id: "silent-video",
+      name: "Silent.mp4",
+      path: "/media/silent.mp4",
+      type: "video",
+      duration: 10,
+      size: 1024,
+      streams: [
+        { index: 0, type: "video", codec: "h264" },
+      ],
+    };
+
+    const clip: Clip = {
+      id: "clip-silent",
+      trackId: videoTrack.id,
+      mediaId: silentVideoAsset.id,
+      kind: "video",
+      startTime: 0,
+      duration: 5,
+      trimIn: 0,
+      trimOut: 5,
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      opacity: 1,
+      rotation: 0,
+    };
+
+    const configs = getActiveAudioClips([clip], [videoTrack], [silentVideoAsset], 0, 10);
+    expect(configs).toHaveLength(0);
+  });
 });
