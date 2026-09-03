@@ -269,6 +269,13 @@ export function resetEvaluationCache(): void {
   globalCache = null;
 }
 
+function fastPropSig(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
+}
+
 /**
  * Compute clip version hash.
  * This is a simple hash of clip IDs and key properties.
@@ -306,9 +313,9 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
         c.templateId ?? "",
         c.templateRevisionId ?? "",
         c.templateContentHash ?? "",
-        JSON.stringify(c.templateControlValues ?? null),
-        JSON.stringify(c.templateDependencySnapshot ?? null),
-        JSON.stringify(c.templateSnapshot?.revision ?? null),
+        fastPropSig(c.templateControlValues),
+        fastPropSig(c.templateDependencySnapshot),
+        fastPropSig(c.templateSnapshot?.revision),
         c.styleDefinition?.id ?? "",
         c.fontFamily ?? "",
         c.fontSize ?? "",
@@ -319,10 +326,10 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
         c.lineHeight ?? "",
         c.align ?? "",
         c.valign ?? "",
-        JSON.stringify(c.stroke ?? null),
-        JSON.stringify(c.shadow ?? null),
-        JSON.stringify(c.background ?? null),
-        JSON.stringify(c.customization ?? null),
+        fastPropSig(c.stroke),
+        fastPropSig(c.shadow),
+        fastPropSig(c.background),
+        fastPropSig(c.customization),
         c.effectStackVersion ?? "",
       ].join(":"),
     )
@@ -344,7 +351,7 @@ export function computeClipVersion(clips: Array<Record<string, any>>, transition
         Number(t.placement?.startTime ?? 0).toFixed(3),
         Number(t.placement?.duration ?? 0).toFixed(3),
         t.effects?.version ?? 0,
-        JSON.stringify(t.metadata ?? null),
+        fastPropSig(t.metadata),
       ].join(":")
     )
     .join("|");
