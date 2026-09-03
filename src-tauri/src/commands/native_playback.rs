@@ -76,6 +76,11 @@ impl NativeRenderSession {
             return;
         }
         eprintln!("[NativePlayback] Persistent background render worker STARTED");
+        if let Ok(snapshot_guard) = self.snapshot.lock() {
+            let base_request = snapshot_guard.clone();
+            drop(snapshot_guard);
+            crate::commands::native_preview::schedule_lookahead_predecode(app.clone(), base_request, 12);
+        }
         let session = Arc::clone(self);
         let handle = tauri::async_runtime::spawn(async move {
             session.render_loop(app).await;
@@ -709,6 +714,11 @@ pub async fn configure_native_playback_render(
     };
     if let Some(previous) = previous {
         previous.stop();
+        // Clear obsolete frames from previous configuration so newly configured
+        // layers have immediate access to all queue capacity.
+        if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<crate::commands::native_preview::NativePreviewFrameQueue>>>() {
+            queue.inner().clone().lock().await.reset();
+        }
     }
     // Acquire leases only after the previous revision has released its pins;
     // this prevents a project switch from temporarily growing the preview
