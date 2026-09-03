@@ -214,6 +214,21 @@ fn configure_surface(
         surface_window
             .set_ignore_cursor_events(true)
             .map_err(|error| format!("Unable to disable native surface pointer events: {error}"))?;
+
+        #[cfg(target_os = "macos")]
+        unsafe {
+            if let Ok(ns_win) = surface_window.ns_window() {
+                // NSWindowCollectionBehaviorFullScreenAuxiliary (1 << 8) | NSWindowCollectionBehaviorMoveToActiveSpace (1 << 1)
+                let behavior: usize = (1 << 8) | (1 << 1);
+                let current_behavior: usize =
+                    objc2::msg_send![ns_win as *mut objc2::runtime::AnyObject, collectionBehavior];
+                let _: () = objc2::msg_send![
+                    ns_win as *mut objc2::runtime::AnyObject,
+                    setCollectionBehavior: current_behavior | behavior
+                ];
+            }
+        }
+
         runtime_state.surface_window = Some(surface_window.clone());
         surface_window
     };
