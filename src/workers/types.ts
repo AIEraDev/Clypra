@@ -60,9 +60,9 @@ export interface ScopeAnalyzeRequest {
   frame: ImageBitmap;
   enabledScopes: ScopeKind[];
   /**
-   * Pixel stride for analysis sampling. 1 = every pixel (full accuracy),
-   * 2 = every other pixel (half-res, 4× faster), 4 = quarter-res preview.
-   * Default: 2.
+   * @deprecated No longer used. The worker now pre-scales the frame to
+   * 256×144 via GPU `drawImage` before `getImageData`, giving a 54× pixel
+   * reduction without quality loss. Field kept for API compatibility.
    */
   downsampleFactor?: number;
 }
