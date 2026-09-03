@@ -74,6 +74,8 @@ import {
   getNativeGpuStatus,
   registerNativeRasterAsset,
   renderNativeFrame,
+  listenForNativePlaybackStats,
+  type NativePlaybackStatsPayload,
 } from "@/lib/platform/tauri";
 import { telemetryCollector } from "@/services/telemetryCollector";
 import type { NativeSurfaceGeometry } from "@/lib/platform/nativeCore";
@@ -503,6 +505,24 @@ export const NativeProgramPreview: React.FC = () => {
   // use this wake-up hook to request exactly one new frame instead of keeping
   // an idle RAF loop alive.
   const wakeNativeRenderLoopRef = useRef<(() => void) | null>(null);
+  const [playbackStats, setPlaybackStats] = useState<NativePlaybackStatsPayload | null>(null);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listenForNativePlaybackStats((stats) => {
+      setPlaybackStats(stats);
+      console.log(
+        `%c[av-sync][perf] 📊 ${stats.framesRendered} frames (${stats.fps}fps) | Lookahead: ${stats.hitRatePercent.toFixed(1)}% cache hit | Avg Latency: ${stats.avgTotalMs.toFixed(2)}ms (decode: ${stats.avgDecodeMs.toFixed(2)}ms) | Peak: ${stats.maxFrameMs.toFixed(2)}ms | Streams: ${stats.stackedStreams}`,
+        "color: #06b6d4; font-weight: bold;",
+      );
+    }).then((fn) => {
+      unlisten = fn;
+    }).catch(() => undefined);
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   useEffect(() => {
     // Probe native GPU status for accurate hardware telemetry
@@ -3103,6 +3123,22 @@ export const NativeProgramPreview: React.FC = () => {
                   displayOffset={{ x: offsetX, y: offsetY }}
                 />
                 {karaokeOverlayEnabled && <KaraokeCaptions />}
+                {playbackStats && clock.state === "playing" && (
+                  <div className="absolute top-3 left-3 z-30 pointer-events-none flex items-center gap-2 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[11px] font-mono text-white/90 shadow-lg select-none">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>{playbackStats.fps} fps</span>
+                    <span className="text-white/30">•</span>
+                    <span>{playbackStats.avgTotalMs.toFixed(1)}ms</span>
+                    <span className="text-white/30">•</span>
+                    <span className="text-emerald-300">{playbackStats.hitRatePercent.toFixed(0)}% cached</span>
+                    {playbackStats.stackedStreams > 1 && (
+                      <>
+                        <span className="text-white/30">•</span>
+                        <span className="text-amber-300">{playbackStats.stackedStreams} streams</span>
+                      </>
+                    )}
+                  </div>
+                )}
               </>
             </div>
           ) : (
