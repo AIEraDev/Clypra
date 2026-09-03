@@ -249,6 +249,7 @@ pub struct NativePreviewFrameQueue {
     max_entries: usize,
     latest_generation: Arc<AtomicU64>,
     notify: Arc<tokio::sync::Notify>,
+    highest_frame_index: Option<u64>,
 }
 
 impl NativePreviewFrameQueue {
@@ -260,6 +261,7 @@ impl NativePreviewFrameQueue {
             max_entries: max_entries.max(1),
             latest_generation: Arc::new(AtomicU64::new(0)),
             notify: Arc::new(tokio::sync::Notify::new()),
+            highest_frame_index: None,
         }
     }
 
@@ -277,6 +279,15 @@ impl NativePreviewFrameQueue {
 
     pub fn max_entries(&self) -> usize {
         self.max_entries
+    }
+
+    pub fn highest_frame_index(&self) -> Option<u64> {
+        self.highest_frame_index
+    }
+
+    pub fn observe_frame_index(&mut self, frame_index: u64) {
+        self.highest_frame_index =
+            Some(self.highest_frame_index.map_or(frame_index, |m| m.max(frame_index)));
     }
 
     fn observe_generation(&self, generation: u64) {
@@ -301,6 +312,9 @@ impl NativePreviewFrameQueue {
     }
 
     fn complete(&mut self, key: String, frame: QueuedNativeFrame) {
+        let frame_idx = frame.frame_index;
+        self.highest_frame_index =
+            Some(self.highest_frame_index.map_or(frame_idx, |m| m.max(frame_idx)));
         self.pending.remove(&key);
         self.order.retain(|entry| entry != &key);
         self.entries.insert(key.clone(), frame);
@@ -355,6 +369,7 @@ impl NativePreviewFrameQueue {
         self.entries.clear();
         self.order.clear();
         self.pending.clear();
+        self.highest_frame_index = None;
         self.latest_generation.store(0, Ordering::Release);
     }
 }
@@ -2021,9 +2036,8 @@ pub(crate) fn schedule_lookahead_predecode(
         }
     }
 
-    // Anchor starting position ONCE at the start of the batch so upcoming frame indices
-    // are strictly sequential (+1, +2, +3, +4...) without jitter or frame skips!
-    let (start_frame_index, start_time_secs) =
+    // Anchor current audio playback position
+    let (current_audio_frame, _current_audio_secs) =
         if let Ok(audio_time) = crate::commands::native_playback::audio_clock_time(&app, true, false) {
             let audio_secs = (audio_time.ticks as f64) / (audio_time.timescale.max(1) as f64);
             let audio_frame = (audio_secs * fps).round() as u64;
@@ -2038,7 +2052,34 @@ pub(crate) fn schedule_lookahead_predecode(
         / (base_request.frame_time.timescale.max(1) as f64);
 
     let handle = tokio::spawn(async move {
-        for k in 0..=lookahead_count {
+        // Determine the next forward frame range that needs decoding:
+        // NEVER decode backwards during playback!
+        // If highest_frame_index >= current_audio_frame, start at highest_frame_index + 1
+        // so the decoder moves strictly FORWARD in 11ms sequential steps.
+        let (start_frame_index, target_end_frame_index) = {
+            let queue_opt = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>();
+            let highest = if let Some(queue) = &queue_opt {
+                queue.lock().await.highest_frame_index()
+            } else {
+                None
+            };
+
+            let target_end = current_audio_frame.saturating_add(lookahead_count as u64);
+            let start = match highest {
+                Some(max_idx) if max_idx >= current_audio_frame => {
+                    max_idx.saturating_add(1)
+                }
+                _ => current_audio_frame,
+            };
+
+            (start, target_end)
+        };
+
+        if start_frame_index > target_end_frame_index {
+            return;
+        }
+
+        for target_frame_index in start_frame_index..=target_end_frame_index {
             // Check generation currency before each frame
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
                 let queue_state = queue.lock().await;
@@ -2047,9 +2088,8 @@ pub(crate) fn schedule_lookahead_predecode(
                 }
             }
 
-            let target_frame_index = start_frame_index.saturating_add(k as u64);
-            let target_time_secs = start_time_secs + (k as f64 / fps);
-            let delta_secs = (target_time_secs - base_timeline_secs).max(0.0);
+            let target_time_secs = target_frame_index as f64 / fps;
+            let delta_secs = target_time_secs - base_timeline_secs;
 
             let mut req = base_request.clone();
             req.mode = Some("prefetch".to_string());
@@ -2093,9 +2133,9 @@ pub(crate) fn schedule_lookahead_predecode(
                 (0, 16)
             };
             eprintln!(
-                "[NativeLookahead] Frame #{} (+{}) pre-decoded in {:.2}ms | Cache: {}/{} frames warm",
+                "[NativeLookahead] Frame #{} (ahead: +{}) pre-decoded in {:.2}ms | Cache: {}/{} frames warm",
                 target_frame_index,
-                k,
+                target_frame_index.saturating_sub(current_audio_frame),
                 predecode_ms,
                 cache_len,
                 max_entries
@@ -2311,6 +2351,9 @@ pub(crate) async fn present_native_frame_internal(
             None => {
                 let (decoded_frames, decode_timings) =
                     decode_native_video_layers(&legacy_request, None).await?;
+                if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
+                    queue.lock().await.observe_frame_index(request.frame_time.frame_index);
+                }
                 (
                     decoded_frames,
                     decode_timings,
@@ -2721,7 +2764,7 @@ pub(crate) async fn present_native_frame_internal(
     }
 
     if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
-        schedule_lookahead_predecode(app.clone(), request.clone(), 12);
+        schedule_lookahead_predecode(app.clone(), request.clone(), 16);
     }
 
     Ok(NativeSurfacePresentation {
