@@ -93,6 +93,22 @@
         { "path": "$APPLOCALDATA" }, { "path": "$APPLOCALDATA/**/*" },
         { "path": "$APPDATA" }, { "path": "$APPDATA/**/*" }
       ]
+    },
+    {
+      "identifier": "fs:allow-rename",
+      "allow": [
+        { "path": "$APPCACHE" }, { "path": "$APPCACHE/**/*" },
+        { "path": "$APPLOCALDATA" }, { "path": "$APPLOCALDATA/**/*" },
+        { "path": "$APPDATA" }, { "path": "$APPDATA/**/*" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-copy-file",
+      "allow": [
+        { "path": "$APPCACHE" }, { "path": "$APPCACHE/**/*" },
+        { "path": "$APPLOCALDATA" }, { "path": "$APPLOCALDATA/**/*" },
+        { "path": "$APPDATA" }, { "path": "$APPDATA/**/*" }
+      ]
     }
   ]
 }
