@@ -2177,6 +2177,9 @@ export const NativeProgramPreview: React.FC = () => {
         // frames must be committed to the DOM canvas so they share the exact
         // same placement and layering as the editor overlays (TransformOverlay,
         // SafeOverlay, captions).
+        if (!isPlaying) {
+          nativePlaybackRenderFailed = false;
+        }
         const nativeSurfaceNeedsHide =
           nativeSurfaceShown &&
           (!nativeDirectSurfacePath ||
@@ -2261,6 +2264,11 @@ export const NativeProgramPreview: React.FC = () => {
                   nativePlaybackRenderSnapshotKey === snapshotKey &&
                   nativePlaybackRenderSnapshotInFlight === null
                 ) {
+                  if (isFirstFrame) {
+                    console.info(
+                      `[av-sync][pipeline] Continuous playback ACTIVE via persistent Native background worker (frame: ${requestToPresent.frameTime.frameIndex})`,
+                    );
+                  }
                   // Rust owns the active decode/present operation and keeps
                   // one latest pending demand. This command contains only
                   // dynamic layer values; it never sends paths or the full
@@ -2273,6 +2281,7 @@ export const NativeProgramPreview: React.FC = () => {
                     createNativePlaybackFrameDemand(playbackDemandRequest),
                   ).catch((error) => {
                     nativePlaybackRenderFailed = true;
+                    nativePlaybackRenderSnapshotKey = "";
                     lastNativePlaybackRequestKey = "";
                     forceRenderNeeded = true;
                     console.warn("[native-preview] demand-submit-failed", {
@@ -2289,6 +2298,20 @@ export const NativeProgramPreview: React.FC = () => {
                 nativeSurfaceUsable &&
                 !qualificationForcesWebView
               ) {
+                if (isFirstFrame) {
+                  console.warn(
+                    "[av-sync][pipeline] Fallback synchronous presentation active (not persistent worker):",
+                    {
+                      persistentNativePlaybackEligible,
+                      nativePlaybackRenderFailed,
+                      snapshotKeyMatch:
+                        nativePlaybackRenderSnapshotKey ===
+                        nativePlaybackSnapshotKeyFor(requestToPresent),
+                      snapshotInFlight:
+                        nativePlaybackRenderSnapshotInFlight !== null,
+                    },
+                  );
+                }
                 const tracePresentation = isFirstFrame || !isPlaying;
                 if (tracePresentation) {
                   // tracePlayback("native-present-start", {
