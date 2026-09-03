@@ -192,6 +192,10 @@ function handleWaveformSlice(msg: WaveformSliceRequest): void {
 let offscreenCanvas: OffscreenCanvas | null = null;
 let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 
+/** Fixed analysis resolution — GPU bilinear downscale handles quality, not stride. */
+const SCOPE_ANALYSIS_W = 256;
+const SCOPE_ANALYSIS_H = 144;
+
 function getScopeContext(width: number, height: number): OffscreenCanvasRenderingContext2D {
   if (!offscreenCanvas || offscreenCanvas.width !== width || offscreenCanvas.height !== height) {
     offscreenCanvas = new OffscreenCanvas(width, height);
@@ -203,14 +207,14 @@ function getScopeContext(width: number, height: number): OffscreenCanvasRenderin
 
 function handleColorScopeAnalyze(msg: ScopeAnalyzeRequest): void {
   const startMs = performance.now();
-  const { id, frame, enabledScopes, downsampleFactor = 2 } = msg;
+  const { id, frame, enabledScopes } = msg;
 
-  const width = frame.width;
-  const height = frame.height;
-  const stride = Math.max(1, Math.round(downsampleFactor));
-
-  const ctx = getScopeContext(width, height);
-  ctx.drawImage(frame, 0, 0);
+  // Downscale to fixed 256×144 before getImageData.
+  // The GPU bilinear filter during drawImage acts as a proper area-average
+  // downsampler — far cheaper than reading back 2M pixels at 60fps.
+  // Pixel count drops from ~2 M (1080p) to ~37 K — a 54× reduction.
+  const ctx = getScopeContext(SCOPE_ANALYSIS_W, SCOPE_ANALYSIS_H);
+  ctx.drawImage(frame, 0, 0, SCOPE_ANALYSIS_W, SCOPE_ANALYSIS_H);
 
   try {
     frame.close();
@@ -218,8 +222,10 @@ function handleColorScopeAnalyze(msg: ScopeAnalyzeRequest): void {
     // ignore
   }
 
-  const imgData = ctx.getImageData(0, 0, width, height);
+  const imgData = ctx.getImageData(0, 0, SCOPE_ANALYSIS_W, SCOPE_ANALYSIS_H);
   const data = imgData.data;
+  const width = SCOPE_ANALYSIS_W;
+  const height = SCOPE_ANALYSIS_H;
 
   const result: ScopeAnalyzeResult = {
     type: "SCOPE_RESULT",
@@ -248,9 +254,10 @@ function handleColorScopeAnalyze(msg: ScopeAnalyzeRequest): void {
   const vectorPoints: number[] = [];
   const paradeData: number[] = [];
 
-  for (let y = 0; y < height; y += stride) {
+  // Stride is 1 — downscaling already handled the resolution reduction
+  for (let y = 0; y < height; y++) {
     const rowOffset = y * width * 4;
-    for (let x = 0; x < width; x += stride) {
+    for (let x = 0; x < width; x++) {
       const idx = rowOffset + x * 4;
       const r = data[idx];
       const g = data[idx + 1];
@@ -302,6 +309,7 @@ function handleColorScopeAnalyze(msg: ScopeAnalyzeRequest): void {
   result.analysisMs = performance.now() - startMs;
   (self as unknown as Worker).postMessage(result, transferList);
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 3. Subtitle & Transcript Parser Engine
