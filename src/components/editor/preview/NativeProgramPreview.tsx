@@ -970,6 +970,8 @@ export const NativeProgramPreview: React.FC = () => {
           refitClipsForCanvasChange(
             originalCanvasDimsRef.current.width,
             originalCanvasDimsRef.current.height,
+            project.canvasWidth,
+            project.canvasHeight,
           );
         }
       } else {
@@ -979,7 +981,12 @@ export const NativeProgramPreview: React.FC = () => {
           canvasHeight: dims.height,
           aspectRatio: p,
         });
-        refitClipsForCanvasChange(dims.width, dims.height);
+        refitClipsForCanvasChange(
+          dims.width,
+          dims.height,
+          project.canvasWidth,
+          project.canvasHeight,
+        );
       }
     },
     [project, updateProject],
