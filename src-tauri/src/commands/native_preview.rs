@@ -2122,8 +2122,11 @@ pub(crate) async fn present_native_frame_internal(
     // Non-video frames (still images, text, stickers, canvas backgrounds) have 0
     // video decoder streams and compose on the GPU in ~0.05ms. Dropping them
     // for being "late for audio" causes multi-second freezes of the previous frame.
-    // Only frames containing video decoding layers apply late_for_audio drops.
-    let late_for_audio = late_for_audio && !legacy_request.layers.is_empty();
+    // In continuous playback, already-decoded frames must never be thrown away:
+    // the heavy CPU decode cost has already been paid and GPU presentation takes <0.5ms.
+    // Frame skipping occurs naturally at the scheduler boundary on the next tick.
+    let is_playback = request.mode.as_deref() == Some("playback");
+    let late_for_audio = late_for_audio && !legacy_request.layers.is_empty() && !is_playback;
     if !surface.accept_presentation(presentation_sequence) {
         SYNC_METRICS.record_dropped_frame();
         drop(surface);
