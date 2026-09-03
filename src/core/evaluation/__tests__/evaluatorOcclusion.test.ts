@@ -298,4 +298,50 @@ describe("Top-Down Occlusion Culling in NLE Multi-Track Architecture", () => {
     expect(culled[0].clipId).toBe("clip-v1");
     expect(culled[1].clipId).toBe("clip-text");
   });
+
+  it("culls bottom clip when top clip completely encloses it, even if neither covers the full canvas", () => {
+    const clips: Clip[] = [
+      {
+        id: "clip-bottom",
+        trackId: "v1",
+        mediaId: "asset-1",
+        startTime: 0,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 200,
+        y: 200,
+        width: 800,
+        height: 600,
+        rotation: 0,
+        opacity: 1,
+        blendMode: "normal",
+        kind: "video",
+      } as any,
+      {
+        id: "clip-top",
+        trackId: "v2",
+        mediaId: "asset-2",
+        startTime: 0,
+        duration: 5,
+        trimIn: 0,
+        trimOut: 5,
+        x: 100,
+        y: 100,
+        width: 1000,
+        height: 800,
+        rotation: 0,
+        opacity: 1,
+        blendMode: "normal",
+        kind: "video",
+      } as any,
+    ];
+
+    const scene = evaluateTimelineScene(2.0, clips, tracks, assets, defaultProject);
+    expect(scene.visualLayers).toHaveLength(2);
+
+    const culled = cullOccludedVisualLayers(scene.visualLayers, 1920, 1080);
+    expect(culled).toHaveLength(1);
+    expect(culled[0].clipId).toBe("clip-top");
+  });
 });
