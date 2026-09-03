@@ -21,6 +21,7 @@ use crate::wgpu_compositor::{
     BlendMode, BodyEffectUniforms, ChromaKeyUniforms, ColorGradeUniforms, ColorTransformUniforms,
     CompositeLayer, CropMargins, LayerTransform, NativePreviewSession, NativeWgpuRenderer,
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
@@ -31,6 +32,11 @@ use tauri::Manager;
 
 type DecodedNativeVideoFrame = (Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata);
 static NATIVE_SURFACE_PRESENTATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static VERBOSE_PREVIEW_LOGS: Lazy<bool> = Lazy::new(|| {
+    std::env::var("CLYPRA_VERBOSE_PREVIEW")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+});
 
 /// Register an editor font before a frame request references it. The native
 /// renderer never substitutes a different family for an unregistered font.
@@ -303,11 +309,15 @@ impl NativePreviewFrameQueue {
         self.entries.contains_key(key) || self.pending.contains(key)
     }
 
-    fn begin(&mut self, key: &str) -> bool {
+    fn begin(&mut self, key: &str, frame_index: Option<u64>) -> bool {
         if self.contains(key) {
             return false;
         }
         self.pending.insert(key.to_string());
+        if let Some(idx) = frame_index {
+            self.highest_frame_index =
+                Some(self.highest_frame_index.map_or(idx, |m| m.max(idx)));
+        }
         true
     }
 
@@ -1922,7 +1932,7 @@ pub async fn queue_native_frame(
                 return Ok(());
             }
         }
-        if !queue_state.begin(&key) {
+        if !queue_state.begin(&key, Some(request.frame_time.frame_index)) {
             return Ok(());
         }
         cancellation_generation = queue_state.latest_generation.clone();
@@ -2048,7 +2058,7 @@ pub(crate) fn schedule_lookahead_predecode(
             (base_request.frame_time.frame_index, base_time_secs)
         };
 
-    let base_timeline_secs = (base_request.frame_time.ticks as f64)
+    let _base_timeline_secs = (base_request.frame_time.ticks as f64)
         / (base_request.frame_time.timescale.max(1) as f64);
 
     let handle = tokio::spawn(async move {
@@ -2088,8 +2098,9 @@ pub(crate) fn schedule_lookahead_predecode(
                 }
             }
 
+            let base_frame_index = base_request.frame_time.frame_index;
+            let frame_delta = target_frame_index as i64 - base_frame_index as i64;
             let target_time_secs = target_frame_index as f64 / fps;
-            let delta_secs = target_time_secs - base_timeline_secs;
 
             let mut req = base_request.clone();
             req.mode = Some("prefetch".to_string());
@@ -2100,12 +2111,11 @@ pub(crate) fn schedule_lookahead_predecode(
             req.frame_time.timescale = DEFAULT_TIME_SCALE;
 
             for layer in &mut req.project.video_layers {
-                let base_source_secs = layer.source_time.ticks as f64
-                    / layer.source_time.timescale.max(1) as f64;
-                let target_source_secs = (base_source_secs + delta_secs).max(0.0);
-                let source_frame_index = (target_source_secs * fps).round() as u64;
+                let base_source_frame = layer.source_time.frame_index;
+                let target_source_frame = (base_source_frame as i64 + frame_delta).max(0) as u64;
+                let target_source_secs = target_source_frame as f64 / fps;
                 let ticks = (target_source_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
-                if let Ok(ft) = FrameTime::new(source_frame_index, ticks, DEFAULT_TIME_SCALE) {
+                if let Ok(ft) = FrameTime::new(target_source_frame, ticks, DEFAULT_TIME_SCALE) {
                     layer.source_time = ft;
                 }
             }
@@ -3248,18 +3258,18 @@ mod tests {
             queued_at: Instant::now(),
             scheduler_wait_us: 0,
         };
-        assert!(queue.begin("frame-1"));
-        assert!(!queue.begin("frame-1"));
+        assert!(queue.begin("frame-1", None));
+        assert!(!queue.begin("frame-1", None));
         queue.complete("frame-1".to_string(), queued_frame());
         assert!(queue.contains("frame-1"));
         assert!(queue.take("frame-1").is_some());
         assert!(!queue.contains("frame-1"));
 
-        assert!(queue.begin("frame-2"));
+        assert!(queue.begin("frame-2", None));
         queue.complete("frame-2".to_string(), queued_frame());
-        assert!(queue.begin("frame-3"));
+        assert!(queue.begin("frame-3", None));
         queue.complete("frame-3".to_string(), queued_frame());
-        assert!(queue.begin("frame-4"));
+        assert!(queue.begin("frame-4", None));
         queue.complete("frame-4".to_string(), queued_frame());
         assert!(!queue.contains("frame-2"));
         assert!(queue.contains("frame-3"));
