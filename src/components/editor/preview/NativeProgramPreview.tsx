@@ -107,9 +107,7 @@ import {
   NativePreviewFrameScheduler,
   type NativePreviewRequestSource,
 } from "./nativePreviewScheduler";
-import {
-  previewQualificationController,
-} from "@/core/playback/previewPerformanceContract";
+import { previewQualificationController } from "@/core/playback/previewPerformanceContract";
 import {
   NativeSurfaceOutput,
   WebViewCanvasOutput,
@@ -576,10 +574,15 @@ export const NativeProgramPreview: React.FC = () => {
         // Compatibility fallback for older desktop binaries that do not yet
         // expose the cursor command. It remains cursor-protected.
         const lastNativeSample = nativeRender?.lastSample;
-        const nativeSampleCursor = lastNativeSample && nativeRender?.lastSampleSequence !== undefined
-          ? `sequence:${nativeRender.lastSampleSequence}:${lastNativeSample.requestId}:${lastNativeSample.frameIndex}`
-          : null;
-        if (nativeSampleCursor && nativeRender?.lastSampleSequence !== undefined && nativeRender.lastSampleSequence > afterSequence) {
+        const nativeSampleCursor =
+          lastNativeSample && nativeRender?.lastSampleSequence !== undefined
+            ? `sequence:${nativeRender.lastSampleSequence}:${lastNativeSample.requestId}:${lastNativeSample.frameIndex}`
+            : null;
+        if (
+          nativeSampleCursor &&
+          nativeRender?.lastSampleSequence !== undefined &&
+          nativeRender.lastSampleSequence > afterSequence
+        ) {
           lastNativeSampleSequenceRef.current = nativeRender.lastSampleSequence;
           telemetryCollector.recordNativeSyncSnapshot(
             nativeSync,
@@ -593,10 +596,7 @@ export const NativeProgramPreview: React.FC = () => {
     };
 
     void flushMetrics();
-    const interval = window.setInterval(
-      () => void flushMetrics(),
-      1000,
-    );
+    const interval = window.setInterval(() => void flushMetrics(), 1000);
     return () => {
       active = false;
       window.clearInterval(interval);
@@ -704,8 +704,10 @@ export const NativeProgramPreview: React.FC = () => {
         );
         // Resizing a canvas reallocates its backing store and clears all
         // drawing state. It is a layout event, not a frame event.
-        if (canvasEl.width !== state.canvasWidth) canvasEl.width = state.canvasWidth;
-        if (canvasEl.height !== state.canvasHeight) canvasEl.height = state.canvasHeight;
+        if (canvasEl.width !== state.canvasWidth)
+          canvasEl.width = state.canvasWidth;
+        if (canvasEl.height !== state.canvasHeight)
+          canvasEl.height = state.canvasHeight;
         if (scene.visualLayers.some((layer) => layer.layerType === "text")) {
           await paintTextLayersToCanvas(
             canvasEl,
@@ -713,7 +715,9 @@ export const NativeProgramPreview: React.FC = () => {
             state.clock.state === "playing"
               ? "visible-playback"
               : "interactive-preview",
-            { shouldPaint: () => !disposed && versionAtStart === requestVersion },
+            {
+              shouldPaint: () => !disposed && versionAtStart === requestVersion,
+            },
           );
         } else if (!disposed && versionAtStart === requestVersion) {
           canvasEl
@@ -724,7 +728,8 @@ export const NativeProgramPreview: React.FC = () => {
         console.error("[browser-preview] text-render-failed", error);
       } finally {
         renderInFlight = false;
-        if ((renderQueued || versionAtStart !== requestVersion) && !disposed) schedule();
+        if ((renderQueued || versionAtStart !== requestVersion) && !disposed)
+          schedule();
       }
     };
 
@@ -1113,7 +1118,10 @@ export const NativeProgramPreview: React.FC = () => {
     let nativePlaybackRenderSnapshotKey = "";
     let nativePlaybackRenderSnapshotInFlight: Promise<void> | null = null;
     let nativePlaybackRenderSnapshotInFlightKey = "";
-    let nativePlaybackRenderSnapshotPending: { key: string; request: NativeFrameRequest } | null = null;
+    let nativePlaybackRenderSnapshotPending: {
+      key: string;
+      request: NativeFrameRequest;
+    } | null = null;
     let nativePlaybackRenderFailed = false;
     let nativeContinuousFailureStreak = 0;
     let nativeDroppedFrameCount = 0;
@@ -1763,6 +1771,7 @@ export const NativeProgramPreview: React.FC = () => {
 
     const renderLoop = async () => {
       if (!isActive || renderInFlight) return;
+      const wasRenderInFlightAtStart = renderInFlight; // false at this point — guard passed
       renderInFlight = true;
       const renderStartedAt = performance.now();
       let traceFrameIndex = -1;
@@ -2110,7 +2119,8 @@ export const NativeProgramPreview: React.FC = () => {
           nativeContinuousBlockedRevision !== nativeRevision;
         const qualification = previewQualificationController.getState();
         const qualificationForcesWebView =
-          qualification.status === "running" && qualification.path === "webview";
+          qualification.status === "running" &&
+          qualification.path === "webview";
         const nativeSurfaceOwnsCurrentFrame =
           nativeSurfaceShown &&
           isPlaying &&
@@ -2140,8 +2150,14 @@ export const NativeProgramPreview: React.FC = () => {
         const telemetryContextBase = {
           sessionId: capturedSession.sessionId,
           qualificationRunId:
-            qualification.status === "running" ? qualification.runId ?? undefined : undefined,
-          scenario: telemetryScenario as "playback" | "seek" | "paused-interaction" | "qualification",
+            qualification.status === "running"
+              ? (qualification.runId ?? undefined)
+              : undefined,
+          scenario: telemetryScenario as
+            | "playback"
+            | "seek"
+            | "paused-interaction"
+            | "qualification",
           runtimeEnvironment: import.meta.env.DEV
             ? ("development" as const)
             : ("production" as const),
@@ -2239,9 +2255,8 @@ export const NativeProgramPreview: React.FC = () => {
                 !nativePlaybackRenderFailed;
               if (persistentNativePlaybackEligible) {
                 ensureNativePlaybackRenderSnapshot(requestToPresent);
-                const snapshotKey = nativePlaybackSnapshotKeyFor(
-                  requestToPresent,
-                );
+                const snapshotKey =
+                  nativePlaybackSnapshotKeyFor(requestToPresent);
                 if (
                   nativePlaybackRenderSnapshotKey === snapshotKey &&
                   nativePlaybackRenderSnapshotInFlight === null
@@ -2262,7 +2277,8 @@ export const NativeProgramPreview: React.FC = () => {
                     forceRenderNeeded = true;
                     console.warn("[native-preview] demand-submit-failed", {
                       frameIndex: requestToPresent.frameTime.frameIndex,
-                      error: error instanceof Error ? error.message : String(error),
+                      error:
+                        error instanceof Error ? error.message : String(error),
                     });
                   });
                   nativeSurfaceShown = true;
@@ -2292,7 +2308,8 @@ export const NativeProgramPreview: React.FC = () => {
                         : "production",
                       sessionId: capturedSession.sessionId,
                       qualificationRunId:
-                        previewQualificationController.getState().runId ?? undefined,
+                        previewQualificationController.getState().runId ??
+                        undefined,
                       scenario:
                         previewQualificationController.getState().status ===
                         "running"
@@ -2397,6 +2414,7 @@ export const NativeProgramPreview: React.FC = () => {
                         nativeDroppedFrameCount += 1;
                         if (
                           isPlaying &&
+                          nativePlaybackRenderSnapshotInFlight === null &&
                           typeof presentation.audioPositionTicks === "number" &&
                           presentation.audioPositionTicks > 0 &&
                           typeof presentation.frameAgeTicks === "number" &&
@@ -2410,16 +2428,16 @@ export const NativeProgramPreview: React.FC = () => {
                       }
                     } else {
                       frontendSpan?.finish({
-                    stageTimings: timings
-                      ? {
-                          decodeUs: timings.decodeUs,
-                          decoderMutexWaitUs: timings.decoderMutexWaitUs,
-                          conversionUploadUs: timings.conversionUploadUs,
-                          composeUs: timings.composeUs,
-                          surfaceAcquireUs: timings.surfaceAcquireUs,
-                          gpuQueueWaitUs: timings.gpuQueueWaitUs,
-                          submitPresentUs: timings.submitPresentUs,
-                        }
+                        stageTimings: timings
+                          ? {
+                              decodeUs: timings.decodeUs,
+                              decoderMutexWaitUs: timings.decoderMutexWaitUs,
+                              conversionUploadUs: timings.conversionUploadUs,
+                              composeUs: timings.composeUs,
+                              surfaceAcquireUs: timings.surfaceAcquireUs,
+                              gpuQueueWaitUs: timings.gpuQueueWaitUs,
+                              submitPresentUs: timings.submitPresentUs,
+                            }
                           : undefined,
                       });
                       const current = renderStateRef.current;
@@ -2799,12 +2817,14 @@ export const NativeProgramPreview: React.FC = () => {
         forceRenderNeeded = true;
         nativeRetryAt = performance.now() + 250;
       } finally {
-        traceSlowPlaybackStage("visible-render-loop", renderStartedAt, {
-          frameIndex: traceFrameIndex,
-          playbackState: renderStateRef.current.clock.state,
-          textLayerCount: traceTextLayerCount,
-          renderInFlightAtStart: true,
-        });
+        if (renderStateRef.current.clock.state === "playing") {
+          traceSlowPlaybackStage("visible-render-loop", renderStartedAt, {
+            frameIndex: traceFrameIndex,
+            playbackState: renderStateRef.current.clock.state,
+            textLayerCount: traceTextLayerCount,
+            renderInFlightAtStart: wasRenderInFlightAtStart,
+          });
+        }
         renderInFlight = false;
         const latest = renderStateRef.current;
         const hasPendingVisualChange =
