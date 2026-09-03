@@ -733,11 +733,76 @@ export function isOpaqueFullFrameOccluder(
   const normRotation = Math.abs(layer.rotation % 360);
   if (normRotation > 0.01 && normRotation < 359.99) return false;
 
-  // Must cover the full canvas area
+  // Must cover the full canvas area (with 1.0px subpixel float tolerance)
   const coversX =
-    layer.x <= 0.01 && layer.x + layer.width >= canvasWidth - 0.01;
+    layer.x <= 1.0 && layer.x + layer.width >= canvasWidth - 1.0;
   const coversY =
-    layer.y <= 0.01 && layer.y + layer.height >= canvasHeight - 0.01;
+    layer.y <= 1.0 && layer.y + layer.height >= canvasHeight - 1.0;
+
+  return coversX && coversY;
+}
+
+/**
+ * Check whether a foreground layer completely occludes a background layer,
+ * even if neither layer covers the entire canvas (e.g. two stacked clips of the
+ * same size, or a larger clip stacked directly over a smaller clip).
+ */
+export function doesLayerOccludeLayer(
+  top: EvaluatedVisualLayer,
+  bottom: EvaluatedVisualLayer,
+  transitionWindows: ActiveTransitionWindow[] = [],
+): boolean {
+  if (top.layerType !== "media") return false;
+  if (top.opacity < 0.999) return false;
+  if (top.blendMode && top.blendMode !== "normal") return false;
+  if (top.stickerFormat === "gif" || top.stickerFormat === "lottie") return false;
+
+  if (
+    top.effects &&
+    top.effects.some((fx) => {
+      const r = (fx.renderer || fx.effectId || "").toLowerCase();
+      return (
+        r.includes("body") ||
+        r.includes("chroma") ||
+        r.includes("key") ||
+        r.includes("mask") ||
+        r.includes("alpha") ||
+        r.includes("glitch") ||
+        r.includes("dissolve")
+      );
+    })
+  ) {
+    return false;
+  }
+
+  if (top.masks && top.masks.length > 0) return false;
+
+  const crop = (top as any).crop;
+  if (
+    crop &&
+    (crop.left > 0.001 ||
+      crop.top > 0.001 ||
+      crop.right > 0.001 ||
+      crop.bottom > 0.001)
+  ) {
+    return false;
+  }
+
+  const isInTransition =
+    top.inTransition ||
+    transitionWindows.some(
+      (tw) => tw.fromClip.id === top.clipId || tw.toClip.id === top.clipId,
+    );
+  if (isInTransition) return false;
+
+  const normRotation = Math.abs(top.rotation % 360);
+  if (normRotation > 0.01 && normRotation < 359.99) return false;
+
+  // Top must completely enclose bottom's bounding box (with 1.0px subpixel float tolerance)
+  const coversX =
+    top.x <= bottom.x + 1.0 && top.x + top.width >= bottom.x + bottom.width - 1.0;
+  const coversY =
+    top.y <= bottom.y + 1.0 && top.y + top.height >= bottom.y + bottom.height - 1.0;
 
   return coversX && coversY;
 }
@@ -750,9 +815,11 @@ export function cullOccludedVisualLayers(
 ): EvaluatedVisualLayer[] {
   if (visualLayers.length <= 1) return [...visualLayers];
 
-  let lowestVisibleIndex = 0;
-  for (let i = visualLayers.length - 1; i >= 0; i--) {
-    const layer = visualLayers[i];
+  // 1. Top-down full-frame occlusion check:
+  // If an opaque layer covers the full canvas, all layers beneath it are discarded.
+  let remaining = [...visualLayers];
+  for (let i = remaining.length - 1; i >= 0; i--) {
+    const layer = remaining[i];
     if (
       isOpaqueFullFrameOccluder(
         layer,
@@ -761,15 +828,23 @@ export function cullOccludedVisualLayers(
         transitionWindows,
       )
     ) {
-      lowestVisibleIndex = i;
+      remaining = remaining.slice(i);
       break;
     }
   }
 
-  if (lowestVisibleIndex > 0) {
-    return visualLayers.slice(lowestVisibleIndex);
-  }
-  return [...visualLayers];
+  if (remaining.length <= 1) return remaining;
+
+  // 2. Relative layer-over-layer occlusion check:
+  // Discard any bottom layer that is completely covered by an opaque foreground layer.
+  return remaining.filter((layer, index) => {
+    for (let j = index + 1; j < remaining.length; j++) {
+      if (doesLayerOccludeLayer(remaining[j], layer, transitionWindows)) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 function normalizeEffectIntensity(value: unknown): number {
