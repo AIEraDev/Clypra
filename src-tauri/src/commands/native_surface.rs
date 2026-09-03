@@ -178,6 +178,11 @@ fn configure_surface(
         let parent = app
             .get_webview_window("main")
             .ok_or_else(|| "Main WebView window is unavailable".to_string())?;
+        let dpr = if geometry.device_pixel_ratio > 0.0 {
+            geometry.device_pixel_ratio as f64
+        } else {
+            1.0
+        };
         let surface_window = WebviewWindowBuilder::new(
             &app,
             NATIVE_PREVIEW_SURFACE_LABEL,
@@ -189,6 +194,10 @@ fn configure_surface(
         )
         .parent(&parent)
         .map_err(|error| format!("Unable to parent native preview surface: {error}"))?
+        .inner_size(
+            geometry.width_physical as f64 / dpr,
+            geometry.height_physical as f64 / dpr,
+        )
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -209,18 +218,22 @@ fn configure_surface(
         surface_window
     };
 
-    surface_window
-        .set_position(Position::Physical(PhysicalPosition::new(
-            geometry.x_physical,
-            geometry.y_physical,
-        )))
-        .map_err(|error| format!("Unable to position native preview surface: {error}"))?;
+    // On macOS Cocoa, window origins are anchored at the bottom-left. Setting
+    // the size BEFORE position ensures Tao calculates the top-left screen
+    // position using the target window height rather than an uninitialized
+    // or stale height.
     surface_window
         .set_size(Size::Physical(PhysicalSize::new(
             geometry.width_physical,
             geometry.height_physical,
         )))
         .map_err(|error| format!("Unable to resize native preview surface: {error}"))?;
+    surface_window
+        .set_position(Position::Physical(PhysicalPosition::new(
+            geometry.x_physical,
+            geometry.y_physical,
+        )))
+        .map_err(|error| format!("Unable to position native preview surface: {error}"))?;
 
     let window_size = surface_window
         .inner_size()
