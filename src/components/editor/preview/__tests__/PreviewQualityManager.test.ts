@@ -83,4 +83,49 @@ describe("PreviewQualityManager", () => {
       PreviewQualityTier.Interaction,
     );
   });
+
+  it("strictly preserves sequence aspect ratio for vertical (9:16) and square (1:1) sequences across all tiers", () => {
+    // 9:16 Vertical Video (e.g. 1080x1920)
+    const verticalManager = new PreviewQualityManager({
+      sequenceWidth: 1080,
+      sequenceHeight: 1920,
+      viewportWidth: 800,
+      viewportHeight: 600,
+      dpr: 2,
+    });
+
+    for (const tier of [
+      PreviewQualityTier.PlaybackHigh,
+      PreviewQualityTier.Playback,
+      PreviewQualityTier.Interaction,
+      PreviewQualityTier.Idle,
+      PreviewQualityTier.Export,
+    ]) {
+      const profile = verticalManager.getRenderProfile(tier);
+      const ratio = profile.maxWidth / profile.maxHeight;
+      const expectedRatio = 1080 / 1920;
+      // Precision within 0.005 (subpixel rounding)
+      expect(Math.abs(ratio - expectedRatio)).toBeLessThan(0.005);
+    }
+
+    // 1:1 Square Video (e.g. 1080x1080)
+    const squareManager = new PreviewQualityManager({
+      sequenceWidth: 1080,
+      sequenceHeight: 1080,
+      viewportWidth: 800,
+      viewportHeight: 600,
+      dpr: 2,
+    });
+
+    for (const tier of [
+      PreviewQualityTier.PlaybackHigh,
+      PreviewQualityTier.Playback,
+      PreviewQualityTier.Interaction,
+      PreviewQualityTier.Idle,
+      PreviewQualityTier.Export,
+    ]) {
+      const profile = squareManager.getRenderProfile(tier);
+      expect(profile.maxWidth).toBe(profile.maxHeight);
+    }
+  });
 });
