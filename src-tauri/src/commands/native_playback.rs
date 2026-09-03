@@ -73,7 +73,7 @@ impl NativeRenderSession {
         if self.running.swap(true, Ordering::AcqRel) {
             return;
         }
-        log::info!("[NativePlayback] Persistent background render worker STARTED");
+        eprintln!("[NativePlayback] Persistent background render worker STARTED");
         let session = Arc::clone(self);
         let handle = tauri::async_runtime::spawn(async move {
             session.render_loop(app).await;
@@ -85,7 +85,7 @@ impl NativeRenderSession {
 
     fn stop(&self) {
         self.running.store(false, Ordering::Release);
-        log::info!("[NativePlayback] Persistent background render worker STOPPED");
+        eprintln!("[NativePlayback] Persistent background render worker STOPPED");
         if let Ok(mut pending) = self.pending.lock() {
             pending.value = None;
         }
@@ -289,6 +289,7 @@ impl NativeRenderSession {
                     last_rendered_frame_index = Some(frame_index);
 
                     let mut request = base_request;
+                    request.mode = Some("playback".to_string());
                     let base_timeline_secs = (request.frame_time.ticks as f64)
                         / (request.frame_time.timescale.max(1) as f64);
                     request.frame_time.frame_index = frame_index;
@@ -354,7 +355,10 @@ impl NativeRenderSession {
                         }
                     }
                 } else if presentation.dropped {
-                    log::warn!("[NativePlayback] frame #{} DROPPED (late for audio)", frame_index);
+                    eprintln!(
+                        "[NativePlayback] frame #{} DROPPED (drop_reason: {:?})",
+                        frame_index, presentation.drop_reason
+                    );
                 }
             }
             Err(error) => {
@@ -458,7 +462,7 @@ impl NativePlaybackRuntime {
                     audio_track_count: 0,
                 }
             };
-            log::info!(
+            eprintln!(
                 "[NativePlayback] Self-healed unconfigured playback session (revision: {}, fps: {})",
                 plan.project_revision,
                 plan.frame_rate
