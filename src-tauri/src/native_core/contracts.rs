@@ -1495,6 +1495,17 @@ impl FrameRequest {
         cache_request.mode = None;
         cache_request.scrub_velocity_px_per_second = None;
         cache_request.requested_at_ms = None;
+
+        // Normalise time representations to canonical frame indices!
+        // Clock tick jitter and timescale variations (e.g. 1000 vs 1_000_000 vs audio sample rate)
+        // must not produce distinct cache keys for the exact same frame index.
+        cache_request.frame_time.ticks = 0;
+        cache_request.frame_time.timescale = 1;
+        for layer in &mut cache_request.project.video_layers {
+            layer.source_time.ticks = 0;
+            layer.source_time.timescale = 1;
+        }
+
         let bytes = serde_json::to_vec(&cache_request).map_err(|error| {
             NativeCoreError::InvalidContract(format!("Unable to serialize FrameRequest: {error}"))
         })?;
