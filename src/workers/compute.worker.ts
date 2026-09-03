@@ -368,6 +368,21 @@ function handleProjectSerialize(msg: SerializeRequest): void {
   (self as unknown as Worker).postMessage(response);
 }
 
+/**
+ * Fast 32-bit FNV-1a hash over the JSON representation of any value.
+ * Used instead of JSON.stringify(a) === JSON.stringify(b) — avoids allocating
+ * two full strings just to compare them. O(N) time, O(1) extra space.
+ */
+function fnv1aHash(value: unknown): number {
+  const str = JSON.stringify(value) ?? "";
+  let h = 2166136261; // FNV offset basis (32-bit)
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0; // FNV prime, keep 32-bit unsigned
+  }
+  return h;
+}
+
 function computeArrayDiff(
   path: string,
   prevArr: any[],
@@ -375,18 +390,18 @@ function computeArrayDiff(
 ): JsonPatchOperation[] {
   const ops: JsonPatchOperation[] = [];
 
-  const prevMap = new Map<string, { item: any; index: number }>();
+  const prevMap = new Map<string, { item: any; index: number; hash: number }>();
   for (let i = 0; i < prevArr.length; i++) {
     const item = prevArr[i];
     const key = item?.id ?? String(i);
-    prevMap.set(key, { item, index: i });
+    prevMap.set(key, { item, index: i, hash: fnv1aHash(item) });
   }
 
-  const nextMap = new Map<string, { item: any; index: number }>();
+  const nextMap = new Map<string, { item: any; index: number; hash: number }>();
   for (let i = 0; i < nextArr.length; i++) {
     const item = nextArr[i];
     const key = item?.id ?? String(i);
-    nextMap.set(key, { item, index: i });
+    nextMap.set(key, { item, index: i, hash: fnv1aHash(item) });
   }
 
   // 1. Removals
@@ -399,8 +414,8 @@ function computeArrayDiff(
     }
   }
 
-  // 2. Additions and modifications
-  for (const [key, { item: nextItem, index }] of nextMap) {
+  // 2. Additions and modifications — compare hashes instead of full stringify
+  for (const [key, { item: nextItem, index, hash: nextHash }] of nextMap) {
     const prev = prevMap.get(key);
     if (!prev) {
       ops.push({
@@ -408,15 +423,13 @@ function computeArrayDiff(
         path: `${path}/${index}`,
         value: nextItem,
       });
-    } else {
-      const prevItem = prev.item;
-      if (JSON.stringify(prevItem) !== JSON.stringify(nextItem)) {
-        ops.push({
-          op: "replace",
-          path: `${path}/${index}`,
-          value: nextItem,
-        });
-      }
+    } else if (prev.hash !== nextHash) {
+      // Hash mismatch → item changed; include full value in patch
+      ops.push({
+        op: "replace",
+        path: `${path}/${index}`,
+        value: nextItem,
+      });
     }
   }
 
@@ -433,10 +446,11 @@ function handleProjectDiff(msg: DiffRequest): void {
     patch.push({ op: "replace", path: "/version", value: next.version });
   }
 
-  if (JSON.stringify(previous.tracks) !== JSON.stringify(next.tracks)) {
+  // Compare whole-array hashes first — if identical, skip per-item diff entirely
+  if (fnv1aHash(previous.tracks) !== fnv1aHash(next.tracks)) {
     patch.push(...computeArrayDiff("/tracks", previous.tracks, next.tracks));
   }
-  if (JSON.stringify(previous.clips) !== JSON.stringify(next.clips)) {
+  if (fnv1aHash(previous.clips) !== fnv1aHash(next.clips)) {
     patch.push(...computeArrayDiff("/clips", previous.clips, next.clips));
   }
 
@@ -451,6 +465,7 @@ function handleProjectDiff(msg: DiffRequest): void {
 
   (self as unknown as Worker).postMessage(response);
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Message Router
