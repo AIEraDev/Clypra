@@ -1876,11 +1876,28 @@ pub async fn queue_native_frame(
         cancellation_generation = queue_state.latest_generation.clone();
     }
 
-    let cancellation = if is_prefetch {
-        None
-    } else {
-        Some((cancellation_generation, generation))
+    struct PendingKeyGuard {
+        queue: Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>,
+        key: Option<String>,
+    }
+
+    impl Drop for PendingKeyGuard {
+        fn drop(&mut self) {
+            if let Some(key) = self.key.take() {
+                let queue = self.queue.clone();
+                tauri::async_runtime::spawn(async move {
+                    queue.lock().await.fail(&key);
+                });
+            }
+        }
+    }
+
+    let mut pending_guard = PendingKeyGuard {
+        queue: queue.clone(),
+        key: Some(key.clone()),
     };
+
+    let cancellation = Some((cancellation_generation, generation));
     if is_prefetch && !legacy_request.text_layers.is_empty() {
         // Warm text before the potentially expensive FFmpeg seek. Otherwise a
         // future boundary can finish decoding only after the text SDF compile
@@ -1898,6 +1915,7 @@ pub async fn queue_native_frame(
         Ok((decoded_frames, decode_timings)) => {
             let mut queue_state = queue.lock().await;
             if is_prefetch || queue_state.is_generation_current(generation) {
+                pending_guard.key = None;
                 queue_state.complete(
                     key,
                     QueuedNativeFrame {
@@ -1908,16 +1926,21 @@ pub async fn queue_native_frame(
                     },
                 );
             } else {
+                pending_guard.key = None;
                 queue_state.fail(&key);
             }
             Ok(())
         }
         Err(error) => {
+            pending_guard.key = None;
             queue.lock().await.fail(&key);
             Err(error)
         }
     }
 }
+
+static LOOKAHEAD_WORKER: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>> =
+    std::sync::Mutex::new(None);
 
 /// Non-blocking lookahead pre-decode worker.
 /// Pre-decodes upcoming frames sequentially into `NativePreviewFrameQueue`
@@ -1932,13 +1955,19 @@ pub(crate) fn schedule_lookahead_predecode(
         return;
     }
 
+    // Abort previous lookahead worker to prevent decoder mutex congestion and GOP thrashing!
+    let mut worker_guard = match LOOKAHEAD_WORKER.lock() {
+        Ok(guard) => guard,
+        Err(_) => return,
+    };
+    if let Some(prev) = worker_guard.take() {
+        prev.abort();
+    }
+
     let generation = base_request.generation.unwrap_or(0);
     let fps = base_request.project.frame_rate.max(1) as f64;
-    let base_frame_index = base_request.frame_time.frame_index;
-    let base_timeline_secs = base_request.frame_time.ticks as f64
-        / base_request.frame_time.timescale.max(1) as f64;
 
-    tauri::async_runtime::spawn(async move {
+    let handle = tauri::async_runtime::spawn(async move {
         for k in 1..=lookahead_count {
             // Check generation currency before each frame
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
@@ -1948,16 +1977,33 @@ pub(crate) fn schedule_lookahead_predecode(
                 }
             }
 
-            let ahead_frame_index = base_frame_index.saturating_add(k as u64);
-            let delta_secs = k as f64 / fps;
-            let ahead_time_secs = base_timeline_secs + delta_secs;
+            // Always target strictly ahead of the current live audio clock position during playback,
+            // or ahead of the target frame if paused/seeking.
+            let (target_frame_index, target_time_secs) =
+                if let Ok(audio_time) = crate::commands::native_playback::audio_clock_time(&app, true, false) {
+                    let audio_secs = (audio_time.ticks as f64) / (audio_time.timescale.max(1) as f64);
+                    let audio_frame = (audio_secs * fps).round() as u64;
+                    let ahead_frame = audio_frame.saturating_add(k as u64);
+                    let ahead_secs = audio_secs + (k as f64 / fps);
+                    (ahead_frame, ahead_secs)
+                } else {
+                    let base_time_secs = (base_request.frame_time.ticks as f64)
+                        / (base_request.frame_time.timescale.max(1) as f64);
+                    let ahead_frame = base_request.frame_time.frame_index.saturating_add(k as u64);
+                    let ahead_secs = base_time_secs + (k as f64 / fps);
+                    (ahead_frame, ahead_secs)
+                };
+
+            let base_timeline_secs = (base_request.frame_time.ticks as f64)
+                / (base_request.frame_time.timescale.max(1) as f64);
+            let delta_secs = (target_time_secs - base_timeline_secs).max(0.0);
 
             let mut req = base_request.clone();
             req.mode = Some("prefetch".to_string());
             req.generation = Some(generation);
-            req.request_id = format!("predecode:{ahead_frame_index}");
-            req.frame_time.frame_index = ahead_frame_index;
-            req.frame_time.ticks = (ahead_time_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
+            req.request_id = format!("predecode:{target_frame_index}");
+            req.frame_time.frame_index = target_frame_index;
+            req.frame_time.ticks = (target_time_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
             req.frame_time.timescale = DEFAULT_TIME_SCALE;
 
             for layer in &mut req.project.video_layers {
@@ -1971,7 +2017,7 @@ pub(crate) fn schedule_lookahead_predecode(
                 }
             }
 
-            // If already in queue or pending, skip to next ahead frame
+            // If already in queue or pending, skip
             if let Ok(key) = req.cache_key() {
                 if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
                     let queue_state = queue.lock().await;
@@ -1991,11 +2037,11 @@ pub(crate) fn schedule_lookahead_predecode(
                 let q = queue.lock().await;
                 (q.len(), q.max_entries())
             } else {
-                (0, 8)
+                (0, 16)
             };
             eprintln!(
                 "[NativeLookahead] Frame #{} (+{}) pre-decoded in {:.2}ms | Cache: {}/{} frames warm",
-                ahead_frame_index,
+                target_frame_index,
                 k,
                 predecode_ms,
                 cache_len,
@@ -2003,6 +2049,8 @@ pub(crate) fn schedule_lookahead_predecode(
             );
         }
     });
+
+    *worker_guard = Some(handle);
 }
 
 /// Mark all older native preview work stale. Decoder calls that cannot be
@@ -2013,6 +2061,11 @@ pub async fn cancel_native_preview_requests(
     app: tauri::AppHandle,
     generation: u64,
 ) -> Result<(), String> {
+    if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
+        if let Some(prev) = worker.take() {
+            prev.abort();
+        }
+    }
     let queue = app
         .try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
         .ok_or_else(|| "Native preview frame queue is not initialized".to_string())?
@@ -2586,7 +2639,7 @@ pub(crate) async fn present_native_frame_internal(
     }
 
     if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
-        schedule_lookahead_predecode(app.clone(), request.clone(), 4);
+        schedule_lookahead_predecode(app.clone(), request.clone(), 6);
     }
 
     Ok(NativeSurfacePresentation {
@@ -2825,6 +2878,12 @@ pub async fn get_native_frame_service_samples(
 /// 6. Stops and resets the native playback session.
 #[tauri::command]
 pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    if let Ok(mut worker) = LOOKAHEAD_WORKER.lock() {
+        if let Some(prev) = worker.take() {
+            prev.abort();
+        }
+    }
+
     // 1+2. Reset the frame queue generation and drain pending/queued frames.
     if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
         queue.inner().clone().lock().await.reset();
