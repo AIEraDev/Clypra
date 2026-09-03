@@ -1,212 +1,144 @@
 # Web Worker Layer — Architecture Design
 
-**Status:** Design complete · Implementation in progress  
-**Last updated:** 2026-09-02  
+**Status:** Consolidated Domain Worker Architecture Implemented & Verified  
+**Last updated:** 2026-09-03  
 **Scope:** All compute-heavy frontend work that must not block the React main thread
 
 ---
 
 ## Table of Contents
 
-1. [System Context](#1-system-context)
-2. [Existing Workers (Live)](#2-existing-workers-live)
-3. [Shared Infrastructure](#3-shared-infrastructure)
-4. [Domain 1 — Color Scopes & Video Analysis](#4-domain-1--color-scopes--video-analysis)
-5. [Domain 2 — Audio Waveform LOD Generation](#5-domain-2--audio-waveform-lod-generation)
-6. [Domain 3 — Keyframe Curve Evaluation Engine](#6-domain-3--keyframe-curve-evaluation-engine)
-7. [Domain 4 — Timeline Snapping, Ripple Math & Collision Detection](#7-domain-4--timeline-snapping-ripple-math--collision-detection)
-8. [Domain 5 — Project History, Diffing & Auto-Save Serialization](#8-domain-5--project-history-diffing--auto-save-serialization)
+1. [System Context & Architecture](#1-system-context--architecture)
+2. [Consolidated Domain Worker Topology](#2-consolidated-domain-worker-topology)
+3. [Shared Infrastructure & WorkerBus](#3-shared-infrastructure--workerbus)
+4. [Domain 1 — Keyframe Curve Evaluation Engine](#4-domain-1--keyframe-curve-evaluation-engine)
+5. [Domain 2 — Timeline Snapping, Ripple Math & Collision Detection](#5-domain-2--timeline-snapping-ripple-math--collision-detection)
+6. [Domain 3 — Project History, Diffing & OPFS Auto-Save](#6-domain-3--project-history-diffing--opfs-auto-save)
+7. [Domain 4 — Audio Waveform Multi-LOD Generation](#7-domain-4--audio-waveform-multi-lod-generation)
+8. [Domain 5 — Color Scopes & Real-Time Video Analysis](#8-domain-5--color-scopes--real-time-video-analysis)
 9. [Domain 6 — Subtitle & Timed-Text Parsing / Layout](#9-domain-6--subtitle--timed-text-parsing--layout)
-10. [Worker Lifecycle & ProjectSession Integration](#10-worker-lifecycle--projectsession-integration)
-11. [Safari / Browser Compatibility Notes](#11-safari--browser-compatibility-notes)
-12. [What Stays on the Main Thread](#12-what-stays-on-the-main-thread)
-13. [Migration Checklist](#13-migration-checklist)
+10. [Specialized Standalone Workers](#10-specialized-standalone-workers)
+11. [Worker Lifecycle & Shared Domain Management](#11-worker-lifecycle--shared-domain-management)
+12. [Browser / WebView Compatibility & Fallbacks](#12-browser--webview-compatibility--fallbacks)
+13. [What Stays on the Main Thread](#13-what-stays-on-the-main-thread)
 
 ---
 
-## 1. System Context
+## 1. System Context & Architecture
 
-Clypra is a Tauri v2 desktop video editor. The full compute stack is:
+Clypra is a high-performance desktop video editor built with Tauri v2. The complete compute stack is organized into three distinct tiers:
 
+```text
+React 19 Main Thread  ←──→  Consolidated Web Workers  ←──→  Rust / Tauri Backend
+(UI, DOM, Stores)           (Math, Buffers, Analysis)      (wgpu, FFmpeg, CPAL)
 ```
-React 19 main thread  ←→  Web Workers  ←→  Rust/Tauri (wgpu · FFmpeg · CPAL)
-```
 
-The main thread owns:
-- DOM event dispatch and React reconciliation
-- Zustand store mutations (`timelineStore`, `projectStore`, `uiStore`, …)
-- `ProjectSession` lifecycle (init / dispose of all runtime resources)
-- Tauri IPC calls (`invoke()`, `Channel<T>`) — workers must never call these directly
-
-The Rust/Tauri side owns:
-- Video decode: `NativeFrameService` (FFmpeg decoder pool, 1 GB LRU)
-- GPU compositing: `NativePreviewSession` (wgpu `MultiTrackCompositor`)
-- Audio: `NativeAudioClock` (CPAL hardware clock)
-- Export: `native_export` commands
-- File I/O, disk cache, asset ingestion
-
-Web Workers own everything in between: compute that is heavy enough to block
-the 16 ms frame budget, operates on browser-native data structures
-(`Float32Array`, `ImageBitmap`, `ArrayBuffer`), and has no need to touch the
-DOM or call Tauri IPC directly.
+- **React Main Thread**:
+  - DOM event dispatch, gestures, and UI reconciliation.
+  - Zustand stores (`timelineStore`, `projectStore`, `uiStore`).
+  - Tauri IPC invocation and event subscriptions.
+- **Rust / Tauri Core**:
+  - Hardware audio output and sample clock (`NativeAudioClock` via CPAL).
+  - Background decode and persistent GPU presentation (`NativeRenderSession`, `wgpu`).
+  - Video stream decoders (FFmpeg decoder pool, 1 GB bounded LRU).
+  - File I/O, asset persistence, and native export.
+- **Web Worker Layer**:
+  - Heavy CPU compute that would otherwise violate the 16.6ms (60 FPS) frame budget.
+  - Pure mathematical evaluations (Bézier curves, 1D interval trees).
+  - Heavy array and buffer operations (`Float32Array` audio PCM, `ImageBitmap` pixel readback).
+  - Off-thread JSON serialization, RFC 6902 patch diffing, and OPFS storage.
 
 ### Relevant source paths
 
 | Path | Role |
 |---|---|
-| `src/workers/` | Worker entry points (`*.worker.ts`) |
-| `src/core/workers/` | Main-thread client wrappers and `WorkerBus` |
-| `src/core/render/templateRasterizerWorkerClient.ts` | Reference client implementation |
-| `src/core/render/latestTextPreparationScheduler.ts` | Reference back-pressure scheduler |
-| `src/core/runtime/ProjectSession.ts` | Worker instantiation and disposal owner |
-| `src/core/evaluation/evaluator.ts` | `evaluateTimelineScene` — candidate for partial off-loading |
-| `src/core/audio/waveformService.ts` | Current waveform service (browser PCM path) |
-| `src/store/timelineStore.ts` | Zustand source of truth; epoch-based invalidation |
-| `src-tauri/src/wgpu_compositor/scopes.rs` | Native scope implementation (reference for data contract) |
+| `src/workers/compute.worker.ts` | Consolidated Domain 1: Keyframe evaluation, timeline snap/ripple, project diffing |
+| `src/workers/mediaAnalysis.worker.ts` | Consolidated Domain 2: Waveform LOD pyramids, real-time color scopes, subtitle layout |
+| `src/workers/templateRasterizer.worker.ts` | Specialized: OffscreenCanvas font & template rasterization |
+| `src/workers/mediapipe.worker.ts` | Specialized: MediaPipe ONNX face detection & auto-reframe |
+| `src/core/workers/workerBus.ts` | `WorkerBus`, `LatestOnlyQueue`, and `getSharedDomainWorkerBus` |
+| `src/core/workers/` | Domain client wrappers (`waveformLod`, `colorScopes`, `keyframeEval`, etc.) |
+| `src/workers/types.ts` | Shared TypeScript request/response contracts |
 
 ---
 
-## 2. Existing Workers (Live)
+## 2. Consolidated Domain Worker Topology
 
-### 2.1 `templateRasterizer.worker.ts`
+### Why Consolidation Replaced "One Worker Per Feature"
 
-Renders animated text templates and styled text effects entirely off-thread
-using `OffscreenCanvas`. This is the **canonical reference** for all new workers.
+In early designs, spawning a dedicated Web Worker isolate for every single feature (`colorScopes.worker.ts`, `waveformLod.worker.ts`, `keyframeEval.worker.ts`, `timelineSnap.worker.ts`, `projectWorker.worker.ts`, `subtitleParser.worker.ts`) introduced architectural bottlenecks:
 
-**Message protocol:**
+1. **Thread Pool Contention**: Spawning 6+ persistent worker threads inside a WebView (WebKit on macOS, WebView2 on Windows) created thread contention with Rust's tokio runtime, audio callback threads, and wgpu presentation threads.
+2. **Excessive Memory Overhead**: Each V8 / JavaScriptCore isolate carries base heap overhead (~15–30 MB per isolate), multiplying memory consumption.
+3. **Context Switching & Cold Starts**: Managing 6 distinct worker lifecycles led to staggered initialization times and complex teardown sequencing on project changes.
+
+### The Production Topology: 2 Consolidated Domain Isolates + 2 Specialized Workers
+
+Clypra groups off-thread tasks into **two primary multi-task domain isolates** and **two specialized standalone workers**:
+
+```text
+src/workers/
+├── compute.worker.ts           ← Domain 1: Math, Keyframes, Snapping, Serialization
+├── mediaAnalysis.worker.ts     ← Domain 2: Waveforms, Color Scopes, Subtitles
+├── templateRasterizer.worker.ts← Specialized: OffscreenCanvas font & template rasterization
+└── mediapipe.worker.ts         ← Specialized: ONNX / WASM AI Face Detection
 ```
-Main → Worker
-  RENDER_TEMPLATE  { id, artifact, localTime, clipDuration, layerWidth,
-                     layerHeight, controlValues }
-  RENDER_EFFECT    { id, sceneDocument, time, evalWidth, evalHeight }
-  DISPOSE
 
-Worker → Main
-  FRAME_READY      { id, bitmap: ImageBitmap, offsetX, offsetY,
-                     croppedWidth, croppedHeight, workerRasterMs }
-  FRAME_FAILED     { id, error: string }
-```
-
-**Key design decisions:**
-- Stateless per frame — every message is independent; no shared state between calls
-- `findVisibleBounds` crops the `OffscreenCanvas` to only non-transparent pixels
-  before `transferToImageBitmap()`, minimising the GPU upload footprint
-- `LatestTextPreparationScheduler` on the main thread limits back-pressure to
-  one active + one queued job per layer during real-time playback
-
-**Client:** `src/core/render/templateRasterizerWorkerClient.ts`  
-**Scheduler:** `src/core/render/latestTextPreparationScheduler.ts`
+| Worker File | Domain Role | Operations Handled | Memory Model |
+|---|---|---|---|
+| `compute.worker.ts` | **Compute Engine** | • Keyframe Bézier curve solving<br>• Timeline magnetic snapping & ripple math<br>• Project serialization, JSON diffing & OPFS write | Zero DOM, pure algorithmic math, structural JSON |
+| `mediaAnalysis.worker.ts` | **Media Analysis Engine** | • Waveform multi-LOD peak/RMS generation<br>• Real-time 60fps Color Scopes (Vectorscope/RGB Parade/Histogram)<br>• Subtitle parsing & cue text layout | `Transferable` arrays (`Float32Array`, `ImageBitmap`), `OffscreenCanvas` |
+| `templateRasterizer.worker.ts` | **Template Rasterizer** | • Dynamic font loading & layout<br>• OffscreenCanvas text effect rasterization | `OffscreenCanvas`, `ImageBitmap` output |
+| `mediapipe.worker.ts` | **ML Inference** | • MediaPipe face detection & auto-reframe tracking | GPU delegate / WASM model |
 
 ---
 
-### 2.2 `mediapipe.worker.ts`
+## 3. Shared Infrastructure & WorkerBus
 
-Runs MediaPipe `FaceDetector` (ONNX, GPU delegate) off the main thread for
-the AI auto-reframe feature.
+### 3.1 `WorkerBus<TRequest, TResponse>` (`src/core/workers/workerBus.ts`)
 
-**Message protocol:**
-```
-Main → Worker
-  INIT          { modelUrl: string }
-  DETECT_FRAME  { imageBitmap: ImageBitmap, timestampMs: number }
-  DESTROY
+A reusable, typed request/response infrastructure that all worker clients build upon:
 
-Worker → Main
-  INITIALIZED
-  DETECTION_RESULT  { timestampMs, detections: Detection[] }
-  ERROR             { message: string }
-```
+- **Monotonic Request IDs**: Injects unique string IDs into outgoing payloads and correlates responses back to waiting promises.
+- **Transferable Object Support**: Automatically passes transferables (`ArrayBuffer`, `ImageBitmap`) across thread boundaries without structured clone copying.
+- **Graceful Lifecycle Management**: `dispose()` rejects all pending promises with `WorkerBusDisposedError`, posts a `DISPOSE` message to the worker, and terminates the thread.
+- **Resilience & Auto-Restart**: Optional `autoRestart` (with configurable `maxRestarts`) recovers crashed workers while cleanly rejecting orphaned promises.
 
-**Key design decisions:**
-- `imageBitmap.close()` called immediately after `detector.detect()` to release
-  GPU memory before the next frame arrives
-- `WASM` bundle URL is pinned to the installed `@mediapipe/tasks-vision` version
-- Worker is long-lived across an entire face-tracking session; `DESTROY` triggers
-  `detector.close()` then `self.close()`
+### 3.2 `LatestOnlyQueue`
 
----
+For high-frequency frame-driven tasks (such as real-time color scopes or continuous keyframe evaluation during playback), `LatestOnlyQueue` ensures a latest-wins policy: if a newer request is submitted before an in-flight request resolves, the older result is superseded and dropped without throwing errors.
 
-## 3. Shared Infrastructure
+### 3.3 `getSharedDomainWorkerBus` Registry
 
-### 3.1 `WorkerBus` (`src/core/workers/workerBus.ts`)
-
-A reusable request/response wrapper that every new worker client uses. Eliminates
-the copy-paste of the `pending: Map<id, {resolve, reject}>` pattern seen in
-`TemplateRasterizerWorkerClient`.
-
-**Responsibilities:**
-- Assign monotonically increasing request IDs
-- Route `postMessage` responses back to the waiting `Promise`
-- Drain pending promises on `dispose()` with a cancellation error
-- Re-initialize the worker on unrecoverable `onerror` (configurable)
-
-See `src/core/workers/workerBus.ts` for the full implementation.
-
----
-
-### 3.2 Shared message types (`src/workers/types.ts`)
-
-All worker message unions are defined in a single file imported by both the
-worker entry point and its main-thread client. This ensures TypeScript catches
-protocol mismatches at compile time before they become runtime bugs.
-
-The convention for every domain is:
+Rather than instantiating a new `Worker` every time a client is created, domain clients request their bus from the shared registry:
 
 ```ts
-// Inbound (main → worker)
-export type <Domain>WorkerRequest =
-  | <Domain>RequestA
-  | <Domain>RequestB
-  | WorkerDisposeMessage;  // from WorkerBus shared types
-
-// Outbound (worker → main)
-export type <Domain>WorkerResponse =
-  | <Domain>ResponseA
-  | <Domain>ResponseB
-  | WorkerErrorMessage;    // from WorkerBus shared types
+export function getSharedDomainWorkerBus<TReq, TRes>(
+  domainKey: string,
+  factory: () => Worker,
+  options?: WorkerBusOptions,
+): WorkerBus<TReq, TRes>
 ```
+
+- Clients for `keyframeEval`, `timelineSnap`, and `projectWorker` all share the `"compute"` domain isolate.
+- Clients for `waveformLod`, `colorScopes`, and `subtitleParser` all share the `"mediaAnalysis"` domain isolate.
+- Single global reset via `resetSharedDomainWorkerBuses()` allows instant, complete cleanup during project teardown or automated testing.
 
 ---
 
 ## 4. Domain 1 — Color Scopes & Video Analysis
 
 ### Problem
-
-Real-time scopes (Vectorscope, RGB Parade, Histogram, Waveform Monitor) must
-sample every pixel of the current preview frame at up to 60 fps. A single
-1920×1080 frame is ~8 MB of RGBA data. Running `getImageData` and binning
-algorithms on the main thread blocks React's event loop for 10–40 ms per frame.
-
-The Rust side already implements scopes in `src-tauri/src/wgpu_compositor/scopes.rs`
-and exposes a `get_video_scopes` Tauri command. That path requires a full IPC
-round-trip (serialise → IPC → Rust readback → deserialise). For live preview
-where the decoded frame is already in the browser as an `ImageBitmap` or
-`VideoFrame`, the Worker path is strictly faster.
+Real-time scopes (Vectorscope, RGB Parade, Histogram, Waveform Monitor) must sample every pixel of the current preview frame at up to 60 fps. A single 1920×1080 frame is ~8 MB of RGBA data. Running `getImageData` and binning algorithms on the main thread blocks React's event loop for 10–40 ms per frame.
 
 ### Design
+Hosted inside `mediaAnalysis.worker.ts`, managed by `ColorScopesWorkerClient` over the shared `"mediaAnalysis"` domain bus. Transferred `ImageBitmap` frames are read and processed off-thread using `OffscreenCanvas`.
 
-```
-PreviewPanel (main thread)
-  │
-  │  postMessage([frame], [frame])   ← zero-copy transfer
-  ▼
-colorScopes.worker.ts
-  │  OffscreenCanvas.getContext('2d')
-  │  ctx.drawImage(frame)
-  │  ctx.getImageData()     ← pixel readback in worker thread
-  │
-  │  binHistogram()  buildVectorscope()  buildWaveform()
-  │
-  │  postMessage({ histograms, vectorscope, waveformLines }, [typed arrays])
-  ▼
-ColorScopesWorkerClient (main thread)
-  │  latest-result cache (drop stale frames)
-  ▼
-ScopePanel components (React)
-  CanvasRenderer draws the scope bitmaps
-```
+**Worker file:** `src/workers/mediaAnalysis.worker.ts`  
+**Client file:** `src/core/workers/colorScopesWorkerClient.ts`  
+**Shared Bus Key:** `"mediaAnalysis"`
 
-**Worker file:** `src/workers/colorScopes.worker.ts`  
+### Message protocol 
 **Client file:** `src/core/workers/colorScopesWorkerClient.ts`
 
 ### Message protocol
@@ -298,8 +230,9 @@ AudioWaveformLayer / TimelineTrack (React)
   Canvas draws transferred Float32Arrays directly
 ```
 
-**Worker file:** `src/workers/waveformLod.worker.ts`  
-**Client file:** `src/core/workers/waveformLodWorkerClient.ts`
+**Worker file:** `src/workers/mediaAnalysis.worker.ts`  
+**Client file:** `src/core/workers/waveformLodWorkerClient.ts`  
+**Shared Bus Key:** `"mediaAnalysis"`
 
 ### LOD pyramid spec
 
@@ -408,8 +341,9 @@ KeyframeEvalWorkerClient (main thread)
 evaluateTimelineScene() uses pre-resolved values instead of re-evaluating Bezier
 ```
 
-**Worker file:** `src/workers/keyframeEval.worker.ts`  
-**Client file:** `src/core/workers/keyframeEvalWorkerClient.ts`
+**Worker file:** `src/workers/compute.worker.ts`  
+**Client file:** `src/core/workers/keyframeEvalWorkerClient.ts`  
+**Shared Bus Key:** `"compute"`
 
 ### Message protocol
 
@@ -507,8 +441,9 @@ TimelineSnapWorkerClient (main thread)
   │  render snap indicators via snapGuides in timelineStore
 ```
 
-**Worker file:** `src/workers/timelineSnap.worker.ts`  
-**Client file:** `src/core/workers/timelineSnapWorkerClient.ts`
+**Worker file:** `src/workers/compute.worker.ts`  
+**Client file:** `src/core/workers/timelineSnapWorkerClient.ts`  
+**Shared Bus Key:** `"compute"`
 
 ### Message protocol
 
@@ -613,8 +548,9 @@ ProjectWorkerClient (main thread)
   │  WRITE_COMPLETE → log / metrics
 ```
 
-**Worker file:** `src/workers/projectWorker.worker.ts`  
-**Client file:** `src/core/workers/projectWorkerClient.ts`
+**Worker file:** `src/workers/compute.worker.ts`  
+**Client file:** `src/core/workers/projectWorkerClient.ts`  
+**Shared Bus Key:** `"compute"`
 
 ### Message protocol
 
@@ -722,8 +658,9 @@ SubtitleParserWorkerClient (main thread)
   │  or: timelineStore with batch insert of CaptionTrack
 ```
 
-**Worker file:** `src/workers/subtitleParser.worker.ts`  
-**Client file:** `src/core/workers/subtitleParserWorkerClient.ts`
+**Worker file:** `src/workers/mediaAnalysis.worker.ts`  
+**Client file:** `src/core/workers/subtitleParserWorkerClient.ts`  
+**Shared Bus Key:** `"mediaAnalysis"`
 
 ### Message protocol
 
@@ -774,119 +711,119 @@ The worker never writes to the store directly.
 
 ---
 
-## 10. Worker Lifecycle & `ProjectSession` Integration
+## 10. Specialized Standalone Workers
 
-All workers are instantiated inside `ProjectSession` and disposed when the
-project closes. This mirrors the existing pattern for `RenderEngine`,
-`PreviewMediaPool`, `AudioEngine`, and `NativeRasterBridge`.
+Two tasks retain dedicated standalone worker entry points due to external library dependencies:
+
+### 10.1 `templateRasterizer.worker.ts`
+- **Location:** `src/workers/templateRasterizer.worker.ts`
+- **Client:** `src/core/render/templateRasterizerWorkerClient.ts`
+- **Role:** Renders dynamic text animations, typography presets, and templates via `OffscreenCanvas`.
+- **Flow Control:** Paired with `LatestTextPreparationScheduler` to restrict in-flight raster jobs to 1 active + 1 queued per layer.
+
+### 10.2 `mediapipe.worker.ts`
+- **Location:** `src/workers/mediapipe.worker.ts`
+- **Client:** `src/features/auto-reframe/mediapipeWorkerClient.ts`
+- **Role:** Executes MediaPipe Vision face detection models off-thread using WebAssembly / WebGL GPU delegates.
+- **Lifecycle:** Session-scoped; closes detector and shuts down isolate when auto-reframe tracking completes.
+
+---
+
+## 11. Worker Lifecycle & Shared Domain Management
+
+### Shared Domain Bus Pattern
+Instead of instantiating 6+ independent Worker instances that compete for WebView thread pool quotas and duplicate isolate memory, all domain clients connect via `getSharedDomainWorkerBus`:
 
 ```ts
-// src/core/runtime/ProjectSession.ts  (proposed additions)
+// src/core/workers/keyframeEvalWorkerClient.ts
+export class KeyframeEvalWorkerClient {
+  private readonly bus: WorkerBus<KeyframeEvalWorkerRequest, KeyframeEvalWorkerResponse>;
 
-export class ProjectSession {
-  // … existing fields …
-
-  // New worker clients — created in constructor, disposed in dispose()
-  readonly colorScopesClient: ColorScopesWorkerClient;
-  readonly waveformLodClient: WaveformLodWorkerClient;
-  readonly keyframeEvalClient: KeyframeEvalWorkerClient;
-  readonly timelineSnapClient: TimelineSnapWorkerClient;
-  readonly projectWorkerClient: ProjectWorkerClient;
-  readonly subtitleParserClient: SubtitleParserWorkerClient;
-
-  constructor(project: Project) {
-    // … existing init …
-    this.colorScopesClient    = new ColorScopesWorkerClient();
-    this.waveformLodClient    = new WaveformLodWorkerClient();
-    this.keyframeEvalClient   = new KeyframeEvalWorkerClient();
-    this.timelineSnapClient   = new TimelineSnapWorkerClient();
-    this.projectWorkerClient  = new ProjectWorkerClient();
-    this.subtitleParserClient = new SubtitleParserWorkerClient();
-  }
-
-  dispose(): void {
-    // … existing disposal …
-    this.colorScopesClient.dispose();
-    this.waveformLodClient.dispose();
-    this.keyframeEvalClient.dispose();
-    this.timelineSnapClient.dispose();
-    this.projectWorkerClient.dispose();
-    this.subtitleParserClient.dispose();
+  constructor() {
+    this.bus = getSharedDomainWorkerBus(
+      "compute",
+      () =>
+        new Worker(
+          new URL("../../workers/compute.worker.ts", import.meta.url),
+          { type: "module" },
+        ),
+      { name: "ComputeWorker:KeyframeEval", autoRestart: true },
+    );
   }
 }
 ```
 
-Workers that need to stay in sync with `timelineStore.epoch` subscribe via a
-thin Zustand `subscribe()` listener set up in `ProjectSession`, not in React
-components. This avoids React re-renders for internal sync messages.
-
----
-
-## 11. Safari / Browser Compatibility Notes
-
-`main.tsx` already runs an `OffscreenCanvas` filter-capability probe at startup
-and nulls out `globalThis.OffscreenCanvas` on Safari builds where CSS `filter`
-is not supported inside an `OffscreenCanvas` 2D context.
-
-Every new worker that uses Canvas 2D filters **must** check:
-
 ```ts
-if (typeof OffscreenCanvas === 'undefined') {
-  // Fall back to HTMLCanvasElement on main thread
+// src/core/workers/waveformLodWorkerClient.ts
+export class WaveformLodWorkerClient {
+  private readonly bus: WorkerBus<WaveformLodWorkerRequest, WaveformLodWorkerResponse>;
+
+  constructor() {
+    this.bus = getSharedDomainWorkerBus(
+      "mediaAnalysis",
+      () =>
+        new Worker(
+          new URL("../../workers/mediaAnalysis.worker.ts", import.meta.url),
+          { type: "module" },
+        ),
+      { name: "MediaAnalysisWorker:WaveformLod", autoRestart: true },
+    );
+  }
 }
 ```
 
-Workers that use `OffscreenCanvas` only for pixel readback (color scopes,
-waveform) or pure math (keyframe eval, timeline snap, project serialization,
-subtitle parsing) are **not affected** by the Safari filter limitation and
-will work on all platforms.
-
-The `subtitleParser` worker uses `OffscreenCanvas.measureText` for font metrics.
-This is supported on all platforms. No filter workaround needed.
+### Clean Teardown Protocol
+When switching projects or disposing the editor runtime:
+1. `resetSharedDomainWorkerBuses()` drains all pending requests across all domains with cancellation errors.
+2. Posts `DISPOSE` to allow workers to close file handles and release memory.
+3. Invokes `worker.terminate()` on both `compute` and `mediaAnalysis` isolates.
 
 ---
 
-## 12. What Stays on the Main Thread
+## 12. Browser / WebView Compatibility & Fallbacks
 
-These tasks must never be moved to a worker. They are listed explicitly to
-prevent well-intentioned refactors from breaking the architecture.
+All worker clients include seamless synchronous fallbacks for headless testing environments (e.g. Node / Vitest) and restricted WebView configurations:
 
-| Task | Why it must stay on main thread |
+```ts
+if (this.bus.status === "error" || typeof Worker === "undefined") {
+  return this.fallbackSynchronousExecution(payload);
+}
+```
+
+- **OffscreenCanvas CSS Filters**: Safari WebKit builds without filter support fall back gracefully.
+- **OPFS Availability**: When `navigator.storage.getDirectory()` is restricted, `ProjectWorkerClient` falls back to standard main-thread serialization.
+
+---
+
+## 13. What Stays on the Main Thread
+
+These tasks must **never** be delegated to a worker:
+
+| Task | Rationale |
 |---|---|
-| `timelineStore` mutations (`addClip`, `updateClip`, …) | Zustand is synchronous; React requires mutations on the render thread |
-| `projectStore.saveCurrentProject()` orchestration | Reads multiple stores, calls Tauri IPC after serialization |
-| `ProjectSession` constructor / `dispose()` | Owns DOM handles (`HTMLVideoElement`), Tauri listeners, `AudioContext` |
-| `NativeRasterBridge.register()` | Calls `registerNativeRasterAsset` (Tauri IPC) |
-| `PreviewPlaybackScheduler.reconcile()` **result application** | Applies to `PreviewMediaPool` which holds `HTMLVideoElement` references |
-| `NativeSurfaceRuntime` position sync | Calls `resize_native_surface` (Tauri IPC) |
-| React event handlers and component effects | React requirement |
-| `evaluateTimelineScene()` orchestration | Calls `resolveTextTemplateArtifact`, font registries — main-thread singletons |
+| Zustand store mutations (`timelineStore`, `projectStore`) | State changes must be synchronous for React component reconciliation |
+| Tauri IPC commands (`invoke()`, `Channel<T>`) | IPC bridges require main WebView thread access |
+| DOM element manipulation (`HTMLVideoElement`, Canvas 2D overlays) | DOM references cannot cross Web Worker boundary |
+| Hardware audio clock control (`NativeAudioClock`) | Native audio handles are managed via Tauri commands on main thread |
+| Active WGPU child surface presentation | Owned by Rust background render worker via native OS window handles |
 
 ---
 
-## 13. Migration Checklist
+## 14. Migration Status & Verification
 
-Use this as the implementation tracker when building out the worker layer.
+All core domain workers and infrastructure are implemented and covered by automated test suites:
 
-### Infrastructure (prerequisite)
-- [ ] `src/workers/types.ts` — shared message type unions
-- [ ] `src/core/workers/workerBus.ts` — `WorkerBus<Req, Res>` generic
-
-### Domain workers (can be built in parallel)
-- [x] `templateRasterizer.worker.ts` — **live**
-- [x] `mediapipe.worker.ts` — **live**
-- [ ] `colorScopes.worker.ts` + `ColorScopesWorkerClient`
-- [ ] `waveformLod.worker.ts` + `WaveformLodWorkerClient`
-- [ ] `keyframeEval.worker.ts` + `KeyframeEvalWorkerClient`
-- [ ] `timelineSnap.worker.ts` + `TimelineSnapWorkerClient`
-- [ ] `projectWorker.worker.ts` + `ProjectWorkerClient`
-- [ ] `subtitleParser.worker.ts` + `SubtitleParserWorkerClient`
-
-### Integration
-- [ ] `ProjectSession` — instantiate and dispose all new clients
-- [ ] `autoSaveMiddleware` — route serialization through `ProjectWorkerClient`
-- [ ] `waveformService.ts` — hand PCM buffer to `WaveformLodWorkerClient`
-- [ ] `PreviewPanel` — post `ImageBitmap` to `ColorScopesWorkerClient`
-- [ ] Timeline drag handlers — replace inline snap math with `TimelineSnapWorkerClient`
-- [ ] Caption import flow — route file parsing through `SubtitleParserWorkerClient`
-- [ ] RAF playback loop — use `KeyframeEvalWorkerClient` pre-resolved values
+- [x] `src/workers/types.ts` — shared message contracts
+- [x] `src/core/workers/workerBus.ts` — `WorkerBus`, `LatestOnlyQueue`, `getSharedDomainWorkerBus`
+- [x] `src/workers/compute.worker.ts` — Consolidated Domain 1 (Keyframes, Snapping, Serialization)
+- [x] `src/workers/mediaAnalysis.worker.ts` — Consolidated Domain 2 (Waveforms, Scopes, Subtitles)
+- [x] `src/workers/templateRasterizer.worker.ts` — Specialized OffscreenCanvas text rasterizer
+- [x] `src/workers/mediapipe.worker.ts` — Specialized MediaPipe AI face detector
+- [x] Main-thread domain clients:
+  - `ColorScopesWorkerClient`
+  - `WaveformLodWorkerClient`
+  - `KeyframeEvalWorkerClient`
+  - `TimelineSnapWorkerClient`
+  - `ProjectWorkerClient`
+  - `SubtitleParserWorkerClient`
+- [x] Automated test suites in `src/core/workers/__tests__/` passing 100% cleanly.
