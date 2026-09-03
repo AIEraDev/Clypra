@@ -241,20 +241,21 @@ pub async fn replace_native_audio_clips(
         {
             Ok(clip) => decoded.push(clip),
             Err(error) => {
-                log::warn!(
-                    "[NativeAudio] Skipping failed audio clip {}: {}",
+                eprintln!(
+                    "[NativeAudio] Skipping failed audio clip {}: {} (path: {})",
                     request.clip_id,
-                    error
+                    error,
+                    request.path
                 );
             }
         }
     }
 
     let statuses: Vec<NativeAudioClipStatus> = decoded.iter().map(NativePcmClip::status).collect();
-    log::info!(
+    eprintln!(
         "[NativeAudio] Installed {} audio clips: {:?}",
         decoded.len(),
-        statuses
+        statuses.iter().map(|s| (&s.id, s.duration_ticks)).collect::<Vec<_>>()
     );
     clock
         .lock()
