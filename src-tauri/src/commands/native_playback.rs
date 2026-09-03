@@ -292,7 +292,7 @@ impl NativeRenderSession {
                         audio_track_count: 0,
                     },
                 ) {
-                    if last_rendered_frame_index == Some(frame_index) && dynamic_demand.is_none() {
+                    if last_rendered_frame_index == Some(frame_index) {
                         continue;
                     }
                     last_rendered_frame_index = Some(frame_index);
