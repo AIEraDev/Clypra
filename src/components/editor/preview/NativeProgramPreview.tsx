@@ -2284,7 +2284,11 @@ export const NativeProgramPreview: React.FC = () => {
                   nativeSurfaceShown = true;
                   lastNativePlaybackRequestKey = requestKey;
                 }
-              } else if (nativeSurfaceUsable && !qualificationForcesWebView) {
+              } else if (
+                isPlaying &&
+                nativeSurfaceUsable &&
+                !qualificationForcesWebView
+              ) {
                 const tracePresentation = isFirstFrame || !isPlaying;
                 if (tracePresentation) {
                   // tracePlayback("native-present-start", {
