@@ -2142,14 +2142,16 @@ pub(crate) fn schedule_lookahead_predecode(
             } else {
                 (0, 16)
             };
-            eprintln!(
-                "[NativeLookahead] Frame #{} (ahead: +{}) pre-decoded in {:.2}ms | Cache: {}/{} frames warm",
-                target_frame_index,
-                target_frame_index.saturating_sub(current_audio_frame),
-                predecode_ms,
-                cache_len,
-                max_entries
-            );
+            if *VERBOSE_PREVIEW_LOGS || predecode_ms > 33.33 {
+                eprintln!(
+                    "[NativeLookahead] Frame #{} (ahead: +{}) pre-decoded in {:.2}ms | Cache: {}/{} frames warm",
+                    target_frame_index,
+                    target_frame_index.saturating_sub(current_audio_frame),
+                    predecode_ms,
+                    cache_len,
+                    max_entries
+                );
+            }
         }
     });
 
@@ -2759,7 +2761,7 @@ pub(crate) async fn present_native_frame_internal(
     let hit_tag = if queue_hit { "QUEUE_HIT" } else { "COLD_DECODE" };
     let layers_count = legacy_request.layers.len();
 
-    if layers_count > 0 {
+    if layers_count > 0 && (*VERBOSE_PREVIEW_LOGS || !queue_hit || total_ms > 33.33) {
         eprintln!(
             "[NativePresent] Frame #{} [{}] total: {:.2}ms (decode: {:.2}ms, upload: {:.2}ms, compose: {:.2}ms, present: {:.2}ms) | layers: {}",
             request.frame_time.frame_index,
