@@ -319,6 +319,14 @@ impl NativeRenderSession {
                 }
             }
 
+            // When the audio clock is not running, only render if an explicit
+            // dynamic demand was submitted. If dynamic_demand is None, playback
+            // is paused or idle; repeatedly rendering and forcing show_surface
+            // causes the preview to leak onto the desktop while paused.
+            if dynamic_demand.is_none() {
+                continue;
+            }
+
             self.render_one(&app, base_request, generation).await;
         }
     }
