@@ -113,6 +113,9 @@ export class SourcePlaybackContext implements PlaybackContext {
 
   seek(time: number): void {
     if (!this._mediaElement) return;
+    if (!this._mediaElement.paused) {
+      this.pause();
+    }
     const dur = this._mediaElement.duration || 0;
     this._mediaElement.currentTime = Math.max(0, Math.min(time, dur));
     this._notifyListeners();

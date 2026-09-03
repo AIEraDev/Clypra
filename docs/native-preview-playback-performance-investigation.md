@@ -89,6 +89,28 @@ Future contributors and AI agents **must review this runbook** prior to modifyin
   - If requested PTS is within `pts_tolerance` of `last_raw_nv12`, return the cached frame in **0.01ms** without seeking.
   - Backward seek is ONLY triggered if `backward_distance > pts_tolerance`.
 
+### Bug 6: Tokio Reactor Panic on Main Thread / Non-Tokio Context
+- **Symptom**: Seeking suddenly caused the entire application to crash with:
+  ```text
+  thread 'main' (7752458) panicked at src/commands/native_preview.rs:2064:18:
+  there is no reactor running, must be called from the context of a Tokio 1.x runtime
+  fatal runtime error: failed to initiate panic, error 5, aborting
+  ```
+- **Root Cause**: `tokio::spawn` requires the calling thread to belong to an active Tokio 1.x multi-threaded runtime. When `schedule_lookahead_predecode` or seek handlers were invoked from synchronous handlers or the OS main GUI thread (thread `main`), `tokio::spawn` panicked and aborted the process.
+- **Architectural Solution**:
+  - Replaced direct `tokio::spawn` with `tauri::async_runtime::spawn`.
+  - Added an atomic completion flag (`finished: Arc<AtomicBool>`) in `LookaheadWorkerState` so worker lifecycle checks are lock-free and completely runtime-agnostic without depending on Tokio-specific join handle extensions.
+
+---
+
+### Bug 7: Transport Auto-Resume on Timeline Seek & Playhead Scrub
+- **Symptom**: Seeking or scrubbing the playhead while video was playing immediately resumed playback, causing rapid seek/render thrashing and unexpected audio playback before the user inspected the frame.
+- **Root Cause**: `PlaybackClock.seek()` stored `wasPlaying = this._state === "playing"` and called `this.play()` at the end of every seek.
+- **Architectural Solution**:
+  - Removed `if (wasPlaying) this.play()` from `PlaybackClock.seek()`. Seeking now cleanly pauses the clock and stays paused.
+  - Added active playback pause in `TransportAuthority.seek()` and `SourcePlaybackContext.seek()`.
+  - Set `previewInteractionCoordinator.commit(..., false)` on playhead scrub release so scrubbing does not restart playback. The user manually presses Play (or Spacebar) to continue.
+
 ---
 
 ## 3. Verification & Benchmark Test Suite
@@ -106,13 +128,11 @@ Verifies:
 4. `test_occlusion_culling_performance_delta`: Validates GPU/CPU savings when opaque top layers cull underlying tracks.
 5. `test_random_seeking_and_forward_resumption_performance`: Validates seek recovery latency.
 
-### TypeScript Timeline Evaluation Suite
+### TypeScript Playback & Evaluation Suite
 ```bash
+npx vitest run src/core/playback/__tests__/
 npx vitest run src/core/evaluation/__tests__/timelineAssetsPerformance.test.ts
 ```
-Verifies:
-- 500 frames evaluated in <25ms (>20,000 FPS throughput).
-- Multi-track timeline evaluation and transport state validation.
 
 ---
 
@@ -123,3 +143,6 @@ Verifies:
 3. **Always Advance Lookahead Strictly Forward**: Never calculate lookahead start from scratch without checking `highest_frame_index`.
 4. **Drain Decoder DPB Before Demuxing**: In `decode_frame_raw_nv12_with_cancel`, always drain frames already decoded in the codec buffer before feeding new packets from the container.
 5. **Preserve Stream Decoder Isolation**: Stacked video clips must use distinct stream decoder handles (`get_preview_decoder_for_stream`) to avoid GOP mutex thrashing across layers.
+6. **Always Use `tauri::async_runtime::spawn` on Native Public/Sync APIs**: Never call `tokio::spawn` directly in synchronous functions or handlers that may be called from OS GUI threads.
+7. **Always Pause on Timeline Seek/Scrub**: Seeking is a playhead navigation action that must leave playback paused until the user explicitly requests playback continuation.
+

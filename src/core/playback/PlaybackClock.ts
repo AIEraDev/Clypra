@@ -446,9 +446,7 @@ export class PlaybackClock {
 
     this._notifyListeners();
 
-    if (wasPlaying) {
-      this.play();
-    }
+    // Seeking pauses playback; user manually presses play to continue.
   }
 
   /**

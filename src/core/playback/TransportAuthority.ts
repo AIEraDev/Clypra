@@ -99,6 +99,9 @@ export class TransportAuthority {
 
   seek(time: number, intent: Omit<SeekIntentInput, "time"> = { mode: "seek" }): void {
     recordSeekRequested();
+    if (this.getState() === "playing") {
+      this.pause();
+    }
     this.seekController.request({ time, ...intent });
     this.activeContext?.seek(time);
   }

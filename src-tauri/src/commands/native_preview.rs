@@ -1826,7 +1826,7 @@ async fn decode_native_video_layers(
         let time_secs = layer.time_secs;
         let cancel = cancellation.clone();
 
-        tasks.push(tokio::spawn(async move {
+        tasks.push(tauri::async_runtime::spawn(async move {
             let stream_id = if !layer_id.is_empty() {
                 layer_id.as_str()
             } else {
@@ -2003,8 +2003,9 @@ pub async fn queue_native_frame(
 }
 
 struct LookaheadWorkerState {
-    handle: tokio::task::JoinHandle<()>,
+    handle: tauri::async_runtime::JoinHandle<()>,
     generation: u64,
+    finished: Arc<std::sync::atomic::AtomicBool>,
 }
 
 static LOOKAHEAD_WORKER: std::sync::Mutex<Option<LookaheadWorkerState>> =
@@ -2034,7 +2035,7 @@ pub(crate) fn schedule_lookahead_predecode(
     // If an active worker for the SAME generation is already busy pre-decoding upcoming frames,
     // do NOT abort it! Let it continue its sequential decoding pipeline uninterrupted.
     if let Some(active) = worker_guard.as_ref() {
-        if active.generation == generation && !active.handle.is_finished() {
+        if active.generation == generation && !active.finished.load(std::sync::atomic::Ordering::Acquire) {
             return;
         }
     }
@@ -2061,7 +2062,10 @@ pub(crate) fn schedule_lookahead_predecode(
     let _base_timeline_secs = (base_request.frame_time.ticks as f64)
         / (base_request.frame_time.timescale.max(1) as f64);
 
-    let handle = tokio::spawn(async move {
+    let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker_finished = finished.clone();
+
+    let handle = tauri::async_runtime::spawn(async move {
         // Determine the next forward frame range that needs decoding:
         // NEVER decode backwards during playback!
         // If highest_frame_index >= current_audio_frame, start at highest_frame_index + 1
@@ -2153,9 +2157,10 @@ pub(crate) fn schedule_lookahead_predecode(
                 );
             }
         }
+        worker_finished.store(true, std::sync::atomic::Ordering::Release);
     });
 
-    *worker_guard = Some(LookaheadWorkerState { handle, generation });
+    *worker_guard = Some(LookaheadWorkerState { handle, generation, finished });
 }
 
 /// Mark all older native preview work stale. Decoder calls that cannot be

@@ -231,7 +231,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
           quality: "full",
         });
         if (scrubInteractionRef.current) {
-          previewInteractionCoordinator.commit(scrubInteractionRef.current);
+          previewInteractionCoordinator.commit(scrubInteractionRef.current, false);
           scrubInteractionRef.current = null;
         }
         setIsDragging(false);
