@@ -661,6 +661,7 @@ dependencies = [
  "md5",
  "memmap2",
  "ndarray",
+ "objc2",
  "once_cell",
  "ort",
  "parking_lot",
