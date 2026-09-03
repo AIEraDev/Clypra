@@ -124,7 +124,7 @@ pub fn run() {
                 commands::native_surface::NativeSurfaceRuntime::new(),
             )));
             app.manage(Arc::new(tokio::sync::Mutex::new(
-                commands::native_preview::NativePreviewFrameQueue::new(16),
+                commands::native_preview::NativePreviewFrameQueue::new(24),
             )));
             app.manage(Arc::new(Mutex::new(
                 commands::native_playback::NativePlaybackRuntime::new(),
