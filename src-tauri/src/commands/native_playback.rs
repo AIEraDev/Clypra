@@ -644,7 +644,7 @@ fn with_runtime<T>(
     operation(&mut runtime).map_err(map_error)
 }
 
-fn audio_clock_time(
+pub(crate) fn audio_clock_time(
     app: &AppHandle,
     require_running: bool,
     start_if_needed: bool,
