@@ -193,10 +193,10 @@ export function evaluateTimelineScene(
         project?.canvasWidth ?? 1920,
         project?.canvasHeight ?? 1080,
       );
-      evalX = conformed.x;
-      evalY = conformed.y;
-      evalW = conformed.width;
-      evalH = conformed.height;
+      evalX = kf.x !== undefined ? evalX : conformed.x;
+      evalY = kf.y !== undefined ? evalY : conformed.y;
+      evalW = kf.width !== undefined ? evalW : conformed.width;
+      evalH = kf.height !== undefined ? evalH : conformed.height;
     }
 
     const evalRot =
