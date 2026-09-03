@@ -28,6 +28,8 @@ The canonical implementation is split across these files:
   `src-tauri/src/wgpu_compositor/multi_track_composer.rs`
 - Contract documentation:
   `docs/performance-contract.md`
+- Playback and lookahead investigation runbook:
+  `docs/native-preview-playback-performance-investigation.md`
 
 Extend these existing contracts. Do not create a second `PerformanceSample`,
 stats command, request-ID type, mode parser, or telemetry ring buffer without an
