@@ -9,7 +9,8 @@ use crate::native_core::{
     BodyEffectSnapshot, ColorGradeSnapshot, FramePacket, FrameRequest, FrameTime,
     NativeFrameService, NativeFrameServiceStats, NativePerformanceSampleBatch,
     NativeSurfacePresentation, NativeSurfacePresentationTimings, PerformanceSample, PixelFormat,
-    PreviewMode, TextLayerSnapshot, TransitionSnapshot, NATIVE_CORE_CONTRACT_VERSION,
+    PreviewMode, TextLayerSnapshot, TransitionSnapshot, DEFAULT_TIME_SCALE,
+    NATIVE_CORE_CONTRACT_VERSION,
 };
 use crate::sync_metrics::SYNC_METRICS;
 use crate::thumbnail_engine::decoder::{
@@ -257,6 +258,14 @@ impl NativePreviewFrameQueue {
             max_entries: max_entries.max(1),
             latest_generation: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn max_entries(&self) -> usize {
+        self.max_entries
     }
 
     fn observe_generation(&self, generation: u64) {
@@ -1747,6 +1756,7 @@ async fn decode_native_video_layers(
     // Professional NLE concurrent multi-stream decoding:
     // Each layer is assigned an isolated stream decoder reader so stacked clips
     // (even using the same video file) decode independently in parallel without GOP thrashing.
+    let decode_wall_started = Instant::now();
     let mut tasks = Vec::with_capacity(request.layers.len());
     for layer in &request.layers {
         let video_path = layer.video_path.clone();
@@ -1776,21 +1786,41 @@ async fn decode_native_video_layers(
             let decode_us =
                 decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
             let color = merge_color_metadata(frame_color, &stream_color);
-            Ok::<_, String>(((y_plane, uv_plane, width, height, color), decode_us, mutex_wait_us))
+            Ok::<_, String>(((y_plane, uv_plane, width, height, color), decode_us, mutex_wait_us, width, height, layer_id))
         }));
     }
 
     let mut decoded_frames = Vec::with_capacity(tasks.len());
     let mut max_decode_us = 0u32;
     let mut total_mutex_wait_us = 0u64;
+    let mut layer_details = Vec::with_capacity(tasks.len());
 
     for task in tasks {
-        let (frame, decode_us, mutex_wait_us) = task
+        let (frame, decode_us, mutex_wait_us, width, height, layer_id) = task
             .await
             .map_err(|e| format!("Decode worker task failed: {e}"))??;
         decoded_frames.push(frame);
         max_decode_us = max_decode_us.max(decode_us);
         total_mutex_wait_us = total_mutex_wait_us.saturating_add(mutex_wait_us);
+        layer_details.push((layer_id, width, height, decode_us, mutex_wait_us));
+    }
+
+    let decode_wall_time_ms = decode_wall_started.elapsed().as_secs_f64() * 1000.0;
+    if layer_details.len() > 1 || decode_wall_time_ms > 16.6 {
+        let layer_summaries: Vec<String> = layer_details
+            .iter()
+            .map(|(id, w, h, dec_us, _)| {
+                let id_short = if id.len() > 16 { &id[..16] } else { id.as_str() };
+                format!("{id_short} ({w}x{h}): {:.1}ms", (*dec_us as f64) / 1000.0)
+            })
+            .collect();
+        eprintln!(
+            "[NativeDecode] {} layers decoded in {:.2}ms (max: {:.2}ms) | {}",
+            layer_details.len(),
+            decode_wall_time_ms,
+            (max_decode_us as f64) / 1000.0,
+            layer_summaries.join(" | ")
+        );
     }
 
     Ok((
@@ -1887,6 +1917,92 @@ pub async fn queue_native_frame(
             Err(error)
         }
     }
+}
+
+/// Non-blocking lookahead pre-decode worker.
+/// Pre-decodes upcoming frames sequentially into `NativePreviewFrameQueue`
+/// ahead of the presentation playhead. Because sequential forward decoding in FFmpeg
+/// requires no seeking, each frame decodes in 1-3ms.
+pub(crate) fn schedule_lookahead_predecode(
+    app: tauri::AppHandle,
+    base_request: FrameRequest,
+    lookahead_count: usize,
+) {
+    if base_request.project.video_layers.is_empty() || lookahead_count == 0 {
+        return;
+    }
+
+    let generation = base_request.generation.unwrap_or(0);
+    let fps = base_request.project.frame_rate.max(1) as f64;
+    let base_frame_index = base_request.frame_time.frame_index;
+    let base_timeline_secs = base_request.frame_time.ticks as f64
+        / base_request.frame_time.timescale.max(1) as f64;
+
+    tauri::async_runtime::spawn(async move {
+        for k in 1..=lookahead_count {
+            // Check generation currency before each frame
+            if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
+                let queue_state = queue.lock().await;
+                if !queue_state.is_generation_current(generation) {
+                    break;
+                }
+            }
+
+            let ahead_frame_index = base_frame_index.saturating_add(k as u64);
+            let delta_secs = k as f64 / fps;
+            let ahead_time_secs = base_timeline_secs + delta_secs;
+
+            let mut req = base_request.clone();
+            req.mode = Some("prefetch".to_string());
+            req.generation = Some(generation);
+            req.request_id = format!("predecode:{ahead_frame_index}");
+            req.frame_time.frame_index = ahead_frame_index;
+            req.frame_time.ticks = (ahead_time_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
+            req.frame_time.timescale = DEFAULT_TIME_SCALE;
+
+            for layer in &mut req.project.video_layers {
+                let base_source_secs = layer.source_time.ticks as f64
+                    / layer.source_time.timescale.max(1) as f64;
+                let target_source_secs = (base_source_secs + delta_secs).max(0.0);
+                let source_frame_index = (target_source_secs * fps).round() as u64;
+                let ticks = (target_source_secs * DEFAULT_TIME_SCALE as f64).round() as i64;
+                if let Ok(ft) = FrameTime::new(source_frame_index, ticks, DEFAULT_TIME_SCALE) {
+                    layer.source_time = ft;
+                }
+            }
+
+            // If already in queue or pending, skip to next ahead frame
+            if let Ok(key) = req.cache_key() {
+                if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
+                    let queue_state = queue.lock().await;
+                    if queue_state.contains(&key) {
+                        continue;
+                    }
+                }
+            }
+
+            let predecode_started = Instant::now();
+            let res = queue_native_frame(app.clone(), req).await;
+            let predecode_ms = predecode_started.elapsed().as_secs_f64() * 1000.0;
+            if res.is_err() {
+                break;
+            }
+            let (cache_len, max_entries) = if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>() {
+                let q = queue.lock().await;
+                (q.len(), q.max_entries())
+            } else {
+                (0, 8)
+            };
+            eprintln!(
+                "[NativeLookahead] Frame #{} (+{}) pre-decoded in {:.2}ms | Cache: {}/{} frames warm",
+                ahead_frame_index,
+                k,
+                predecode_ms,
+                cache_len,
+                max_entries
+            );
+        }
+    });
 }
 
 /// Mark all older native preview work stale. Decoder calls that cannot be
@@ -2446,6 +2562,32 @@ pub(crate) async fn present_native_frame_internal(
         false,
         None,
     );
+
+    let total_ms = (request_started_at.elapsed().as_micros() as f64) / 1000.0;
+    let decode_ms = (decode_timings.decode_time_us as f64) / 1000.0;
+    let upload_ms = (conversion_upload_us as f64) / 1000.0;
+    let compose_ms = (compose_us as f64) / 1000.0;
+    let present_ms = (submit_present_us as f64) / 1000.0;
+    let hit_tag = if queue_hit { "QUEUE_HIT" } else { "COLD_DECODE" };
+    let layers_count = legacy_request.layers.len();
+
+    if layers_count > 0 {
+        eprintln!(
+            "[NativePresent] Frame #{} [{}] total: {:.2}ms (decode: {:.2}ms, upload: {:.2}ms, compose: {:.2}ms, present: {:.2}ms) | layers: {}",
+            request.frame_time.frame_index,
+            hit_tag,
+            total_ms,
+            decode_ms,
+            upload_ms,
+            compose_ms,
+            present_ms,
+            layers_count
+        );
+    }
+
+    if request.mode.as_deref() != Some("prefetch") && request.mode.as_deref() != Some("scrub") {
+        schedule_lookahead_predecode(app.clone(), request.clone(), 4);
+    }
 
     Ok(NativeSurfacePresentation {
         contract_version: NATIVE_CORE_CONTRACT_VERSION,
