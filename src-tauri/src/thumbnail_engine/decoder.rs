@@ -314,7 +314,7 @@ impl DecoderState {
     }
 
     fn can_decode_forward(&self, target_pts: i64, sequential_window: i64) -> bool {
-        if target_pts <= self.current_pts {
+        if target_pts < self.current_pts {
             return false;
         }
 
@@ -1342,17 +1342,22 @@ impl VideoDecoder {
         }
         let ts = self.clamp_timestamp(timestamp_secs);
         let target_pts = (ts * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
+        let pts_tolerance =
+            (0.5 * self.time_base.1 as f64 / (self.time_base.0 as f64 * 30.0)).max(1.0) as i64;
+
         if let Some((cached_pts, y, uv, width, height, color)) = &self.last_raw_nv12 {
-            if *cached_pts == target_pts {
+            if (*cached_pts - target_pts).abs() <= pts_tolerance {
                 return Ok((y.clone(), uv.clone(), *width, *height, color.clone()));
             }
         }
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
         self.state.update_sequential(target_pts);
 
+        let backward_distance = self.state.current_pts - target_pts;
+        let is_backward = target_pts < self.state.current_pts;
         let needs_seek = self.state.current_pts < 0
-            || target_pts < self.state.current_pts
-            || !self.state.can_decode_forward(target_pts, sequential_window);
+            || (is_backward && backward_distance > pts_tolerance)
+            || (!is_backward && !self.state.can_decode_forward(target_pts, sequential_window));
 
         if needs_seek {
             if is_cancelled() {
@@ -1377,31 +1382,51 @@ impl VideoDecoder {
         let mut best_frame = ffmpeg::frame::Video::empty();
         let mut found = false;
 
-        'decode: for (stream, packet) in self.input_ctx.packets() {
+        // Drain any frame already buffered in the codec DPB before reading new packets from container
+        let mut buffered = ffmpeg::frame::Video::empty();
+        while self.decoder.receive_frame(&mut buffered).is_ok() {
             if is_cancelled() {
                 return Err("Native preview request cancelled".to_string());
             }
-            if stream.index() != self.stream_index {
-                continue;
+            let pts = buffered.pts().unwrap_or(0);
+            self.state.current_pts = pts;
+            let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+            if frame_ts >= ts - (1.0 / 60.0) {
+                best_frame = buffered;
+                found = true;
+                break;
             }
-            if self.decoder.send_packet(&packet).is_err() {
-                continue;
-            }
-            let mut frame = ffmpeg::frame::Video::empty();
-            while self.decoder.receive_frame(&mut frame).is_ok() {
+            best_frame = buffered;
+            buffered = ffmpeg::frame::Video::empty();
+        }
+
+        if !found {
+            'decode: for (stream, packet) in self.input_ctx.packets() {
                 if is_cancelled() {
                     return Err("Native preview request cancelled".to_string());
                 }
-                let pts = frame.pts().unwrap_or(0);
-                self.state.current_pts = pts;
-                let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
-                if frame_ts >= ts - (1.0 / 60.0) {
-                    best_frame = frame;
-                    found = true;
-                    break 'decode;
+                if stream.index() != self.stream_index {
+                    continue;
                 }
-                best_frame = frame;
-                frame = ffmpeg::frame::Video::empty();
+                if self.decoder.send_packet(&packet).is_err() {
+                    continue;
+                }
+                let mut frame = ffmpeg::frame::Video::empty();
+                while self.decoder.receive_frame(&mut frame).is_ok() {
+                    if is_cancelled() {
+                        return Err("Native preview request cancelled".to_string());
+                    }
+                    let pts = frame.pts().unwrap_or(0);
+                    self.state.current_pts = pts;
+                    let frame_ts = pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64;
+                    if frame_ts >= ts - (1.0 / 60.0) {
+                        best_frame = frame;
+                        found = true;
+                        break 'decode;
+                    }
+                    best_frame = frame;
+                    frame = ffmpeg::frame::Video::empty();
+                }
             }
         }
 
