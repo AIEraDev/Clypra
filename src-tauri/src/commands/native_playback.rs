@@ -73,6 +73,7 @@ impl NativeRenderSession {
         if self.running.swap(true, Ordering::AcqRel) {
             return;
         }
+        log::info!("[NativePlayback] Persistent background render worker STARTED");
         let session = Arc::clone(self);
         let handle = tauri::async_runtime::spawn(async move {
             session.render_loop(app).await;
@@ -84,6 +85,7 @@ impl NativeRenderSession {
 
     fn stop(&self) {
         self.running.store(false, Ordering::Release);
+        log::info!("[NativePlayback] Persistent background render worker STOPPED");
         if let Ok(mut pending) = self.pending.lock() {
             pending.value = None;
         }
@@ -427,28 +429,55 @@ impl NativePlaybackRuntime {
         Ok(state)
     }
 
-    pub fn state(&self) -> Result<PlaybackState, NativeCoreError> {
-        self.session
-            .as_ref()
-            .map(PlaybackSession::state)
-            .ok_or_else(|| {
-                NativeCoreError::InvalidContract("Native playback is not configured".to_string())
-            })
+    fn ensure_session(&mut self) -> Result<&mut PlaybackSession, NativeCoreError> {
+        if self.session.is_none() {
+            let plan = if let Some(render_session) = &self.render_session {
+                if let Ok(snapshot) = render_session.snapshot.lock() {
+                    PlaybackPlan {
+                        contract_version: snapshot.contract_version,
+                        project_revision: snapshot.project.project_revision.clone(),
+                        frame_rate: snapshot.project.frame_rate.max(1),
+                        duration_frames: u64::MAX,
+                        audio_track_count: 0,
+                    }
+                } else {
+                    PlaybackPlan {
+                        contract_version: crate::native_core::NATIVE_CORE_CONTRACT_VERSION,
+                        project_revision: "default".to_string(),
+                        frame_rate: 30,
+                        duration_frames: u64::MAX,
+                        audio_track_count: 0,
+                    }
+                }
+            } else {
+                PlaybackPlan {
+                    contract_version: crate::native_core::NATIVE_CORE_CONTRACT_VERSION,
+                    project_revision: "default".to_string(),
+                    frame_rate: 30,
+                    duration_frames: u64::MAX,
+                    audio_track_count: 0,
+                }
+            };
+            log::info!(
+                "[NativePlayback] Self-healed unconfigured playback session (revision: {}, fps: {})",
+                plan.project_revision,
+                plan.frame_rate
+            );
+            self.session = Some(PlaybackSession::new(plan)?);
+        }
+        Ok(self.session.as_mut().unwrap())
+    }
+
+    pub fn state(&mut self) -> Result<PlaybackState, NativeCoreError> {
+        Ok(self.ensure_session()?.state())
     }
 
     pub fn play(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
-        self.session
-            .as_mut()
-            .ok_or_else(|| {
-                NativeCoreError::InvalidContract("Native playback is not configured".to_string())
-            })?
-            .play(clock)
+        self.ensure_session()?.play(clock)
     }
 
     pub fn play_from_audio(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
-        let session = self.session.as_mut().ok_or_else(|| {
-            NativeCoreError::InvalidContract("Native playback is not configured".to_string())
-        })?;
+        let session = self.ensure_session()?;
         let frame_rate = session.plan().frame_rate as u128;
         let frame_index = (clock.ticks.max(0) as u128)
             .saturating_mul(frame_rate)
@@ -460,21 +489,11 @@ impl NativePlaybackRuntime {
     }
 
     pub fn pause(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
-        self.session
-            .as_mut()
-            .ok_or_else(|| {
-                NativeCoreError::InvalidContract("Native playback is not configured".to_string())
-            })?
-            .pause(clock)
+        self.ensure_session()?.pause(clock)
     }
 
     pub fn seek(&mut self, frame_index: u64) -> Result<PlaybackState, NativeCoreError> {
-        self.session
-            .as_mut()
-            .ok_or_else(|| {
-                NativeCoreError::InvalidContract("Native playback is not configured".to_string())
-            })?
-            .seek(frame_index)
+        self.ensure_session()?.seek(frame_index)
     }
 
     pub fn seek_from_audio(
@@ -482,9 +501,7 @@ impl NativePlaybackRuntime {
         frame_index: u64,
         clock: FrameTime,
     ) -> Result<PlaybackState, NativeCoreError> {
-        let session = self.session.as_mut().ok_or_else(|| {
-            NativeCoreError::InvalidContract("Native playback is not configured".to_string())
-        })?;
+        let session = self.ensure_session()?;
         let was_playing = matches!(
             session.state().clock_status,
             crate::native_core::PlaybackClockStatus::MonotonicFallback
@@ -499,12 +516,7 @@ impl NativePlaybackRuntime {
     }
 
     pub fn tick(&mut self, clock: FrameTime) -> Result<PlaybackState, NativeCoreError> {
-        self.session
-            .as_mut()
-            .ok_or_else(|| {
-                NativeCoreError::InvalidContract("Native playback is not configured".to_string())
-            })?
-            .tick(clock)
+        self.ensure_session()?.tick(clock)
     }
 
     /// Drop the session from the previous project so the next project starts
@@ -612,17 +624,21 @@ pub async fn configure_native_playback_render(
         .lock()
         .map_err(|_| "Native playback runtime lock is poisoned".to_string())?;
     runtime.install_render_session(render_session);
-    let should_start = runtime
-        .session
-        .as_ref()
-        .map(|session| {
-            matches!(
-                session.state().clock_status,
-                crate::native_core::PlaybackClockStatus::Audio
-                    | crate::native_core::PlaybackClockStatus::MonotonicFallback
-            )
-        })
-        .unwrap_or(false);
+    let should_start = {
+        let audio_running = audio_clock_time(&app, true, false).is_ok();
+        let session_running = runtime
+            .session
+            .as_ref()
+            .map(|session| {
+                matches!(
+                    session.state().clock_status,
+                    crate::native_core::PlaybackClockStatus::Audio
+                        | crate::native_core::PlaybackClockStatus::MonotonicFallback
+                )
+            })
+            .unwrap_or(false);
+        audio_running || session_running
+    };
     if should_start {
         runtime.start_render(app.clone());
     }
@@ -710,16 +726,15 @@ pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
 
 #[tauri::command]
 pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
-    let clock = audio_clock_time(&app, false, false)?;
-    let state = with_runtime(&app, |runtime| runtime.pause(clock))?;
-    set_audio_playing(&app, false)?;
+    let clock = audio_clock_time(&app, false, false).unwrap_or_else(|_| {
+        FrameTime::new(0, 0, DEFAULT_TIME_SCALE).unwrap()
+    });
+    let state = with_runtime(&app, |runtime| runtime.pause(clock));
+    let _ = set_audio_playing(&app, false);
     if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
-        runtime
-            .inner()
-            .clone()
-            .lock()
-            .map_err(|_| "Native playback runtime lock is poisoned".to_string())?
-            .stop_render();
+        if let Ok(runtime) = runtime.inner().clone().lock() {
+            runtime.stop_render();
+        }
     }
     if let Some(surface) =
         app.try_state::<Arc<Mutex<crate::commands::native_surface::NativeSurfaceRuntime>>>()
@@ -728,7 +743,7 @@ pub fn native_pause_from_audio(app: AppHandle) -> Result<PlaybackState, String> 
             let _ = surface.hide_surface();
         }
     }
-    Ok(state)
+    state
 }
 
 #[tauri::command]
@@ -779,9 +794,9 @@ mod tests {
     }
 
     #[test]
-    fn coordinator_rejects_commands_before_configuration() {
-        let runtime = NativePlaybackRuntime::new();
-        assert!(runtime.state().is_err());
+    fn coordinator_auto_configures_when_unconfigured() {
+        let mut runtime = NativePlaybackRuntime::new();
+        assert!(runtime.state().is_ok());
     }
 
     #[test]
