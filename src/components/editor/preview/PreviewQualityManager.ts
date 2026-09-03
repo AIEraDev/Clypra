@@ -87,58 +87,58 @@ export class PreviewQualityManager {
 
     switch (tier) {
       case PreviewQualityTier.PlaybackHigh: {
-        // 75% resolution, NO DPR
+        // 75% resolution, NO DPR — frame rate over fidelity
         const scale = Math.min(0.75, this.viewportWidth / this.sequenceWidth, this.viewportHeight / this.sequenceHeight);
-        const w = this.sequenceWidth * scale;
-        const h = this.sequenceHeight * scale;
+        const maxWidth = Math.max(1, Math.round(this.sequenceWidth * scale));
+        const maxHeight = Math.max(1, Math.round((maxWidth * this.sequenceHeight) / this.sequenceWidth));
         return {
-          maxWidth: Math.max(1, Math.floor(w)),
-          maxHeight: Math.max(1, Math.floor(h)),
+          maxWidth,
+          maxHeight,
           dprScale: 1.0,
           useDpr: false,
-          estimatedVRAMBytes: w * h * 4,
+          estimatedVRAMBytes: maxWidth * maxHeight * 4,
         };
       }
 
       case PreviewQualityTier.Playback: {
         // Half resolution, NO DPR — frame rate over fidelity
         const scale = Math.min(0.5, this.viewportWidth / this.sequenceWidth, this.viewportHeight / this.sequenceHeight);
-        const w = this.sequenceWidth * scale;
-        const h = this.sequenceHeight * scale;
+        const maxWidth = Math.max(1, Math.round(this.sequenceWidth * scale));
+        const maxHeight = Math.max(1, Math.round((maxWidth * this.sequenceHeight) / this.sequenceWidth));
         return {
-          maxWidth: Math.max(1, Math.floor(w)),
-          maxHeight: Math.max(1, Math.floor(h)),
+          maxWidth,
+          maxHeight,
           dprScale: 1.0,
           useDpr: false,
-          estimatedVRAMBytes: w * h * 4,
+          estimatedVRAMBytes: maxWidth * maxHeight * 4,
         };
       }
 
       case PreviewQualityTier.Interaction: {
         // Quarter resolution, prioritizes latency
         const scale = Math.min(0.25, (this.viewportWidth * 0.5) / this.sequenceWidth, (this.viewportHeight * 0.5) / this.sequenceHeight);
-        const w = this.sequenceWidth * scale;
-        const h = this.sequenceHeight * scale;
+        const maxWidth = Math.max(1, Math.round(this.sequenceWidth * scale));
+        const maxHeight = Math.max(1, Math.round((maxWidth * this.sequenceHeight) / this.sequenceWidth));
         return {
-          maxWidth: Math.max(1, Math.floor(w)),
-          maxHeight: Math.max(1, Math.floor(h)),
+          maxWidth,
+          maxHeight,
           dprScale: 1.0,
           useDpr: false,
-          estimatedVRAMBytes: w * h * 4,
+          estimatedVRAMBytes: maxWidth * maxHeight * 4,
         };
       }
 
       case PreviewQualityTier.Idle: {
-        // Full resolution, capped at viewport × DPR, preserving aspect ratio
+        // Full resolution, capped at viewport × DPR, strictly preserving sequence aspect ratio
         const scale = Math.min(1.0, viewportMaxWidth / this.sequenceWidth, viewportMaxHeight / this.sequenceHeight);
-        const w = this.sequenceWidth * scale;
-        const h = this.sequenceHeight * scale;
+        const maxWidth = Math.max(1, Math.round(this.sequenceWidth * scale));
+        const maxHeight = Math.max(1, Math.round((maxWidth * this.sequenceHeight) / this.sequenceWidth));
         return {
-          maxWidth: Math.max(1, Math.floor(w)),
-          maxHeight: Math.max(1, Math.floor(h)),
+          maxWidth,
+          maxHeight,
           dprScale: this.dpr,
           useDpr: true,
-          estimatedVRAMBytes: w * h * 4,
+          estimatedVRAMBytes: maxWidth * maxHeight * 4,
         };
       }
 
