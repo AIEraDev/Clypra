@@ -173,13 +173,14 @@ fn encode_rgba_to_webp_data_url(
 }
 
 /// Extract single frame with deduplication (reduces workload by 70%+ during scrubbing).
+/// Returns raw RGBA bytes as a binary IPC response — zero base64 overhead, ~3× less memory.
 #[tauri::command]
 pub async fn decode_frame(
     video_path: String,
     time_secs: f64,
     width: u32,
     height: u32,
-) -> Result<String, String> {
+) -> Result<tauri::ipc::Response, String> {
     // Create deduplication key
     let video_id = format!("{:x}", md5::compute(&video_path));
     let timestamp_ms = (time_secs * 1000.0).round() as u64;
@@ -193,13 +194,8 @@ pub async fn decode_frame(
         let mut rx = tx.subscribe();
         match rx.recv().await {
             Ok(result) => {
-                return match result {
-                    Ok(rgba_bytes) => {
-                        let base64_data = BASE64.encode(&rgba_bytes);
-                        Ok(format!("data:image/rgba;base64,{}", base64_data))
-                    }
-                    Err(e) => Err(e),
-                };
+                IN_FLIGHT_EXTRACTIONS.remove(&key);
+                return result.map(tauri::ipc::Response::new);
             }
             Err(_) => {
                 // Channel closed, fall through to extraction
@@ -209,15 +205,11 @@ pub async fn decode_frame(
 
     // Perform extraction (first request or channel closed)
     let result = async {
-        // Get or create decoder (reused across calls)
         let decoder = get_decoder(&video_path).await?;
-
-        // Decode frame (3-15ms for subsequent frames with sequential optimization)
         let rgba_bytes = {
             let mut decoder_guard = decoder.lock().await;
             decoder_guard.decode_frame(time_secs, width, height)?
         };
-
         Ok(rgba_bytes)
     }
     .await;
@@ -228,14 +220,8 @@ pub async fn decode_frame(
     // Remove from in-flight map
     IN_FLIGHT_EXTRACTIONS.remove(&key);
 
-    // Return result
-    match result {
-        Ok(rgba_bytes) => {
-            let base64_data = BASE64.encode(&rgba_bytes);
-            Ok(format!("data:image/rgba;base64,{}", base64_data))
-        }
-        Err(e) => Err(e),
-    }
+    // Return raw RGBA bytes as binary IPC response — no base64 allocation
+    result.map(tauri::ipc::Response::new)
 }
 
 /// Extract single frame for GPU upload (returns raw RGBA binary response, 5-10× faster than base64/JSON array).
