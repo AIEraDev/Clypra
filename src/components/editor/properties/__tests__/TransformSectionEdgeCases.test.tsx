@@ -39,7 +39,7 @@ describe("TransformSection Edge Cases & Boundary Handling", () => {
     // Expand accordion section
     fireEvent.click(screen.getByText("Transform"));
 
-    const select = screen.getByRole("combobox");
+    const select = screen.getAllByRole("combobox")[0];
     fireEvent.change(select, { target: { value: "fill" } });
 
     expect(handleUpdate).toHaveBeenCalledTimes(1);

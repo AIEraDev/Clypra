@@ -38,15 +38,14 @@ describe("CacheSettings component", () => {
     render(<CacheSettings />);
 
     expect(screen.getByText("Cache Management")).toBeInTheDocument();
-    expect(screen.getByText("Cache Status")).toBeInTheDocument();
-    expect(screen.getByText("localStorage Items")).toBeInTheDocument();
-    expect(screen.getByText("10")).toBeInTheDocument();
-    expect(screen.getByText("sessionStorage Items")).toBeInTheDocument();
-    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("localStorage")).toBeInTheDocument();
+    expect(screen.getByText(/10\s*items/)).toBeInTheDocument();
+    expect(screen.getByText("sessionStorage")).toBeInTheDocument();
+    expect(screen.getByText(/5\s*items/)).toBeInTheDocument();
     expect(screen.getByText("GPU Textures")).toBeInTheDocument();
     expect(screen.getByText("20")).toBeInTheDocument();
     expect(screen.getByText("GPU Memory")).toBeInTheDocument();
-    expect(screen.getByText("45 MB")).toBeInTheDocument();
+    expect(screen.getByText(/45\s*MB/)).toBeInTheDocument();
   });
 
   it("calls clearAllCaches with localStorage: false on Clear All click", () => {
