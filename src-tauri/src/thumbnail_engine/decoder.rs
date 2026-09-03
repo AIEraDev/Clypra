@@ -361,7 +361,7 @@ pub struct VideoDecoder {
     /// session is stopped and again when audio playback starts. Retain only
     /// the last raw frame so that boundary does not force a second FFmpeg
     /// seek/decode before playback has even begun.
-    last_raw_nv12: Option<(i64, Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata)>,
+    last_raw_nv12: Option<(i64, Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata)>,
 }
 
 impl VideoDecoder {
@@ -1324,19 +1324,18 @@ impl VideoDecoder {
     pub fn decode_frame_raw_nv12(
         &mut self,
         timestamp_secs: f64,
-    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata), String> {
+    ) -> Result<(Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata), String> {
         self.decode_frame_raw_nv12_with_cancel(timestamp_secs, || false)
     }
 
-    /// Decode a frame while allowing the native preview owner to supersede it
-    /// at packet/frame boundaries. The regular decoder API remains unchanged
-    /// for thumbnails and other callers.
-    #[allow(clippy::type_complexity)]
+    /// Optimized decoding: decodes directly to NV12 without CPU sws_scale RGBA conversion.
+    /// Returns (y_plane, uv_plane, width, height, color).
+    /// Used for zero-copy GPU shader-based YUV conversion via wgpu_compositor.
     pub fn decode_frame_raw_nv12_with_cancel<F: Fn() -> bool>(
         &mut self,
         timestamp_secs: f64,
         is_cancelled: F,
-    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, VideoColorMetadata), String> {
+    ) -> Result<(Arc<[u8]>, Arc<[u8]>, u32, u32, VideoColorMetadata), String> {
         if is_cancelled() {
             return Err("Native preview request cancelled".to_string());
         }
@@ -1361,7 +1360,7 @@ impl VideoDecoder {
 
         if let Some((cached_pts, y, uv, width, height, color)) = &self.last_raw_nv12 {
             if (*cached_pts - target_pts).abs() <= pts_tolerance {
-                return Ok((y.clone(), uv.clone(), *width, *height, color.clone()));
+                return Ok((Arc::clone(y), Arc::clone(uv), *width, *height, color.clone()));
             }
         }
         let sequential_window = (2.0 * self.time_base.1 as f64 / self.time_base.0 as f64) as i64;
@@ -1553,15 +1552,17 @@ impl VideoDecoder {
                 })
                 .ok_or_else(|| "Failed to extract converted NV12 planes".to_string())
         }?;
+        let y_arc: Arc<[u8]> = Arc::from(result.0);
+        let uv_arc: Arc<[u8]> = Arc::from(result.1);
         self.last_raw_nv12 = Some((
             target_pts,
-            result.0.clone(),
-            result.1.clone(),
+            Arc::clone(&y_arc),
+            Arc::clone(&uv_arc),
             result.2,
             result.3,
             result.4.clone(),
         ));
-        Ok(result)
+        Ok((y_arc, uv_arc, result.2, result.3, result.4))
     }
 
     /// Scale YUV frame to RGBA
