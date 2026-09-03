@@ -434,6 +434,26 @@ export async function submitNativePlaybackDemand(
   await invoke("submit_native_playback_demand", { demand });
 }
 
+export interface NativePlaybackStatsPayload {
+  framesRendered: number;
+  fps: number;
+  hitRatePercent: number;
+  avgTotalMs: number;
+  avgDecodeMs: number;
+  maxFrameMs: number;
+  dropped: number;
+  stackedStreams: number;
+}
+
+/** Listen for rolling real-time playback telemetry from Rust. */
+export function listenForNativePlaybackStats(
+  onStats: (stats: NativePlaybackStatsPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<NativePlaybackStatsPayload>("native-playback-stats", (event) => {
+    onStats(event.payload);
+  });
+}
+
 /** Decode a native playback frame ahead of presentation. */
 export async function queueNativeFrame(
   request: NativeFrameRequest,
