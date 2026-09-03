@@ -303,6 +303,7 @@ export class NativeAudioPreviewController {
         }
         const targetTime = this.clock.time;
         const targetTicks = secondsToTicks(targetTime);
+        await nativePauseFromAudio().catch(() => undefined);
         await pauseNativeAudio();
         await seekNativeAudio(targetTicks);
         await nativeSeekFromAudio(
