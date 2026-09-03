@@ -578,14 +578,22 @@ export async function getNativePreviewSurfaceGeometry(
   return geometry;
 }
 
-/** Notify native preview geometry when the host window moves. */
+/** Notify native preview geometry when the host window moves, resizes, or changes scale. */
 export async function onNativePreviewWindowMoved(
   handler: () => void,
 ): Promise<() => void> {
   if (!isTauriRuntime()) {
     throw new Error("onNativePreviewWindowMoved requires the Tauri runtime");
   }
-  return getCurrentWindow().onMoved(() => handler());
+  const win = getCurrentWindow();
+  const unlistenMoved = await win.onMoved(() => handler());
+  const unlistenResized = await win.onResized(() => handler());
+  const unlistenScale = await win.onScaleChanged(() => handler());
+  return () => {
+    unlistenMoved();
+    unlistenResized();
+    unlistenScale();
+  };
 }
 
 export async function resizeNativeSurface(
