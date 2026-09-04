@@ -23,9 +23,13 @@ import type {
   SerializeRequest,
   DiffRequest,
   WriteOpfsRequest,
+  ReadOpfsRequest,
+  ClearOpfsRequest,
   SerializedResult,
   PatchResult,
   WriteComplete,
+  ReadOpfsResult,
+  ClearOpfsResult,
   JsonPatchOperation,
   SerializableProjectState,
   WorkerErrorResponse,
@@ -466,6 +470,90 @@ function handleProjectDiff(msg: DiffRequest): void {
   (self as unknown as Worker).postMessage(response);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Origin Private File System (OPFS) Persistence Handlers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function getOpfsRoot(): Promise<FileSystemDirectoryHandle | null> {
+  if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) {
+    return null;
+  }
+  try {
+    return await navigator.storage.getDirectory();
+  } catch {
+    return null;
+  }
+}
+
+async function handleWriteOpfs(msg: WriteOpfsRequest): Promise<void> {
+  const { id, filename, json } = msg;
+  try {
+    const root = await getOpfsRoot();
+    if (root) {
+      const fileHandle = await root.getFileHandle(filename, { create: true });
+      if ((fileHandle as any).createWritable) {
+        const writable = await (fileHandle as any).createWritable();
+        await writable.write(json);
+        await writable.close();
+      } else if ((fileHandle as any).createSyncAccessHandle) {
+        const accessHandle = await (fileHandle as any).createSyncAccessHandle();
+        const encoder = new TextEncoder();
+        const encoded = encoder.encode(json);
+        accessHandle.truncate(0);
+        accessHandle.write(encoded, { at: 0 });
+        accessHandle.flush();
+        accessHandle.close();
+      }
+    }
+  } catch {
+    // Non-fatal OPFS write failure
+  }
+  const response: WriteComplete = {
+    type: "WRITE_COMPLETE",
+    id,
+  };
+  (self as unknown as Worker).postMessage(response);
+}
+
+async function handleReadOpfs(msg: ReadOpfsRequest): Promise<void> {
+  const { id, filename } = msg;
+  let json: string | null = null;
+  try {
+    const root = await getOpfsRoot();
+    if (root) {
+      const fileHandle = await root.getFileHandle(filename).catch(() => null);
+      if (fileHandle) {
+        const file = await fileHandle.getFile();
+        json = await file.text();
+      }
+    }
+  } catch {
+    json = null;
+  }
+  const response: ReadOpfsResult = {
+    type: "READ_OPFS_RESULT",
+    id,
+    json,
+  };
+  (self as unknown as Worker).postMessage(response);
+}
+
+async function handleClearOpfs(msg: ClearOpfsRequest): Promise<void> {
+  const { id, filename } = msg;
+  try {
+    const root = await getOpfsRoot();
+    if (root) {
+      await root.removeEntry(filename).catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+  const response: ClearOpfsResult = {
+    type: "CLEAR_OPFS_RESULT",
+    id,
+  };
+  (self as unknown as Worker).postMessage(response);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Message Router
@@ -499,6 +587,17 @@ self.onmessage = (e: MessageEvent) => {
         break;
       case "DIFF":
         handleProjectDiff(msg as DiffRequest);
+        break;
+
+      // OPFS Storage
+      case "WRITE_OPFS":
+        void handleWriteOpfs(msg as WriteOpfsRequest);
+        break;
+      case "READ_OPFS":
+        void handleReadOpfs(msg as ReadOpfsRequest);
+        break;
+      case "CLEAR_OPFS":
+        void handleClearOpfs(msg as ClearOpfsRequest);
         break;
 
       default:
