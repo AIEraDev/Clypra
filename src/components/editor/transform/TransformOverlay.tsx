@@ -580,10 +580,10 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       return;
 
     const textClip = selectedClip as TextClip;
-    // Apply transform normalization to text effects (styleId) and text with background
+    // Apply transform normalization to text clips whose content bounds drift from the clip transform.
     // Template clips are excluded because their bounds are determined by the template's
     // canvas dimensions and should be freely transformable without normalization
-    if (!textClip.styleId && !textClip.background) return;
+    if (textClip.templateId || (textClip as any).kind === "text-template") return;
     if (!hasTextClipContentTransformDrift(textClip, canvasWidth, canvasHeight))
       return;
 
