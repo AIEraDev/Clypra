@@ -240,6 +240,11 @@ let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTO_SAVE_DELAY = 500; // ms
 let saveInProgress: Promise<ProjectSaveResult> | null = null;
 
+// OPFS patch-based auto-save state
+let lastPersistedSnapshot: any = null;
+let lastPersistedProjectId: string | null = null;
+let accumulatedOpfsPatches: any[] = [];
+
 let crashRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let crashRecoveryFirstMutation: number | null = null;
 const CRASH_RECOVERY_DELAY = 250; // ms
@@ -828,9 +833,31 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           "Loading project assets…",
         );
         ensureNativeSurfaceReadiness(project.id);
-        set({ project, mediaAssets: payload?.mediaAssets ?? [] });
 
-        const allPayloadClips = flattenClips(payload?.clips);
+        // Check for OPFS delta patches to replay on load
+        let effectivePayload = payload;
+        try {
+          const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
+          const { applyJsonPatch } = await import("@/core/storage/jsonPatch");
+          const patchesRaw = await getProjectWorkerClient().readOpfs(`${project.id}.patches.json`);
+          if (patchesRaw) {
+            const patches = JSON.parse(patchesRaw);
+            if (Array.isArray(patches) && patches.length > 0) {
+              effectivePayload = applyJsonPatch(payload, patches);
+              console.log(`[ProjectStore] Replayed ${patches.length} OPFS auto-save patches for project ${project.id}`);
+            }
+          }
+        } catch (opfsErr) {
+          console.warn("[ProjectStore] Failed to replay OPFS patches on load:", opfsErr);
+        }
+
+        lastPersistedSnapshot = null;
+        lastPersistedProjectId = project.id;
+        accumulatedOpfsPatches = [];
+
+        set({ project, mediaAssets: effectivePayload?.mediaAssets ?? [] });
+
+        const allPayloadClips = flattenClips(effectivePayload?.clips);
         await preloadTextEffectDefinitionsFromClips(allPayloadClips);
         if (currentLoadId !== loadId) return;
 
@@ -903,20 +930,20 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           "Building timeline…",
         );
         const normalizedClips = normalizeLoadedTextEffectClipBounds(
-          payload?.clips ?? [],
+          effectivePayload?.clips ?? [],
           project,
         );
         useTimelineStore.getState().hydrateFromProject({
-          tracks: payload?.tracks ?? [],
+          tracks: effectivePayload?.tracks ?? [],
           clips: normalizedClips,
-          transitions: payload?.transitions ?? [],
-          gaps: payload?.gaps ?? [],
-          markers: payload?.markers ?? [],
-          ...(payload?.captionTracks !== undefined
-            ? { captionTracks: payload.captionTracks }
+          transitions: effectivePayload?.transitions ?? [],
+          gaps: effectivePayload?.gaps ?? [],
+          markers: effectivePayload?.markers ?? [],
+          ...(effectivePayload?.captionTracks !== undefined
+            ? { captionTracks: effectivePayload.captionTracks }
             : {}),
-          ...(payload?.mainVideoTrackId !== undefined
-            ? { mainVideoTrackId: payload.mainVideoTrackId }
+          ...(effectivePayload?.mainVideoTrackId !== undefined
+            ? { mainVideoTrackId: effectivePayload.mainVideoTrackId }
             : {}),
           cleanEmptyTracks: true,
         });
@@ -1569,6 +1596,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     if (!snapshot) return null;
     const result = await persistCurrentProjectSnapshot(snapshot);
     if (result?.verified) {
+      lastPersistedSnapshot = snapshot.rustProject as any;
+      lastPersistedProjectId = snapshot.project.id;
+      accumulatedOpfsPatches = [];
+      try {
+        const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
+        void getProjectWorkerClient().clearOpfs(`${snapshot.project.id}.patches.json`);
+      } catch {}
       set({ isDirty: false });
     }
     const currentProjectId = get().project?.id;
@@ -1611,8 +1645,45 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         const snapshot = await captureCurrentProjectSnapshot();
         if (!snapshot || snapshot.project.id !== scheduledProjectId) return;
 
+        const { getProjectWorkerClient } = await import("@/core/workers/projectWorkerClient");
+        const client = getProjectWorkerClient();
+
+        // ── Fast-path: OPFS Patch Delta Auto-Save ──────────────────────────
+        // If we have a baseline snapshot from this project session, compute RFC 6902
+        // delta patches and write them off-thread to OPFS. Bypasses multi-megabyte
+        // IPC JSON serialization and disk writes entirely.
+        if (lastPersistedSnapshot && lastPersistedProjectId === scheduledProjectId) {
+          try {
+            const diffResult = await client.diff(lastPersistedSnapshot, snapshot.rustProject as any);
+            if (diffResult.patch.length === 0) {
+              // Timeline state is identical to last persisted checkpoint — nothing to write
+              set({ isDirty: false });
+              return;
+            }
+
+            accumulatedOpfsPatches.push(...diffResult.patch);
+            await client.writeOpfs(
+              `${scheduledProjectId}.patches.json`,
+              JSON.stringify(accumulatedOpfsPatches),
+            );
+
+            // Keep saving fast deltas to OPFS up to 25 mutations before forcing a disk checkpoint
+            if (accumulatedOpfsPatches.length < 25) {
+              set({ isDirty: false });
+              return;
+            }
+          } catch (diffError) {
+            console.warn("[ProjectStore] OPFS delta diff failed, falling back to full save:", diffError);
+          }
+        }
+
+        // Periodic checkpoint or initial save: full persistence to disk
         const result = await persistCurrentProjectSnapshot(snapshot);
         if (result?.verified) {
+          lastPersistedSnapshot = snapshot.rustProject as any;
+          lastPersistedProjectId = scheduledProjectId;
+          accumulatedOpfsPatches = [];
+          void client.clearOpfs(`${scheduledProjectId}.patches.json`);
           set({ isDirty: false });
         }
         get().showToast("Project saved");
