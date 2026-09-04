@@ -170,19 +170,27 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
 
   const startTimeMs = Date.now();
 
+  if (width === 0 || height === 0 || width > 7680 || height > 4320) {
+    throw new Error(`Invalid export dimensions: ${width}x${height}`);
+  }
+
+  if (!Number.isFinite(frameRate) || frameRate <= 0 || frameRate > 240) {
+    throw new Error(`Invalid export frame rate: ${frameRate}`);
+  }
+
   // Calculate frame times using integer frame arithmetic (no float accumulation)
   // This prevents temporal drift in long exports
   const totalFrames = Math.round((endTime - startTime) * frameRate);
+  if (totalFrames <= 0) {
+    throw new Error("No frames to export");
+  }
+
   const frameTimes: number[] = [];
   const startFrameIndex = Math.round(startTime * frameRate);
 
   for (let i = 0; i < totalFrames; i++) {
     const frameIndex = startFrameIndex + i;
     frameTimes.push(frameIndex / frameRate); // Single division per frame
-  }
-
-  if (totalFrames === 0) {
-    throw new Error("No frames to export");
   }
 
   const { toNativePath } = await import("../platform/pathConversion");
@@ -284,6 +292,9 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
   // unnecessary low-latency audio thread for the entire export with zero measurable benefit.
   // The setTimeout(r, 0) yield at the frame loop is sufficient.
 
+  let lastYieldTime = performance.now();
+  let unyieldedFrames = 0;
+
   try {
     // Render and write frames
     for (let i = 0; i < frameTimes.length; i++) {
@@ -295,9 +306,14 @@ export async function exportVideo(config: VideoExportConfig): Promise<VideoExpor
         break;
       }
 
-      // EXP-05 fix: Yield to main thread every 10 frames so UI events (Cancel button, progress ring) process smoothly
-      if (i > 0 && i % 10 === 0) {
+      // Responsive UI yielding: yield if >= 16ms have elapsed since last yield,
+      // or at least every 3 frames, ensuring the Cancel button and progress ring stay responsive.
+      unyieldedFrames++;
+      const now = performance.now();
+      if (now - lastYieldTime >= 16 || unyieldedFrames >= 3) {
         await new Promise((r) => setTimeout(r, 0));
+        lastYieldTime = performance.now();
+        unyieldedFrames = 0;
       }
 
       const time = frameTimes[i];
