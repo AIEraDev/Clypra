@@ -29,6 +29,13 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type FontSource = "system" | "bundled" | "emoji" | "user" | "project";
+export type FontOrigin = "bundled" | "catalog" | "imported";
+export type FontCategory =
+  | "sans-serif"
+  | "serif"
+  | "monospace"
+  | "display"
+  | "script";
 export type FontStatus = "available" | "loading" | "loaded" | "missing" | "failed";
 export type FontStyle = "normal" | "italic";
 
@@ -49,6 +56,10 @@ export interface FontRecord {
   readonly displayName: string;
   /** Where this font comes from. */
   readonly source: FontSource;
+  /** Origin domain classification for asset distribution and persistence. */
+  readonly origin?: FontOrigin;
+  /** Typographic classification used for contextual fallback resolution. */
+  readonly category?: FontCategory;
   /**
    * All lowercase alias strings that resolve to this record.
    * Includes the canonical family lowercase and any legacy/short names.
@@ -578,4 +589,74 @@ export function resolveFont(
     if (byId) return byId;
   }
   return getFontRecord(fontFamily);
+}
+
+/**
+ * Resolves a context-aware fallback font record when a requested font is missing.
+ * Prevents visually jarring monospace substitution in video titles and subtitles.
+ */
+export function resolveContextualFallback(
+  requestedFamilyOrId: string,
+): FontRecord {
+  const lower = requestedFamilyOrId.trim().toLowerCase();
+
+  // 1. Serif fallback
+  if (
+    lower.includes("serif") ||
+    lower.includes("playfair") ||
+    lower.includes("times") ||
+    lower.includes("georgia") ||
+    lower.includes("palatino")
+  ) {
+    const serifRecord =
+      FONT_RECORD_BY_ID.get("playfair-display-variable") ??
+      FONT_RECORD_BY_ID.get("georgia");
+    if (serifRecord) return serifRecord;
+  }
+
+  // 2. Monospace fallback
+  if (
+    lower.includes("mono") ||
+    lower.includes("code") ||
+    lower.includes("inconsolata") ||
+    lower.includes("courier")
+  ) {
+    const monoRecord = FONT_RECORD_BY_ID.get("courier-new");
+    if (monoRecord) return monoRecord;
+  }
+
+  // 3. Display / Condensed fallback
+  if (
+    lower.includes("condensed") ||
+    lower.includes("bebas") ||
+    lower.includes("anton") ||
+    lower.includes("oswald") ||
+    lower.includes("impact")
+  ) {
+    const displayRecord =
+      FONT_RECORD_BY_ID.get("bebas-neue") ??
+      FONT_RECORD_BY_ID.get("oswald-variable") ??
+      FONT_RECORD_BY_ID.get("anton");
+    if (displayRecord) return displayRecord;
+  }
+
+  // 4. Script / Handwriting fallback
+  if (
+    lower.includes("script") ||
+    lower.includes("hand") ||
+    lower.includes("pacifico") ||
+    lower.includes("dancing")
+  ) {
+    const scriptRecord =
+      FONT_RECORD_BY_ID.get("dancing-script-variable") ??
+      FONT_RECORD_BY_ID.get("pacifico");
+    if (scriptRecord) return scriptRecord;
+  }
+
+  // 5. Default proportional sans-serif cascade
+  return (
+    FONT_RECORD_BY_ID.get("inter-variable") ??
+    FONT_RECORD_BY_ID.get("roboto-variable") ??
+    BUNDLED_FONT_RECORDS[0]
+  );
 }
