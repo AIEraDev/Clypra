@@ -379,6 +379,16 @@ export async function listNativeFonts(): Promise<string[]> {
   return invoke<string[]>("list_native_fonts");
 }
 
+export async function getNativeFontWarnings(): Promise<string[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<string[]>("get_native_font_warnings");
+}
+
+export async function clearNativeFontWarnings(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke<void>("clear_native_font_warnings");
+}
+
 /**
  * Submit a versioned frame directly to the retained native wgpu surface.
  * Readback via renderNativeFrame remains the fallback when the preview is
