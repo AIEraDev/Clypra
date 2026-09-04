@@ -512,28 +512,49 @@ export async function registerNativeRasterAsset(
   if (!isTauriRuntime()) {
     throw new Error("registerNativeRasterAsset requires the Tauri runtime");
   }
-  // High-performance binary transfer: encode typed arrays to base64 directly
-  // to avoid V8 heap explosion (66MB+ for Array.from) and 30MB+ JSON stringification.
+  // Zero-copy binary IPC transfer: send raw buffer directly to avoid
+  // base64 inflation (+37% heap) and JSON array stringification.
   if (asset.rgba instanceof Uint8ClampedArray || asset.rgba instanceof Uint8Array) {
-    const rgbaBase64 = uint8ArrayToBase64(asset.rgba);
-    await invoke("register_native_raster_asset", {
-      asset: {
-        assetId: asset.assetId,
-        width: asset.width,
-        height: asset.height,
-        rgbaBase64,
-      },
-    });
-  } else {
-    await invoke("register_native_raster_asset", {
-      asset: {
-        assetId: asset.assetId,
-        width: asset.width,
-        height: asset.height,
-        rgba: asset.rgba,
-      },
-    });
+    const typed = asset.rgba as Uint8ClampedArray | Uint8Array;
+    const rawBuffer =
+      typed.buffer.byteLength === typed.byteLength
+        ? typed.buffer
+        : typed.slice().buffer;
+    try {
+      await invoke("register_native_raster_asset_raw", rawBuffer, {
+        headers: {
+          "asset-id": asset.assetId,
+          width: String(asset.width),
+          height: String(asset.height),
+        },
+      });
+      return;
+    } catch (err) {
+      console.warn(
+        "[Tauri] register_native_raster_asset_raw failed, falling back to base64:",
+        err,
+      );
+      const rgbaBase64 = uint8ArrayToBase64(asset.rgba);
+      await invoke("register_native_raster_asset", {
+        asset: {
+          assetId: asset.assetId,
+          width: asset.width,
+          height: asset.height,
+          rgbaBase64,
+        },
+      });
+      return;
+    }
   }
+
+  await invoke("register_native_raster_asset", {
+    asset: {
+      assetId: asset.assetId,
+      width: asset.width,
+      height: asset.height,
+      rgba: asset.rgba,
+    },
+  });
 }
 
 export async function getNativeFrameServiceStats(): Promise<NativeFrameServiceStats> {
