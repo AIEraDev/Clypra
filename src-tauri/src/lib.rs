@@ -230,6 +230,7 @@ pub fn run() {
             queue_native_frame,
             cancel_native_preview_requests,
             register_native_raster_asset,
+            register_native_raster_asset_raw,
             register_native_image_asset,
             present_native_frame,
             get_native_frame_service_stats,
