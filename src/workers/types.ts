@@ -416,6 +416,18 @@ export interface WriteOpfsRequest {
   json: string;
 }
 
+export interface ReadOpfsRequest {
+  type: "READ_OPFS";
+  id: string;
+  filename: string;
+}
+
+export interface ClearOpfsRequest {
+  type: "CLEAR_OPFS";
+  id: string;
+  filename: string;
+}
+
 export interface SerializedResult {
   type: "SERIALIZED";
   id: string;
@@ -435,16 +447,31 @@ export interface WriteComplete {
   id: string;
 }
 
+export interface ReadOpfsResult {
+  type: "READ_OPFS_RESULT";
+  id: string;
+  json: string | null;
+}
+
+export interface ClearOpfsResult {
+  type: "CLEAR_OPFS_RESULT";
+  id: string;
+}
+
 export type ProjectWorkerRequest =
   | SerializeRequest
   | DiffRequest
   | WriteOpfsRequest
+  | ReadOpfsRequest
+  | ClearOpfsRequest
   | WorkerDisposeMessage;
 
 export type ProjectWorkerResponse =
   | SerializedResult
   | PatchResult
   | WriteComplete
+  | ReadOpfsResult
+  | ClearOpfsResult
   | WorkerErrorResponse;
 
 // ─── Domain 6: Subtitle & Timed-Text Parsing / Layout ────────────────────────
