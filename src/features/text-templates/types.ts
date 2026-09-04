@@ -72,6 +72,25 @@ export interface TemplateTextProperties {
     preset: "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "scale" | "zoom" | "none";
     duration: number;
   };
+  stroke?: {
+    color: string;
+    width: number;
+  };
+  shadow?: {
+    color: string;
+    blur: number;
+    offsetX: number;
+    offsetY: number;
+  };
+  background?: {
+    color: string;
+    padding: number;
+    borderRadius: number;
+  };
+  backgroundColor?: string;
+  fontId?: string;
+  maxWidth?: number;
+  textRole?: "caption" | "title";
 }
 
 export interface TemplateSolidProperties {
@@ -143,17 +162,8 @@ export interface TemplateDefinition {
 // Backwards compatibility alias
 export type TextTemplate = TemplateDefinition;
 
-export interface TemplateCustomization {
-  primaryText: string;
-  secondaryText?: string;
-  accentText?: string;
-  primaryColor?: string; // hex
-  secondaryColor?: string;
-  layerColors?: Record<string, string>;
-  layerFontSizes?: Record<string, number>;
-  layerFontWeights?: Record<string, string | number>;
-  layerTexts?: Record<string, string>;
-}
+// Canonical TemplateCustomization from shared engine (SSOT)
+export type { TemplateCustomization } from "@clypra-studio/engine";
 
 export interface RenderedFrameSequence {
   frames: Blob[]; // PNG blobs, one per frame
