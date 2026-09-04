@@ -346,6 +346,7 @@ impl NativeRenderSession {
                             dropped_frames += 1;
                         }
 
+                        #[allow(clippy::manual_is_multiple_of)]
                         if frames_rendered > 0 && frames_rendered % 60 == 0 {
                             let elapsed_secs = last_report.elapsed().as_secs_f64();
                             let fps = if elapsed_secs > 0.0 {

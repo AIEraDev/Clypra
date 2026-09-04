@@ -156,7 +156,7 @@ impl CurveLutTable {
         let mut table_floats = [[0.0f32; 4]; 256];
         let mut is_identity = true;
 
-        for i in 0..256 {
+        for (i, entry) in table_floats.iter_mut().enumerate() {
             let x = i as f32 / 255.0;
 
             let r = evaluate_monotone_spline(&curves.red, x);
@@ -172,7 +172,7 @@ impl CurveLutTable {
                 is_identity = false;
             }
 
-            table_floats[i] = [r, g, b, m];
+            *entry = [r, g, b, m];
 
             let offset = i * 4;
             table_bytes[offset] = (r * 255.0).round().clamp(0.0, 255.0) as u8;

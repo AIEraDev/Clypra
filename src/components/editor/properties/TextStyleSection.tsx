@@ -84,8 +84,10 @@ const FONT_PICKER_OPTIONS = [...SYSTEM_FONTS, ...GOOGLE_FONTS];
  */
 export function resolveFontPickerValue(family: string): string {
   const rawFamily = family.trim();
+  const primaryFamily = rawFamily.split(",")[0].trim().replace(/^["']|["']$/g, "");
   const normalizedFamily = normalizeFontFamily(rawFamily);
-  const normalizedBase = normalizedFamily.replace(/\s+variable$/i, "");
+  const normalizedPrimary = normalizeFontFamily(primaryFamily);
+  const normalizedBase = normalizedPrimary.replace(/\s+variable$/i, "");
 
   return (
     FONT_PICKER_OPTIONS.find(
@@ -98,7 +100,22 @@ export function resolveFontPickerValue(family: string): string {
       (font) => font.label.toLowerCase() === normalizedFamily.toLowerCase(),
     )?.value ??
     FONT_PICKER_OPTIONS.find(
+      (font) => font.value.toLowerCase() === primaryFamily.toLowerCase(),
+    )?.value ??
+    FONT_PICKER_OPTIONS.find(
+      (font) => font.label.toLowerCase() === primaryFamily.toLowerCase(),
+    )?.value ??
+    FONT_PICKER_OPTIONS.find(
+      (font) => font.value.toLowerCase() === normalizedPrimary.toLowerCase(),
+    )?.value ??
+    FONT_PICKER_OPTIONS.find(
+      (font) => font.label.toLowerCase() === normalizedPrimary.toLowerCase(),
+    )?.value ??
+    FONT_PICKER_OPTIONS.find(
       (font) => font.value.toLowerCase() === normalizedBase.toLowerCase(),
+    )?.value ??
+    FONT_PICKER_OPTIONS.find(
+      (font) => font.label.toLowerCase() === normalizedBase.toLowerCase(),
     )?.value ??
     normalizedFamily
   );

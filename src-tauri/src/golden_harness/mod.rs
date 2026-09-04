@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_slight_gradient_drift_metrics() {
         let mut actual = vec![128u8; 64 * 64 * 4];
-        let mut expected = vec![128u8; 64 * 64 * 4];
+        let expected = vec![128u8; 64 * 64 * 4];
 
         // Introduce a subtle 1-subpixel drift (simulating driver float rounding)
         for i in 0..actual.len() {

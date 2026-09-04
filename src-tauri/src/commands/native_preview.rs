@@ -283,6 +283,10 @@ impl NativePreviewFrameQueue {
         self.entries.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     pub fn max_entries(&self) -> usize {
         self.max_entries
     }
@@ -358,11 +362,12 @@ impl NativePreviewFrameQueue {
         let mut best_frame_index: u64 = 0;
 
         for (k, frame) in &self.entries {
-            if frame.frame_index <= target_frame_index && target_frame_index.saturating_sub(frame.frame_index) <= 2 {
-                if best_key.is_none() || frame.frame_index > best_frame_index {
-                    best_key = Some(k.clone());
-                    best_frame_index = frame.frame_index;
-                }
+            if frame.frame_index <= target_frame_index
+                && target_frame_index.saturating_sub(frame.frame_index) <= 2
+                && (best_key.is_none() || frame.frame_index > best_frame_index)
+            {
+                best_key = Some(k.clone());
+                best_frame_index = frame.frame_index;
             }
         }
 
