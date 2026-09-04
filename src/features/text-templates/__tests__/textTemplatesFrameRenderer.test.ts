@@ -3,19 +3,23 @@ import { renderToFrameSequence, renderFrameSequenceToTauri } from "../FrameRende
 import type { TextTemplate, TemplateCustomization } from "../types";
 
 // Mock the package-owned canonical renderer facade.
-vi.mock("@clypra-studio/engine", () => ({
-  resolveTextTemplateArtifact: (input: any) => ({
-    kind: "text-template",
-    schemaVersion: 4,
-    metadata: { id: input.id, label: input.label || input.name || input.id, category: input.category, tags: [] },
-    document: { id: input.id, kind: "text-template", schemaVersion: 4, templateVersion: 1, canvas: { width: input.canvasWidth, height: input.canvasHeight }, nodes: [] },
-    controls: [],
-    timing: { duration: input.duration || input.defaultDuration || 0.1, fps: 30, durationPolicy: "fixed" },
-    dependencies: { assets: [], fonts: [], textEffects: [] },
-    revision: { revisionId: "test-revision", contentHash: "test-hash", schemaVersion: 4, rendererVersion: "1.5.0", createdAt: "2026-01-01" },
-  }),
-  renderTextTemplateToCanvas: vi.fn(),
-}));
+vi.mock("@clypra-studio/engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@clypra-studio/engine")>();
+  return {
+    ...actual,
+    resolveTextTemplateArtifact: (input: any) => ({
+      kind: "text-template",
+      schemaVersion: 4,
+      metadata: { id: input.id, label: input.label || input.name || input.id, category: input.category, tags: [] },
+      document: { id: input.id, kind: "text-template", schemaVersion: 4, templateVersion: 1, canvas: { width: input.canvasWidth, height: input.canvasHeight }, nodes: [] },
+      controls: [],
+      timing: { duration: input.duration || input.defaultDuration || 0.1, fps: 30, durationPolicy: "fixed" },
+      dependencies: { assets: [], fonts: [], textEffects: [] },
+      revision: { revisionId: "test-revision", contentHash: "test-hash", schemaVersion: 4, rendererVersion: "1.5.0", createdAt: "2026-01-01" },
+    }),
+    renderTextTemplateToCanvas: vi.fn(),
+  };
+});
 
 describe("Text Templates — Frame Renderer & Sequence Export Safety", () => {
   const mockTemplate: TextTemplate = {
