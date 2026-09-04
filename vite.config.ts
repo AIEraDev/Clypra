@@ -100,6 +100,18 @@ export default defineConfig(async () => ({
           : []),
       ],
     },
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "credentialless",
+    },
+  },
+
+  preview: {
+    port: 1420,
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "credentialless",
+    },
   },
 
   // Vitest configuration
