@@ -1549,6 +1549,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
       JSON.stringify(oldTransform.conform) !==
         JSON.stringify(newTransform.conform);
 
+    const commitStartedAt = performance.now();
     if (hasChanged) {
       execute(
         new TransformClipCommand(
@@ -1560,6 +1561,7 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
     }
 
     transformController.endTransform();
+    const commitDurationMs = Math.max(0, performance.now() - commitStartedAt);
     const textTrace = textTransformTraceRef.current;
     if (textTrace) {
       traceTextInteraction({
@@ -1567,16 +1569,12 @@ export const TransformOverlay: React.FC<TransformOverlayProps> = ({
         rendererPath: "studio-preview",
         operation: textTrace.operation,
         property: textTrace.operation,
-        // durationMs is the gesture wall-clock time (mousedown → mouseup), not
-        // post-commit render latency. Canvas drag renders via CSS matrix preview;
-        // the raster only fires after the commit and is not captured here.
-        durationMs: Math.max(0, performance.now() - textTrace.startedAtMs),
+        // durationMs measures the commit execution latency, ensuring honest SLA evaluation
+        // rather than contaminating the 100ms interaction SLA with human gesture hold duration.
+        durationMs: commitDurationMs,
         interactionId: `text-${textTrace.operation}:${textTrace.clipId}:${textTrace.startedAtMs}`,
         layoutWidth: finalGeometry.width,
         layoutHeight: finalGeometry.height,
-        // No raster stage data available at commit time for canvas drag operations.
-        // The preview is a CSS matrix applied imperatively; observeInteractiveTextRender
-        // is never called during the gesture, so stageSamples is always empty here.
         stageCoverage: "unattributed",
       });
       textTransformTraceRef.current = null;
